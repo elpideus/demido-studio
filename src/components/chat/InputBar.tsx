@@ -345,7 +345,7 @@ export function InputBar() {
         </div>
       )}
 
-      <div ref={dropZoneRef} className="flex items-end gap-3 bg-secondary border border-border rounded-xl px-4 py-3 focus-within:border-ring/50 transition-colors">
+      <div ref={dropZoneRef} className="flex items-center gap-3 bg-secondary border border-border rounded-xl px-4 py-3 focus-within:border-ring/50 transition-colors">
         <input ref={fileInputRef} type="file" multiple accept=".txt,.md,.ts,.tsx,.js,.jsx,.py,.rs,.json,.yaml,.yml,.toml,.csv" className="hidden" onChange={handleFilePick} />
         <input ref={imageInputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleImagePick} />
         {reasoningOptions && <ReasoningSelector options={reasoningOptions} value={reasoningMode} onChange={handleReasoningChange} />}

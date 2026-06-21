@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Search, X } from 'lucide-react'
 import * as fileIconsJs from 'file-icons-js'
 import 'file-icons-js/css/style.css'
+import { clampToViewport } from '../../lib/utils'
 import { fs } from '../../lib/tauri'
 import { useArtifacts } from '../../stores/artifacts'
 import { useImageEditor } from '../../stores/imageEditor'
@@ -180,6 +181,7 @@ export function FileExplorer({ rootPath, conversationId }: { rootPath: string; c
   const { setActive } = useArtifacts()
   const { openWithImage } = useImageEditor()
   const { openWindow } = useWindowManager()
+  const ctxMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setNodes([]); setError(null)
@@ -191,6 +193,7 @@ export function FileExplorer({ rootPath, conversationId }: { rootPath: string; c
   // dismiss context menu on outside click
   useEffect(() => {
     if (!ctxMenu) return
+    requestAnimationFrame(() => ctxMenuRef.current && clampToViewport(ctxMenuRef.current))
     const dismiss = () => setCtxMenu(null)
     window.addEventListener('mousedown', dismiss)
     return () => window.removeEventListener('mousedown', dismiss)
@@ -335,6 +338,7 @@ export function FileExplorer({ rootPath, conversationId }: { rootPath: string; c
 
       {ctxMenu && (
         <div
+          ref={ctxMenuRef}
           className="fixed z-50 min-w-[140px] bg-popover border border-border rounded-md shadow-md py-1 text-[12px]"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onMouseDown={e => e.stopPropagation()}

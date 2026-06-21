@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { cn } from '../../lib/utils'
+import { cn, clampToViewport } from '../../lib/utils'
 import type { FileAttachment } from '../../types'
 import { parseArtifacts } from '../../lib/parseArtifacts'
 import { ArtifactCard } from './ArtifactCard'
@@ -44,6 +44,27 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState(content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
+  const ctxMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!ctxMenu) return
+    requestAnimationFrame(() => ctxMenuRef.current && clampToViewport(ctxMenuRef.current))
+    const handler = (e: MouseEvent) => {
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) {
+        setCtxMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [ctxMenu])
+
+  const handleCtxCopy = () => { navigator.clipboard.writeText(content); setCtxMenu(null) }
+  const handleCtxEdit = () => { setCtxMenu(null); handleEditStart() }
+  const handleCtxDelete = () => { setCtxMenu(null); onDelete?.(id) }
+  const handleCtxRegenerate = () => { setCtxMenu(null); onRegenerate?.(id) }
+  const handleCtxContinue = () => { setCtxMenu(null); onContinue?.(id) }
+  const handleCtxResend = () => { setCtxMenu(null); onResend?.(id) }
 
   // Parse artifacts from assistant messages (not while streaming)
   const segments = useMemo(() => {
@@ -76,11 +97,18 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
   }
 
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (streaming) return
+    setCtxMenu({ x: e.clientX, y: e.clientY })
+  }
+
   return (
     <div
       className={cn('flex flex-col', isUser ? 'items-end' : hasStrip ? 'w-full' : 'items-start')}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onContextMenu={handleContextMenu}
     >
       {!isUser && thinking && (
         <div
@@ -226,6 +254,52 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
               <ActionButton icon={<ArrowRight size={11} />} title="Continue" onClick={() => onContinue?.(id)} />
               <ActionButton icon={<Pencil size={11} />} title="Edit" onClick={handleEditStart} />
               <ActionButton icon={<Trash2 size={11} />} title="Delete" onClick={() => onDelete?.(id)} />
+            </>
+          )}
+        </div>
+      )}
+
+      {ctxMenu && (
+        <div
+          ref={ctxMenuRef}
+          className="fixed z-50 min-w-[140px] bg-popover border border-border rounded-md shadow-md py-1 text-[12px]"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {isUser ? (
+            <>
+              <button className="w-full text-left px-3 py-1.5 hover:bg-accent/60 text-foreground/80 flex items-center gap-2" onClick={handleCtxResend}>
+                <RefreshCw size={11} /> Re-send
+              </button>
+              <button className="w-full text-left px-3 py-1.5 hover:bg-accent/60 text-foreground/80 flex items-center gap-2" onClick={handleCtxEdit}>
+                <Pencil size={11} /> Edit
+              </button>
+              <button className="w-full text-left px-3 py-1.5 hover:bg-accent/60 text-foreground/80 flex items-center gap-2" onClick={handleCtxCopy}>
+                <Copy size={11} /> Copy
+              </button>
+              <div className="border-t border-border/40 my-1" />
+              <button className="w-full text-left px-3 py-1.5 hover:bg-red-500/20 text-red-400 flex items-center gap-2" onClick={handleCtxDelete}>
+                <Trash2 size={11} /> Delete
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="w-full text-left px-3 py-1.5 hover:bg-accent/60 text-foreground/80 flex items-center gap-2" onClick={handleCtxCopy}>
+                <Copy size={11} /> Copy
+              </button>
+              <button className="w-full text-left px-3 py-1.5 hover:bg-accent/60 text-foreground/80 flex items-center gap-2" onClick={handleCtxRegenerate}>
+                <RotateCcw size={11} /> Re-Generate
+              </button>
+              <button className="w-full text-left px-3 py-1.5 hover:bg-accent/60 text-foreground/80 flex items-center gap-2" onClick={handleCtxContinue}>
+                <ArrowRight size={11} /> Continue
+              </button>
+              <button className="w-full text-left px-3 py-1.5 hover:bg-accent/60 text-foreground/80 flex items-center gap-2" onClick={handleCtxEdit}>
+                <Pencil size={11} /> Edit
+              </button>
+              <div className="border-t border-border/40 my-1" />
+              <button className="w-full text-left px-3 py-1.5 hover:bg-red-500/20 text-red-400 flex items-center gap-2" onClick={handleCtxDelete}>
+                <Trash2 size={11} /> Delete
+              </button>
             </>
           )}
         </div>

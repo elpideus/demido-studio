@@ -5,7 +5,11 @@ import 'react-pdf/dist/Page/TextLayer.css'
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 import hljs from 'highlight.js'
-import { X, Copy, Download, Eye, Code, ChevronLeft, ChevronRight, Pencil, Check } from 'lucide-react'
+import { X, Copy, Download, Eye, Code, ChevronLeft, ChevronRight, Pencil, Check, List, GitFork } from 'lucide-react'
+import * as fileIconsJs from 'file-icons-js'
+import 'file-icons-js/css/style.css'
+import { JsonTreeViewer } from './JsonTreeViewer'
+import { JsonGraphViewer } from './JsonGraphViewer'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -23,6 +27,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
   const messages = useMessages(s => s.messages)
   const updateMessage = useMessages(s => s.updateMessage)
   const [preview, setPreview] = useState(true)
+  const [jsonMode, setJsonMode] = useState<'tree' | 'graph' | 'source'>('tree')
   const [editing, setEditing] = useState(false)
   const [editedContent, setEditedContent] = useState('')
   const [numPages, setNumPages] = useState(0)
@@ -54,7 +59,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
     [versions, activeArtifact]
   )
 
-  useEffect(() => { setPreview(true); setEditing(false); setEditedContent('') }, [activeArtifact?.id])
+  useEffect(() => { setPreview(true); setEditing(false); setEditedContent(''); setJsonMode('tree') }, [activeArtifact?.id])
 
   // Auto-switch to newest version when a new one arrives
   useEffect(() => {
@@ -71,6 +76,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
   const isHtml = type === 'html'
   const isMd = type === 'markdown' || type === 'md'
   const isPdf = type === 'pdf'
+  const isJson = type === 'json' || type === 'jsonc' || type === 'json5' || type.startsWith('json')
   const canPreview = isHtml || isMd
 
   const handleCopy = () => {
@@ -115,6 +121,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
     <div className="flex flex-col bg-background overflow-hidden" style={{ flex: `0 0 ${width}px`, minWidth: 0 }}>
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
+        {(() => { const cls = fileIconsJs.getClassWithColor(`artifact${getExtension(type)}`); return cls ? <span className={cls} style={{ fontSize: 13, lineHeight: 1, display: 'inline-block', width: 13 }} /> : null })()}
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
           {type}
         </span>
@@ -163,6 +170,37 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
           >
             {editing ? <Check size={13} /> : <Pencil size={13} />}
           </Button>}
+          {isJson && !editing && (
+            <div className="flex items-center gap-0.5 border border-border rounded px-0.5">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title="Tree view"
+                onClick={() => setJsonMode('tree')}
+                className={cn('text-muted-foreground', jsonMode === 'tree' && 'text-foreground bg-secondary')}
+              >
+                <List size={13} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title="Graph view"
+                onClick={() => setJsonMode('graph')}
+                className={cn('text-muted-foreground', jsonMode === 'graph' && 'text-foreground bg-secondary')}
+              >
+                <GitFork size={13} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title="Source"
+                onClick={() => setJsonMode('source')}
+                className={cn('text-muted-foreground', jsonMode === 'source' && 'text-foreground bg-secondary')}
+              >
+                <Code size={13} />
+              </Button>
+            </div>
+          )}
           {canPreview && !editing && (
             <Button
               variant="ghost"
@@ -177,9 +215,9 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
           <Button variant="ghost" size="icon-xs" title="Copy" onClick={handleCopy} className="text-muted-foreground">
             <Copy size={13} />
           </Button>
-          <Button variant="ghost" size="icon-xs" title="Download" onClick={handleDownload} className="text-muted-foreground">
+          {versions.length > 0 && <Button variant="ghost" size="icon-xs" title="Download" onClick={handleDownload} className="text-muted-foreground">
             <Download size={13} />
-          </Button>
+          </Button>}
           <Button variant="ghost" size="icon-xs" title="Close" onClick={() => setActive(null)} className="text-muted-foreground">
             <X size={13} />
           </Button>
@@ -232,6 +270,10 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
           <div className="p-4 text-sm font-mono">
             <pre className="whitespace-pre-wrap break-words text-foreground/80">{content}</pre>
           </div>
+        ) : isJson && !editing && jsonMode === 'tree' ? (
+          <JsonTreeViewer content={content} />
+        ) : isJson && !editing && jsonMode === 'graph' ? (
+          <JsonGraphViewer content={content} />
         ) : (
           <div className="p-4 text-sm">
             <div className="prose prose-invert prose-sm max-w-none [&_pre]:!m-0 [&_pre]:!rounded-md [&_pre]:!bg-secondary/50">

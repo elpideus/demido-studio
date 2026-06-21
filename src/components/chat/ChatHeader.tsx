@@ -50,11 +50,11 @@ export function ChatHeader() {
         {/* Agent mode dropdown — pure CSS hover */}
         <div className="relative group">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             aria-haspopup="listbox"
             aria-label="Agent mode"
-            className="gap-1.5"
+            className="gap-1.5 bg-[#1b1b1b]"
           >
             <span>{currentMode.icon}</span>
             <span>{currentMode.label}</span>
@@ -86,9 +86,9 @@ export function ChatHeader() {
           <Button
             onClick={handlePickFolder}
             title={workingDir ?? 'Pick working directory'}
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="gap-1.5 max-w-[180px] text-muted-foreground"
+            className="gap-1.5 max-w-[180px] text-muted-foreground bg-[#1b1b1b]"
           >
             <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor">
               <path d="M1.5 3A1.5 1.5 0 000 4.5v8A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H7.621a1.5 1.5 0 01-1.06-.44L5.5 3H1.5z" />
@@ -109,9 +109,9 @@ export function ChatHeader() {
             }
           }}
           title="Export conversation as JSON"
-          variant="outline"
+          variant="ghost"
           size="icon-sm"
-          className="text-muted-foreground"
+          className="text-muted-foreground bg-[#1b1b1b]"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M8 2v9M4 7l4 4 4-4M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12" />

@@ -6,7 +6,7 @@ const LANG_EXT: Record<string, string> = {
   html: '.html', css: '.css', javascript: '.js', js: '.js',
   typescript: '.ts', ts: '.ts', tsx: '.tsx', jsx: '.jsx',
   python: '.py', py: '.py', rust: '.rs', go: '.go',
-  java: '.java', sql: '.sql', json: '.json', markdown: '.md',
+  java: '.java', sql: '.sql', json: '.json', jsonc: '.jsonc', json5: '.json5', markdown: '.md',
   md: '.md', yaml: '.yaml', yml: '.yml', shell: '.sh',
   bash: '.sh', sh: '.sh', c: '.c', cpp: '.cpp',
 }
