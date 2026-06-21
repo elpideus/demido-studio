@@ -82,8 +82,6 @@ function NavMiniMap({ strokeWidth }: { strokeWidth: number }) {
       style={{ background: '#0d0d14', border: '1px solid #374151' }}
       zoomable
       pannable
-      width={200}
-      height={MINIMAP_H}
       onClick={(_, pos) => setCenter(pos.x, pos.y, { duration: 200 })}
     />
   )
