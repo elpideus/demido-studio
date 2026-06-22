@@ -1,0 +1,215 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_HTTP_MULTIPLEXING: "false"
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create draft release
+        id: create
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if echo "${{ github.ref_name }}" | grep -q '-'; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          URL=$(gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "Demido Studio ${{ github.ref_name }}" \
+            --draft \
+            $PRERELEASE_FLAG \
+            --notes "")
+          RELEASE_ID=$(gh release view "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --json id --jq '.id')
+          echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+
+  build:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+            arch_label: x64
+
+          - platform: windows-latest
+            target: aarch64-pc-windows-msvc
+            rust_targets: aarch64-pc-windows-msvc
+            bundles: nsis,msi
+            arch_label: arm64
+
+          # macOS
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            rust_targets: aarch64-apple-darwin
+            bundles: dmg
+            arch_label: aarch64
+
+          - platform: macos-latest
+            target: universal-apple-darwin
+            rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
+            bundles: dmg
+            arch_label: universal
+
+          # Linux
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
+            bundles: appimage,deb,rpm
+            arch_label: x86_64
+
+          - platform: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            rust_targets: aarch64-unknown-linux-gnu
+            bundles: deb,rpm
+            arch_label: aarch64
+
+          - platform: ubuntu-22.04
+            target: armv7-unknown-linux-gnueabihf
+            rust_targets: armv7-unknown-linux-gnueabihf
+            bundles: deb
+            arch_label: armv7
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Linux deps (x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Linux deps (aarch64 cross)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo dpkg --add-architecture arm64
+          printf '%s\n' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse' \
+            'deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse' \
+            | sudo tee /etc/apt/sources.list > /dev/null
+          sudo rm -f /etc/apt/sources.list.d/*.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            libwebkit2gtk-4.1-dev:arm64 \
+            libssl-dev:arm64 \
+            libappindicator3-dev:arm64 \
+            librsvg2-dev:arm64 \
+            patchelf
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Linux deps (armv7 cross)
+        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
+        run: |
+          sudo dpkg --add-architecture armhf
+          printf '%s\n' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse' \
+            'deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse' \
+            | sudo tee /etc/apt/sources.list > /dev/null
+          sudo rm -f /etc/apt/sources.list.d/*.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \
+            libwebkit2gtk-4.1-dev:armhf \
+            libssl-dev:armhf \
+            libappindicator3-dev:armhf \
+            librsvg2-dev:armhf \
+            patchelf
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Upload artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          TARGET="${{ matrix.target }}"
+          LABEL="${{ matrix.arch_label }}"
+          BUNDLE_DIR="src-tauri/target/${TARGET}/release/bundle"
+
+          upload() { gh release upload "$TAG" "$1" --clobber --repo "${{ github.repository }}"; }
+
+          # Windows portable exe
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            EXE="src-tauri/target/${TARGET}/release/demido-studio.exe"
+            DEST="Demido.Studio_${TAG}_windows_${LABEL}_portable.exe"
+            cp "$EXE" "$DEST"
+            upload "$DEST"
+          fi
+
+          # All bundles by glob — nullglob skips unmatched patterns
+          shopt -s nullglob
+          for f in \
+            "${BUNDLE_DIR}/nsis/"*.exe \
+            "${BUNDLE_DIR}/msi/"*.msi \
+            "${BUNDLE_DIR}/dmg/"*.dmg \
+            "${BUNDLE_DIR}/appimage/"*.AppImage \
+            "${BUNDLE_DIR}/deb/"*.deb \
+            "${BUNDLE_DIR}/rpm/"*.rpm; do
+            upload "$f"
+          done
+          shopt -u nullglob
