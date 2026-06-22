@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/logo.svg" alt="Demido Studio" width="120" />
+</p>
+
 # Demido Studio
 
 > Open-source desktop AI chat for everyone — local models, cloud APIs, and tool use in one place.
