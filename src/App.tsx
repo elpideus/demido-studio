@@ -12,6 +12,7 @@ import { useWindowManager } from './stores/windowManager'
 import { useArtifacts } from './stores/artifacts'
 import { ArtifactPanel } from './components/artifacts/ArtifactPanel'
 import { invoke } from '@tauri-apps/api/core'
+import { WindowControls } from './components/WindowControls'
 
 function EarlyAccessDisclaimer({ onAccept }: { onAccept: () => void }) {
   return (
@@ -145,7 +146,8 @@ export default function App() {
         setDisclaimerAccepted(true)
       }} />
     )}
-    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden min-w-0">
       {/* Left spacer: pushes chat right when a panel is snapped left */}
       {leftFraction > 0 && (
         <div style={{ flex: `0 0 ${leftPx}`, minWidth: 0 }} />
@@ -176,6 +178,8 @@ export default function App() {
 
       {/* Window system overlay — floats above everything */}
       <WindowManager />
+      <WindowControls />
+      </div>
     </div>
     </>
   )

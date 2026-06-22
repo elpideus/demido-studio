@@ -142,19 +142,19 @@ function EmptyState() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
       <ConstellationCanvas zoneRef={zoneRef} />
-      <div className="flex-1 flex flex-col items-center justify-center px-4 pb-4 relative z-10">
-        <div ref={zoneRef} className="flex flex-col items-center w-full max-w-xl">
-          <h1 className="text-2xl font-semibold text-foreground mb-3 select-none">
-            What do you want to do?
-          </h1>
-          <div className="mb-5">
-            <ModelSelector />
-          </div>
-          <div className="w-full max-w-xl">
-            <InputBar />
-          </div>
+      <div data-tauri-drag-region className="flex-1 relative z-10" />
+      <div ref={zoneRef} className="flex flex-col items-center w-full max-w-xl self-center px-4 pb-4 relative z-10">
+        <h1 className="text-2xl font-semibold text-foreground mb-3 select-none">
+          What do you want to do?
+        </h1>
+        <div className="mb-5">
+          <ModelSelector />
+        </div>
+        <div className="w-full max-w-xl">
+          <InputBar />
         </div>
       </div>
+      <div data-tauri-drag-region className="flex-1 relative z-10" />
     </div>
   )
 }

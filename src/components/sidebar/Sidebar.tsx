@@ -105,7 +105,10 @@ export function Sidebar({ onOpenSettings, onOpenTools }: Props) {
   return (
     <div className="flex flex-col border-r border-border bg-card shrink-0 relative" style={{ width }}>
       <div className="p-4 flex items-center justify-between border-b border-border">
-        <span className="text-sm font-semibold text-foreground">Demido</span>
+        <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => setActive(null)}>
+          <img src="/logo.svg" alt="Demido Studio" className="h-8 select-none pointer-events-none" />
+          <span className="text-sm font-semibold text-foreground">Demido</span>
+        </div>
         <Button
           onClick={() => create(selectedProviderId, selectedModelId)}
           variant="ghost"

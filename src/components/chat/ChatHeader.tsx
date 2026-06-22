@@ -43,10 +43,10 @@ export function ChatHeader() {
   }
 
   return (
-    <div className="flex items-center h-12 px-4 border-b border-border shrink-0 gap-2">
+    <div data-tauri-drag-region className="flex items-center h-12 px-4 border-b border-border shrink-0 gap-2">
       <ModelSelector />
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-2 mr-24">
         {/* Agent mode dropdown — pure CSS hover */}
         <div className="relative group">
           <Button
