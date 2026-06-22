@@ -1,4 +1,5 @@
 import { useEffect, useRef, useMemo, useCallback } from 'react'
+import { FileCode, Loader2 } from 'lucide-react'
 import { useMessages } from '../../stores/messages'
 import type { StreamBlock } from '../../stores/messages'
 import { useConversations } from '../../stores/conversations'
@@ -9,15 +10,32 @@ import { chat } from '../../lib/tauri'
 import { TOOL_CALLS_CONTENT_PREFIX, toolKey } from '../../lib/constants'
 import { MessageBubble } from './MessageBubble'
 import { TimelineStrip } from './TimelineStrip'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { MarkdownRenderer } from './MarkdownRenderer'
 import { cn } from '../../lib/utils'
 import { useAttachmentCache } from '../../stores/attachmentCache'
-import { ARTIFACT_INSTRUCTIONS, parseArtifacts } from '../../lib/parseArtifacts'
+import { ARTIFACT_INSTRUCTIONS, parseArtifacts, parseStreamingSegments } from '../../lib/parseArtifacts'
+import type { StreamingArtifactHint } from '../../lib/parseArtifacts'
 import { useArtifacts } from '../../stores/artifacts'
 
+function StreamingArtifactCard({ hint }: { hint: StreamingArtifactHint }) {
+  return (
+    <div className="not-prose flex items-center gap-2 mt-2 px-3 py-2 rounded-lg border bg-secondary border-border text-foreground w-full max-w-xs cursor-not-allowed select-none opacity-80">
+      {hint.complete
+        ? <FileCode size={14} className="shrink-0 text-muted-foreground" />
+        : <Loader2 size={14} className="shrink-0 text-primary animate-spin" />
+      }
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium truncate">{hint.title}</p>
+        <p className="text-[10px] text-muted-foreground">{hint.complete ? hint.type : 'Generating…'}</p>
+      </div>
+    </div>
+  )
+}
+
 function StreamingBlocks({ blocks, streamBuffer, modelLabel, resolvedPermissions, pendingPermission }: { blocks: StreamBlock[]; streamBuffer: string; modelLabel?: string; resolvedPermissions: import('../../stores/messages').ResolvedPermission[]; pendingPermission: import('../../stores/messages').PermissionRequest | null }) {
+  const streamSegs = useMemo(() => parseStreamingSegments(streamBuffer), [streamBuffer])
+  const lastSegIsArtifact = streamSegs.length > 0 && !!streamSegs[streamSegs.length - 1].artifactHint
+
   return (
     <div className="flex flex-col max-w-[75%] w-full">
       <TimelineStrip blocks={blocks} resolvedPermissions={resolvedPermissions} pendingPermission={pendingPermission} />
@@ -28,10 +46,14 @@ function StreamingBlocks({ blocks, streamBuffer, modelLabel, resolvedPermissions
         )}>
           {modelLabel && <p className="text-[10px] text-muted-foreground/60 mb-1.5">{modelLabel}</p>}
           <div className="prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {streamBuffer}
-            </ReactMarkdown>
-            <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5 align-middle" />
+            {streamSegs.map((seg, i) =>
+              seg.artifactHint
+                ? <StreamingArtifactCard key={i} hint={seg.artifactHint} />
+                : seg.text
+                  ? <MarkdownRenderer key={i}>{seg.text}</MarkdownRenderer>
+                  : null
+            )}
+            {!lastSegIsArtifact && <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5 align-middle" />}
           </div>
         </div>
       ) : (
@@ -59,6 +81,7 @@ export function MessageList() {
   const storeForConversation = useAttachmentCache(s => s.storeForConversation)
   const closeArtifact = useArtifacts(s => s.setActive)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const prevStreamingRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
 
@@ -81,6 +104,19 @@ export function MessageList() {
   }, [messages.length, activeId])
 
   useEffect(() => { closeArtifact(null) }, [activeId])
+
+  // Auto-open artifact panel when streaming ends and last message has artifacts
+  useEffect(() => {
+    if (prevStreamingRef.current && !streaming) {
+      const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
+      if (lastAssistant) {
+        const segs = parseArtifacts(lastAssistant.content, lastAssistant.id)
+        const artifacts = segs.filter(s => s.artifact).map(s => s.artifact!)
+        if (artifacts.length > 0) closeArtifact(artifacts[artifacts.length - 1])
+      }
+    }
+    prevStreamingRef.current = streaming
+  }, [streaming])
 
   useEffect(() => {
     if (!userScrolledUp.current) {

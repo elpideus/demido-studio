@@ -123,8 +123,9 @@ export function Sidebar({ onOpenSettings, onOpenTools }: Props) {
         {/* Conversation list */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           {conversations.length === 0 ? (
-            <div className="h-full flex items-center justify-center p-4">
-              <p className="text-xs text-muted-foreground text-center">No conversations yet.<br />Start one above.</p>
+            <div className="h-full flex flex-col items-center justify-center p-4 gap-2">
+              <img src="/violet.png" alt="" className="w-44 select-none pointer-events-none" style={{filter: 'saturate(0%)', opacity: 0.05, maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)'}}/>
+              <p className="text-xs text-muted-foreground text-center opacity-30">No chats yet.</p>
             </div>
           ) : (
             <div className="p-2 space-y-0.5">

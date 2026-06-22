@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Eye, Wrench, Brain, RefreshCw } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { useProviders } from '../../stores/providers'
 
 export function ModelSelector() {
   const {
-    providers, models, modelOverrides,
+    providers, models, modelOverrides, modelCapabilities,
     selectedProviderId, selectedModelId,
-    setSelected, fetchModels, loadModelOverrides,
+    saveDefaultModel, fetchModels, loadModelOverrides,
   } = useProviders()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [reloading, setReloading] = useState(false)
+  const [maxDropHeight, setMaxDropHeight] = useState('60vh')
   const containerRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -61,7 +63,7 @@ export function ModelSelector() {
     : 'Select model'
 
   const handleSelect = (providerId: string, modelId: string) => {
-    setSelected(providerId, modelId)
+    saveDefaultModel(providerId, modelId)
     setOpen(false)
     setQuery('')
   }
@@ -116,7 +118,14 @@ export function ModelSelector() {
   return (
     <div className="relative" ref={containerRef} onKeyDown={handleKeyDown} tabIndex={-1}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => {
+          if (!open && containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect()
+            const available = window.innerHeight - rect.bottom - 96
+            setMaxDropHeight(`${Math.max(120, available)}px`)
+          }
+          setOpen(o => !o)
+        }}
         className="flex items-center gap-1.5 px-2 py-1 rounded-md text-sm text-foreground hover:bg-accent transition-colors"
       >
         <span className="max-w-[200px] truncate">{selectedDisplayName}</span>
@@ -124,17 +133,28 @@ export function ModelSelector() {
       </button>
 
       {open && (
-        <div className="absolute top-full mt-1 left-0 w-72 bg-secondary border border-border rounded-lg shadow-xl z-20 flex flex-col max-h-[60vh]">
+        <div className="absolute top-full mt-1 left-0 w-72 bg-secondary border border-border rounded-lg shadow-xl z-20 flex flex-col" style={{ maxHeight: maxDropHeight }}>
           {/* Search input */}
-          <div className="p-2 border-b border-border shrink-0">
+          <div className="p-2 border-b border-border shrink-0 flex items-center gap-1.5">
             <input
               ref={searchRef}
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search models..."
-              className="w-full bg-background border border-border rounded-md px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring/50"
+              className="flex-1 bg-background border border-border rounded-md px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring/50"
             />
+            <button
+              onClick={async () => {
+                setReloading(true)
+                await Promise.all(enabledProviders.map(p => fetchModels(p.id)))
+                setReloading(false)
+              }}
+              title="Reload models"
+              className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <RefreshCw size={13} className={reloading ? 'animate-spin' : ''} />
+            </button>
           </div>
 
           {/* Provider sections */}
@@ -144,15 +164,27 @@ export function ModelSelector() {
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card sticky top-0 z-10">
                   {provider.name}
                 </div>
-                {matchingModels.map(modelId => (
-                  <button
-                    key={modelId}
-                    onClick={() => handleSelect(provider.id, modelId)}
-                    className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-accent transition-colors truncate"
-                  >
-                    {getDisplayName(provider.id, modelId)}
-                  </button>
-                ))}
+                {matchingModels.map(modelId => {
+                  const caps = modelCapabilities[provider.id]?.[modelId]
+                  const isAnthropic = provider.type === 'anthropic'
+                  const vision = caps?.vision ?? (isAnthropic ? true : undefined)
+                  const tools = caps?.tools ?? (isAnthropic ? true : undefined)
+                  const reasoning = caps?.reasoning ?? (isAnthropic ? true : undefined)
+                  return (
+                    <button
+                      key={modelId}
+                      onClick={() => handleSelect(provider.id, modelId)}
+                      className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
+                    >
+                      <span className="flex-1 truncate">{getDisplayName(provider.id, modelId)}</span>
+                      <span className="flex items-center gap-1 shrink-0">
+                        {vision && <Eye size={11} className="text-muted-foreground/50" aria-label="Supports vision" />}
+                        {tools && <Wrench size={11} className="text-muted-foreground/50" aria-label="Supports tool calling" />}
+                        {reasoning && <Brain size={11} className="text-muted-foreground/50" aria-label="Supports reasoning/thinking" />}
+                      </span>
+                    </button>
+                  )
+                })}
                 {!models[provider.id] && (
                   <p className="px-3 py-2 text-xs text-muted-foreground">Loading...</p>
                 )}

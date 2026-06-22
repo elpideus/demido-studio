@@ -135,3 +135,7 @@ html, body, #root {
 
 /* Override hljs background to match app theme */
 .hljs { background: var(--secondary) !important; }
+
+/* Remove backtick pseudo-elements added by @tailwindcss/typography */
+.prose code::before,
+.prose code::after { content: none; }

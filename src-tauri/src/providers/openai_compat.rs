@@ -66,6 +66,17 @@ async fn fetch_models_json(
     Ok(resp.json().await?)
 }
 
+fn is_non_llm(model_type: &str, id_lower: &str) -> bool {
+    matches!(model_type, "embeddings" | "embedding" | "reranker")
+        || id_lower.contains("whisper")
+        || id_lower.contains("orpheus")
+        || id_lower.contains("tts")
+        || id_lower.contains("embed")
+        || id_lower.contains("guard")
+        || id_lower.contains("rerank")
+        || id_lower.contains("moderation")
+}
+
 pub async fn list_models(
     client: &reqwest::Client,
     base_url: &str,
@@ -77,12 +88,12 @@ pub async fn list_models(
         .map(|arr| {
             arr.iter()
                 .filter_map(|m| {
-                    // Skip embedding/reranker models from the selectable model list
+                    let id = m["id"].as_str()?;
                     let t = m["type"].as_str().unwrap_or("");
-                    if t == "embeddings" || t == "reranker" {
+                    if is_non_llm(t, &id.to_lowercase()) {
                         return None;
                     }
-                    m["id"].as_str().map(|s| s.to_string())
+                    Some(id.to_string())
                 })
                 .collect()
         })
@@ -140,11 +151,7 @@ pub async fn list_model_capabilities(
                                 let id = m["key"].as_str()?.to_string();
                                 let c = &m["capabilities"];
                                 let mtype = m["type"].as_str().unwrap_or("");
-                                // v0 uses "embeddings", v1 uses "embedding" — exclude both
-                                if mtype == "embedding"
-                                    || mtype == "embeddings"
-                                    || mtype == "reranker"
-                                {
+                                if is_non_llm(mtype, &id.to_lowercase()) {
                                     return None;
                                 }
                                 let vision = c["vision"].as_bool().unwrap_or(false);
@@ -172,6 +179,8 @@ pub async fn list_model_capabilities(
     }
 
     // 2 & 3. Fall back to /api/v0/models (LM Studio) or standard /v1/models
+    // ponytail: groq says "all hosted models support tool use" — no capability fields in /v1/models response
+    let is_groq = base_url.contains("api.groq.com");
     let json = fetch_models_json(client, base_url, api_key).await?;
     let caps = json["data"]
         .as_array()
@@ -180,36 +189,57 @@ pub async fn list_model_capabilities(
                 .filter_map(|m| {
                     let id = m["id"].as_str()?.to_string();
                     let model_type = m["type"].as_str().unwrap_or("");
-
-                    if model_type == "embeddings" || model_type == "reranker" {
+                    let id_l = id.to_lowercase();
+                    if is_non_llm(model_type, &id_l) {
                         return None;
                     }
 
                     let c = &m["capabilities"];
                     let modality = m["architecture"]["modality"].as_str().unwrap_or("");
 
+                    // Groq vision models: llama-4-scout, qwen3.6 (multimodal), plus generic patterns
                     let vision = model_type == "vlm"
                         || modality.contains("image")
                         || cap_array_has(c, "vision")
                         || c["vision"].as_bool().unwrap_or(false)
-                        || c["completion_chat_multimodal"].as_bool().unwrap_or(false);
+                        || c["completion_chat_multimodal"].as_bool().unwrap_or(false)
+                        || id_l.contains("vision")
+                        || id_l.contains("-vl")
+                        || id_l.ends_with("vl")
+                        || (is_groq
+                            && (id_l.contains("scout")
+                                || id_l.contains("llama-4")
+                                || id_l.contains("qwen3.6")));
 
+                    // Groq: all LLMs support tools (non-LLMs already filtered by is_non_llm above)
+                    let no_cap_info =
+                        c.is_null() || c.as_object().map(|o| o.is_empty()).unwrap_or(false);
+                    let tools_from_id = id_l.contains("tool")
+                        || id_l.contains("function")
+                        || id_l.starts_with("llama")
+                        || id_l.starts_with("mixtral")
+                        || id_l.starts_with("gemma")
+                        || id_l.starts_with("qwen")
+                        || id_l.starts_with("deepseek")
+                        || id_l.starts_with("mistral");
                     let tools = cap_array_has(c, "tool_use")
                         || cap_array_has(c, "tools")
                         || cap_array_has(c, "function_calling")
                         || c["tool_use"].as_bool().unwrap_or(false)
                         || c["tools"].as_bool().unwrap_or(false)
-                        || c["function_calling"].as_bool().unwrap_or(false);
-
-                    // For fallback path: infer reasoning from model id (no API field available)
-                    let id_l = id.to_lowercase();
+                        || c["function_calling"].as_bool().unwrap_or(false)
+                        || is_groq
+                        || (no_cap_info && tools_from_id);
                     let reasoning = id_l.starts_with("o1")
                         || id_l.starts_with("o3")
                         || id_l.starts_with("o4")
                         || id_l.contains("-r1")
                         || id_l.starts_with("r1")
                         || id_l.contains("thinking")
-                        || id_l.contains("-reason");
+                        || id_l.contains("-reason")
+                        || id_l.contains("qwq")
+                        || id_l.contains("qwen3")
+                        || id_l.contains("gpt-oss");
 
                     Some((
                         id,

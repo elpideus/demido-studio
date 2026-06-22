@@ -86,6 +86,7 @@ export function InputBar() {
   valueRef.current = value
 
   const activeId = useConversations(s => s.activeId)
+  const createConversation = useConversations(s => s.create)
   const workingDir = useConversations(s => {
     const conv = s.conversations.find(c => c.id === s.activeId)
     return (conv?.agent_mode !== 'off' ? conv?.working_directory : null) ?? null
@@ -130,6 +131,16 @@ export function InputBar() {
   }, [selectedProviderId, selectedModelId])
 
   useEffect(() => () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current) }, [])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail
+      setValue(text)
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    }
+    window.addEventListener('demido:prefill', handler)
+    return () => window.removeEventListener('demido:prefill', handler)
+  }, [])
 
   useEffect(() => {
     if (!attachMenuOpen) return
@@ -227,14 +238,20 @@ export function InputBar() {
 
   const handleSend = async () => {
     const content = value.trim()
-    if (!content || !activeId || streaming) return
+    if (!content || streaming) return
+    let convId = activeId
+    if (!convId) {
+      if (!selectedProviderId || !selectedModelId) return
+      const conv = await createConversation(selectedProviderId, selectedModelId)
+      convId = conv.id
+    }
     setValue('')
     setMention(null)
     const currentAttachments = attachments
     setAttachments([])
     if (currentAttachments.length > 0) {
       storeAttachments(content, currentAttachments)
-      if (activeId) storeForConversation(activeId, currentAttachments)
+      storeForConversation(convId, currentAttachments)
     }
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     const enabled = enabledTools()
@@ -243,9 +260,9 @@ export function InputBar() {
     const effort = reasoningOptions ? reasoningMode : undefined
     prependSkillBlocks(skills.filter(s => s.enabled).map(s => s.name))
     try {
-      const historicalAtts = currentAttachments.length === 0 && activeId ? lookupConversation(activeId) : undefined
+      const historicalAtts = currentAttachments.length === 0 ? lookupConversation(convId) : undefined
       await chat.sendMessage(
-        activeId, content, disabledTools, effort,
+        convId, content, disabledTools, effort,
         selectedProviderId || undefined, selectedModelId || undefined,
         currentAttachments.length > 0 ? currentAttachments : undefined,
         (() => { const sc = enabledSkillsContext(); return sc ? `${ARTIFACT_INSTRUCTIONS}\n\n${sc}` : ARTIFACT_INSTRUCTIONS })(),
@@ -345,7 +362,7 @@ export function InputBar() {
         </div>
       )}
 
-      <div ref={dropZoneRef} className="flex items-center gap-3 bg-secondary border border-border rounded-xl px-4 py-3 focus-within:border-ring/50 transition-colors">
+      <div ref={dropZoneRef} className="flex items-end gap-3 bg-secondary border border-border rounded-xl px-4 py-3 focus-within:border-ring/50 transition-colors">
         <input ref={fileInputRef} type="file" multiple accept=".txt,.md,.ts,.tsx,.js,.jsx,.py,.rs,.json,.yaml,.yml,.toml,.csv" className="hidden" onChange={handleFilePick} />
         <input ref={imageInputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleImagePick} />
         {reasoningOptions && <ReasoningSelector options={reasoningOptions} value={reasoningMode} onChange={handleReasoningChange} />}

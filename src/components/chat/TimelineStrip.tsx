@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { MessageSquare, Wrench, ChevronRight, Zap } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { MarkdownRenderer } from './MarkdownRenderer'
 import { cn } from '../../lib/utils'
 import type { StreamBlock, ThinkingBlock, ToolBlock, SkillBlock, ResolvedPermission, PermissionRequest } from '../../stores/messages'
 import { ResolvedBadge, PendingBubble } from './PermissionBubble'
@@ -63,9 +61,7 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
           } as React.CSSProperties}
         >
           <div className="prose prose-invert max-w-none" style={{ fontSize: '11px' }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {block.content}
-            </ReactMarkdown>
+            <MarkdownRenderer>{block.content}</MarkdownRenderer>
           </div>
         </div>
       )}

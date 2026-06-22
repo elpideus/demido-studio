@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { listen } from '@tauri-apps/api/event'
 import { db } from '../lib/tauri'
 import type { Conversation } from '../types'
+import { useArtifacts } from './artifacts'
 
 interface ConversationsStore {
   conversations: Conversation[]
@@ -33,10 +34,13 @@ export const useConversations = create<ConversationsStore>((set) => ({
 
   remove: async (id) => {
     await db.deleteConversation(id)
-    set(s => ({
-      conversations: s.conversations.filter(c => c.id !== id),
-      activeId: s.activeId === id ? null : s.activeId,
-    }))
+    set(s => {
+      if (s.activeId === id) useArtifacts.getState().setActive(null)
+      return {
+        conversations: s.conversations.filter(c => c.id !== id),
+        activeId: s.activeId === id ? null : s.activeId,
+      }
+    })
   },
 
   setActive: (id) => set({ activeId: id }),

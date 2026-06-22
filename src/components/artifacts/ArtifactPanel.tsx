@@ -10,9 +10,8 @@ import * as fileIconsJs from 'file-icons-js'
 import 'file-icons-js/css/style.css'
 import { JsonTreeViewer } from './JsonTreeViewer'
 import { JsonGraphViewer } from './JsonGraphViewer'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { MarkdownRenderer } from '../chat/MarkdownRenderer'
+import { MermaidBlock } from '../chat/MermaidBlock'
 import { Button } from '@/components/ui/button'
 import { fs } from '../../lib/tauri'
 import { useArtifacts } from '../../stores/artifacts'
@@ -77,7 +76,9 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
   const isMd = type === 'markdown' || type === 'md'
   const isPdf = type === 'pdf'
   const isJson = type === 'json' || type === 'jsonc' || type === 'json5' || type.startsWith('json')
-  const canPreview = isHtml || isMd
+  const isMermaid = type === 'mermaid'
+  const isLatex = type === 'latex' || type === 'tex'
+  const canPreview = isHtml || isMd || isMermaid || isLatex
 
   const handleCopy = () => {
     if (isPdf) {
@@ -260,11 +261,17 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
             />
             {isDragging && <div className="absolute inset-0" />}
           </div>
+        ) : isMermaid && preview ? (
+          <div className="p-4 flex justify-center">
+            <MermaidBlock code={content} />
+          </div>
+        ) : isLatex && preview ? (
+          <div className="p-4 prose prose-invert prose-sm max-w-none">
+            <MarkdownRenderer>{`$$\n${content}\n$$`}</MarkdownRenderer>
+          </div>
         ) : isMd && preview ? (
           <div className="p-4 prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {content}
-            </ReactMarkdown>
+            <MarkdownRenderer>{content}</MarkdownRenderer>
           </div>
         ) : isMd ? (
           <div className="p-4 text-sm font-mono">
@@ -277,9 +284,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
         ) : (
           <div className="p-4 text-sm">
             <div className="prose prose-invert prose-sm max-w-none [&_pre]:!m-0 [&_pre]:!rounded-md [&_pre]:!bg-secondary/50">
-              <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
-                {`\`\`\`${type}\n${content}\n\`\`\``}
-              </ReactMarkdown>
+              <MarkdownRenderer>{`\`\`\`${type}\n${content}\n\`\`\``}</MarkdownRenderer>
             </div>
           </div>
         )}

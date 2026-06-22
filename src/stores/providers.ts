@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { db } from '../lib/tauri'
 import type { Provider, ModelOverride } from '../types'
+import { useSettings } from './settings'
 
 interface ProviderTemplate {
   key: string
@@ -19,6 +20,7 @@ interface ProvidersStore {
   selectedModelId: string
   load: () => Promise<void>
   setSelected: (providerId: string, modelId: string) => void
+  saveDefaultModel: (providerId: string, modelId: string) => void
   fetchModels: (providerId: string) => Promise<void>
   upsert: (provider: Provider) => Promise<void>
   addProvider: (template: ProviderTemplate) => Promise<void>
@@ -37,12 +39,13 @@ export const useProviders = create<ProvidersStore>((set, get) => ({
   selectedModelId: '',
 
   load: async () => {
-    const providers = await db.listProviders()
+    const [providers, settings] = await Promise.all([db.listProviders(), db.getSettings()])
     const enabled = providers.filter(p => p.enabled)
+    const savedProvider = settings.default_provider_id && enabled.find(p => p.id === settings.default_provider_id)
     set({
       providers,
-      selectedProviderId: enabled[0]?.id ?? '',
-      selectedModelId: '',
+      selectedProviderId: savedProvider ? settings.default_provider_id : (enabled[0]?.id ?? ''),
+      selectedModelId: savedProvider ? (settings.default_model_id ?? '') : '',
     })
     await Promise.all(enabled.map(p => Promise.all([
       get().fetchModels(p.id),
@@ -52,6 +55,12 @@ export const useProviders = create<ProvidersStore>((set, get) => ({
 
   setSelected: (providerId, modelId) =>
     set({ selectedProviderId: providerId, selectedModelId: modelId }),
+
+  saveDefaultModel: (providerId, modelId) => {
+    set({ selectedProviderId: providerId, selectedModelId: modelId })
+    useSettings.getState().update('default_provider_id', providerId)
+    useSettings.getState().update('default_model_id', modelId)
+  },
 
   fetchModels: async (providerId) => {
     try {

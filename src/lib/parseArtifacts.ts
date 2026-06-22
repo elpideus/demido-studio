@@ -9,6 +9,7 @@ const LANG_EXT: Record<string, string> = {
   java: '.java', sql: '.sql', json: '.json', jsonc: '.jsonc', json5: '.json5', markdown: '.md',
   md: '.md', yaml: '.yaml', yml: '.yml', shell: '.sh',
   bash: '.sh', sh: '.sh', c: '.c', cpp: '.cpp',
+  mermaid: '.mmd', latex: '.tex', tex: '.tex',
 }
 
 export function getExtension(type: string): string {
@@ -74,7 +75,8 @@ function extractCodeBlockArtifacts(text: string, messageId: string, parentSeg: P
     const body = match[2]
     const lineCount = body.split('\n').length
 
-    if (lang && lineCount >= AUTO_PROMOTE_LINES) {
+    const alwaysPromote = false
+    if (lang && (alwaysPromote || lineCount >= AUTO_PROMOTE_LINES)) {
       if (match.index > lastIndex) segments.push({ text: text.slice(lastIndex, match.index) })
       const title = lang.charAt(0).toUpperCase() + lang.slice(1)
       segments.push({
@@ -94,13 +96,75 @@ function extractCodeBlockArtifacts(text: string, messageId: string, parentSeg: P
   return segments.length > 1 || segments.some(s => s.artifact) ? segments : [{ text }]
 }
 
+export interface StreamingArtifactHint {
+  title: string
+  type: string
+  complete: boolean
+}
+
+export function parseStreamingSegments(content: string): Array<{ text?: string; artifactHint?: StreamingArtifactHint }> {
+  const artifactIdx = content.indexOf('<artifact')
+  const codeMatch = /^```(\w+)\n/m.exec(content)
+  const codeIdx = codeMatch ? codeMatch.index : -1
+
+  const hasArtifact = artifactIdx !== -1
+  const hasCode = codeIdx !== -1
+  if (!hasArtifact && !hasCode) return content ? [{ text: content }] : []
+
+  const segments: Array<{ text?: string; artifactHint?: StreamingArtifactHint }> = []
+
+  // Whichever opening appears first
+  if (hasArtifact && (!hasCode || artifactIdx <= codeIdx)) {
+    if (artifactIdx > 0) segments.push({ text: content.slice(0, artifactIdx) })
+    const rest = content.slice(artifactIdx)
+    const closeIdx = rest.indexOf('</artifact>')
+    const attrMatch = /<artifact\s+([^>]*)/.exec(rest)
+    const attrs = attrMatch?.[1] ?? ''
+    const title = /title="([^"]*)"/.exec(attrs)?.[1] ?? 'Artifact'
+    const type = /type="([^"]*)"/.exec(attrs)?.[1] ?? 'text'
+    if (closeIdx === -1) {
+      segments.push({ artifactHint: { title, type, complete: false } })
+    } else {
+      segments.push({ artifactHint: { title, type, complete: true } })
+      const after = rest.slice(closeIdx + '</artifact>'.length)
+      if (after) segments.push(...parseStreamingSegments(after))
+    }
+  } else {
+    // Code fence wins
+    const lang = codeMatch![1]
+    const openLen = codeMatch![0].length
+    if (codeIdx > 0) segments.push({ text: content.slice(0, codeIdx) })
+    const afterOpen = content.slice(codeIdx + openLen)
+    const closeMatch = /^```\s*$/m.exec(afterOpen)
+    const title = lang.charAt(0).toUpperCase() + lang.slice(1)
+    if (!closeMatch) {
+      // Fence still open — show spinner regardless of line count
+      segments.push({ artifactHint: { title, type: lang, complete: false } })
+    } else {
+      const body = afterOpen.slice(0, closeMatch.index)
+      const lineCount = body.split('\n').length
+      if (lineCount >= AUTO_PROMOTE_LINES) {
+        segments.push({ artifactHint: { title, type: lang, complete: true } })
+      } else {
+        // Won't be promoted — render as plain text
+        const raw = content.slice(codeIdx, codeIdx + openLen + closeMatch.index + closeMatch[0].length)
+        segments.push({ text: raw })
+      }
+      const after = afterOpen.slice(closeMatch.index + closeMatch[0].length)
+      if (after) segments.push(...parseStreamingSegments(after))
+    }
+  }
+
+  return segments
+}
+
 export const ARTIFACT_INSTRUCTIONS = `When your response includes a complete, self-contained artifact — code, script, HTML page, markdown document, data file — that is ${AUTO_PROMOTE_LINES}+ lines long, wrap it in an artifact tag:
 
 <artifact type="TYPE" title="TITLE" identifier="IDENTIFIER">
 content here
 </artifact>
 
-Supported types: html, css, javascript, typescript, python, rust, go, java, sql, json, markdown, bash, yaml, c, cpp.
+Supported types: html, css, javascript, typescript, python, rust, go, java, sql, json, markdown, bash, yaml, c, cpp, mermaid, latex.
 Use artifacts for substantial reusable content. Do NOT use them for short inline snippets or illustrative examples.
 
 CRITICAL — when modifying an existing artifact:

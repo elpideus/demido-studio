@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { MessageSquare, ChevronRight, Copy, Pencil, RotateCcw, ArrowRight, FileText, Trash2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { MarkdownRenderer } from './MarkdownRenderer'
+import { MermaidBlock } from './MermaidBlock'
 import { cn, clampToViewport } from '../../lib/utils'
 import type { FileAttachment } from '../../types'
 import { parseArtifacts } from '../../lib/parseArtifacts'
@@ -141,9 +140,7 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
                   '--tw-prose-pre-bg': '#1a1a24',
                 } as React.CSSProperties}
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {thinking}
-                </ReactMarkdown>
+                <MarkdownRenderer>{thinking}</MarkdownRenderer>
               </div>
             </div>
           )}
@@ -210,24 +207,32 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
             <p className="text-[10px] text-muted-foreground/60 mb-1.5">{modelLabel}</p>
           )}
           {isUser ? (
-            <p className="whitespace-pre-wrap">{content}</p>
+            <p className="whitespace-pre-wrap">{
+              content.split(/(`[^`]+`)/).map((part, i) =>
+                part.startsWith('`') && part.endsWith('`') && part.length > 2
+                  ? <code key={i} className="px-1.5 py-0.5 rounded text-[0.8em] font-mono" style={{ background: 'rgba(0,0,0,0.25)' }}>{part.slice(1, -1)}</code>
+                  : part
+              )
+            }</p>
           ) : segments ? (
             <div className="prose prose-invert prose-sm max-w-none">
               {segments.map((seg, i) =>
                 seg.artifact ? (
-                  <ArtifactCard key={seg.artifact.id} artifact={seg.artifact} version={versionOf?.get(seg.artifact.id)} />
+                  seg.artifact.type === 'mermaid' ? (
+                    <MermaidBlock key={seg.artifact.id} code={seg.artifact.content} title={seg.artifact.title} />
+                  ) : seg.artifact.type === 'latex' || seg.artifact.type === 'tex' ? (
+                    <MarkdownRenderer key={seg.artifact.id}>{`$$\n${seg.artifact.content}\n$$`}</MarkdownRenderer>
+                  ) : (
+                    <ArtifactCard key={seg.artifact.id} artifact={seg.artifact} version={versionOf?.get(seg.artifact.id)} />
+                  )
                 ) : seg.text ? (
-                  <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                    {seg.text}
-                  </ReactMarkdown>
+                  <MarkdownRenderer key={i}>{seg.text}</MarkdownRenderer>
                 ) : null
               )}
             </div>
           ) : (
             <div className="prose prose-invert prose-sm max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                {content}
-              </ReactMarkdown>
+              <MarkdownRenderer>{content}</MarkdownRenderer>
               {streaming && <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5 align-middle" />}
             </div>
           )}
