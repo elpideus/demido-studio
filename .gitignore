@@ -46,3 +46,8 @@ src-tauri/target/
 AGENTS.md
 vexp.toml
 vision_capability_detection.md
+
+# Tauri signing keys
+tauri-signing-key.key
+tauri-signing-key.key.pub
+.tmpverify/

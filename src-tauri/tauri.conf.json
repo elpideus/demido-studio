@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Demido Studio",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "identifier": "studio.demido.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -26,8 +26,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVEMEVDRTA0ODVDQUU3QTUKUldTbDU4cUZCTTRPWFhySXFwS2RlVkJEY3NUVHRhaVlCdVVYTzl1bXdrNERRdVE2Y1ZTb0l3WWcK",
+      "endpoints": [
+        "https://github.com/elpideus/demido-studio/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "msi"],
     "icon": [
       "icons/32x32.png",

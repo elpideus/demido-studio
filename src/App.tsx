@@ -179,6 +179,7 @@ export default function App() {
       {/* Window system overlay — floats above everything */}
       <WindowManager />
       <WindowControls />
+      <span className="fixed bottom-2 right-3 text-[10px] text-foreground/50 pointer-events-none select-none z-50">v{__APP_VERSION__}</span>
       </div>
     </div>
     </>

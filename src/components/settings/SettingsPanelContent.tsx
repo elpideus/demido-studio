@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { ProvidersSettings } from './ProvidersSettings'
 import { InterfaceSettings } from './InterfaceSettings'
+import { InfoSettings } from './InfoSettings'
 import { useSettings } from '../../stores/settings'
 
-type Tab = 'providers' | 'interface' | 'system-prompt'
+type Tab = 'providers' | 'interface' | 'system-prompt' | 'info'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers',     label: 'Providers & Models' },
   { id: 'interface',     label: 'Interface' },
   { id: 'system-prompt', label: 'System Prompt' },
+  { id: 'info',          label: 'Info' },
 ]
 
 export function SettingsPanelContent() {
@@ -35,6 +37,7 @@ export function SettingsPanelContent() {
       <div className="flex-1 overflow-y-auto p-6">
         {tab === 'providers'     && <ProvidersSettings />}
         {tab === 'interface'     && <InterfaceSettings />}
+        {tab === 'info'          && <InfoSettings />}
         {tab === 'system-prompt' && (
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-foreground">Global System Prompt</h3>
