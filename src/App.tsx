@@ -13,6 +13,37 @@ import { useArtifacts } from './stores/artifacts'
 import { ArtifactPanel } from './components/artifacts/ArtifactPanel'
 import { invoke } from '@tauri-apps/api/core'
 
+function EarlyAccessDisclaimer({ onAccept }: { onAccept: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-background border border-border rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-yellow-400 text-xl">⚠️</span>
+          <h2 className="text-lg font-semibold text-foreground">Early Access — Use at Your Own Risk</h2>
+        </div>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          This software is in its <strong>very early stages</strong>. It may crash, lose data, behave unexpectedly, or change drastically between updates.
+        </p>
+        <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+          <li>Not production-ready</li>
+          <li>No guarantees of data safety or stability</li>
+          <li>Your API keys and data are your responsibility</li>
+          <li>Features may break or disappear without notice</li>
+        </ul>
+        <p className="text-sm text-muted-foreground">
+          By continuing, you accept full responsibility for your use of this software.
+        </p>
+        <button
+          onClick={onAccept}
+          className="mt-2 w-full rounded-lg bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 transition-colors"
+        >
+          I Understand, Continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const loadConvs = useConversations(s => s.load)
   const listenForTitleUpdates = useConversations(s => s.listenForTitleUpdates)
@@ -21,6 +52,16 @@ export default function App() {
   const loadMcpTools = useMcpTools(s => s.load)
   const loadSkills = useSkills(s => s.load)
   const [unlocked, setUnlocked] = useState(false)
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(
+    () => localStorage.getItem('disclaimer_accepted') === '1'
+  )
+
+  useEffect(() => {
+    (window as any).resetDisclaimer = () => {
+      localStorage.removeItem('disclaimer_accepted')
+      setDisclaimerAccepted(false)
+    }
+  }, [])
 
   const { openWindow, snapLayout } = useWindowManager()
   const artifactOpen = useArtifacts(s => s.activeArtifact !== null)
@@ -97,6 +138,13 @@ export default function App() {
   }
 
   return (
+    <>
+    {!disclaimerAccepted && (
+      <EarlyAccessDisclaimer onAccept={() => {
+        localStorage.setItem('disclaimer_accepted', '1')
+        setDisclaimerAccepted(true)
+      }} />
+    )}
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
       {/* Left spacer: pushes chat right when a panel is snapped left */}
       {leftFraction > 0 && (
@@ -129,5 +177,6 @@ export default function App() {
       {/* Window system overlay — floats above everything */}
       <WindowManager />
     </div>
+    </>
   )
 }
