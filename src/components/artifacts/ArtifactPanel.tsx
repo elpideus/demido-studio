@@ -119,110 +119,112 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
   const hasVersions = versions.length > 1
 
   return (
-    <div className="flex flex-col bg-background overflow-hidden" style={{ flex: `0 0 ${width}px`, minWidth: 0 }}>
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
+    <div className="flex flex-col bg-background overflow-hidden relative" style={{ flex: `0 0 ${width}px`, minWidth: 0 }}>
+      {/* Header — title and file info only */}
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0 pr-12">
         {(() => { const cls = fileIconsJs.getClassWithColor(`artifact${getExtension(type)}`); return cls ? <span className={cls} style={{ fontSize: 13, lineHeight: 1, display: 'inline-block', width: 13 }} /> : null })()}
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
           {type}
         </span>
         <span className="flex-1 text-sm font-medium truncate">{title}</span>
-        <div className="flex items-center gap-1">
-          {hasVersions && (
-            <div className="flex items-center gap-0.5 mr-1">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                title="Previous version"
-                onClick={() => setActive(versions[versionIndex - 1])}
-                disabled={versionIndex <= 0}
-                className="text-muted-foreground disabled:opacity-30"
-              >
-                <ChevronLeft size={13} />
-              </Button>
-              <span className="text-[10px] text-muted-foreground tabular-nums select-none">
-                v{versionIndex + 1}/{versions.length}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                title="Next version"
-                onClick={() => setActive(versions[versionIndex + 1])}
-                disabled={versionIndex >= versions.length - 1}
-                className="text-muted-foreground disabled:opacity-30"
-              >
-                <ChevronRight size={13} />
-              </Button>
-            </div>
-          )}
-          {!isPdf && <Button
-            variant="ghost"
-            size="icon-xs"
-            title={editing ? 'Save' : 'Edit'}
-            onClick={() => {
-              if (editing && editedContent && editedContent !== originalContent) {
-                const msg = messages.find(m => m.id === activeArtifact?.messageId)
-                if (msg) updateMessage(msg.id, msg.content.replace(originalContent, editedContent))
-              }
-              if (!editing) setEditedContent(editedContent || originalContent)
-              setEditing(e => !e)
-            }}
-            className={cn('text-muted-foreground', editing && 'text-foreground')}
-          >
-            {editing ? <Check size={13} /> : <Pencil size={13} />}
-          </Button>}
-          {isJson && !editing && (
-            <div className="flex items-center gap-0.5 border border-border rounded px-0.5">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                title="Tree view"
-                onClick={() => setJsonMode('tree')}
-                className={cn('text-muted-foreground', jsonMode === 'tree' && 'text-foreground bg-secondary')}
-              >
-                <List size={13} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                title="Graph view"
-                onClick={() => setJsonMode('graph')}
-                className={cn('text-muted-foreground', jsonMode === 'graph' && 'text-foreground bg-secondary')}
-              >
-                <GitFork size={13} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                title="Source"
-                onClick={() => setJsonMode('source')}
-                className={cn('text-muted-foreground', jsonMode === 'source' && 'text-foreground bg-secondary')}
-              >
-                <Code size={13} />
-              </Button>
-            </div>
-          )}
-          {canPreview && !editing && (
+      </div>
+
+      {/* Floating action buttons — positioned below window controls */}
+      <div className="absolute right-2 top-12 z-20 flex flex-col items-center gap-1 p-1.5 rounded-lg" style={{ background: '#171717', border: '1px solid rgba(255,255,255,0.06)' }}>
+        {hasVersions && (
+          <div className="flex flex-col items-center gap-0.5 pb-1 mb-0.5 border-b border-white/10">
             <Button
               variant="ghost"
               size="icon-xs"
-              title={preview ? 'Show source' : 'Preview'}
-              onClick={() => setPreview(p => !p)}
-              className={cn('text-muted-foreground', preview && 'text-foreground')}
+              title="Previous version"
+              onClick={() => setActive(versions[versionIndex - 1])}
+              disabled={versionIndex <= 0}
+              className="text-muted-foreground disabled:opacity-30"
             >
-              {preview ? <Code size={13} /> : <Eye size={13} />}
+              <ChevronLeft size={13} />
             </Button>
-          )}
-          <Button variant="ghost" size="icon-xs" title="Copy" onClick={handleCopy} className="text-muted-foreground">
-            <Copy size={13} />
+            <span className="text-[9px] text-muted-foreground tabular-nums select-none">
+              {versionIndex + 1}/{versions.length}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title="Next version"
+              onClick={() => setActive(versions[versionIndex + 1])}
+              disabled={versionIndex >= versions.length - 1}
+              className="text-muted-foreground disabled:opacity-30"
+            >
+              <ChevronRight size={13} />
+            </Button>
+          </div>
+        )}
+        {!isPdf && <Button
+          variant="ghost"
+          size="icon-xs"
+          title={editing ? 'Save' : 'Edit'}
+          onClick={() => {
+            if (editing && editedContent && editedContent !== originalContent) {
+              const msg = messages.find(m => m.id === activeArtifact?.messageId)
+              if (msg) updateMessage(msg.id, msg.content.replace(originalContent, editedContent))
+            }
+            if (!editing) setEditedContent(editedContent || originalContent)
+            setEditing(e => !e)
+          }}
+          className={cn('text-muted-foreground', editing && 'text-foreground')}
+        >
+          {editing ? <Check size={13} /> : <Pencil size={13} />}
+        </Button>}
+        {isJson && !editing && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title="Tree view"
+              onClick={() => setJsonMode('tree')}
+              className={cn('text-muted-foreground', jsonMode === 'tree' && 'text-foreground bg-secondary')}
+            >
+              <List size={13} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title="Graph view"
+              onClick={() => setJsonMode('graph')}
+              className={cn('text-muted-foreground', jsonMode === 'graph' && 'text-foreground bg-secondary')}
+            >
+              <GitFork size={13} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title="Source"
+              onClick={() => setJsonMode('source')}
+              className={cn('text-muted-foreground', jsonMode === 'source' && 'text-foreground bg-secondary')}
+            >
+              <Code size={13} />
+            </Button>
+          </>
+        )}
+        {canPreview && !editing && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            title={preview ? 'Show source' : 'Preview'}
+            onClick={() => setPreview(p => !p)}
+            className={cn('text-muted-foreground', preview && 'text-foreground')}
+          >
+            {preview ? <Code size={13} /> : <Eye size={13} />}
           </Button>
-          {versions.length > 0 && <Button variant="ghost" size="icon-xs" title="Download" onClick={handleDownload} className="text-muted-foreground">
-            <Download size={13} />
-          </Button>}
-          <Button variant="ghost" size="icon-xs" title="Close" onClick={() => setActive(null)} className="text-muted-foreground">
-            <X size={13} />
-          </Button>
-        </div>
+        )}
+        <Button variant="ghost" size="icon-xs" title="Copy" onClick={handleCopy} className="text-muted-foreground">
+          <Copy size={13} />
+        </Button>
+        {versions.length > 0 && <Button variant="ghost" size="icon-xs" title="Download" onClick={handleDownload} className="text-muted-foreground">
+          <Download size={13} />
+        </Button>}
+        <Button variant="ghost" size="icon-xs" title="Close" onClick={() => setActive(null)} className="text-muted-foreground">
+          <X size={13} />
+        </Button>
       </div>
 
       {/* Content */}
@@ -262,8 +264,8 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
             {isDragging && <div className="absolute inset-0" />}
           </div>
         ) : isMermaid && preview ? (
-          <div className="p-4 flex justify-center">
-            <MermaidBlock code={content} />
+          <div className="w-full h-full" style={{ backgroundImage: 'radial-gradient(circle, #ffffff18 1px, transparent 1px)', backgroundSize: '32px 32px' }}>
+            <MermaidBlock code={content} className="relative w-full h-full overflow-hidden group select-none" />
           </div>
         ) : isLatex && preview ? (
           <div className="p-4 prose prose-invert prose-sm max-w-none">

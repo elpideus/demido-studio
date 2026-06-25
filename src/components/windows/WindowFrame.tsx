@@ -13,6 +13,7 @@ const SNAP_THRESHOLD = 40
 interface Props {
   window: ManagedWindow
   children: React.ReactNode
+  titleBarActions?: React.ReactNode
   onSnapCandidateChange: (edge: 'left' | 'right' | null) => void
 }
 
@@ -30,7 +31,7 @@ function detectSnapEdge(
   return null
 }
 
-export function WindowFrame({ window: win, children, onSnapCandidateChange }: Props) {
+export function WindowFrame({ window: win, children, titleBarActions, onSnapCandidateChange }: Props) {
   const { focusWindow, closeWindow, moveWindow, resizeWindow, snapWindow, unsnapWindow, resizeSnapFraction, snapLayout } = useWindowManager()
   const snapCandidateRef = useRef<'left' | 'right' | null>(null)
   // True once we've already unsnapped for the current drag gesture
@@ -136,8 +137,10 @@ export function WindowFrame({ window: win, children, onSnapCandidateChange }: Pr
       }}
     >
       <div className={`flex flex-col h-full bg-card border border-border shadow-2xl overflow-hidden${isSnapped ? '' : ' rounded-xl'}`}>
-        <div className="wm-drag-handle flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 cursor-grab active:cursor-grabbing select-none" onMouseDown={e => handleDragHandleMouseDown(e)}>
+        <div className="wm-drag-handle flex items-center justify-between px-4 py-3 border-b border-border bg-[#1b1b1b] shrink-0 cursor-grab active:cursor-grabbing select-none" onMouseDown={e => handleDragHandleMouseDown(e)}>
           <span className="text-sm font-semibold text-foreground">{win.title}</span>
+          <div className="flex items-center gap-1 ml-auto" onMouseDown={e => e.stopPropagation()}>
+            {titleBarActions}
           <button
             className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
             onMouseDown={e => e.stopPropagation()}
@@ -145,6 +148,7 @@ export function WindowFrame({ window: win, children, onSnapCandidateChange }: Pr
           >
             <X size={14} />
           </button>
+          </div>
         </div>
         <div className="flex-1 overflow-hidden">
           {children}

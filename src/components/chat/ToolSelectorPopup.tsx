@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { useMcpTools } from '../../stores/mcpTools'
 import { useSkills } from '../../stores/skills'
+import { useBuiltinTools } from '../../stores/builtinTools'
 
 function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: () => void; disabled?: boolean }) {
   return (
@@ -23,6 +24,7 @@ function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: (
 export function ToolSelectorPopup() {
   const { tools, collapsed, serverOverrides, toggleTool, toggleServer, toggleCollapse } = useMcpTools()
   const { skills, toggle: toggleSkill } = useSkills()
+  const { tools: builtinTools, toggle: toggleBuiltin } = useBuiltinTools()
   const [query, setQuery] = useState('')
   const [searchTools, setSearchTools] = useState(() => {
     const stored = localStorage.getItem('toolPopup:searchTools')
@@ -46,10 +48,10 @@ export function ToolSelectorPopup() {
     return fuse.search(query.trim()).map(r => r.item)
   }, [skills, query])
 
-  if (servers.length === 0 && skills.length === 0) {
+  if (servers.length === 0 && skills.length === 0 && builtinTools.length === 0) {
     return (
       <div className="absolute bottom-full left-0 mb-2 w-64 bg-secondary border border-border rounded-xl shadow-2xl z-50 p-4">
-        <p className="text-xs text-muted-foreground text-center">No MCP servers or skills available</p>
+        <p className="text-xs text-muted-foreground text-center">No tools available</p>
       </div>
     )
   }
@@ -156,10 +158,30 @@ export function ToolSelectorPopup() {
           </>
         )}
 
+        {/* Built In section */}
+        {builtinTools.length > 0 && (
+          <>
+            <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${filteredServers.length > 0 || filteredSkills.length > 0 ? 'border-t border-border mt-1' : ''}`}>
+              Built In
+            </div>
+            {builtinTools.map(tool => (
+              <div key={tool.id} className="flex items-center gap-2 px-3 py-2.5 hover:bg-accent/50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{tool.name}</p>
+                  {tool.description && (
+                    <p className="text-[10px] text-muted-foreground truncate">{tool.description}</p>
+                  )}
+                </div>
+                <Toggle enabled={tool.enabled} onToggle={() => toggleBuiltin(tool.id)} />
+              </div>
+            ))}
+          </>
+        )}
+
         {/* Skills section */}
         {filteredSkills.length > 0 && (
           <>
-            <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${filteredServers.length > 0 ? 'border-t border-border mt-1' : ''}`}>
+            <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${filteredServers.length > 0 || builtinTools.length > 0 ? 'border-t border-border mt-1' : ''}`}>
               Skills
             </div>
             {filteredSkills.map(skill => (

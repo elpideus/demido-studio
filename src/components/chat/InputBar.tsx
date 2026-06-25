@@ -8,6 +8,7 @@ import { useMessages } from '../../stores/messages'
 import { useAttachmentCache } from '../../stores/attachmentCache'
 import { useMcpTools } from '../../stores/mcpTools'
 import { useSkills } from '../../stores/skills'
+import { useBuiltinTools } from '../../stores/builtinTools'
 import { useProviders } from '../../stores/providers'
 import { useImageEditor } from '../../stores/imageEditor'
 import { useWindowManager } from '../../stores/windowManager'
@@ -100,6 +101,7 @@ export function InputBar() {
   const enabledTools = useMcpTools(s => s.enabledTools)
   const allTools = useMcpTools(s => s.tools)
   const { enabledContext: enabledSkillsContext, skills } = useSkills()
+  const disabledBuiltinKeys = useBuiltinTools(s => s.disabledKeys)
   const { selectedProviderId, selectedModelId, providers, modelCapabilities } = useProviders()
 
   // Load file list when working dir changes (for @mention)
@@ -178,11 +180,6 @@ export function InputBar() {
     const reader = new FileReader()
     reader.onload = () => {
       const content = reader.result as string
-      if (isImage) {
-        // Open in image editor
-        openWithImage(content, file.name)
-        openWindow('image-editor', 'image-editor', file.name, { initialSize: { width: 1100, height: 720 } })
-      }
       setAttachments(prev => {
         if (prev.some(a => a.name === file.name)) { showAttachError(`${file.name} is already attached`); return prev }
         return [...prev, isImage ? { name: file.name, content, mimeType: file.type } : { name: file.name, content }]
@@ -256,7 +253,10 @@ export function InputBar() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     const enabled = enabledTools()
     const enabledKeys = new Set(enabled.map(toolKey))
-    const disabledTools = allTools.filter(t => !enabledKeys.has(toolKey(t))).map(toolKey)
+    const disabledTools = [
+      ...allTools.filter(t => !enabledKeys.has(toolKey(t))).map(toolKey),
+      ...disabledBuiltinKeys(),
+    ]
     const effort = reasoningOptions ? reasoningMode : undefined
     prependSkillBlocks(skills.filter(s => s.enabled).map(s => s.name))
     try {
@@ -390,8 +390,16 @@ export function InputBar() {
               {attachments.map((att, i) => (
                 att.mimeType ? (
                   <div key={att.name} className="relative group shrink-0">
-                    <img src={att.content} alt={att.name} className="h-16 w-16 object-cover rounded-lg border border-border" />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 rounded-lg transition-opacity flex items-end p-1">
+                    <img
+                      src={att.content}
+                      alt={att.name}
+                      className="h-16 w-16 object-cover rounded-lg border border-border cursor-pointer"
+                      onClick={() => {
+                        openWithImage(att.content, att.name)
+                        openWindow('image-editor', 'image-editor', att.name, { initialSize: { width: 1100, height: 720 } })
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 rounded-lg transition-opacity flex items-end p-1 pointer-events-none">
                       <span className="text-white text-[9px] truncate w-full leading-tight">{att.name}</span>
                     </div>
                     <button onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 w-4 h-4 bg-secondary border border-border rounded-full text-muted-foreground hover:text-foreground flex items-center justify-center text-[10px] leading-none">×</button>

@@ -74,7 +74,7 @@ export function ToolsPanelContent() {
 
   return (
     <div className="flex flex-1 overflow-hidden h-full">
-      <div className="w-44 border-r border-border p-3 space-y-0.5 shrink-0">
+      <div className="w-44 border-r border-border p-3 space-y-0.5 shrink-0 bg-[#1b1b1b]">
         {TABS.map(t => (
           <button
             key={t.id}

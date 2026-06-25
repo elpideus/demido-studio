@@ -1,11 +1,13 @@
 mod agent;
 mod commands;
 mod db;
+mod google_apis;
 mod mcp;
 mod providers;
 mod secrets;
 mod skills;
 mod streaming;
+mod web;
 
 use commands::AppState;
 use mcp::McpManager;
@@ -36,7 +38,7 @@ pub fn run() {
                 .build()
                 .expect("Failed to build HTTP client");
             app.manage(AppState {
-                conn: Mutex::new(conn),
+                conn: std::sync::Arc::new(Mutex::new(conn)),
                 secrets,
                 mcp: Mutex::new(mcp),
                 active_cancel: Mutex::new(None),
@@ -94,6 +96,18 @@ pub fn run() {
             commands::fs_copy_dir,
             skills::list_skills,
             skills::delete_skill,
+            commands::list_accounts,
+            commands::delete_account,
+            commands::update_account_services,
+            commands::has_google_credentials,
+            commands::set_google_credentials,
+            commands::initiate_google_oauth,
+            commands::fetch_emails,
+            commands::get_email_body,
+            commands::fetch_calendar_events,
+            commands::create_calendar_event,
+            commands::update_calendar_event,
+            commands::fetch_contacts,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri app failed");

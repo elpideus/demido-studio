@@ -1,6 +1,7 @@
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { ModelSelector } from './ModelSelector'
 import { useConversations } from '../../stores/conversations'
+import { useArtifacts } from '../../stores/artifacts'
 import { exportChat } from '../../lib/tauri'
 import { Button } from '@/components/ui/button'
 
@@ -16,6 +17,7 @@ const AGENT_MODES: { value: AgentMode; label: string; icon: string }[] = [
 export function ChatHeader() {
   const { conversations, activeId, setAgentMode, setWorkingDirectory } = useConversations()
   const conversation = conversations.find(c => c.id === activeId) ?? null
+  const artifactOpen = useArtifacts(s => s.activeArtifact !== null)
 
   const mode: AgentMode = conversation?.agent_mode ?? 'off'
   const workingDir: string | null = conversation?.working_directory ?? null
@@ -46,7 +48,7 @@ export function ChatHeader() {
     <div data-tauri-drag-region className="flex items-center h-12 px-4 border-b border-border shrink-0 gap-2">
       <ModelSelector />
 
-      <div className="ml-auto flex items-center gap-2 mr-24">
+      <div className={`ml-auto flex items-center gap-2 ${artifactOpen ? '' : 'mr-24'}`}>
         {/* Agent mode dropdown — pure CSS hover */}
         <div className="relative group">
           <Button

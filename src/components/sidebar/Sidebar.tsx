@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Settings, Wrench } from 'lucide-react'
+import { MessageSquare, FolderOpen, Settings, Wrench, Mail, Calendar, Users, UserCircle, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConversationItem } from './ConversationItem'
 import { SearchBar } from './SearchBar'
@@ -10,18 +10,55 @@ import { useProviders } from '../../stores/providers'
 const MIN_W = 180, MAX_W = 500, DEFAULT_W = 240
 const MIN_EXPLORER_H = 60, MAX_EXPLORER_H = 600, DEFAULT_EXPLORER_H = 200
 
+type SidebarView = 'chats' | 'files' | null
+
 interface Props {
   onOpenSettings: () => void
   onOpenTools: () => void
+  onOpenAccounts: () => void
+  onOpenEmail: () => void
+  onOpenCalendar: () => void
+  onOpenContacts: () => void
 }
 
-export function Sidebar({ onOpenSettings, onOpenTools }: Props) {
+function Tooltip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="relative group/tip">
+      {children}
+      <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity delay-300">
+        <div className="bg-popover border border-border text-foreground text-xs px-2 py-1 rounded-md shadow-md whitespace-nowrap">
+          {label}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function IconBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active?: boolean; onClick: () => void }) {
+  return (
+    <Tooltip label={label}>
+      <button
+        onClick={onClick}
+        className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors ${
+          active
+            ? 'text-foreground bg-accent'
+            : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
+        }`}
+      >
+        {icon}
+      </button>
+    </Tooltip>
+  )
+}
+
+export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEmail, onOpenCalendar, onOpenContacts }: Props) {
   const { create, conversations, activeId, setActive } = useConversations()
   const { selectedProviderId, selectedModelId } = useProviders()
+  const [view, setView] = useState<SidebarView>('chats')
   const [width, setWidthRaw] = useState(DEFAULT_W)
   const setWidth = (w: number) => setWidthRaw(Math.min(MAX_W, Math.max(MIN_W, w)))
 
-  // Horizontal (width) drag
+  // Horizontal (width) drag for content panel
   const hDragRef = useRef(false)
   const hStartXRef = useRef(0)
   const hStartWRef = useRef(0)
@@ -40,7 +77,7 @@ export function Sidebar({ onOpenSettings, onOpenTools }: Props) {
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!hDragRef.current) return
-      setWidth(hStartWRef.current + (e.clientX - hStartXRef.current))
+      setWidth(hStartWRef.current + (e.clientX - hStartXRef.current) - 48)
     }
     const onUp = () => {
       if (hDragRef.current) {
@@ -80,7 +117,6 @@ export function Sidebar({ onOpenSettings, onOpenTools }: Props) {
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!vDragRef.current) return
-      // drag up = grow explorer
       setExplorerH(vStartHRef.current + (vStartYRef.current - e.clientY))
     }
     const onUp = () => {
@@ -100,79 +136,105 @@ export function Sidebar({ onOpenSettings, onOpenTools }: Props) {
 
   const activeConv = conversations.find(c => c.id === activeId)
   const workingDir = activeConv?.working_directory ?? null
-  const showExplorer = workingDir !== null && activeConv?.agent_mode !== 'off'
+  const showFiles = workingDir !== null && activeConv?.agent_mode !== 'off'
+
+  const toggleView = (v: SidebarView) => setView(cur => cur === v ? null : v)
 
   return (
-    <div className="flex flex-col border-r border-border bg-card shrink-0 relative" style={{ width }}>
-      <div className="p-4 flex items-center justify-between border-b border-border">
-        <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => setActive(null)}>
-          <img src="/logo.svg" alt="Demido Studio" className="h-8 select-none pointer-events-none" />
-          <span className="text-sm font-semibold text-foreground">Demido</span>
-        </div>
-        <Button
-          onClick={() => create(selectedProviderId, selectedModelId)}
-          variant="ghost"
-          size="icon-sm"
-          title="New conversation"
-          className="text-muted-foreground"
+    <div className="flex h-full shrink-0 border-r border-border">
+      {/* Activity bar — 48px icon column */}
+      <div className="w-12 flex flex-col items-center py-2 gap-1 bg-card border-r border-border/50 shrink-0">
+        {/* Top icons */}
+        <div
+          className="mb-1 cursor-pointer"
+          onClick={() => setActive(null)}
+          title="Home"
         >
-          <Plus size={16} />
-        </Button>
-      </div>
-      <SearchBar />
-
-      {/* Conversations + optional file explorer */}
-      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-        {/* Conversation list */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {conversations.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center p-4 gap-2">
-              <img src="/violet.png" alt="" className="w-44 select-none pointer-events-none" style={{filter: 'saturate(0%)', opacity: 0.05, maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)'}}/>
-              <p className="text-xs text-muted-foreground text-center opacity-30">No chats yet.</p>
-            </div>
-          ) : (
-            <div className="p-2 space-y-0.5">
-              {conversations.map(conv => (
-                <ConversationItem key={conv.id} conversation={conv} active={conv.id === activeId} onClick={() => setActive(conv.id)} />
-              ))}
-            </div>
-          )}
+          <img src="/logo.svg" alt="Demido Studio" className="h-7 w-7 select-none pointer-events-none" />
         </div>
 
-        {/* File explorer pane */}
-        {showExplorer && (
-          <>
-            {/* Vertical resize handle */}
-            <div
-              onMouseDown={handleVMouseDown}
-              className="h-1 shrink-0 cursor-row-resize hover:bg-primary/30 bg-border transition-colors"
-            />
-            <div className="shrink-0 flex flex-col overflow-hidden" style={{ height: explorerH }}>
-              <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground border-b border-border/50 shrink-0">
+        <IconBtn
+          icon={<MessageSquare size={18} />}
+          label="Chats"
+          active={view === 'chats'}
+          onClick={() => toggleView('chats')}
+        />
+
+        {showFiles && (
+          <IconBtn
+            icon={<FolderOpen size={18} />}
+            label="File Explorer"
+            active={view === 'files'}
+            onClick={() => toggleView('files')}
+          />
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Bottom icons */}
+        <IconBtn icon={<Mail size={18} />} label="Email" onClick={onOpenEmail} />
+        <IconBtn icon={<Calendar size={18} />} label="Calendar" onClick={onOpenCalendar} />
+        <IconBtn icon={<Users size={18} />} label="Contacts" onClick={onOpenContacts} />
+        <IconBtn icon={<UserCircle size={18} />} label="Accounts" onClick={onOpenAccounts} />
+        <div className="h-px w-6 bg-border/60 my-1" />
+        <IconBtn icon={<Wrench size={18} />} label="Tools" onClick={onOpenTools} />
+        <IconBtn icon={<Settings size={18} />} label="Settings" onClick={onOpenSettings} />
+      </div>
+
+      {/* Content panel — only shown when a view is active */}
+      {view && (
+        <div className="flex flex-col border-r border-border bg-card relative" style={{ width }}>
+          {view === 'chats' && (
+            <>
+              <div className="p-3 flex items-center justify-between border-b border-border shrink-0">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Chats</span>
+                <Button
+                  onClick={() => create(selectedProviderId, selectedModelId)}
+                  variant="ghost"
+                  size="icon-sm"
+                  title="New conversation"
+                  className="text-muted-foreground"
+                >
+                  <Plus size={14} />
+                </Button>
+              </div>
+              <SearchBar />
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                {conversations.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center p-4 gap-2">
+                    <img src="/violet.png" alt="" className="w-44 select-none pointer-events-none" style={{ filter: 'saturate(0%)', opacity: 0.05, maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)' }} />
+                    <p className="text-xs text-muted-foreground text-center opacity-30">No chats yet.</p>
+                  </div>
+                ) : (
+                  <div className="p-2 space-y-0.5">
+                    {conversations.map(conv => (
+                      <ConversationItem key={conv.id} conversation={conv} active={conv.id === activeId} onClick={() => setActive(conv.id)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {view === 'files' && showFiles && (
+            <>
+              <div className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border shrink-0">
                 Explorer
               </div>
-              <FileExplorer rootPath={workingDir!} conversationId={activeId!} />
-            </div>
-          </>
-        )}
-      </div>
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <FileExplorer rootPath={workingDir!} conversationId={activeId!} />
+              </div>
+            </>
+          )}
 
-      <div className="p-2 border-t border-border">
-        <Button onClick={onOpenTools} variant="ghost" size="sm" className="w-full justify-start text-muted-foreground">
-          <Wrench size={14} />
-          Tools
-        </Button>
-        <Button onClick={onOpenSettings} variant="ghost" size="sm" className="w-full justify-start text-muted-foreground">
-          <Settings size={14} />
-          Settings
-        </Button>
-      </div>
-
-      {/* Horizontal resize handle */}
-      <div
-        onMouseDown={handleHMouseDown}
-        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent active:bg-accent/80 transition-colors z-10"
-      />
+          {/* Horizontal resize handle */}
+          <div
+            onMouseDown={handleHMouseDown}
+            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent active:bg-accent/80 transition-colors z-10"
+          />
+        </div>
+      )}
     </div>
   )
 }

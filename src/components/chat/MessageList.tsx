@@ -16,6 +16,7 @@ import { useAttachmentCache } from '../../stores/attachmentCache'
 import { ARTIFACT_INSTRUCTIONS, parseArtifacts, parseStreamingSegments } from '../../lib/parseArtifacts'
 import type { StreamingArtifactHint } from '../../lib/parseArtifacts'
 import { useArtifacts } from '../../stores/artifacts'
+import { useBuiltinTools } from '../../stores/builtinTools'
 
 function StreamingArtifactCard({ hint }: { hint: StreamingArtifactHint }) {
   return (
@@ -70,7 +71,7 @@ function StreamingBlocks({ blocks, streamBuffer, modelLabel, resolvedPermissions
 }
 
 export function MessageList() {
-  const { messages, streaming, streamBuffer, streamBlocks, messageBlocks, statusLabel, truncateAfter, truncateFrom, updateMessage, deleteMessage, prependSkillBlocks, setStreamError, pendingPermission, resolvedPermissions } = useMessages()
+  const { messages, streaming, streamBuffer, streamBlocks, messageBlocks, statusLabel, truncateFrom, updateMessage, deleteMessage, prependSkillBlocks, setStreamError, pendingPermission, resolvedPermissions } = useMessages()
   const { activeId } = useConversations()
   const { selectedProviderId, selectedModelId, modelOverrides } = useProviders()
   const enabledTools = useMcpTools(s => s.enabledTools)
@@ -80,6 +81,7 @@ export function MessageList() {
   const lookupConversation = useAttachmentCache(s => s.lookupConversation)
   const storeForConversation = useAttachmentCache(s => s.storeForConversation)
   const closeArtifact = useArtifacts(s => s.setActive)
+  const disabledBuiltinKeys = useBuiltinTools(s => s.disabledKeys)
   const bottomRef = useRef<HTMLDivElement>(null)
   const prevStreamingRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -132,9 +134,10 @@ export function MessageList() {
   const getDisabledTools = () => {
     const enabled = enabledTools()
     const enabledKeys = new Set(enabled.map(toolKey))
-    return allTools
-      .filter(t => !enabledKeys.has(toolKey(t)))
-      .map(toolKey)
+    return [
+      ...allTools.filter(t => !enabledKeys.has(toolKey(t))).map(toolKey),
+      ...disabledBuiltinKeys(),
+    ]
   }
 
   const handleRegenerate = async (assistantMsgId: string) => {
@@ -143,7 +146,7 @@ export function MessageList() {
     if (idx <= 0) return
     const preceding = messages.slice(0, idx).reverse().find(m => m.role === 'user')
     if (!preceding) return
-    await truncateAfter(preceding.id)
+    await truncateFrom(preceding.id)
     prependSkillBlocks(skills.filter(s => s.enabled).map(s => s.name))
     try {
       await chat.sendMessage(

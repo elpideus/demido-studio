@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { MessageSquare, ChevronRight, Copy, Pencil, RotateCcw, ArrowRight, FileText, Trash2, RefreshCw } from 'lucide-react'
+import { useImageEditor } from '../../stores/imageEditor'
+import { useWindowManager } from '../../stores/windowManager'
 import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { MermaidBlock } from './MermaidBlock'
@@ -38,6 +40,8 @@ function ActionButton({ icon, title, onClick }: { icon: React.ReactNode; title: 
 export function MessageBubble({ id, role, content, thinking, hasStrip, streaming, modelLabel, attachments, onEdit, onRegenerate, onContinue, onDelete, onResend, messageId, versionOf }: Props) {
   const isUser = role === 'user'
   const setActiveArtifact = useArtifacts(s => s.setActive)
+  const openWithImage = useImageEditor(s => s.openWithImage)
+  const openWindow = useWindowManager(s => s.openWindow)
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -154,7 +158,11 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
               key={att.name}
               src={att.content}
               alt={att.name}
-              className="h-24 max-w-[180px] object-cover rounded-lg border border-border"
+              className="h-24 max-w-[180px] object-cover rounded-lg border border-border cursor-pointer"
+              onClick={() => {
+                openWithImage(att.content, att.name)
+                openWindow('image-editor', 'image-editor', att.name, { initialSize: { width: 1100, height: 720 } })
+              }}
             />
           ) : att.mimeType === 'application/pdf' ? (
             <button

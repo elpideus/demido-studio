@@ -158,6 +158,10 @@ export default function App() {
         <Sidebar
           onOpenSettings={() => openWindow('settings', 'settings', 'Settings')}
           onOpenTools={() => openWindow('tools', 'tools', 'Tools')}
+          onOpenAccounts={() => openWindow('accounts', 'accounts', 'Accounts')}
+          onOpenEmail={() => openWindow('email', 'email', 'Email', { initialSize: { width: Math.round(window.innerWidth * 0.88), height: Math.round(window.innerHeight * 0.88) } })}
+          onOpenCalendar={() => openWindow('calendar', 'calendar', 'Calendar')}
+          onOpenContacts={() => openWindow('contacts', 'contacts', 'Contacts')}
         />
         <ChatView />
         {artifactOpen && (

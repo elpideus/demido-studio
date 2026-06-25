@@ -3,6 +3,7 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct Secrets {
     path: PathBuf,
 }

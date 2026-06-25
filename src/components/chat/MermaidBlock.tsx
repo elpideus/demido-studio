@@ -10,9 +10,10 @@ let idCounter = 0
 interface Props {
   code: string
   title?: string
+  className?: string
 }
 
-export function MermaidBlock({ code, title = 'Diagram' }: Props) {
+export function MermaidBlock({ code, title = 'Diagram', className }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const svgStringRef = useRef<string>('')
@@ -129,8 +130,8 @@ export function MermaidBlock({ code, title = 'Diagram' }: Props) {
 
   return (
     <div
-      className="relative my-3 rounded-lg border border-border bg-secondary/30 overflow-hidden group select-none"
-      style={{ height: 300 }}
+      className={className ?? 'relative my-3 rounded-lg border border-border bg-secondary/30 overflow-hidden group select-none'}
+      style={className ? undefined : { height: 300 }}
     >
       {/* action bar */}
       {ready && (

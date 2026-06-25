@@ -1,6 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::path::Path;
 
+pub mod accounts;
 pub mod conversations;
 pub mod mcp_servers;
 pub mod messages;
@@ -119,6 +120,23 @@ static MIGRATIONS: &[(u32, &str)] = &[
         5,
         "
         ALTER TABLE mcp_servers ADD COLUMN env TEXT;
+    ",
+    ),
+    (
+        6,
+        "
+        CREATE TABLE IF NOT EXISTS accounts (
+            id            TEXT PRIMARY KEY,
+            provider      TEXT NOT NULL,
+            email         TEXT NOT NULL DEFAULT '',
+            name          TEXT NOT NULL DEFAULT '',
+            picture       TEXT,
+            access_token  TEXT NOT NULL DEFAULT '',
+            refresh_token TEXT,
+            token_expiry  INTEGER,
+            services      TEXT NOT NULL DEFAULT '[]',
+            created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        );
     ",
     ),
 ];

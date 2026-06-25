@@ -52,7 +52,7 @@ pub struct PermissionRequest {
 }
 
 pub struct AppState {
-    pub conn: Mutex<rusqlite::Connection>,
+    pub conn: Arc<Mutex<rusqlite::Connection>>,
     pub secrets: Secrets,
     pub mcp: Mutex<McpManager>,
     /// Holds the cancel flag for the currently running stream. None when idle.
@@ -60,6 +60,7 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub pending_permission: Mutex<Option<tokio::sync::oneshot::Sender<bool>>>,
 }
+
 
 #[tauri::command]
 pub fn list_conversations(
@@ -572,7 +573,7 @@ pub async fn send_message(
         .and_then(|r| state.secrets.get(r).ok().flatten());
 
     let disabled = disabled_tools.unwrap_or_default();
-    let tools: Vec<ToolDef> = {
+    let mut tools: Vec<ToolDef> = {
         let mcp = state.mcp.lock().unwrap();
         mcp.list_tools()
             .into_iter()
@@ -587,6 +588,11 @@ pub async fn send_message(
             })
             .collect()
     };
+    for tool in crate::agent::web_tool_defs().into_iter().chain(crate::agent::google_tool_defs()) {
+        if !disabled.contains(&format!("builtin:{}", tool.name)) {
+            tools.push(tool);
+        }
+    }
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     *state.active_cancel.lock().unwrap() = Some(Arc::clone(&cancel_flag));
@@ -1022,11 +1028,13 @@ async fn run_generation_loop(
                         let tool_name = tc.name.clone();
                         let tool_args = tc.arguments.clone();
                         let wd = working_directory.map(String::from);
+                        let google_ctx = Some((Arc::clone(&state.conn), state.secrets.clone(), state.http_client.clone()));
                         tokio::task::spawn_blocking(move || {
                             crate::agent::executor::execute_tool(
                                 &tool_name,
                                 &tool_args,
                                 wd.as_deref(),
+                                google_ctx,
                             )
                         })
                         .await
@@ -1161,7 +1169,7 @@ pub async fn continue_generation(
     .map_err(|e| e.to_string())?;
 
     let disabled = disabled_tools.unwrap_or_default();
-    let tools: Vec<ToolDef> = {
+    let mut tools: Vec<ToolDef> = {
         let mcp = state.mcp.lock().unwrap();
         mcp.list_tools()
             .into_iter()
@@ -1176,6 +1184,11 @@ pub async fn continue_generation(
             })
             .collect()
     };
+    for tool in crate::agent::web_tool_defs().into_iter().chain(crate::agent::google_tool_defs()) {
+        if !disabled.contains(&format!("builtin:{}", tool.name)) {
+            tools.push(tool);
+        }
+    }
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     *state.active_cancel.lock().unwrap() = Some(Arc::clone(&cancel_flag));
@@ -1764,4 +1777,445 @@ pub fn fs_copy_dir(
         ));
     }
     copy_dir_recursive(&safe_src, &dest)
+}
+
+// ─── Accounts / OAuth ─────────────────────────────────────────────────────────
+
+use crate::db::accounts;
+
+#[tauri::command]
+pub fn list_accounts(state: State<AppState>) -> Result<Vec<accounts::Account>, String> {
+    let conn = state.conn.lock().unwrap();
+    accounts::list(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_account(state: State<AppState>, account_id: String) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    accounts::delete(&conn, &account_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_account_services(state: State<AppState>, account_id: String, services: Vec<String>) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    accounts::update_services(&conn, &account_id, &services).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn has_google_credentials(state: State<AppState>) -> Result<bool, String> {
+    Ok(state.secrets.get("google_client_id").ok().flatten().is_some())
+}
+
+#[tauri::command]
+pub fn set_google_credentials(state: State<AppState>, client_id: String, client_secret: String) -> Result<(), String> {
+    state.secrets.set("google_client_id", &client_id).map_err(|e| e.to_string())?;
+    if !client_secret.is_empty() {
+        state.secrets.set("google_client_secret", &client_secret).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Initiates Google OAuth PKCE flow:
+/// 1. Opens the auth URL in the system browser
+/// 2. Starts a local TCP server to capture the redirect
+/// 3. Exchanges the code for tokens
+/// 4. Fetches user info
+/// 5. Saves the account to DB
+#[tauri::command]
+pub async fn initiate_google_oauth(
+    state: State<'_, AppState>,
+) -> Result<accounts::Account, String> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use sha2::{Digest, Sha256};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let client_id = state
+        .secrets
+        .get("google_client_id")
+        .map_err(|e| e.to_string())?
+        .ok_or("Google client ID not configured")?;
+
+    // Bind to random port
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("Cannot bind callback server: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| e.to_string())?
+        .port();
+
+    let redirect_uri = format!("http://127.0.0.1:{}", port);
+
+    // PKCE — use CSPRNG (getrandom)
+    let mut verifier_bytes = [0u8; 64];
+    getrandom::getrandom(&mut verifier_bytes).map_err(|e| format!("CSPRNG error: {}", e))?;
+    let code_verifier = URL_SAFE_NO_PAD.encode(&verifier_bytes);
+    let challenge_hash = Sha256::digest(code_verifier.as_bytes());
+    let code_challenge = URL_SAFE_NO_PAD.encode(challenge_hash);
+
+    let scopes = "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly";
+    let mut state_bytes = [0u8; 16];
+    getrandom::getrandom(&mut state_bytes).map_err(|e| format!("CSPRNG error: {}", e))?;
+    let state_param: String = state_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    let auth_url = format!(
+        "https://accounts.google.com/o/oauth2/v2/auth\
+        ?client_id={client_id}\
+        &redirect_uri={redirect_uri}\
+        &response_type=code\
+        &scope={scope}\
+        &code_challenge={code_challenge}\
+        &code_challenge_method=S256\
+        &state={state_param}\
+        &access_type=offline\
+        &prompt=consent",
+        client_id = urlencoded(&client_id),
+        redirect_uri = urlencoded(&redirect_uri),
+        scope = urlencoded(scopes),
+        code_challenge = code_challenge,
+        state_param = state_param,
+    );
+
+    // Open auth URL in default browser via rundll32 (avoids cmd & metacharacter issues)
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &auth_url]).spawn().ok();
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg(&auth_url).spawn().ok();
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&auth_url).spawn().ok();
+
+    // Wait for redirect (timeout 5 minutes)
+    let expected_state = state_param.clone();
+    let code = tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        async move {
+            let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
+            let mut buf = vec![0u8; 4096];
+            let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
+            let req = String::from_utf8_lossy(&buf[..n]);
+
+            // Verify state parameter (CSRF protection) using constant-time compare
+            let returned_state = extract_query_param(&req, "state").unwrap_or_default();
+            if !constant_time_eq(returned_state.as_bytes(), expected_state.as_bytes()) {
+                let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\n\r\nState mismatch").await;
+                return Err("OAuth state mismatch — possible CSRF attack".to_string());
+            }
+
+            let code = extract_query_param(&req, "code")
+                .ok_or_else(|| "No code in OAuth callback".to_string())?;
+            let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+                <html><body style='font-family:sans-serif;text-align:center;padding:40px'>\
+                <h2>Authentication successful!</h2>\
+                <p>You can close this tab and return to Demido Studio.</p></body></html>";
+            let _ = stream.write_all(resp.as_bytes()).await;
+            Ok::<String, String>(code)
+        },
+    )
+    .await
+    .map_err(|_| "OAuth timed out (5 minutes)".to_string())?
+    .map_err(|e| e)?;
+
+    // Exchange code for tokens
+    let client_secret = state
+        .secrets
+        .get("google_client_secret")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let token_resp = state
+        .http_client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("code", code.as_str()),
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("redirect_uri", redirect_uri.as_str()),
+            ("grant_type", "authorization_code"),
+            ("code_verifier", code_verifier.as_str()),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("Token exchange failed: {}", e))?;
+
+    let token_json: serde_json::Value = token_resp
+        .json()
+        .await
+        .map_err(|e| format!("Token parse error: {}", e))?;
+
+    if let Some(err) = token_json.get("error") {
+        return Err(format!(
+            "OAuth error: {} — {}",
+            err.as_str().unwrap_or("unknown"),
+            token_json["error_description"].as_str().unwrap_or("")
+        ));
+    }
+
+    let access_token = token_json["access_token"]
+        .as_str()
+        .ok_or("Missing access_token")?
+        .to_string();
+    let refresh_token = token_json["refresh_token"].as_str().map(|s| s.to_string());
+    let expires_in = token_json["expires_in"].as_i64().unwrap_or(3600);
+    let token_expiry = chrono::Utc::now().timestamp() + expires_in;
+
+    // Fetch user info
+    let userinfo: serde_json::Value = state
+        .http_client
+        .get("https://www.googleapis.com/oauth2/v3/userinfo")
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(|e| format!("Userinfo fetch failed: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Userinfo parse error: {}", e))?;
+
+    let email = userinfo["email"].as_str().unwrap_or("").to_string();
+    let name = userinfo["name"].as_str().unwrap_or("").to_string();
+    let sub = userinfo["sub"].as_str().unwrap_or(&email).to_string();
+
+    // Fetch avatar and store as data URL so WebView2 doesn't need to load external images
+    let picture = if let Some(pic_url) = userinfo["picture"].as_str() {
+        if let Ok(resp) = state.http_client.get(pic_url).send().await {
+            let mime = resp.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("image/jpeg")
+                .split(';')
+                .next()
+                .unwrap_or("image/jpeg")
+                .to_string();
+            if let Ok(bytes) = resp.bytes().await {
+                use base64::Engine;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                Some(format!("data:{};base64,{}", mime, b64))
+            } else {
+                Some(pic_url.to_string())
+            }
+        } else {
+            Some(pic_url.to_string())
+        }
+    } else {
+        None
+    };
+    let id = format!("google:{}", sub);
+
+    let account = accounts::Account {
+        id: id.clone(),
+        provider: "google".into(),
+        email,
+        name,
+        picture,
+        access_token,
+        refresh_token,
+        token_expiry: Some(token_expiry),
+        services: vec!["email".into(), "calendar".into(), "contacts".into()],
+    };
+
+    {
+        let conn = state.conn.lock().unwrap();
+        accounts::upsert(&conn, &account).map_err(|e| e.to_string())?;
+    }
+
+    Ok(account)
+}
+
+/// Constant-time byte slice comparison to prevent timing attacks.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+fn urlencoded(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+fn extract_query_param(request: &str, param: &str) -> Option<String> {
+    // Find first line: "GET /?code=xxx&... HTTP/1.1"
+    let line = request.lines().next()?;
+    let path = line.split_whitespace().nth(1)?;
+    let query = path.split_once('?')?.1;
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            if k == param {
+                return Some(percent_decode_simple(v));
+            }
+        }
+    }
+    None
+}
+
+fn percent_decode_simple(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
+                if let Ok(b) = u8::from_str_radix(hex, 16) {
+                    out.push(b);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+// ─── Google data commands (viewer windows) ────────────────────────────────────
+
+#[tauri::command]
+pub async fn fetch_emails(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    max_results: Option<u64>,
+    page_token: Option<String>,
+) -> Result<crate::google_apis::EmailPage, String> {
+    let account = resolve_google_account(&state, "email")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::list_emails(
+        &state.http_client,
+        &account.access_token,
+        query.as_deref().unwrap_or(""),
+        max_results.unwrap_or(20).min(50),
+        page_token.as_deref(),
+    ).await
+}
+
+#[tauri::command]
+pub async fn fetch_calendar_events(
+    state: State<'_, AppState>,
+    days_ahead: Option<i64>,
+    days_behind: Option<i64>,
+    max_results: Option<u64>,
+) -> Result<Vec<crate::google_apis::CalendarEvent>, String> {
+    let account = resolve_google_account(&state, "calendar")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    let now = chrono::Utc::now();
+    let behind = days_behind.unwrap_or(0).max(0).min(365);
+    let ahead = days_ahead.unwrap_or(30).max(1).min(365);
+    let time_min = (now - chrono::Duration::days(behind)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let time_max = (now + chrono::Duration::days(ahead)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    crate::google_apis::list_events_all_calendars(
+        &state.http_client,
+        &account.access_token,
+        &time_min,
+        &time_max,
+        max_results.unwrap_or(50).min(200),
+    ).await
+}
+
+#[tauri::command]
+pub async fn create_calendar_event(
+    state: State<'_, AppState>,
+    summary: String,
+    start: String,
+    end: String,
+    location: Option<String>,
+    description: Option<String>,
+    all_day: Option<bool>,
+) -> Result<crate::google_apis::CalendarEvent, String> {
+    let account = resolve_google_account(&state, "calendar")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::create_event(
+        &state.http_client,
+        &account.access_token,
+        &summary,
+        &start,
+        &end,
+        location.as_deref(),
+        description.as_deref(),
+        all_day.unwrap_or(false),
+    ).await
+}
+
+#[tauri::command]
+pub async fn update_calendar_event(
+    state: State<'_, AppState>,
+    event_id: String,
+    summary: String,
+    start: String,
+    end: String,
+    location: Option<String>,
+    description: Option<String>,
+    all_day: Option<bool>,
+) -> Result<crate::google_apis::CalendarEvent, String> {
+    let account = resolve_google_account(&state, "calendar")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::update_event(
+        &state.http_client,
+        &account.access_token,
+        &event_id,
+        &summary,
+        &start,
+        &end,
+        location.as_deref(),
+        description.as_deref(),
+        all_day.unwrap_or(false),
+    ).await
+}
+
+#[tauri::command]
+pub async fn fetch_contacts(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    max_results: Option<u64>,
+    page_token: Option<String>,
+) -> Result<crate::google_apis::ContactsPage, String> {
+    let account = resolve_google_account(&state, "contacts")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::list_contacts(
+        &state.http_client,
+        &account.access_token,
+        query.as_deref().unwrap_or(""),
+        max_results.unwrap_or(50).min(100),
+        page_token.as_deref(),
+    ).await
+}
+
+#[tauri::command]
+pub async fn get_email_body(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<String, String> {
+    let account = resolve_google_account(&state, "email")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::get_email_body(&state.http_client, &account.access_token, &id, true).await
+}
+
+fn resolve_google_account(state: &AppState, service: &str) -> Result<accounts::Account, String> {
+    crate::google_apis::find_account_for_service(&Arc::clone(&state.conn), service)?
+        .ok_or_else(|| format!("No {} account connected", service))
+}
+
+fn get_google_creds(state: &AppState) -> Result<(String, String), String> {
+    let id = state.secrets.get("google_client_id").map_err(|e| e.to_string())?.unwrap_or_default();
+    let secret = state.secrets.get("google_client_secret").map_err(|e| e.to_string())?.unwrap_or_default();
+    Ok((id, secret))
 }
