@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect, useMemo } from 'react'
-import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
+import { ChevronDown, ChevronRight, Layers, Globe, Mail, LucideIcon } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { useMcpTools } from '../../stores/mcpTools'
 import { useSkills } from '../../stores/skills'
 import { useBuiltinTools } from '../../stores/builtinTools'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 
 function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: () => void; disabled?: boolean }) {
   return (
@@ -24,8 +25,9 @@ function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: (
 export function ToolSelectorPopup() {
   const { tools, collapsed, serverOverrides, toggleTool, toggleServer, toggleCollapse } = useMcpTools()
   const { skills, toggle: toggleSkill } = useSkills()
-  const { tools: builtinTools, toggle: toggleBuiltin } = useBuiltinTools()
+  const { tools: builtinTools, groupOverrides: builtinGroupOverrides, toggle: toggleBuiltin, toggleGroup: toggleBuiltinGroup } = useBuiltinTools()
   const [query, setQuery] = useState('')
+  const [builtinCollapsed, setBuiltinCollapsed] = useState<Record<string, boolean>>({})
   const [searchTools, setSearchTools] = useState(() => {
     const stored = localStorage.getItem('toolPopup:searchTools')
     return stored === null ? true : stored === 'true'
@@ -42,6 +44,11 @@ export function ToolSelectorPopup() {
     return new Fuse(names, { keys: ['name'], threshold: 0.4 })
   }, [servers, tools])
 
+  const builtinGroups = useMemo(
+    () => Array.from(new Set(builtinTools.map(t => t.group))),
+    [builtinTools]
+  )
+
   const filteredSkills = useMemo(() => {
     if (!query.trim()) return skills
     const fuse = new Fuse(skills, { keys: ['name', 'description'], threshold: 0.4 })
@@ -55,6 +62,8 @@ export function ToolSelectorPopup() {
       </div>
     )
   }
+
+  const GROUP_ICONS: Record<string, LucideIcon> = { 'Web Browse': Globe, 'Email': Mail }
 
   const q = query.trim()
   const matchedServerIds = q ? new Set(serverFuse.search(q).map(r => r.item.id)) : null
@@ -74,6 +83,7 @@ export function ToolSelectorPopup() {
     .filter(s => s.visible)
 
   return (
+    <TooltipProvider delayDuration={400}>
     <div className="absolute bottom-full left-0 mb-2 w-72 bg-secondary border border-border rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[60vh]">
       <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border shrink-0">
         Tools
@@ -110,10 +120,80 @@ export function ToolSelectorPopup() {
           <p className="px-3 py-3 text-xs text-muted-foreground">No matches for "{query}".</p>
         )}
 
+        {/* Built In section — always first */}
+        {builtinTools.length > 0 && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Built In
+            </div>
+            {builtinGroups.map((group, gi) => {
+              const groupTools = builtinTools.filter(t => t.group === group)
+              const isCollapsible = groupTools.length > 1
+              const isCollapsed = (builtinCollapsed[group] ?? true) && !q
+              const isGroupOverridden = !!builtinGroupOverrides[group]
+              return (
+                <div key={group} className={gi < builtinGroups.length - 1 ? 'border-b border-border' : ''}>
+                  {isCollapsible ? (
+                    <>
+                      <div
+                        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-accent/50 transition-colors"
+                        onClick={() => setBuiltinCollapsed(s => ({ ...s, [group]: !(s[group] ?? true) }))}
+                      >
+                        {isCollapsed
+                          ? <ChevronRight size={12} className="text-muted-foreground shrink-0" />
+                          : <ChevronDown size={12} className="text-muted-foreground shrink-0" />
+                        }
+                        {GROUP_ICONS[group] && (() => { const Icon = GROUP_ICONS[group]; return <Icon size={13} className="text-muted-foreground shrink-0" /> })()}
+                        <span className="flex-1 text-sm font-semibold text-foreground truncate">{group}</span>
+                        <Toggle enabled={!isGroupOverridden} onToggle={() => toggleBuiltinGroup(group)} />
+                      </div>
+                      {!isCollapsed && (
+                        <div className="ml-4 border-l border-border">
+                          {groupTools.map(tool => (
+                            <Tooltip key={tool.id}>
+                              <TooltipTrigger asChild>
+                                <div onClick={() => !isGroupOverridden && toggleBuiltin(tool.id)} className={`flex items-center gap-2 px-3 py-2 hover:bg-accent/50 transition-colors transition-opacity cursor-pointer ${isGroupOverridden ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-foreground/80 truncate">{tool.name}</p>
+                                    {tool.description && <p className="text-[10px] text-muted-foreground truncate">{tool.description}</p>}
+                                  </div>
+                                  <Toggle enabled={tool.enabled} onToggle={() => toggleBuiltin(tool.id)} disabled={isGroupOverridden} />
+                                </div>
+                              </TooltipTrigger>
+                              {tool.description && <TooltipContent side="right" className="max-w-56">{tool.description}</TooltipContent>}
+                            </Tooltip>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    groupTools.map(tool => (
+                      <Tooltip key={tool.id}>
+                        <TooltipTrigger asChild>
+                          <div onClick={() => toggleBuiltin(tool.id)} className="flex items-center gap-2 px-3 py-2.5 hover:bg-accent/50 transition-colors cursor-pointer">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-foreground truncate">{tool.name}</p>
+                              {tool.description && (
+                                <p className="text-[10px] text-muted-foreground truncate">{tool.description}</p>
+                              )}
+                            </div>
+                            <Toggle enabled={tool.enabled} onToggle={() => toggleBuiltin(tool.id)} />
+                          </div>
+                        </TooltipTrigger>
+                        {tool.description && <TooltipContent side="right" className="max-w-56">{tool.description}</TooltipContent>}
+                      </Tooltip>
+                    ))
+                  )}
+                </div>
+              )
+            })}
+          </>
+        )}
+
         {/* MCP Tools section */}
         {filteredServers.length > 0 && (
           <>
-            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${builtinTools.length > 0 ? 'border-t border-border mt-1' : ''}`}>
               MCP Tools
             </div>
             {filteredServers.map(({ serverId, serverName, matchingTools }, i) => {
@@ -138,43 +218,28 @@ export function ToolSelectorPopup() {
                   {!isCollapsed && (
                     <div className="ml-4 border-l border-border">
                       {matchingTools.map(tool => (
-                        <div
-                          key={tool.name}
-                          className={`flex items-center gap-2 px-3 py-2 transition-opacity ${isOverridden ? 'opacity-40' : ''}`}
-                        >
-                          <span className="flex-1 text-xs text-foreground/80 truncate">{tool.name}</span>
-                          <Toggle
-                            enabled={tool.enabled}
-                            onToggle={() => toggleTool(`${tool.server_id}:${tool.name}`)}
-                            disabled={isOverridden}
-                          />
-                        </div>
+                        <Tooltip key={tool.name}>
+                          <TooltipTrigger asChild>
+                            <div onClick={() => !isOverridden && toggleTool(`${tool.server_id}:${tool.name}`)} className={`flex items-center gap-2 px-3 py-2 hover:bg-accent/50 transition-colors transition-opacity cursor-pointer ${isOverridden ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-foreground/80 truncate">{tool.name}</p>
+                                {tool.description && <p className="text-[10px] text-muted-foreground truncate">{tool.description}</p>}
+                              </div>
+                              <Toggle
+                                enabled={tool.enabled}
+                                onToggle={() => toggleTool(`${tool.server_id}:${tool.name}`)}
+                                disabled={isOverridden}
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          {tool.description && <TooltipContent side="right" className="max-w-56">{tool.description}</TooltipContent>}
+                        </Tooltip>
                       ))}
                     </div>
                   )}
                 </div>
               )
             })}
-          </>
-        )}
-
-        {/* Built In section */}
-        {builtinTools.length > 0 && (
-          <>
-            <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${filteredServers.length > 0 || filteredSkills.length > 0 ? 'border-t border-border mt-1' : ''}`}>
-              Built In
-            </div>
-            {builtinTools.map(tool => (
-              <div key={tool.id} className="flex items-center gap-2 px-3 py-2.5 hover:bg-accent/50 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground truncate">{tool.name}</p>
-                  {tool.description && (
-                    <p className="text-[10px] text-muted-foreground truncate">{tool.description}</p>
-                  )}
-                </div>
-                <Toggle enabled={tool.enabled} onToggle={() => toggleBuiltin(tool.id)} />
-              </div>
-            ))}
           </>
         )}
 
@@ -185,19 +250,25 @@ export function ToolSelectorPopup() {
               Skills
             </div>
             {filteredSkills.map(skill => (
-              <div key={skill.id} className="flex items-center gap-2 px-3 py-2.5 hover:bg-accent/50 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground truncate">{skill.name}</p>
-                  {skill.description && (
-                    <p className="text-[10px] text-muted-foreground truncate">{skill.description}</p>
-                  )}
-                </div>
-                <Toggle enabled={skill.enabled} onToggle={() => toggleSkill(skill.id)} />
-              </div>
+              <Tooltip key={skill.id}>
+                <TooltipTrigger asChild>
+                  <div onClick={() => toggleSkill(skill.id)} className="flex items-center gap-2 px-3 py-2.5 hover:bg-accent/50 transition-colors cursor-pointer">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{skill.name}</p>
+                      {skill.description && (
+                        <p className="text-[10px] text-muted-foreground truncate">{skill.description}</p>
+                      )}
+                    </div>
+                    <Toggle enabled={skill.enabled} onToggle={() => toggleSkill(skill.id)} />
+                  </div>
+                </TooltipTrigger>
+                {skill.description && <TooltipContent side="right" className="max-w-56">{skill.description}</TooltipContent>}
+              </Tooltip>
             ))}
           </>
         )}
       </div>
     </div>
+    </TooltipProvider>
   )
 }

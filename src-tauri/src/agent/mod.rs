@@ -128,7 +128,7 @@ pub fn google_tool_defs() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
-            name: "get_email".into(),
+            name: "read_email".into(),
             description: "Read the full body of an email by its ID (obtained from list_emails).".into(),
             input_schema: json!({
                 "type": "object",
@@ -175,7 +175,7 @@ pub fn is_builtin(tool_name: &str) -> bool {
             | "web_search"
             | "web_fetch"
             | "list_emails"
-            | "get_email"
+            | "read_email"
             | "list_calendar_events"
             | "list_contacts"
     )

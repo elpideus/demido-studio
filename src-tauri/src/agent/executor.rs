@@ -203,7 +203,7 @@ pub fn execute_tool(name: &str, args: &Value, working_dir: Option<&str>, google_
             let handle = tokio::runtime::Handle::current();
             handle.block_on(crate::web::web_fetch_impl(&url))
         }
-        "list_emails" | "get_email" | "list_calendar_events" | "list_contacts" => {
+        "list_emails" | "read_email" | "list_calendar_events" | "list_contacts" => {
             match google_ctx {
                 Some(ctx) => {
                     let handle = tokio::runtime::Handle::current();
@@ -227,7 +227,7 @@ async fn run_google_tool(
     let (conn_arc, secrets, http_client) = ctx;
 
     let service = match name {
-        "list_emails" | "get_email" => "email",
+        "list_emails" | "read_email" => "email",
         "list_calendar_events" => "calendar",
         "list_contacts" => "contacts",
         _ => return "Unknown tool".into(),
@@ -260,7 +260,7 @@ async fn run_google_tool(
                 Err(e) => format!("Gmail error: {}", e),
             }
         }
-        "get_email" => {
+        "read_email" => {
             let id = args["id"].as_str().unwrap_or("");
             if id.is_empty() { return "Missing email id".into(); }
             match google_apis::get_email_body(&http_client, &token, id, false).await {
