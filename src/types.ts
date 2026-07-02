@@ -109,3 +109,36 @@ export interface FsEntry {
   path: string
   isDir: boolean
 }
+
+export interface EmailSummary {
+  id: string
+  subject: string
+  from: string
+  date: string
+  snippet: string
+}
+
+export interface CalendarEvent {
+  id: string
+  summary: string
+  start: string
+  end: string
+  location: string | null
+  description: string | null
+  color: string | null
+}
+
+export interface Contact {
+  name: string
+  emails: string[]
+  phones: string[]
+  photo_url: string | null
+}
+
+export interface GItem {
+  type: 'email' | 'event' | 'contact'
+  id: string
+  title: string
+  subtitle?: string
+  content?: string
+}

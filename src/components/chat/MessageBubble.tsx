@@ -11,6 +11,42 @@ import { parseArtifacts } from '../../lib/parseArtifacts'
 import { ArtifactCard } from './ArtifactCard'
 import { useArtifacts } from '../../stores/artifacts'
 
+// Matches [email/contact/calendar event: "Title" — ...] blocks injected by @! tagging
+const GITEM_TAG_RE = /\[(email|calendar event|contact): "([^"]+)" — [^\]]+\]/g
+
+const GITEM_ICONS: Record<string, string> = { email: '✉', 'calendar event': '📅', contact: '👤' }
+
+function renderUserContent(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  let last = 0
+  let key = 0
+  GITEM_TAG_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = GITEM_TAG_RE.exec(text)) !== null) {
+    const before = text.slice(last, m.index)
+    if (before) out.push(...renderCodeSpans(before, key++))
+    const [, type, title] = m
+    out.push(
+      <span key={key++} className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 cursor-pointer select-none">
+        <span>{GITEM_ICONS[type] ?? '🔗'}</span>
+        <span>{title}</span>
+      </span>
+    )
+    last = m.index + m[0].length
+  }
+  const tail = text.slice(last)
+  if (tail) out.push(...renderCodeSpans(tail, key++))
+  return out
+}
+
+function renderCodeSpans(text: string, baseKey: number): React.ReactNode[] {
+  return text.split(/(`[^`]+`)/).map((part, i) =>
+    part.startsWith('`') && part.endsWith('`') && part.length > 2
+      ? <code key={baseKey + i} className="px-1.5 py-0.5 rounded text-[0.8em] font-mono" style={{ background: 'rgba(0,0,0,0.25)' }}>{part.slice(1, -1)}</code>
+      : part
+  )
+}
+
 interface Props {
   id: string
   role: 'user' | 'assistant'
@@ -216,11 +252,7 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
           )}
           {isUser ? (
             <p className="whitespace-pre-wrap">{
-              content.split(/(`[^`]+`)/).map((part, i) =>
-                part.startsWith('`') && part.endsWith('`') && part.length > 2
-                  ? <code key={i} className="px-1.5 py-0.5 rounded text-[0.8em] font-mono" style={{ background: 'rgba(0,0,0,0.25)' }}>{part.slice(1, -1)}</code>
-                  : part
-              )
+              renderUserContent(content)
             }</p>
           ) : segments ? (
             <div className="prose prose-invert prose-sm max-w-none">

@@ -211,12 +211,10 @@ pub async fn get_email_body(
         .or_else(|| find_body(&msg["payload"], fallback))
         .unwrap_or_else(|| msg["snippet"].as_str().unwrap_or("(no body)").to_string());
 
-    // For UI (html), return raw HTML untouched; for agent, strip tags + truncate.
     let body_out = if html {
         body
     } else {
-        let text = crate::web::strip_html(&body);
-        if text.len() > 8000 { format!("{}…[truncated]", &text[..8000]) } else { text }
+        crate::web::strip_html(&body)
     };
 
     let headers = msg["payload"]["headers"].as_array();
@@ -484,11 +482,45 @@ pub async fn update_event(
 
 // ── Contacts ──────────────────────────────────────────────────────────────────
 
+const CONTACT_FIELDS: &str = "names,emailAddresses,phoneNumbers,photos,birthdays,addresses,organizations,urls,biographies,nicknames,relations,events";
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct LabeledValue {
+    pub value: String,
+    pub label: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct ContactAddress {
+    pub street: String,
+    pub city: String,
+    pub region: String,
+    pub postal_code: String,
+    pub country: String,
+    pub label: String,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Contact {
-    pub name: String,
-    pub emails: Vec<String>,
-    pub phones: Vec<String>,
+    pub id: String,
+    pub etag: String,
+    pub display_name: String,
+    pub given_name: String,
+    pub family_name: String,
+    pub middle_name: String,
+    pub name_prefix: String,
+    pub name_suffix: String,
+    pub nickname: String,
+    pub emails: Vec<LabeledValue>,
+    pub phones: Vec<LabeledValue>,
+    pub addresses: Vec<ContactAddress>,
+    pub organization: String,
+    pub job_title: String,
+    pub department: String,
+    pub birthday: Option<String>,
+    pub anniversary: Option<String>,
+    pub website: String,
+    pub notes: String,
     pub photo_url: Option<String>,
 }
 
@@ -496,6 +528,78 @@ pub struct Contact {
 pub struct ContactsPage {
     pub contacts: Vec<Contact>,
     pub next_page_token: Option<String>,
+}
+
+fn parse_contact_date(b: &serde_json::Value) -> Option<String> {
+    let d = &b["date"];
+    let month = d["month"].as_i64()?;
+    let day = d["day"].as_i64()?;
+    Some(if let Some(y) = d["year"].as_i64() {
+        format!("{}-{:02}-{:02}", y, month, day)
+    } else {
+        format!("--{:02}-{:02}", month, day)
+    })
+}
+
+fn parse_person(p: &serde_json::Value) -> Contact {
+    let id = p["resourceName"].as_str().unwrap_or("").to_string();
+    let etag = p["etag"].as_str().unwrap_or("").to_string();
+
+    let name_obj = p["names"].as_array().and_then(|a| a.first());
+    let display_name = name_obj.and_then(|n| n["displayName"].as_str()).unwrap_or("(no name)").to_string();
+    let given_name = name_obj.and_then(|n| n["givenName"].as_str()).unwrap_or("").to_string();
+    let family_name = name_obj.and_then(|n| n["familyName"].as_str()).unwrap_or("").to_string();
+    let middle_name = name_obj.and_then(|n| n["middleName"].as_str()).unwrap_or("").to_string();
+    let name_prefix = name_obj.and_then(|n| n["honorificPrefix"].as_str()).unwrap_or("").to_string();
+    let name_suffix = name_obj.and_then(|n| n["honorificSuffix"].as_str()).unwrap_or("").to_string();
+
+    let nickname = p["nicknames"].as_array().and_then(|a| a.first())
+        .and_then(|n| n["value"].as_str()).unwrap_or("").to_string();
+
+    let emails = p["emailAddresses"].as_array().unwrap_or(&vec![]).iter().map(|e| LabeledValue {
+        value: e["value"].as_str().unwrap_or("").to_string(),
+        label: e["formattedType"].as_str().or_else(|| e["type"].as_str()).unwrap_or("Other").to_string(),
+    }).collect();
+
+    let phones = p["phoneNumbers"].as_array().unwrap_or(&vec![]).iter().map(|e| LabeledValue {
+        value: e["value"].as_str().unwrap_or("").to_string(),
+        label: e["formattedType"].as_str().or_else(|| e["type"].as_str()).unwrap_or("Other").to_string(),
+    }).collect();
+
+    let addresses = p["addresses"].as_array().unwrap_or(&vec![]).iter().map(|a| ContactAddress {
+        street: a["streetAddress"].as_str().unwrap_or("").to_string(),
+        city: a["city"].as_str().unwrap_or("").to_string(),
+        region: a["region"].as_str().unwrap_or("").to_string(),
+        postal_code: a["postalCode"].as_str().unwrap_or("").to_string(),
+        country: a["country"].as_str().unwrap_or("").to_string(),
+        label: a["formattedType"].as_str().or_else(|| a["type"].as_str()).unwrap_or("Other").to_string(),
+    }).collect();
+
+    let org = p["organizations"].as_array().and_then(|a| a.first());
+    let organization = org.and_then(|o| o["name"].as_str()).unwrap_or("").to_string();
+    let job_title = org.and_then(|o| o["title"].as_str()).unwrap_or("").to_string();
+    let department = org.and_then(|o| o["department"].as_str()).unwrap_or("").to_string();
+
+    let birthday = p["birthdays"].as_array().and_then(|a| a.first()).and_then(parse_contact_date);
+
+    let anniversary = p["events"].as_array().and_then(|a| {
+        a.iter().find(|e| e["type"].as_str() == Some("anniversary"))
+    }).and_then(parse_contact_date);
+
+    let website = p["urls"].as_array().and_then(|a| a.first())
+        .and_then(|u| u["value"].as_str()).unwrap_or("").to_string();
+
+    let notes = p["biographies"].as_array().and_then(|a| a.first())
+        .and_then(|b| b["value"].as_str()).unwrap_or("").to_string();
+
+    let photo_url = p["photos"].as_array()
+        .and_then(|a| a.iter().find(|ph| ph["default"].as_bool() != Some(true)))
+        .and_then(|ph| ph["url"].as_str())
+        .map(|s| s.to_string());
+
+    Contact { id, etag, display_name, given_name, family_name, middle_name, name_prefix, name_suffix,
+        nickname, emails, phones, addresses, organization, job_title, department,
+        birthday, anniversary, website, notes, photo_url }
 }
 
 pub async fn list_contacts(
@@ -509,68 +613,87 @@ pub async fn list_contacts(
     let url = if query.is_empty() {
         format!(
             "https://people.googleapis.com/v1/people/me/connections\
-            ?personFields=names,emailAddresses,phoneNumbers,photos&pageSize={}&sortOrder=FIRST_NAME_ASCENDING{}",
-            max, pt
+            ?personFields={}&pageSize={}&sortOrder=FIRST_NAME_ASCENDING{}",
+            CONTACT_FIELDS, max, pt
         )
     } else {
         format!(
             "https://people.googleapis.com/v1/people:searchContacts\
-            ?query={}&readMask=names,emailAddresses,phoneNumbers,photos&pageSize={}{}",
-            urlencoded(query), max, pt
+            ?query={}&readMask={}&pageSize={}{}",
+            urlencoded(query), CONTACT_FIELDS, max, pt
         )
     };
 
-    let resp: serde_json::Value = http
-        .get(&url)
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
+    let resp: serde_json::Value = http.get(&url).bearer_auth(token).send().await
+        .map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
 
     let next_page_token = resp["nextPageToken"].as_str().map(|s| s.to_string());
 
-    let items = if query.is_empty() {
+    let items: Vec<serde_json::Value> = if query.is_empty() {
         resp["connections"].as_array().cloned().unwrap_or_default()
     } else {
-        resp["results"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
+        resp["results"].as_array().cloned().unwrap_or_default()
             .into_iter()
             .filter_map(|r| r["person"].as_object().map(|o| serde_json::Value::Object(o.clone())))
             .collect()
     };
 
-    let contacts = items.iter().map(|p| {
-        let name = p["names"]
-            .as_array()
-            .and_then(|a| a.first())
-            .and_then(|n| n["displayName"].as_str())
-            .unwrap_or("(no name)")
-            .to_string();
-        let emails = p["emailAddresses"]
-            .as_array()
-            .unwrap_or(&vec![])
-            .iter()
-            .filter_map(|e| e["value"].as_str().map(|s| s.to_string()))
-            .collect();
-        let phones = p["phoneNumbers"]
-            .as_array()
-            .unwrap_or(&vec![])
-            .iter()
-            .filter_map(|e| e["value"].as_str().map(|s| s.to_string()))
-            .collect();
-        let photo_url = p["photos"]
-            .as_array()
-            .and_then(|a| a.iter().find(|ph| ph["default"].as_bool() != Some(true)))
-            .and_then(|ph| ph["url"].as_str())
-            .map(|s| s.to_string());
-        Contact { name, emails, phones, photo_url }
-    }).collect();
+    let contacts = items.iter().map(parse_person).collect();
     Ok(ContactsPage { contacts, next_page_token })
+}
+
+pub async fn get_contact(http: &reqwest::Client, token: &str, resource_name: &str) -> Result<Contact, String> {
+    let url = format!(
+        "https://people.googleapis.com/v1/{}?personFields={}",
+        resource_name, CONTACT_FIELDS,
+    );
+    let p: serde_json::Value = http.get(&url).bearer_auth(token).send().await
+        .map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    Ok(parse_person(&p))
+}
+
+pub async fn update_contact(http: &reqwest::Client, token: &str, contact: &Contact) -> Result<Contact, String> {
+    let update_mask = "names,emailAddresses,phoneNumbers,addresses,organizations,birthdays,urls,biographies,nicknames";
+    let url = format!(
+        "https://people.googleapis.com/v1/{}:updateContact?updatePersonFields={}",
+        contact.id, update_mask,
+    );
+
+    fn parse_date(s: &str) -> serde_json::Value {
+        let parts: Vec<&str> = s.trim_start_matches('-').split('-').collect();
+        let has_year = !s.starts_with("--");
+        match parts.as_slice() {
+            [y, m, d] if has_year => serde_json::json!({"year": y.parse::<i64>().unwrap_or(0), "month": m.parse::<i64>().unwrap_or(0), "day": d.parse::<i64>().unwrap_or(0)}),
+            [m, d] => serde_json::json!({"month": m.parse::<i64>().unwrap_or(0), "day": d.parse::<i64>().unwrap_or(0)}),
+            _ => serde_json::json!({}),
+        }
+    }
+
+    let mut body = serde_json::json!({
+        "etag": contact.etag,
+        "names": [{"givenName": contact.given_name, "familyName": contact.family_name, "middleName": contact.middle_name, "honorificPrefix": contact.name_prefix, "honorificSuffix": contact.name_suffix}],
+        "nicknames": if contact.nickname.is_empty() { serde_json::json!([]) } else { serde_json::json!([{"value": contact.nickname}]) },
+        "emailAddresses": contact.emails.iter().map(|e| serde_json::json!({"value": e.value, "type": e.label.to_lowercase()})).collect::<Vec<_>>(),
+        "phoneNumbers": contact.phones.iter().map(|p| serde_json::json!({"value": p.value, "type": p.label.to_lowercase()})).collect::<Vec<_>>(),
+        "addresses": contact.addresses.iter().map(|a| serde_json::json!({"streetAddress": a.street, "city": a.city, "region": a.region, "postalCode": a.postal_code, "country": a.country, "type": a.label.to_lowercase()})).collect::<Vec<_>>(),
+        "organizations": if contact.organization.is_empty() && contact.job_title.is_empty() { serde_json::json!([]) } else { serde_json::json!([{"name": contact.organization, "title": contact.job_title, "department": contact.department}]) },
+        "urls": if contact.website.is_empty() { serde_json::json!([]) } else { serde_json::json!([{"value": contact.website}]) },
+        "biographies": if contact.notes.is_empty() { serde_json::json!([]) } else { serde_json::json!([{"value": contact.notes, "contentType": "TEXT_PLAIN"}]) },
+    });
+
+    let mut birthdays = vec![];
+    if let Some(ref bday) = contact.birthday {
+        birthdays.push(serde_json::json!({"date": parse_date(bday)}));
+    }
+    body["birthdays"] = serde_json::json!(birthdays);
+
+    let resp: serde_json::Value = http.patch(&url).bearer_auth(token).json(&body)
+        .send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+
+    if let Some(err) = resp["error"].as_object() {
+        return Err(err["message"].as_str().unwrap_or("update failed").to_string());
+    }
+    Ok(parse_person(&resp))
 }
 
 fn urlencoded(s: &str) -> String {

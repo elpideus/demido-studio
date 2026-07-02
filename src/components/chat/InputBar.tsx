@@ -12,9 +12,9 @@ import { useBuiltinTools } from '../../stores/builtinTools'
 import { useProviders } from '../../stores/providers'
 import { useImageEditor } from '../../stores/imageEditor'
 import { useWindowManager } from '../../stores/windowManager'
-import { chat, reasoning, fs } from '../../lib/tauri'
+import { chat, reasoning, fs, google } from '../../lib/tauri'
 import { toolKey } from '../../lib/constants'
-import type { FileAttachment, FsEntry } from '../../types'
+import type { FileAttachment, FsEntry, GItem } from '../../types'
 import { ARTIFACT_INSTRUCTIONS } from '../../lib/parseArtifacts'
 
 function reasoningKey(providerId: string, modelId: string) {
@@ -23,37 +23,67 @@ function reasoningKey(providerId: string, modelId: string) {
 
 // Matches @"quoted path" (spaces allowed) or @word (no spaces)
 const MENTION_RE = /@("(?:[^"\\]|\\.)*"|\S+)/g
+// Matches @!"type:id" or @!type:id
+const GITEM_RE = /@!("(?:[^"\\]|\\.)*"|\S+)/g
 
 function findTagAt(text: string, pos: number): { start: number; end: number } | null {
-  MENTION_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = MENTION_RE.exec(text)) !== null) {
-    if (pos > m.index && pos <= m.index + m[0].length) return { start: m.index, end: m.index + m[0].length }
+  for (const re of [MENTION_RE, GITEM_RE]) {
+    re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      if (pos > m.index && pos <= m.index + m[0].length) return { start: m.index, end: m.index + m[0].length }
+    }
   }
   return null
 }
 
-function parseTokens(text: string): Array<{ hl: boolean; v: string }> {
-  const out: Array<{ hl: boolean; v: string }> = []
+function parseTokens(text: string): Array<{ hl: boolean; gitem: boolean; v: string }> {
+  const out: Array<{ hl: boolean; gitem: boolean; v: string }> = []
+
+  const matches: Array<{ index: number; raw: string; isGitem: boolean; token: string }> = []
+
   MENTION_RE.lastIndex = 0
-  let last = 0, m: RegExpExecArray | null
+  let m: RegExpExecArray | null
   while ((m = MENTION_RE.exec(text)) !== null) {
-    if (m.index > last) out.push({ hl: false, v: text.slice(last, m.index) })
-    const token = m[1]
-    // quoted → always file path; unquoted → heuristic
-    const hl = token.startsWith('"') || /[/\\]|\.\w+$/.test(token)
-    out.push({ hl, v: m[0] })
-    last = m.index + m[0].length
+    matches.push({ index: m.index, raw: m[0], isGitem: false, token: m[1] })
   }
-  if (last < text.length) out.push({ hl: false, v: text.slice(last) })
+  GITEM_RE.lastIndex = 0
+  while ((m = GITEM_RE.exec(text)) !== null) {
+    if (!matches.some(x => x.index === m!.index)) {
+      matches.push({ index: m.index, raw: m[0], isGitem: true, token: m[1] })
+    }
+  }
+  matches.sort((a, b) => a.index - b.index)
+
+  let last = 0
+  for (const match of matches) {
+    if (match.index > last) out.push({ hl: false, gitem: false, v: text.slice(last, match.index) })
+    if (match.isGitem) {
+      out.push({ hl: true, gitem: true, v: match.raw })
+    } else {
+      const hl = match.token.startsWith('"') || /[/\\]|\.\w+$/.test(match.token)
+      out.push({ hl, gitem: false, v: match.raw })
+    }
+    last = match.index + match.raw.length
+  }
+  if (last < text.length) out.push({ hl: false, gitem: false, v: text.slice(last) })
   return out
 }
 
-// Detect `@query` segment ending at cursorPos
-function detectMention(text: string, cursor: number): { start: number; query: string } | null {
+// Detect `@query` segment ending at cursorPos (plain file mention)
+function detectMention(text: string, cursor: number): { start: number; query: string; isGitem: boolean } | null {
   let i = cursor - 1
   while (i >= 0 && text[i] !== ' ' && text[i] !== '\n') {
-    if (text[i] === '@') return { start: i, query: text.slice(i + 1, cursor) }
+    if (text[i] === '@') {
+      // check if preceded by '!' → gitem
+      if (i > 0 && text[i - 1] === '!') {
+        // This would be a mid-word @!, unusual - skip
+      }
+      return { start: i, query: text.slice(i + 1, cursor), isGitem: false }
+    }
+    if (text[i] === '!' && i > 0 && text[i - 1] === '@') {
+      return { start: i - 1, query: text.slice(i + 1, cursor), isGitem: true }
+    }
     i--
   }
   return null
@@ -66,6 +96,14 @@ interface MentionState {
   selected: number
 }
 
+interface GItemMentionState {
+  start: number
+  query: string
+  items: GItem[]
+  selected: number
+  loading: boolean
+}
+
 export function InputBar() {
   const [value, setValue] = useState('')
   const [reasoningOptions, setReasoningOptions] = useState<string[] | null>(null)
@@ -74,17 +112,22 @@ export function InputBar() {
   const [attachError, setAttachError] = useState<string | null>(null)
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [mention, setMention] = useState<MentionState | null>(null)
+  const [gitemMention, setGitemMention] = useState<GItemMentionState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const attachMenuRef = useRef<HTMLDivElement>(null)
   const mentionPopupRef = useRef<HTMLDivElement>(null)
+  const gitemPopupRef = useRef<HTMLDivElement>(null)
   const dropZoneRef = useRef<HTMLDivElement>(null)
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const allFilesRef = useRef<FsEntry[]>([])
   const lastCursorRef = useRef(0)
   const valueRef = useRef(value)
   valueRef.current = value
+  // Maps gitem key (e.g. "email:MSG_ID") → { title, content? }
+  const gitemDataRef = useRef<Map<string, { title: string; content?: string }>>(new Map())
+  const gitemDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const activeId = useConversations(s => s.activeId)
   const createConversation = useConversations(s => s.create)
@@ -104,6 +147,7 @@ export function InputBar() {
   const disabledBuiltinKeys = useBuiltinTools(s => s.disabledKeys)
   const { selectedProviderId, selectedModelId, providers, modelCapabilities } = useProviders()
 
+
   // Load file list when working dir changes (for @mention)
   useEffect(() => {
     allFilesRef.current = []
@@ -117,6 +161,12 @@ export function InputBar() {
     const el = mentionPopupRef.current.children[mention.selected] as HTMLElement | undefined
     el?.scrollIntoView({ block: 'nearest' })
   }, [mention?.selected])
+
+  useEffect(() => {
+    if (!gitemMention || !gitemPopupRef.current) return
+    const el = gitemPopupRef.current.children[gitemMention.selected] as HTMLElement | undefined
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [gitemMention?.selected])
 
   useEffect(() => {
     let cancelled = false
@@ -200,12 +250,51 @@ export function InputBar() {
   const updateMention = (text: string, cursor: number) => {
     if (!workingDir) { setMention(null); return }
     const m = detectMention(text, cursor)
-    if (!m) { setMention(null); return }
+    if (!m || m.isGitem) { setMention(null); return }
     const q = m.query.toLowerCase()
     const filtered = allFilesRef.current
       .filter(f => f.name.toLowerCase().includes(q) || f.path.replace(/\\/g, '/').toLowerCase().includes(q))
       .slice(0, 12)
     setMention({ start: m.start, query: m.query, filtered, selected: 0 })
+  }
+
+  // @! gitem mention: debounced search
+  const updateGItemMention = (text: string, cursor: number) => {
+    const m = detectMention(text, cursor)
+    if (!m || !m.isGitem) {
+      if (gitemDebounceRef.current) { clearTimeout(gitemDebounceRef.current); gitemDebounceRef.current = null }
+      setGitemMention(null)
+      return
+    }
+    const query = m.query
+    setGitemMention(prev => prev ? { ...prev, query, loading: true } : { start: m.start, query, items: [], selected: 0, loading: true })
+
+    if (gitemDebounceRef.current) clearTimeout(gitemDebounceRef.current)
+    gitemDebounceRef.current = setTimeout(async () => {
+      const items: GItem[] = []
+      await Promise.allSettled([
+        google.fetchEmails(query, 8).then(page => {
+          for (const e of page.emails) {
+            items.push({ type: 'email', id: e.id, title: e.subject || '(no subject)', subtitle: e.from })
+          }
+        }),
+        google.fetchCalendarEvents(30, 7, 20).then(events => {
+          const q = query.toLowerCase()
+          for (const ev of events) {
+            if (!q || ev.summary.toLowerCase().includes(q)) {
+              const content = `Title: ${ev.summary}\nStart: ${ev.start}\nEnd: ${ev.end}${ev.location ? `\nLocation: ${ev.location}` : ''}${ev.description ? `\nDescription: ${ev.description}` : ''}`
+              items.push({ type: 'event', id: ev.id, title: ev.summary, subtitle: `${ev.start} → ${ev.end}`, content })
+            }
+          }
+        }),
+        google.fetchContacts(query, 10).then(page => {
+          for (const c of page.contacts) {
+            items.push({ type: 'contact', id: c.id.replace(/^people\//, ''), title: c.display_name, subtitle: c.emails[0]?.value })
+          }
+        }),
+      ])
+      setGitemMention(prev => prev ? { ...prev, items: items.slice(0, 20), loading: false, selected: 0 } : null)
+    }, 300)
   }
 
   const toRelative = (absPath: string) => {
@@ -233,9 +322,45 @@ export function InputBar() {
     })
   }
 
+  const insertGItem = (item: GItem) => {
+    const el = textareaRef.current
+    if (!gitemMention || !el) return
+    const cursor = lastCursorRef.current || gitemMention.start
+    const key = `${item.type}:${item.id}`
+    const needsQuote = key.includes(' ')
+    const tag = `@!${needsQuote ? `"${key}"` : key} `
+
+    // Cache title and content for overlay + send-time resolution
+    gitemDataRef.current.set(key, { title: item.title, content: item.content })
+    const newVal = value.slice(0, gitemMention.start) + tag + value.slice(cursor)
+    setValue(newVal)
+    setGitemMention(null)
+    requestAnimationFrame(() => {
+      el.focus()
+      const pos = gitemMention.start + tag.length
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  // Replace @! tags with tool-readable references the LLM can act on
+  const resolveGItems = (text: string): string => {
+    GITEM_RE.lastIndex = 0
+    return text.replace(GITEM_RE, (_, token) => {
+      const key = token.startsWith('"') ? token.slice(1, -1) : token
+      const [type, ...rest] = key.split(':')
+      const id = rest.join(':')
+      const cached = gitemDataRef.current.get(key)
+      const title = cached?.title ?? id
+      if (type === 'email') return `[email: "${title}" — id: ${id}, use read_email tool]`
+      if (type === 'event') return `[calendar event: "${title}" — use list_calendar_events tool to find it]`
+      if (type === 'contact') return `[contact: "${title}" — id: ${id}, use read_contact tool]`
+      return token
+    })
+  }
+
   const handleSend = async () => {
-    const content = value.trim()
-    if (!content || streaming) return
+    const raw = value.trim()
+    if (!raw || streaming) return
     let convId = activeId
     if (!convId) {
       if (!selectedProviderId || !selectedModelId) return
@@ -244,13 +369,17 @@ export function InputBar() {
     }
     setValue('')
     setMention(null)
+    setGitemMention(null)
     const currentAttachments = attachments
     setAttachments([])
     if (currentAttachments.length > 0) {
-      storeAttachments(content, currentAttachments)
+      storeAttachments(raw, currentAttachments)
       storeForConversation(convId, currentAttachments)
     }
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
+
+    const content = resolveGItems(raw)
+
     const enabled = enabledTools()
     const enabledKeys = new Set(enabled.map(toolKey))
     const disabledTools = [
@@ -280,6 +409,12 @@ export function InputBar() {
   }
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (gitemMention && gitemMention.items.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setGitemMention(m => m ? { ...m, selected: Math.min(m.selected + 1, m.items.length - 1) } : m); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setGitemMention(m => m ? { ...m, selected: Math.max(m.selected - 1, 0) } : m); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertGItem(gitemMention.items[gitemMention.selected]); return }
+      if (e.key === 'Escape') { setGitemMention(null); return }
+    }
     if (mention && mention.filtered.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMention(m => m ? { ...m, selected: Math.min(m.selected + 1, m.filtered.length - 1) } : m); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMention(m => m ? { ...m, selected: Math.max(m.selected - 1, 0) } : m); return }
@@ -313,7 +448,9 @@ export function InputBar() {
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newVal = e.target.value
     setValue(newVal)
-    updateMention(newVal, e.target.selectionStart ?? newVal.length)
+    const cursor = e.target.selectionStart ?? newVal.length
+    updateMention(newVal, cursor)
+    updateGItemMention(newVal, cursor)
   }
 
   // Native drag-drop listeners (bypasses React synthetic event quirks in WebView2)
@@ -341,8 +478,34 @@ export function InputBar() {
     return () => { el.removeEventListener('dragover', onDragOver); el.removeEventListener('drop', onDrop) }
   }, [workingDir])
 
+  const gitemTypeIcon = (type: GItem['type']) => type === 'email' ? '✉' : type === 'event' ? '📅' : '👤'
+  const gitemTypeBadge = (type: GItem['type']) => type === 'email' ? 'email' : type === 'event' ? 'event' : 'contact'
+
   return (
     <div className="border-t border-border p-4">
+      {/* @! gitem popup */}
+      {gitemMention && (gitemMention.items.length > 0 || gitemMention.loading) && (
+        <div ref={gitemPopupRef} className="mb-2 bg-popover border border-border rounded-lg shadow-lg overflow-hidden max-h-56 overflow-y-auto">
+          {gitemMention.loading && gitemMention.items.length === 0 && (
+            <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+          )}
+          {gitemMention.items.map((item, i) => (
+            <button
+              key={`${item.type}:${item.id}`}
+              className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent transition-colors ${i === gitemMention.selected ? 'bg-accent' : ''}`}
+              onMouseDown={e => { e.preventDefault(); insertGItem(item) }}
+            >
+              <span className="shrink-0 text-[10px]">{gitemTypeIcon(item.type)}</span>
+              <span className={`shrink-0 text-[10px] font-mono px-1 rounded bg-blue-400/20 text-blue-300`}>
+                {gitemTypeBadge(item.type)}
+              </span>
+              <span className="truncate text-foreground/80">{item.title}</span>
+              {item.subtitle && <span className="ml-auto text-muted-foreground/50 truncate text-[10px] max-w-[40%]">{item.subtitle}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* @mention popup */}
       {mention && mention.filtered.length > 0 && (
         <div ref={mentionPopupRef} className="mb-2 bg-popover border border-border rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
@@ -422,7 +585,7 @@ export function InputBar() {
             >
               {parseTokens(value).map((p, i) =>
                 p.hl
-                  ? <mark key={i} className="bg-primary/20 text-primary not-italic rounded-[3px]">{p.v}</mark>
+                  ? <mark key={i} className={`not-italic rounded-[3px] ${p.gitem ? 'bg-blue-500/20 text-blue-300' : 'bg-primary/20 text-primary'}`}>{p.v}</mark>
                   : <span key={i}>{p.v}</span>
               )}
             </div>
@@ -452,8 +615,8 @@ export function InputBar() {
         {attachError || streamError
           ? <span className="text-red-400">{attachError ?? streamError}</span>
           : workingDir
-          ? 'Enter to send · Shift+Enter new line · @ to mention files'
-          : 'Enter to send · Shift+Enter for new line'}
+          ? 'Enter to send · Shift+Enter new line · @ to mention files · @! to mention emails, events, contacts'
+          : 'Enter to send · Shift+Enter for new line · @! to mention emails, events, contacts'}
       </p>
     </div>
   )

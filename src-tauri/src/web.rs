@@ -245,7 +245,8 @@ pub async fn web_fetch_impl(url: &str) -> String {
         };
 
         return if text.len() > MAX {
-            format!("{}\n[truncated at 20k chars]", &text[..MAX])
+            let cut = text.char_indices().map(|(i, _)| i).take_while(|&i| i <= MAX).last().unwrap_or(0);
+            format!("{}\n[truncated at 20k chars]", &text[..cut])
         } else {
             text
         };

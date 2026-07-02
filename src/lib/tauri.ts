@@ -1,4 +1,11 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as _invoke } from '@tauri-apps/api/core'
+
+const isTauri = () => !!(window as any).__TAURI_INTERNALS__
+
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauri()) return Promise.reject(new Error(`[browser] invoke('${cmd}') skipped — no Tauri runtime`))
+  return _invoke<T>(cmd, args)
+}
 import type { Conversation, Message, Provider, AppSettings, McpServer, ModelOverride, FileAttachment } from '../types'
 
 export const db = {
@@ -120,6 +127,17 @@ export const fs = {
     invoke<void>('fs_delete', { conversationId, path }),
   copyDir: (conversationId: string, srcPath: string, destDir: string) =>
     invoke<void>('fs_copy_dir', { conversationId, srcPath, destDir }),
+}
+
+export const google = {
+  fetchEmails: (query?: string, maxResults?: number) =>
+    invoke<{ emails: { id: string; subject: string; from: string; date: string; snippet: string }[]; next_page_token: string | null }>('fetch_emails', { query, maxResults }),
+  fetchCalendarEvents: (daysAhead?: number, daysBehind?: number, maxResults?: number) =>
+    invoke<{ id: string; summary: string; start: string; end: string; location: string | null; description: string | null }[]>('fetch_calendar_events', { daysAhead, daysBehind, maxResults }),
+  fetchContacts: (query?: string, maxResults?: number) =>
+    invoke<{ contacts: { id: string; display_name: string; emails: { value: string; label: string }[]; phones: { value: string; label: string }[] }[]; next_page_token: string | null }>('fetch_contacts', { query, maxResults }),
+  getEmailBody: (id: string) =>
+    invoke<string>('get_email_body', { id }),
 }
 
 export const mcp = {

@@ -9,6 +9,16 @@
 
   <body>
     <div id="root"></div>
+    <!-- ponytail: stub Tauri internals so plugins don't crash on bare browser load -->
+    <script>
+      if (!window.__TAURI_INTERNALS__) {
+        window.__TAURI_INTERNALS__ = {
+          metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } },
+          transformCallback: () => 0,
+          invoke: () => Promise.reject(new Error('no Tauri runtime')),
+        }
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

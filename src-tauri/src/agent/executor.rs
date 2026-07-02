@@ -122,7 +122,8 @@ pub fn execute_tool(name: &str, args: &Value, working_dir: Option<&str>, google_
                     }
                     const MAX: usize = 10240;
                     if result.len() > MAX {
-                        result.truncate(MAX);
+                        let cut = result.char_indices().map(|(i, _)| i).take_while(|&i| i <= MAX).last().unwrap_or(0);
+                        result.truncate(cut);
                         result.push_str("\n[output truncated]");
                     }
                     if result.is_empty() {
@@ -203,7 +204,7 @@ pub fn execute_tool(name: &str, args: &Value, working_dir: Option<&str>, google_
             let handle = tokio::runtime::Handle::current();
             handle.block_on(crate::web::web_fetch_impl(&url))
         }
-        "list_emails" | "read_email" | "list_calendar_events" | "list_contacts" => {
+        "list_emails" | "read_email" | "list_calendar_events" | "list_contacts" | "read_contact" => {
             match google_ctx {
                 Some(ctx) => {
                     let handle = tokio::runtime::Handle::current();
@@ -229,7 +230,7 @@ async fn run_google_tool(
     let service = match name {
         "list_emails" | "read_email" => "email",
         "list_calendar_events" => "calendar",
-        "list_contacts" => "contacts",
+        "list_contacts" | "read_contact" => "contacts",
         _ => return "Unknown tool".into(),
     };
 
@@ -289,13 +290,31 @@ async fn run_google_tool(
             match google_apis::list_contacts(&http_client, &token, &query, max, None).await {
                 Ok(page) if page.contacts.is_empty() => "No contacts found.".into(),
                 Ok(page) => page.contacts.iter().enumerate().map(|(i, c)| {
-                    let emails = c.emails.join(", ");
-                    let phones = c.phones.join(", ");
-                    let mut parts = vec![format!("{}. {}", i + 1, c.name)];
+                    let emails = c.emails.iter().map(|e| e.value.as_str()).collect::<Vec<_>>().join(", ");
+                    let phones = c.phones.iter().map(|p| p.value.as_str()).collect::<Vec<_>>().join(", ");
+                    let mut parts = vec![format!("{}. {} (id: {})", i + 1, c.display_name, c.id)];
                     if !emails.is_empty() { parts.push(format!("   Email: {}", emails)); }
                     if !phones.is_empty() { parts.push(format!("   Phone: {}", phones)); }
+                    if let Some(ref bd) = c.birthday { parts.push(format!("   Birthday: {}", bd)); }
                     parts.join("\n")
                 }).collect::<Vec<_>>().join("\n\n"),
+                Err(e) => format!("Contacts error: {}", e),
+            }
+        }
+        "read_contact" => {
+            let id = args["id"].as_str().unwrap_or("");
+            if id.is_empty() { return "Missing contact id".into(); }
+            let resource_name = if id.starts_with("people/") { id.to_string() } else { format!("people/{}", id) };
+            match google_apis::get_contact(&http_client, &token, &resource_name).await {
+                Ok(c) => {
+                    let emails = c.emails.iter().map(|e| e.value.as_str()).collect::<Vec<_>>().join(", ");
+                    let phones = c.phones.iter().map(|p| p.value.as_str()).collect::<Vec<_>>().join(", ");
+                    let mut parts = vec![format!("Name: {}", c.display_name)];
+                    if !emails.is_empty() { parts.push(format!("Email: {}", emails)); }
+                    if !phones.is_empty() { parts.push(format!("Phone: {}", phones)); }
+                    if let Some(ref bd) = c.birthday { parts.push(format!("Birthday: {}", bd)); }
+                    parts.join("\n")
+                }
                 Err(e) => format!("Contacts error: {}", e),
             }
         }

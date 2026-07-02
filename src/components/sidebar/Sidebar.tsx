@@ -105,15 +105,6 @@ export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEma
   const explorerHRef = useRef(explorerH)
   explorerHRef.current = explorerH
 
-  const handleVMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    vDragRef.current = true
-    vStartYRef.current = e.clientY
-    vStartHRef.current = explorerHRef.current
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'row-resize'
-  }, [])
-
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!vDragRef.current) return

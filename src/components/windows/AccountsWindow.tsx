@@ -15,19 +15,6 @@ interface Account {
   services: string[]
 }
 
-function ServiceBadge({ service }: { service: string }) {
-  const icons: Record<string, React.ReactNode> = {
-    email: <Mail size={10} />,
-    calendar: <Calendar size={10} />,
-    contacts: <Users size={10} />,
-  }
-  return (
-    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-accent text-muted-foreground">
-      {icons[service] ?? null} {service}
-    </span>
-  )
-}
-
 function CredentialModal({ onClose, onSave }: { onClose: () => void; onSave: (id: string, secret: string) => void }) {
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
@@ -68,10 +55,9 @@ function CredentialModal({ onClose, onSave }: { onClose: () => void; onSave: (id
 }
 
 
-function ServiceToggleModal({ account, excludeService, onClose, onConfirm }: {
+function ServiceToggleModal({ account, excludeService, onConfirm }: {
   account: Account
   excludeService: string
-  onClose: () => void
   onConfirm: (services: string[]) => void
 }) {
   const ALL_SERVICES = ['email', 'calendar', 'contacts'].filter(s => s !== excludeService)
@@ -131,7 +117,6 @@ type Tab = 'email' | 'calendar' | 'contacts'
 export function AccountsWindow() {
   const [tab, setTab] = useState<Tab>('email')
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [showAddMenu, setShowAddMenu] = useState(false)
   const [showCredModal, setShowCredModal] = useState(false)
   const [newAccount, setNewAccount] = useState<Account | null>(null)
   const [loading, setLoading] = useState(false)
@@ -300,7 +285,6 @@ export function AccountsWindow() {
         <ServiceToggleModal
           account={newAccount}
           excludeService={tab}
-          onClose={() => setNewAccount(null)}
           onConfirm={handleServiceConfirm}
         />
       )}

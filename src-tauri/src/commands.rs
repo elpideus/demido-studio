@@ -878,7 +878,8 @@ async fn run_generation_loop(
                     Some(s) => {
                         let trimmed = s.trim();
                         if trimmed.len() > 300 {
-                            format!("{}…", &trimmed[..300])
+                            let cut = trimmed.char_indices().map(|(i, _)| i).take_while(|&i| i <= 300).last().unwrap_or(0);
+                            format!("{}…", &trimmed[..cut])
                         } else {
                             trimmed.to_string()
                         }
@@ -1854,7 +1855,7 @@ pub async fn initiate_google_oauth(
     let challenge_hash = Sha256::digest(code_verifier.as_bytes());
     let code_challenge = URL_SAFE_NO_PAD.encode(challenge_hash);
 
-    let scopes = "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly";
+    let scopes = "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts";
     let mut state_bytes = [0u8; 16];
     getrandom::getrandom(&mut state_bytes).map_err(|e| format!("CSPRNG error: {}", e))?;
     let state_param: String = state_bytes.iter().map(|b| format!("{:02x}", b)).collect();
@@ -2195,6 +2196,18 @@ pub async fn fetch_contacts(
         max_results.unwrap_or(50).min(100),
         page_token.as_deref(),
     ).await
+}
+
+#[tauri::command]
+pub async fn update_contact(
+    state: State<'_, AppState>,
+    contact: crate::google_apis::Contact,
+) -> Result<crate::google_apis::Contact, String> {
+    let account = resolve_google_account(&state, "contacts")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::update_contact(&state.http_client, &account.access_token, &contact).await
 }
 
 #[tauri::command]

@@ -160,6 +160,17 @@ pub fn google_tool_defs() -> Vec<ToolDef> {
                 }
             }),
         },
+        ToolDef {
+            name: "read_contact".into(),
+            description: "Read full details of a contact by their resource ID (obtained from list_contacts).".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "The contact resource name (e.g. people/c12345678)" }
+                },
+                "required": ["id"]
+            }),
+        },
     ]
 }
 
@@ -178,5 +189,6 @@ pub fn is_builtin(tool_name: &str) -> bool {
             | "read_email"
             | "list_calendar_events"
             | "list_contacts"
+            | "read_contact"
     )
 }
