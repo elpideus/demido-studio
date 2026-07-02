@@ -34,14 +34,14 @@ Demido Studio is a native desktop application built with **Tauri 2** (Rust backe
 
 ## Installation
 
-> Current version: **v0.4.1** (pre-release). Download links below go directly to the installer for your platform.
+> Current version: **v0.5.0** (pre-release). Download links below go directly to the installer for your platform.
 
 ### Windows
 
 | Your PC | Recommended installer | Alternative |
 |---|---|---|
-| Most laptops & desktops (Intel / AMD) | [Download installer (.exe)](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_x64-setup.exe) | [MSI](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_x64_en-US.msi) · [Portable .exe](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_v0.4.1_windows_x64_portable.exe) |
-| ARM-based (Surface Pro X, Snapdragon) | [Download installer (.exe)](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_arm64-setup.exe) | [MSI](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_arm64_en-US.msi) · [Portable .exe](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_v0.4.1_windows_arm64_portable.exe) |
+| Most laptops & desktops (Intel / AMD) | [Download installer (.exe)](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_x64-setup.exe) | [MSI](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_x64_en-US.msi) · [Portable .exe](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_v0.5.0_windows_x64_portable.exe) |
+| ARM-based (Surface Pro X, Snapdragon) | [Download installer (.exe)](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_arm64-setup.exe) | [MSI](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_arm64_en-US.msi) · [Portable .exe](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_v0.5.0_windows_arm64_portable.exe) |
 
 Run the installer and follow the prompts. Windows may show a SmartScreen warning on first launch — click **More info → Run anyway**.
 
@@ -49,8 +49,8 @@ Run the installer and follow the prompts. Windows may show a SmartScreen warning
 
 | Your Mac | Download |
 |---|---|
-| Apple Silicon (M1 / M2 / M3 / M4) | [Download .dmg](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_aarch64.dmg) |
-| Intel or unsure | [Download Universal .dmg](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_universal.dmg) |
+| Apple Silicon (M1 / M2 / M3 / M4) | [Download .dmg](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_aarch64.dmg) |
+| Intel or unsure | [Download Universal .dmg](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_universal.dmg) |
 
 Open the `.dmg`, drag **Demido Studio** to your Applications folder. On first launch macOS may block it — go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
@@ -60,26 +60,26 @@ Open the `.dmg`, drag **Demido Studio** to your Applications folder. On first la
 
 | Your system | Recommended | Alternatives |
 |---|---|---|
-| Ubuntu / Debian / Mint (x86_64) | [.deb](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_amd64.deb) | [AppImage](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_amd64.AppImage) · [.rpm](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio-0.4.1-1.x86_64.rpm) |
-| Fedora / openSUSE / RHEL (x86_64) | [.rpm](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio-0.4.1-1.x86_64.rpm) | [AppImage](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_amd64.AppImage) |
-| Any distro (x86_64, no install) | [AppImage](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_amd64.AppImage) | — |
-| Raspberry Pi / ARM64 | [.deb](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_arm64.deb) | [.rpm](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio-0.4.1-1.aarch64.rpm) |
-| ARMv7 (older Raspberry Pi) | [.deb](https://github.com/elpideus/demido-studio/releases/download/v0.4.1/Demido.Studio_0.4.1_armhf.deb) | — |
+| Ubuntu / Debian / Mint (x86_64) | [.deb](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_amd64.deb) | [AppImage](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_amd64.AppImage) · [.rpm](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio-0.5.0-1.x86_64.rpm) |
+| Fedora / openSUSE / RHEL (x86_64) | [.rpm](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio-0.5.0-1.x86_64.rpm) | [AppImage](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_amd64.AppImage) |
+| Any distro (x86_64, no install) | [AppImage](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_amd64.AppImage) | — |
+| Raspberry Pi / ARM64 | [.deb](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_arm64.deb) | [.rpm](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio-0.5.0-1.aarch64.rpm) |
+| ARMv7 (older Raspberry Pi) | [.deb](https://github.com/elpideus/demido-studio/releases/download/v0.5.0/Demido.Studio_0.5.0_armhf.deb) | — |
 
 **AppImage** — make executable and run:
 ```bash
-chmod +x Demido.Studio_0.4.1_amd64.AppImage
-./Demido.Studio_0.4.1_amd64.AppImage
+chmod +x Demido.Studio_0.5.0_amd64.AppImage
+./Demido.Studio_0.5.0_amd64.AppImage
 ```
 
 **Deb package:**
 ```bash
-sudo dpkg -i Demido.Studio_0.4.1_amd64.deb
+sudo dpkg -i Demido.Studio_0.5.0_amd64.deb
 ```
 
 **RPM package:**
 ```bash
-sudo rpm -i Demido.Studio-0.4.1-1.x86_64.rpm
+sudo rpm -i Demido.Studio-0.5.0-1.x86_64.rpm
 ```
 
 > The AppImage on x86_64 supports silent auto-update. Deb/RPM/ARM packages require manual download of new versions.
@@ -214,7 +214,7 @@ Demido Studio includes a built-in auto-updater. When a new version is released, 
 
 ## Project status
 
-Demido Studio is **pre-release** (`v0.4.1`). The core functionality is stable and used daily, but the public API (IPC commands, store shapes) may change before `v1.0`. Feedback and contributions are very welcome.
+Demido Studio is **pre-release** (`v0.5.0`). The core functionality is stable and used daily, but the public API (IPC commands, store shapes) may change before `v1.0`. Feedback and contributions are very welcome.
 
 ---
 
