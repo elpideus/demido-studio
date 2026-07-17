@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use super::types::{McpNotification, McpRequest, McpTool};
 
@@ -52,6 +53,11 @@ fn resolve_command(command: &str) -> Result<std::path::PathBuf> {
 }
 
 type PendingMap = Arc<Mutex<HashMap<u64, Option<Value>>>>;
+
+/// Handshake / discovery calls: server is unresponsive well before this.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Tool invocations may legitimately run long.
+const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct StdioClient {
     stdin: Arc<Mutex<std::process::ChildStdin>>,
@@ -168,7 +174,7 @@ impl StdioClient {
         Ok(())
     }
 
-    fn send(&self, req: &McpRequest) -> Result<Value> {
+    fn send(&self, req: &McpRequest, timeout: Duration) -> Result<Value> {
         let id = req.id;
         {
             let mut map = self.pending.lock().unwrap();
@@ -177,22 +183,32 @@ impl StdioClient {
         let line = serde_json::to_string(req)? + "\n";
         {
             let mut stdin = self.stdin.lock().unwrap();
-            stdin.write_all(line.as_bytes())?;
-            stdin.flush()?;
-        }
-        // Wait for the background reader to fill our slot.
-        let result = {
-            let mut map = self.pending.lock().unwrap();
-            loop {
-                if let Some(val) = map.get(&id) {
-                    if val.is_some() {
-                        break map.remove(&id).unwrap().unwrap();
-                    }
-                }
-                map = self.condvar.wait(map).unwrap();
+            if let Err(e) = stdin.write_all(line.as_bytes()).and_then(|_| stdin.flush()) {
+                self.pending.lock().unwrap().remove(&id);
+                return Err(e.into());
             }
-        };
-        Ok(result)
+        }
+        // Wait for the background reader to fill our slot. The reader thread exits
+        // when the child's stdout closes, so without a deadline a dead or silent
+        // server would park this caller forever.
+        let deadline = Instant::now() + timeout;
+        let mut map = self.pending.lock().unwrap();
+        loop {
+            if map.get(&id).map(|v| v.is_some()).unwrap_or(false) {
+                return Ok(map.remove(&id).unwrap().unwrap());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                map.remove(&id);
+                return Err(anyhow!(
+                    "{} timed out after {}s",
+                    req.method,
+                    timeout.as_secs()
+                ));
+            }
+            let (guard, _) = self.condvar.wait_timeout(map, remaining).unwrap();
+            map = guard;
+        }
     }
 
     pub fn initialize(&self) -> Result<Value> {
@@ -206,7 +222,7 @@ impl StdioClient {
                 "clientInfo": { "name": "demido-studio", "version": "0.1.0" }
             })),
         };
-        let caps = self.send(&req)?;
+        let caps = self.send(&req, HANDSHAKE_TIMEOUT)?;
         self.notify("notifications/initialized", None)?;
         Ok(caps)
     }
@@ -218,7 +234,7 @@ impl StdioClient {
             method: "tools/list".into(),
             params: Some(serde_json::json!({})),
         };
-        let result = self.send(&req)?;
+        let result = self.send(&req, HANDSHAKE_TIMEOUT)?;
         let tools = result["tools"].as_array().cloned().unwrap_or_default();
         Ok(tools
             .iter()
@@ -241,7 +257,7 @@ impl StdioClient {
             method: "tools/call".into(),
             params: Some(serde_json::json!({ "name": name, "arguments": arguments })),
         };
-        let result = self.send(&req)?;
+        let result = self.send(&req, CALL_TIMEOUT)?;
         // If the result contains an "error" key it came from the error field; surface it.
         if result.get("code").is_some() {
             return Err(anyhow!("tool call failed: {}", result));

@@ -76,12 +76,14 @@ pub struct EmailSummary {
     pub from: String,
     pub date: String,
     pub snippet: String,
+    pub unread: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct EmailPage {
     pub emails: Vec<EmailSummary>,
     pub next_page_token: Option<String>,
+    pub result_size_estimate: Option<i64>,
 }
 
 pub async fn list_emails(
@@ -108,6 +110,7 @@ pub async fn list_emails(
         .await
         .map_err(|e| e.to_string())?;
     let next_page_token = list["nextPageToken"].as_str().map(|s| s.to_string());
+    let result_size_estimate = list["resultSizeEstimate"].as_i64();
 
     let ids: Vec<String> = list["messages"]
         .as_array()
@@ -116,45 +119,81 @@ pub async fn list_emails(
         .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
         .collect();
 
-    let mut summaries = Vec::new();
-    for id in ids.iter().take(max as usize) {
-        let msg_url = format!(
-            "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date",
-            id
-        );
-        let msg: serde_json::Value = http
-            .get(&msg_url)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .json()
-            .await
-            .map_err(|e| e.to_string())?;
+    // ponytail: fetch metadata for all messages concurrently instead of one
+    // await per email — was N sequential round trips, now N parallel ones.
+    let fetches = ids.iter().take(max as usize).map(|id| {
+        let http = http.clone();
+        let token = token.to_string();
+        let id = id.clone();
+        async move {
+            let msg_url = format!(
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date",
+                id
+            );
+            let msg: serde_json::Value = http
+                .get(&msg_url)
+                .bearer_auth(&token)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?
+                .json()
+                .await
+                .map_err(|e| e.to_string())?;
 
-        let headers = msg["payload"]["headers"].as_array();
-        let get_header = |name: &str| -> String {
-            headers
-                .and_then(|hs| {
-                    hs.iter().find(|h| {
-                        h["name"].as_str().map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false)
+            let headers = msg["payload"]["headers"].as_array();
+            let get_header = |name: &str| -> String {
+                headers
+                    .and_then(|hs| {
+                        hs.iter().find(|h| {
+                            h["name"].as_str().map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false)
+                        })
                     })
-                })
-                .and_then(|h| h["value"].as_str())
-                .unwrap_or("")
-                .to_string()
-        };
+                    .and_then(|h| h["value"].as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
 
-        summaries.push(EmailSummary {
-            id: id.clone(),
-            subject: get_header("Subject"),
-            from: get_header("From"),
-            date: get_header("Date"),
-            snippet: msg["snippet"].as_str().unwrap_or("").to_string(),
-        });
+            let unread = msg["labelIds"]
+                .as_array()
+                .map(|labels| labels.iter().any(|l| l.as_str() == Some("UNREAD")))
+                .unwrap_or(false);
+
+            Ok::<EmailSummary, String>(EmailSummary {
+                id: id.clone(),
+                subject: get_header("Subject"),
+                from: get_header("From"),
+                date: get_header("Date"),
+                snippet: msg["snippet"].as_str().unwrap_or("").to_string(),
+                unread,
+            })
+        }
+    });
+    let summaries: Vec<EmailSummary> = futures_util::future::try_join_all(fetches).await?;
+
+    Ok(EmailPage { emails: summaries, next_page_token, result_size_estimate })
+}
+
+pub async fn trash_message(http: &reqwest::Client, token: &str, id: &str) -> Result<(), String> {
+    let url = format!("https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/trash", id);
+    let resp = http.post(&url).bearer_auth(token).json(&serde_json::json!({})).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Gmail trash failed: {}", resp.status()));
     }
+    Ok(())
+}
 
-    Ok(EmailPage { emails: summaries, next_page_token })
+pub async fn set_message_read(http: &reqwest::Client, token: &str, id: &str, read: bool) -> Result<(), String> {
+    let url = format!("https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/modify", id);
+    let body = if read {
+        serde_json::json!({ "removeLabelIds": ["UNREAD"] })
+    } else {
+        serde_json::json!({ "addLabelIds": ["UNREAD"] })
+    };
+    let resp = http.post(&url).bearer_auth(token).json(&body).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Gmail modify failed: {}", resp.status()));
+    }
+    Ok(())
 }
 
 pub async fn get_email_body(
@@ -360,22 +399,33 @@ pub async fn list_events_all_calendars(
         .collect();
 
     let per_cal = (max / cal_entries.len().max(1) as u64).max(50);
-    let mut all: Vec<CalendarEvent> = Vec::new();
 
-    for (cal_id, cal_color) in &cal_entries {
+    // ponytail: one calendar's events per await, run concurrently instead of
+    // sequentially — was N round trips in series, now N in parallel.
+    let fetches = cal_entries.iter().map(|(cal_id, cal_color)| {
+        let http = http.clone();
+        let token = token.to_string();
         let url = format!(
             "https://www.googleapis.com/calendar/v3/calendars/{}/events\
             ?maxResults={}&singleEvents=true&orderBy=startTime&timeMin={}&timeMax={}",
             urlencoded(cal_id), per_cal, urlencoded(time_min), urlencoded(time_max),
         );
-        if let Ok(resp) = http.get(&url).bearer_auth(token).send().await {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                let items = json["items"].as_array().cloned().unwrap_or_default();
-                let mut evs = parse_events_with_cal_color(&items, cal_color.as_deref());
-                all.append(&mut evs);
+        let cal_color = cal_color.clone();
+        async move {
+            if let Ok(resp) = http.get(&url).bearer_auth(&token).send().await {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    let items = json["items"].as_array().cloned().unwrap_or_default();
+                    return parse_events_with_cal_color(&items, cal_color.as_deref());
+                }
             }
+            Vec::new()
         }
-    }
+    });
+    let mut all: Vec<CalendarEvent> = futures_util::future::join_all(fetches)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
 
     // Sort by start time
     all.sort_by(|a, b| a.start.cmp(&b.start));

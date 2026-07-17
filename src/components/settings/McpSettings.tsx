@@ -23,6 +23,8 @@ function ServerForm({ server, onSave, onCancel, onRemove }: ServerFormProps) {
   const [toolCount, setToolCount] = useState<number | null>(null)
   const [argsStr, setArgsStr] = useState(() => server.args?.length ? JSON.stringify(server.args) : '')
   const [envStr, setEnvStr] = useState(() => server.env && Object.keys(server.env).length ? JSON.stringify(server.env) : '')
+  const [argsErr, setArgsErr] = useState('')
+  const [envErr, setEnvErr] = useState('')
 
   useEffect(() => {
     setArgsStr(server.args?.length ? JSON.stringify(server.args) : '')
@@ -31,30 +33,57 @@ function ServerForm({ server, onSave, onCancel, onRemove }: ServerFormProps) {
 
   const patch = (p: Partial<McpServer>) => setDraft(d => ({ ...d, ...p }))
 
-  const syncArgs = () => {
-    if (!argsStr.trim()) { patch({ args: [] }); return }
+  const parseArgs = (s: string): string[] | Error => {
+    if (!s.trim()) return []
+    let v: unknown
     try {
-      const v = JSON.parse(argsStr)
-      if (Array.isArray(v)) patch({ args: v })
-    } catch { /* keep previous args */ }
+      v = JSON.parse(s)
+    } catch {
+      return new Error('Invalid JSON. Backslashes must be doubled: ["C:\\\\path\\\\index.js"]')
+    }
+    if (!Array.isArray(v) || v.some(x => typeof x !== 'string')) {
+      return new Error('Must be an array of strings, e.g. ["-y", "mcp-searxng"]')
+    }
+    return v as string[]
   }
 
-  const syncEnv = () => {
-    if (!envStr.trim()) { patch({ env: {} }); return }
+  const parseEnv = (s: string): Record<string, string> | Error => {
+    if (!s.trim()) return {}
+    let v: unknown
     try {
-      const v = JSON.parse(envStr)
-      if (typeof v === 'object' && !Array.isArray(v)) patch({ env: v })
-    } catch { /* keep previous env */ }
+      v = JSON.parse(s)
+    } catch {
+      return new Error('Invalid JSON. Backslashes must be doubled.')
+    }
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+      return new Error('Must be an object, e.g. {"SEARXNG_URL": "..."}')
+    }
+    return v as Record<string, string>
+  }
+
+  /** Resolves the text fields into a server, or null if either is malformed.
+   *  Returns the value rather than relying on setDraft, whose state isn't
+   *  visible until the next render. */
+  const resolveDraft = (): McpServer | null => {
+    if (draft.transport !== 'stdio') return draft
+    const args = parseArgs(argsStr)
+    const env = parseEnv(envStr)
+    setArgsErr(args instanceof Error ? args.message : '')
+    setEnvErr(env instanceof Error ? env.message : '')
+    if (args instanceof Error || env instanceof Error) return null
+    const resolved = { ...draft, args, env }
+    setDraft(resolved)
+    return resolved
   }
 
   const handleTest = async () => {
-    syncArgs()
-    syncEnv()
+    const server = resolveDraft()
+    if (!server) return
     setTestState('testing')
     setTestError('')
     setToolCount(null)
     try {
-      const count = await mcp.testServer(draft)
+      const count = await mcp.testServer(server)
       setToolCount(count)
       setTestState('ok')
     } catch (e) {
@@ -64,11 +93,11 @@ function ServerForm({ server, onSave, onCancel, onRemove }: ServerFormProps) {
   }
 
   const handleSave = async () => {
-    syncArgs()
-    syncEnv()
+    const server = resolveDraft()
+    if (!server) return
     setSaving(true)
     try {
-      await onSave(draft)
+      await onSave(server)
     } finally {
       setSaving(false)
     }
@@ -94,28 +123,28 @@ function ServerForm({ server, onSave, onCancel, onRemove }: ServerFormProps) {
           <Input value={draft.command ?? ''} onChange={e => patch({ command: e.target.value })} placeholder="Command (e.g. npx)" className="h-8 text-sm" />
           <Input
             value={argsStr}
-            onChange={e => {
-              setArgsStr(e.target.value)
-              try {
-                const v = JSON.parse(e.target.value)
-                if (Array.isArray(v)) patch({ args: v })
-              } catch {}
+            onChange={e => { setArgsStr(e.target.value); setArgsErr('') }}
+            onBlur={() => {
+              const v = parseArgs(argsStr)
+              setArgsErr(v instanceof Error ? v.message : '')
+              if (!(v instanceof Error)) patch({ args: v })
             }}
             placeholder='Arguments (array, e.g. ["-y", "mcp-searxng"])'
             className="h-8 text-sm"
           />
+          {argsErr && <p className="text-xs text-red-400">{argsErr}</p>}
           <Input
             value={envStr}
-            onChange={e => {
-              setEnvStr(e.target.value)
-              try {
-                const v = JSON.parse(e.target.value)
-                if (typeof v === 'object' && !Array.isArray(v)) patch({ env: v })
-              } catch {}
+            onChange={e => { setEnvStr(e.target.value); setEnvErr('') }}
+            onBlur={() => {
+              const v = parseEnv(envStr)
+              setEnvErr(v instanceof Error ? v.message : '')
+              if (!(v instanceof Error)) patch({ env: v })
             }}
             placeholder='Env vars (object, e.g. {"SEARXNG_URL": "..."})'
             className="h-8 text-sm"
           />
+          {envErr && <p className="text-xs text-red-400">{envErr}</p>}
         </>
       ) : (
         <Input value={draft.url ?? ''} onChange={e => patch({ url: e.target.value })} placeholder="SSE endpoint URL" className="h-8 text-sm" />
@@ -125,7 +154,7 @@ function ServerForm({ server, onSave, onCancel, onRemove }: ServerFormProps) {
         <p className="text-xs text-red-400">{testError}</p>
       )}
       {testState === 'ok' && toolCount !== null && (
-        <p className="text-xs text-green-400">Connected — {toolCount} tool{toolCount !== 1 ? 's' : ''} found</p>
+        <p className="text-xs text-green-400">Connected: {toolCount} tool{toolCount !== 1 ? 's' : ''} found</p>
       )}
 
       <div className="flex items-center gap-2 pt-1">
@@ -215,7 +244,7 @@ export function McpSettings() {
   const handleCancel = (id: string) =>
     setEntries(e => {
       const entry = e.find(x => x.server.id === id)
-      // If name is empty it was never saved — remove it
+      // If name is empty it was never saved, remove it
       if (entry && !entry.server.name) return e.filter(x => x.server.id !== id)
       return e.map(x => x.server.id === id ? { ...x, editing: false } : x)
     })

@@ -111,8 +111,8 @@ describe('snapWindow', () => {
   it('rejects snap when chat would be narrower than MIN_CHAT_WIDTH', () => {
     store().openWindow('a', 'settings', 'A')
     store().openWindow('b', 'settings', 'B')
-    store().snapWindow('a', 'left', 1200)   // left=600px, chat=600px — ok
-    const ok = store().snapWindow('b', 'right', 800) // right=400px, chat=0px — rejected
+    store().snapWindow('a', 'left', 1200)   // left=600px, chat=600px, ok
+    const ok = store().snapWindow('b', 'right', 800) // right=400px, chat=0px, rejected
     expect(ok).toBe(false)
     expect(store().snapLayout.right).toBeNull()
   })

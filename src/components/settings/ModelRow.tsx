@@ -1,10 +1,42 @@
 import { useState } from 'react'
 import { Pencil, Check, X, Eye, Wrench, Brain } from 'lucide-react'
-import type { ModelOverride } from '../../types'
+import type { ModelOverride, ModelCaps, CapsSource, CapName } from '../../types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { useProviders } from '../../stores/providers'
+
+/// Say where a capability flag came from, so "no vision icon" can be read as either
+/// "the host says no" or "nobody knows".
+export const CAPS_SOURCE_LABEL: Record<CapsSource, string> = {
+  provider: 'reported by the provider',
+  llamaCpp: 'detected from the loaded model by llama.cpp',
+  registry: 'from the models.dev registry',
+  huggingFace: "read from the repo's config on Hugging Face",
+  unknown: 'unknown: not reported by the provider or listed on models.dev',
+}
+
+const CAPS_UI: { name: CapName; icon: typeof Eye; label: string }[] = [
+  { name: 'vision', icon: Eye, label: 'Vision' },
+  { name: 'tools', icon: Wrench, label: 'Tool calling' },
+  { name: 'reasoning', icon: Brain, label: 'Reasoning' },
+]
+
+/// Click cycles auto → yes → no → auto. `null` hands the flag back to detection.
+function nextOverride(current: boolean | null | undefined): boolean | null {
+  if (current === null || current === undefined) return true
+  return current ? false : null
+}
+
+function capTooltip(cap: string, on: boolean, overridden: boolean, source: CapsSource): string {
+  const verdict = on ? `Supports ${cap}` : `No ${cap}`
+  const why = overridden
+    ? 'you set this'
+    : source === 'unknown'
+      ? 'unknown: nothing reported this model'
+      : CAPS_SOURCE_LABEL[source]
+  return `${verdict}: ${why}. Click to change.`
+}
 
 interface Props {
   providerId: string
@@ -16,17 +48,17 @@ interface Props {
 export function ModelRow({ providerId, modelId, override, onUpdate }: Props) {
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState(override?.custom_name ?? '')
-  const { modelCapabilities, providers } = useProviders()
+  const { modelCapabilities, setModelCapsOverride } = useProviders()
 
   const enabled = override?.enabled ?? true
   const customName = override?.custom_name
 
-  const provider = providers.find(p => p.id === providerId)
-  const caps = modelCapabilities[providerId]?.[modelId]
+  const caps: ModelCaps | undefined = modelCapabilities[providerId]?.[modelId]
 
-  const visionSupported = caps?.vision ?? (provider?.type === 'anthropic' ? true : undefined)
-  const toolsSupported = caps?.tools ?? (provider?.type === 'anthropic' ? true : undefined)
-  const reasoningSupported = caps?.reasoning ?? (provider?.type === 'anthropic' ? true : undefined)
+  const cycleCap = (name: CapName) => {
+    const current = override?.[`caps_${name}` as const]
+    setModelCapsOverride(providerId, modelId, { [name]: nextOverride(current) })
+  }
 
   const handleToggle = () => {
     onUpdate({ provider_id: providerId, model_id: modelId, custom_name: customName, enabled: !enabled })
@@ -71,10 +103,34 @@ export function ModelRow({ providerId, modelId, override, onUpdate }: Props) {
           ) : (
             <span className="text-xs text-foreground truncate">{modelId}</span>
           )}
-          <div className="flex items-center gap-1 shrink-0 ml-1">
-            {visionSupported && <span title="Supports vision"><Eye size={11} className="text-muted-foreground/50" /></span>}
-            {toolsSupported && <span title="Supports tool calling"><Wrench size={11} className="text-muted-foreground/50" /></span>}
-            {reasoningSupported && <span title="Supports reasoning/thinking"><Brain size={11} className="text-muted-foreground/50" /></span>}
+          {/* All three always render: a capability the model lacks has to be visible to be
+              correctable, and the user is the last word on any of them. */}
+          <div className="flex items-center gap-0.5 shrink-0 ml-1">
+            {caps && CAPS_UI.map(({ name, icon: Icon, label }) => {
+              const on = caps[name]
+              const overridden = caps.overridden[name]
+              return (
+                <button
+                  key={name}
+                  onClick={() => cycleCap(name)}
+                  title={capTooltip(label.toLowerCase(), on, overridden, caps.source)}
+                  aria-label={capTooltip(label.toLowerCase(), on, overridden, caps.source)}
+                  aria-pressed={on}
+                  className="p-0.5 rounded hover:bg-muted/60 transition-colors"
+                >
+                  <Icon
+                    size={11}
+                    // Off is off, same gray however it was decided. Only a user-set "yes"
+                    // gets the accent; the tooltip carries the rest.
+                    className={
+                      on
+                        ? (overridden ? 'text-primary' : 'text-muted-foreground/60')
+                        : 'text-muted-foreground/15'
+                    }
+                  />
+                </button>
+              )
+            })}
           </div>
           <Button
             onClick={() => { setEditValue(customName ?? ''); setEditing(true) }}

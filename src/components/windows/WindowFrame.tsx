@@ -14,6 +14,8 @@ interface Props {
   window: ManagedWindow
   children: React.ReactNode
   titleBarActions?: React.ReactNode
+  /** Sits right of the title, before the actions — e.g. which file the window is showing. */
+  titleBarInfo?: React.ReactNode
   onSnapCandidateChange: (edge: 'left' | 'right' | null) => void
 }
 
@@ -31,7 +33,7 @@ function detectSnapEdge(
   return null
 }
 
-export function WindowFrame({ window: win, children, titleBarActions, onSnapCandidateChange }: Props) {
+export function WindowFrame({ window: win, children, titleBarActions, titleBarInfo, onSnapCandidateChange }: Props) {
   const { focusWindow, closeWindow, moveWindow, resizeWindow, snapWindow, unsnapWindow, resizeSnapFraction, snapLayout } = useWindowManager()
   const snapCandidateRef = useRef<'left' | 'right' | null>(null)
   // True once we've already unsnapped for the current drag gesture
@@ -138,8 +140,9 @@ export function WindowFrame({ window: win, children, titleBarActions, onSnapCand
     >
       <div className={`flex flex-col h-full bg-card border border-border shadow-2xl overflow-hidden${isSnapped ? '' : ' rounded-xl'}`}>
         <div className="wm-drag-handle flex items-center justify-between px-4 py-3 border-b border-border bg-[#1b1b1b] shrink-0 cursor-grab active:cursor-grabbing select-none" onMouseDown={e => handleDragHandleMouseDown(e)}>
-          <span className="text-sm font-semibold text-foreground">{win.title}</span>
-          <div className="flex items-center gap-1 ml-auto" onMouseDown={e => e.stopPropagation()}>
+          <span className="text-sm font-semibold text-foreground shrink-0">{win.title}</span>
+          {titleBarInfo}
+          <div className="flex items-center gap-1 ml-auto pl-2" onMouseDown={e => e.stopPropagation()}>
             {titleBarActions}
           <button
             className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"

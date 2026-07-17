@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod gemini;
+pub mod reasoning_channel;
 pub mod openai_compat;
 
 use anyhow::Result;
@@ -48,14 +49,20 @@ pub struct StreamOutput {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
     pub thinking: Option<String>,
+    /// The user pressed stop mid-stream. The other fields hold whatever had arrived by then and
+    /// are kept: a stop must not throw away generated output. `tool_calls` may be incomplete, so
+    /// callers must not execute them — see `run_generation_loop`.
+    pub cancelled: bool,
 }
 
+/// What the provider's own API says about each of its models. Silent on a capability
+/// means `None` — see `crate::caps`.
 pub async fn list_model_capabilities(
     client: &reqwest::Client,
     provider_type: &str,
     base_url: &str,
     api_key: Option<&str>,
-) -> Result<std::collections::HashMap<String, openai_compat::ModelCaps>> {
+) -> Result<std::collections::HashMap<String, crate::caps::PartialCaps>> {
     match provider_type {
         "anthropic" => anthropic::list_model_capabilities(client, base_url, api_key).await,
         "gemini" => gemini::list_model_capabilities(client, base_url, api_key).await,

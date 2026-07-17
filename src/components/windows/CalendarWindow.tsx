@@ -475,8 +475,12 @@ export function CalendarTitleBarActions() {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
+// ponytail: module-scope cache so reopening the window shows the last
+// fetched events instantly instead of a blank loading state.
+let eventsCache: CalendarEvent[] | null = null
+
 export function CalendarWindow() {
-  const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [events, setEvents] = useState<CalendarEvent[]>(eventsCache ?? [])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cursor, setCursor] = useState(() => {
@@ -494,13 +498,14 @@ export function CalendarWindow() {
   }, [])
 
   const load = async () => {
-    setLoading(true)
+    if (!eventsCache) setLoading(true)
     setError(null)
     try {
       const now = new Date()
       const daysBehind = Math.ceil((now.getTime() - new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime()) / 86400000)
       const list = await invoke<CalendarEvent[]>('fetch_calendar_events', { daysAhead: 120, daysBehind, maxResults: 200 })
       setEvents(list)
+      eventsCache = list
     } catch (e) {
       setError(String(e))
     } finally {

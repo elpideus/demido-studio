@@ -34,6 +34,10 @@ pub struct SendMessageRequest {
     pub attachments: Option<Vec<FileAttachment>>,
     pub skills_context: Option<String>,
     pub historical_attachments: Option<Vec<FileAttachment>>,
+    /// Ids of the skills switched on in Tools → Skills. The enabled state lives in the frontend
+    /// (`skill_enabled` in `prefs.json`), so it has to ride the request for the backend to know
+    /// whose tools to offer. Same shape as `skills_context`, which is gated on the same set.
+    pub enabled_skills: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,6 +63,14 @@ pub struct AppState {
     pub active_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub http_client: reqwest::Client,
     pub pending_permission: Mutex<Option<tokio::sync::oneshot::Sender<bool>>>,
+    /// Ids of the skills currently switched on, as last reported by the frontend (the toggle lives
+    /// in `prefs.json`). Kept here so an unrelated MCP settings save can rebuild the manager
+    /// without silently dropping every skill's servers.
+    pub enabled_skills: Mutex<Vec<String>>,
+    /// Enclosed local llama-server: current running model + child process.
+    pub local_engine: crate::local::engine::LocalEngine,
+    /// Bundled SearXNG instance (runs through the portable Python runtime).
+    pub searxng_engine: crate::local::searxng::SearxngEngine,
 }
 
 
@@ -140,6 +152,27 @@ pub fn get_settings(state: State<AppState>) -> Result<settings::AppSettings, Str
     settings::get_all(&conn).map_err(|e| e.to_string())
 }
 
+/// Wipe the scopes the user selected and restart. Whatever is wiped comes back reseeded as on
+/// a first run. A models folder the user pointed elsewhere is never touched. Irreversible —
+/// the UI must confirm before calling this.
+#[tauri::command]
+pub fn reset_app_data(app: AppHandle, state: State<AppState>, request: crate::reset::ResetRequest) -> Result<(), String> {
+    // Kill the child processes first: they hold handles inside the dirs about to be removed.
+    state.local_engine.stop();
+    state.searxng_engine.stop();
+
+    let app_dir = crate::reset::app_data_dir(&app);
+    crate::reset::request_reset(&app_dir, &request)?;
+    // The deletion itself happens on the way back up, before anything reopens the DB.
+    app.restart();
+}
+
+#[tauri::command]
+pub fn get_setting(state: State<AppState>, key: String, default: Option<String>) -> Result<String, String> {
+    let conn = state.conn.lock().unwrap();
+    Ok(settings::get(&conn, &key).map_err(|e| e.to_string())?.unwrap_or_else(|| default.unwrap_or_default()))
+}
+
 #[tauri::command]
 pub fn set_setting(state: State<AppState>, key: String, value: String) -> Result<(), String> {
     let conn = state.conn.lock().unwrap();
@@ -175,6 +208,13 @@ pub async fn list_models(
     state: State<'_, AppState>,
     provider_id: String,
 ) -> Result<Vec<String>, String> {
+    // Local provider: models are downloaded GGUFs, not a query to the (maybe-unspawned)
+    // server. Read them from the DB.
+    if provider_id == crate::db::LOCAL_PROVIDER_ID {
+        let conn = state.conn.lock().unwrap();
+        let models = crate::db::local_models::list(&conn).map_err(|e| e.to_string())?;
+        return Ok(models.into_iter().map(|m| m.id).collect());
+    }
     let (provider_type, base_url, api_key_ref) = {
         let conn = state.conn.lock().unwrap();
         let p = providers::find_by_id(&conn, &provider_id)
@@ -220,11 +260,97 @@ pub async fn raw_provider_models_json(
     .map_err(|e| e.to_string())
 }
 
+/// Capabilities for models we don't own a connection to — the Hugging Face browser asking
+/// "what would this repo be able to do if I downloaded it?". models.dev first; if it hasn't
+/// heard of the repo, read the repo's own config/tokenizer files on Hugging Face; only then
+/// `Unknown`.
 #[tauri::command]
-pub async fn list_model_capabilities(
+pub async fn lookup_model_caps(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    model_ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, crate::caps::ModelCaps>, String> {
+    use crate::caps::{self, CapsSource, PartialCaps};
+    let registry = caps::registry(&state.http_client, &app).await;
+    let mut out = std::collections::HashMap::new();
+    for id in model_ids {
+        let hit = registry.lookup(None, &id);
+        let caps = if !hit.is_empty() {
+            caps::resolve(PartialCaps::default(), hit, CapsSource::Registry, PartialCaps::default())
+        } else {
+            let hf_hit = crate::local::hf::caps_from_repo(&state.http_client, &id).await;
+            caps::resolve(PartialCaps::default(), hf_hit, CapsSource::HuggingFace, PartialCaps::default())
+        };
+        out.insert(id, caps);
+    }
+    Ok(out)
+}
+
+/// Record what the user says a model supports. `None` for a field clears the override and
+/// hands that flag back to detection. The user is the last word: detection covers the
+/// common case, but they're the one who can see the model actually work.
+#[tauri::command]
+pub async fn set_model_caps_override(
     state: State<'_, AppState>,
     provider_id: String,
-) -> Result<std::collections::HashMap<String, prov::openai_compat::ModelCaps>, String> {
+    model_id: String,
+    vision: Option<bool>,
+    tools: Option<bool>,
+    reasoning: Option<bool>,
+) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    crate::db::model_overrides::set_caps(
+        &conn,
+        &provider_id,
+        &model_id,
+        &crate::caps::PartialCaps { vision, tools, reasoning },
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Resolve capabilities for every model of a provider. See `crate::caps` for the order of
+/// authority; nothing here guesses from model names.
+#[tauri::command]
+pub async fn list_model_capabilities(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    provider_id: String,
+) -> Result<std::collections::HashMap<String, crate::caps::ModelCaps>, String> {
+    use crate::caps::{self, CapsSource, PartialCaps};
+
+    let registry = caps::registry(&state.http_client, &app).await;
+
+    // Whatever the user pinned by hand outranks every detector below.
+    let user_caps: std::collections::HashMap<String, PartialCaps> = {
+        let conn = state.conn.lock().unwrap();
+        crate::db::model_overrides::list(&conn, &provider_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|o| (o.model_id.clone(), o.caps()))
+            .collect()
+    };
+    let user_of = |id: &str| user_caps.get(id).copied().unwrap_or_default();
+
+    // Local GGUFs: the authority is llama.cpp itself, but /props only describes the model
+    // currently loaded — so we serve the probe cached at spawn time and let models.dev
+    // cover models the user hasn't run yet.
+    if provider_id == crate::db::LOCAL_PROVIDER_ID {
+        let models = {
+            let conn = state.conn.lock().unwrap();
+            crate::db::local_models::list(&conn).map_err(|e| e.to_string())?
+        };
+        return Ok(models
+            .into_iter()
+            .map(|m| {
+                let probed = m.caps();
+                let from_registry = registry.lookup(None, &m.repo);
+                let resolved =
+                    caps::resolve(user_of(&m.id), probed, CapsSource::LlamaCpp, from_registry);
+                (m.id, resolved)
+            })
+            .collect());
+    }
+
     let (provider_type, base_url, api_key_ref) = {
         let conn = state.conn.lock().unwrap();
         let p = providers::find_by_id(&conn, &provider_id)
@@ -235,18 +361,67 @@ pub async fn list_model_capabilities(
     let api_key = api_key_ref
         .as_deref()
         .and_then(|r| state.secrets.get(r).ok().flatten());
-    prov::list_model_capabilities(
+
+    let reported = prov::list_model_capabilities(
         &state.http_client,
         &provider_type,
         &base_url,
         api_key.as_deref(),
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    // The provider's model list is the set of ids we answer for — a host that reports no
+    // capabilities at all still tells us which models exist.
+    let ids = prov::list_models(
+        &state.http_client,
+        &provider_type,
+        &base_url,
+        api_key.as_deref(),
+    )
+    .await
+    .unwrap_or_default();
+
+    let registry_key = caps::registry_provider_key(&provider_type, &base_url);
+    let mut out = std::collections::HashMap::new();
+    for id in ids.into_iter().chain(reported.keys().cloned()) {
+        if out.contains_key(&id) {
+            continue;
+        }
+        let from_provider = reported.get(&id).copied().unwrap_or_default();
+        let from_registry = registry.lookup(registry_key, &id);
+        let resolved = caps::resolve(
+            user_of(&id),
+            from_provider,
+            CapsSource::Provider,
+            from_registry,
+        );
+        out.insert(id, resolved);
+    }
+    Ok(out)
 }
 
+/// The reasoning knob a provider exposes for a model already known to reason.
+/// Gemini grades its thinking budget; everyone else is a plain on/off.
+fn reasoning_options(provider_type: &str) -> ReasoningInfo {
+    let allowed_options = match provider_type {
+        "gemini" => vec!["off".into(), "low".into(), "medium".into(), "high".into()],
+        _ => vec!["on".into(), "off".into()],
+    };
+    ReasoningInfo {
+        allowed_options,
+        default: "off".into(),
+    }
+}
+
+/// Which reasoning *options* a model offers (off/low/medium/high), if any.
+///
+/// Whether the model reasons at all is `caps`' job — this only maps that answer onto the
+/// knob each provider exposes. A `None` from the registry means "nobody knows", and we
+/// keep offering the toggle rather than hiding a feature that may well work.
 #[tauri::command]
 pub async fn get_model_reasoning(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     provider_id: String,
     model_id: String,
@@ -259,29 +434,75 @@ pub async fn get_model_reasoning(
         (p.r#type, p.base_url, p.api_key_ref)
     };
 
+    // A manual override settles it before we ask anyone else.
+    let user_reasoning = {
+        let conn = state.conn.lock().unwrap();
+        crate::db::model_overrides::list(&conn, &provider_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|o| o.model_id == model_id)
+            .and_then(|o| o.caps_reasoning)
+    };
+    match user_reasoning {
+        Some(false) => return Ok(None),
+        Some(true) => {
+            return Ok(Some(reasoning_options(&provider_type)));
+        }
+        None => {}
+    }
+
+    let known_reasoning = |registry: &crate::caps::Registry| {
+        registry
+            .lookup(
+                crate::caps::registry_provider_key(&provider_type, &base_url),
+                &model_id,
+            )
+            .reasoning
+    };
+
     match provider_type.as_str() {
         "anthropic" => Ok(Some(ReasoningInfo {
             allowed_options: vec!["off".into(), "on".into()],
             default: "off".into(),
         })),
         "gemini" => {
-            // Only 2.5+ models support thinking; older models silently ignore thinkingConfig
-            let supports_thinking = model_id.contains("2.5") || model_id.contains("2-5");
-            if supports_thinking {
-                Ok(Some(ReasoningInfo {
-                    allowed_options: vec![
-                        "off".into(),
-                        "low".into(),
-                        "medium".into(),
-                        "high".into(),
-                    ],
-                    default: "off".into(),
-                }))
-            } else {
-                Ok(None)
+            // Non-thinking models silently ignore thinkingConfig, so hide the knob only
+            // when the registry positively says the model doesn't reason.
+            let registry = crate::caps::registry(&state.http_client, &app).await;
+            if known_reasoning(&registry) == Some(false) {
+                return Ok(None);
             }
+            Ok(Some(ReasoningInfo {
+                allowed_options: vec![
+                    "off".into(),
+                    "low".into(),
+                    "medium".into(),
+                    "high".into(),
+                ],
+                default: "off".into(),
+            }))
         }
         "openai_compat" => {
+            // Local GGUF we've loaded before: llama.cpp read the actual chat template, so
+            // it outranks anything the registry infers from the repo name.
+            if provider_id == crate::db::LOCAL_PROVIDER_ID {
+                let probed = {
+                    let conn = state.conn.lock().unwrap();
+                    crate::db::local_models::find_by_id(&conn, &model_id)
+                        .map_err(|e| e.to_string())?
+                        .and_then(|m| m.caps().reasoning)
+                };
+                match probed {
+                    Some(false) => return Ok(None),
+                    Some(true) => {
+                        return Ok(Some(ReasoningInfo {
+                            allowed_options: vec!["on".into(), "off".into()],
+                            default: "off".into(),
+                        }))
+                    }
+                    None => {}
+                }
+            }
             let api_key = api_key_ref
                 .as_deref()
                 .and_then(|r| state.secrets.get(r).ok().flatten());
@@ -329,7 +550,14 @@ pub async fn get_model_reasoning(
                     }
                 }
             }
-            // Fallback: always offer on/off for openai_compat so users can try thinking on any model
+            // LM Studio didn't answer (or isn't what we're talking to). Fall back to the
+            // registry — which also covers local GGUFs, since their ids carry the repo
+            // name. Only a positive "no" hides the toggle; unknown keeps it, so users can
+            // still try thinking on a model nothing has heard of.
+            let registry = crate::caps::registry(&state.http_client, &app).await;
+            if known_reasoning(&registry) == Some(false) {
+                return Ok(None);
+            }
             Ok(Some(ReasoningInfo {
                 allowed_options: vec!["on".into(), "off".into()],
                 default: "off".into(),
@@ -455,6 +683,19 @@ fn build_api_messages(db_msgs: &[messages::Message]) -> Vec<prov::ChatMessage> {
     out
 }
 
+/// Metadata for the links in a message's sources footer, for the details panel.
+///
+/// Capped at 16 URLs per call: the list is model-authored, and this command turns each entry into
+/// an outbound request, so an unbounded list is an unbounded fan-out. The rider caps footers at 8.
+#[tauri::command]
+pub async fn fetch_link_previews(urls: Vec<String>) -> Result<Vec<crate::web::LinkPreview>, String> {
+    const MAX_URLS: usize = 16;
+    if urls.len() > MAX_URLS {
+        return Err(format!("Too many URLs ({}, max {})", urls.len(), MAX_URLS));
+    }
+    Ok(crate::web::link_previews_impl(urls).await)
+}
+
 #[tauri::command]
 pub fn cancel_stream(state: State<AppState>) {
     if let Some(flag) = state.active_cancel.lock().unwrap().as_ref() {
@@ -488,6 +729,7 @@ pub async fn send_message(
         attachments,
         skills_context,
         historical_attachments,
+        enabled_skills,
     } = req;
 
     // Build content-block override for the provider call when files are attached.
@@ -545,10 +787,41 @@ pub async fn send_message(
     app.emit("user_message", &saved_user_msg)
         .map_err(|e| e.to_string())?;
 
+    // If targeting the enclosed local provider, spawn/swap its llama-server to the
+    // requested model first — this writes the live base_url into the provider row that
+    // the resolve block below reads.
+    {
+        let (prov_id, model_id) = {
+            let conn = state.conn.lock().unwrap();
+            let conv = conversations::find_by_id(&conn, &conversation_id)
+                .map_err(|e| e.to_string())?
+                .ok_or("Conversation not found")?;
+            (
+                req_provider_id.clone().unwrap_or(conv.provider_id),
+                req_model_id.clone().unwrap_or(conv.model_id),
+            )
+        };
+        if prov_id == crate::db::LOCAL_PROVIDER_ID {
+            crate::local::engine::ensure_model(&app, state.inner(), &model_id).await?;
+        }
+    }
+
+    // Read fresh per message so an edit made in an external editor applies without a restart.
+    let sys_prompt = crate::prompt::read(&app);
+
     // Collect everything needed before any async work (drop the lock)
-    let (sys_prompt, provider_type, base_url, api_key_ref, model_id, agent_mode, working_directory) = {
+    let (
+        resolved_provider_id,
+        provider_type,
+        base_url,
+        api_key_ref,
+        model_id,
+        agent_mode,
+        caveman_level,
+        is_local,
+        working_directory,
+    ) = {
         let conn = state.conn.lock().unwrap();
-        let s = settings::get_all(&conn).map_err(|e| e.to_string())?;
         let conv = conversations::find_by_id(&conn, &conversation_id)
             .map_err(|e| e.to_string())?
             .ok_or("Conversation not found")?;
@@ -557,13 +830,16 @@ pub async fn send_message(
         let provider = providers::find_by_id(&conn, &provider_id)
             .map_err(|e| e.to_string())?
             .ok_or("Provider not found")?;
+        let is_local = provider_id == crate::db::LOCAL_PROVIDER_ID;
         (
-            s.system_prompt,
+            provider_id,
             provider.r#type,
             provider.base_url,
             provider.api_key_ref,
             model_id,
             conv.agent_mode,
+            conv.caveman_level,
+            is_local,
             conv.working_directory,
         )
     };
@@ -588,11 +864,13 @@ pub async fn send_message(
             })
             .collect()
     };
-    for tool in crate::agent::web_tool_defs().into_iter().chain(crate::agent::google_tool_defs()) {
-        if !disabled.contains(&format!("builtin:{}", tool.name)) {
-            tools.push(tool);
-        }
-    }
+    let enabled_skill_ids = enabled_skills.unwrap_or_default();
+    tools.extend(optional_builtin_tools(
+        &app,
+        &state,
+        &disabled,
+        &enabled_skill_ids,
+    ));
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     *state.active_cancel.lock().unwrap() = Some(Arc::clone(&cancel_flag));
@@ -602,6 +880,24 @@ pub async fn send_message(
         Some(ctx) => ctx,
         None => sys_prompt,
     };
+    // Expand ${VARS} across system prompt + skills context in one pass, before the caveman block —
+    // that block is generated, not authored, so it has no vars to interpolate.
+    let effective_prompt = crate::vars::expand(
+        &effective_prompt,
+        &crate::vars::VarContext {
+            working_dir: working_directory.clone(),
+            provider_id: resolved_provider_id,
+            model_id: model_id.clone(),
+        },
+    );
+    let effective_prompt =
+        crate::caveman::append_to_prompt(effective_prompt, &caveman_level, is_local);
+    // Last block in the prompt: the footer's format has to outrank the style block above it,
+    // which compresses prose — a URL must survive verbatim.
+    let effective_prompt = crate::sources::append_to_prompt(
+        effective_prompt,
+        crate::sources::web_tools_available(tools.iter().map(|t| t.name.as_str())),
+    );
 
     // Build image blocks for the FIRST user message in history (from a prior turn's attachment).
     // This keeps images in context across follow-up messages without re-attaching.
@@ -747,6 +1043,45 @@ fn xml_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// The tools offered regardless of `agent_mode` — web and Google — minus the ones the user
+/// switched off in Tools, minus every Google tool with no connected account behind it.
+///
+/// `install_skill`/`delete_skill` are **not** here: they are claimed by `skill-manager`'s
+/// `tools.json` and arrive with the skill tools below, so they follow that skill's toggle.
+///
+/// Offering a Google tool the user never connected is not harmless: the model sees a real tool and
+/// tries it, and a weak one will invent an argument out of the schema's own example — the id in
+/// `read_contact`'s description is a literal `people/c12345678`. The call can then only ever come
+/// back "No account connected", so nothing is lost by withholding it.
+///
+/// Skill tools ride along here for the same reason: they are offered whatever the `agent_mode`,
+/// since they only ever hand back text. Unlike the rest they are not a fixed list — they come from
+/// whatever the enabled skills declare, so `disabled_tools` has no say over them; the skill's own
+/// toggle is the switch.
+fn optional_builtin_tools(
+    app: &AppHandle,
+    state: &AppState,
+    disabled: &[String],
+    enabled_skills: &[String],
+) -> Vec<ToolDef> {
+    let connected: Vec<String> = {
+        let conn = state.conn.lock().unwrap();
+        accounts::list(&conn)
+            .map(|accs| accs.into_iter().flat_map(|a| a.services).collect())
+            .unwrap_or_default()
+    };
+    crate::agent::web_tool_defs()
+        .into_iter()
+        .chain(crate::agent::google_tool_defs())
+        .filter(|t| !disabled.contains(&format!("builtin:{}", t.name)))
+        .filter(|t| match crate::agent::google_service_for(&t.name) {
+            Some(service) => connected.iter().any(|s| s == service),
+            None => true,
+        })
+        .chain(crate::skills::skill_tool_defs(app, enabled_skills))
+        .collect()
+}
+
 fn format_tool_description(name: &str, args: &Value) -> String {
     match name {
         "read_file" => format!("Read file: {}", args["path"].as_str().unwrap_or("?")),
@@ -754,6 +1089,26 @@ fn format_tool_description(name: &str, args: &Value) -> String {
         "edit_file" => format!("Edit file: {}", args["path"].as_str().unwrap_or("?")),
         "list_dir" => format!("List directory: {}", args["path"].as_str().unwrap_or(".")),
         "run_command" => format!("Run command: {}", args["command"].as_str().unwrap_or("?")),
+        "delete_skill" => format!(
+            "Delete skill '{}' and every file in its folder — this cannot be undone",
+            args["id"].as_str().unwrap_or("?")
+        ),
+        // Only ever prompted for when the payload bundles an mcp.json, so the command line it
+        // wants to run *is* the decision. Naming the skill alone would be asking the user to
+        // approve a process they cannot see.
+        "install_skill" => {
+            let id = args["id"].as_str().unwrap_or("?");
+            let detail =
+                serde_json::from_value::<Vec<crate::skills::IncomingFile>>(args["files"].clone())
+                    .ok()
+                    .and_then(|files| crate::skills::describe_payload_mcp(&files));
+            match detail {
+                Some(d) => format!(
+                    "Install skill '{id}', which bundles an MCP server Demido will run on your machine:\n{d}"
+                ),
+                None => format!("Install skill '{id}', which bundles an MCP server"),
+            }
+        }
         "search_files" => format!(
             "Search files: {} in {}",
             args["pattern"].as_str().unwrap_or("?"),
@@ -909,7 +1264,7 @@ async fn run_generation_loop(
         )
         .await;
 
-        let output = match output {
+        let mut output = match output {
             Ok(o) => o,
             Err(e) if e.to_string() == "cancelled" => {
                 let _ = app.emit("stream_status", serde_json::json!({ "label": null }));
@@ -921,6 +1276,21 @@ async fn run_generation_loop(
                 return Err(e.to_string());
             }
         };
+
+        if output.cancelled {
+            // Stop was pressed. Whatever arrived is kept — dropping it would throw away work the
+            // user watched being produced. Tool calls are the exception: their arguments may have
+            // been cut off mid-JSON, so they are discarded rather than executed. Clearing them
+            // routes this into the terminal save path below, which persists the partial content
+            // and thinking exactly as a natural finish would.
+            output.tool_calls.clear();
+            let _ = app.emit("stream_status", serde_json::json!({ "label": null }));
+            if output.content.trim().is_empty() && output.thinking.is_none() {
+                // Stopped before the model emitted anything worth keeping.
+                let _ = app.emit("stream_cancelled", ());
+                return Ok(());
+            }
+        }
 
         if output.tool_calls.is_empty() {
             if continuation_hint.is_some() {
@@ -992,6 +1362,16 @@ async fn run_generation_loop(
                 .map_err(|e| e.to_string())?;
         }
 
+        // Set once stop is observed. Every remaining tool call still runs through the loop body
+        // to record a result: the `__tool_calls__` message above is replayed to the provider as
+        // an assistant tool-calls turn (see `build_api_messages`), and a tool_use with no
+        // matching tool_result makes the whole conversation unsendable. So stopping writes a
+        // result saying the tool never ran, instead of leaving the pair half-finished.
+        let mut stopped = false;
+        const STOPPED_RESULT: &str =
+            "Stopped by the user before this tool ran. It had no effect. Do not retry it \
+             automatically — wait for the user's next instruction.";
+
         for tc in &output.tool_calls {
             app.emit(
                 "tool_call",
@@ -999,11 +1379,28 @@ async fn run_generation_loop(
             )
             .map_err(|e| e.to_string())?;
 
-            let result_content = if crate::agent::is_builtin(&tc.name) {
+            if cancel.load(Ordering::Relaxed) {
+                stopped = true;
+            }
+
+            let result_content = if stopped {
+                STOPPED_RESULT.to_string()
+            } else if crate::agent::is_builtin(&tc.name) {
                 use crate::agent::permissions::{is_permitted, PermissionResult};
                 const MUTATING_TOOLS: &[&str] = &["write_file", "edit_file", "run_command"];
                 if working_directory.is_none() && MUTATING_TOOLS.contains(&tc.name.as_str()) {
-                    "No working folder set. Set a working directory before using file or command tools.".to_string()
+                    // Addressed to the model: it cannot fix this itself. The old wording read as an
+                    // instruction, so models burned turns retrying `cd`/`Set-Location`, which can
+                    // never work — the working folder is a per-conversation setting only the user
+                    // sets, from the chat header.
+                    "No working folder is set for this conversation, so write_file, edit_file and \
+                     run_command are unavailable. You cannot set one yourself: cd/Set-Location will \
+                     not help, and retrying will fail the same way. Stop and ask the user to pick a \
+                     working folder with the folder button in the chat header. Reading (read_file, \
+                     list_dir, search_files) still works, and install_skill still works because it \
+                     only ever writes inside Demido's own skills folder — if you are installing a \
+                     skill, use that instead of asking for a working folder."
+                        .to_string()
                 } else {
                     let approved = match is_permitted(agent_mode, &tc.name, &tc.arguments) {
                         PermissionResult::Allow => true,
@@ -1020,22 +1417,23 @@ async fn run_generation_loop(
                             rx.await.unwrap_or(false)
                         }
                     };
+                    // Stop can land while the permission prompt is up, so re-check after the await.
                     if cancel.load(Ordering::Relaxed) {
-                        let _ = app.emit("stream_status", serde_json::json!({ "label": null }));
-                        let _ = app.emit("stream_cancelled", ());
-                        return Ok(());
-                    }
-                    if approved {
+                        stopped = true;
+                        STOPPED_RESULT.to_string()
+                    } else if approved {
                         let tool_name = tc.name.clone();
                         let tool_args = tc.arguments.clone();
                         let wd = working_directory.map(String::from);
                         let google_ctx = Some((Arc::clone(&state.conn), state.secrets.clone(), state.http_client.clone()));
+                        let app_handle = app.clone();
                         tokio::task::spawn_blocking(move || {
                             crate::agent::executor::execute_tool(
                                 &tool_name,
                                 &tool_args,
                                 wd.as_deref(),
                                 google_ctx,
+                                Some(app_handle),
                             )
                         })
                         .await
@@ -1053,7 +1451,46 @@ async fn run_generation_loop(
                         .map(|t| t.server_id)
                         .unwrap_or_default()
                 };
-                if server_id.is_empty() {
+                // A skill's server is gated by `agent_mode` unless its mcp.json asked to skip the
+                // gate. A hand-configured server stays ungated, as it always has been: the user
+                // typed that command line into Settings themselves. `None` = not a skill server.
+                let skill_gate = {
+                    let mcp = state.mcp.lock().unwrap();
+                    mcp.get_server(&server_id).and_then(|s| {
+                        s.skill_id.as_ref().filter(|_| !s.bypass_agent_mode).cloned()
+                    })
+                };
+                let mcp_approved = match skill_gate {
+                    None => true,
+                    Some(skill_id) => {
+                        use crate::agent::permissions::{is_permitted, PermissionResult};
+                        match is_permitted(agent_mode, &tc.name, &tc.arguments) {
+                            PermissionResult::Allow => true,
+                            PermissionResult::Ask => {
+                                let req = PermissionRequest {
+                                    tool_name: tc.name.clone(),
+                                    args: tc.arguments.clone(),
+                                    description: format!(
+                                        "Run '{}' from the \"{}\" skill's MCP server",
+                                        tc.name, skill_id
+                                    ),
+                                };
+                                app.emit("tool_permission_request", &req)
+                                    .map_err(|e| e.to_string())?;
+                                let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+                                *state.pending_permission.lock().unwrap() = Some(tx);
+                                rx.await.unwrap_or(false)
+                            }
+                        }
+                    }
+                };
+                // Stop can land while the permission prompt is up, so re-check after the await.
+                if cancel.load(Ordering::Relaxed) {
+                    stopped = true;
+                    STOPPED_RESULT.to_string()
+                } else if !mcp_approved {
+                    "Permission denied by user. Do not retry this action using alternative commands or methods.".to_string()
+                } else if server_id.is_empty() {
                     format!("Error: no MCP server found for tool '{}'", tc.name)
                 } else {
                     let client_arc = {
@@ -1095,6 +1532,28 @@ async fn run_generation_loop(
                 .map_err(|e| e.to_string())?;
             }
         }
+
+        if stopped {
+            // Don't loop back for another turn. Save this turn's text and thinking so the
+            // frontend has a real message to hang its stream blocks on — that is what keeps the
+            // thinking and the tool calls the user already watched from being wiped. The message
+            // is saved even when empty, because the blocks alone are worth keeping.
+            let _ = app.emit("stream_status", serde_json::json!({ "label": null }));
+            let saved = {
+                let conn = state.conn.lock().unwrap();
+                messages::insert(
+                    &conn,
+                    conversation_id,
+                    "assistant",
+                    &output.content,
+                    None,
+                    output.thinking.as_deref(),
+                )
+                .map_err(|e| e.to_string())?
+            };
+            app.emit("stream_done", &saved).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
     }
 }
 
@@ -1109,19 +1568,22 @@ pub async fn continue_generation(
     disabled_tools: Option<Vec<String>>,
     reasoning_effort: Option<String>,
     skills_context: Option<String>,
+    enabled_skills: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let sys_prompt = crate::prompt::read(&app);
     let (
-        sys_prompt,
+        resolved_provider_id,
         provider_type,
         base_url,
         api_key_ref,
         resolved_model_id,
         agent_mode,
+        caveman_level,
+        is_local,
         working_directory,
         last_assistant_tail,
     ) = {
         let conn = state.conn.lock().unwrap();
-        let s = settings::get_all(&conn).map_err(|e| e.to_string())?;
         let conv = conversations::find_by_id(&conn, &conversation_id)
             .map_err(|e| e.to_string())?
             .ok_or("Conversation not found")?;
@@ -1147,13 +1609,16 @@ pub async fn continue_generation(
                 content[start..].trim().to_string()
             })
             .unwrap_or_default();
+        let is_local = pid == crate::db::LOCAL_PROVIDER_ID;
         (
-            s.system_prompt,
+            pid,
             provider.r#type,
             provider.base_url,
             provider.api_key_ref,
             mid,
             conv.agent_mode,
+            conv.caveman_level,
+            is_local,
             conv.working_directory,
             tail,
         )
@@ -1185,11 +1650,13 @@ pub async fn continue_generation(
             })
             .collect()
     };
-    for tool in crate::agent::web_tool_defs().into_iter().chain(crate::agent::google_tool_defs()) {
-        if !disabled.contains(&format!("builtin:{}", tool.name)) {
-            tools.push(tool);
-        }
-    }
+    let enabled_skill_ids = enabled_skills.unwrap_or_default();
+    tools.extend(optional_builtin_tools(
+        &app,
+        &state,
+        &disabled,
+        &enabled_skill_ids,
+    ));
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     *state.active_cancel.lock().unwrap() = Some(Arc::clone(&cancel_flag));
@@ -1199,6 +1666,20 @@ pub async fn continue_generation(
         Some(ctx) => ctx,
         None => sys_prompt,
     };
+    let effective_prompt = crate::vars::expand(
+        &effective_prompt,
+        &crate::vars::VarContext {
+            working_dir: working_directory.clone(),
+            provider_id: resolved_provider_id,
+            model_id: resolved_model_id.clone(),
+        },
+    );
+    let effective_prompt =
+        crate::caveman::append_to_prompt(effective_prompt, &caveman_level, is_local);
+    let effective_prompt = crate::sources::append_to_prompt(
+        effective_prompt,
+        crate::sources::web_tools_available(tools.iter().map(|t| t.name.as_str())),
+    );
 
     let continuation_hint = if last_assistant_tail.is_empty() {
         "Please continue your previous response.".to_string()
@@ -1244,14 +1725,60 @@ pub fn list_mcp_servers(state: State<AppState>) -> Result<Vec<McpServer>, String
     db_mcp::list(&conn).map_err(|e| e.to_string())
 }
 
+/// Rebuild the MCP manager from both sources: the user's configured servers in the DB, and the
+/// enabled skills' `mcp.json` files.
+///
+/// One function because `load_servers` replaces the whole set — so anything that reloads for one
+/// source must re-supply the other, or saving an unrelated MCP setting would kill every skill's
+/// server until restart.
+fn reload_all_mcp_servers(
+    app: &AppHandle,
+    state: &AppState,
+    db_servers: Vec<McpServer>,
+) -> Result<(), String> {
+    let enabled = state.enabled_skills.lock().unwrap().clone();
+    let mut servers = db_servers;
+    servers.extend(crate::skills::skill_mcp_servers(app, &enabled));
+    let mut mcp = state.mcp.lock().unwrap();
+    mcp.load_servers(servers).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
-pub fn save_mcp_servers(state: State<AppState>, servers: Vec<McpServer>) -> Result<(), String> {
+pub fn save_mcp_servers(
+    app: AppHandle,
+    state: State<AppState>,
+    servers: Vec<McpServer>,
+) -> Result<(), String> {
     {
         let conn = state.conn.lock().unwrap();
         db_mcp::save_all(&conn, &servers).map_err(|e| e.to_string())?;
     }
-    let mut mcp = state.mcp.lock().unwrap();
-    mcp.load_servers(servers).map_err(|e| e.to_string())
+    reload_all_mcp_servers(&app, &state, servers)
+}
+
+/// Tell the backend which skills are on, and (re)spawn their MCP servers to match.
+///
+/// Called by the frontend when skills load and on every toggle, because the enabled set lives in
+/// `prefs.json` on that side. Spawning is the point: a skill's tools cannot be offered until its
+/// server is up and has answered `tools/list`.
+#[tauri::command]
+pub fn sync_skill_mcp_servers(
+    app: AppHandle,
+    state: State<AppState>,
+    enabled_skills: Vec<String>,
+) -> Result<(), String> {
+    {
+        let mut current = state.enabled_skills.lock().unwrap();
+        if *current == enabled_skills {
+            return Ok(());
+        }
+        *current = enabled_skills;
+    }
+    let db_servers = {
+        let conn = state.conn.lock().unwrap();
+        db_mcp::list(&conn).map_err(|e| e.to_string())?
+    };
+    reload_all_mcp_servers(&app, &state, db_servers)
 }
 
 #[tauri::command]
@@ -1261,17 +1788,23 @@ pub fn list_mcp_tools(state: State<AppState>) -> Result<Vec<McpTool>, String> {
 }
 
 #[tauri::command]
-pub fn test_mcp_server(server: McpServer) -> Result<usize, String> {
+pub async fn test_mcp_server(server: McpServer) -> Result<usize, String> {
     if server.transport != "stdio" {
         return Err("Only stdio transport is supported for testing".into());
     }
-    let cmd = server.command.as_deref().ok_or("Missing command")?;
-    let args = server.args.as_deref().unwrap_or(&[]);
-    let client = crate::mcp::stdio::StdioClient::spawn(cmd, args, server.env.as_ref())
-        .map_err(|e| e.to_string())?;
-    client.initialize().map_err(|e| e.to_string())?;
-    let tools = client.list_tools().map_err(|e| e.to_string())?;
-    Ok(tools.len())
+    // Spawning the server and waiting on its handshake blocks; a sync command would
+    // run it on the main thread and hang the window.
+    tauri::async_runtime::spawn_blocking(move || {
+        let cmd = server.command.as_deref().ok_or("Missing command")?;
+        let args = server.args.as_deref().unwrap_or(&[]);
+        let client = crate::mcp::stdio::StdioClient::spawn(cmd, args, server.env.as_ref())
+            .map_err(|e| e.to_string())?;
+        client.initialize().map_err(|e| e.to_string())?;
+        let tools = client.list_tools().map_err(|e| e.to_string())?;
+        Ok(tools.len())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1371,6 +1904,19 @@ pub fn set_agent_mode(
     }
     let conn = state.conn.lock().unwrap();
     conversations::set_agent_mode(&conn, &conversation_id, &mode).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_caveman_level(
+    state: State<AppState>,
+    conversation_id: String,
+    level: String,
+) -> Result<(), String> {
+    if !crate::caveman::is_valid_level(&level) {
+        return Err(format!("Invalid caveman level: {}", level));
+    }
+    let conn = state.conn.lock().unwrap();
+    conversations::set_caveman_level(&conn, &conversation_id, &level).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1855,7 +2401,7 @@ pub async fn initiate_google_oauth(
     let challenge_hash = Sha256::digest(code_verifier.as_bytes());
     let code_challenge = URL_SAFE_NO_PAD.encode(challenge_hash);
 
-    let scopes = "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts";
+    let scopes = "openid email profile https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts";
     let mut state_bytes = [0u8; 16];
     getrandom::getrandom(&mut state_bytes).map_err(|e| format!("CSPRNG error: {}", e))?;
     let state_param: String = state_bytes.iter().map(|b| format!("{:02x}", b)).collect();
@@ -2220,6 +2766,31 @@ pub async fn get_email_body(
     let (client_id, client_secret) = get_google_creds(&state)?;
     crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
     crate::google_apis::get_email_body(&state.http_client, &account.access_token, &id, true).await
+}
+
+#[tauri::command]
+pub async fn trash_email(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let account = resolve_google_account(&state, "email")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::trash_message(&state.http_client, &account.access_token, &id).await
+}
+
+#[tauri::command]
+pub async fn set_email_read(
+    state: State<'_, AppState>,
+    id: String,
+    read: bool,
+) -> Result<(), String> {
+    let account = resolve_google_account(&state, "email")?;
+    let mut account = account;
+    let (client_id, client_secret) = get_google_creds(&state)?;
+    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::set_message_read(&state.http_client, &account.access_token, &id, read).await
 }
 
 fn resolve_google_account(state: &AppState, service: &str) -> Result<accounts::Account, String> {

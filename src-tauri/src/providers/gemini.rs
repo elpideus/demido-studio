@@ -2,12 +2,13 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::AtomicBool,
     Arc,
 };
 use tauri::{AppHandle, Emitter};
 
 use super::{ChatMessage, StreamOutput, ToolCall, ToolDef};
+use crate::streaming::Chunk;
 
 /// Recursively remove fields unsupported by Gemini's schema (e.g. `additionalProperties`).
 fn strip_unsupported_schema_fields(v: Value) -> Value {
@@ -92,7 +93,7 @@ pub async fn list_model_capabilities(
     client: &reqwest::Client,
     base_url: &str,
     api_key: Option<&str>,
-) -> Result<HashMap<String, super::openai_compat::ModelCaps>> {
+) -> Result<HashMap<String, crate::caps::PartialCaps>> {
     let json = fetch_models_json(client, base_url, api_key).await?;
     let caps = json["models"]
         .as_array()
@@ -117,26 +118,16 @@ pub async fn list_model_capabilities(
                         .trim_start_matches("models/")
                         .to_string();
 
-                    // Reasoning: use the explicit API field — no heuristics needed.
-                    let reasoning = m["thinking"].as_bool().unwrap_or(false);
-
-                    // Audio/music generation models don't accept image input or function calls.
-                    // Detect them by model id prefix/suffix rather than version number.
-                    let is_audio_gen = id.contains("tts") || id.contains("lyria");
-                    let is_embedding = id.contains("embedding");
-
-                    // All non-audio, non-embedding generateContent models support multimodal vision.
-                    let vision = !is_audio_gen && !is_embedding;
-
-                    // Tool/function calling: same exclusions as vision.
-                    let tools = !is_audio_gen && !is_embedding;
-
+                    // `thinking` is the only capability the list API states outright. It says
+                    // nothing about image input or function calling, so those stay None and
+                    // models.dev answers them — it knows, for instance, that the *-image and
+                    // *-tts models don't do tool calls.
                     Some((
                         id,
-                        super::openai_compat::ModelCaps {
-                            vision,
-                            tools,
-                            reasoning,
+                        crate::caps::PartialCaps {
+                            vision: None,
+                            tools: None,
+                            reasoning: m["thinking"].as_bool(),
                         },
                     ))
                 })
@@ -322,10 +313,17 @@ pub async fn stream_chat(
     let mut full_thinking = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
 
-    while let Some(data) = reader.next_data().await? {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(anyhow!("cancelled"));
-        }
+    let mut cancelled = false;
+
+    loop {
+        let data = match reader.next_data_cancellable(cancel).await? {
+            Chunk::Data(d) => d,
+            Chunk::End => break,
+            Chunk::Cancelled => {
+                cancelled = true;
+                break;
+            }
+        };
         if data == "[DONE]" {
             break;
         }
@@ -383,6 +381,7 @@ pub async fn stream_chat(
         } else {
             Some(full_thinking)
         },
+        cancelled,
     })
 }
 

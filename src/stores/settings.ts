@@ -12,7 +12,6 @@ interface SettingsStore {
 const defaults: AppSettings = {
   default_provider_id: '',
   default_model_id: '',
-  system_prompt: '',
   auth_enabled: false,
   context_window_limit: 8192,
   task_provider_id: '',

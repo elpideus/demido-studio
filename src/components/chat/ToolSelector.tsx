@@ -2,13 +2,18 @@ import { useState, useRef, useEffect } from 'react'
 import { Wrench } from 'lucide-react'
 import { useMcpTools } from '../../stores/mcpTools'
 import { useSkills } from '../../stores/skills'
+import { useBuiltinTools } from '../../stores/builtinTools'
 import { ToolSelectorPopup } from './ToolSelectorPopup'
 
 export function ToolSelector() {
   const [open, setOpen] = useState(false)
   const enabledTools = useMcpTools(s => s.enabledTools)
   const skills = useSkills(s => s.skills)
-  const activeCount = enabledTools().length + skills.filter(s => s.enabled).length
+  const builtins = useBuiltinTools(s => s.tools)
+  const activeCount =
+    enabledTools().length +
+    skills.filter(s => s.enabled).length +
+    builtins.filter(t => t.enabled).length
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -36,7 +41,7 @@ export function ToolSelector() {
       >
         <Wrench size={13} className={activeCount > 0 ? 'text-primary' : 'text-muted-foreground'} />
         {activeCount > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-primary rounded-full text-[8px] text-white flex items-center justify-center leading-none">
+          <span className="absolute -top-1.5 -right-1.5 min-w-3.5 h-3.5 px-0.5 bg-primary rounded-full text-[8px] text-white flex items-center justify-center leading-none">
             {activeCount}
           </span>
         )}

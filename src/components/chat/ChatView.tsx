@@ -3,6 +3,10 @@ import { ChatHeader } from './ChatHeader'
 import { MessageList } from './MessageList'
 import { InputBar } from './InputBar'
 import { ModelSelector } from './ModelSelector'
+import { CavemanSelector } from './CavemanSelector'
+import { AgentModeSelector } from './AgentModeSelector'
+import { WorkingFolderButton } from './WorkingFolderButton'
+import { SourcesPanel } from './SourcesPanel'
 import { useConversations } from '../../stores/conversations'
 import { useMessages } from '../../stores/messages'
 import { useProviders } from '../../stores/providers'
@@ -139,24 +143,37 @@ function ConstellationCanvas({ zoneRef }: { zoneRef: React.RefObject<HTMLDivElem
 
 function EmptyState() {
   const zoneRef = useRef<HTMLDivElement>(null)
+  const pendingCavemanLevel = useConversations(s => s.pendingCavemanLevel)
+  const pendingAgentMode = useConversations(s => s.pendingAgentMode)
+  const setPendingCavemanLevel = useConversations(s => s.setPendingCavemanLevel)
+  const setPendingAgentMode = useConversations(s => s.setPendingAgentMode)
+  const pendingWorkingDirectory = useConversations(s => s.pendingWorkingDirectory)
+  const setPendingWorkingDirectory = useConversations(s => s.setPendingWorkingDirectory)
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
       <ConstellationCanvas zoneRef={zoneRef} />
-      {/* Narrow drag region at top — keeps window draggable without blocking model selector dropdown */}
+      {/* Narrow drag region at top: keeps window draggable without blocking model selector dropdown */}
       <div data-tauri-drag-region className="h-10 shrink-0 relative z-10" />
-      <div className="flex-1 relative z-10" />
+      <div className="flex-1 relative z-10 pointer-events-none" />
       <div ref={zoneRef} className="flex flex-col items-center w-full max-w-xl self-center px-4 pb-4 relative z-10">
         <h1 className="text-2xl font-semibold text-foreground mb-3 select-none">
           What do you want to do?
         </h1>
-        <div className="mb-5">
+        <div className="mb-5 flex flex-col items-center gap-2">
           <ModelSelector />
+          <div className="flex items-center gap-2">
+            <CavemanSelector value={pendingCavemanLevel} onChange={setPendingCavemanLevel} align="left" />
+            <AgentModeSelector value={pendingAgentMode} onChange={setPendingAgentMode} align="left" />
+            {pendingAgentMode !== 'off' && (
+              <WorkingFolderButton value={pendingWorkingDirectory} onChange={setPendingWorkingDirectory} />
+            )}
+          </div>
         </div>
         <div className="w-full max-w-xl">
           <InputBar />
         </div>
       </div>
-      <div className="flex-1 relative z-10" />
+      <div className="flex-1 relative z-10 pointer-events-none" />
     </div>
   )
 }
@@ -185,7 +202,7 @@ export function ChatView() {
       if (alive) {
         unlisten = fn
       } else {
-        fn() // effect already cleaned up — unlisten immediately
+        fn() // effect already cleaned up, unlisten immediately
       }
     })
 
@@ -202,8 +219,13 @@ export function ChatView() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <ChatHeader />
-      <MessageList />
-      <InputBar />
+      {/* Positioning context for the sources panel: it floats over the messages but must start
+          below the header, so it anchors here rather than to the window. */}
+      <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative">
+        <MessageList />
+        <InputBar />
+        <SourcesPanel />
+      </div>
     </div>
   )
 }

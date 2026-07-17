@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { MessageSquare, Wrench, ChevronRight, Zap } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { cn } from '../../lib/utils'
@@ -9,6 +9,13 @@ import { ResolvedBadge, PendingBubble } from './PermissionBubble'
 
 function ThinkingRow({ block }: { block: ThinkingBlock }) {
   const [open, setOpen] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (open && !block.done && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+    }
+  }, [open, block.done, block.content])
 
   const preview = block.content
     ? block.content.split('\n').find(l => l.trim()) ?? 'Thinking'
@@ -17,8 +24,8 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
   return (
     <div className="flex flex-col">
       <div
-        className={cn('flex items-center gap-2 py-[5px] pr-1', block.done && 'cursor-pointer')}
-        onClick={() => block.done && setOpen(o => !o)}
+        className="flex items-center gap-2 py-[5px] pr-1 cursor-pointer"
+        onClick={() => setOpen(o => !o)}
       >
         <div className="w-[18px] h-[18px] flex items-center justify-center rounded bg-secondary border border-border shrink-0">
           <MessageSquare size={9} className="text-muted-foreground/60" />
@@ -37,17 +44,19 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
           <span className="text-[11px] text-muted-foreground/60 flex-1 truncate">{open ? 'Thinking' : preview}</span>
         )}
 
-        {block.done && (
-          <ChevronRight
-            size={10}
-            className={cn('text-[var(--accent)] shrink-0 transition-transform', open && 'rotate-90')}
-          />
-        )}
+        <ChevronRight
+          size={10}
+          className={cn('text-[var(--accent)] shrink-0 transition-transform', open && 'rotate-90')}
+        />
       </div>
 
-      {open && block.done && (
+      {open && block.content && (
         <div
-          className="ml-[26px] mb-[6px] px-3 py-2.5 bg-background border border-[var(--secondary)] rounded-lg text-[11px] text-muted-foreground/70 leading-relaxed"
+          ref={bodyRef}
+          className={cn(
+            'ml-[26px] mb-[6px] px-3 py-2.5 bg-background border border-[var(--secondary)] rounded-lg text-[11px] text-muted-foreground/70 leading-relaxed',
+            !block.done && 'max-h-48 overflow-y-auto'
+          )}
           style={{
             '--tw-prose-body': '#6b6b88',
             '--tw-prose-bold': '#6b6b88',

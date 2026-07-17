@@ -4,11 +4,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Demido Studio — Material-inspired dark theme (#171717 base) */
+/* Demido Studio: Material-inspired dark theme (#171717 base) */
 :root {
   /* #171717 */
   --background: oklch(0.14 0 0);
-  --foreground: oklch(0.91 0 0);          /* #E3E3E3 — off-white, easy on eyes */
+  --foreground: oklch(0.91 0 0);          /* #E3E3E3, off-white, easy on eyes */
 
   /* #1E1E1E */
   --card: oklch(0.18 0 0);
@@ -18,7 +18,7 @@
   --popover: oklch(0.22 0 0);
   --popover-foreground: oklch(0.91 0 0);
 
-  /* Material pastel green — #81C995 */
+  /* Material pastel green: #81C995 */
   --primary: oklch(0.77 0.12 152);
   --primary-foreground: oklch(0.14 0 0);
 
@@ -28,7 +28,7 @@
 
   /* #1E1E1E */
   --muted: oklch(0.18 0 0);
-  /* #9AA0A6 — Google cool grey */
+  /* #9AA0A6, Google cool grey */
   --muted-foreground: oklch(0.65 0.008 230);
 
   /* #2A2A2A */

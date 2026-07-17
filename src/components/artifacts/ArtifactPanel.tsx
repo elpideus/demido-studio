@@ -5,7 +5,7 @@ import 'react-pdf/dist/Page/TextLayer.css'
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 import hljs from 'highlight.js'
-import { X, Copy, Download, Eye, Code, ChevronLeft, ChevronRight, Pencil, Check, List, GitFork } from 'lucide-react'
+import { X, Copy, Download, Eye, Code, ChevronLeft, ChevronRight, Pencil, Check, List, GitFork, ExternalLink, Columns2 } from 'lucide-react'
 import * as fileIconsJs from 'file-icons-js'
 import 'file-icons-js/css/style.css'
 import { JsonTreeViewer } from './JsonTreeViewer'
@@ -15,19 +15,22 @@ import { MermaidBlock } from '../chat/MermaidBlock'
 import { Button } from '@/components/ui/button'
 import { fs } from '../../lib/tauri'
 import { useArtifacts } from '../../stores/artifacts'
+import { useWindowManager } from '../../stores/windowManager'
 import { useMessages } from '../../stores/messages'
 import { getExtension, parseArtifacts } from '../../lib/parseArtifacts'
 import { cn } from '../../lib/utils'
 import { TOOL_CALLS_CONTENT_PREFIX } from '../../lib/constants'
 import type { Artifact } from '../../types'
 
-export function ArtifactPanel({ width, isDragging }: { width: number; isDragging?: boolean }) {
-  const { activeArtifact, setActive } = useArtifacts()
+export function ArtifactPanel({ width, isDragging, windowed }: { width?: number; isDragging?: boolean; windowed?: boolean }) {
+  const { activeArtifact, setActive, setPoppedOut, skillSession, selectSkillFile, saveSkillFile } = useArtifacts()
+  const { openWindow } = useWindowManager()
   const messages = useMessages(s => s.messages)
   const updateMessage = useMessages(s => s.updateMessage)
   const [preview, setPreview] = useState(true)
   const [jsonMode, setJsonMode] = useState<'tree' | 'graph' | 'source'>('tree')
   const [editing, setEditing] = useState(false)
+  const [split, setSplit] = useState(false)
   const [editedContent, setEditedContent] = useState('')
   const [numPages, setNumPages] = useState(0)
   const preRef = useRef<HTMLPreElement>(null)
@@ -58,7 +61,17 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
     [versions, activeArtifact]
   )
 
-  useEffect(() => { setPreview(true); setEditing(false); setEditedContent(''); setJsonMode('tree') }, [activeArtifact?.id])
+  // Markdown/HTML open split in the detached window — the pane reads `editedContent`, so it
+  // has to start seeded rather than empty.
+  useEffect(() => {
+    const type = activeArtifact?.type ?? ''
+    const splittable = !!windowed && (type === 'html' || type === 'markdown' || type === 'md')
+    setPreview(true)
+    setEditing(false)
+    setSplit(splittable)
+    setEditedContent(splittable ? activeArtifact?.content ?? '' : '')
+    setJsonMode('tree')
+  }, [activeArtifact?.id, windowed])
 
   // Auto-switch to newest version when a new one arrives
   useEffect(() => {
@@ -71,7 +84,8 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
   if (!activeArtifact) return null
 
   const { type, title, content: originalContent } = activeArtifact
-  const content = editedContent || originalContent
+  // While a pane is open the textarea is the source of truth, so clearing it clears the preview.
+  const content = editing || split ? editedContent : editedContent || originalContent
   const isHtml = type === 'html'
   const isMd = type === 'markdown' || type === 'md'
   const isPdf = type === 'pdf'
@@ -79,6 +93,17 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
   const isMermaid = type === 'mermaid'
   const isLatex = type === 'latex' || type === 'tex'
   const canPreview = isHtml || isMd || isMermaid || isLatex
+
+  /** Write edits back where the artifact came from: a skill file on disk, or the message. */
+  const persist = (next: string) => {
+    if (!next || next === originalContent) return
+    if (skillSession) {
+      void saveSkillFile(title, next)
+      return
+    }
+    const msg = messages.find(m => m.id === activeArtifact?.messageId)
+    if (msg) updateMessage(msg.id, msg.content.replace(originalContent, next))
+  }
 
   const handleCopy = () => {
     if (isPdf) {
@@ -108,30 +133,111 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
   }
 
   const highlighted = useMemo(() => {
-    if (!editing) return ''
+    if (!editing && !split) return ''
     try {
       return hljs.highlight(editedContent, { language: type }).value
     } catch {
       return hljs.highlightAuto(editedContent).value
     }
-  }, [editing, editedContent, type])
+  }, [editing, split, editedContent, type])
 
   const hasVersions = versions.length > 1
+  const canSplit = windowed && (isHtml || isMd)
+
+  const editorPane = (
+    <div className="relative w-full h-full">
+      <pre
+        ref={preRef}
+        className={cn(
+          'hljs absolute inset-0 m-0 p-4 text-sm font-mono whitespace-pre-wrap break-words overflow-hidden pointer-events-none rounded-none',
+          // index.css forces `.hljs` to --secondary with !important, so this has to shout back.
+          split ? '!bg-[#171717]' : 'bg-background',
+        )}
+        dangerouslySetInnerHTML={{ __html: highlighted + '\n' }}
+      />
+      <textarea
+        ref={textareaRef}
+        className="absolute inset-0 w-full h-full p-4 text-sm font-mono bg-transparent text-transparent caret-white resize-none outline-none border-0"
+        value={editedContent}
+        onChange={e => setEditedContent(e.target.value)}
+        onScroll={e => {
+          if (preRef.current) preRef.current.scrollTop = e.currentTarget.scrollTop
+        }}
+        spellCheck={false}
+      />
+    </div>
+  )
+
+  const previewPane = isHtml ? (
+    <div className="relative w-full h-full">
+      <iframe srcDoc={content} className="w-full h-full border-0" sandbox="allow-scripts" title={title} />
+      {isDragging && <div className="absolute inset-0" />}
+    </div>
+  ) : (
+    <div className="p-4 prose prose-invert prose-sm max-w-none">
+      <MarkdownRenderer>{content}</MarkdownRenderer>
+    </div>
+  )
 
   return (
-    <div className="flex flex-col bg-background overflow-hidden relative" style={{ flex: `0 0 ${width}px`, minWidth: 0 }}>
-      {/* Header — title and file info only */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0 pr-12">
-        {(() => { const cls = fileIconsJs.getClassWithColor(`artifact${getExtension(type)}`); return cls ? <span className={cls} style={{ fontSize: 13, lineHeight: 1, display: 'inline-block', width: 13 }} /> : null })()}
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
-          {type}
-        </span>
-        <span className="flex-1 text-sm font-medium truncate">{title}</span>
-      </div>
+    <div
+      className="flex bg-background overflow-hidden relative h-full"
+      style={windowed ? { width: '100%', minWidth: 0 } : { flex: `0 0 ${width}px`, minWidth: 0 }}
+    >
+      {windowed && skillSession && skillSession.files.length > 1 && (
+        <div className="w-44 flex flex-col py-2 gap-0.5 border-r border-border/50 bg-[#1b1b1b] shrink-0 overflow-y-auto">
+          <p className="px-3 pb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70 truncate" title={skillSession.skillName}>
+            {skillSession.skillName}
+          </p>
+          {skillSession.files.map(f => (
+            <button
+              key={f.name}
+              onClick={() => selectSkillFile(f.name)}
+              title={f.name}
+              className={`mx-1.5 px-2 py-1.5 rounded-md text-left text-xs truncate transition-colors ${
+                f.name === skillSession.activeFile
+                  ? 'text-foreground bg-accent'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
+              }`}
+            >
+              {f.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {windowed && !skillSession && hasVersions && (
+        <div className="w-12 flex flex-col items-center py-2 gap-1.5 border-r border-border/50 bg-[#1b1b1b] shrink-0 overflow-y-auto">
+          {versions.map((v, i) => (
+            <button
+              key={v.id}
+              onClick={() => setActive(v)}
+              title={`Version ${i + 1}`}
+              className={`w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-xs font-medium transition-colors ${
+                v.id === activeArtifact.id
+                  ? 'text-foreground bg-accent'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-col flex-1 min-w-0 relative">
+      {/* Docked only — the detached window shows this in its title bar instead. */}
+      {!windowed && (
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0 pr-12">
+          {(() => { const cls = fileIconsJs.getClassWithColor(`artifact${getExtension(type)}`); return cls ? <span className={cls} style={{ fontSize: 13, lineHeight: 1, display: 'inline-block', width: 13 }} /> : null })()}
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
+            {type}
+          </span>
+          <span className="flex-1 text-sm font-medium truncate">{title}</span>
+        </div>
+      )}
 
-      {/* Floating action buttons — positioned below window controls */}
+      {/* Floating action buttons, positioned below window controls */}
       <div className="absolute right-2 top-12 z-20 flex flex-col items-center gap-1 p-1.5 rounded-lg" style={{ background: '#171717', border: '1px solid rgba(255,255,255,0.06)' }}>
-        {hasVersions && (
+        {hasVersions && !windowed && (
           <div className="flex flex-col items-center gap-0.5 pb-1 mb-0.5 border-b border-white/10">
             <Button
               variant="ghost"
@@ -158,22 +264,47 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
             </Button>
           </div>
         )}
-        {!isPdf && <Button
+        {!isPdf && !split && <Button
           variant="ghost"
           size="icon-xs"
           title={editing ? 'Save' : 'Edit'}
           onClick={() => {
-            if (editing && editedContent && editedContent !== originalContent) {
-              const msg = messages.find(m => m.id === activeArtifact?.messageId)
-              if (msg) updateMessage(msg.id, msg.content.replace(originalContent, editedContent))
-            }
-            if (!editing) setEditedContent(editedContent || originalContent)
+            if (editing) persist(editedContent)
+            else setEditedContent(editedContent || originalContent)
             setEditing(e => !e)
           }}
           className={cn('text-muted-foreground', editing && 'text-foreground')}
         >
           {editing ? <Check size={13} /> : <Pencil size={13} />}
         </Button>}
+        {canSplit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title={split ? 'Leave split view' : 'Split view: edit left, preview right'}
+              onClick={() => {
+                if (split) persist(editedContent)
+                else { setEditedContent(editedContent || originalContent); setEditing(false) }
+                setSplit(s => !s)
+              }}
+              className={cn('text-muted-foreground', split && 'text-foreground')}
+            >
+              <Columns2 size={13} />
+            </Button>
+            {split && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title="Save"
+                onClick={() => persist(editedContent)}
+                className="text-muted-foreground"
+              >
+                <Check size={13} />
+              </Button>
+            )}
+          </>
+        )}
         {isJson && !editing && (
           <>
             <Button
@@ -205,7 +336,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
             </Button>
           </>
         )}
-        {canPreview && !editing && (
+        {canPreview && !editing && !split && (
           <Button
             variant="ghost"
             size="icon-xs"
@@ -216,6 +347,20 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
             {preview ? <Code size={13} /> : <Eye size={13} />}
           </Button>
         )}
+        {!windowed && <Button
+          variant="ghost"
+          size="icon-xs"
+          title="Open in window"
+          onClick={() => {
+            openWindow('artifact-viewer', 'artifact-viewer', title, {
+              initialSize: { width: Math.round(window.innerWidth * 0.92), height: Math.round(window.innerHeight * 0.92) },
+            })
+            setPoppedOut(true)
+          }}
+          className="text-muted-foreground"
+        >
+          <ExternalLink size={13} />
+        </Button>}
         <Button variant="ghost" size="icon-xs" title="Copy" onClick={handleCopy} className="text-muted-foreground">
           <Copy size={13} />
         </Button>
@@ -232,37 +377,19 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
         {isPdf ? (
           <Document file={content} onLoadSuccess={onDocumentLoad} className="flex flex-col items-center gap-2 p-4">
             {Array.from({ length: numPages }, (_, i) => (
-              <Page key={i + 1} pageNumber={i + 1} width={Math.max(width - 32, 200)} renderTextLayer renderAnnotationLayer />
+              <Page key={i + 1} pageNumber={i + 1} width={Math.max((width ?? 600) - 32, 200)} renderTextLayer renderAnnotationLayer />
             ))}
           </Document>
+        ) : split ? (
+          <div className="absolute inset-0 flex">
+            <div className="flex-1 min-w-0 border-r border-border">{editorPane}</div>
+            {/* Preview reads `content`, which follows the textarea — so it tracks every keystroke. */}
+            <div className="flex-1 min-w-0 overflow-auto">{previewPane}</div>
+          </div>
         ) : editing ? (
-          <div className="relative w-full h-full">
-            <pre
-              ref={preRef}
-              className="hljs absolute inset-0 m-0 p-4 text-sm font-mono whitespace-pre-wrap break-words overflow-hidden pointer-events-none rounded-none bg-background"
-              dangerouslySetInnerHTML={{ __html: highlighted + '\n' }}
-            />
-            <textarea
-              ref={textareaRef}
-              className="absolute inset-0 w-full h-full p-4 text-sm font-mono bg-transparent text-transparent caret-white resize-none outline-none border-0"
-              value={editedContent}
-              onChange={e => setEditedContent(e.target.value)}
-              onScroll={e => {
-                if (preRef.current) preRef.current.scrollTop = e.currentTarget.scrollTop
-              }}
-              spellCheck={false}
-            />
-          </div>
+          editorPane
         ) : isHtml && preview ? (
-          <div className="relative w-full h-full">
-            <iframe
-              srcDoc={content}
-              className="w-full h-full border-0"
-              sandbox="allow-scripts"
-              title={title}
-            />
-            {isDragging && <div className="absolute inset-0" />}
-          </div>
+          previewPane
         ) : isMermaid && preview ? (
           <div className="w-full h-full" style={{ backgroundImage: 'radial-gradient(circle, #ffffff18 1px, transparent 1px)', backgroundSize: '32px 32px' }}>
             <MermaidBlock code={content} className="relative w-full h-full overflow-hidden group select-none" />
@@ -272,9 +399,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
             <MarkdownRenderer>{`$$\n${content}\n$$`}</MarkdownRenderer>
           </div>
         ) : isMd && preview ? (
-          <div className="p-4 prose prose-invert prose-sm max-w-none">
-            <MarkdownRenderer>{content}</MarkdownRenderer>
-          </div>
+          previewPane
         ) : isMd ? (
           <div className="p-4 text-sm font-mono">
             <pre className="whitespace-pre-wrap break-words text-foreground/80">{content}</pre>
@@ -290,6 +415,7 @@ export function ArtifactPanel({ width, isDragging }: { width: number; isDragging
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

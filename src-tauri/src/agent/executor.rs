@@ -2,6 +2,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tauri::Manager;
 use walkdir::WalkDir;
 
 fn resolve_path(path_str: &str, working_dir: Option<&str>) -> PathBuf {
@@ -17,13 +18,42 @@ fn resolve_path(path_str: &str, working_dir: Option<&str>) -> PathBuf {
 
 pub type GoogleCtx = (Arc<Mutex<rusqlite::Connection>>, crate::secrets::Secrets, reqwest::Client);
 
-pub fn execute_tool(name: &str, args: &Value, working_dir: Option<&str>, google_ctx: Option<GoogleCtx>) -> String {
+pub fn execute_tool(
+    name: &str,
+    args: &Value,
+    working_dir: Option<&str>,
+    google_ctx: Option<GoogleCtx>,
+    app: Option<tauri::AppHandle>,
+) -> String {
     match name {
         "read_file" => {
             let path = resolve_path(args["path"].as_str().unwrap_or(""), working_dir);
             match std::fs::read_to_string(&path) {
                 Ok(content) => content,
                 Err(e) => format!("Error reading {}: {}", path.display(), e),
+            }
+        }
+        "install_skill" => {
+            let Some(app) = app.as_ref() else {
+                return "Error: install_skill is unavailable in this context.".to_string();
+            };
+            let id = args["id"].as_str().unwrap_or("");
+            match serde_json::from_value::<Vec<crate::skills::IncomingFile>>(args["files"].clone()) {
+                Ok(files) => match crate::skills::install_skill(app, id, &files) {
+                    Ok(msg) => msg,
+                    Err(e) => format!("Error installing skill: {e}"),
+                },
+                Err(e) => format!("Error: 'files' must be an array of {{path, content}}: {e}"),
+            }
+        }
+        "delete_skill" => {
+            let Some(app) = app.as_ref() else {
+                return "Error: delete_skill is unavailable in this context.".to_string();
+            };
+            let id = args["id"].as_str().unwrap_or("");
+            match crate::skills::delete_skill(app.clone(), id.to_string()) {
+                Ok(()) => format!("Deleted skill '{id}'."),
+                Err(e) => format!("Error deleting skill: {e}"),
             }
         }
         "write_file" => {
@@ -196,13 +226,53 @@ pub fn execute_tool(name: &str, args: &Value, working_dir: Option<&str>, google_
         "web_search" => {
             let query = args["query"].as_str().unwrap_or("").to_string();
             let page = args["page"].as_u64().unwrap_or(0);
+            let secrets = google_ctx.as_ref().map(|(_, s, _)| s.clone());
+            let exa_key = secrets.as_ref().and_then(|s| s.get("exa_api_key").ok().flatten());
+            let parallel_key = secrets.as_ref().and_then(|s| s.get("parallel_api_key").ok().flatten());
+
+            // The user's provider order, filtered to the ones they left enabled.
+            let order = match google_ctx.as_ref() {
+                Some((conn_arc, _, _)) => {
+                    let conn = conn_arc.lock().unwrap();
+                    let stored = crate::db::settings::get(&conn, "websearch_order").ok().flatten();
+                    crate::web::parse_order(stored.as_deref())
+                        .into_iter()
+                        .filter(|p| {
+                            crate::db::settings::get(&conn, p.toggle_key())
+                                .ok()
+                                .flatten()
+                                .map(|v| v == "true")
+                                .unwrap_or_else(|| p.default_enabled())
+                        })
+                        .collect::<Vec<_>>()
+                }
+                None => crate::web::DEFAULT_ORDER
+                    .into_iter()
+                    .filter(|p| p.default_enabled())
+                    .collect::<Vec<_>>(),
+            };
+            let searxng_engine = app.as_ref().and_then(|a| {
+                a.try_state::<crate::commands::AppState>().map(|s| s.searxng_engine.clone())
+            });
+
             let handle = tokio::runtime::Handle::current();
-            handle.block_on(crate::web::web_search_impl(&query, page))
+            // The sources reminder rides the result, not just the system prompt — see sources.rs.
+            crate::sources::append_to_web_result(handle.block_on(crate::web::web_search_impl(
+                &query,
+                page,
+                exa_key.as_deref(),
+                parallel_key.as_deref(),
+                searxng_engine.as_ref(),
+                &order,
+            )))
         }
         "web_fetch" => {
             let url = args["url"].as_str().unwrap_or("").to_string();
+            let format = args["format"].as_str().unwrap_or("markdown").to_string();
             let handle = tokio::runtime::Handle::current();
-            handle.block_on(crate::web::web_fetch_impl(&url))
+            crate::sources::append_to_web_result(
+                handle.block_on(crate::web::web_fetch_impl(&url, &format)),
+            )
         }
         "list_emails" | "read_email" | "list_calendar_events" | "list_contacts" | "read_contact" => {
             match google_ctx {
@@ -215,6 +285,12 @@ pub fn execute_tool(name: &str, args: &Value, working_dir: Option<&str>, google_
                 None => "Google tools require app state (internal error)".into(),
             }
         }
+        // Skill-declared tools: the result is the skill's own prompt body with this call's
+        // arguments substituted in. Matched last so a skill can never shadow a real tool.
+        _ if crate::skills::is_skill_tool(name) => match app.as_ref() {
+            Some(app) => crate::skills::run_skill_tool(app, name, args),
+            None => "Error: skill tools are unavailable in this context.".to_string(),
+        },
         _ => format!("Unknown built-in tool: {}", name),
     }
 }
@@ -227,11 +303,8 @@ async fn run_google_tool(
     use crate::google_apis;
     let (conn_arc, secrets, http_client) = ctx;
 
-    let service = match name {
-        "list_emails" | "read_email" => "email",
-        "list_calendar_events" => "calendar",
-        "list_contacts" | "read_contact" => "contacts",
-        _ => return "Unknown tool".into(),
+    let Some(service) = crate::agent::google_service_for(name) else {
+        return "Unknown tool".into();
     };
 
     let account = match google_apis::find_account_for_service(&conn_arc, service) {

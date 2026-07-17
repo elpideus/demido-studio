@@ -2,12 +2,13 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::AtomicBool,
     Arc,
 };
 use tauri::{AppHandle, Emitter};
 
 use super::{ChatMessage, StreamOutput, ToolCall, ToolDef};
+use crate::streaming::Chunk;
 
 pub async fn list_models() -> Result<Vec<String>> {
     Ok(vec![
@@ -21,7 +22,7 @@ pub async fn list_model_capabilities(
     client: &reqwest::Client,
     base_url: &str,
     api_key: Option<&str>,
-) -> Result<HashMap<String, super::openai_compat::ModelCaps>> {
+) -> Result<HashMap<String, crate::caps::PartialCaps>> {
     let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
     // models-2025-02-19 beta header enables the `capabilities` object in each model entry.
     let mut req = client
@@ -44,19 +45,15 @@ pub async fn list_model_capabilities(
                 .filter_map(|m| {
                     let id = m["id"].as_str()?.to_string();
                     let c = &m["capabilities"];
-                    // Read directly from API capability flags; fall back to true for vision/tools
-                    // since all listed Claude models support them (API only returns active models).
-                    let vision = c["image_input"]["supported"].as_bool().unwrap_or(true);
-                    let tools = c["tool_use"]["supported"].as_bool().unwrap_or(true);
-                    let reasoning = c["extended_thinking"]["supported"]
-                        .as_bool()
-                        .unwrap_or(false);
+                    // The beta capabilities object is authoritative when present. Without the
+                    // beta header it's absent — leave those None so models.dev answers rather
+                    // than us assuming every listed model does vision/tools.
                     Some((
                         id,
-                        super::openai_compat::ModelCaps {
-                            vision,
-                            tools,
-                            reasoning,
+                        crate::caps::PartialCaps {
+                            vision: c["image_input"]["supported"].as_bool(),
+                            tools: c["tool_use"]["supported"].as_bool(),
+                            reasoning: c["extended_thinking"]["supported"].as_bool(),
                         },
                     ))
                 })
@@ -224,11 +221,17 @@ pub async fn stream_chat(
     let mut in_thinking = false;
     let mut full_thinking = String::new();
 
-    while let Some(data) = reader.next_data().await? {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(anyhow!("cancelled"));
-        }
+    let mut cancelled = false;
 
+    loop {
+        let data = match reader.next_data_cancellable(cancel).await? {
+            Chunk::Data(d) => d,
+            Chunk::End => break,
+            Chunk::Cancelled => {
+                cancelled = true;
+                break;
+            }
+        };
         if let Ok(v) = serde_json::from_str::<Value>(&data) {
             match v["type"].as_str() {
                 Some("content_block_start") => {
@@ -298,6 +301,7 @@ pub async fn stream_chat(
         } else {
             Some(full_thinking)
         },
+        cancelled,
     })
 }
 

@@ -1,8 +1,15 @@
 import { useRef, useState, useEffect, useMemo } from 'react'
-import { ChevronDown, ChevronRight, Layers, Globe, Mail, LucideIcon } from 'lucide-react'
+import { ChevronDown, ChevronRight, Layers, Globe, Mail, Plug, LucideIcon } from 'lucide-react'
 import Fuse from 'fuse.js'
+import { invoke } from '@tauri-apps/api/core'
 import { useMcpTools } from '../../stores/mcpTools'
-import { useSkills } from '../../stores/skills'
+import {
+  useSkills,
+  skillIdOfServer,
+  type SkillToolDef,
+  type SkillPromptToolDef,
+  type SkillBuiltinToolDef,
+} from '../../stores/skills'
 import { useBuiltinTools } from '../../stores/builtinTools'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 
@@ -25,7 +32,8 @@ function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: (
 export function ToolSelectorPopup() {
   const { tools, collapsed, serverOverrides, toggleTool, toggleServer, toggleCollapse } = useMcpTools()
   const { skills, toggle: toggleSkill } = useSkills()
-  const { tools: builtinTools, groupOverrides: builtinGroupOverrides, toggle: toggleBuiltin, toggleGroup: toggleBuiltinGroup } = useBuiltinTools()
+  const { tools: allBuiltinTools, groupOverrides: builtinGroupOverrides, toggle: toggleBuiltin, toggleGroup: toggleBuiltinGroup } = useBuiltinTools()
+  const [connectedServices, setConnectedServices] = useState<string[] | null>(null)
   const [query, setQuery] = useState('')
   const [builtinCollapsed, setBuiltinCollapsed] = useState<Record<string, boolean>>({})
   const [searchTools, setSearchTools] = useState(() => {
@@ -36,18 +44,49 @@ export function ToolSelectorPopup() {
 
   useEffect(() => { searchRef.current?.focus() }, [])
 
-  const servers = Array.from(new Set(tools.map(t => t.server_id)))
+  useEffect(() => {
+    invoke<{ services: string[] }[]>('list_accounts')
+      .then(list => setConnectedServices(Array.from(new Set(list.flatMap(a => a.services)))))
+      .catch(() => setConnectedServices([]))
+  }, [])
 
-  const toolFuse = useMemo(() => new Fuse(tools, { keys: ['name', 'server_name'], threshold: 0.4 }), [tools])
+  // Google-backed groups only appear once an account is linked to that service
+  const builtinTools = useMemo(() => {
+    const svc: Record<string, string> = { Email: 'email', Calendar: 'calendar', Contacts: 'contacts' }
+    return allBuiltinTools.filter(t => {
+      const need = svc[t.group]
+      return !need || !!connectedServices?.includes(need)
+    })
+  }, [allBuiltinTools, connectedServices])
+
+  // A skill's own servers are listed under that skill, not in MCP Tools — otherwise the same
+  // server appears twice and disabling the skill leaves a live-looking row behind.
+  const mcpOnlyTools = useMemo(() => tools.filter(t => !skillIdOfServer(t.server_id)), [tools])
+  const servers = Array.from(new Set(mcpOnlyTools.map(t => t.server_id)))
+
+  const toolFuse = useMemo(() => new Fuse(mcpOnlyTools, { keys: ['name', 'server_name'], threshold: 0.4 }), [mcpOnlyTools])
   const serverFuse = useMemo(() => {
-    const names = servers.map(id => ({ id, name: tools.find(t => t.server_id === id)?.server_name || id }))
+    const names = servers.map(id => ({ id, name: mcpOnlyTools.find(t => t.server_id === id)?.server_name || id }))
     return new Fuse(names, { keys: ['name'], threshold: 0.4 })
-  }, [servers, tools])
+  }, [servers, mcpOnlyTools])
 
   const builtinGroups = useMemo(
     () => Array.from(new Set(builtinTools.map(t => t.group))),
     [builtinTools]
   )
+
+  /** The live tools of a skill's own MCP servers — empty until its server has spawned. */
+  const skillServerTools = (skillId: string) =>
+    tools.filter(t => skillIdOfServer(t.server_id) === skillId)
+
+  /**
+   * The tools a skill declares directly: its `prompt` bodies and the builtins it surfaces. Its
+   * `mcp` entries are servers, so their tools arrive live via `skillServerTools` instead.
+   */
+  const declaredToolsOf = (skill: { tools: SkillToolDef[] }) =>
+    skill.tools.filter(
+      (t): t is SkillPromptToolDef | SkillBuiltinToolDef => t.type === 'prompt' || t.type === 'builtin',
+    )
 
   const filteredSkills = useMemo(() => {
     if (!query.trim()) return skills
@@ -71,7 +110,7 @@ export function ToolSelectorPopup() {
 
   const filteredServers = servers
     .map(serverId => {
-      const serverTools = tools.filter(t => t.server_id === serverId)
+      const serverTools = mcpOnlyTools.filter(t => t.server_id === serverId)
       const serverName = serverTools[0]?.server_name || serverId
       const serverMatches = !q || matchedServerIds!.has(serverId)
       const matchingTools = matchedToolNames
@@ -120,7 +159,7 @@ export function ToolSelectorPopup() {
           <p className="px-3 py-3 text-xs text-muted-foreground">No matches for "{query}".</p>
         )}
 
-        {/* Built In section — always first */}
+        {/* Built In section: always first */}
         {builtinTools.length > 0 && (
           <>
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -250,20 +289,66 @@ export function ToolSelectorPopup() {
               Skills
             </div>
             {filteredSkills.map(skill => (
-              <Tooltip key={skill.id}>
-                <TooltipTrigger asChild>
-                  <div onClick={() => toggleSkill(skill.id)} className="flex items-center gap-2 px-3 py-2.5 hover:bg-accent/50 transition-colors cursor-pointer">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground truncate">{skill.name}</p>
-                      {skill.description && (
-                        <p className="text-[10px] text-muted-foreground truncate">{skill.description}</p>
-                      )}
+              <div key={skill.id}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div onClick={() => toggleSkill(skill.id)} className="flex items-center gap-2 px-3 py-2.5 hover:bg-accent/50 transition-colors cursor-pointer">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{skill.name}</p>
+                        {skill.description && (
+                          <p className="text-[10px] text-muted-foreground truncate">{skill.description}</p>
+                        )}
+                      </div>
+                      <Toggle enabled={skill.enabled} onToggle={() => toggleSkill(skill.id)} />
                     </div>
-                    <Toggle enabled={skill.enabled} onToggle={() => toggleSkill(skill.id)} />
+                  </TooltipTrigger>
+                  {skill.description && <TooltipContent side="right" className="max-w-56">{skill.description}</TooltipContent>}
+                </Tooltip>
+
+                {/* Everything this skill brings: prompt tools from skill.json, then the tools of
+                    any MCP server from its mcp.json. Prompt tools are read-only — the skill's
+                    toggle is their switch, since the backend offers them only for enabled skills.
+                    MCP tools keep individual toggles, like any other MCP tool. */}
+                {(declaredToolsOf(skill).length > 0 || skillServerTools(skill.id).length > 0) && (
+                  <div className={`ml-4 border-l border-border ${skill.enabled ? '' : 'opacity-40'}`}>
+                    {declaredToolsOf(skill).map(tool => (
+                      <Tooltip key={tool.name}>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-2 px-3 py-1.5">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-foreground/80 truncate">{tool.name}</p>
+                              {tool.description && <p className="text-[10px] text-muted-foreground truncate">{tool.description}</p>}
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        {tool.description && <TooltipContent side="right" className="max-w-56">{tool.description}</TooltipContent>}
+                      </Tooltip>
+                    ))}
+                    {skillServerTools(skill.id).map(tool => (
+                      <Tooltip key={`${tool.server_id}:${tool.name}`}>
+                        <TooltipTrigger asChild>
+                          <div
+                            onClick={() => skill.enabled && toggleTool(`${tool.server_id}:${tool.name}`)}
+                            className={`flex items-center gap-2 px-3 py-1.5 hover:bg-accent/50 transition-colors cursor-pointer ${skill.enabled ? '' : 'cursor-not-allowed'}`}
+                          >
+                            <Plug size={11} className="text-muted-foreground shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-foreground/80 truncate">{tool.name}</p>
+                              {tool.description && <p className="text-[10px] text-muted-foreground truncate">{tool.description}</p>}
+                            </div>
+                            <Toggle
+                              enabled={tool.enabled}
+                              onToggle={() => toggleTool(`${tool.server_id}:${tool.name}`)}
+                              disabled={!skill.enabled}
+                            />
+                          </div>
+                        </TooltipTrigger>
+                        {tool.description && <TooltipContent side="right" className="max-w-56">{tool.description}</TooltipContent>}
+                      </Tooltip>
+                    ))}
                   </div>
-                </TooltipTrigger>
-                {skill.description && <TooltipContent side="right" className="max-w-56">{skill.description}</TooltipContent>}
-              </Tooltip>
+                )}
+              </div>
             ))}
           </>
         )}

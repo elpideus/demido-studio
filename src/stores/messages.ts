@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { db, agent } from '../lib/tauri'
 import type { Message } from '../types'
 
-// Module-level — survives React component remounts, reset on cleanup
+// Module-level: survives React component remounts, reset on cleanup
 let _activeCleanup: (() => void) | null = null
 
 const BLOCKS_STORAGE_KEY = 'demido:messageBlocks'
@@ -79,6 +79,12 @@ interface MessagesStore {
   prependSkillBlocks: (skillNames: string[]) => void
   setStreamError: (msg: string | null) => void
   startListening: () => Promise<() => void>
+}
+
+/** A stop can leave the last thinking or tool block open, which would persist to history still
+ *  rendering as in-progress. Nothing is arriving for them any more, so seal them on the way in. */
+function sealBlocks(blocks: StreamBlock[]): StreamBlock[] {
+  return blocks.map(b => (b.type === 'skill' || b.done ? b : { ...b, done: true }))
 }
 
 function resetStream() {
@@ -214,7 +220,7 @@ export const useMessages = create<MessagesStore>((set, get) => ({
       streamOpen = false
       set(s => {
         const newBlocks = s.streamBlocks.length > 0
-          ? { ...s.messageBlocks, [e.payload.id]: s.streamBlocks }
+          ? { ...s.messageBlocks, [e.payload.id]: sealBlocks(s.streamBlocks) }
           : s.messageBlocks
         if (s.streamBlocks.length > 0) persistBlocks(newBlocks)
         return {
@@ -230,7 +236,7 @@ export const useMessages = create<MessagesStore>((set, get) => ({
       set(s => {
         // Merge new stream blocks into the existing blocks for this message
         const existing = s.messageBlocks[e.payload.id] ?? []
-        const merged = s.streamBlocks.length > 0 ? [...existing, ...s.streamBlocks] : existing
+        const merged = s.streamBlocks.length > 0 ? [...existing, ...sealBlocks(s.streamBlocks)] : existing
         const newBlocks = merged.length > 0
           ? { ...s.messageBlocks, [e.payload.id]: merged }
           : s.messageBlocks

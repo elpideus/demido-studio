@@ -11,6 +11,7 @@ pub struct McpNotification {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct McpServer {
     pub id: String,
     pub name: String,
@@ -20,6 +21,19 @@ pub struct McpServer {
     pub env: Option<HashMap<String, String>>,
     pub url: Option<String>,
     pub enabled: bool,
+    /// Set when this server came from a skill's `mcp.json` rather than the user's MCP settings.
+    /// Never persisted: skill servers are rebuilt from disk on every reload, so the DB stays the
+    /// record of hand-configured servers only.
+    #[serde(default)]
+    pub skill_id: Option<String>,
+    /// Whether this server's tools skip the `agent_mode` permission gate.
+    ///
+    /// Only meaningful for skill servers, and it defaults to **false** — i.e. gated. That is
+    /// stricter than a hand-configured server, which is ungated because the user typed its command
+    /// line into Settings themselves. A skill's `mcp.json` can be written by the model, so the
+    /// model-authorable path defaults closed and the skill has to ask for the exception.
+    #[serde(default)]
+    pub bypass_agent_mode: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

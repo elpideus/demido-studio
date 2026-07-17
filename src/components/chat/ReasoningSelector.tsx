@@ -26,26 +26,36 @@ export function ReasoningSelector({ options, value, onChange }: Props) {
   const nonOff = options.filter(o => o !== 'off')
   const hasOff = options.includes('off')
 
+  // One graded level (or none) is not a choice, it's a switch. Toggle in place.
+  const toggleOnly = nonOff.length <= 1
   const label = value === 'off' ? 'Think' : value.charAt(0).toUpperCase() + value.slice(1)
 
   return (
     <div ref={ref} className="relative shrink-0">
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => {
+          if (toggleOnly) onChange(active ? 'off' : (nonOff[0] ?? 'on'))
+          else setOpen(o => !o)
+        }}
         className={cn(
-          'flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-xs font-medium transition-colors border',
+          'flex items-center gap-1.5 h-7 rounded-lg text-xs font-medium transition-colors border',
+          toggleOnly ? 'w-7 justify-center' : 'px-2.5',
           active
             ? 'bg-primary/20 border-[var(--primary)]/60 text-primary'
             : 'bg-accent border-transparent text-muted-foreground hover:border-[var(--accent)]'
         )}
-        title="Select reasoning mode"
+        title={toggleOnly ? 'Toggle reasoning' : 'Select reasoning mode'}
       >
         <Brain size={12} />
-        {label}
-        <ChevronUp size={10} className={cn('transition-transform', open ? 'rotate-180' : '')} />
+        {!toggleOnly && (
+          <>
+            {label}
+            <ChevronUp size={10} className={cn('transition-transform', open ? 'rotate-180' : '')} />
+          </>
+        )}
       </button>
 
-      {open && (
+      {open && !toggleOnly && (
         <div className="absolute bottom-full mb-1.5 left-0 bg-secondary border border-border rounded-lg shadow-xl overflow-hidden min-w-[110px] z-50">
           {nonOff.map(opt => (
             <button

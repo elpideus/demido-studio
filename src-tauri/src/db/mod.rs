@@ -3,11 +3,18 @@ use std::path::Path;
 
 pub mod accounts;
 pub mod conversations;
+pub mod local_models;
 pub mod mcp_servers;
 pub mod messages;
 pub mod model_overrides;
 pub mod providers;
 pub mod settings;
+
+/// The pinned, non-deletable local-inference provider. Its models are GGUF files
+/// downloaded from Hugging Face and served by a bundled/downloaded llama-server.
+/// base_url is a placeholder — the live loopback port is written in at spawn time.
+pub const LOCAL_PROVIDER_ID: &str = "demido-local";
+pub const LOCAL_PROVIDER_KEY_REF: &str = "demido_local_key";
 
 pub fn init(db_path: &Path) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
@@ -139,6 +146,121 @@ static MIGRATIONS: &[(u32, &str)] = &[
         );
     ",
     ),
+    (
+        7,
+        "
+        CREATE TABLE IF NOT EXISTS ohlcv (
+            symbol      TEXT NOT NULL,
+            asset_class TEXT NOT NULL,
+            timeframe   TEXT NOT NULL,
+            ts          INTEGER NOT NULL,
+            open        REAL NOT NULL,
+            high        REAL NOT NULL,
+            low         REAL NOT NULL,
+            close       REAL NOT NULL,
+            volume      REAL NOT NULL,
+            PRIMARY KEY (symbol, asset_class, timeframe, ts)
+        );
+
+        CREATE TABLE IF NOT EXISTS ohlcv_coverage (
+            symbol      TEXT NOT NULL,
+            asset_class TEXT NOT NULL,
+            timeframe   TEXT NOT NULL,
+            from_ts     INTEGER NOT NULL,
+            to_ts       INTEGER NOT NULL,
+            PRIMARY KEY (symbol, asset_class, timeframe, from_ts)
+        );
+    ",
+    ),
+    (
+        8,
+        // Providers disagree about the same symbol: Alpaca's AAPL is an equity, a cTrader
+        // broker's AAPL is a CFD at a different price. Without `provider` in the key they
+        // silently interleave into one candle series. These tables are a pure cache, so
+        // recreating them costs nothing but a refetch.
+        "
+        DROP TABLE IF EXISTS ohlcv;
+        DROP TABLE IF EXISTS ohlcv_coverage;
+
+        CREATE TABLE ohlcv (
+            provider    TEXT NOT NULL,
+            symbol      TEXT NOT NULL,
+            asset_class TEXT NOT NULL,
+            timeframe   TEXT NOT NULL,
+            ts          INTEGER NOT NULL,
+            open        REAL NOT NULL,
+            high        REAL NOT NULL,
+            low         REAL NOT NULL,
+            close       REAL NOT NULL,
+            volume      REAL NOT NULL,
+            PRIMARY KEY (provider, symbol, asset_class, timeframe, ts)
+        );
+
+        CREATE TABLE ohlcv_coverage (
+            provider    TEXT NOT NULL,
+            symbol      TEXT NOT NULL,
+            asset_class TEXT NOT NULL,
+            timeframe   TEXT NOT NULL,
+            from_ts     INTEGER NOT NULL,
+            to_ts       INTEGER NOT NULL,
+            PRIMARY KEY (provider, symbol, asset_class, timeframe, from_ts)
+        );
+    ",
+    ),
+    (
+        9,
+        "
+        CREATE TABLE IF NOT EXISTS local_models (
+            id          TEXT PRIMARY KEY,
+            repo        TEXT NOT NULL,
+            quant       TEXT NOT NULL,
+            file_path   TEXT NOT NULL,
+            size        INTEGER NOT NULL DEFAULT 0,
+            created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        );
+    ",
+    ),
+    (
+        10,
+        // Optional vision projector (mmproj-*.gguf) served via llama-server --mmproj.
+        "ALTER TABLE local_models ADD COLUMN mmproj_path TEXT;",
+    ),
+    (
+        11,
+        // Capabilities probed from llama-server /props the first time a model is loaded.
+        // NULL = not probed yet (fall back to the models.dev registry), not "unsupported".
+        "
+        ALTER TABLE local_models ADD COLUMN caps_vision INTEGER;
+        ALTER TABLE local_models ADD COLUMN caps_tools INTEGER;
+        ALTER TABLE local_models ADD COLUMN caps_reasoning INTEGER;
+    ",
+    ),
+    (
+        12,
+        // User's manual capability overrides — they beat every detected source.
+        // NULL = auto (defer to detection), 0 = user says no, 1 = user says yes.
+        "
+        ALTER TABLE model_overrides ADD COLUMN caps_vision INTEGER;
+        ALTER TABLE model_overrides ADD COLUMN caps_tools INTEGER;
+        ALTER TABLE model_overrides ADD COLUMN caps_reasoning INTEGER;
+    ",
+    ),
+    (
+        13,
+        // Market feature removed entirely — drop its cache tables and provider prefs.
+        "
+        DROP TABLE IF EXISTS ohlcv;
+        DROP TABLE IF EXISTS ohlcv_coverage;
+        DELETE FROM settings WHERE key = 'market_provider_map';
+    ",
+    ),
+    (
+        14,
+        // Caveman response style, per conversation. 'off' = inject nothing (see caveman.rs).
+        "
+        ALTER TABLE conversations ADD COLUMN caveman_level TEXT NOT NULL DEFAULT 'off';
+    ",
+    ),
 ];
 
 fn run_migrations(conn: &Connection) -> Result<()> {
@@ -164,6 +286,20 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     );
 
     seed_default_providers(conn)?;
+    seed_local_provider(conn)?;
+    Ok(())
+}
+
+/// Idempotently ensure the pinned "Demido Studio" local provider exists. Runs every
+/// boot (INSERT OR IGNORE) so both fresh and upgraded installs get it. sort_order = -1
+/// keeps it first; base_url is a placeholder overwritten at engine spawn time.
+fn seed_local_provider(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO providers
+           (id, name, type, base_url, api_key_ref, enabled, sort_order, visible)
+         VALUES (?1, 'Demido Studio', 'openai_compat', 'http://127.0.0.1:0/v1', ?2, 1, -1, 1)",
+        rusqlite::params![LOCAL_PROVIDER_ID, LOCAL_PROVIDER_KEY_REF],
+    )?;
     Ok(())
 }
 

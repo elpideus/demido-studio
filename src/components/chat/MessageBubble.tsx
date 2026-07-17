@@ -8,10 +8,12 @@ import { MermaidBlock } from './MermaidBlock'
 import { cn, clampToViewport } from '../../lib/utils'
 import type { FileAttachment } from '../../types'
 import { parseArtifacts } from '../../lib/parseArtifacts'
+import { splitSources } from '../../lib/parseSources'
+import { SourcesList } from './SourcesList'
 import { ArtifactCard } from './ArtifactCard'
 import { useArtifacts } from '../../stores/artifacts'
 
-// Matches [email/contact/calendar event: "Title" — ...] blocks injected by @! tagging
+// Matches [email/contact/calendar event: "Title" - ...] blocks injected by @! tagging
 const GITEM_TAG_RE = /\[(email|calendar event|contact): "([^"]+)" — [^\]]+\]/g
 
 const GITEM_ICONS: Record<string, string> = { email: '✉', 'calendar event': '📅', contact: '👤' }
@@ -105,11 +107,18 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
   const handleCtxContinue = () => { setCtxMenu(null); onContinue?.(id) }
   const handleCtxResend = () => { setCtxMenu(null); onResend?.(id) }
 
+  // Lift the sources footer out of assistant messages so it renders as chips, not a bullet list.
+  // Skipped while streaming: a half-arrived footer would flicker in and out of the body.
+  const { body, sources } = useMemo(
+    () => (isUser || streaming ? { body: content, sources: [] } : splitSources(content)),
+    [isUser, streaming, content]
+  )
+
   // Parse artifacts from assistant messages (not while streaming)
   const segments = useMemo(() => {
     if (isUser || streaming || !messageId) return null
-    return parseArtifacts(content, messageId)
-  }, [isUser, streaming, messageId, content])
+    return parseArtifacts(body, messageId)
+  }, [isUser, streaming, messageId, body])
 
   useEffect(() => {
     if (editing && textareaRef.current) {
@@ -269,17 +278,19 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
                   <MarkdownRenderer key={i}>{seg.text}</MarkdownRenderer>
                 ) : null
               )}
+              <SourcesList sources={sources} messageId={messageId ?? id} />
             </div>
           ) : (
             <div className="prose prose-invert prose-sm max-w-none">
-              <MarkdownRenderer>{content}</MarkdownRenderer>
+              <MarkdownRenderer>{body}</MarkdownRenderer>
               {streaming && <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5 align-middle" />}
+              <SourcesList sources={sources} messageId={messageId ?? id} />
             </div>
           )}
         </div>
       )}
 
-      {/* Action buttons — shown on hover, hidden while editing or streaming */}
+      {/* Action buttons: shown on hover, hidden while editing or streaming */}
       {!editing && (
         <div className={cn(
           'flex gap-1 mt-1 transition-opacity duration-150',

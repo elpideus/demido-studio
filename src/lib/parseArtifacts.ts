@@ -16,6 +16,15 @@ export function getExtension(type: string): string {
   return LANG_EXT[type.toLowerCase()] ?? '.txt'
 }
 
+/** Artifact type for a filename, so files off disk render like artifacts of that language. */
+export function getTypeForFile(name: string): string {
+  const dot = name.lastIndexOf('.')
+  if (dot === -1) return 'text'
+  const ext = name.slice(dot).toLowerCase()
+  const hit = Object.entries(LANG_EXT).find(([, e]) => e === ext)
+  return hit ? hit[0] : 'text'
+}
+
 export interface ParsedSegment {
   text?: string
   artifact?: Artifact
@@ -138,7 +147,7 @@ export function parseStreamingSegments(content: string): Array<{ text?: string; 
     const closeMatch = /^```\s*$/m.exec(afterOpen)
     const title = lang.charAt(0).toUpperCase() + lang.slice(1)
     if (!closeMatch) {
-      // Fence still open — show spinner regardless of line count
+      // Fence still open, show spinner regardless of line count
       segments.push({ artifactHint: { title, type: lang, complete: false } })
     } else {
       const body = afterOpen.slice(0, closeMatch.index)
@@ -146,7 +155,7 @@ export function parseStreamingSegments(content: string): Array<{ text?: string; 
       if (lineCount >= AUTO_PROMOTE_LINES) {
         segments.push({ artifactHint: { title, type: lang, complete: true } })
       } else {
-        // Won't be promoted — render as plain text
+        // Won't be promoted, render as plain text
         const raw = content.slice(codeIdx, codeIdx + openLen + closeMatch.index + closeMatch[0].length)
         segments.push({ text: raw })
       }
@@ -158,7 +167,7 @@ export function parseStreamingSegments(content: string): Array<{ text?: string; 
   return segments
 }
 
-export const ARTIFACT_INSTRUCTIONS = `When your response includes a complete, self-contained artifact — code, script, HTML page, markdown document, data file — that is ${AUTO_PROMOTE_LINES}+ lines long, wrap it in an artifact tag:
+export const ARTIFACT_INSTRUCTIONS = `When your response includes a complete, self-contained artifact (code, script, HTML page, markdown document, data file) that is ${AUTO_PROMOTE_LINES}+ lines long, wrap it in an artifact tag:
 
 <artifact type="TYPE" title="TITLE" identifier="IDENTIFIER">
 content here
@@ -167,7 +176,7 @@ content here
 Supported types: html, css, javascript, typescript, python, rust, go, java, sql, json, markdown, bash, yaml, c, cpp, mermaid, latex.
 Use artifacts for substantial reusable content. Do NOT use them for short inline snippets or illustrative examples.
 
-CRITICAL — when modifying an existing artifact:
+CRITICAL: when modifying an existing artifact:
 - Use the EXACT SAME title and identifier as the original artifact.
 - Do NOT create a new artifact with a different title. The user expects to see an updated version of the same artifact, not a new one.
 - If the user asks to edit, update, modify, fix, or improve an artifact from earlier in the conversation, always output it with the same title and identifier.

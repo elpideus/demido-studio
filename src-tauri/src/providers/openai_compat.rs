@@ -2,12 +2,14 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::AtomicBool,
     Arc,
 };
 use tauri::{AppHandle, Emitter};
 
-use super::{ChatMessage, StreamOutput, ToolCall, ToolDef};
+use super::{reasoning_channel, ChatMessage, StreamOutput, ToolCall, ToolDef};
+use crate::streaming::Chunk;
+use crate::caps::PartialCaps;
 
 /// Returns the largest byte index <= `index` that lies on a UTF-8 char boundary.
 fn char_boundary_floor(s: &str, index: usize) -> usize {
@@ -101,33 +103,27 @@ pub async fn list_models(
     Ok(models)
 }
 
-/// Per-model capability flags returned from provider's /v1/models response.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-pub struct ModelCaps {
-    pub vision: bool,
-    pub tools: bool,
-    pub reasoning: bool,
-}
-
-fn cap_array_has(caps_val: &Value, needle: &str) -> bool {
+fn cap_array_has(caps_val: &Value, needle: &str) -> Option<bool> {
     caps_val
         .as_array()
         .map(|arr| arr.iter().any(|v| v.as_str() == Some(needle)))
-        .unwrap_or(false)
 }
 
-/// Returns map of model_id → ModelCaps.
+/// Returns model_id → whatever this host explicitly reported. Fields the host said
+/// nothing about stay `None`, so `caps::resolve` can fall back to the registry instead of
+/// inventing an answer. Nothing here inspects the model *name*.
 ///
-/// Priority:
-/// 1. LM Studio /api/v1/models — explicit `capabilities.vision`, `capabilities.trained_for_tool_use`,
-///    `capabilities.reasoning` per-model object (richest source)
-/// 2. LM Studio /api/v0/models (via fetch_models_json) — `type` field + capabilities array
-/// 3. Standard /v1/models — OpenRouter modality, generic capabilities object
+/// Sources, richest first:
+/// 1. LM Studio `/api/v1/models` — per-model `capabilities` object (vision,
+///    trained_for_tool_use, reasoning)
+/// 2. LM Studio `/api/v0/models` — `type` field + capabilities array
+/// 3. Standard `/v1/models` — OpenRouter `architecture.modality`, or a generic
+///    capabilities object if the host bothers to send one
 pub async fn list_model_capabilities(
     client: &reqwest::Client,
     base_url: &str,
     api_key: Option<&str>,
-) -> Result<HashMap<String, ModelCaps>> {
+) -> Result<HashMap<String, PartialCaps>> {
     let auth_header: Option<String> = api_key.filter(|k| !k.is_empty()).map(|k| k.to_string());
     let add_auth = |req: reqwest::RequestBuilder| -> reqwest::RequestBuilder {
         if let Some(ref key) = auth_header {
@@ -145,7 +141,7 @@ pub async fn list_model_capabilities(
             if let Ok(json) = resp.json::<Value>().await {
                 if let Some(models) = json["models"].as_array() {
                     if !models.is_empty() {
-                        let caps: HashMap<String, ModelCaps> = models
+                        let caps: HashMap<String, PartialCaps> = models
                             .iter()
                             .filter_map(|m| {
                                 let id = m["key"].as_str()?.to_string();
@@ -154,17 +150,19 @@ pub async fn list_model_capabilities(
                                 if is_non_llm(mtype, &id.to_lowercase()) {
                                     return None;
                                 }
-                                let vision = c["vision"].as_bool().unwrap_or(false);
-                                let tools = c["trained_for_tool_use"].as_bool().unwrap_or(false);
-                                // reasoning field is an object when present, absent when not supported
-                                let reasoning =
-                                    c.get("reasoning").map(|v| !v.is_null()).unwrap_or(false);
+                                // LM Studio always sends this object for LLMs, so an absent
+                                // flag here really does mean "no", not "unspecified".
                                 Some((
                                     id,
-                                    ModelCaps {
-                                        vision,
-                                        tools,
-                                        reasoning,
+                                    PartialCaps {
+                                        vision: Some(c["vision"].as_bool().unwrap_or(false)),
+                                        tools: Some(
+                                            c["trained_for_tool_use"].as_bool().unwrap_or(false),
+                                        ),
+                                        // `reasoning` is an object when supported, absent when not.
+                                        reasoning: Some(
+                                            c.get("reasoning").map(|v| !v.is_null()).unwrap_or(false),
+                                        ),
                                     },
                                 ))
                             })
@@ -178,9 +176,9 @@ pub async fn list_model_capabilities(
         }
     }
 
-    // 2 & 3. Fall back to /api/v0/models (LM Studio) or standard /v1/models
-    // ponytail: groq says "all hosted models support tool use" — no capability fields in /v1/models response
-    let is_groq = base_url.contains("api.groq.com");
+    // 2 & 3. Fall back to /api/v0/models (LM Studio) or standard /v1/models.
+    // Most OpenAI-compatible hosts (groq, plain OpenAI) report no capability fields at
+    // all — those models come back empty here on purpose and get answered by models.dev.
     let json = fetch_models_json(client, base_url, api_key).await?;
     let caps = json["data"]
         .as_array()
@@ -189,67 +187,33 @@ pub async fn list_model_capabilities(
                 .filter_map(|m| {
                     let id = m["id"].as_str()?.to_string();
                     let model_type = m["type"].as_str().unwrap_or("");
-                    let id_l = id.to_lowercase();
-                    if is_non_llm(model_type, &id_l) {
+                    if is_non_llm(model_type, &id.to_lowercase()) {
                         return None;
                     }
 
                     let c = &m["capabilities"];
-                    let modality = m["architecture"]["modality"].as_str().unwrap_or("");
 
-                    // Groq vision models: llama-4-scout, qwen3.6 (multimodal), plus generic patterns
-                    let vision = model_type == "vlm"
-                        || modality.contains("image")
-                        || cap_array_has(c, "vision")
-                        || c["vision"].as_bool().unwrap_or(false)
-                        || c["completion_chat_multimodal"].as_bool().unwrap_or(false)
-                        || id_l.contains("vision")
-                        || id_l.contains("-vl")
-                        || id_l.ends_with("vl")
-                        || (is_groq
-                            && (id_l.contains("scout")
-                                || id_l.contains("llama-4")
-                                || id_l.contains("qwen3.6")));
+                    // OpenRouter states input modalities; LM Studio v0 uses type="vlm".
+                    let vision = m["architecture"]["modality"]
+                        .as_str()
+                        .map(|modality| modality.contains("image"))
+                        .or_else(|| (!model_type.is_empty()).then_some(model_type == "vlm"))
+                        .or_else(|| cap_array_has(c, "vision"))
+                        .or_else(|| c["vision"].as_bool())
+                        .or_else(|| c["completion_chat_multimodal"].as_bool());
 
-                    // Groq: all LLMs support tools (non-LLMs already filtered by is_non_llm above)
-                    let no_cap_info =
-                        c.is_null() || c.as_object().map(|o| o.is_empty()).unwrap_or(false);
-                    let tools_from_id = id_l.contains("tool")
-                        || id_l.contains("function")
-                        || id_l.starts_with("llama")
-                        || id_l.starts_with("mixtral")
-                        || id_l.starts_with("gemma")
-                        || id_l.starts_with("qwen")
-                        || id_l.starts_with("deepseek")
-                        || id_l.starts_with("mistral");
                     let tools = cap_array_has(c, "tool_use")
-                        || cap_array_has(c, "tools")
-                        || cap_array_has(c, "function_calling")
-                        || c["tool_use"].as_bool().unwrap_or(false)
-                        || c["tools"].as_bool().unwrap_or(false)
-                        || c["function_calling"].as_bool().unwrap_or(false)
-                        || is_groq
-                        || (no_cap_info && tools_from_id);
-                    let reasoning = id_l.starts_with("o1")
-                        || id_l.starts_with("o3")
-                        || id_l.starts_with("o4")
-                        || id_l.contains("-r1")
-                        || id_l.starts_with("r1")
-                        || id_l.contains("thinking")
-                        || id_l.contains("-reason")
-                        || id_l.contains("qwq")
-                        || id_l.contains("qwen3")
-                        || id_l.contains("gpt-oss");
+                        .or_else(|| cap_array_has(c, "tools"))
+                        .or_else(|| cap_array_has(c, "function_calling"))
+                        .or_else(|| c["tool_use"].as_bool())
+                        .or_else(|| c["tools"].as_bool())
+                        .or_else(|| c["function_calling"].as_bool());
 
-                    Some((
-                        id,
-                        ModelCaps {
-                            vision,
-                            tools,
-                            reasoning,
-                        },
-                    ))
+                    let reasoning = cap_array_has(c, "reasoning").or_else(|| c["reasoning"].as_bool());
+
+                    Some((id, PartialCaps { vision, tools, reasoning }))
                 })
+                .filter(|(_, c)| !c.is_empty())
                 .collect()
         })
         .unwrap_or_default();
@@ -284,9 +248,6 @@ pub async fn stream_chat(
         "stream": true,
     });
 
-    // show_thinking: display the bubble unless user explicitly chose "off".
-    // Models that always think (no capability reported) still get their bubble shown.
-    let show_thinking = !matches!(reasoning_effort, Some("off"));
     // Only forward numeric effort values (low/medium/high/etc) to the API.
     // "on"/"off" are conceptual toggles — not valid LM Studio API values.
     // Omitting reasoning_effort lets the model use its default behavior.
@@ -391,10 +352,17 @@ pub async fn stream_chat(
     let mut content_buf = String::new(); // pending tokens not yet emitted
     let mut in_think = false;
 
-    while let Some(data) = reader.next_data().await? {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(anyhow!("cancelled"));
-        }
+    let mut cancelled = false;
+
+    loop {
+        let data = match reader.next_data_cancellable(cancel).await? {
+            Chunk::Data(d) => d,
+            Chunk::End => break,
+            Chunk::Cancelled => {
+                cancelled = true;
+                break;
+            }
+        };
         if data == "[DONE]" {
             break;
         }
@@ -412,9 +380,7 @@ pub async fn stream_chat(
             if let Some(token) = delta["reasoning_content"].as_str() {
                 if !token.is_empty() {
                     full_thinking.push_str(token);
-                    if show_thinking {
-                        app.emit("stream_thinking", token)?;
-                    }
+                    app.emit("stream_thinking", token)?;
                 }
             }
 
@@ -430,10 +396,8 @@ pub async fn stream_chat(
                         if let Some(end) = content_buf.find("</think>") {
                             let thought = &content_buf[..end];
                             full_thinking.push_str(thought);
-                            if show_thinking {
-                                app.emit("stream_thinking", thought)?;
-                                app.emit("stream_thinking_end", ())?;
-                            }
+                            app.emit("stream_thinking", thought)?;
+                            app.emit("stream_thinking_end", ())?;
                             content_buf = content_buf[end + 8..].to_string();
                             in_think = false;
                         } else if content_buf.len() > 8 {
@@ -441,9 +405,7 @@ pub async fn stream_chat(
                             let safe = char_boundary_floor(&content_buf, content_buf.len() - 8);
                             let thought = content_buf[..safe].to_string();
                             full_thinking.push_str(&thought);
-                            if show_thinking {
-                                app.emit("stream_thinking", &thought)?;
-                            }
+                            app.emit("stream_thinking", &thought)?;
                             content_buf = content_buf[safe..].to_string();
                             break;
                         } else {
@@ -498,17 +460,15 @@ pub async fn stream_chat(
         if in_think {
             // Unclosed <think> tag — treat remainder as thinking
             full_thinking.push_str(&content_buf);
-            if show_thinking {
-                app.emit("stream_thinking", &content_buf)?;
-                app.emit("stream_thinking_end", ())?;
-            }
+            app.emit("stream_thinking", &content_buf)?;
+            app.emit("stream_thinking_end", ())?;
         } else {
             raw_content.push_str(&content_buf);
             app.emit("stream_token", &content_buf)?;
         }
     }
 
-    let full_content = raw_content;
+    let mut full_content = raw_content;
 
     // Build tool calls if any
     let mut tool_calls = Vec::new();
@@ -529,14 +489,45 @@ pub async fn stream_chat(
         }
     }
 
+    // The chat template opens `<think>` in the prompt, so a model that never emits
+    // `</think>` strands its whole turn in the reasoning channel and we receive
+    // nothing to execute or display. Salvage both shapes of that failure, but never
+    // for a cancelled stream — that text may be cut mid-call.
+    if tool_calls.is_empty() && !cancelled {
+        // A tool call is preferred over prose: it is what the model meant to do,
+        // and it keeps the agent loop running.
+        if !tools.is_empty() {
+            if let Some(rec) = reasoning_channel::recover(&full_thinking, tools) {
+                eprintln!(
+                    "[demido] recovered {} tool call(s) stranded in the reasoning channel",
+                    rec.calls.len()
+                );
+                full_thinking = rec.cleaned;
+                tool_calls = rec.calls;
+            }
+        }
+        // Still nothing to run and nothing to show — the answer itself is stranded.
+        if tool_calls.is_empty() {
+            if let Some(answer) =
+                reasoning_channel::promote_stranded_answer(&full_content, &full_thinking)
+            {
+                eprintln!("[demido] promoted stranded answer out of the reasoning channel");
+                app.emit("stream_token", &answer)?;
+                full_content = answer;
+                full_thinking.clear();
+            }
+        }
+    }
+
     Ok(StreamOutput {
         content: full_content,
         tool_calls,
-        thinking: if show_thinking && !full_thinking.is_empty() {
+        thinking: if !full_thinking.is_empty() {
             Some(full_thinking)
         } else {
             None
         },
+        cancelled,
     })
 }
 

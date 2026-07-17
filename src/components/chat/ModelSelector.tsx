@@ -1,7 +1,36 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { ChevronDown, Eye, Wrench, Brain, RefreshCw } from 'lucide-react'
+import { ChevronDown, Eye, Wrench, Brain, RefreshCw, Loader2 } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { useProviders } from '../../stores/providers'
+import { useMessages } from '../../stores/messages'
+import { LOCAL_PROVIDER_ID } from '../settings/LocalProviderCard'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
+
+type EngineStatus = { model_id: string; loading: boolean; error?: string | null }
+
+function ModelOptionButton({ label, onClick, icons }: { label: string; onClick: () => void; icons: React.ReactNode }) {
+  const spanRef = useRef<HTMLSpanElement>(null)
+  const [truncated, setTruncated] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  const button = (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setTruncated(!!spanRef.current && spanRef.current.scrollWidth > spanRef.current.clientWidth)}
+      className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
+    >
+      <span ref={spanRef} className="flex-1 truncate">{label}</span>
+      <span className="flex items-center gap-1 shrink-0">{icons}</span>
+    </button>
+  )
+
+  return (
+    <Tooltip open={open && truncated} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="right" collisionBoundary={document.body}>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 export function ModelSelector() {
   const {
@@ -12,6 +41,8 @@ export function ModelSelector() {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [reloading, setReloading] = useState(false)
+  const [loadingModel, setLoadingModel] = useState<string | null>(null)
+  const [engineError, setEngineError] = useState<string | null>(null)
   const [maxDropHeight, setMaxDropHeight] = useState('60vh')
   const containerRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -25,6 +56,23 @@ export function ModelSelector() {
       loadModelOverrides(selectedProviderId)
     }
   }, [selectedProviderId])
+
+  // Engine load status. Fires for preload-on-switch and for a load triggered by a send,
+  // so the indicator covers both paths.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    let cancelled = false
+    ;(async () => {
+      const { listen } = await import('@tauri-apps/api/event')
+      const un = await listen<EngineStatus>('local_engine_status', e => {
+        const { model_id, loading, error } = e.payload
+        setLoadingModel(loading ? model_id : null)
+        if (!loading) setEngineError(error ?? null)
+      })
+      if (cancelled) un(); else unlisten = un
+    })()
+    return () => { cancelled = true; unlisten?.() }
+  }, [])
 
   // Close on outside click
   useEffect(() => {
@@ -62,10 +110,25 @@ export function ModelSelector() {
     ? getDisplayName(selectedProviderId, selectedModelId)
     : 'Select model'
 
-  const handleSelect = (providerId: string, modelId: string) => {
+  const handleSelect = async (providerId: string, modelId: string) => {
     saveDefaultModel(providerId, modelId)
     setOpen(false)
     setQuery('')
+    if (providerId !== LOCAL_PROVIDER_ID) return
+    // Preloading swaps the server, which would kill a generation in flight. Let the send
+    // path load it instead, it emits the same status event.
+    if (useMessages.getState().streaming) return
+    // Load now rather than at first send: the spinner gives the multi-GB read somewhere to
+    // show, and the caps probe lands before the user can attach an image.
+    setEngineError(null)
+    const { invoke } = await import('@tauri-apps/api/core')
+    try {
+      await invoke('preload_local_model', { modelId })
+      await fetchModels(providerId)
+    } catch (e) {
+      setEngineError(String(e))
+      setLoadingModel(null)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -116,6 +179,7 @@ export function ModelSelector() {
   }, [query, allModelEntries, modelFuse])
 
   return (
+    <TooltipProvider delayDuration={400}>
     <div className="relative" ref={containerRef} onKeyDown={handleKeyDown} tabIndex={-1}>
       <button
         onClick={() => {
@@ -128,9 +192,17 @@ export function ModelSelector() {
         }}
         className="flex items-center gap-1.5 px-2 py-1 rounded-md text-sm text-foreground hover:bg-accent transition-colors"
       >
-        <span className="max-w-[200px] truncate">{selectedDisplayName}</span>
+        {loadingModel && <Loader2 size={13} className="shrink-0 animate-spin text-muted-foreground" />}
+        <span className="max-w-[200px] truncate">
+          {loadingModel ? `Loading ${getDisplayName(LOCAL_PROVIDER_ID, loadingModel)}…` : selectedDisplayName}
+        </span>
         <ChevronDown size={14} className="text-muted-foreground shrink-0" />
       </button>
+      {engineError && (
+        <span className="absolute top-full left-0 mt-1 text-xs text-red-400 whitespace-nowrap">
+          {engineError}
+        </span>
+      )}
 
       {open && (
         <div className="absolute top-full mt-1 left-0 w-72 bg-secondary border border-border rounded-lg shadow-xl z-20 flex flex-col" style={{ maxHeight: maxDropHeight }}>
@@ -161,7 +233,7 @@ export function ModelSelector() {
           <div className="overflow-y-auto">
             {filteredProviders.map(({ provider, matchingModels }) => (
               <div key={provider.id}>
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card sticky top-0 z-10">
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card">
                   {provider.name}
                 </div>
                 {matchingModels.map(modelId => {
@@ -171,18 +243,16 @@ export function ModelSelector() {
                   const tools = caps?.tools ?? (isAnthropic ? true : undefined)
                   const reasoning = caps?.reasoning ?? (isAnthropic ? true : undefined)
                   return (
-                    <button
+                    <ModelOptionButton
                       key={modelId}
+                      label={getDisplayName(provider.id, modelId)}
                       onClick={() => handleSelect(provider.id, modelId)}
-                      className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
-                    >
-                      <span className="flex-1 truncate">{getDisplayName(provider.id, modelId)}</span>
-                      <span className="flex items-center gap-1 shrink-0">
+                      icons={<>
                         {vision && <Eye size={11} className="text-muted-foreground/50" aria-label="Supports vision" />}
                         {tools && <Wrench size={11} className="text-muted-foreground/50" aria-label="Supports tool calling" />}
                         {reasoning && <Brain size={11} className="text-muted-foreground/50" aria-label="Supports reasoning/thinking" />}
-                      </span>
-                    </button>
+                      </>}
+                    />
                   )
                 })}
                 {!models[provider.id] && (
@@ -206,5 +276,6 @@ export function ModelSelector() {
         </div>
       )}
     </div>
+    </TooltipProvider>
   )
 }

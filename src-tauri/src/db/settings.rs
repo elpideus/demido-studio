@@ -1,11 +1,12 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
+/// No `system_prompt` here on purpose — it lives in `system_prompt.md` (see `prompt.rs`), and the
+/// old `settings` row is deleted on migration so nothing can read a stale copy.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppSettings {
     pub default_provider_id: String,
     pub default_model_id: String,
-    pub system_prompt: String,
     pub auth_enabled: bool,
     pub context_window_limit: i64,
     pub task_provider_id: String,
@@ -24,7 +25,6 @@ pub fn get_all(conn: &Connection) -> Result<AppSettings> {
     Ok(AppSettings {
         default_provider_id: get_val(conn, "default_provider_id", "")?,
         default_model_id: get_val(conn, "default_model_id", "")?,
-        system_prompt: get_val(conn, "system_prompt", "")?,
         auth_enabled: get_val(conn, "auth_enabled", "false")? == "true",
         context_window_limit: get_val(conn, "context_window_limit", "8192")?
             .parse()
@@ -35,6 +35,14 @@ pub fn get_all(conn: &Connection) -> Result<AppSettings> {
             .parse()
             .unwrap_or(5),
     })
+}
+
+/// Single arbitrary key, for settings that are not part of `AppSettings`.
+pub fn get(conn: &Connection, key: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+        r.get(0)
+    })
+    .optional()
 }
 
 pub fn set(conn: &Connection, key: &str, value: &str) -> Result<()> {

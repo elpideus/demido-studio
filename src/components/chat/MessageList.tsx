@@ -175,6 +175,7 @@ export function MessageList() {
         selectedProviderId || undefined,
         selectedModelId || undefined,
         getSkillsContext(),
+        skills.filter(s => s.enabled).map(s => s.id),
       )
     } catch (e) {
       setStreamError(String(e))

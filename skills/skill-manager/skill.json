@@ -1,0 +1,52 @@
+{
+  "id": "skill-manager",
+  "name": "Skill Manager",
+  "description": "Author, extend, port, inspect, delete Demido Studio skill. Use when user wants new skill, edit skill, add slash command, add tool (prompt or MCP), port skill from another harness (Claude Code, Cursor, OpenCode, Antigravity), or asks how skills work. Covers skill.json, SKILL.md, tools.json, commands, params, install_skill, Caveman Ultra house style. Read this skill's SKILL.md before authoring — only this metadata is in context.",
+  "version": "1.0.0",
+  "commands": [
+    {
+      "name": "new-skill",
+      "description": "Author and install a new Demido Studio skill from a description",
+      "file": "commands/new-skill.md",
+      "params": [
+        { "name": "id", "description": "kebab-case skill id / folder name", "required": true },
+        { "name": "brief", "description": "what the skill should do", "required": true, "rest": true }
+      ]
+    },
+    {
+      "name": "add-command",
+      "description": "Add a slash command (with params) to an installed skill",
+      "file": "commands/add-command.md",
+      "params": [
+        { "name": "skill_id", "description": "id of the skill to extend", "required": true },
+        { "name": "brief", "description": "what the command should do", "required": true, "rest": true }
+      ]
+    },
+    {
+      "name": "add-tool",
+      "description": "Add a tool (prompt or MCP server) to an installed skill's tools.json",
+      "file": "commands/add-tool.md",
+      "params": [
+        { "name": "skill_id", "description": "id of the skill to extend", "required": true },
+        { "name": "brief", "description": "what the tool should do", "required": true, "rest": true }
+      ]
+    },
+    {
+      "name": "convert-skill",
+      "description": "Convert a foreign skill into Demido Studio format and install it",
+      "file": "commands/convert-skill.md",
+      "params": [
+        { "name": "source", "description": "path to the source skill folder or file", "required": true },
+        { "name": "notes", "description": "optional conversion notes (target id, what to drop)", "rest": true }
+      ]
+    },
+    {
+      "name": "inspect-skill",
+      "description": "Report how a foreign skill would map to Demido Studio, without installing",
+      "file": "commands/inspect-skill.md",
+      "params": [
+        { "name": "source", "description": "path to the source skill folder or file", "required": true }
+      ]
+    }
+  ]
+}

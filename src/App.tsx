@@ -2,12 +2,14 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Sidebar } from './components/sidebar/Sidebar'
 import { ChatView } from './components/chat/ChatView'
 import { AuthGate } from './components/auth/AuthGate'
+import { SetupWizard } from './components/setup/SetupWizard'
 import { WindowManager } from './components/windows/WindowManager'
 import { useConversations } from './stores/conversations'
 import { useProviders } from './stores/providers'
 import { useSettings } from './stores/settings'
 import { useMcpTools } from './stores/mcpTools'
 import { useSkills } from './stores/skills'
+import { useIntegrations } from './stores/integrations'
 import { useWindowManager } from './stores/windowManager'
 import { useArtifacts } from './stores/artifacts'
 import { ArtifactPanel } from './components/artifacts/ArtifactPanel'
@@ -52,10 +54,18 @@ export default function App() {
   const { load: loadSettings, settings, loaded } = useSettings()
   const loadMcpTools = useMcpTools(s => s.load)
   const loadSkills = useSkills(s => s.load)
+  const loadIntegrations = useIntegrations(s => s.load)
+  const integrationsEnabled = useIntegrations(s => s.enabled)
   const [unlocked, setUnlocked] = useState(false)
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(
     () => localStorage.getItem('disclaimer_accepted') === '1'
   )
+
+  // null until asked; the wizard only runs once, after the disclaimer is out of the way.
+  const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null)
+  useEffect(() => {
+    invoke<boolean>('setup_needed').then(setSetupNeeded).catch(() => setSetupNeeded(false))
+  }, [])
 
   useEffect(() => {
     (window as any).resetDisclaimer = () => {
@@ -64,8 +74,16 @@ export default function App() {
     }
   }, [])
 
-  const { openWindow, snapLayout } = useWindowManager()
-  const artifactOpen = useArtifacts(s => s.activeArtifact !== null)
+  const { openWindow, snapLayout, windows } = useWindowManager()
+  const [connectedServices, setConnectedServices] = useState<Set<string>>(new Set())
+  const accountsWindowOpen = 'accounts' in windows
+
+  useEffect(() => {
+    invoke<{ services: string[] }[]>('list_accounts')
+      .then(accs => setConnectedServices(new Set(accs.flatMap(a => a.services))))
+      .catch(() => {})
+  }, [accountsWindowOpen])
+  const artifactOpen = useArtifacts(s => s.activeArtifact !== null && !s.poppedOut)
   const [artifactWidth, setArtifactWidth] = useState(420)
   const [isDragging, setIsDragging] = useState(false)
   const dragging = useRef(false)
@@ -119,6 +137,7 @@ export default function App() {
       loadProviders()
       loadMcpTools()
       loadSkills()
+      loadIntegrations()
       let cancelled = false
       let cleanup: (() => void) | undefined
       listenForTitleUpdates().then(fn => {
@@ -146,6 +165,9 @@ export default function App() {
         setDisclaimerAccepted(true)
       }} />
     )}
+    {disclaimerAccepted && setupNeeded && (
+      <SetupWizard onDone={() => setSetupNeeded(false)} />
+    )}
     <div className="flex h-screen bg-background text-foreground overflow-hidden relative">
       <div className="flex flex-1 overflow-hidden min-w-0">
       {/* Left spacer: pushes chat right when a panel is snapped left */}
@@ -156,12 +178,17 @@ export default function App() {
       {/* Base layer: Sidebar + Chat + Artifact panel */}
       <div className="flex flex-1 overflow-hidden min-w-0">
         <Sidebar
-          onOpenSettings={() => openWindow('settings', 'settings', 'Settings')}
+          onOpenSettings={() => openWindow('settings', 'settings', 'Settings', { initialSize: { width: Math.round(window.innerWidth * 0.92), height: Math.round(window.innerHeight * 0.92) } })}
           onOpenTools={() => openWindow('tools', 'tools', 'Tools')}
           onOpenAccounts={() => openWindow('accounts', 'accounts', 'Accounts')}
           onOpenEmail={() => openWindow('email', 'email', 'Email', { initialSize: { width: Math.round(window.innerWidth * 0.88), height: Math.round(window.innerHeight * 0.88) } })}
           onOpenCalendar={() => openWindow('calendar', 'calendar', 'Calendar')}
           onOpenContacts={() => openWindow('contacts', 'contacts', 'Contacts')}
+          integrationsEnabled={{
+            email: integrationsEnabled.email && connectedServices.has('email'),
+            calendar: integrationsEnabled.calendar && connectedServices.has('calendar'),
+            contacts: integrationsEnabled.contacts && connectedServices.has('contacts'),
+          }}
         />
         <ChatView />
         {artifactOpen && (
@@ -189,3 +216,4 @@ export default function App() {
     </>
   )
 }
+

@@ -7,13 +7,14 @@ import { useConversations } from '../../stores/conversations'
 import { useMessages } from '../../stores/messages'
 import { useAttachmentCache } from '../../stores/attachmentCache'
 import { useMcpTools } from '../../stores/mcpTools'
-import { useSkills } from '../../stores/skills'
+import { useSkills, expandCommand, withSkillLocation, usageOf, type SkillCommandEntry } from '../../stores/skills'
 import { useBuiltinTools } from '../../stores/builtinTools'
 import { useProviders } from '../../stores/providers'
 import { useImageEditor } from '../../stores/imageEditor'
 import { useWindowManager } from '../../stores/windowManager'
-import { chat, reasoning, fs, google } from '../../lib/tauri'
+import { chat, reasoning, fs, google, skills as skillsApi } from '../../lib/tauri'
 import { toolKey } from '../../lib/constants'
+import { dropImagesIfBlind } from '../../lib/attachments'
 import type { FileAttachment, FsEntry, GItem } from '../../types'
 import { ARTIFACT_INSTRUCTIONS } from '../../lib/parseArtifacts'
 
@@ -89,10 +90,27 @@ function detectMention(text: string, cursor: number): { start: number; query: st
   return null
 }
 
+// Detect a `/command` segment. Only at the very start of the input, so a path like `src/lib`
+// or a date never opens the popup.
+function detectSlash(text: string, cursor: number): { query: string } | null {
+  if (!text.startsWith('/')) return null
+  const head = text.slice(1)
+  // Once the command name is complete (a space typed), the popup's job is done.
+  if (/\s/.test(head)) return null
+  if (cursor > head.length + 1) return null
+  return { query: head }
+}
+
 interface MentionState {
   start: number
   query: string
   filtered: FsEntry[]
+  selected: number
+}
+
+interface SlashState {
+  query: string
+  filtered: SkillCommandEntry[]
   selected: number
 }
 
@@ -113,12 +131,14 @@ export function InputBar() {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [mention, setMention] = useState<MentionState | null>(null)
   const [gitemMention, setGitemMention] = useState<GItemMentionState | null>(null)
+  const [slash, setSlash] = useState<SlashState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const attachMenuRef = useRef<HTMLDivElement>(null)
   const mentionPopupRef = useRef<HTMLDivElement>(null)
   const gitemPopupRef = useRef<HTMLDivElement>(null)
+  const slashPopupRef = useRef<HTMLDivElement>(null)
   const dropZoneRef = useRef<HTMLDivElement>(null)
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const allFilesRef = useRef<FsEntry[]>([])
@@ -143,7 +163,7 @@ export function InputBar() {
   const lookupConversation = useAttachmentCache(s => s.lookupConversation)
   const enabledTools = useMcpTools(s => s.enabledTools)
   const allTools = useMcpTools(s => s.tools)
-  const { enabledContext: enabledSkillsContext, skills } = useSkills()
+  const { enabledContext: enabledSkillsContext, skills, enabledCommands } = useSkills()
   const disabledBuiltinKeys = useBuiltinTools(s => s.disabledKeys)
   const { selectedProviderId, selectedModelId, providers, modelCapabilities } = useProviders()
 
@@ -167,6 +187,12 @@ export function InputBar() {
     const el = gitemPopupRef.current.children[gitemMention.selected] as HTMLElement | undefined
     el?.scrollIntoView({ block: 'nearest' })
   }, [gitemMention?.selected])
+
+  useEffect(() => {
+    if (!slash || !slashPopupRef.current) return
+    const el = slashPopupRef.current.children[slash.selected] as HTMLElement | undefined
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [slash?.selected])
 
   useEffect(() => {
     let cancelled = false
@@ -216,6 +242,8 @@ export function InputBar() {
     setReasoningMode(v)
     if (selectedProviderId && selectedModelId) localStorage.setItem(reasoningKey(selectedProviderId, selectedModelId), v)
   }
+
+  const dropBlindImages = (atts?: FileAttachment[]) => dropImagesIfBlind(atts, visionSupported)
 
   const showAttachError = (msg: string) => {
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
@@ -297,6 +325,29 @@ export function InputBar() {
     }, 300)
   }
 
+  // `/command`: filter on every keystroke. No debounce — the list is already in memory.
+  const updateSlash = (text: string, cursor: number) => {
+    const s = detectSlash(text, cursor)
+    if (!s) { setSlash(null); return }
+    const q = s.query.toLowerCase()
+    const filtered = enabledCommands()
+      .filter(c => c.invocation.toLowerCase().includes(q) || c.description.toLowerCase().includes(q))
+      .slice(0, 12)
+    setSlash({ query: s.query, filtered, selected: 0 })
+  }
+
+  const insertSlash = (cmd: SkillCommandEntry) => {
+    const el = textareaRef.current
+    if (!el) return
+    const next = `/${cmd.invocation} `
+    setValue(next)
+    setSlash(null)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(next.length, next.length)
+    })
+  }
+
   const toRelative = (absPath: string) => {
     if (!workingDir) return absPath
     const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -358,9 +409,46 @@ export function InputBar() {
     })
   }
 
+  /**
+   * Expand a leading `/command` into its prompt body. Returns null if the text isn't a command,
+   * and throws if it names one that can't be resolved — a typo'd command must not be sent to the
+   * model as literal text.
+   */
+  const resolveSlashCommand = async (raw: string): Promise<string | null> => {
+    if (!raw.startsWith('/')) return null
+    const head = raw.slice(1)
+    const sep = head.search(/\s/)
+    const name = sep === -1 ? head : head.slice(0, sep)
+    const args = sep === -1 ? '' : head.slice(sep + 1).trim()
+    if (!name) return null
+    const cmd = enabledCommands().find(c => c.invocation === name)
+    if (!cmd) throw new Error(`Unknown command /${name}. Its skill may be disabled.`)
+    const body = cmd.file
+      ? await skillsApi.readCommand(cmd.skillId, cmd.file)
+      : (cmd.prompt ?? '')
+    if (!body.trim()) throw new Error(`/${name} has no prompt body — its skill.json defines neither a valid 'file' nor a 'prompt'.`)
+    let expanded: string
+    try {
+      expanded = expandCommand(body, args, cmd.params)
+    } catch (e) {
+      // Surface the call shape: the user needs to know what to type, not just what's missing.
+      throw new Error(`${e instanceof Error ? e.message : String(e)}\nUsage: ${usageOf(cmd)}`)
+    }
+    return withSkillLocation(expanded, cmd.skillName, cmd.skillPath)
+  }
+
   const handleSend = async () => {
     const raw = value.trim()
     if (!raw || streaming) return
+
+    let expanded: string | null = null
+    try {
+      expanded = await resolveSlashCommand(raw)
+    } catch (e) {
+      showAttachError(e instanceof Error ? e.message : String(e))
+      return
+    }
+
     let convId = activeId
     if (!convId) {
       if (!selectedProviderId || !selectedModelId) return
@@ -370,15 +458,17 @@ export function InputBar() {
     setValue('')
     setMention(null)
     setGitemMention(null)
+    setSlash(null)
     const currentAttachments = attachments
     setAttachments([])
+    // Keyed on the *sent* text, not the typed text: the cache is looked up by message content, and
+    // a `/command` or `@!` tag means those two differ.
+    const content = resolveGItems(expanded ?? raw)
     if (currentAttachments.length > 0) {
-      storeAttachments(raw, currentAttachments)
+      storeAttachments(content, currentAttachments)
       storeForConversation(convId, currentAttachments)
     }
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-
-    const content = resolveGItems(raw)
 
     const enabled = enabledTools()
     const enabledKeys = new Set(enabled.map(toolKey))
@@ -390,12 +480,26 @@ export function InputBar() {
     prependSkillBlocks(skills.filter(s => s.enabled).map(s => s.name))
     try {
       const historicalAtts = currentAttachments.length === 0 ? lookupConversation(convId) : undefined
+      // Caps gate what is *sent*, not just what the attach button renders: attachments
+      // survive a model switch, and convCache replays them on every later send in the
+      // conversation. A text-only model 500s on image content, so drop images here.
+      const sentAtts = dropBlindImages(currentAttachments)
+      const sentHistorical = dropBlindImages(historicalAtts)
+      const droppedImages =
+        (currentAttachments.length - sentAtts.length) +
+        ((historicalAtts?.length ?? 0) - sentHistorical.length)
+      if (droppedImages > 0) {
+        showAttachError(
+          `${selectedModelId || 'This model'} has no vision support — sent without ${droppedImages === 1 ? 'the image' : `${droppedImages} images`}.`,
+        )
+      }
       await chat.sendMessage(
         convId, content, disabledTools, effort,
         selectedProviderId || undefined, selectedModelId || undefined,
-        currentAttachments.length > 0 ? currentAttachments : undefined,
+        sentAtts.length > 0 ? sentAtts : undefined,
         (() => { const sc = enabledSkillsContext(); return sc ? `${ARTIFACT_INSTRUCTIONS}\n\n${sc}` : ARTIFACT_INSTRUCTIONS })(),
-        historicalAtts,
+        sentHistorical.length ? sentHistorical : undefined,
+        skills.filter(s => s.enabled).map(s => s.id),
       )
     } catch (e) { setStreamError(String(e)) }
   }
@@ -409,6 +513,12 @@ export function InputBar() {
   }
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slash && slash.filtered.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlash(s => s ? { ...s, selected: Math.min(s.selected + 1, s.filtered.length - 1) } : s); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlash(s => s ? { ...s, selected: Math.max(s.selected - 1, 0) } : s); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertSlash(slash.filtered[slash.selected]); return }
+      if (e.key === 'Escape') { setSlash(null); return }
+    }
     if (gitemMention && gitemMention.items.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setGitemMention(m => m ? { ...m, selected: Math.min(m.selected + 1, m.items.length - 1) } : m); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setGitemMention(m => m ? { ...m, selected: Math.max(m.selected - 1, 0) } : m); return }
@@ -451,6 +561,7 @@ export function InputBar() {
     const cursor = e.target.selectionStart ?? newVal.length
     updateMention(newVal, cursor)
     updateGItemMention(newVal, cursor)
+    updateSlash(newVal, cursor)
   }
 
   // Native drag-drop listeners (bypasses React synthetic event quirks in WebView2)
@@ -483,6 +594,23 @@ export function InputBar() {
 
   return (
     <div className="border-t border-border p-4">
+      {/* /command popup — skill-provided slash commands */}
+      {slash && slash.filtered.length > 0 && (
+        <div ref={slashPopupRef} className="mb-2 bg-popover border border-border rounded-lg shadow-lg overflow-hidden max-h-56 overflow-y-auto">
+          {slash.filtered.map((c, i) => (
+            <button
+              key={`${c.skillId}:${c.name}`}
+              onClick={() => insertSlash(c)}
+              className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent transition-colors ${i === slash.selected ? 'bg-accent' : ''}`}
+            >
+              <span className="font-mono text-primary shrink-0">{usageOf(c)}</span>
+              <span className="text-muted-foreground truncate">{c.description}</span>
+              <span className="ml-auto text-[10px] text-muted-foreground/70 shrink-0">{c.skillName}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* @! gitem popup */}
       {gitemMention && (gitemMention.items.length > 0 || gitemMention.loading) && (
         <div ref={gitemPopupRef} className="mb-2 bg-popover border border-border rounded-lg shadow-lg overflow-hidden max-h-56 overflow-y-auto">
@@ -615,9 +743,10 @@ export function InputBar() {
         {attachError || streamError
           ? <span className="text-red-400">{attachError ?? streamError}</span>
           : workingDir
-          ? 'Enter to send · Shift+Enter new line · @ to mention files · @! to mention emails, events, contacts'
-          : 'Enter to send · Shift+Enter for new line · @! to mention emails, events, contacts'}
+          ? 'Enter to send · Shift+Enter new line · / for skill commands · @ to mention files · @! to mention emails, events, contacts'
+          : 'Enter to send · Shift+Enter for new line · / for skill commands · @! to mention emails, events, contacts'}
       </p>
     </div>
   )
 }
+

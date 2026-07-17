@@ -27,7 +27,7 @@ export function MermaidBlock({ code, title = 'Diagram', className }: Props) {
   const dragStart = useRef({ x: 0, y: 0 })
   const offsetAtDragStart = useRef({ x: 0, y: 0 })
 
-  // Non-passive wheel — prevents page scroll while hovering chart
+  // Non-passive wheel: prevents page scroll while hovering chart
   useEffect(() => {
     const el = wrapperRef.current
     if (!el) return

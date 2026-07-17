@@ -19,6 +19,7 @@ interface Props {
   onOpenEmail: () => void
   onOpenCalendar: () => void
   onOpenContacts: () => void
+  integrationsEnabled: { email: boolean; calendar: boolean; contacts: boolean }
 }
 
 function Tooltip({ label, children }: { label: string; children: React.ReactNode }) {
@@ -51,7 +52,7 @@ function IconBtn({ icon, label, active, onClick }: { icon: React.ReactNode; labe
   )
 }
 
-export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEmail, onOpenCalendar, onOpenContacts }: Props) {
+export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEmail, onOpenCalendar, onOpenContacts, integrationsEnabled }: Props) {
   const { create, conversations, activeId, setActive } = useConversations()
   const { selectedProviderId, selectedModelId } = useProviders()
   const [view, setView] = useState<SidebarView>('chats')
@@ -133,7 +134,7 @@ export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEma
 
   return (
     <div className="flex h-full shrink-0 border-r border-border">
-      {/* Activity bar — 48px icon column */}
+      {/* Activity bar: 48px icon column */}
       <div className="w-12 flex flex-col items-center py-2 gap-1 bg-card border-r border-border/50 shrink-0">
         {/* Top icons */}
         <div
@@ -164,16 +165,22 @@ export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEma
         <div className="flex-1" />
 
         {/* Bottom icons */}
-        <IconBtn icon={<Mail size={18} />} label="Email" onClick={onOpenEmail} />
-        <IconBtn icon={<Calendar size={18} />} label="Calendar" onClick={onOpenCalendar} />
-        <IconBtn icon={<Users size={18} />} label="Contacts" onClick={onOpenContacts} />
-        <IconBtn icon={<UserCircle size={18} />} label="Accounts" onClick={onOpenAccounts} />
+        {integrationsEnabled.email && (
+          <IconBtn icon={<Mail size={18} />} label="Email" onClick={onOpenEmail} />
+        )}
+        {integrationsEnabled.calendar && (
+          <IconBtn icon={<Calendar size={18} />} label="Calendar" onClick={onOpenCalendar} />
+        )}
+        {integrationsEnabled.contacts && (
+          <IconBtn icon={<Users size={18} />} label="Contacts" onClick={onOpenContacts} />
+        )}
         <div className="h-px w-6 bg-border/60 my-1" />
+        <IconBtn icon={<UserCircle size={18} />} label="Accounts" onClick={onOpenAccounts} />
         <IconBtn icon={<Wrench size={18} />} label="Tools" onClick={onOpenTools} />
         <IconBtn icon={<Settings size={18} />} label="Settings" onClick={onOpenSettings} />
       </div>
 
-      {/* Content panel — only shown when a view is active */}
+      {/* Content panel: only shown when a view is active */}
       {view && (
         <div className="flex flex-col border-r border-border bg-card relative" style={{ width }}>
           {view === 'chats' && (

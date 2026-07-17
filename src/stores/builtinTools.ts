@@ -18,7 +18,19 @@ const DEFAULT_TOOLS: BuiltinTool[] = [
   { id: 'read_email',          name: 'read_email',          description: 'Read the full body of an email by ID',                     group: 'Email',      enabled: true },
   { id: 'list_calendar_events',name: 'list_calendar_events',description: 'List upcoming events from connected Google Calendar',      group: 'Calendar',   enabled: true },
   { id: 'list_contacts',       name: 'list_contacts',       description: 'Search or list contacts from connected Google account',     group: 'Contacts',   enabled: true },
+  { id: 'read_contact',        name: 'read_contact',        description: 'Read the full details of a contact by ID',                  group: 'Contacts',   enabled: true },
 ]
+
+/** DEFAULT_TOOLS must list every tool `web_tool_defs` + `google_tool_defs` return
+ *  (`src-tauri/src/agent/mod.rs`) — i.e. the ones offered unconditionally, whatever the agent mode.
+ *  Anything missing here is unreachable by `disabledKeys` below,
+ *  so it stays switched on however the user sets Tools — that is how `read_contact` survived
+ *  Contacts being turned off. `builtinTools.test.ts` reads the Rust source and enforces this.
+ *
+ *  `skills_tool_defs` (`install_skill`/`delete_skill`) is deliberately absent: those are not
+ *  offered on their own any more. `skill-manager` claims them in its `tools.json`, so its toggle
+ *  is their switch and they render under it — not here. */
+export { DEFAULT_TOOLS }
 
 function loadState(): Record<string, boolean> {
   try {

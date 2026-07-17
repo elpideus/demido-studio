@@ -1122,7 +1122,7 @@ export function EditorCanvas() {
       if (handle === 'move') {
         const dx = pos.x - startPos.x, dy = pos.y - startPos.y
         xf.bounds = { ...startBounds, x: startBounds.x + dx, y: startBounds.y + dy }
-        // originalBounds stays fixed — it's the source content location in the snapshot
+        // originalBounds stays fixed: it's the source content location in the snapshot
         bumpXform()
         const snap = xformSnapshotRef.current
         if (snap) {

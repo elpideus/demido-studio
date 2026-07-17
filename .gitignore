@@ -51,3 +51,6 @@ vision_capability_detection.md
 tauri-signing-key.key
 tauri-signing-key.key.pub
 .tmpverify/
+
+# Generated code knowledge graph — regenerate with `graphify . --update`
+graphify-out/

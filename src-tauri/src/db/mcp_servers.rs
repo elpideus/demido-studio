@@ -24,6 +24,10 @@ pub fn list(conn: &Connection) -> Result<Vec<McpServer>> {
             env,
             url: r.get(6)?,
             enabled: r.get::<_, i64>(7)? != 0,
+            // A server in this table is one the user configured in Settings by hand. Skill servers
+            // live in their skill's mcp.json and are rebuilt from disk on every reload.
+            skill_id: None,
+            bypass_agent_mode: false,
         })
     })?;
     rows.collect()

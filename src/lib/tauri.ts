@@ -3,10 +3,10 @@ import { invoke as _invoke } from '@tauri-apps/api/core'
 const isTauri = () => !!(window as any).__TAURI_INTERNALS__
 
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri()) return Promise.reject(new Error(`[browser] invoke('${cmd}') skipped — no Tauri runtime`))
+  if (!isTauri()) return Promise.reject(new Error(`[browser] invoke('${cmd}') skipped: no Tauri runtime`))
   return _invoke<T>(cmd, args)
 }
-import type { Conversation, Message, Provider, AppSettings, McpServer, ModelOverride, FileAttachment } from '../types'
+import type { Conversation, Message, Provider, AppSettings, McpServer, ModelOverride, FileAttachment, LinkPreview } from '../types'
 
 export const db = {
   listConversations: () => invoke<Conversation[]>('list_conversations'),
@@ -40,6 +40,8 @@ export const db = {
   getSettings: () => invoke<AppSettings>('get_settings'),
   setSetting: (key: string, value: unknown) =>
     invoke<void>('set_setting', { key, value: JSON.stringify(value) }),
+  getSetting: (key: string, defaultValue?: string) =>
+    invoke<string>('get_setting', { key, default: defaultValue }),
 
   getSecret: (key: string) => invoke<string | null>('get_secret', { key }),
   setSecret: (key: string, value: string) => invoke<void>('set_secret', { key, value }),
@@ -49,6 +51,8 @@ export const db = {
 
   setAgentMode: (conversationId: string, mode: string) =>
     invoke<void>('set_agent_mode', { conversationId, mode }),
+  setCavemanLevel: (conversationId: string, level: string) =>
+    invoke<void>('set_caveman_level', { conversationId, level }),
   setWorkingDirectory: (conversationId: string, path: string | null) =>
     invoke<void>('set_working_directory', { conversationId, path }),
 }
@@ -64,9 +68,10 @@ export const chat = {
     attachments?: FileAttachment[],
     skillsContext?: string,
     historicalAttachments?: FileAttachment[],
+    enabledSkills?: string[],
   ) =>
     invoke<void>('send_message', {
-      req: { conversationId, content, disabledTools, reasoningEffort, providerId, modelId, attachments, skillsContext, historicalAttachments },
+      req: { conversationId, content, disabledTools, reasoningEffort, providerId, modelId, attachments, skillsContext, historicalAttachments, enabledSkills },
     }),
   cancelStream: () => invoke<void>('cancel_stream'),
   continueGeneration: (
@@ -76,6 +81,7 @@ export const chat = {
     providerId?: string,
     modelId?: string,
     skillsContext?: string,
+    enabledSkills?: string[],
   ) => invoke<void>('continue_generation', {
     conversationId,
     disabledTools,
@@ -83,7 +89,16 @@ export const chat = {
     providerId,
     modelId,
     skillsContext,
+    enabledSkills,
   }),
+}
+
+/** Global system prompt — a file in app-data, not a settings row. See src-tauri/src/prompt.rs. */
+export const systemPrompt = {
+  get: () => invoke<string>('get_system_prompt'),
+  set: (content: string) => invoke<void>('set_system_prompt', { content }),
+  path: () => invoke<string>('get_system_prompt_path'),
+  listVars: () => invoke<string[]>('list_prompt_vars'),
 }
 
 export const reasoning = {
@@ -103,9 +118,19 @@ export const exportChat = {
     invoke<void>('export_conversation', { conversationId, filePath }),
 }
 
+export const skillMcp = {
+  /** Report which skills are on so the backend spawns/kills their bundled MCP servers to match. */
+  sync: (enabledSkills: string[]) =>
+    invoke<void>('sync_skill_mcp_servers', { enabledSkills }),
+}
+
 export const skills = {
-  list: () => invoke<{ id: string; name: string; description: string; version: string; commands: { name: string; description: string; file?: string }[]; content: string }[]>('list_skills'),
+  list: () => invoke<{ id: string; name: string; description: string; version: string; commands: { name: string; description: string; file?: string; prompt?: string }[]; tools?: import('../stores/skills').SkillToolDef[]; metaJson: string; files: string[]; path: string }[]>('list_skills'),
   delete: (id: string) => invoke<void>('delete_skill', { id }),
+  readFiles: (id: string) => invoke<import('../types').SkillFile[]>('read_skill_files', { id }),
+  readCommand: (id: string, file: string) => invoke<string>('read_skill_command', { id, file }),
+  writeFile: (id: string, file: string, content: string) =>
+    invoke<void>('write_skill_file', { id, file, content }),
 }
 
 export const fs = {
@@ -138,6 +163,10 @@ export const google = {
     invoke<{ contacts: { id: string; display_name: string; emails: { value: string; label: string }[]; phones: { value: string; label: string }[] }[]; next_page_token: string | null }>('fetch_contacts', { query, maxResults }),
   getEmailBody: (id: string) =>
     invoke<string>('get_email_body', { id }),
+}
+
+export const links = {
+  fetchPreviews: (urls: string[]) => invoke<LinkPreview[]>('fetch_link_previews', { urls }),
 }
 
 export const mcp = {

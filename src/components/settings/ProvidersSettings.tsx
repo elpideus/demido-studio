@@ -3,6 +3,7 @@ import Fuse from 'fuse.js'
 import { ChevronDown } from 'lucide-react'
 import { useProviders } from '../../stores/providers'
 import { ProviderCard } from './ProviderCard'
+import { LocalProviderCard, LOCAL_PROVIDER_ID } from './LocalProviderCard'
 import { Button } from '@/components/ui/button'
 
 const PROVIDER_TEMPLATES = [
@@ -18,11 +19,17 @@ const PROVIDER_TEMPLATES = [
 
 const fuse = new Fuse(PROVIDER_TEMPLATES, { keys: ['label'], threshold: 0.4 })
 
-export function ProvidersSettings() {
+interface ProvidersSettingsProps {
+  /** Jump to Settings → Engine → Models (the GGUF browser). */
+  onDownloadModels?: () => void
+}
+
+export function ProvidersSettings({ onDownloadModels }: ProvidersSettingsProps) {
   const { providers, addProvider } = useProviders()
   const [selected, setSelected] = useState(PROVIDER_TEMPLATES[0])
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [newProviderId, setNewProviderId] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -45,7 +52,14 @@ export function ProvidersSettings() {
 
   useEffect(() => { if (open) searchRef.current?.focus() }, [open])
 
-  const handleAdd = () => addProvider(selected)
+  const handleAdd = async () => setNewProviderId(await addProvider(selected))
+
+  // Newest first, but the pinned local provider stays at the top.
+  const ordered = useMemo(() => {
+    const local = providers.filter(p => p.id === LOCAL_PROVIDER_ID)
+    const rest = providers.filter(p => p.id !== LOCAL_PROVIDER_ID).reverse()
+    return [...local, ...rest]
+  }, [providers])
 
   return (
     <div className="space-y-4">
@@ -90,8 +104,10 @@ export function ProvidersSettings() {
         <Button onClick={handleAdd} size="sm" className="shrink-0">+ Add</Button>
       </div>
       <div className="space-y-3">
-        {providers.map(p => (
-          <ProviderCard key={p.id} provider={p} />
+        {ordered.map(p => (
+          p.id === LOCAL_PROVIDER_ID
+            ? <LocalProviderCard key={p.id} provider={p} onDownloadModels={onDownloadModels} />
+            : <ProviderCard key={p.id} provider={p} defaultEdit={p.id === newProviderId} />
         ))}
         {providers.length === 0 && (
           <p className="text-xs text-muted-foreground text-center py-6">

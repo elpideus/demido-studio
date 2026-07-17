@@ -1,0 +1,20 @@
+{
+  "tools": [
+    {
+      "type": "builtin",
+      "name": "install_skill",
+      "description": "Create or replace a skill in Demido's own skills folder"
+    },
+    {
+      "type": "builtin",
+      "name": "delete_skill",
+      "description": "Delete a skill folder (always asks first)"
+    },
+    {
+      "type": "prompt",
+      "name": "skill_spec",
+      "description": "Get the Demido Studio skill authoring spec: skill.json, tools.json, SKILL.md, commands, params, install rules. Use before writing or editing any skill, and when asked how skills work.",
+      "file": "tools/skill-spec.md"
+    }
+  ]
+}

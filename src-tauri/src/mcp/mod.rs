@@ -60,6 +60,12 @@ impl McpManager {
         self.cached_tools.clone()
     }
 
+    /// The loaded server behind an id — carries `skill_id` and `bypass_agent_mode`, which decide
+    /// whether a tool call needs a permission check.
+    pub fn get_server(&self, server_id: &str) -> Option<&McpServer> {
+        self.servers.iter().find(|s| s.id == server_id)
+    }
+
     /// Returns a clone of the Arc for the named stdio client, or None if not connected.
     pub fn get_stdio_client(&self, server_id: &str) -> Option<Arc<stdio::StdioClient>> {
         self.stdio_clients.get(server_id).cloned()

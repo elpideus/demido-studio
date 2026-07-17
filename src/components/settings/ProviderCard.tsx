@@ -16,11 +16,12 @@ const TYPE_LABELS: Record<string, string> = {
   gemini: 'Google Gemini',
 }
 
-interface Props { provider: Provider }
+/** `defaultEdit`: a just-added provider opens expanded, since it has no URL or key yet. */
+interface Props { provider: Provider; defaultEdit?: boolean }
 
-export function ProviderCard({ provider }: Props) {
+export function ProviderCard({ provider, defaultEdit }: Props) {
   const { upsert, fetchModels, models, modelOverrides, loadModelOverrides, upsertModelOverride, batchUpsertModelOverrides, deleteProvider } = useProviders()
-  const [editOpen, setEditOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(defaultEdit ?? false)
   const [modelsOpen, setModelsOpen] = useState(false)
   const [modelsLoading, setModelsLoading] = useState(false)
   const [editName, setEditName] = useState(provider.name)
