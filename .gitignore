@@ -13,7 +13,36 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+build
+out
 *.local
+
+# Environment / secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!tauri-signing-key.key.pub
+secrets.json
+*.secret
+
+# OS junk
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Temp / backup / scratch files
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*~
+.cache/
+tmp/
+scratch/
 
 # Editor directories and files
 .vscode/
@@ -43,7 +72,6 @@ src-tauri/target/
 .playwright-mcp/
 .superpowers/
 .vexp/
-AGENTS.md
 vexp.toml
 vision_capability_detection.md
 
@@ -53,4 +81,6 @@ tauri-signing-key.key.pub
 .tmpverify/
 
 # Generated code knowledge graph — regenerate with `graphify . --update`
+# (no leading slash → matches graphify-out/ at any depth: root, src-tauri/, etc.)
 graphify-out/
+**/graphify-out/

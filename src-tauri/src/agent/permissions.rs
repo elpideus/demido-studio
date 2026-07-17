@@ -35,6 +35,22 @@ fn is_sensitive_path(path: &str) -> bool {
     })
 }
 
+/// Permission for the graphify navigation tools, decided independently of `agent_mode`.
+///
+/// `graphify_query` is read-only (it runs a query against the app-built graph, touching no user
+/// files) → always `Allow`. `graphify_build` spawns Python and writes a `graphify-out` folder into
+/// the working directory, so it is gated — but the per-folder auto-build toggle *is* the user's
+/// consent: when it is on, building is exactly what they asked for, so no per-run prompt. With the
+/// toggle off, a build the model initiates itself still asks. `auto_build_consented` is the toggle
+/// state for the conversation's working folder, resolved by the caller (which has the app handle).
+pub fn graphify_permission(tool_name: &str, auto_build_consented: bool) -> PermissionResult {
+    match tool_name {
+        "graphify_query" => PermissionResult::Allow,
+        "graphify_build" if auto_build_consented => PermissionResult::Allow,
+        _ => PermissionResult::Ask,
+    }
+}
+
 pub fn is_permitted(mode: &str, tool_name: &str, args: &Value) -> PermissionResult {
     // Decided before `mode`, so these hold in every mode including cautious.
     match tool_name {
@@ -184,6 +200,30 @@ mod tests {
             assert!(!allowed(mode, "write_file", json!({ "path": "a.txt" })));
             assert!(!allowed(mode, "run_command", json!({ "command": "ls" })));
         }
+    }
+
+    #[test]
+    fn graphify_query_is_always_allowed_read_only() {
+        for consent in [true, false] {
+            assert!(matches!(
+                graphify_permission("graphify_query", consent),
+                PermissionResult::Allow
+            ));
+        }
+    }
+
+    #[test]
+    fn graphify_build_follows_the_auto_build_toggle_consent() {
+        // Toggle on = the user asked for auto-build → no prompt.
+        assert!(matches!(
+            graphify_permission("graphify_build", true),
+            PermissionResult::Allow
+        ));
+        // Toggle off = a model-initiated build still asks.
+        assert!(matches!(
+            graphify_permission("graphify_build", false),
+            PermissionResult::Ask
+        ));
     }
 
     #[test]

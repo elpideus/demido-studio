@@ -39,6 +39,14 @@ if (import.meta.env.DEV) {
   }
 }
 
+// MCP test-automation bridge (tauri-plugin-mcp) — dev only. Creates the named-pipe
+// bridge the tauri-mcp server attaches to for snapshot/click/fill DOM ops.
+if (import.meta.env.DEV) {
+  import('tauri-plugin-mcp')
+    .then(({ initMcpBridge }) => initMcpBridge())
+    .catch((err) => console.warn('[MCP] Bridge init failed:', err))
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>

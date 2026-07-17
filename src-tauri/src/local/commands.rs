@@ -7,7 +7,7 @@ use crate::commands::AppState;
 use crate::db::local_models::{self, LocalModel};
 use crate::db::model_overrides::{self, ModelOverride};
 use crate::db::{settings, LOCAL_PROVIDER_ID};
-use crate::local::{engine, hf, python, searxng};
+use crate::local::{engine, graphify, hf, python, searxng};
 
 const MODELS_DIR_KEY: &str = "local_models_dir";
 const MODELS_DIRS_KEY: &str = "local_models_dirs";
@@ -438,4 +438,98 @@ pub async fn start_searxng(app: AppHandle, state: State<'_, AppState>) -> Result
 pub fn stop_searxng(state: State<'_, AppState>) -> Result<(), String> {
     state.searxng_engine.stop();
     Ok(())
+}
+
+/// Everything the sidebar's Graphify affordance needs in one round-trip: whether the
+/// graphify package is installed into the portable runtime, and whether a graph has been
+/// built for `folder`. `folder` is the active conversation's working directory.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphifyStatus {
+    pub python_ready: bool,
+    pub installed: bool,
+    pub graph_built: bool,
+    /// Whether automatic graph building is enabled for this folder (default true).
+    pub auto_build: bool,
+}
+
+#[tauri::command]
+pub fn graphify_status(app: AppHandle, folder: String) -> GraphifyStatus {
+    GraphifyStatus {
+        python_ready: python::python_ready(&app),
+        installed: graphify::installed(&app),
+        graph_built: graphify::graph_built(&folder),
+        auto_build: graphify::auto_build_enabled(&app, &folder),
+    }
+}
+
+/// Set the per-folder "automatically build graph on new projects" preference.
+#[tauri::command]
+pub fn graphify_set_auto_build(app: AppHandle, folder: String, enabled: bool) -> Result<(), String> {
+    graphify::set_auto_build(&app, &folder, enabled)
+}
+
+/// Install (or repair) Python + the graphify package. Progress via
+/// `python_install_progress` / `graphify_install_progress`.
+#[tauri::command]
+pub async fn install_graphify(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    graphify::install(&app, &state.http_client).await
+}
+
+/// Remove the graphify install marker + cached renderer (Python runtime left in place).
+#[tauri::command]
+pub fn uninstall_graphify(app: AppHandle) -> Result<(), String> {
+    graphify::uninstall(&app)
+}
+
+/// Build (or refresh, with `update`) the graph for `folder`. Installs graphify first if
+/// needed. Streams `graphify_build_progress` events; returns when the build finishes.
+#[tauri::command]
+pub async fn build_graphify(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    folder: String,
+    update: bool,
+) -> Result<(), String> {
+    graphify::build(&app, &state.http_client, folder, update).await
+}
+
+/// Run a read query (`query` / `path` / `explain`) against the built graph, returning its
+/// stdout text.
+#[tauri::command]
+pub async fn query_graphify(
+    app: AppHandle,
+    folder: String,
+    kind: String,
+    args: Vec<String>,
+) -> Result<String, String> {
+    graphify::query(&app, folder, kind, args).await
+}
+
+/// Cached settled node positions for `folder`, or `null` if none captured yet. Read on graph
+/// open so a reopen (or an open after an app restart) skips the physics stabilization.
+#[tauri::command]
+pub fn graphify_get_positions(app: AppHandle, folder: String) -> Option<serde_json::Value> {
+    graphify::get_positions(&app, &folder)
+}
+
+/// Persist the settled node positions the graph iframe reported, keyed by `folder`.
+#[tauri::command]
+pub fn graphify_set_positions(
+    app: AppHandle,
+    folder: String,
+    positions: serde_json::Value,
+) -> Result<(), String> {
+    graphify::set_positions(&app, &folder, positions)
+}
+
+/// The built `graph.html` for `folder`, with the CDN visualisation script inlined so it
+/// renders offline. Returned as a string for use as an iframe `srcdoc`.
+#[tauri::command]
+pub async fn graphify_graph_html(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    folder: String,
+) -> Result<String, String> {
+    graphify::graph_html(&app, &state.http_client, folder).await
 }

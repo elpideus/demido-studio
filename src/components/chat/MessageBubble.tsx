@@ -9,6 +9,7 @@ import { cn, clampToViewport } from '../../lib/utils'
 import type { FileAttachment } from '../../types'
 import { parseArtifacts } from '../../lib/parseArtifacts'
 import { splitSources } from '../../lib/parseSources'
+import { stripToolCallMarkup } from '../../lib/stripToolCalls'
 import { SourcesList } from './SourcesList'
 import { ArtifactCard } from './ArtifactCard'
 import { useArtifacts } from '../../stores/artifacts'
@@ -110,9 +111,13 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
   // Lift the sources footer out of assistant messages so it renders as chips, not a bullet list.
   // Skipped while streaming: a half-arrived footer would flicker in and out of the body.
   const { body, sources } = useMemo(
-    () => (isUser || streaming ? { body: content, sources: [] } : splitSources(content)),
+    () => (isUser || streaming ? { body: content, sources: [] } : splitSources(stripToolCallMarkup(content))),
     [isUser, streaming, content]
   )
+
+  // Thinking shown in this bubble (only when there is no timeline strip) can also carry leaked
+  // <tool_call> markup — strip it, and drop the box if nothing real remains.
+  const cleanThinking = useMemo(() => thinking ? stripToolCallMarkup(thinking) : '', [thinking])
 
   // Parse artifacts from assistant messages (not while streaming)
   const segments = useMemo(() => {
@@ -158,7 +163,7 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
       onMouseLeave={() => setHovered(false)}
       onContextMenu={handleContextMenu}
     >
-      {!isUser && thinking && (
+      {!isUser && cleanThinking && (
         <div
           className="max-w-[75%] mb-1.5 border border-dashed border-border rounded-[10px_10px_10px_3px] bg-card cursor-pointer"
           onClick={() => setThinkingExpanded(e => !e)}
@@ -166,7 +171,7 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
           <div className="flex items-center gap-2 px-3 py-2">
             <MessageSquare size={12} className="text-muted-foreground/60 shrink-0" />
             <span className="text-muted-foreground/60 text-xs flex-1 truncate">
-              {thinkingExpanded ? 'Thinking' : thinking.split('\n')[0]}
+              {thinkingExpanded ? 'Thinking' : cleanThinking.split('\n')[0]}
             </span>
             <ChevronRight
               size={11}
@@ -189,7 +194,7 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
                   '--tw-prose-pre-bg': '#1a1a24',
                 } as React.CSSProperties}
               >
-                <MarkdownRenderer>{thinking}</MarkdownRenderer>
+                <MarkdownRenderer>{cleanThinking}</MarkdownRenderer>
               </div>
             </div>
           )}
@@ -227,7 +232,10 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
         </div>
       )}
 
-      {editing ? (
+      {/* An assistant turn that was nothing but leaked <tool_call> markup strips to empty — render no
+          bubble box (the call already shows in the timeline strip) rather than an empty rounded card. */}
+      {(isUser || editing || streaming || body.trim() !== '' || segments || sources.length > 0) && (
+        editing ? (
         <div className="max-w-[75%] w-full flex flex-col gap-2">
           <textarea
             ref={textareaRef}
@@ -251,7 +259,7 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
             'rounded-xl px-4 py-3 text-sm leading-relaxed',
             hasStrip ? 'w-full' : 'max-w-[75%]',
             isUser
-              ? 'bg-primary text-white rounded-br-sm'
+              ? 'bg-primary/20 text-foreground rounded-br-sm'
               : 'bg-secondary text-foreground rounded-bl-sm border border-border',
             !isUser && (thinking || hasStrip) && 'rounded-tl-sm'
           )}
@@ -288,6 +296,7 @@ export function MessageBubble({ id, role, content, thinking, hasStrip, streaming
             </div>
           )}
         </div>
+        )
       )}
 
       {/* Action buttons: shown on hover, hidden while editing or streaming */}

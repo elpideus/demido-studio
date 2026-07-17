@@ -3,6 +3,7 @@
 
 pub mod commands;
 pub mod engine;
+pub mod graphify;
 pub mod hf;
 pub mod python;
 pub mod searxng;

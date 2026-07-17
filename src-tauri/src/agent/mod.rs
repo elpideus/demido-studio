@@ -83,6 +83,29 @@ pub fn builtin_tool_defs() -> Vec<ToolDef> {
                 "required": ["pattern"]
             }),
         },
+        ToolDef {
+            name: "graphify_query".into(),
+            description: "Navigate the working folder's code knowledge graph. Prefer this over reading files one by one to learn structure, relationships, or where something lives. kind='query' answers a plain-language question about the codebase (e.g. 'where is send_message dispatched'); kind='path' returns the shortest link between two concepts (needs both 'query' and 'target'); kind='explain' gives a plain-language explanation of a single node. Requires a built graph — build one with graphify_build first if none exists.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["query", "path", "explain"], "description": "query = ask a question; path = shortest link between two concepts; explain = describe one node" },
+                    "query": { "type": "string", "description": "The question, first concept (for path), or node name (for explain)" },
+                    "target": { "type": "string", "description": "Second concept, required only when kind is 'path'" }
+                },
+                "required": ["kind", "query"]
+            }),
+        },
+        ToolDef {
+            name: "graphify_build".into(),
+            description: "Build (or refresh) the code knowledge graph for the working folder so it can be navigated with graphify_query. The first ever build also installs a bundled Python package and can take a few minutes; later builds are fast. Pass update=true to re-extract only changed files after you edit the code — do this after large changes so the graph stays accurate.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "update": { "type": "boolean", "description": "Refresh an existing graph (re-extract changed files) instead of building from scratch. Default false.", "default": false }
+                }
+            }),
+        },
     ]
 }
 
@@ -277,6 +300,8 @@ pub fn is_builtin(tool_name: &str) -> bool {
             | "list_dir"
             | "run_command"
             | "search_files"
+            | "graphify_query"
+            | "graphify_build"
             | "web_search"
             | "web_fetch"
             | "list_emails"

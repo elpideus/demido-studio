@@ -880,6 +880,11 @@ pub async fn send_message(
         Some(ctx) => ctx,
         None => sys_prompt,
     };
+    // Graphify guidance: navigate via the graph when one exists, and (auto-build on) build it before
+    // working. Only meaningful when agent mode is on and a working folder is set — the graphify
+    // tools are unavailable otherwise. Part of the instruction block, so it expands + compresses
+    // with the rest below.
+    let effective_prompt = graphify_note(&effective_prompt, &agent_mode, working_directory.as_deref(), &app);
     // Expand ${VARS} across system prompt + skills context in one pass, before the caveman block —
     // that block is generated, not authored, so it has no vars to interpolate.
     let effective_prompt = crate::vars::expand(
@@ -1080,6 +1085,18 @@ fn optional_builtin_tools(
         })
         .chain(crate::skills::skill_tool_defs(app, enabled_skills))
         .collect()
+}
+
+/// Append graphify guidance to the prompt when it applies: agent mode on, a working folder set,
+/// and `graphify::prompt_note` has something to say. Returns the prompt unchanged otherwise.
+fn graphify_note(prompt: &str, agent_mode: &str, working_directory: Option<&str>, app: &AppHandle) -> String {
+    if agent_mode == "off" {
+        return prompt.to_string();
+    }
+    match working_directory.and_then(|wd| crate::local::graphify::prompt_note(app, wd)) {
+        Some(note) => format!("{}\n\n{}", prompt, note),
+        None => prompt.to_string(),
+    }
 }
 
 fn format_tool_description(name: &str, args: &Value) -> String {
@@ -1402,7 +1419,17 @@ async fn run_generation_loop(
                      skill, use that instead of asking for a working folder."
                         .to_string()
                 } else {
-                    let approved = match is_permitted(agent_mode, &tc.name, &tc.arguments) {
+                    // Graphify tools are decided by the per-folder auto-build toggle, not agent_mode:
+                    // query is read-only (always Allow), build is consented by the toggle being on.
+                    let perm = if tc.name == "graphify_query" || tc.name == "graphify_build" {
+                        let consent = working_directory
+                            .map(|wd| crate::local::graphify::auto_build_enabled(&app, wd))
+                            .unwrap_or(false);
+                        crate::agent::permissions::graphify_permission(&tc.name, consent)
+                    } else {
+                        is_permitted(agent_mode, &tc.name, &tc.arguments)
+                    };
+                    let approved = match perm {
                         PermissionResult::Allow => true,
                         PermissionResult::Ask => {
                             let req = PermissionRequest {
@@ -1666,6 +1693,8 @@ pub async fn continue_generation(
         Some(ctx) => ctx,
         None => sys_prompt,
     };
+    // Same graphify guidance as send_message — a continued reply must carry it too.
+    let effective_prompt = graphify_note(&effective_prompt, &agent_mode, working_directory.as_deref(), &app);
     let effective_prompt = crate::vars::expand(
         &effective_prompt,
         &crate::vars::VarContext {

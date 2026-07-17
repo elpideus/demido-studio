@@ -169,6 +169,30 @@ export const links = {
   fetchPreviews: (urls: string[]) => invoke<LinkPreview[]>('fetch_link_previews', { urls }),
 }
 
+export interface GraphifyStatus {
+  pythonReady: boolean
+  installed: boolean
+  graphBuilt: boolean
+  /** Whether automatic graph building is enabled for this folder (default true). */
+  autoBuild: boolean
+}
+
+export const graphify = {
+  status: (folder: string) => invoke<GraphifyStatus>('graphify_status', { folder }),
+  setAutoBuild: (folder: string, enabled: boolean) =>
+    invoke<void>('graphify_set_auto_build', { folder, enabled }),
+  install: () => invoke<void>('install_graphify'),
+  uninstall: () => invoke<void>('uninstall_graphify'),
+  build: (folder: string, update: boolean) => invoke<void>('build_graphify', { folder, update }),
+  query: (folder: string, kind: 'query' | 'path' | 'explain', args: string[]) =>
+    invoke<string>('query_graphify', { folder, kind, args }),
+  graphHtml: (folder: string) => invoke<string>('graphify_graph_html', { folder }),
+  getPositions: (folder: string) =>
+    invoke<Record<string, { x: number; y: number }> | null>('graphify_get_positions', { folder }),
+  setPositions: (folder: string, positions: Record<string, { x: number; y: number }>) =>
+    invoke<void>('graphify_set_positions', { folder, positions }),
+}
+
 export const mcp = {
   listServers: () => invoke<McpServer[]>('list_mcp_servers'),
   saveServers: (servers: McpServer[]) =>

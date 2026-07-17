@@ -10,6 +10,7 @@ import { AccountsWindow, AccountsTitleBarActions } from './AccountsWindow'
 import { CalendarWindow, CalendarTitleBarActions } from './CalendarWindow'
 import { EmailWindow } from './EmailWindow'
 import { ContactsWindow } from './ContactsWindow'
+import { GraphifyWindow } from './GraphifyWindow'
 import { ArtifactPanel } from '../artifacts/ArtifactPanel'
 import { useWindowManager } from '../../stores/windowManager'
 import { useArtifacts } from '../../stores/artifacts'
@@ -66,6 +67,7 @@ function renderContent(component: WindowComponent): { content: ReactNode; titleB
     case 'email':           return { content: <EmailWindow /> }
     case 'calendar':        return { content: <CalendarWindow />, titleBarActions: <CalendarTitleBarActions /> }
     case 'contacts':        return { content: <ContactsWindow /> }
+    case 'graphify':        return { content: <GraphifyWindow /> }
     case 'artifact-viewer': return {
       content: <ArtifactPanel windowed />,
       titleBarActions: <ArtifactWindowCollapseAction />,

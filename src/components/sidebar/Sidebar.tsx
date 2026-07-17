@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MessageSquare, FolderOpen, Settings, Wrench, Mail, Calendar, Users, UserCircle, Plus } from 'lucide-react'
+import { MessageSquare, FolderOpen, Settings, Wrench, Mail, Calendar, Users, UserCircle, Plus, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConversationItem } from './ConversationItem'
 import { SearchBar } from './SearchBar'
@@ -15,6 +15,7 @@ type SidebarView = 'chats' | 'files' | null
 interface Props {
   onOpenSettings: () => void
   onOpenTools: () => void
+  onOpenGraphify: () => void
   onOpenAccounts: () => void
   onOpenEmail: () => void
   onOpenCalendar: () => void
@@ -52,7 +53,7 @@ function IconBtn({ icon, label, active, onClick }: { icon: React.ReactNode; labe
   )
 }
 
-export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEmail, onOpenCalendar, onOpenContacts, integrationsEnabled }: Props) {
+export function Sidebar({ onOpenSettings, onOpenTools, onOpenGraphify, onOpenAccounts, onOpenEmail, onOpenCalendar, onOpenContacts, integrationsEnabled }: Props) {
   const { create, conversations, activeId, setActive } = useConversations()
   const { selectedProviderId, selectedModelId } = useProviders()
   const [view, setView] = useState<SidebarView>('chats')
@@ -158,6 +159,14 @@ export function Sidebar({ onOpenSettings, onOpenTools, onOpenAccounts, onOpenEma
             label="File Explorer"
             active={view === 'files'}
             onClick={() => toggleView('files')}
+          />
+        )}
+
+        {showFiles && (
+          <IconBtn
+            icon={<Share2 size={18} />}
+            label="Knowledge Graph"
+            onClick={onOpenGraphify}
           />
         )}
 

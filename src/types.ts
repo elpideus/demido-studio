@@ -119,7 +119,7 @@ export interface Artifact {
 // ─── Window System ────────────────────────────────────────────────────────────
 
 /** Keys that identify which panel content to render inside a WindowFrame. */
-export type WindowComponent = 'settings' | 'tools' | 'image-editor' | 'accounts' | 'email' | 'calendar' | 'contacts' | 'artifact-viewer'
+export type WindowComponent = 'settings' | 'tools' | 'image-editor' | 'accounts' | 'email' | 'calendar' | 'contacts' | 'artifact-viewer' | 'graphify'
 
 export interface ManagedWindow {
   id: string

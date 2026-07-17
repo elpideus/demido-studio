@@ -512,6 +512,10 @@ pub async fn stream_chat(
                 reasoning_channel::promote_stranded_answer(&full_content, &full_thinking)
             {
                 eprintln!("[demido] promoted stranded answer out of the reasoning channel");
+                // The frontend already streamed this text into a live thinking block via
+                // `stream_thinking`; tell it to drop that block before we re-emit the same text as
+                // content, otherwise the answer renders twice (thinking row + message body).
+                app.emit("stream_thinking_promoted", ())?;
                 app.emit("stream_token", &answer)?;
                 full_content = answer;
                 full_thinking.clear();

@@ -4,6 +4,7 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { cn } from '../../lib/utils'
 import type { StreamBlock, ThinkingBlock, ToolBlock, SkillBlock, ResolvedPermission, PermissionRequest } from '../../stores/messages'
 import { ResolvedBadge, PendingBubble } from './PermissionBubble'
+import { stripToolCallMarkup } from '../../lib/stripToolCalls'
 
 // ── Thinking row ──────────────────────────────────────────────────────────────
 
@@ -11,14 +12,21 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
   const [open, setOpen] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
 
+  // Local models leak `<tool_call>…</tool_call>` markup into the reasoning channel; the backend
+  // recovers the call but the live-streamed thinking still carries the raw text. Strip it here.
+  const content = stripToolCallMarkup(block.content, !block.done)
+
   useEffect(() => {
     if (open && !block.done && bodyRef.current) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight
     }
-  }, [open, block.done, block.content])
+  }, [open, block.done, content])
 
-  const preview = block.content
-    ? block.content.split('\n').find(l => l.trim()) ?? 'Thinking'
+  // A block that was nothing but tool_call markup strips to empty — render no row.
+  if (block.done && !content.trim()) return null
+
+  const preview = content
+    ? content.split('\n').find(l => l.trim()) ?? 'Thinking'
     : 'Thinking…'
 
   return (
@@ -50,7 +58,7 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
         />
       </div>
 
-      {open && block.content && (
+      {open && content && (
         <div
           ref={bodyRef}
           className={cn(
@@ -70,7 +78,7 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
           } as React.CSSProperties}
         >
           <div className="prose prose-invert max-w-none" style={{ fontSize: '11px' }}>
-            <MarkdownRenderer>{block.content}</MarkdownRenderer>
+            <MarkdownRenderer>{content}</MarkdownRenderer>
           </div>
         </div>
       )}
@@ -80,8 +88,39 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
 
 // ── Tool row ──────────────────────────────────────────────────────────────────
 
-function ToolRow({ block }: { block: ToolBlock }) {
+function ToolCallDetail({ block, label }: { block: ToolBlock; label?: string }) {
+  return (
+    <div className="px-3 py-2.5 bg-background border border-[var(--secondary)] rounded-lg space-y-2">
+      {label && <p className="text-[10px] text-[var(--accent)]/80 uppercase tracking-wider">{label}</p>}
+      <div>
+        <p className="text-[10px] text-[var(--accent)] uppercase tracking-wider mb-1">Input</p>
+        <pre className="text-[11px] text-muted-foreground/70 font-mono whitespace-pre-wrap break-all leading-relaxed">
+          {JSON.stringify(block.args, null, 2)}
+        </pre>
+      </div>
+      {block.result != null && (
+        <div>
+          <p className="text-[10px] text-[var(--accent)] uppercase tracking-wider mb-1">Output</p>
+          <pre className="text-[11px] text-muted-foreground/70 font-mono whitespace-pre-wrap break-all leading-relaxed max-h-48 overflow-y-auto">
+            {block.result}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A run of consecutive same-named tool calls collapses into one row with a ×N badge; thinking that
+// sits between two such calls is absorbed into the run (shown inside the expansion, between calls).
+// Expanding lists every call's input/output. A single call with no interleaved thinking renders
+// unbadged, as before.
+function ToolRow({ items }: { items: (ToolBlock | ThinkingBlock)[] }) {
   const [open, setOpen] = useState(false)
+  const tools = items.filter((b): b is ToolBlock => b.type === 'tool')
+  const name = tools[0].name
+  const count = tools.length
+  const done = tools.every(b => b.done)
+  let callNo = 0
 
   return (
     <div className="flex flex-col">
@@ -93,9 +132,13 @@ function ToolRow({ block }: { block: ToolBlock }) {
           <Wrench size={9} className="text-[var(--primary)]" style={{ opacity: 0.7 }} />
         </div>
 
-        <span className="text-[11px] text-primary opacity-65 flex-1 truncate font-mono">{block.name}</span>
+        <span className="text-[11px] text-primary opacity-65 flex-1 truncate font-mono">{name}</span>
 
-        {!block.done && (
+        {count > 1 && (
+          <span className="text-[10px] text-primary/70 font-mono shrink-0 px-1 rounded bg-[var(--secondary)]">×{count}</span>
+        )}
+
+        {!done && (
           <span className="flex gap-0.5 shrink-0">
             <span className="w-1 h-1 rounded-full bg-[var(--primary)] animate-bounce" style={{ animationDelay: '0ms' }} />
             <span className="w-1 h-1 rounded-full bg-[var(--primary)] animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -110,20 +153,11 @@ function ToolRow({ block }: { block: ToolBlock }) {
       </div>
 
       {open && (
-        <div className="ml-[26px] mb-[6px] px-3 py-2.5 bg-background border border-[var(--secondary)] rounded-lg space-y-2">
-          <div>
-            <p className="text-[10px] text-[var(--accent)] uppercase tracking-wider mb-1">Input</p>
-            <pre className="text-[11px] text-muted-foreground/70 font-mono whitespace-pre-wrap break-all leading-relaxed">
-              {JSON.stringify(block.args, null, 2)}
-            </pre>
-          </div>
-          {block.result != null && (
-            <div>
-              <p className="text-[10px] text-[var(--accent)] uppercase tracking-wider mb-1">Output</p>
-              <pre className="text-[11px] text-muted-foreground/70 font-mono whitespace-pre-wrap break-all leading-relaxed max-h-48 overflow-y-auto">
-                {block.result}
-              </pre>
-            </div>
+        <div className="ml-[26px] mb-[6px] space-y-2">
+          {items.map((b, i) =>
+            b.type === 'tool'
+              ? <ToolCallDetail key={i} block={b} label={count > 1 ? `Call ${++callNo}` : undefined} />
+              : <ThinkingRow key={i} block={b} />
           )}
         </div>
       )}
@@ -155,21 +189,54 @@ interface Props {
 export function TimelineStrip({ blocks, resolvedPermissions = [], pendingPermission }: Props) {
   if (blocks.length === 0 && resolvedPermissions.length === 0 && !pendingPermission) return null
   let toolIdx = 0
+  const rows: React.ReactNode[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+    if (block.type === 'tool') {
+      // Gather the run of same-named tool calls. Thinking blocks between two such calls are absorbed
+      // into the run (buffered, then flushed when the next same-name tool arrives). A different tool
+      // or a skill block breaks the run; thinking buffered but never followed by a same-name tool is
+      // left for normal processing (nextI rewinds to it), so trailing thinking stays its own row.
+      const group: (ToolBlock | ThinkingBlock)[] = [block]
+      let j = i + 1
+      let buffer: ThinkingBlock[] = []
+      let bufferStart = -1
+      while (j < blocks.length) {
+        const b = blocks[j]
+        if (b.type === 'thinking') {
+          if (bufferStart === -1) bufferStart = j
+          buffer.push(b)
+          j++
+        } else if (b.type === 'tool' && b.name === block.name) {
+          group.push(...buffer, b)
+          buffer = []
+          bufferStart = -1
+          j++
+        } else {
+          break
+        }
+      }
+      const nextI = bufferStart === -1 ? j : bufferStart
+      const perms = group
+        .filter((b): b is ToolBlock => b.type === 'tool')
+        .map(() => resolvedPermissions[toolIdx++])
+        .filter(Boolean) as ResolvedPermission[]
+      rows.push(
+        <div key={i}>
+          {perms.map((perm, k) => <div key={k} className="mb-1"><ResolvedBadge resolved={perm} /></div>)}
+          <ToolRow items={group} />
+        </div>
+      )
+      i = nextI - 1
+    } else if (block.type === 'thinking') {
+      rows.push(<ThinkingRow key={i} block={block} />)
+    } else {
+      rows.push(<SkillRow key={i} block={block} />)
+    }
+  }
   return (
     <div className="w-full border-l-2 border-[var(--secondary)] pl-3 mb-[6px]">
-      {blocks.map((block, i) => {
-        if (block.type === 'tool') {
-          const perm = resolvedPermissions[toolIdx]
-          toolIdx++
-          return (
-            <div key={i}>
-              {perm && <div className="mb-1"><ResolvedBadge resolved={perm} /></div>}
-              <ToolRow block={block} />
-            </div>
-          )
-        }
-        return block.type === 'thinking' ? <ThinkingRow key={i} block={block} /> : <SkillRow key={i} block={block} />
-      })}
+      {rows}
       {pendingPermission && <div className="mt-1"><PendingBubble req={pendingPermission} /></div>}
     </div>
   )

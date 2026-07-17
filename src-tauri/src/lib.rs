@@ -28,7 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(debug_assertions)]
     {
-        builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+        builder = builder.plugin(tauri_plugin_mcp::init());
     }
     let builder = builder
         .plugin(tauri_plugin_process::init())
@@ -168,6 +168,15 @@ pub fn run() {
             local::commands::searxng_status,
             local::commands::start_searxng,
             local::commands::stop_searxng,
+            local::commands::graphify_status,
+            local::commands::graphify_set_auto_build,
+            local::commands::install_graphify,
+            local::commands::uninstall_graphify,
+            local::commands::build_graphify,
+            local::commands::query_graphify,
+            local::commands::graphify_graph_html,
+            local::commands::graphify_get_positions,
+            local::commands::graphify_set_positions,
             commands::list_accounts,
             commands::delete_account,
             commands::update_account_services,

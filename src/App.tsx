@@ -180,6 +180,7 @@ export default function App() {
         <Sidebar
           onOpenSettings={() => openWindow('settings', 'settings', 'Settings', { initialSize: { width: Math.round(window.innerWidth * 0.92), height: Math.round(window.innerHeight * 0.92) } })}
           onOpenTools={() => openWindow('tools', 'tools', 'Tools')}
+          onOpenGraphify={() => openWindow('graphify', 'graphify', 'Knowledge Graph', { initialSize: { width: Math.round(window.innerWidth * 0.82), height: Math.round(window.innerHeight * 0.86) } })}
           onOpenAccounts={() => openWindow('accounts', 'accounts', 'Accounts')}
           onOpenEmail={() => openWindow('email', 'email', 'Email', { initialSize: { width: Math.round(window.innerWidth * 0.88), height: Math.round(window.innerHeight * 0.88) } })}
           onOpenCalendar={() => openWindow('calendar', 'calendar', 'Calendar')}

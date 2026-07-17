@@ -203,6 +203,19 @@ export const useMessages = create<MessagesStore>((set, get) => ({
       })
     })
 
+    // The backend promoted a stranded answer out of the reasoning channel: the same text was already
+    // streamed into a live thinking block, so drop that trailing block before the answer re-arrives
+    // as content (via stream_token) — otherwise it renders twice.
+    const unlistenThinkingPromoted = await listen('stream_thinking_promoted', () => {
+      if (!streamOpen) return
+      set(s => {
+        const blocks = [...s.streamBlocks]
+        const last = blocks[blocks.length - 1]
+        if (last && last.type === 'thinking') blocks.pop()
+        return { streamBlocks: blocks }
+      })
+    })
+
     const unlistenToken = await listen<string>('stream_token', (e) => {
       if (!streamOpen) return
       set(s => {
@@ -292,6 +305,7 @@ export const useMessages = create<MessagesStore>((set, get) => ({
     const cleanup = () => {
       unlistenThinking()
       unlistenThinkingEnd()
+      unlistenThinkingPromoted()
       unlistenToken()
       unlistenDone()
       unlistenContinueDone()

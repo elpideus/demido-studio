@@ -274,6 +274,81 @@ pub fn execute_tool(
                 handle.block_on(crate::web::web_fetch_impl(&url, &format)),
             )
         }
+        "graphify_query" => {
+            let Some(app) = app.as_ref() else {
+                return "Error: graphify_query is unavailable in this context.".to_string();
+            };
+            let Some(folder) = working_dir else {
+                return "No working folder is set for this conversation, so the code knowledge graph \
+                        is unavailable. Ask the user to pick a working folder with the folder button \
+                        in the chat header."
+                    .to_string();
+            };
+            let kind = args["kind"].as_str().unwrap_or("query");
+            let query = args["query"].as_str().unwrap_or("").to_string();
+            let mut q_args = vec![query];
+            if kind == "path" {
+                match args["target"].as_str() {
+                    Some(t) if !t.is_empty() => q_args.push(t.to_string()),
+                    _ => return "graphify_query kind='path' needs both 'query' (concept A) and 'target' (concept B).".to_string(),
+                }
+            }
+            // Freshness: models query the graph without ever refreshing it, so a query can answer
+            // from a graph built before this session's edits. Handle it at the decision point, not
+            // in prompt prose (which they ignore) — mirroring the auto-build consent model:
+            //   stale + auto-build ON  → refresh first (the toggle already grants build consent),
+            //                            transparently, then query the fresh graph.
+            //   stale + auto-build OFF → don't build without consent; prefix a warning to the
+            //                            result so the model can decide to call graphify_build.
+            let mut stale_note = String::new();
+            if crate::local::graphify::graph_stale(folder) {
+                if crate::local::graphify::auto_build_enabled(app, folder) {
+                    if let Some((_, _, client)) = google_ctx.as_ref() {
+                        let handle = tokio::runtime::Handle::current();
+                        // update=true: graph exists (it is what is stale), so refresh incrementally.
+                        let _ = handle.block_on(crate::local::graphify::build(
+                            app, client, folder.to_string(), true,
+                        ));
+                    }
+                } else {
+                    stale_note.push_str(
+                        "[Note: source files have changed since this graph was last built. \
+                         The results below may be stale — call graphify_build (update=true) to \
+                         refresh before relying on them.]\n\n",
+                    );
+                }
+            }
+            match crate::local::graphify::query_blocking(app, folder, kind, &q_args) {
+                Ok(out) if out.trim().is_empty() => format!("{stale_note}(no results)"),
+                Ok(out) => format!("{stale_note}{out}"),
+                Err(e) => format!("{e}\n(If no graph exists yet, build one with graphify_build.)"),
+            }
+        }
+        "graphify_build" => {
+            let Some(app) = app.as_ref() else {
+                return "Error: graphify_build is unavailable in this context.".to_string();
+            };
+            let Some(folder) = working_dir else {
+                return "No working folder is set for this conversation, so there is nothing to build \
+                        a code knowledge graph from. Ask the user to pick a working folder with the \
+                        folder button in the chat header."
+                    .to_string();
+            };
+            let Some((_, _, client)) = google_ctx.as_ref() else {
+                return "Error: graphify_build is unavailable in this context (no HTTP client).".to_string();
+            };
+            // A graph already on disk must only be refreshed, never rebuilt from scratch: a full
+            // rebuild is slow + throws away cached layout for no gain. So force update=true whenever
+            // graphify-out/ exists, regardless of what the model passed — models routinely call
+            // graphify_build with update=false even on a folder that already has a graph.
+            let update = args["update"].as_bool().unwrap_or(false)
+                || crate::local::graphify::graph_built(folder);
+            let handle = tokio::runtime::Handle::current();
+            match handle.block_on(crate::local::graphify::build(app, client, folder.to_string(), update)) {
+                Ok(()) => "Code knowledge graph built. Navigate it with the graphify_query tool.".to_string(),
+                Err(e) => format!("graphify build failed: {e}"),
+            }
+        }
         "list_emails" | "read_email" | "list_calendar_events" | "list_contacts" | "read_contact" => {
             match google_ctx {
                 Some(ctx) => {

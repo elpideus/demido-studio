@@ -17,6 +17,7 @@ import { ARTIFACT_INSTRUCTIONS, parseArtifacts, parseStreamingSegments } from '.
 import type { StreamingArtifactHint } from '../../lib/parseArtifacts'
 import { useArtifacts } from '../../stores/artifacts'
 import { useBuiltinTools } from '../../stores/builtinTools'
+import { stripToolCallMarkup } from '../../lib/stripToolCalls'
 
 function StreamingArtifactCard({ hint }: { hint: StreamingArtifactHint }) {
   return (
@@ -34,13 +35,15 @@ function StreamingArtifactCard({ hint }: { hint: StreamingArtifactHint }) {
 }
 
 function StreamingBlocks({ blocks, streamBuffer, modelLabel, resolvedPermissions, pendingPermission }: { blocks: StreamBlock[]; streamBuffer: string; modelLabel?: string; resolvedPermissions: import('../../stores/messages').ResolvedPermission[]; pendingPermission: import('../../stores/messages').PermissionRequest | null }) {
-  const streamSegs = useMemo(() => parseStreamingSegments(streamBuffer), [streamBuffer])
+  // Drop any leaked <tool_call> markup (incl. an unclosed trailing block) so it never flashes mid-stream.
+  const cleanBuffer = useMemo(() => stripToolCallMarkup(streamBuffer, true), [streamBuffer])
+  const streamSegs = useMemo(() => parseStreamingSegments(cleanBuffer), [cleanBuffer])
   const lastSegIsArtifact = streamSegs.length > 0 && !!streamSegs[streamSegs.length - 1].artifactHint
 
   return (
     <div className="flex flex-col max-w-[75%] w-full">
       <TimelineStrip blocks={blocks} resolvedPermissions={resolvedPermissions} pendingPermission={pendingPermission} />
-      {streamBuffer ? (
+      {cleanBuffer ? (
         <div className={cn(
           'w-full rounded-xl px-4 py-3 text-sm leading-relaxed bg-secondary text-foreground border border-border',
           blocks.length > 0 ? 'rounded-tl-[3px]' : 'rounded-bl-sm'
