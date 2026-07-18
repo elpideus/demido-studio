@@ -211,10 +211,7 @@ pub fn list_local_models(state: State<'_, AppState>) -> Result<Vec<LocalModel>, 
 /// Delete a downloaded model: stop the engine if it's serving it, remove the row, and
 /// delete its gguf part files from disk.
 #[tauri::command]
-pub fn delete_local_model(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub fn delete_local_model(state: State<'_, AppState>, id: String) -> Result<(), String> {
     if state.local_engine.current_model().as_deref() == Some(id.as_str()) {
         state.local_engine.stop();
     }
@@ -258,7 +255,9 @@ pub async fn install_local_runtime(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    engine::ensure_runtime(&app, &state.http_client).await.map(|_| ())
+    engine::ensure_runtime(&app, &state.http_client)
+        .await
+        .map(|_| ())
 }
 
 /// Detected hardware + the four runtime variants (recommended/installed/available + notes).
@@ -282,9 +281,7 @@ pub async fn install_runtime_variant(
 
 /// Trending GGUF models for the browser's default list.
 #[tauri::command]
-pub async fn hf_trending_models(
-    state: State<'_, AppState>,
-) -> Result<Vec<hf::HfModel>, String> {
+pub async fn hf_trending_models(state: State<'_, AppState>) -> Result<Vec<hf::HfModel>, String> {
     hf::trending_models(&state.http_client).await
 }
 
@@ -299,10 +296,7 @@ pub async fn hf_search_models(
 
 /// A repo's model card (README markdown).
 #[tauri::command]
-pub async fn hf_model_card(
-    state: State<'_, AppState>,
-    repo: String,
-) -> Result<String, String> {
+pub async fn hf_model_card(state: State<'_, AppState>, repo: String) -> Result<String, String> {
     hf::model_card(&state.http_client, &repo).await
 }
 
@@ -339,7 +333,11 @@ const SETUP_DONE_KEY: &str = "setup_complete";
 #[tauri::command]
 pub fn setup_needed(state: State<'_, AppState>) -> bool {
     let conn = state.conn.lock().unwrap();
-    settings::get(&conn, SETUP_DONE_KEY).ok().flatten().unwrap_or_default() != "true"
+    settings::get(&conn, SETUP_DONE_KEY)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        != "true"
 }
 
 /// Mark the wizard as done, so it never shows again (installs it kicked off may still be
@@ -465,7 +463,11 @@ pub fn graphify_status(app: AppHandle, folder: String) -> GraphifyStatus {
 
 /// Set the per-folder "automatically build graph on new projects" preference.
 #[tauri::command]
-pub fn graphify_set_auto_build(app: AppHandle, folder: String, enabled: bool) -> Result<(), String> {
+pub fn graphify_set_auto_build(
+    app: AppHandle,
+    folder: String,
+    enabled: bool,
+) -> Result<(), String> {
     graphify::set_auto_build(&app, &folder, enabled)
 }
 

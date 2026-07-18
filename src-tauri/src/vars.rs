@@ -29,7 +29,10 @@ impl VarContext {
             "CURRENT_YEAR" => now.format("%Y").to_string(),
             "CURRENT_WEEKDAY" => now.format("%A").to_string(),
             "OS" => std::env::consts::OS.to_string(),
-            "WORKING_DIR" => self.working_dir.clone().unwrap_or_else(|| "(none set)".into()),
+            "WORKING_DIR" => self
+                .working_dir
+                .clone()
+                .unwrap_or_else(|| "(none set)".into()),
             "PROVIDER_ID" => self.provider_id.clone(),
             "MODEL_ID" => self.model_id.clone(),
             _ => return None,
@@ -113,22 +116,34 @@ mod tests {
 
     #[test]
     fn unknown_var_left_verbatim() {
-        assert_eq!(expand("cost ${PRICE} and ${MODEL_ID}", &ctx()), "cost ${PRICE} and claude-opus-4-8");
+        assert_eq!(
+            expand("cost ${PRICE} and ${MODEL_ID}", &ctx()),
+            "cost ${PRICE} and claude-opus-4-8"
+        );
     }
 
     #[test]
     fn backslash_escapes() {
-        assert_eq!(expand("write \\${CURRENT_DATE} to insert date", &ctx()), "write ${CURRENT_DATE} to insert date");
+        assert_eq!(
+            expand("write \\${CURRENT_DATE} to insert date", &ctx()),
+            "write ${CURRENT_DATE} to insert date"
+        );
     }
 
     #[test]
     fn unclosed_brace_is_not_an_error() {
-        assert_eq!(expand("${CURRENT_DATE unclosed", &ctx()), "${CURRENT_DATE unclosed");
+        assert_eq!(
+            expand("${CURRENT_DATE unclosed", &ctx()),
+            "${CURRENT_DATE unclosed"
+        );
     }
 
     #[test]
     fn no_working_dir_reads_as_none_set() {
-        let c = VarContext { working_dir: None, ..ctx() };
+        let c = VarContext {
+            working_dir: None,
+            ..ctx()
+        };
         assert_eq!(expand("${WORKING_DIR}", &c), "(none set)");
     }
 
@@ -140,7 +155,10 @@ mod tests {
     #[test]
     fn known_vars_list_matches_lookup() {
         for name in KNOWN_VARS {
-            assert!(ctx().lookup(name).is_some(), "{name} advertised but not resolved");
+            assert!(
+                ctx().lookup(name).is_some(),
+                "{name} advertised but not resolved"
+            );
         }
     }
 }

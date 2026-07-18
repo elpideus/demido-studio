@@ -1,15 +1,12 @@
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{
-    atomic::AtomicBool,
-    Arc,
-};
+use std::sync::{atomic::AtomicBool, Arc};
 use tauri::{AppHandle, Emitter};
 
 use super::{reasoning_channel, ChatMessage, StreamOutput, ToolCall, ToolDef};
-use crate::streaming::Chunk;
 use crate::caps::PartialCaps;
+use crate::streaming::Chunk;
 
 /// Returns the largest byte index <= `index` that lies on a UTF-8 char boundary.
 fn char_boundary_floor(s: &str, index: usize) -> usize {
@@ -161,7 +158,9 @@ pub async fn list_model_capabilities(
                                         ),
                                         // `reasoning` is an object when supported, absent when not.
                                         reasoning: Some(
-                                            c.get("reasoning").map(|v| !v.is_null()).unwrap_or(false),
+                                            c.get("reasoning")
+                                                .map(|v| !v.is_null())
+                                                .unwrap_or(false),
                                         ),
                                     },
                                 ))
@@ -209,9 +208,17 @@ pub async fn list_model_capabilities(
                         .or_else(|| c["tools"].as_bool())
                         .or_else(|| c["function_calling"].as_bool());
 
-                    let reasoning = cap_array_has(c, "reasoning").or_else(|| c["reasoning"].as_bool());
+                    let reasoning =
+                        cap_array_has(c, "reasoning").or_else(|| c["reasoning"].as_bool());
 
-                    Some((id, PartialCaps { vision, tools, reasoning }))
+                    Some((
+                        id,
+                        PartialCaps {
+                            vision,
+                            tools,
+                            reasoning,
+                        },
+                    ))
                 })
                 .filter(|(_, c)| !c.is_empty())
                 .collect()

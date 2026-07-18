@@ -6,9 +6,9 @@
 //! the next boot, *before* anything is opened, and does the deleting. `db::init` reseeds and
 //! the setup wizard reappears on its own, since both key off state that just got deleted.
 
-use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 const MARKER: &str = "reset-pending.json";
 
@@ -46,7 +46,8 @@ pub struct ResetRequest {
 /// Record the request and let the caller restart. Nothing is deleted here.
 pub fn request_reset(app_dir: &Path, req: &ResetRequest) -> Result<(), String> {
     let json = serde_json::to_string(req).map_err(|e| e.to_string())?;
-    std::fs::write(app_dir.join(MARKER), json).map_err(|e| format!("Could not schedule reset: {}", e))
+    std::fs::write(app_dir.join(MARKER), json)
+        .map_err(|e| format!("Could not schedule reset: {}", e))
 }
 
 /// Run any pending reset. Call at startup before opening the DB or reading secrets.
@@ -84,7 +85,9 @@ fn wipe_rows(app_dir: &Path, req: &ResetRequest) {
     if !db.exists() {
         return;
     }
-    let Ok(conn) = Connection::open(&db) else { return };
+    let Ok(conn) = Connection::open(&db) else {
+        return;
+    };
     let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
 
     let mut sql = String::new();

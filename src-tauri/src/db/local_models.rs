@@ -30,7 +30,8 @@ impl LocalModel {
     }
 }
 
-const COLS: &str = "id, repo, quant, file_path, size, mmproj_path, caps_vision, caps_tools, caps_reasoning";
+const COLS: &str =
+    "id, repo, quant, file_path, size, mmproj_path, caps_vision, caps_tools, caps_reasoning";
 
 fn from_row(r: &rusqlite::Row) -> Result<LocalModel> {
     Ok(LocalModel {

@@ -43,7 +43,10 @@ pub fn get_system_prompt_path(app: AppHandle) -> String {
 /// Names the prompt may interpolate, for the Settings hint list.
 #[command]
 pub fn list_prompt_vars() -> Vec<String> {
-    crate::vars::KNOWN_VARS.iter().map(|s| s.to_string()).collect()
+    crate::vars::KNOWN_VARS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// One-time move of the old `settings.system_prompt` row into the file. No-op once the file exists,

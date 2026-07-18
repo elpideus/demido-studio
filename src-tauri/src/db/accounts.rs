@@ -58,7 +58,10 @@ pub fn upsert(conn: &Connection, account: &Account) -> Result<()> {
 
 pub fn update_services(conn: &Connection, id: &str, services: &[String]) -> Result<()> {
     let json = serde_json::to_string(services).unwrap_or_default();
-    conn.execute("UPDATE accounts SET services=?1 WHERE id=?2", rusqlite::params![json, id])?;
+    conn.execute(
+        "UPDATE accounts SET services=?1 WHERE id=?2",
+        rusqlite::params![json, id],
+    )?;
     Ok(())
 }
 

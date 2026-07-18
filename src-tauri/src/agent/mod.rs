@@ -178,7 +178,9 @@ pub fn exposable_builtin_defs() -> Vec<ToolDef> {
 
 /// The `ToolDef` a skill's `{"type": "builtin", "name": …}` entry resolves to.
 pub fn exposable_builtin(name: &str) -> Option<ToolDef> {
-    exposable_builtin_defs().into_iter().find(|t| t.name == name)
+    exposable_builtin_defs()
+        .into_iter()
+        .find(|t| t.name == name)
 }
 
 pub fn web_tool_defs() -> Vec<ToolDef> {

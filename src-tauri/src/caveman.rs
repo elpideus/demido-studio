@@ -267,7 +267,10 @@ mod tests {
         for level in LEVELS.iter().filter(|l| **l != "off") {
             let r = thinking_rider(level).unwrap_or_else(|| panic!("{level} has no rider"));
             // The stranded-answer guard is the reason the rider is safe to send — never drop it.
-            assert!(r.contains("</think>"), "{level} rider lost the closing-tag guard");
+            assert!(
+                r.contains("</think>"),
+                "{level} rider lost the closing-tag guard"
+            );
             // Naming the banned openers is the whole reason a rider bites: without this clause
             // the model ignores it 5/6 of the time. See `thinking_rider` for the measurement.
             for opener in ["The user is asking", "I should", "Let me"] {

@@ -24,9 +24,11 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build());
-    #[cfg(debug_assertions)]
+    // `mut` is only needed when the mcp-bridge reassignment below is compiled in.
+    #[cfg_attr(not(feature = "mcp-bridge"), allow(unused_mut))]
+    let mut builder =
+        tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(feature = "mcp-bridge")]
     {
         builder = builder.plugin(tauri_plugin_mcp::init());
     }
@@ -36,7 +38,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build());
 
-    builder.setup(|app| {
+    builder
+        .setup(|app| {
+            // Dev-only MCP bridge capability, added at runtime so a default build never
+            // validates mcp:default (the plugin is only compiled under this feature).
+            #[cfg(feature = "mcp-bridge")]
+            app.handle()
+                .add_capability(include_str!("../mcp.capability.json"))?;
             let app_dir = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_dir).ok();
             std::fs::create_dir_all(app_dir.join("skills")).ok();

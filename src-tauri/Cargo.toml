@@ -38,9 +38,15 @@ getrandom = "0.2"
 htmd = "0.1"
 dirs = "6"
 tauri-plugin-dialog = "2"
-tauri-plugin-mcp = { git = "https://github.com/DaveDev42/tauri-plugin-mcp" }
+tauri-plugin-mcp = { git = "https://github.com/DaveDev42/tauri-plugin-mcp", optional = true }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+[features]
+# Dev-only MCP test-automation bridge. Pulls libspa-sys/libpipewire-0.3 on Linux, so
+# it is OFF by default → CI + release never compile it (no pipewire dep needed).
+# Enable for QA automation: `npm run tauri:mcp` (= tauri dev --features mcp-bridge).
+mcp-bridge = ["dep:tauri-plugin-mcp"]
 
 [target.'cfg(windows)'.dependencies]
 # The release binary is windows_subsystem = "windows"; the CLI attaches to the parent console so

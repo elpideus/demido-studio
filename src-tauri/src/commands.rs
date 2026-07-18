@@ -73,7 +73,6 @@ pub struct AppState {
     pub searxng_engine: crate::local::searxng::SearxngEngine,
 }
 
-
 #[tauri::command]
 pub fn list_conversations(
     state: State<AppState>,
@@ -156,7 +155,11 @@ pub fn get_settings(state: State<AppState>) -> Result<settings::AppSettings, Str
 /// a first run. A models folder the user pointed elsewhere is never touched. Irreversible —
 /// the UI must confirm before calling this.
 #[tauri::command]
-pub fn reset_app_data(app: AppHandle, state: State<AppState>, request: crate::reset::ResetRequest) -> Result<(), String> {
+pub fn reset_app_data(
+    app: AppHandle,
+    state: State<AppState>,
+    request: crate::reset::ResetRequest,
+) -> Result<(), String> {
     // Kill the child processes first: they hold handles inside the dirs about to be removed.
     state.local_engine.stop();
     state.searxng_engine.stop();
@@ -168,9 +171,15 @@ pub fn reset_app_data(app: AppHandle, state: State<AppState>, request: crate::re
 }
 
 #[tauri::command]
-pub fn get_setting(state: State<AppState>, key: String, default: Option<String>) -> Result<String, String> {
+pub fn get_setting(
+    state: State<AppState>,
+    key: String,
+    default: Option<String>,
+) -> Result<String, String> {
     let conn = state.conn.lock().unwrap();
-    Ok(settings::get(&conn, &key).map_err(|e| e.to_string())?.unwrap_or_else(|| default.unwrap_or_default()))
+    Ok(settings::get(&conn, &key)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| default.unwrap_or_default()))
 }
 
 #[tauri::command]
@@ -276,10 +285,20 @@ pub async fn lookup_model_caps(
     for id in model_ids {
         let hit = registry.lookup(None, &id);
         let caps = if !hit.is_empty() {
-            caps::resolve(PartialCaps::default(), hit, CapsSource::Registry, PartialCaps::default())
+            caps::resolve(
+                PartialCaps::default(),
+                hit,
+                CapsSource::Registry,
+                PartialCaps::default(),
+            )
         } else {
             let hf_hit = crate::local::hf::caps_from_repo(&state.http_client, &id).await;
-            caps::resolve(PartialCaps::default(), hf_hit, CapsSource::HuggingFace, PartialCaps::default())
+            caps::resolve(
+                PartialCaps::default(),
+                hf_hit,
+                CapsSource::HuggingFace,
+                PartialCaps::default(),
+            )
         };
         out.insert(id, caps);
     }
@@ -303,7 +322,11 @@ pub async fn set_model_caps_override(
         &conn,
         &provider_id,
         &model_id,
-        &crate::caps::PartialCaps { vision, tools, reasoning },
+        &crate::caps::PartialCaps {
+            vision,
+            tools,
+            reasoning,
+        },
     )
     .map_err(|e| e.to_string())
 }
@@ -473,12 +496,7 @@ pub async fn get_model_reasoning(
                 return Ok(None);
             }
             Ok(Some(ReasoningInfo {
-                allowed_options: vec![
-                    "off".into(),
-                    "low".into(),
-                    "medium".into(),
-                    "high".into(),
-                ],
+                allowed_options: vec!["off".into(), "low".into(), "medium".into(), "high".into()],
                 default: "off".into(),
             }))
         }
@@ -688,7 +706,9 @@ fn build_api_messages(db_msgs: &[messages::Message]) -> Vec<prov::ChatMessage> {
 /// Capped at 16 URLs per call: the list is model-authored, and this command turns each entry into
 /// an outbound request, so an unbounded list is an unbounded fan-out. The rider caps footers at 8.
 #[tauri::command]
-pub async fn fetch_link_previews(urls: Vec<String>) -> Result<Vec<crate::web::LinkPreview>, String> {
+pub async fn fetch_link_previews(
+    urls: Vec<String>,
+) -> Result<Vec<crate::web::LinkPreview>, String> {
     const MAX_URLS: usize = 16;
     if urls.len() > MAX_URLS {
         return Err(format!("Too many URLs ({}, max {})", urls.len(), MAX_URLS));
@@ -884,7 +904,12 @@ pub async fn send_message(
     // working. Only meaningful when agent mode is on and a working folder is set — the graphify
     // tools are unavailable otherwise. Part of the instruction block, so it expands + compresses
     // with the rest below.
-    let effective_prompt = graphify_note(&effective_prompt, &agent_mode, working_directory.as_deref(), &app);
+    let effective_prompt = graphify_note(
+        &effective_prompt,
+        &agent_mode,
+        working_directory.as_deref(),
+        &app,
+    );
     // Expand ${VARS} across system prompt + skills context in one pass, before the caveman block —
     // that block is generated, not authored, so it has no vars to interpolate.
     let effective_prompt = crate::vars::expand(
@@ -1089,7 +1114,12 @@ fn optional_builtin_tools(
 
 /// Append graphify guidance to the prompt when it applies: agent mode on, a working folder set,
 /// and `graphify::prompt_note` has something to say. Returns the prompt unchanged otherwise.
-fn graphify_note(prompt: &str, agent_mode: &str, working_directory: Option<&str>, app: &AppHandle) -> String {
+fn graphify_note(
+    prompt: &str,
+    agent_mode: &str,
+    working_directory: Option<&str>,
+    app: &AppHandle,
+) -> String {
     if agent_mode == "off" {
         return prompt.to_string();
     }
@@ -1250,7 +1280,12 @@ async fn run_generation_loop(
                     Some(s) => {
                         let trimmed = s.trim();
                         if trimmed.len() > 300 {
-                            let cut = trimmed.char_indices().map(|(i, _)| i).take_while(|&i| i <= 300).last().unwrap_or(0);
+                            let cut = trimmed
+                                .char_indices()
+                                .map(|(i, _)| i)
+                                .take_while(|&i| i <= 300)
+                                .last()
+                                .unwrap_or(0);
                             format!("{}…", &trimmed[..cut])
                         } else {
                             trimmed.to_string()
@@ -1423,7 +1458,7 @@ async fn run_generation_loop(
                     // query is read-only (always Allow), build is consented by the toggle being on.
                     let perm = if tc.name == "graphify_query" || tc.name == "graphify_build" {
                         let consent = working_directory
-                            .map(|wd| crate::local::graphify::auto_build_enabled(&app, wd))
+                            .map(|wd| crate::local::graphify::auto_build_enabled(app, wd))
                             .unwrap_or(false);
                         crate::agent::permissions::graphify_permission(&tc.name, consent)
                     } else {
@@ -1452,7 +1487,11 @@ async fn run_generation_loop(
                         let tool_name = tc.name.clone();
                         let tool_args = tc.arguments.clone();
                         let wd = working_directory.map(String::from);
-                        let google_ctx = Some((Arc::clone(&state.conn), state.secrets.clone(), state.http_client.clone()));
+                        let google_ctx = Some((
+                            Arc::clone(&state.conn),
+                            state.secrets.clone(),
+                            state.http_client.clone(),
+                        ));
                         let app_handle = app.clone();
                         tokio::task::spawn_blocking(move || {
                             crate::agent::executor::execute_tool(
@@ -1484,7 +1523,10 @@ async fn run_generation_loop(
                 let skill_gate = {
                     let mcp = state.mcp.lock().unwrap();
                     mcp.get_server(&server_id).and_then(|s| {
-                        s.skill_id.as_ref().filter(|_| !s.bypass_agent_mode).cloned()
+                        s.skill_id
+                            .as_ref()
+                            .filter(|_| !s.bypass_agent_mode)
+                            .cloned()
                     })
                 };
                 let mcp_approved = match skill_gate {
@@ -1694,7 +1736,12 @@ pub async fn continue_generation(
         None => sys_prompt,
     };
     // Same graphify guidance as send_message — a continued reply must carry it too.
-    let effective_prompt = graphify_note(&effective_prompt, &agent_mode, working_directory.as_deref(), &app);
+    let effective_prompt = graphify_note(
+        &effective_prompt,
+        &agent_mode,
+        working_directory.as_deref(),
+        &app,
+    );
     let effective_prompt = crate::vars::expand(
         &effective_prompt,
         &crate::vars::VarContext {
@@ -2372,21 +2419,40 @@ pub fn delete_account(state: State<AppState>, account_id: String) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn update_account_services(state: State<AppState>, account_id: String, services: Vec<String>) -> Result<(), String> {
+pub fn update_account_services(
+    state: State<AppState>,
+    account_id: String,
+    services: Vec<String>,
+) -> Result<(), String> {
     let conn = state.conn.lock().unwrap();
     accounts::update_services(&conn, &account_id, &services).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn has_google_credentials(state: State<AppState>) -> Result<bool, String> {
-    Ok(state.secrets.get("google_client_id").ok().flatten().is_some())
+    Ok(state
+        .secrets
+        .get("google_client_id")
+        .ok()
+        .flatten()
+        .is_some())
 }
 
 #[tauri::command]
-pub fn set_google_credentials(state: State<AppState>, client_id: String, client_secret: String) -> Result<(), String> {
-    state.secrets.set("google_client_id", &client_id).map_err(|e| e.to_string())?;
+pub fn set_google_credentials(
+    state: State<AppState>,
+    client_id: String,
+    client_secret: String,
+) -> Result<(), String> {
+    state
+        .secrets
+        .set("google_client_id", &client_id)
+        .map_err(|e| e.to_string())?;
     if !client_secret.is_empty() {
-        state.secrets.set("google_client_secret", &client_secret).map_err(|e| e.to_string())?;
+        state
+            .secrets
+            .set("google_client_secret", &client_secret)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -2416,17 +2482,14 @@ pub async fn initiate_google_oauth(
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("Cannot bind callback server: {}", e))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| e.to_string())?
-        .port();
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
 
     let redirect_uri = format!("http://127.0.0.1:{}", port);
 
     // PKCE — use CSPRNG (getrandom)
     let mut verifier_bytes = [0u8; 64];
     getrandom::getrandom(&mut verifier_bytes).map_err(|e| format!("CSPRNG error: {}", e))?;
-    let code_verifier = URL_SAFE_NO_PAD.encode(&verifier_bytes);
+    let code_verifier = URL_SAFE_NO_PAD.encode(verifier_bytes);
     let challenge_hash = Sha256::digest(code_verifier.as_bytes());
     let code_challenge = URL_SAFE_NO_PAD.encode(challenge_hash);
 
@@ -2455,42 +2518,49 @@ pub async fn initiate_google_oauth(
 
     // Open auth URL in default browser via rundll32 (avoids cmd & metacharacter issues)
     #[cfg(target_os = "windows")]
-    std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &auth_url]).spawn().ok();
+    std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &auth_url])
+        .spawn()
+        .ok();
     #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg(&auth_url).spawn().ok();
+    std::process::Command::new("open")
+        .arg(&auth_url)
+        .spawn()
+        .ok();
     #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open").arg(&auth_url).spawn().ok();
+    std::process::Command::new("xdg-open")
+        .arg(&auth_url)
+        .spawn()
+        .ok();
 
     // Wait for redirect (timeout 5 minutes)
     let expected_state = state_param.clone();
-    let code = tokio::time::timeout(
-        std::time::Duration::from_secs(300),
-        async move {
-            let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
-            let mut buf = vec![0u8; 4096];
-            let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
-            let req = String::from_utf8_lossy(&buf[..n]);
+    let code = tokio::time::timeout(std::time::Duration::from_secs(300), async move {
+        let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
+        let mut buf = vec![0u8; 4096];
+        let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
+        let req = String::from_utf8_lossy(&buf[..n]);
 
-            // Verify state parameter (CSRF protection) using constant-time compare
-            let returned_state = extract_query_param(&req, "state").unwrap_or_default();
-            if !constant_time_eq(returned_state.as_bytes(), expected_state.as_bytes()) {
-                let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\n\r\nState mismatch").await;
-                return Err("OAuth state mismatch — possible CSRF attack".to_string());
-            }
+        // Verify state parameter (CSRF protection) using constant-time compare
+        let returned_state = extract_query_param(&req, "state").unwrap_or_default();
+        if !constant_time_eq(returned_state.as_bytes(), expected_state.as_bytes()) {
+            let _ = stream
+                .write_all(b"HTTP/1.1 400 Bad Request\r\n\r\nState mismatch")
+                .await;
+            return Err("OAuth state mismatch — possible CSRF attack".to_string());
+        }
 
-            let code = extract_query_param(&req, "code")
-                .ok_or_else(|| "No code in OAuth callback".to_string())?;
-            let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+        let code = extract_query_param(&req, "code")
+            .ok_or_else(|| "No code in OAuth callback".to_string())?;
+        let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
                 <html><body style='font-family:sans-serif;text-align:center;padding:40px'>\
                 <h2>Authentication successful!</h2>\
                 <p>You can close this tab and return to Demido Studio.</p></body></html>";
-            let _ = stream.write_all(resp.as_bytes()).await;
-            Ok::<String, String>(code)
-        },
-    )
+        let _ = stream.write_all(resp.as_bytes()).await;
+        Ok::<String, String>(code)
+    })
     .await
-    .map_err(|_| "OAuth timed out (5 minutes)".to_string())?
-    .map_err(|e| e)?;
+    .map_err(|_| "OAuth timed out (5 minutes)".to_string())??;
 
     // Exchange code for tokens
     let client_secret = state
@@ -2555,7 +2625,8 @@ pub async fn initiate_google_oauth(
     // Fetch avatar and store as data URL so WebView2 doesn't need to load external images
     let picture = if let Some(pic_url) = userinfo["picture"].as_str() {
         if let Ok(resp) = state.http_client.get(pic_url).send().await {
-            let mime = resp.headers()
+            let mime = resp
+                .headers()
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("image/jpeg")
@@ -2603,14 +2674,19 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 fn urlencoded(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
@@ -2664,14 +2740,22 @@ pub async fn fetch_emails(
     let account = resolve_google_account(&state, "email")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::list_emails(
         &state.http_client,
         &account.access_token,
         query.as_deref().unwrap_or(""),
         max_results.unwrap_or(20).min(50),
         page_token.as_deref(),
-    ).await
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2684,19 +2768,31 @@ pub async fn fetch_calendar_events(
     let account = resolve_google_account(&state, "calendar")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     let now = chrono::Utc::now();
-    let behind = days_behind.unwrap_or(0).max(0).min(365);
-    let ahead = days_ahead.unwrap_or(30).max(1).min(365);
-    let time_min = (now - chrono::Duration::days(behind)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let time_max = (now + chrono::Duration::days(ahead)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let behind = days_behind.unwrap_or(0).clamp(0, 365);
+    let ahead = days_ahead.unwrap_or(30).clamp(1, 365);
+    let time_min = (now - chrono::Duration::days(behind))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+    let time_max = (now + chrono::Duration::days(ahead))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
     crate::google_apis::list_events_all_calendars(
         &state.http_client,
         &account.access_token,
         &time_min,
         &time_max,
         max_results.unwrap_or(50).min(200),
-    ).await
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2712,7 +2808,14 @@ pub async fn create_calendar_event(
     let account = resolve_google_account(&state, "calendar")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::create_event(
         &state.http_client,
         &account.access_token,
@@ -2722,10 +2825,12 @@ pub async fn create_calendar_event(
         location.as_deref(),
         description.as_deref(),
         all_day.unwrap_or(false),
-    ).await
+    )
+    .await
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_calendar_event(
     state: State<'_, AppState>,
     event_id: String,
@@ -2739,7 +2844,14 @@ pub async fn update_calendar_event(
     let account = resolve_google_account(&state, "calendar")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::update_event(
         &state.http_client,
         &account.access_token,
@@ -2750,7 +2862,8 @@ pub async fn update_calendar_event(
         location.as_deref(),
         description.as_deref(),
         all_day.unwrap_or(false),
-    ).await
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2763,14 +2876,22 @@ pub async fn fetch_contacts(
     let account = resolve_google_account(&state, "contacts")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::list_contacts(
         &state.http_client,
         &account.access_token,
         query.as_deref().unwrap_or(""),
         max_results.unwrap_or(50).min(100),
         page_token.as_deref(),
-    ).await
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2781,31 +2902,46 @@ pub async fn update_contact(
     let account = resolve_google_account(&state, "contacts")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::update_contact(&state.http_client, &account.access_token, &contact).await
 }
 
 #[tauri::command]
-pub async fn get_email_body(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<String, String> {
+pub async fn get_email_body(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let account = resolve_google_account(&state, "email")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::get_email_body(&state.http_client, &account.access_token, &id, true).await
 }
 
 #[tauri::command]
-pub async fn trash_email(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn trash_email(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let account = resolve_google_account(&state, "email")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::trash_message(&state.http_client, &account.access_token, &id).await
 }
 
@@ -2818,7 +2954,14 @@ pub async fn set_email_read(
     let account = resolve_google_account(&state, "email")?;
     let mut account = account;
     let (client_id, client_secret) = get_google_creds(&state)?;
-    crate::google_apis::ensure_token(&state.http_client, &Arc::clone(&state.conn), &mut account, &client_id, &client_secret).await?;
+    crate::google_apis::ensure_token(
+        &state.http_client,
+        &Arc::clone(&state.conn),
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await?;
     crate::google_apis::set_message_read(&state.http_client, &account.access_token, &id, read).await
 }
 
@@ -2828,7 +2971,15 @@ fn resolve_google_account(state: &AppState, service: &str) -> Result<accounts::A
 }
 
 fn get_google_creds(state: &AppState) -> Result<(String, String), String> {
-    let id = state.secrets.get("google_client_id").map_err(|e| e.to_string())?.unwrap_or_default();
-    let secret = state.secrets.get("google_client_secret").map_err(|e| e.to_string())?.unwrap_or_default();
+    let id = state
+        .secrets
+        .get("google_client_id")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let secret = state
+        .secrets
+        .get("google_client_secret")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
     Ok((id, secret))
 }

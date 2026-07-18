@@ -1,7 +1,7 @@
 pub mod anthropic;
 pub mod gemini;
-pub mod reasoning_channel;
 pub mod openai_compat;
+pub mod reasoning_channel;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

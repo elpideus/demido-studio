@@ -1,0 +1,6 @@
+{
+  "identifier": "mcp-bridge",
+  "description": "Dev-only MCP test-automation bridge. Added at runtime only under the `mcp-bridge` cargo feature; kept outside capabilities/ so a default build (feature off, plugin not compiled) does not validate mcp:default.",
+  "windows": ["main"],
+  "permissions": ["mcp:default"]
+}

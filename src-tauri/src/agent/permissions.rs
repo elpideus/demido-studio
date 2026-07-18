@@ -64,13 +64,12 @@ pub fn is_permitted(mode: &str, tool_name: &str, args: &Value) -> PermissionResu
         // any mode, Off included, with no prompt ever shown. The skill's mcp.json is trusted, but
         // only because this prompt is what makes the *user* the one who installed it.
         "install_skill" => {
-            let bundles_mcp = serde_json::from_value::<Vec<crate::skills::IncomingFile>>(
-                args["files"].clone(),
-            )
-            .map(|files| crate::skills::payload_bundles_mcp(&files))
-            // Unparseable payload: install_skill will reject it anyway, and refusing to guess is
-            // the safe direction here.
-            .unwrap_or(true);
+            let bundles_mcp =
+                serde_json::from_value::<Vec<crate::skills::IncomingFile>>(args["files"].clone())
+                    .map(|files| crate::skills::payload_bundles_mcp(&files))
+                    // Unparseable payload: install_skill will reject it anyway, and refusing to guess is
+                    // the safe direction here.
+                    .unwrap_or(true);
             return if bundles_mcp {
                 PermissionResult::Ask
             } else {
@@ -122,7 +121,11 @@ mod tests {
     fn install_skill_never_prompts_in_any_mode() {
         for mode in MODES {
             assert!(
-                allowed(mode, "install_skill", json!({ "id": "my-skill", "files": [] })),
+                allowed(
+                    mode,
+                    "install_skill",
+                    json!({ "id": "my-skill", "files": [] })
+                ),
                 "install_skill should be allowed in {mode} mode"
             );
         }
@@ -171,7 +174,11 @@ mod tests {
     #[test]
     fn install_skill_asks_when_the_payload_cannot_be_parsed() {
         for mode in MODES {
-            assert!(!allowed(mode, "install_skill", json!({ "id": "x", "files": "not-an-array" })));
+            assert!(!allowed(
+                mode,
+                "install_skill",
+                json!({ "id": "x", "files": "not-an-array" })
+            ));
         }
     }
 
@@ -180,7 +187,11 @@ mod tests {
     #[test]
     fn skill_prompt_tools_never_prompt() {
         for mode in MODES {
-            assert!(allowed(mode, "skill_my-skill_review", json!({ "path": "a.ts" })));
+            assert!(allowed(
+                mode,
+                "skill_my-skill_review",
+                json!({ "path": "a.ts" })
+            ));
         }
     }
 
@@ -228,7 +239,15 @@ mod tests {
 
     #[test]
     fn balanced_still_guards_sensitive_reads() {
-        assert!(allowed("balanced", "read_file", json!({ "path": "src/main.rs" })));
-        assert!(!allowed("balanced", "read_file", json!({ "path": "app/.env" })));
+        assert!(allowed(
+            "balanced",
+            "read_file",
+            json!({ "path": "src/main.rs" })
+        ));
+        assert!(!allowed(
+            "balanced",
+            "read_file",
+            json!({ "path": "app/.env" })
+        ));
     }
 }

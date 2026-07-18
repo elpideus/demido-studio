@@ -39,7 +39,11 @@ pub struct LocalEngine {
 
 impl LocalEngine {
     pub fn current_model(&self) -> Option<String> {
-        self.running.lock().unwrap().as_ref().map(|r| r.model_id.clone())
+        self.running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.model_id.clone())
     }
 
     /// Kill the running server, if any. Called on model swap and app exit.
@@ -56,7 +60,10 @@ impl LocalEngine {
 // ---------------------------------------------------------------------------
 
 fn runtime_dir(app: &AppHandle) -> PathBuf {
-    app.path().app_data_dir().expect("app data dir").join("runtime")
+    app.path()
+        .app_data_dir()
+        .expect("app data dir")
+        .join("runtime")
 }
 
 fn binpath_marker(app: &AppHandle) -> PathBuf {
@@ -73,12 +80,19 @@ pub fn runtime_bin(app: &AppHandle) -> PathBuf {
             return pb;
         }
     }
-    let name = if cfg!(windows) { "llama-server.exe" } else { "llama-server" };
+    let name = if cfg!(windows) {
+        "llama-server.exe"
+    } else {
+        "llama-server"
+    };
     runtime_dir(app).join(name)
 }
 
 pub fn models_dir(app: &AppHandle) -> PathBuf {
-    app.path().app_data_dir().expect("app data dir").join("models")
+    app.path()
+        .app_data_dir()
+        .expect("app data dir")
+        .join("models")
 }
 
 pub fn runtime_ready(app: &AppHandle) -> bool {
@@ -91,7 +105,9 @@ fn variant_marker(app: &AppHandle) -> PathBuf {
 
 /// Id of the currently-installed runtime variant, if any.
 pub fn installed_variant(app: &AppHandle) -> Option<String> {
-    std::fs::read_to_string(variant_marker(app)).ok().map(|s| s.trim().to_string())
+    std::fs::read_to_string(variant_marker(app))
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +138,11 @@ fn variant_tokens(id: &str) -> Option<Vec<&'static str>> {
         "cpu" => Some(if win {
             vec!["win-cpu-x64", ".zip"]
         } else if mac {
-            if arch_arm { vec!["macos-arm64", ".tar.gz"] } else { vec!["macos-x64", ".tar.gz"] }
+            if arch_arm {
+                vec!["macos-arm64", ".tar.gz"]
+            } else {
+                vec!["macos-x64", ".tar.gz"]
+            }
         } else {
             vec!["ubuntu-x64.tar.gz"]
         }),
@@ -165,7 +185,12 @@ fn variant_extra_tokens(id: &str, main_asset: &str) -> Vec<String> {
             .find(|v| main_asset.contains(*v))
             .copied()
             .unwrap_or("12.4");
-        return vec![format!("cudart"), format!("cuda-{}", ver), "win".into(), ".zip".into()];
+        return vec![
+            format!("cudart"),
+            format!("cuda-{}", ver),
+            "win".into(),
+            ".zip".into(),
+        ];
     }
     Vec::new()
 }
@@ -201,7 +226,12 @@ pub fn detect_hardware() -> Hardware {
         "cpu"
     }
     .to_string();
-    Hardware { os, arch, gpus, recommended }
+    Hardware {
+        os,
+        arch,
+        gpus,
+        recommended,
+    }
 }
 
 fn detect_gpus() -> Vec<String> {
@@ -230,7 +260,10 @@ fn detect_gpus() -> Vec<String> {
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(o) = Command::new("sh").args(["-c", "lspci | grep -i vga"]).output() {
+        if let Ok(o) = Command::new("sh")
+            .args(["-c", "lspci | grep -i vga"])
+            .output()
+        {
             return String::from_utf8_lossy(&o.stdout)
                 .lines()
                 .map(|l| l.trim().to_string())
@@ -269,13 +302,18 @@ async fn fetch_release_assets(client: &reqwest::Client) -> Result<Vec<serde_json
         .ok_or_else(|| "No release assets".into())
 }
 
-fn find_asset<'a>(assets: &'a [serde_json::Value], tokens: &[&str]) -> Option<&'a serde_json::Value> {
+fn find_asset<'a>(
+    assets: &'a [serde_json::Value],
+    tokens: &[&str],
+) -> Option<&'a serde_json::Value> {
     // The CUDA main build tokens ("win-cuda") also match the `cudart-*` companion zip (DLLs
     // only, no binary), which is listed first. Exclude cudart unless we're explicitly
     // querying for it.
     let want_cudart = tokens.iter().any(|t| t.contains("cudart"));
     assets.iter().find(|a| {
-        let Some(name) = a.get("name").and_then(|n| n.as_str()) else { return false };
+        let Some(name) = a.get("name").and_then(|n| n.as_str()) else {
+            return false;
+        };
         if !want_cudart && name.to_lowercase().contains("cudart") {
             return false;
         }
@@ -309,7 +347,7 @@ pub async fn list_variants(
             let tokens = variant_tokens(id);
             let available = tokens
                 .as_ref()
-                .map(|t| find_asset(&assets, &t.iter().map(|s| *s).collect::<Vec<_>>()).is_some())
+                .map(|t| find_asset(&assets, &t.to_vec()).is_some())
                 .unwrap_or(false);
             let recommended = hw.recommended == id;
             let is_installed = installed.as_deref() == Some(id);
@@ -352,9 +390,13 @@ pub async fn install_variant(
     let tokens = variant_tokens(id)
         .ok_or_else(|| format!("Variant '{}' is not valid on this platform", id))?;
     let assets = fetch_release_assets(client).await?;
-    let main = find_asset(&assets, &tokens.iter().map(|s| *s).collect::<Vec<_>>())
+    let main = find_asset(&assets, &tokens.to_vec())
         .ok_or_else(|| format!("No '{}' build in the latest release for this platform", id))?;
-    let main_name = main.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let main_name = main
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
 
     let dir = runtime_dir(app);
     // Clear any previous runtime so leftovers from another variant don't linger.
@@ -367,7 +409,10 @@ pub async fn install_variant(
     // Companion archives (cudart for CUDA on Windows).
     let extras = variant_extra_tokens(id, &main_name);
     if !extras.is_empty() {
-        if let Some(extra) = find_asset(&assets, &extras.iter().map(|s| s.as_str()).collect::<Vec<_>>()) {
+        if let Some(extra) = find_asset(
+            &assets,
+            &extras.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        ) {
             download_and_extract(app, client, extra, &dir, "runtime-libs").await?;
         }
     }
@@ -375,12 +420,17 @@ pub async fn install_variant(
     // Locate the binary at whatever depth it extracted to, and record its real path.
     let found = find_binary(&dir).ok_or_else(|| {
         let files = list_extracted(&dir);
-        format!("llama-server not found in extracted runtime. Got: {}", files.join(", "))
+        format!(
+            "llama-server not found in extracted runtime. Got: {}",
+            files.join(", ")
+        )
     })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&found).map_err(|e| e.to_string())?.permissions();
+        let mut perms = std::fs::metadata(&found)
+            .map_err(|e| e.to_string())?
+            .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&found, perms).map_err(|e| e.to_string())?;
     }
@@ -412,7 +462,10 @@ async fn download_and_extract(
         .get("browser_download_url")
         .and_then(|u| u.as_str())
         .ok_or("Asset missing download URL")?;
-    let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("archive");
+    let name = asset
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("archive");
     let total = asset.get("size").and_then(|s| s.as_i64()).unwrap_or(0);
 
     let archive = dir.join(name);
@@ -431,7 +484,11 @@ async fn download_and_extract(
         got += chunk.len() as i64;
         let _ = app.emit(
             "local_runtime_progress",
-            RuntimeProgress { downloaded: got, total, stage: stage.into() },
+            RuntimeProgress {
+                downloaded: got,
+                total,
+                stage: stage.into(),
+            },
         );
     }
     f.flush().map_err(|e| e.to_string())?;
@@ -439,7 +496,11 @@ async fn download_and_extract(
 
     let _ = app.emit(
         "local_runtime_progress",
-        RuntimeProgress { downloaded: total, total, stage: "extract".into() },
+        RuntimeProgress {
+            downloaded: total,
+            total,
+            stage: "extract".into(),
+        },
     );
     if name.to_lowercase().ends_with(".zip") {
         extract_zip(&archive, dir)?;
@@ -452,10 +513,7 @@ async fn download_and_extract(
 
 /// Ensure *some* runtime binary exists (used lazily before a spawn). Installs the
 /// recommended variant, falling back to CPU.
-pub async fn ensure_runtime(
-    app: &AppHandle,
-    client: &reqwest::Client,
-) -> Result<PathBuf, String> {
+pub async fn ensure_runtime(app: &AppHandle, client: &reqwest::Client) -> Result<PathBuf, String> {
     let bin = runtime_bin(app);
     if bin.exists() {
         return Ok(bin);
@@ -473,7 +531,9 @@ fn extract_zip(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), 
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
         // Preserve the archive's layout so the binary keeps its sibling DLLs.
-        let Some(rel) = entry.enclosed_name() else { continue };
+        let Some(rel) = entry.enclosed_name() else {
+            continue;
+        };
         let out = dest.join(&rel);
         if entry.is_dir() {
             std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
@@ -512,10 +572,17 @@ fn extract_targz(archive: &std::path::Path, dest: &std::path::Path) -> Result<()
 }
 
 fn find_binary(dir: &std::path::Path) -> Option<PathBuf> {
-    let target = if cfg!(windows) { "llama-server.exe" } else { "llama-server" };
+    let target = if cfg!(windows) {
+        "llama-server.exe"
+    } else {
+        "llama-server"
+    };
     for entry in walkdir::WalkDir::new(dir).into_iter().flatten() {
         if entry.file_type().is_file()
-            && entry.file_name().to_string_lossy().eq_ignore_ascii_case(target)
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(target)
         {
             return Some(entry.path().to_path_buf());
         }
@@ -617,7 +684,10 @@ async fn load_model(
     if let Some(stderr) = child.stderr.take() {
         std::thread::spawn(move || {
             use std::io::BufRead;
-            for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {
+            for line in std::io::BufReader::new(stderr)
+                .lines()
+                .map_while(Result::ok)
+            {
                 eprintln!("[llama-server] {}", line);
             }
         });
@@ -625,7 +695,12 @@ async fn load_model(
 
     {
         let mut guard = state.local_engine.running.lock().unwrap();
-        *guard = Some(Running { child, port, key: key.clone(), model_id: model_id.to_string() });
+        *guard = Some(Running {
+            child,
+            port,
+            key: key.clone(),
+            model_id: model_id.to_string(),
+        });
     }
 
     let health = format!("http://127.0.0.1:{}/health", port);
@@ -663,7 +738,10 @@ async fn load_model(
         )
         .map_err(|e| e.to_string())?;
     }
-    state.secrets.set(LOCAL_PROVIDER_KEY_REF, &key).map_err(|e| e.to_string())?;
+    state
+        .secrets
+        .set(LOCAL_PROVIDER_KEY_REF, &key)
+        .map_err(|e| e.to_string())?;
 
     // The model is loaded, so llama.cpp can now tell us what it actually supports —
     // `/props` only ever describes the loaded model, so this is our one chance. Cache it;

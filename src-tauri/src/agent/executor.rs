@@ -16,7 +16,11 @@ fn resolve_path(path_str: &str, working_dir: Option<&str>) -> PathBuf {
     }
 }
 
-pub type GoogleCtx = (Arc<Mutex<rusqlite::Connection>>, crate::secrets::Secrets, reqwest::Client);
+pub type GoogleCtx = (
+    Arc<Mutex<rusqlite::Connection>>,
+    crate::secrets::Secrets,
+    reqwest::Client,
+);
 
 pub fn execute_tool(
     name: &str,
@@ -38,7 +42,8 @@ pub fn execute_tool(
                 return "Error: install_skill is unavailable in this context.".to_string();
             };
             let id = args["id"].as_str().unwrap_or("");
-            match serde_json::from_value::<Vec<crate::skills::IncomingFile>>(args["files"].clone()) {
+            match serde_json::from_value::<Vec<crate::skills::IncomingFile>>(args["files"].clone())
+            {
                 Ok(files) => match crate::skills::install_skill(app, id, &files) {
                     Ok(msg) => msg,
                     Err(e) => format!("Error installing skill: {e}"),
@@ -152,7 +157,12 @@ pub fn execute_tool(
                     }
                     const MAX: usize = 10240;
                     if result.len() > MAX {
-                        let cut = result.char_indices().map(|(i, _)| i).take_while(|&i| i <= MAX).last().unwrap_or(0);
+                        let cut = result
+                            .char_indices()
+                            .map(|(i, _)| i)
+                            .take_while(|&i| i <= MAX)
+                            .last()
+                            .unwrap_or(0);
                         result.truncate(cut);
                         result.push_str("\n[output truncated]");
                     }
@@ -227,14 +237,20 @@ pub fn execute_tool(
             let query = args["query"].as_str().unwrap_or("").to_string();
             let page = args["page"].as_u64().unwrap_or(0);
             let secrets = google_ctx.as_ref().map(|(_, s, _)| s.clone());
-            let exa_key = secrets.as_ref().and_then(|s| s.get("exa_api_key").ok().flatten());
-            let parallel_key = secrets.as_ref().and_then(|s| s.get("parallel_api_key").ok().flatten());
+            let exa_key = secrets
+                .as_ref()
+                .and_then(|s| s.get("exa_api_key").ok().flatten());
+            let parallel_key = secrets
+                .as_ref()
+                .and_then(|s| s.get("parallel_api_key").ok().flatten());
 
             // The user's provider order, filtered to the ones they left enabled.
             let order = match google_ctx.as_ref() {
                 Some((conn_arc, _, _)) => {
                     let conn = conn_arc.lock().unwrap();
-                    let stored = crate::db::settings::get(&conn, "websearch_order").ok().flatten();
+                    let stored = crate::db::settings::get(&conn, "websearch_order")
+                        .ok()
+                        .flatten();
                     crate::web::parse_order(stored.as_deref())
                         .into_iter()
                         .filter(|p| {
@@ -252,7 +268,8 @@ pub fn execute_tool(
                     .collect::<Vec<_>>(),
             };
             let searxng_engine = app.as_ref().and_then(|a| {
-                a.try_state::<crate::commands::AppState>().map(|s| s.searxng_engine.clone())
+                a.try_state::<crate::commands::AppState>()
+                    .map(|s| s.searxng_engine.clone())
             });
 
             let handle = tokio::runtime::Handle::current();
@@ -307,7 +324,10 @@ pub fn execute_tool(
                         let handle = tokio::runtime::Handle::current();
                         // update=true: graph exists (it is what is stale), so refresh incrementally.
                         let _ = handle.block_on(crate::local::graphify::build(
-                            app, client, folder.to_string(), true,
+                            app,
+                            client,
+                            folder.to_string(),
+                            true,
                         ));
                     }
                 } else {
@@ -335,7 +355,8 @@ pub fn execute_tool(
                     .to_string();
             };
             let Some((_, _, client)) = google_ctx.as_ref() else {
-                return "Error: graphify_build is unavailable in this context (no HTTP client).".to_string();
+                return "Error: graphify_build is unavailable in this context (no HTTP client)."
+                    .to_string();
             };
             // A graph already on disk must only be refreshed, never rebuilt from scratch: a full
             // rebuild is slow + throws away cached layout for no gain. So force update=true whenever
@@ -344,22 +365,30 @@ pub fn execute_tool(
             let update = args["update"].as_bool().unwrap_or(false)
                 || crate::local::graphify::graph_built(folder);
             let handle = tokio::runtime::Handle::current();
-            match handle.block_on(crate::local::graphify::build(app, client, folder.to_string(), update)) {
-                Ok(()) => "Code knowledge graph built. Navigate it with the graphify_query tool.".to_string(),
+            match handle.block_on(crate::local::graphify::build(
+                app,
+                client,
+                folder.to_string(),
+                update,
+            )) {
+                Ok(()) => "Code knowledge graph built. Navigate it with the graphify_query tool."
+                    .to_string(),
                 Err(e) => format!("graphify build failed: {e}"),
             }
         }
-        "list_emails" | "read_email" | "list_calendar_events" | "list_contacts" | "read_contact" => {
-            match google_ctx {
-                Some(ctx) => {
-                    let handle = tokio::runtime::Handle::current();
-                    let args = args.clone();
-                    let name = name.to_string();
-                    handle.block_on(run_google_tool(&name, &args, ctx))
-                }
-                None => "Google tools require app state (internal error)".into(),
+        "list_emails"
+        | "read_email"
+        | "list_calendar_events"
+        | "list_contacts"
+        | "read_contact" => match google_ctx {
+            Some(ctx) => {
+                let handle = tokio::runtime::Handle::current();
+                let args = args.clone();
+                let name = name.to_string();
+                handle.block_on(run_google_tool(&name, &args, ctx))
             }
-        }
+            None => "Google tools require app state (internal error)".into(),
+        },
         // Skill-declared tools: the result is the skill's own prompt body with this call's
         // arguments substituted in. Matched last so a skill can never shadow a real tool.
         _ if crate::skills::is_skill_tool(name) => match app.as_ref() {
@@ -370,11 +399,7 @@ pub fn execute_tool(
     }
 }
 
-async fn run_google_tool(
-    name: &str,
-    args: &serde_json::Value,
-    ctx: GoogleCtx,
-) -> String {
+async fn run_google_tool(name: &str, args: &serde_json::Value, ctx: GoogleCtx) -> String {
     use crate::google_apis;
     let (conn_arc, secrets, http_client) = ctx;
 
@@ -384,15 +409,36 @@ async fn run_google_tool(
 
     let account = match google_apis::find_account_for_service(&conn_arc, service) {
         Ok(Some(a)) => a,
-        Ok(None) => return format!("No {} account connected. Please add one in Accounts.", service),
+        Ok(None) => {
+            return format!(
+                "No {} account connected. Please add one in Accounts.",
+                service
+            )
+        }
         Err(e) => return format!("DB error: {}", e),
     };
 
-    let client_id = secrets.get("google_client_id").ok().flatten().unwrap_or_default();
-    let client_secret = secrets.get("google_client_secret").ok().flatten().unwrap_or_default();
+    let client_id = secrets
+        .get("google_client_id")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let client_secret = secrets
+        .get("google_client_secret")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
 
     let mut account = account;
-    if let Err(e) = google_apis::ensure_token(&http_client, &conn_arc, &mut account, &client_id, &client_secret).await {
+    if let Err(e) = google_apis::ensure_token(
+        &http_client,
+        &conn_arc,
+        &mut account,
+        &client_id,
+        &client_secret,
+    )
+    .await
+    {
         return format!("Token refresh failed: {}", e);
     }
 
@@ -403,32 +449,58 @@ async fn run_google_tool(
             let max = args["max_results"].as_u64().unwrap_or(10).min(20);
             match google_apis::list_emails(&http_client, &token, &query, max, None).await {
                 Ok(page) if page.emails.is_empty() => "No emails found.".into(),
-                Ok(page) => page.emails.iter().enumerate().map(|(i, e)| {
-                    format!("{}. [{}] From: {}\n   Date: {}\n   {}", i + 1, e.subject, e.from, e.date, e.snippet)
-                }).collect::<Vec<_>>().join("\n\n"),
+                Ok(page) => page
+                    .emails
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| {
+                        format!(
+                            "{}. [{}] From: {}\n   Date: {}\n   {}",
+                            i + 1,
+                            e.subject,
+                            e.from,
+                            e.date,
+                            e.snippet
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n"),
                 Err(e) => format!("Gmail error: {}", e),
             }
         }
         "read_email" => {
             let id = args["id"].as_str().unwrap_or("");
-            if id.is_empty() { return "Missing email id".into(); }
+            if id.is_empty() {
+                return "Missing email id".into();
+            }
             match google_apis::get_email_body(&http_client, &token, id, false).await {
                 Ok(body) => body,
                 Err(e) => format!("Gmail error: {}", e),
             }
         }
         "list_calendar_events" => {
-            let days = args["days_ahead"].as_i64().unwrap_or(7).max(1).min(365);
+            let days = args["days_ahead"].as_i64().unwrap_or(7).clamp(1, 365);
             let max = args["max_results"].as_u64().unwrap_or(20).min(50);
             let now = chrono::Utc::now();
             let time_min = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-            let time_max = (now + chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+            let time_max = (now + chrono::Duration::days(days))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string();
             match google_apis::list_events(&http_client, &token, &time_min, &time_max, max).await {
                 Ok(events) if events.is_empty() => "No events in this period.".into(),
-                Ok(events) => events.iter().enumerate().map(|(i, e)| {
-                    let loc = e.location.as_deref().map(|l| format!("\n   📍 {}", l)).unwrap_or_default();
-                    format!("{}. {} ({} → {}){}", i + 1, e.summary, e.start, e.end, loc)
-                }).collect::<Vec<_>>().join("\n"),
+                Ok(events) => events
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| {
+                        let loc = e
+                            .location
+                            .as_deref()
+                            .map(|l| format!("\n   📍 {}", l))
+                            .unwrap_or_default();
+                        format!("{}. {} ({} → {}){}", i + 1, e.summary, e.start, e.end, loc)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 Err(e) => format!("Calendar error: {}", e),
             }
         }
@@ -437,30 +509,75 @@ async fn run_google_tool(
             let max = args["max_results"].as_u64().unwrap_or(20).min(50);
             match google_apis::list_contacts(&http_client, &token, &query, max, None).await {
                 Ok(page) if page.contacts.is_empty() => "No contacts found.".into(),
-                Ok(page) => page.contacts.iter().enumerate().map(|(i, c)| {
-                    let emails = c.emails.iter().map(|e| e.value.as_str()).collect::<Vec<_>>().join(", ");
-                    let phones = c.phones.iter().map(|p| p.value.as_str()).collect::<Vec<_>>().join(", ");
-                    let mut parts = vec![format!("{}. {} (id: {})", i + 1, c.display_name, c.id)];
-                    if !emails.is_empty() { parts.push(format!("   Email: {}", emails)); }
-                    if !phones.is_empty() { parts.push(format!("   Phone: {}", phones)); }
-                    if let Some(ref bd) = c.birthday { parts.push(format!("   Birthday: {}", bd)); }
-                    parts.join("\n")
-                }).collect::<Vec<_>>().join("\n\n"),
+                Ok(page) => page
+                    .contacts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let emails = c
+                            .emails
+                            .iter()
+                            .map(|e| e.value.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let phones = c
+                            .phones
+                            .iter()
+                            .map(|p| p.value.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let mut parts =
+                            vec![format!("{}. {} (id: {})", i + 1, c.display_name, c.id)];
+                        if !emails.is_empty() {
+                            parts.push(format!("   Email: {}", emails));
+                        }
+                        if !phones.is_empty() {
+                            parts.push(format!("   Phone: {}", phones));
+                        }
+                        if let Some(ref bd) = c.birthday {
+                            parts.push(format!("   Birthday: {}", bd));
+                        }
+                        parts.join("\n")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n"),
                 Err(e) => format!("Contacts error: {}", e),
             }
         }
         "read_contact" => {
             let id = args["id"].as_str().unwrap_or("");
-            if id.is_empty() { return "Missing contact id".into(); }
-            let resource_name = if id.starts_with("people/") { id.to_string() } else { format!("people/{}", id) };
+            if id.is_empty() {
+                return "Missing contact id".into();
+            }
+            let resource_name = if id.starts_with("people/") {
+                id.to_string()
+            } else {
+                format!("people/{}", id)
+            };
             match google_apis::get_contact(&http_client, &token, &resource_name).await {
                 Ok(c) => {
-                    let emails = c.emails.iter().map(|e| e.value.as_str()).collect::<Vec<_>>().join(", ");
-                    let phones = c.phones.iter().map(|p| p.value.as_str()).collect::<Vec<_>>().join(", ");
+                    let emails = c
+                        .emails
+                        .iter()
+                        .map(|e| e.value.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let phones = c
+                        .phones
+                        .iter()
+                        .map(|p| p.value.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     let mut parts = vec![format!("Name: {}", c.display_name)];
-                    if !emails.is_empty() { parts.push(format!("Email: {}", emails)); }
-                    if !phones.is_empty() { parts.push(format!("Phone: {}", phones)); }
-                    if let Some(ref bd) = c.birthday { parts.push(format!("Birthday: {}", bd)); }
+                    if !emails.is_empty() {
+                        parts.push(format!("Email: {}", emails));
+                    }
+                    if !phones.is_empty() {
+                        parts.push(format!("Phone: {}", phones));
+                    }
+                    if let Some(ref bd) = c.birthday {
+                        parts.push(format!("Birthday: {}", bd));
+                    }
                     parts.join("\n")
                 }
                 Err(e) => format!("Contacts error: {}", e),

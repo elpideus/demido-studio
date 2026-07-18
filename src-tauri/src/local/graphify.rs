@@ -26,7 +26,10 @@ const VIS_NETWORK_URL: &str =
     "https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js";
 
 fn base_dir(app: &AppHandle) -> PathBuf {
-    app.path().app_data_dir().expect("app data dir").join("graphify")
+    app.path()
+        .app_data_dir()
+        .expect("app data dir")
+        .join("graphify")
 }
 
 /// Marker written after a successful `pip install graphifyy`, so `installed` is a cheap
@@ -62,10 +65,8 @@ pub fn graph_built(folder: &str) -> bool {
 const SOURCE_EXTS: &[&str] = &[
     // systems / compiled
     "rs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "cs", "swift", "kt", "kts", "java",
-    "scala", "m", "mm", "zig",
-    // scripting / dynamic
-    "py", "rb", "php", "lua", "pl", "pm", "sh", "bash", "zsh", "r",
-    // web / js-ts family
+    "scala", "m", "mm", "zig", // scripting / dynamic
+    "py", "rb", "php", "lua", "pl", "pm", "sh", "bash", "zsh", "r", // web / js-ts family
     "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "svelte", "astro",
     // other real code
     "dart", "ex", "exs", "erl", "clj", "cljs", "hs", "ml", "mli", "fs", "fsx", "sql", "gd",
@@ -84,8 +85,19 @@ fn ext_is_source(path: &Path) -> bool {
 /// `node_modules` would otherwise get its vendored `.js` stat-walked. Belt-and-suspenders on top of
 /// the gitignore walk, not a replacement for it.
 const JUNK_DIRS: &[&str] = &[
-    "node_modules", "target", "dist", "build", "out", ".venv", "venv", "__pycache__",
-    "graphify-out", "vendor", ".next", ".nuxt", ".svelte-kit",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "graphify-out",
+    "vendor",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
 ];
 
 /// Whether the on-disk graph is out of date: some **source-code** file under `folder` has a
@@ -203,7 +215,11 @@ pub fn get_positions(app: &AppHandle, folder: &str) -> Option<serde_json::Value>
 }
 
 /// Persist the settled node positions for `folder`.
-pub fn set_positions(app: &AppHandle, folder: &str, positions: serde_json::Value) -> Result<(), String> {
+pub fn set_positions(
+    app: &AppHandle,
+    folder: &str,
+    positions: serde_json::Value,
+) -> Result<(), String> {
     std::fs::create_dir_all(base_dir(app)).map_err(|e| e.to_string())?;
     let mut all = read_all_positions(app);
     all.insert(folder.to_string(), positions);
@@ -299,7 +315,10 @@ mod tests {
             if graph_stale(&folder) {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "edited source never registered as stale");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "edited source never registered as stale"
+            );
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
@@ -335,7 +354,12 @@ struct InstallProgress {
 }
 
 fn emit_stage(app: &AppHandle, stage: &str) {
-    let _ = app.emit("graphify_install_progress", InstallProgress { stage: stage.into() });
+    let _ = app.emit(
+        "graphify_install_progress",
+        InstallProgress {
+            stage: stage.into(),
+        },
+    );
 }
 
 #[derive(Clone, Serialize)]
@@ -381,7 +405,10 @@ pub async fn install(app: &AppHandle, client: &reqwest::Client) -> Result<(), St
     }
 
     std::fs::create_dir_all(base_dir(app)).map_err(|e| e.to_string())?;
-    emit_stage(app, "installing graphify (this can take a few minutes the first time)");
+    emit_stage(
+        app,
+        "installing graphify (this can take a few minutes the first time)",
+    );
 
     let app2 = app.clone();
     // pip resolves + builds wheels synchronously for minutes; keep it off the async pool.
@@ -408,7 +435,10 @@ fn pip_install(app: &AppHandle) -> Result<(), String> {
         .output()
         .map_err(|e| format!("Failed to run pip: {}", e))?;
     if !out.status.success() {
-        return Err(format!("pip install failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "pip install failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(())
 }
@@ -424,7 +454,12 @@ pub fn uninstall(app: &AppHandle) -> Result<(), String> {
 /// Build (or, with `update`, refresh) the graph for `folder`. Runs `python -m graphify
 /// <folder> [--update]` with the folder as cwd, streaming each output line as a
 /// `graphify_build_progress` event. Returns once the child exits; errors carry the tail.
-pub async fn build(app: &AppHandle, client: &reqwest::Client, folder: String, update: bool) -> Result<(), String> {
+pub async fn build(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    folder: String,
+    update: bool,
+) -> Result<(), String> {
     install(app, client).await?;
     let app2 = app.clone();
     let folder2 = folder.clone();
@@ -479,13 +514,19 @@ fn run_build(app: &AppHandle, folder: &str, update: bool) -> Result<(), String> 
         }
     }
 
-    let status = child.wait().map_err(|e| format!("graphify wait failed: {}", e))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("graphify wait failed: {}", e))?;
     let stderr_tail = err_handle.and_then(|h| h.join().ok()).unwrap_or_default();
     if !status.success() {
         let tail = stderr_tail.trim();
         return Err(format!(
             "graphify build failed{}",
-            if tail.is_empty() { String::new() } else { format!(":\n{}", tail) }
+            if tail.is_empty() {
+                String::new()
+            } else {
+                format!(":\n{}", tail)
+            }
         ));
     }
     Ok(())
@@ -494,7 +535,12 @@ fn run_build(app: &AppHandle, folder: &str, update: bool) -> Result<(), String> 
 /// Run a read query (`query` / `path` / `explain`) against the built graph. `args` are the
 /// positional arguments for that subcommand. cwd is `folder` so graphify finds its
 /// `graphify-out`. Returns the command's stdout text.
-pub async fn query(app: &AppHandle, folder: String, kind: String, args: Vec<String>) -> Result<String, String> {
+pub async fn query(
+    app: &AppHandle,
+    folder: String,
+    kind: String,
+    args: Vec<String>,
+) -> Result<String, String> {
     let app = app.clone();
     tokio::task::spawn_blocking(move || run_query(&app, &folder, &kind, &args))
         .await
@@ -503,7 +549,12 @@ pub async fn query(app: &AppHandle, folder: String, kind: String, args: Vec<Stri
 
 /// Synchronous query for the tool executor, which already runs inside `spawn_blocking`. Same as
 /// [`query`] without the extra task hop. cwd is `folder` so graphify finds its `graphify-out`.
-pub fn query_blocking(app: &AppHandle, folder: &str, kind: &str, args: &[String]) -> Result<String, String> {
+pub fn query_blocking(
+    app: &AppHandle,
+    folder: &str,
+    kind: &str,
+    args: &[String],
+) -> Result<String, String> {
     run_query(app, folder, kind, args)
 }
 
@@ -566,7 +617,11 @@ font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}\
 /// Read `folder/graphify-out/graph.html` and inline the cached `vis-network` bundle in place
 /// of its CDN `<script src>`, so the returned HTML renders in a webview with no network
 /// access. Handed to the frontend as an iframe `srcdoc`.
-pub async fn graph_html(app: &AppHandle, client: &reqwest::Client, folder: String) -> Result<String, String> {
+pub async fn graph_html(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    folder: String,
+) -> Result<String, String> {
     ensure_vis_network(app, client).await?;
     let html_path = out_dir(&folder).join("graph.html");
     let html = std::fs::read_to_string(&html_path)
@@ -596,7 +651,11 @@ pub async fn graph_html(app: &AppHandle, client: &reqwest::Client, folder: Strin
     // and `nodesDS` — top-level `const`s in classic scripts — are in scope). The leading marker is a
     // placeholder the frontend swaps for a `window.__GRAPHIFY_POS__` script when it has cached
     // positions for this folder; without it, the hook only reports positions upward.
-    Ok(themed.replacen("</body>", &format!("{}{}</body>", POS_MARKER, position_cache_hook()), 1))
+    Ok(themed.replacen(
+        "</body>",
+        &format!("{}{}</body>", POS_MARKER, position_cache_hook()),
+        1,
+    ))
 }
 
 /// Placeholder inserted before the hook. The frontend replaces it with a

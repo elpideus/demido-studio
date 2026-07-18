@@ -10,10 +10,14 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
-const RELEASE_API: &str = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest";
+const RELEASE_API: &str =
+    "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest";
 
 fn runtime_dir(app: &AppHandle) -> PathBuf {
-    app.path().app_data_dir().expect("app data dir").join("python")
+    app.path()
+        .app_data_dir()
+        .expect("app data dir")
+        .join("python")
 }
 
 /// The `install_only` build extracts a fixed `python/` top-level directory.
@@ -84,9 +88,17 @@ fn asset_suffix() -> Option<&'static str> {
     if win {
         Some("-x86_64-pc-windows-msvc-install_only.tar.gz")
     } else if mac {
-        Some(if arm { "-aarch64-apple-darwin-install_only.tar.gz" } else { "-x86_64-apple-darwin-install_only.tar.gz" })
+        Some(if arm {
+            "-aarch64-apple-darwin-install_only.tar.gz"
+        } else {
+            "-x86_64-apple-darwin-install_only.tar.gz"
+        })
     } else {
-        Some(if arm { "-aarch64-unknown-linux-gnu-install_only.tar.gz" } else { "-x86_64-unknown-linux-gnu-install_only.tar.gz" })
+        Some(if arm {
+            "-aarch64-unknown-linux-gnu-install_only.tar.gz"
+        } else {
+            "-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        })
     }
 }
 
@@ -102,7 +114,10 @@ async fn find_asset(client: &reqwest::Client) -> Result<(String, String, i64), S
         .json()
         .await
         .map_err(|e| format!("Bad GitHub response: {}", e))?;
-    let assets = rel.get("assets").and_then(|a| a.as_array()).ok_or("No release assets")?;
+    let assets = rel
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .ok_or("No release assets")?;
     let asset = assets
         .iter()
         .find(|a| {
@@ -112,7 +127,11 @@ async fn find_asset(client: &reqwest::Client) -> Result<(String, String, i64), S
                 .unwrap_or(false)
         })
         .ok_or_else(|| format!("No '{}*{}' build in the latest release", prefix, suffix))?;
-    let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("python.tar.gz").to_string();
+    let name = asset
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("python.tar.gz")
+        .to_string();
     let url = asset
         .get("browser_download_url")
         .and_then(|u| u.as_str())
@@ -163,12 +182,26 @@ pub async fn install_python(app: &AppHandle, client: &reqwest::Client) -> Result
         let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
         f.write_all(&chunk).map_err(|e| e.to_string())?;
         got += chunk.len() as i64;
-        let _ = app.emit("python_install_progress", InstallProgress { downloaded: got, total, stage: "download".into() });
+        let _ = app.emit(
+            "python_install_progress",
+            InstallProgress {
+                downloaded: got,
+                total,
+                stage: "download".into(),
+            },
+        );
     }
     f.flush().map_err(|e| e.to_string())?;
     drop(f);
 
-    let _ = app.emit("python_install_progress", InstallProgress { downloaded: total, total, stage: "extract".into() });
+    let _ = app.emit(
+        "python_install_progress",
+        InstallProgress {
+            downloaded: total,
+            total,
+            stage: "extract".into(),
+        },
+    );
     extract_targz(&archive, &dir)?;
     let _ = std::fs::remove_file(&archive);
 
@@ -187,7 +220,14 @@ pub async fn install_python(app: &AppHandle, client: &reqwest::Client) -> Result
         return Err("Extraction succeeded but python binary not found at expected path".into());
     }
 
-    let _ = app.emit("python_install_progress", InstallProgress { downloaded: total, total, stage: "ensurepip".into() });
+    let _ = app.emit(
+        "python_install_progress",
+        InstallProgress {
+            downloaded: total,
+            total,
+            stage: "ensurepip".into(),
+        },
+    );
     let _ = std::process::Command::new(python_bin(app))
         .args(["-m", "ensurepip", "--upgrade"])
         .output();

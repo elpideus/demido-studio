@@ -27,7 +27,12 @@ pub struct QuantOption {
 /// model — llama-server loads it alongside the real model via `--mmproj` to enable vision,
 /// so it's kept out of the quant list and fetched automatically with whichever quant.
 fn is_mmproj(filename: &str) -> bool {
-    filename.rsplit('/').next().unwrap_or(filename).to_lowercase().starts_with("mmproj")
+    filename
+        .rsplit('/')
+        .next()
+        .unwrap_or(filename)
+        .to_lowercase()
+        .starts_with("mmproj")
 }
 
 /// A Hugging Face model repo, for the trending/search browser.
@@ -49,7 +54,11 @@ fn parse_models(v: &serde_json::Value) -> Vec<HfModel> {
         .map(|arr| {
             arr.iter()
                 .map(|m| HfModel {
-                    id: m.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    id: m
+                        .get("id")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     downloads: m.get("downloads").and_then(|x| x.as_i64()).unwrap_or(0),
                     likes: m.get("likes").and_then(|x| x.as_i64()).unwrap_or(0),
                     updated: m
@@ -65,7 +74,11 @@ fn parse_models(v: &serde_json::Value) -> Vec<HfModel> {
                     tags: m
                         .get("tags")
                         .and_then(|t| t.as_array())
-                        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(String::from))
+                                .collect()
+                        })
                         .unwrap_or_default(),
                 })
                 .filter(|m| !m.id.is_empty())
@@ -85,13 +98,20 @@ async fn query_models(client: &reqwest::Client, query: &str) -> Result<Vec<HfMod
     if !resp.status().is_success() {
         return Err(format!("HF API returned HTTP {}", resp.status().as_u16()));
     }
-    let v: serde_json::Value = resp.json().await.map_err(|e| format!("Bad HF response: {}", e))?;
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Bad HF response: {}", e))?;
     Ok(parse_models(&v))
 }
 
 /// Trending GGUF-bearing models (the default browse list).
 pub async fn trending_models(client: &reqwest::Client) -> Result<Vec<HfModel>, String> {
-    query_models(client, "filter=gguf&sort=trendingScore&direction=-1&limit=40").await
+    query_models(
+        client,
+        "filter=gguf&sort=trendingScore&direction=-1&limit=40",
+    )
+    .await
 }
 
 /// Search GGUF-bearing models by name.
@@ -99,7 +119,10 @@ pub async fn search_models(client: &reqwest::Client, q: &str) -> Result<Vec<HfMo
     let enc = q.replace(' ', "+");
     query_models(
         client,
-        &format!("search={}&filter=gguf&sort=downloads&direction=-1&limit=40", enc),
+        &format!(
+            "search={}&filter=gguf&sort=downloads&direction=-1&limit=40",
+            enc
+        ),
     )
     .await
 }
@@ -135,7 +158,12 @@ pub async fn model_card(client: &reqwest::Client, repo: &str) -> Result<String, 
 /// `pipeline_tag`/`tags` cover vision, tool-calling and reasoning the repo advertises.
 pub async fn caps_from_repo(client: &reqwest::Client, repo: &str) -> crate::caps::PartialCaps {
     let url = format!("https://huggingface.co/api/models/{}", repo);
-    let Ok(resp) = client.get(&url).header("User-Agent", "DemidoStudio").send().await else {
+    let Ok(resp) = client
+        .get(&url)
+        .header("User-Agent", "DemidoStudio")
+        .send()
+        .await
+    else {
         return crate::caps::PartialCaps::default();
     };
     if !resp.status().is_success() {
@@ -147,7 +175,11 @@ pub async fn caps_from_repo(client: &reqwest::Client, repo: &str) -> crate::caps
 
     let tags: Vec<String> = info["tags"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_lowercase())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                .collect()
+        })
         .unwrap_or_default();
     let has_tag = |t: &str| tags.iter().any(|x| x == t);
     let pipeline = info["pipeline_tag"].as_str().unwrap_or("").to_lowercase();
@@ -159,7 +191,9 @@ pub async fn caps_from_repo(client: &reqwest::Client, repo: &str) -> crate::caps
         || template.is_some_and(|t| t.contains("tool_call") || t.contains(".tools"));
     let reasoning = has_tag("reasoning")
         || template.is_some_and(|t| {
-            t.contains("enable_thinking") || t.contains("<think>") || t.contains("reasoning_content")
+            t.contains("enable_thinking")
+                || t.contains("<think>")
+                || t.contains("reasoning_content")
         });
 
     crate::caps::PartialCaps {
@@ -194,10 +228,8 @@ pub fn parse_repo(input: &str) -> Result<String, String> {
 /// `foo-Q4_K_M-00001-of-00002.gguf` -> `Q4_K_M`.
 fn quant_of(filename: &str) -> Option<String> {
     // ponytail: one regex over the filename; covers Q*/IQ*/F16/F32/BF16 + split suffix.
-    let re = Regex::new(
-        r"(?i)[.-]((?:IQ|Q)\d[A-Z0-9_]*|F16|F32|BF16)(?:-\d+-of-\d+)?\.gguf$",
-    )
-    .ok()?;
+    let re =
+        Regex::new(r"(?i)[.-]((?:IQ|Q)\d[A-Z0-9_]*|F16|F32|BF16)(?:-\d+-of-\d+)?\.gguf$").ok()?;
     let caps = re.captures(filename)?;
     Some(caps.get(1)?.as_str().to_uppercase())
 }
@@ -220,8 +252,10 @@ async fn fetch_gguf_tree(
     if !resp.status().is_success() {
         return Err(format!("HF API returned HTTP {}", resp.status().as_u16()));
     }
-    let entries: Vec<serde_json::Value> =
-        resp.json().await.map_err(|e| format!("Bad HF response: {}", e))?;
+    let entries: Vec<serde_json::Value> = resp
+        .json()
+        .await
+        .map_err(|e| format!("Bad HF response: {}", e))?;
     Ok(entries
         .into_iter()
         .filter_map(|e| {
@@ -273,10 +307,7 @@ fn find_mmproj(files: &[(String, i64)]) -> Option<(String, i64)> {
 }
 
 /// List quants in a repo (excluding mmproj projectors).
-pub async fn list_quants(
-    client: &reqwest::Client,
-    repo: &str,
-) -> Result<Vec<QuantOption>, String> {
+pub async fn list_quants(client: &reqwest::Client, repo: &str) -> Result<Vec<QuantOption>, String> {
     let files = fetch_gguf_tree(client, repo).await?;
     let quants = group_quants(&files);
     if quants.is_empty() {
@@ -303,13 +334,17 @@ pub async fn quants_and_mmproj(
 /// Used to detect manually-added models and models under a user-chosen folder.
 pub fn scan_models_dir(base: &Path) -> Vec<LocalModel> {
     let mut out = Vec::new();
-    let Ok(owners) = std::fs::read_dir(base) else { return out };
+    let Ok(owners) = std::fs::read_dir(base) else {
+        return out;
+    };
     for owner_e in owners.flatten() {
         if !owner_e.path().is_dir() {
             continue;
         }
         let owner = owner_e.file_name().to_string_lossy().to_string();
-        let Ok(names) = std::fs::read_dir(owner_e.path()) else { continue };
+        let Ok(names) = std::fs::read_dir(owner_e.path()) else {
+            continue;
+        };
         for name_e in names.flatten() {
             let repo_dir = name_e.path();
             if !repo_dir.is_dir() {
@@ -334,8 +369,8 @@ pub fn scan_models_dir(base: &Path) -> Vec<LocalModel> {
                 continue;
             }
 
-            let mmproj = find_mmproj(&files)
-                .map(|(f, _)| repo_dir.join(f).to_string_lossy().to_string());
+            let mmproj =
+                find_mmproj(&files).map(|(f, _)| repo_dir.join(f).to_string_lossy().to_string());
             for q in group_quants(&files) {
                 out.push(LocalModel {
                     id: format!("{}::{}", repo, q.quant),
@@ -394,7 +429,11 @@ pub async fn download_quant(
             .await
             .map_err(|e| format!("Download request failed: {}", e))?;
         if !resp.status().is_success() {
-            return Err(format!("Download HTTP {} for {}", resp.status().as_u16(), filename));
+            return Err(format!(
+                "Download HTTP {} for {}",
+                resp.status().as_u16(),
+                filename
+            ));
         }
 
         let tmp = dest.with_extension("gguf.part");
@@ -407,7 +446,11 @@ pub async fn download_quant(
             downloaded_all += chunk.len() as i64;
             let _ = app.emit(
                 "local_download_progress",
-                DownloadProgress { id: id.to_string(), downloaded: downloaded_all, total },
+                DownloadProgress {
+                    id: id.to_string(),
+                    downloaded: downloaded_all,
+                    total,
+                },
             );
         }
         file.flush().map_err(|e| e.to_string())?;

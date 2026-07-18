@@ -121,10 +121,16 @@ fn skills_dir() -> Result<PathBuf, String> {
 /// `skills::list_skills` reads, so an install has to translate.
 fn split_frontmatter(md: &str) -> (HashMap<String, String>, &str) {
     let mut out = HashMap::new();
-    let Some(after) = md.strip_prefix("---") else { return (out, md) };
-    let Some(end) = after.find("\n---") else { return (out, md) };
+    let Some(after) = md.strip_prefix("---") else {
+        return (out, md);
+    };
+    let Some(end) = after.find("\n---") else {
+        return (out, md);
+    };
     for line in after[..end].lines() {
-        let Some((k, v)) = line.split_once(':') else { continue };
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
         let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
         if !v.is_empty() {
             out.insert(k.trim().to_lowercase(), v.to_string());
@@ -206,7 +212,10 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
 fn skill_add(args: &[&str]) -> Result<String, String> {
     let convert = args.contains(&"--convert");
     let path = args.iter().find(|a| !a.starts_with("--"));
-    if let Some(bad) = args.iter().find(|a| a.starts_with("--") && **a != "--convert") {
+    if let Some(bad) = args
+        .iter()
+        .find(|a| a.starts_with("--") && **a != "--convert")
+    {
         return Err(format!("unknown option: {bad}"));
     }
     let Some(path) = path else {
@@ -230,9 +239,10 @@ fn skill_add(args: &[&str]) -> Result<String, String> {
 
     // An existing skill.json wins; otherwise synthesize one from the frontmatter so the installed
     // skill is visible to `list_skills`, which requires that file.
-    let existing: Option<crate::skills::SkillMeta> = std::fs::read_to_string(src.join("skill.json"))
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok());
+    let existing: Option<crate::skills::SkillMeta> =
+        std::fs::read_to_string(src.join("skill.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok());
 
     let id = existing.as_ref().map(|m| m.id.clone()).unwrap_or(folder);
     if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") {
@@ -268,7 +278,11 @@ fn skill_add(args: &[&str]) -> Result<String, String> {
             ));
         }
         if !refs.is_empty() {
-            notes.push(format!("inlined {} referenced file(s): {}", refs.len(), refs.join(", ")));
+            notes.push(format!(
+                "inlined {} referenced file(s): {}",
+                refs.len(),
+                refs.join(", ")
+            ));
         }
         std::fs::write(dest.join("SKILL.md"), &converted).map_err(|e| e.to_string())?;
 
@@ -431,7 +445,11 @@ fn mcp_add(args: &[&str]) -> Result<String, String> {
     let (command, cmd_args, url) = if o.transport == "sse" {
         (None, None, Some(rest[0].clone()))
     } else {
-        let args = if rest.len() > 1 { Some(rest[1..].to_vec()) } else { None };
+        let args = if rest.len() > 1 {
+            Some(rest[1..].to_vec())
+        } else {
+            None
+        };
         (Some(rest[0].clone()), args, None)
     };
 
@@ -481,7 +499,12 @@ fn mcp_list() -> Result<String, String> {
                 _ => s.url.clone().unwrap_or_default(),
             };
             let state = if s.enabled { "enabled" } else { "disabled" };
-            format!("  {}  [{}] {}  ({state})", s.name, s.transport, target.trim())
+            format!(
+                "  {}  [{}] {}  ({state})",
+                s.name,
+                s.transport,
+                target.trim()
+            )
         })
         .collect();
     Ok(format!("{}\n", rows.join("\n")))
@@ -578,7 +601,10 @@ mod tests {
     fn stdio_args_survive_leading_dashes() {
         let o = parse_add_opts(&["ctx7", "npx", "-y", "@upstash/context7-mcp"]).unwrap();
         assert_eq!(o.transport, "stdio");
-        assert_eq!(o.positional, vec!["ctx7", "npx", "-y", "@upstash/context7-mcp"]);
+        assert_eq!(
+            o.positional,
+            vec!["ctx7", "npx", "-y", "@upstash/context7-mcp"]
+        );
     }
 
     #[test]

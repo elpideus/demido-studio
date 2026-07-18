@@ -138,7 +138,9 @@ pub struct Skill {
 /// Absolute paths of every file under a skill folder, `skill.json` excluded — the prompt inlines
 /// its content, so listing it too would just invite a redundant read_file.
 fn collect_paths(dir: &PathBuf, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let path = e.path();
         if path.is_dir() {
@@ -253,11 +255,17 @@ fn skill_dir(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
 }
 
 fn collect_files(dir: &PathBuf, prefix: &str, out: &mut Vec<SkillFile>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let path = e.path();
         let name = e.file_name().to_string_lossy().to_string();
-        let rel = if prefix.is_empty() { name } else { format!("{}/{}", prefix, name) };
+        let rel = if prefix.is_empty() {
+            name
+        } else {
+            format!("{}/{}", prefix, name)
+        };
         if path.is_dir() {
             collect_files(&path, &rel, out);
         } else if let Ok(content) = std::fs::read_to_string(&path) {
@@ -294,7 +302,10 @@ mod tests {
     use super::*;
 
     fn f(path: &str, content: &str) -> IncomingFile {
-        IncomingFile { path: path.into(), content: content.into() }
+        IncomingFile {
+            path: path.into(),
+            content: content.into(),
+        }
     }
     const META: &str = r#"{"id":"x","name":"X","description":"d","version":"1.0.0","commands":[]}"#;
 
@@ -339,7 +350,11 @@ mod tests {
             f("tools.json", &cfg),
             f("review.md", "b"),
         ];
-        assert!(validate_skill_files("x", &files).is_ok(), "{:?}", validate_skill_files("x", &files));
+        assert!(
+            validate_skill_files("x", &files).is_ok(),
+            "{:?}",
+            validate_skill_files("x", &files)
+        );
     }
 
     /// An unknown `type` must fail loudly: silently ignoring it would install a skill whose tools
@@ -347,21 +362,38 @@ mod tests {
     #[test]
     fn rejects_an_unknown_tool_type() {
         let cfg = tools_json(r#"{"type":"exec","name":"go","description":"g","command":"rm"}"#);
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("tools.json"));
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("tools.json"));
     }
 
     #[test]
     fn rejects_a_tool_whose_file_is_missing() {
-        let cfg = tools_json(r#"{"type":"prompt","name":"review","description":"r","file":"nope.md"}"#);
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("nope.md"));
+        let cfg =
+            tools_json(r#"{"type":"prompt","name":"review","description":"r","file":"nope.md"}"#);
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("nope.md"));
     }
 
     #[test]
     fn rejects_a_tool_with_no_body() {
         let cfg = tools_json(r#"{"type":"prompt","name":"review","description":"r"}"#);
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
         assert!(validate_skill_files("x", &files)
             .unwrap_err()
             .contains("no prompt body"));
@@ -371,9 +403,16 @@ mod tests {
     /// `^[a-zA-Z0-9_-]{1,64}$` — so a name that installs must also be offerable.
     #[test]
     fn rejects_a_tool_name_a_provider_would_reject() {
-        let cfg = tools_json(r#"{"type":"prompt","name":"re:view","description":"r","prompt":"b"}"#);
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("invalid name"));
+        let cfg =
+            tools_json(r#"{"type":"prompt","name":"re:view","description":"r","prompt":"b"}"#);
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("invalid name"));
     }
 
     #[test]
@@ -384,7 +423,11 @@ mod tests {
         assert!(validate_skill_files("my.skill", &files).is_ok());
 
         let cfg = tools_json(r#"{"type":"prompt","name":"go","description":"g","prompt":"b"}"#);
-        let files = vec![f("skill.json", meta), f("SKILL.md", "b"), f("tools.json", &cfg)];
+        let files = vec![
+            f("skill.json", meta),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
         assert!(validate_skill_files("my.skill", &files)
             .unwrap_err()
             .contains("declares tools"));
@@ -396,8 +439,14 @@ mod tests {
         let cfg = tools_json(&format!(
             r#"{{"type":"prompt","name":"{long}","description":"r","prompt":"b"}}"#
         ));
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("64"));
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("64"));
     }
 
     #[test]
@@ -405,8 +454,14 @@ mod tests {
         let cfg = tools_json(
             r#"{"type":"prompt","name":"go","description":"g","prompt":"b","params":[{"name":"a","rest":true}]}"#,
         );
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("rest"));
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("rest"));
     }
 
     /// Names must be unique *across kinds* — a prompt tool and an MCP server sharing a name would
@@ -416,12 +471,23 @@ mod tests {
         let cfg = tools_json(
             r#"{"type":"prompt","name":"go","description":"g","prompt":"b"},{"type":"mcp","name":"go","command":"npx"}"#,
         );
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("declared twice"));
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("declared twice"));
     }
 
     fn param(name: &str) -> SkillCommandParam {
-        SkillCommandParam { name: name.into(), description: None, required: false, rest: false }
+        SkillCommandParam {
+            name: name.into(),
+            description: None,
+            required: false,
+            rest: false,
+        }
     }
 
     #[test]
@@ -432,7 +498,10 @@ mod tests {
             expand_skill_tool_body("review $path in $mode", &params, &args),
             "review src/a.ts in strict"
         );
-        assert_eq!(expand_skill_tool_body("$1/$2", &params, &args), "src/a.ts/strict");
+        assert_eq!(
+            expand_skill_tool_body("$1/$2", &params, &args),
+            "src/a.ts/strict"
+        );
         assert_eq!(
             expand_skill_tool_body("all: $ARGUMENTS", &params, &args),
             "all: src/a.ts strict"
@@ -496,14 +565,23 @@ mod tests {
         let files = vec![
             f("skill.json", META),
             f("SKILL.md", "b"),
-            f("tools.json", r#"{"tools":[{"type":"mcp","name":"x","command":""}]}"#),
+            f(
+                "tools.json",
+                r#"{"tools":[{"type":"mcp","name":"x","command":""}]}"#,
+            ),
         ];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("no command"));
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("no command"));
     }
 
     #[test]
     fn rejects_an_unparseable_tools_json_rather_than_installing_a_dead_server() {
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", "{nope")];
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", "{nope"),
+        ];
         assert!(validate_skill_files("x", &files)
             .unwrap_err()
             .contains("tools.json is not valid JSON"));
@@ -562,7 +640,11 @@ mod tests {
     #[test]
     fn accepts_a_skill_claiming_a_builtin() {
         let cfg = tools_json(r#"{"type":"builtin","name":"install_skill"}"#);
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
         assert!(validate_skill_files("x", &files).is_ok());
     }
 
@@ -572,9 +654,16 @@ mod tests {
     fn rejects_a_builtin_outside_the_allowlist() {
         for name in ["run_command", "write_file", "read_file", "nonsense"] {
             let cfg = tools_json(&format!(r#"{{"type":"builtin","name":"{name}"}}"#));
-            let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
+            let files = vec![
+                f("skill.json", META),
+                f("SKILL.md", "b"),
+                f("tools.json", &cfg),
+            ];
             let err = validate_skill_files("x", &files).unwrap_err();
-            assert!(err.contains("not a tool a skill may surface"), "{name}: {err}");
+            assert!(
+                err.contains("not a tool a skill may surface"),
+                "{name}: {err}"
+            );
             // The message names the ones that do exist — the set is short and not guessable.
             assert!(err.contains("install_skill"), "{name}: {err}");
         }
@@ -595,7 +684,11 @@ mod tests {
         let cfg = tools_json(
             r#"{"type":"prompt","name":"review","description":"r","prompt":"b"},{"type":"mcp","name":"wf","command":"npx"}"#,
         );
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("tools.json", &cfg)];
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("tools.json", &cfg),
+        ];
         assert!(validate_skill_files("x", &files).is_ok());
         assert!(payload_bundles_mcp(&files));
     }
@@ -645,7 +738,10 @@ mod tests {
 
     #[test]
     fn wire_names_are_namespaced_by_skill_id() {
-        assert_eq!(skill_tool_name("my-skill", "review"), "skill_my-skill_review");
+        assert_eq!(
+            skill_tool_name("my-skill", "review"),
+            "skill_my-skill_review"
+        );
         assert!(is_skill_tool("skill_my-skill_review"));
         assert!(!is_skill_tool("read_file"));
     }
@@ -653,19 +749,25 @@ mod tests {
     #[test]
     fn rejects_missing_skill_json_because_the_app_would_ignore_it() {
         let files = vec![f("SKILL.md", "body")];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("skill.json"));
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("skill.json"));
     }
 
     #[test]
     fn rejects_missing_skill_md() {
         let files = vec![f("skill.json", META)];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("SKILL.md"));
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("SKILL.md"));
     }
 
     #[test]
     fn rejects_id_mismatch_with_folder_name() {
         let files = vec![f("skill.json", META), f("SKILL.md", "b")];
-        assert!(validate_skill_files("other", &files).unwrap_err().contains("id mismatch"));
+        assert!(validate_skill_files("other", &files)
+            .unwrap_err()
+            .contains("id mismatch"));
     }
 
     #[test]
@@ -681,7 +783,11 @@ mod tests {
     fn accepts_a_command_whose_file_is_provided() {
         let meta = r#"{"id":"x","name":"X","description":"d","version":"1.0.0",
             "commands":[{"name":"go","description":"g","file":"commands/go.md"}]}"#;
-        let files = vec![f("skill.json", meta), f("SKILL.md", "b"), f("commands/go.md", "go")];
+        let files = vec![
+            f("skill.json", meta),
+            f("SKILL.md", "b"),
+            f("commands/go.md", "go"),
+        ];
         assert!(validate_skill_files("x", &files).is_ok());
     }
 
@@ -709,7 +815,9 @@ mod tests {
             "commands":[{"name":"go","description":"g","prompt":"p",
                 "params":[{"name":"my param"}]}]}"#;
         let files = vec![f("skill.json", meta), f("SKILL.md", "b")];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("invalid param name"));
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("invalid param name"));
     }
 
     #[test]
@@ -718,7 +826,9 @@ mod tests {
             "commands":[{"name":"go","description":"g","prompt":"p",
                 "params":[{"name":"a","rest":true},{"name":"b"}]}]}"#;
         let files = vec![f("skill.json", meta), f("SKILL.md", "b")];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("not last"));
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("not last"));
     }
 
     #[test]
@@ -732,14 +842,22 @@ mod tests {
 
     #[test]
     fn rejects_path_traversal() {
-        let files = vec![f("skill.json", META), f("SKILL.md", "b"), f("../evil.md", "x")];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("invalid file path"));
+        let files = vec![
+            f("skill.json", META),
+            f("SKILL.md", "b"),
+            f("../evil.md", "x"),
+        ];
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("invalid file path"));
     }
 
     #[test]
     fn rejects_invalid_json_with_a_usable_message() {
         let files = vec![f("skill.json", "{not json"), f("SKILL.md", "b")];
-        assert!(validate_skill_files("x", &files).unwrap_err().contains("not valid JSON"));
+        assert!(validate_skill_files("x", &files)
+            .unwrap_err()
+            .contains("not valid JSON"));
     }
 }
 
@@ -801,7 +919,9 @@ pub fn validate_skill_files(id: &str, files: &[IncomingFile]) -> Result<(), Stri
                     .next()
                     .map(|ch| ch.is_ascii_alphabetic() || ch == '_')
                     .unwrap_or(false)
-                && p.name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+                && p.name
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
             if !valid || p.name == "ARGUMENTS" {
                 return Err(format!(
                     "command '{}' has invalid param name '{}' — use letters, digits and underscores, starting with a letter, and not 'ARGUMENTS'",
@@ -828,7 +948,7 @@ pub fn validate_skill_files(id: &str, files: &[IncomingFile]) -> Result<(), Stri
             }
             // Neither source of a body: the command installs fine and then errors the first time
             // anyone types it. Catch it here, while the author is still listening.
-            (None, prompt) if prompt.as_ref().map_or(true, |p| p.trim().is_empty()) => {
+            (None, prompt) if prompt.as_ref().is_none_or(|p| p.trim().is_empty()) => {
                 return Err(format!(
                     "command '{}' has no prompt body — give it a 'file' (a path among the files provided) or a non-empty inline 'prompt'",
                     c.name
@@ -902,7 +1022,9 @@ fn validate_tools_json(
                             .next()
                             .map(|ch| ch.is_ascii_alphabetic() || ch == '_')
                             .unwrap_or(false)
-                        && p.name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+                        && p.name
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
                     if !valid || p.name == "ARGUMENTS" {
                         return Err(format!(
                             "tool '{}' has invalid param name '{}' — use letters, digits and underscores, starting with a letter, and not 'ARGUMENTS'",
@@ -1074,7 +1196,9 @@ pub fn skill_mcp_servers(app: &AppHandle, enabled: &[String]) -> Vec<crate::mcp:
             continue;
         }
         for entry in read_tools_config(&path).tools {
-            let SkillToolEntry::Mcp(s) = entry else { continue };
+            let SkillToolEntry::Mcp(s) = entry else {
+                continue;
+            };
             out.push(crate::mcp::types::McpServer {
                 id: skill_mcp_server_id(&meta.id, &s.name),
                 name: format!("{} ({})", s.name, meta.name),
@@ -1250,12 +1374,18 @@ pub fn skill_tool_defs(app: &AppHandle, enabled: &[String]) -> Vec<crate::provid
 pub fn run_skill_tool(app: &AppHandle, name: &str, args: &Value) -> String {
     for (meta, path, _raw) in all_skill_metas(app) {
         for entry in read_tools_config(&path).tools {
-            let SkillToolEntry::Prompt(t) = entry else { continue };
+            let SkillToolEntry::Prompt(t) = entry else {
+                continue;
+            };
             if skill_tool_name(&meta.id, &t.name) != name {
                 continue;
             }
             for p in t.params.iter().filter(|p| p.required) {
-                if args[&p.name].as_str().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                if args[&p.name]
+                    .as_str()
+                    .map(|s| s.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     return format!("Error: '{}' is required by {}.", p.name, name);
                 }
             }
@@ -1265,7 +1395,10 @@ pub fn run_skill_tool(app: &AppHandle, name: &str, args: &Value) -> String {
                     match std::fs::read_to_string(&target) {
                         Ok(b) => b,
                         Err(e) => {
-                            return format!("Error reading body of {name} at {}: {e}", target.display())
+                            return format!(
+                                "Error reading body of {name} at {}: {e}",
+                                target.display()
+                            )
                         }
                     }
                 }

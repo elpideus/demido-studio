@@ -129,7 +129,10 @@ impl SearxngEngine {
 }
 
 fn base_dir(app: &AppHandle) -> PathBuf {
-    app.path().app_data_dir().expect("app data dir").join("searxng")
+    app.path()
+        .app_data_dir()
+        .expect("app data dir")
+        .join("searxng")
 }
 
 fn src_dir(app: &AppHandle) -> PathBuf {
@@ -151,7 +154,12 @@ struct InstallProgress {
 }
 
 fn emit_stage(app: &AppHandle, stage: &str) {
-    let _ = app.emit("searxng_install_progress", InstallProgress { stage: stage.into() });
+    let _ = app.emit(
+        "searxng_install_progress",
+        InstallProgress {
+            stage: stage.into(),
+        },
+    );
 }
 
 /// Download SearXNG's source tarball, stripping the single top-level directory GitHub's
@@ -218,15 +226,28 @@ fn extract_targz_stripped(archive: &std::path::Path, dest: &std::path::Path) -> 
 }
 
 fn install_deps(app: &AppHandle) -> Result<(), String> {
-    emit_stage(app, "installing dependencies (this can take a few minutes the first time)");
+    emit_stage(
+        app,
+        "installing dependencies (this can take a few minutes the first time)",
+    );
     let req = src_dir(app).join("requirements.txt");
     let out = Command::new(python::python_bin(app))
-        .args(["-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location", "-r"])
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-warn-script-location",
+            "-r",
+        ])
         .arg(&req)
         .output()
         .map_err(|e| format!("Failed to run pip: {}", e))?;
     if !out.status.success() {
-        return Err(format!("pip install failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "pip install failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(())
 }
@@ -358,7 +379,11 @@ pub fn start_on_startup(app: &AppHandle) {
     });
 }
 
-fn spawn_worker(app: &AppHandle, engine: &SearxngEngine, worker: &std::path::Path) -> Result<(), String> {
+fn spawn_worker(
+    app: &AppHandle,
+    engine: &SearxngEngine,
+    worker: &std::path::Path,
+) -> Result<(), String> {
     // SearXNG logs to stderr; captured to a file (not piped) so a startup crash surfaces the
     // real Python traceback, and so a full stderr pipe can never deadlock the worker.
     let log_path = base_dir(app).join("searxng.log");
@@ -393,10 +418,18 @@ fn spawn_worker(app: &AppHandle, engine: &SearxngEngine, worker: &std::path::Pat
             .ok()
             .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
             .unwrap_or_default();
-        return Err(format!("SearXNG failed to start. {}\n{}", detail, tail_log(&log_path)));
+        return Err(format!(
+            "SearXNG failed to start. {}\n{}",
+            detail,
+            tail_log(&log_path)
+        ));
     }
 
-    *engine.running.lock().unwrap() = Some(Running { child, stdin, stdout });
+    *engine.running.lock().unwrap() = Some(Running {
+        child,
+        stdin,
+        stdout,
+    });
     emit_stage(app, "ready");
     Ok(())
 }

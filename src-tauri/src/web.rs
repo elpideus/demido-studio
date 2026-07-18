@@ -29,10 +29,7 @@ fn check_ssrf(url: &str) -> Result<(), String> {
     if scheme != "http" && scheme != "https" {
         return Err(format!("Scheme '{}' not allowed", scheme));
     }
-    let host = parsed
-        .host_str()
-        .ok_or("No host in URL")?
-        .to_string();
+    let host = parsed.host_str().ok_or("No host in URL")?.to_string();
     let port = parsed.port_or_known_default().unwrap_or(80);
     let addrs: Vec<IpAddr> = format!("{}:{}", host, port)
         .to_socket_addrs()
@@ -111,10 +108,12 @@ const PARALLEL_URL: &str = "https://search.parallel.ai/mcp";
 fn parse_mcp_response(body: &str) -> Option<String> {
     let extract = |json_str: &str| -> Option<String> {
         let v: Value = serde_json::from_str(json_str).ok()?;
-        v["result"]["content"]
-            .as_array()?
-            .iter()
-            .find_map(|c| c["text"].as_str().filter(|t| !t.is_empty()).map(|t| t.to_string()))
+        v["result"]["content"].as_array()?.iter().find_map(|c| {
+            c["text"]
+                .as_str()
+                .filter(|t| !t.is_empty())
+                .map(|t| t.to_string())
+        })
     };
 
     let trimmed = body.trim();
@@ -173,7 +172,11 @@ async fn call_mcp_tool(
     parse_mcp_response(&text).ok_or_else(|| format!("{}: no content in response", tool))
 }
 
-async fn exa_search(client: &reqwest::Client, query: &str, api_key: Option<&str>) -> Result<String, String> {
+async fn exa_search(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: Option<&str>,
+) -> Result<String, String> {
     let url = match api_key {
         Some(k) if !k.is_empty() => format!("{}?exaApiKey={}", EXA_URL, urlencode(k)),
         _ => EXA_URL.to_string(),
@@ -188,7 +191,11 @@ async fn exa_search(client: &reqwest::Client, query: &str, api_key: Option<&str>
     .await
 }
 
-async fn parallel_search(client: &reqwest::Client, query: &str, api_key: Option<&str>) -> Result<String, String> {
+async fn parallel_search(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: Option<&str>,
+) -> Result<String, String> {
     let mut headers = vec![];
     if let Some(k) = api_key.filter(|k| !k.is_empty()) {
         headers.push(("Authorization", format!("Bearer {}", k)));
@@ -207,7 +214,9 @@ fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
@@ -476,7 +485,12 @@ pub async fn web_fetch_impl(url: &str, format: &str) -> String {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_lowercase();
-        let mime = content_type.split(';').next().unwrap_or("").trim().to_string();
+        let mime = content_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
 
         if !status.is_success() {
             return format!("HTTP {}", status.as_u16());
@@ -704,7 +718,10 @@ pub async fn link_preview_impl(client: &reqwest::Client, url: &str) -> LinkPrevi
             let mut preview = LinkPreview::failed(url, format!("Not an HTML page ({})", mime));
             preview.title = reqwest::Url::parse(url)
                 .ok()
-                .and_then(|u| u.path_segments().and_then(|mut s| s.next_back().map(String::from)))
+                .and_then(|u| {
+                    u.path_segments()
+                        .and_then(|mut s| s.next_back().map(String::from))
+                })
                 .filter(|s| !s.is_empty());
             return preview;
         }
@@ -806,7 +823,10 @@ mod tests {
     fn resolves_relative_image_against_page_url() {
         let html = r#"<head><meta property="og:image" content="/static/card.png"></head>"#;
         let p = preview_from_html("https://example.com/blog/post", html);
-        assert_eq!(p.image.as_deref(), Some("https://example.com/static/card.png"));
+        assert_eq!(
+            p.image.as_deref(),
+            Some("https://example.com/static/card.png")
+        );
     }
 
     #[test]
@@ -822,10 +842,17 @@ mod tests {
     #[test]
     fn long_descriptions_are_truncated() {
         let long = "x".repeat(600);
-        let html = format!(r#"<head><meta property="og:description" content="{}"></head>"#, long);
+        let html = format!(
+            r#"<head><meta property="og:description" content="{}"></head>"#,
+            long
+        );
         let p = preview_from_html("https://example.com/", &html);
         let desc = p.description.unwrap();
-        assert!(desc.chars().count() <= MAX_DESC_CHARS + 1, "got {} chars", desc.chars().count());
+        assert!(
+            desc.chars().count() <= MAX_DESC_CHARS + 1,
+            "got {} chars",
+            desc.chars().count()
+        );
         assert!(desc.ends_with('…'));
     }
 

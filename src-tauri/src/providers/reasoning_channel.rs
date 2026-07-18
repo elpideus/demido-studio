@@ -200,8 +200,7 @@ mod tests {
     #[test]
     fn recovers_every_real_capture() {
         for (text, expected_query) in LEAKED_REAL {
-            let r = recover(text, &tools())
-                .unwrap_or_else(|| panic!("failed to recover: {text}"));
+            let r = recover(text, &tools()).unwrap_or_else(|| panic!("failed to recover: {text}"));
             assert_eq!(r.calls.len(), 1);
             assert_eq!(r.calls[0].name, "wfm_search_items");
             assert_eq!(r.calls[0].arguments["query"], json!(expected_query));
@@ -218,7 +217,10 @@ mod tests {
         assert_eq!(r.calls[0].name, "wfm_search_items");
         assert_eq!(r.calls[0].arguments["query"], json!("Greed"));
         assert_eq!(r.calls[0].arguments["language"], json!("en"));
-        assert_eq!(r.cleaned, "Overguard isn't tradable. Let me search for a different maxed mod.");
+        assert_eq!(
+            r.cleaned,
+            "Overguard isn't tradable. Let me search for a different maxed mod."
+        );
     }
 
     #[test]
@@ -253,7 +255,11 @@ mod tests {
 
     #[test]
     fn ignores_plain_text() {
-        assert!(recover("No tool call here. Just prose about <function=x>.", &tools()).is_none());
+        assert!(recover(
+            "No tool call here. Just prose about <function=x>.",
+            &tools()
+        )
+        .is_none());
     }
 
     /// Verbatim thinking from the turn that rendered blank: reasoning and the finished

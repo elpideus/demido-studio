@@ -63,7 +63,13 @@ pub fn set_caps(
     conn.execute(
         "UPDATE model_overrides SET caps_vision = ?1, caps_tools = ?2, caps_reasoning = ?3
          WHERE provider_id = ?4 AND model_id = ?5",
-        rusqlite::params![caps.vision, caps.tools, caps.reasoning, provider_id, model_id],
+        rusqlite::params![
+            caps.vision,
+            caps.tools,
+            caps.reasoning,
+            provider_id,
+            model_id
+        ],
     )?;
     Ok(())
 }
@@ -132,7 +138,11 @@ mod tests {
             &conn,
             "p1",
             "m1",
-            &PartialCaps { vision: Some(true), tools: None, reasoning: Some(false) },
+            &PartialCaps {
+                vision: Some(true),
+                tools: None,
+                reasoning: Some(false),
+            },
         )
         .unwrap();
 
@@ -150,7 +160,11 @@ mod tests {
             &conn,
             "p1",
             "brand-new",
-            &PartialCaps { vision: None, tools: Some(true), reasoning: None },
+            &PartialCaps {
+                vision: None,
+                tools: Some(true),
+                reasoning: None,
+            },
         )
         .unwrap();
         assert_eq!(caps_of(&conn, "brand-new").tools, Some(true));
@@ -159,7 +173,11 @@ mod tests {
         set_caps(&conn, "p1", "m1", &PartialCaps::default()).unwrap();
         assert!(caps_of(&conn, "m1").is_empty());
         // ...and clearing caps must not have destroyed the rename.
-        let row = list(&conn, "p1").unwrap().into_iter().find(|o| o.model_id == "m1").unwrap();
+        let row = list(&conn, "p1")
+            .unwrap()
+            .into_iter()
+            .find(|o| o.model_id == "m1")
+            .unwrap();
         assert_eq!(row.custom_name.as_deref(), Some("My Model"));
     }
 }

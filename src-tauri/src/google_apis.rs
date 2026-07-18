@@ -64,7 +64,9 @@ pub fn find_account_for_service(
 ) -> Result<Option<Account>, String> {
     let conn_guard = conn.lock().unwrap();
     let accounts = crate::db::accounts::list(&conn_guard).map_err(|e| e.to_string())?;
-    Ok(accounts.into_iter().find(|a| a.services.contains(&service.to_string())))
+    Ok(accounts
+        .into_iter()
+        .find(|a| a.services.contains(&service.to_string())))
 }
 
 // ── Gmail ─────────────────────────────────────────────────────────────────────
@@ -93,7 +95,9 @@ pub async fn list_emails(
     max: u64,
     page_token: Option<&str>,
 ) -> Result<EmailPage, String> {
-    let pt = page_token.map(|t| format!("&pageToken={}", urlencoded(t))).unwrap_or_default();
+    let pt = page_token
+        .map(|t| format!("&pageToken={}", urlencoded(t)))
+        .unwrap_or_default();
     let url = format!(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults={}&q={}{}",
         max,
@@ -170,26 +174,53 @@ pub async fn list_emails(
     });
     let summaries: Vec<EmailSummary> = futures_util::future::try_join_all(fetches).await?;
 
-    Ok(EmailPage { emails: summaries, next_page_token, result_size_estimate })
+    Ok(EmailPage {
+        emails: summaries,
+        next_page_token,
+        result_size_estimate,
+    })
 }
 
 pub async fn trash_message(http: &reqwest::Client, token: &str, id: &str) -> Result<(), String> {
-    let url = format!("https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/trash", id);
-    let resp = http.post(&url).bearer_auth(token).json(&serde_json::json!({})).send().await.map_err(|e| e.to_string())?;
+    let url = format!(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/trash",
+        id
+    );
+    let resp = http
+        .post(&url)
+        .bearer_auth(token)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Gmail trash failed: {}", resp.status()));
     }
     Ok(())
 }
 
-pub async fn set_message_read(http: &reqwest::Client, token: &str, id: &str, read: bool) -> Result<(), String> {
-    let url = format!("https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/modify", id);
+pub async fn set_message_read(
+    http: &reqwest::Client,
+    token: &str,
+    id: &str,
+    read: bool,
+) -> Result<(), String> {
+    let url = format!(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/modify",
+        id
+    );
     let body = if read {
         serde_json::json!({ "removeLabelIds": ["UNREAD"] })
     } else {
         serde_json::json!({ "addLabelIds": ["UNREAD"] })
     };
-    let resp = http.post(&url).bearer_auth(token).json(&body).send().await.map_err(|e| e.to_string())?;
+    let resp = http
+        .post(&url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Gmail modify failed: {}", resp.status()));
     }
@@ -223,11 +254,14 @@ pub async fn get_email_body(
             if let Some(data) = part["body"]["data"].as_str() {
                 // Gmail returns base64url; some bodies carry `=` padding, others don't.
                 // Decode padding-indifferently so a stray `=` doesn't blank the body.
+                use base64::engine::{
+                    general_purpose::GeneralPurpose, DecodePaddingMode, GeneralPurposeConfig,
+                };
                 use base64::Engine;
-                use base64::engine::{general_purpose::GeneralPurpose, GeneralPurposeConfig, DecodePaddingMode};
                 let engine = GeneralPurpose::new(
                     &base64::alphabet::URL_SAFE,
-                    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+                    GeneralPurposeConfig::new()
+                        .with_decode_padding_mode(DecodePaddingMode::Indifferent),
                 );
                 if let Ok(bytes) = engine.decode(data) {
                     return Some(String::from_utf8_lossy(&bytes).into_owned());
@@ -259,7 +293,14 @@ pub async fn get_email_body(
     let headers = msg["payload"]["headers"].as_array();
     let get_header = |name: &str| -> String {
         headers
-            .and_then(|hs| hs.iter().find(|h| h["name"].as_str().map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false)))
+            .and_then(|hs| {
+                hs.iter().find(|h| {
+                    h["name"]
+                        .as_str()
+                        .map(|n| n.eq_ignore_ascii_case(name))
+                        .unwrap_or(false)
+                })
+            })
             .and_then(|h| h["value"].as_str())
             .unwrap_or("")
             .to_string()
@@ -273,7 +314,6 @@ pub async fn get_email_body(
         get_header("Date"),
         body_out
     ))
-
 }
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
@@ -289,32 +329,39 @@ pub struct CalendarEvent {
     pub color: Option<String>, // hex background color, event-level overrides calendar-level
 }
 
-fn parse_events_with_cal_color(items: &[serde_json::Value], cal_color: Option<&str>) -> Vec<CalendarEvent> {
-    items.iter().map(|e| {
-        // Event-level colorId → hex takes priority; then event backgroundColor; then calendar color
-        let color = e["colorId"].as_str()
-            .and_then(google_color_id_to_hex)
-            .map(|s| s.to_string())
-            .or_else(|| e["backgroundColor"].as_str().map(|s| s.to_string()))
-            .or_else(|| cal_color.map(|s| s.to_string()));
-        CalendarEvent {
-            id: e["id"].as_str().unwrap_or("").to_string(),
-            summary: e["summary"].as_str().unwrap_or("(no title)").to_string(),
-            start: e["start"]["dateTime"]
+fn parse_events_with_cal_color(
+    items: &[serde_json::Value],
+    cal_color: Option<&str>,
+) -> Vec<CalendarEvent> {
+    items
+        .iter()
+        .map(|e| {
+            // Event-level colorId → hex takes priority; then event backgroundColor; then calendar color
+            let color = e["colorId"]
                 .as_str()
-                .or_else(|| e["start"]["date"].as_str())
-                .unwrap_or("")
-                .to_string(),
-            end: e["end"]["dateTime"]
-                .as_str()
-                .or_else(|| e["end"]["date"].as_str())
-                .unwrap_or("")
-                .to_string(),
-            location: e["location"].as_str().map(|s| s.to_string()),
-            description: e["description"].as_str().map(|s| s.to_string()),
-            color,
-        }
-    }).collect()
+                .and_then(google_color_id_to_hex)
+                .map(|s| s.to_string())
+                .or_else(|| e["backgroundColor"].as_str().map(|s| s.to_string()))
+                .or_else(|| cal_color.map(|s| s.to_string()));
+            CalendarEvent {
+                id: e["id"].as_str().unwrap_or("").to_string(),
+                summary: e["summary"].as_str().unwrap_or("(no title)").to_string(),
+                start: e["start"]["dateTime"]
+                    .as_str()
+                    .or_else(|| e["start"]["date"].as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                end: e["end"]["dateTime"]
+                    .as_str()
+                    .or_else(|| e["end"]["date"].as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                location: e["location"].as_str().map(|s| s.to_string()),
+                description: e["description"].as_str().map(|s| s.to_string()),
+                color,
+            }
+        })
+        .collect()
 }
 
 fn parse_events(items: &[serde_json::Value]) -> Vec<CalendarEvent> {
@@ -324,18 +371,18 @@ fn parse_events(items: &[serde_json::Value]) -> Vec<CalendarEvent> {
 fn google_color_id_to_hex(id: &str) -> Option<&'static str> {
     // Source: GET https://www.googleapis.com/calendar/v3/colors (event palette)
     match id {
-        "1"  => Some("#a4bdfc"), // Lavender
-        "2"  => Some("#7ae28c"), // Sage
-        "3"  => Some("#dbadff"), // Grape
-        "4"  => Some("#ff887c"), // Flamingo
-        "5"  => Some("#fbd75b"), // Banana
-        "6"  => Some("#ffb878"), // Tangerine
-        "7"  => Some("#46d6db"), // Peacock
-        "8"  => Some("#e1e1e1"), // Graphite
-        "9"  => Some("#5484ed"), // Blueberry
+        "1" => Some("#a4bdfc"),  // Lavender
+        "2" => Some("#7ae28c"),  // Sage
+        "3" => Some("#dbadff"),  // Grape
+        "4" => Some("#ff887c"),  // Flamingo
+        "5" => Some("#fbd75b"),  // Banana
+        "6" => Some("#ffb878"),  // Tangerine
+        "7" => Some("#46d6db"),  // Peacock
+        "8" => Some("#e1e1e1"),  // Graphite
+        "9" => Some("#5484ed"),  // Blueberry
         "10" => Some("#51b749"), // Basil
         "11" => Some("#dc2127"), // Tomato
-        _    => None,
+        _ => None,
     }
 }
 
@@ -391,10 +438,12 @@ pub async fn list_events_all_calendars(
         .unwrap_or(&vec![])
         .iter()
         .filter_map(|c| {
-            c["id"].as_str().map(|id| (
-                id.to_string(),
-                c["backgroundColor"].as_str().map(|s| s.to_string()),
-            ))
+            c["id"].as_str().map(|id| {
+                (
+                    id.to_string(),
+                    c["backgroundColor"].as_str().map(|s| s.to_string()),
+                )
+            })
         })
         .collect();
 
@@ -408,7 +457,10 @@ pub async fn list_events_all_calendars(
         let url = format!(
             "https://www.googleapis.com/calendar/v3/calendars/{}/events\
             ?maxResults={}&singleEvents=true&orderBy=startTime&timeMin={}&timeMax={}",
-            urlencoded(cal_id), per_cal, urlencoded(time_min), urlencoded(time_max),
+            urlencoded(cal_id),
+            per_cal,
+            urlencoded(time_min),
+            urlencoded(time_max),
         );
         let cal_color = cal_color.clone();
         async move {
@@ -442,6 +494,7 @@ pub async fn list_events(
     fetch_calendar(http, token, "primary", time_min, time_max, max).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_event(
     http: &reqwest::Client,
     token: &str,
@@ -467,8 +520,12 @@ pub async fn create_event(
         "start": start_val,
         "end": end_val,
     });
-    if let Some(loc) = location { body["location"] = serde_json::json!(loc); }
-    if let Some(desc) = description { body["description"] = serde_json::json!(desc); }
+    if let Some(loc) = location {
+        body["location"] = serde_json::json!(loc);
+    }
+    if let Some(desc) = description {
+        body["description"] = serde_json::json!(desc);
+    }
 
     let resp: serde_json::Value = http
         .post("https://www.googleapis.com/calendar/v3/calendars/primary/events")
@@ -481,10 +538,13 @@ pub async fn create_event(
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(e) = resp.get("error") { return Err(format!("API error: {}", e)); }
+    if let Some(e) = resp.get("error") {
+        return Err(format!("API error: {}", e));
+    }
     Ok(parse_events(&[resp])[0].clone())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_event(
     http: &reqwest::Client,
     token: &str,
@@ -511,10 +571,17 @@ pub async fn update_event(
         "start": start_val,
         "end": end_val,
     });
-    if let Some(loc) = location { body["location"] = serde_json::json!(loc); }
-    if let Some(desc) = description { body["description"] = serde_json::json!(desc); }
+    if let Some(loc) = location {
+        body["location"] = serde_json::json!(loc);
+    }
+    if let Some(desc) = description {
+        body["description"] = serde_json::json!(desc);
+    }
 
-    let url = format!("https://www.googleapis.com/calendar/v3/calendars/primary/events/{}", urlencoded(event_id));
+    let url = format!(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events/{}",
+        urlencoded(event_id)
+    );
     let resp: serde_json::Value = http
         .put(&url)
         .bearer_auth(token)
@@ -526,7 +593,9 @@ pub async fn update_event(
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(e) = resp.get("error") { return Err(format!("API error: {}", e)); }
+    if let Some(e) = resp.get("error") {
+        return Err(format!("API error: {}", e));
+    }
     Ok(parse_events(&[resp])[0].clone())
 }
 
@@ -596,60 +665,150 @@ fn parse_person(p: &serde_json::Value) -> Contact {
     let etag = p["etag"].as_str().unwrap_or("").to_string();
 
     let name_obj = p["names"].as_array().and_then(|a| a.first());
-    let display_name = name_obj.and_then(|n| n["displayName"].as_str()).unwrap_or("(no name)").to_string();
-    let given_name = name_obj.and_then(|n| n["givenName"].as_str()).unwrap_or("").to_string();
-    let family_name = name_obj.and_then(|n| n["familyName"].as_str()).unwrap_or("").to_string();
-    let middle_name = name_obj.and_then(|n| n["middleName"].as_str()).unwrap_or("").to_string();
-    let name_prefix = name_obj.and_then(|n| n["honorificPrefix"].as_str()).unwrap_or("").to_string();
-    let name_suffix = name_obj.and_then(|n| n["honorificSuffix"].as_str()).unwrap_or("").to_string();
+    let display_name = name_obj
+        .and_then(|n| n["displayName"].as_str())
+        .unwrap_or("(no name)")
+        .to_string();
+    let given_name = name_obj
+        .and_then(|n| n["givenName"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let family_name = name_obj
+        .and_then(|n| n["familyName"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let middle_name = name_obj
+        .and_then(|n| n["middleName"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let name_prefix = name_obj
+        .and_then(|n| n["honorificPrefix"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let name_suffix = name_obj
+        .and_then(|n| n["honorificSuffix"].as_str())
+        .unwrap_or("")
+        .to_string();
 
-    let nickname = p["nicknames"].as_array().and_then(|a| a.first())
-        .and_then(|n| n["value"].as_str()).unwrap_or("").to_string();
+    let nickname = p["nicknames"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|n| n["value"].as_str())
+        .unwrap_or("")
+        .to_string();
 
-    let emails = p["emailAddresses"].as_array().unwrap_or(&vec![]).iter().map(|e| LabeledValue {
-        value: e["value"].as_str().unwrap_or("").to_string(),
-        label: e["formattedType"].as_str().or_else(|| e["type"].as_str()).unwrap_or("Other").to_string(),
-    }).collect();
+    let emails = p["emailAddresses"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|e| LabeledValue {
+            value: e["value"].as_str().unwrap_or("").to_string(),
+            label: e["formattedType"]
+                .as_str()
+                .or_else(|| e["type"].as_str())
+                .unwrap_or("Other")
+                .to_string(),
+        })
+        .collect();
 
-    let phones = p["phoneNumbers"].as_array().unwrap_or(&vec![]).iter().map(|e| LabeledValue {
-        value: e["value"].as_str().unwrap_or("").to_string(),
-        label: e["formattedType"].as_str().or_else(|| e["type"].as_str()).unwrap_or("Other").to_string(),
-    }).collect();
+    let phones = p["phoneNumbers"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|e| LabeledValue {
+            value: e["value"].as_str().unwrap_or("").to_string(),
+            label: e["formattedType"]
+                .as_str()
+                .or_else(|| e["type"].as_str())
+                .unwrap_or("Other")
+                .to_string(),
+        })
+        .collect();
 
-    let addresses = p["addresses"].as_array().unwrap_or(&vec![]).iter().map(|a| ContactAddress {
-        street: a["streetAddress"].as_str().unwrap_or("").to_string(),
-        city: a["city"].as_str().unwrap_or("").to_string(),
-        region: a["region"].as_str().unwrap_or("").to_string(),
-        postal_code: a["postalCode"].as_str().unwrap_or("").to_string(),
-        country: a["country"].as_str().unwrap_or("").to_string(),
-        label: a["formattedType"].as_str().or_else(|| a["type"].as_str()).unwrap_or("Other").to_string(),
-    }).collect();
+    let addresses = p["addresses"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|a| ContactAddress {
+            street: a["streetAddress"].as_str().unwrap_or("").to_string(),
+            city: a["city"].as_str().unwrap_or("").to_string(),
+            region: a["region"].as_str().unwrap_or("").to_string(),
+            postal_code: a["postalCode"].as_str().unwrap_or("").to_string(),
+            country: a["country"].as_str().unwrap_or("").to_string(),
+            label: a["formattedType"]
+                .as_str()
+                .or_else(|| a["type"].as_str())
+                .unwrap_or("Other")
+                .to_string(),
+        })
+        .collect();
 
     let org = p["organizations"].as_array().and_then(|a| a.first());
-    let organization = org.and_then(|o| o["name"].as_str()).unwrap_or("").to_string();
-    let job_title = org.and_then(|o| o["title"].as_str()).unwrap_or("").to_string();
-    let department = org.and_then(|o| o["department"].as_str()).unwrap_or("").to_string();
+    let organization = org
+        .and_then(|o| o["name"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let job_title = org
+        .and_then(|o| o["title"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let department = org
+        .and_then(|o| o["department"].as_str())
+        .unwrap_or("")
+        .to_string();
 
-    let birthday = p["birthdays"].as_array().and_then(|a| a.first()).and_then(parse_contact_date);
+    let birthday = p["birthdays"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(parse_contact_date);
 
-    let anniversary = p["events"].as_array().and_then(|a| {
-        a.iter().find(|e| e["type"].as_str() == Some("anniversary"))
-    }).and_then(parse_contact_date);
+    let anniversary = p["events"]
+        .as_array()
+        .and_then(|a| a.iter().find(|e| e["type"].as_str() == Some("anniversary")))
+        .and_then(parse_contact_date);
 
-    let website = p["urls"].as_array().and_then(|a| a.first())
-        .and_then(|u| u["value"].as_str()).unwrap_or("").to_string();
+    let website = p["urls"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|u| u["value"].as_str())
+        .unwrap_or("")
+        .to_string();
 
-    let notes = p["biographies"].as_array().and_then(|a| a.first())
-        .and_then(|b| b["value"].as_str()).unwrap_or("").to_string();
+    let notes = p["biographies"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|b| b["value"].as_str())
+        .unwrap_or("")
+        .to_string();
 
-    let photo_url = p["photos"].as_array()
+    let photo_url = p["photos"]
+        .as_array()
         .and_then(|a| a.iter().find(|ph| ph["default"].as_bool() != Some(true)))
         .and_then(|ph| ph["url"].as_str())
         .map(|s| s.to_string());
 
-    Contact { id, etag, display_name, given_name, family_name, middle_name, name_prefix, name_suffix,
-        nickname, emails, phones, addresses, organization, job_title, department,
-        birthday, anniversary, website, notes, photo_url }
+    Contact {
+        id,
+        etag,
+        display_name,
+        given_name,
+        family_name,
+        middle_name,
+        name_prefix,
+        name_suffix,
+        nickname,
+        emails,
+        phones,
+        addresses,
+        organization,
+        job_title,
+        department,
+        birthday,
+        anniversary,
+        website,
+        notes,
+        photo_url,
+    }
 }
 
 pub async fn list_contacts(
@@ -659,7 +818,9 @@ pub async fn list_contacts(
     max: u64,
     page_token: Option<&str>,
 ) -> Result<ContactsPage, String> {
-    let pt = page_token.map(|t| format!("&pageToken={}", urlencoded(t))).unwrap_or_default();
+    let pt = page_token
+        .map(|t| format!("&pageToken={}", urlencoded(t)))
+        .unwrap_or_default();
     let url = if query.is_empty() {
         format!(
             "https://people.googleapis.com/v1/people/me/connections\
@@ -670,39 +831,74 @@ pub async fn list_contacts(
         format!(
             "https://people.googleapis.com/v1/people:searchContacts\
             ?query={}&readMask={}&pageSize={}{}",
-            urlencoded(query), CONTACT_FIELDS, max, pt
+            urlencoded(query),
+            CONTACT_FIELDS,
+            max,
+            pt
         )
     };
 
-    let resp: serde_json::Value = http.get(&url).bearer_auth(token).send().await
-        .map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    let resp: serde_json::Value = http
+        .get(&url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
 
     let next_page_token = resp["nextPageToken"].as_str().map(|s| s.to_string());
 
     let items: Vec<serde_json::Value> = if query.is_empty() {
         resp["connections"].as_array().cloned().unwrap_or_default()
     } else {
-        resp["results"].as_array().cloned().unwrap_or_default()
+        resp["results"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
             .into_iter()
-            .filter_map(|r| r["person"].as_object().map(|o| serde_json::Value::Object(o.clone())))
+            .filter_map(|r| {
+                r["person"]
+                    .as_object()
+                    .map(|o| serde_json::Value::Object(o.clone()))
+            })
             .collect()
     };
 
     let contacts = items.iter().map(parse_person).collect();
-    Ok(ContactsPage { contacts, next_page_token })
+    Ok(ContactsPage {
+        contacts,
+        next_page_token,
+    })
 }
 
-pub async fn get_contact(http: &reqwest::Client, token: &str, resource_name: &str) -> Result<Contact, String> {
+pub async fn get_contact(
+    http: &reqwest::Client,
+    token: &str,
+    resource_name: &str,
+) -> Result<Contact, String> {
     let url = format!(
         "https://people.googleapis.com/v1/{}?personFields={}",
         resource_name, CONTACT_FIELDS,
     );
-    let p: serde_json::Value = http.get(&url).bearer_auth(token).send().await
-        .map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    let p: serde_json::Value = http
+        .get(&url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(parse_person(&p))
 }
 
-pub async fn update_contact(http: &reqwest::Client, token: &str, contact: &Contact) -> Result<Contact, String> {
+pub async fn update_contact(
+    http: &reqwest::Client,
+    token: &str,
+    contact: &Contact,
+) -> Result<Contact, String> {
     let update_mask = "names,emailAddresses,phoneNumbers,addresses,organizations,birthdays,urls,biographies,nicknames";
     let url = format!(
         "https://people.googleapis.com/v1/{}:updateContact?updatePersonFields={}",
@@ -713,8 +909,12 @@ pub async fn update_contact(http: &reqwest::Client, token: &str, contact: &Conta
         let parts: Vec<&str> = s.trim_start_matches('-').split('-').collect();
         let has_year = !s.starts_with("--");
         match parts.as_slice() {
-            [y, m, d] if has_year => serde_json::json!({"year": y.parse::<i64>().unwrap_or(0), "month": m.parse::<i64>().unwrap_or(0), "day": d.parse::<i64>().unwrap_or(0)}),
-            [m, d] => serde_json::json!({"month": m.parse::<i64>().unwrap_or(0), "day": d.parse::<i64>().unwrap_or(0)}),
+            [y, m, d] if has_year => {
+                serde_json::json!({"year": y.parse::<i64>().unwrap_or(0), "month": m.parse::<i64>().unwrap_or(0), "day": d.parse::<i64>().unwrap_or(0)})
+            }
+            [m, d] => {
+                serde_json::json!({"month": m.parse::<i64>().unwrap_or(0), "day": d.parse::<i64>().unwrap_or(0)})
+            }
             _ => serde_json::json!({}),
         }
     }
@@ -737,11 +937,22 @@ pub async fn update_contact(http: &reqwest::Client, token: &str, contact: &Conta
     }
     body["birthdays"] = serde_json::json!(birthdays);
 
-    let resp: serde_json::Value = http.patch(&url).bearer_auth(token).json(&body)
-        .send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    let resp: serde_json::Value = http
+        .patch(&url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
 
     if let Some(err) = resp["error"].as_object() {
-        return Err(err["message"].as_str().unwrap_or("update failed").to_string());
+        return Err(err["message"]
+            .as_str()
+            .unwrap_or("update failed")
+            .to_string());
     }
     Ok(parse_person(&resp))
 }
@@ -750,7 +961,9 @@ fn urlencoded(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }

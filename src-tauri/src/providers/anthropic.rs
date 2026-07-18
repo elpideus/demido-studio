@@ -1,10 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{
-    atomic::AtomicBool,
-    Arc,
-};
+use std::sync::{atomic::AtomicBool, Arc};
 use tauri::{AppHandle, Emitter};
 
 use super::{ChatMessage, StreamOutput, ToolCall, ToolDef};

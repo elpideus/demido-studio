@@ -156,7 +156,11 @@ pub fn caps_from_props(props: &Value) -> PartialCaps {
         t.contains("enable_thinking") || t.contains("<think>") || t.contains("reasoning_content")
     });
 
-    PartialCaps { vision, tools, reasoning }
+    PartialCaps {
+        vision,
+        tools,
+        reasoning,
+    }
 }
 
 /// Probe a running llama-server. Errors are the caller's cue to fall back, not to fail.
@@ -202,7 +206,10 @@ pub struct Registry {
 impl Registry {
     pub fn lookup(&self, provider_key: Option<&str>, model_id: &str) -> PartialCaps {
         if let Some(pk) = provider_key {
-            if let Some(c) = self.by_provider.get(&(pk.to_string(), model_id.to_string())) {
+            if let Some(c) = self
+                .by_provider
+                .get(&(pk.to_string(), model_id.to_string()))
+            {
                 return *c;
             }
         }
@@ -239,7 +246,10 @@ pub fn registry_provider_key(provider_type: &str, base_url: &str) -> Option<&'st
         ("api.fireworks.ai", "fireworks-ai"),
         ("api.openai.com", "openai"),
     ];
-    host_map.iter().find(|(h, _)| u.contains(h)).map(|(_, k)| *k)
+    host_map
+        .iter()
+        .find(|(h, _)| u.contains(h))
+        .map(|(_, k)| *k)
 }
 
 /// Reduce a model id to something comparable across hosts and packagings.
@@ -265,11 +275,30 @@ pub fn normalize_id(id: &str) -> String {
         s = s.trim_end_matches(suffix).to_string();
     }
     // Trailing quantization / precision tokens added by GGUF repackagers.
-    loop {
-        let Some((head, last)) = s.rsplit_once('-') else { break };
-        let is_quant = last.starts_with('q') && last.len() >= 2 && last[1..].starts_with(|c: char| c.is_ascii_digit())
+    while let Some((head, last)) = s.rsplit_once('-') {
+        let is_quant = last.starts_with('q')
+            && last.len() >= 2
+            && last[1..].starts_with(|c: char| c.is_ascii_digit())
             || last.starts_with("iq") && last.len() >= 3
-            || matches!(last, "f16" | "f32" | "bf16" | "fp8" | "fp16" | "mxfp4" | "int4" | "int8" | "k" | "m" | "s" | "l" | "xs" | "xl" | "0" | "1");
+            || matches!(
+                last,
+                "f16"
+                    | "f32"
+                    | "bf16"
+                    | "fp8"
+                    | "fp16"
+                    | "mxfp4"
+                    | "int4"
+                    | "int8"
+                    | "k"
+                    | "m"
+                    | "s"
+                    | "l"
+                    | "xs"
+                    | "xl"
+                    | "0"
+                    | "1"
+            );
         if !is_quant {
             break;
         }
@@ -430,11 +459,17 @@ mod tests {
             normalize_id("unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF::Q4_K_M"),
             normalize_id("Qwen/Qwen3-30B-A3B-Instruct-2507")
         );
-        assert_eq!(normalize_id("bartowski/gpt-oss-20b-GGUF::Q8_0"), "gpt-oss-20b");
+        assert_eq!(
+            normalize_id("bartowski/gpt-oss-20b-GGUF::Q8_0"),
+            "gpt-oss-20b"
+        );
         assert_eq!(normalize_id("llama3.1:8b"), "llama3.1");
         // Size/version tokens are identity, not packaging — never strip them.
         assert_eq!(normalize_id("Qwen/Qwen3-32B"), "qwen3-32b");
-        assert_ne!(normalize_id("Qwen/Qwen3-32B"), normalize_id("Qwen/Qwen3-14B"));
+        assert_ne!(
+            normalize_id("Qwen/Qwen3-32B"),
+            normalize_id("Qwen/Qwen3-14B")
+        );
     }
 
     #[test]
@@ -481,11 +516,17 @@ mod tests {
         }));
 
         let c = reg.lookup(Some("openai"), "gpt-4o");
-        assert_eq!((c.vision, c.tools, c.reasoning), (Some(true), Some(true), Some(false)));
+        assert_eq!(
+            (c.vision, c.tools, c.reasoning),
+            (Some(true), Some(true), Some(false))
+        );
 
         // Local GGUF of a model models.dev only lists under its HF id.
         let c = reg.lookup(None, "unsloth/Qwen3-32B-GGUF::Q4_K_M");
-        assert_eq!((c.vision, c.tools, c.reasoning), (Some(false), Some(true), Some(true)));
+        assert_eq!(
+            (c.vision, c.tools, c.reasoning),
+            (Some(false), Some(true), Some(true))
+        );
 
         assert!(reg.lookup(Some("openai"), "not-a-real-model").is_empty());
     }
@@ -504,15 +545,29 @@ mod tests {
             "huggingface": { "models": { "MiniMaxAI/MiniMax-M2": entry(true) } },
             "openrouter":  { "models": { "minimax/minimax-m2": entry(true) } },
         }));
-        assert_eq!(reg.lookup(Some("302ai"), "MiniMax-M2").reasoning, Some(false));
-        assert_eq!(reg.lookup(None, "MiniMax-M2-GGUF::Q4_K_M").reasoning, Some(true));
+        assert_eq!(
+            reg.lookup(Some("302ai"), "MiniMax-M2").reasoning,
+            Some(false)
+        );
+        assert_eq!(
+            reg.lookup(None, "MiniMax-M2-GGUF::Q4_K_M").reasoning,
+            Some(true)
+        );
     }
 
     #[test]
     fn resolve_prefers_authority_and_flags_guesses() {
         let none = PartialCaps::default();
-        let provider = PartialCaps { vision: Some(true), tools: None, reasoning: None };
-        let registry = PartialCaps { vision: Some(false), tools: Some(true), reasoning: Some(true) };
+        let provider = PartialCaps {
+            vision: Some(true),
+            tools: None,
+            reasoning: None,
+        };
+        let registry = PartialCaps {
+            vision: Some(false),
+            tools: Some(true),
+            reasoning: Some(true),
+        };
 
         // Provider wins where it spoke; registry fills the rest.
         let c = resolve(none, provider, CapsSource::Provider, registry);
@@ -528,8 +583,16 @@ mod tests {
     #[test]
     fn user_override_beats_every_detector() {
         // The provider insists there's no vision and no tools; the user knows better.
-        let provider = PartialCaps { vision: Some(false), tools: Some(false), reasoning: Some(false) };
-        let user = PartialCaps { vision: Some(true), tools: None, reasoning: None };
+        let provider = PartialCaps {
+            vision: Some(false),
+            tools: Some(false),
+            reasoning: Some(false),
+        };
+        let user = PartialCaps {
+            vision: Some(true),
+            tools: None,
+            reasoning: None,
+        };
 
         let c = resolve(user, provider, CapsSource::Provider, PartialCaps::default());
         assert!(c.vision, "user override must win outright");
@@ -543,8 +606,16 @@ mod tests {
         // An override can also say *no* to something detection claims — and that must not
         // read as "unset" and fall through.
         let c = resolve(
-            PartialCaps { vision: Some(false), tools: None, reasoning: None },
-            PartialCaps { vision: Some(true), tools: None, reasoning: None },
+            PartialCaps {
+                vision: Some(false),
+                tools: None,
+                reasoning: None,
+            },
+            PartialCaps {
+                vision: Some(true),
+                tools: None,
+                reasoning: None,
+            },
             CapsSource::LlamaCpp,
             PartialCaps::default(),
         );
