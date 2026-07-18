@@ -13,6 +13,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# vendored prebuilt packages ship their built dist (not a build artifact here)
+!vendor/**/dist/
+!vendor/**/dist/**
 build
 out
 *.local

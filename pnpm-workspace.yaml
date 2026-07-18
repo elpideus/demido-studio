@@ -1,5 +1,0 @@
-allowBuilds:
-  esbuild: true
-  tauri-plugin-mcp@https://codeload.github.com/DaveDev42/tauri-plugin-mcp/tar.gz/bedc4acb3ad995ca42a070149a2dad6ae219389a: true
-minimumReleaseAgeExclude:
-  - tauri-plugin-mcp

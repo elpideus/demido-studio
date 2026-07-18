@@ -85,6 +85,21 @@ Frontend stores (`src/stores/`): `conversations`, `providers`, `messages`, `sett
    - `npm run test` — Vitest (frontend).
    - Rust changes need recompile (`tauri dev` handles it).
 4. **Self-review your own diff** for correctness + the IPC/permission contracts above before calling it done.
+5. **Before pushing / touching `.github/workflows/`: run `act` locally.** Catches CI failures before GitHub does. See below.
+
+### CI — test with `act` before push
+`act` (nektos/act) runs the GitHub workflows in local Docker. Config lives in `.actrc` (runner→image map, `linux/amd64`). Docker must be running.
+- `act -l` — list jobs act sees.
+- `act pull_request -j frontend` — fast sanity job (`npm ci` + `tsc` + vitest). **Run this before every push.**
+- `act pull_request -j rust` — full `cargo clippy`/`fmt`/`test` in the Tauri Linux image; slow (apt + toolchain + build) but the real gate.
+- **Not locally runnable:** `copilot-review.yml` (needs real `GITHUB_TOKEN` + GH API), `release.yml` (tag-triggered, cross-compiles + `gh release` — needs signing secrets + live release). Don't try; inspect by hand.
+- `npm ci` (not `npm install`) in `frontend` job → **`package-lock.json` must be in sync with `package.json` or CI fails**. act surfaces this as `npm error Missing: … from lock file`. Fix with `npm install` + commit the lockfile.
+
+### Package manager = npm only. No pnpm.
+Project is **npm-only** — no `pnpm-lock.yaml`/`pnpm-workspace.yaml`, CI + release run `npm ci`. **Don't reintroduce pnpm.**
+- The dev-only MCP test bridge (`tauri-plugin-mcp`, used in `src/main.tsx` under `import.meta.env.DEV`) upstream is a **pnpm monorepo** whose `npm install` runs `pnpm -r build` → npm can't build it → that dep alone forced pnpm. Solved by **vendoring its prebuilt frontend api** at `vendor/tauri-plugin-mcp/` (committed dist, no build/prepare script), referenced as `"tauri-plugin-mcp": "file:./vendor/tauri-plugin-mcp"` in `dependencies`. Plain `npm install` consumes it, zero pnpm. Rebuild instructions + provenance in `vendor/tauri-plugin-mcp/README.md`; keep its commit in sync with the cargo pin in `src-tauri/Cargo.toml`.
+- `.gitignore` line `dist` would swallow the vendored build → un-ignored via `!vendor/**/dist/` + `!vendor/**/dist/**`. Don't drop those.
+- Regular (not optional) dep on purpose: `main.tsx` hard-imports the type so `tsc --noEmit` needs it present; optional would let it vanish and break the type-check job. Shipped prod app still excludes it — the `import.meta.env.DEV`-gated dynamic import is tree-shaken from the release bundle. **Rust side** (`src-tauri/Cargo.toml`, `lib.rs`) stays a normal cargo git dep — cargo builds git deps natively, no pnpm.
 
 ### Commands
 ```
@@ -95,6 +110,10 @@ npm run pack-skill      # regenerate the in-app skill copy from this file
 
 graphify query "..."   # ask the code knowledge graph (navigate before reading files)
 graphify . --update    # re-extract changed files into graphify-out/
+
+act -l                 # list workflow jobs act sees
+act pull_request -j frontend   # run CI frontend job locally (before every push)
+act pull_request -j rust       # run CI rust job locally (slow, full gate)
 ```
 
 ## Deep reference — code wins on conflict

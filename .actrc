@@ -1,0 +1,6 @@
+# act config — run GitHub Actions locally before pushing.
+# Full-tool images (node, apt, build deps) so CI steps match GitHub runners.
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+-P ubuntu-22.04=catthehacker/ubuntu:act-22.04
+# Windows host runs linux/amd64 containers.
+--container-architecture=linux/amd64

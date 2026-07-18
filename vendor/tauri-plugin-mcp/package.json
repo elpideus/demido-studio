@@ -1,0 +1,22 @@
+{
+  "name": "tauri-plugin-mcp",
+  "version": "0.3.6",
+  "description": "Prebuilt frontend API for tauri-plugin-mcp (dev-only MCP test bridge). Vendored — see README.md.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "license": "MIT"
+}
