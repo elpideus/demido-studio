@@ -108,6 +108,15 @@
   --color-fall: #f28f8f;
 
   /* -------------------------------------------------------------------
+   * Type. Three faces, each with one job, all vendored rather than fetched:
+   * the splash must render correctly on a machine that has never been online.
+   * Lockup rules live in `design/wordmark.md`.
+   * ----------------------------------------------------------------- */
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'Martian Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --font-kana: 'Zen Kaku Gothic New', var(--font-sans), sans-serif;
+
+  /* -------------------------------------------------------------------
    * Structure. Islands float on the rack with gaps; the gap IS the border.
    * ----------------------------------------------------------------- */
   --radius-island: 10px;
