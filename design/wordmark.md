@@ -21,9 +21,34 @@ The kana sits under **Demido** alone, aligned to its left edge, not under the pa
 That is not a layout preference. デミド transliterates *Demido* and nothing else, so
 centring it under both words would state something untrue.
 
-An alternate places the kana to the right of Studio behind a hairline, for places
-with no vertical room: a title bar, a tab strip. It needs the hairline, or the kana
-reads as a third word in the title.
+## Two lockups, one each
+
+Both are approved and both are canonical. They are not interchangeable: each owns a
+shape of space, and picking by eye is how a wordmark drifts.
+
+**Stacked** is the primary, and is the one above.
+
+```
+[mark]  Demido Studio
+        デミド
+```
+
+Use it wherever the lockup gets a block of its own and vertical room to sit in: the
+splash, the about box, the installer, the README, a marketing header.
+
+**Inline** puts the kana to the right of Studio behind a hairline.
+
+```
+[mark]  Demido Studio │ デミド
+```
+
+Use it wherever the lockup shares a single horizontal band with something else: a
+title bar, a tab strip, a header row. The hairline is not decoration and is not
+optional here. Without it the kana reads as a third word in the name.
+
+One rule holds them together: **never both on the same screen.** A window that shows
+the stacked lockup in its body and the inline one in its title bar has two wordmarks,
+not one used twice.
 
 ## Why this and not a silkscreen label
 
