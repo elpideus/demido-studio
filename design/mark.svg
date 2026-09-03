@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10666.667 10666.667" fill="none" stroke="none">
+  <!--
+    The Demido Studio mark, and the one drawing this product owns.
+
+    Stefan's `Logo.ai`, opened in Inkscape for v1 and hand-reduced to these six
+    paths for v2. Kept in the coordinate system it was drawn in, transforms and
+    all, rather than flattened into a tidy 24 unit box: the numbers below are
+    the artwork, and re-typing them by hand is how a logo drifts from itself.
+
+    This file is canonical. Anything that needs the mark at another size or in
+    another format renders it from here. Change the shape here.
+
+    Everything is `currentColor`, so the mark takes the colour of whatever
+    draws it and the one-file colour rule in `design/tokens.css` holds.
+  -->
+  <path
+    d="m 0,0 c 0,-1689.809 -1371.635,-3059.67 -3063.633,-3059.67 -1691.998,0 -3063.633,1369.861 -3063.633,3059.67 0,1689.809 1371.635,3059.67 3063.633,3059.67 C -1371.635,3059.67 0,1689.809 0,0 Z"
+    transform="matrix(1.3333333,0,0,-1.3333333,9418.3157,5327.7471)"
+    stroke="currentColor" stroke-width="400" />
+  <path
+    d="m 0,0 c 911.584,312.442 1860.779,-11.386 2153.025,-751.039 226.925,-574.328 -6.628,-1236.381 -533.853,-1688.586"
+    transform="matrix(1.3333333,0,0,-1.3333333,2296.0685,2599.9187)"
+    stroke="currentColor" stroke-width="450" />
+  <path
+    d="m 0,0 c 229.49,143.515 498.678,226.124 786.55,226.124 839.826,0 1520.643,-703.101 1520.643,-1570.415 0,-377.852 -129.214,-724.535 -344.497,-995.494"
+    transform="matrix(1.3333333,0,0,-1.3333333,4112.3343,6048.6215)"
+    stroke="currentColor" stroke-width="450" />
+  <path
+    d="M 0,0 768.881,486.165"
+    transform="matrix(1.3333333,0,0,-1.3333333,3475.1233,6451.5639)"
+    stroke="currentColor" stroke-width="450" stroke-linecap="round" />
+  <path
+    d="m 0,0 c -151.294,239.275 -535.496,267.864 -858.14,63.855 -322.643,-204.008 -461.549,-563.359 -310.255,-802.634 151.294,-239.275 535.496,-267.864 858.139,-63.856 C 12.388,-598.626 151.294,-239.275 0,0 Z"
+    transform="matrix(1.3333333,0,0,-1.3333333,4185.8733,3911.3085)"
+    fill="currentColor" />
+  <path
+    d="m 0,0 c -151.294,239.275 -535.496,267.864 -858.14,63.855 -322.643,-204.008 -461.549,-563.36 -310.256,-802.634 151.294,-239.275 535.497,-267.864 858.14,-63.856 C 12.388,-598.626 151.294,-239.275 0,0 Z"
+    transform="matrix(1.3333333,0,0,-1.3333333,6112.4024,7081.9508)"
+    fill="currentColor" />
+</svg>

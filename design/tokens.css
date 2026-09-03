@@ -1,0 +1,126 @@
+/*
+ * Karl: Demido Studio's palette.
+ *
+ * Decided on wayfinder ticket #6 against four alternatives, all of them
+ * measured rather than argued: a literal reading of the brief's pastel, v2's
+ * Rack, a deep-pastel compromise, and Monokai. The board that produced the
+ * numbers is `prototypes/brand-board.html` in the project folder.
+ *
+ * Karl is Fluent 2's dark surface ladder carrying v2's accents. Two things are
+ * worth knowing before anyone edits this file.
+ *
+ * First, it is not a departure from Rack. Fluent's greys and v2's greys are
+ * near identical: panel #202020 against Rack's #1d1d1d is a contrast ratio of
+ * 1.035, below what an eye resolves, and every surface below the interactive
+ * tier is within 1.07 of its v2 counterpart. v2 arrived at Microsoft's values
+ * on its own.
+ *
+ * Second, the entire measured gain over Rack comes from ONE value: hover at
+ * #323232 rather than #3a3a3a. A darker hover is the lightest surface any text
+ * ever sits on, so lowering it raises the floor under every accent at once.
+ * That is why rose, which carries error text, clears the 4.5 body-text floor
+ * here by a real margin instead of by a hair.
+ *
+ * THIS IS THE ONLY FILE ALLOWED TO CONTAIN RAW COLOR VALUES. That rule is
+ * inherited from v2 and it held; it is the reason the palette could be swapped
+ * wholesale by editing one file.
+ *
+ * Plain custom properties, deliberately. The stack is still open on ticket #10,
+ * so this file commits to nothing beyond CSS itself. Whatever wins can import
+ * or wrap it.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* -------------------------------------------------------------------
+   * Surfaces. Fluent 2 dark, mapped to roles rather than to heights. Down
+   * from `panel` is content, further into the page; up from it is chrome,
+   * out towards the hand. Backgrounds carry no hue: that is what lets the
+   * green mean something, because it appears only where a thing is live and
+   * never as ambient decoration.
+   *
+   * Adjacent steps here run 1.046 to 1.094, which is tight. Windows gets
+   * away with that by drawing a stroke between surfaces. We do not: islands
+   * are separated by GAPS. If the ladder proves too tight to read once real
+   * screens exist, widen it rather than reaching for --color-seam.
+   * ----------------------------------------------------------------- */
+  --color-void: #0a0a0a;   /* behind the app, and the gutters in it */
+  --color-well: #161616;   /* recessed: code blocks, payload dumps, inputs */
+  --color-rack: #1c1c1c;   /* chassis behind the islands, and the transcript */
+  --color-panel: #202020;  /* island face: a window body, a card, a page */
+
+  --color-raised: #272727; /* raised element inside an island */
+  --color-chrome: #2c2c2c; /* title bars, the rail, tab strips, a nav */
+  --color-hover: #323232;  /* pointer is over it, nothing more */
+  --color-active: #383838; /* pressed, or being dragged */
+
+  /* The one hairline in the system, and it stays exceptional. */
+  --color-seam: #2e2e2e;
+
+  --color-canvas: #ffffff;            /* artifact preview: HTML/SVG expect a page */
+  --color-scrim: rgb(0 0 0 / 0.6);    /* behind something floating over the rack */
+
+  /* -------------------------------------------------------------------
+   * Green appears only on state, never on furniture. --color-edge is the one
+   * tinted surface in the system and it means "this is the selected or active
+   * thing". Ratio 1.539 against panel, so it reads without a border.
+   * ----------------------------------------------------------------- */
+  --color-edge: #2c4434;
+  --color-edge-strong: #385642;
+
+  /* -------------------------------------------------------------------
+   * Text. Ratios below are against --color-hover, the lightest surface text
+   * ever sits on, so each is a floor rather than a best case.
+   *
+   * --color-ink-3 is #b0b0b0 rather than Fluent's #969696. Microsoft tunes
+   * that grey against #202020 where it clears 4.5; on its own hover fill it
+   * measures 4.33 and stops being body text. This is the one value where
+   * Karl overrules Fluent, and the reason is the number.
+   * ----------------------------------------------------------------- */
+  --color-ink: #ffffff;    /* 12.8:1, primary */
+  --color-ink-2: #c5c5c5;  /*  7.7:1, secondary */
+  --color-ink-3: #b0b0b0;  /*  5.9:1, tertiary, still AA body text */
+  --color-ink-4: #7d7d7d;  /*  2.9:1, decorative and disabled only */
+
+  /* -------------------------------------------------------------------
+   * Accent. One signal colour, used sparingly: LEDs, focus rings, the active
+   * item. Saturated rather than pastel, and that is the whole argument: it
+   * sits 0.182 of OKLCH chroma clear of a neutral ink ramp, where a true
+   * pastel manages 0.066. Contrast was never the question; separation from
+   * text was.
+   * ----------------------------------------------------------------- */
+  --color-signal: #4ade80;     /* 7.4:1 on hover, 9.8:1 on rack */
+  --color-signal-dim: #2f9e57; /* signal at rest, an unlit LED with current */
+
+  /* -------------------------------------------------------------------
+   * Status. Semantic only, never decorative. Ratios against --color-hover.
+   * ----------------------------------------------------------------- */
+  --color-amber: #f2c97a;  /* 8.2:1, waiting, paused, needs approval */
+  --color-sky: #8fc0f2;    /* 6.7:1, info, links, external */
+  --color-violet: #c4a8f5; /* 6.3:1, delegated agent work */
+  --color-rose: #f28f8f;   /* 5.6:1, error, destructive */
+
+  /* A market going up and a market going down. Named rather than borrowed
+   * from signal and rose, whose values these are: a falling price is not an
+   * error and a rising one is not a healthy subsystem. */
+  --color-rise: #4ade80;
+  --color-fall: #f28f8f;
+
+  /* -------------------------------------------------------------------
+   * Structure. Islands float on the rack with gaps; the gap IS the border.
+   * ----------------------------------------------------------------- */
+  --radius-island: 10px;
+  --radius-control: 6px;
+  --radius-pill: 999px;
+  --spacing-gutter: 8px;
+
+  /* Elevation is carried by fill, not by shadow. One shadow exists, for the
+   * things that genuinely float above the rack: menus, dialogs, the splash. */
+  --shadow-float: 0 16px 40px -8px rgb(0 0 0 / 0.8);
+
+  /* Motion: quick and mechanical, like a well-damped switch. */
+  --ease-mech: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-tap: 120ms;
+  --duration-panel: 220ms;
+}
