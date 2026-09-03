@@ -108,6 +108,45 @@
   --color-fall: #f28f8f;
 
   /* -------------------------------------------------------------------
+   * Semantic aliases, decided on ticket #7. Everything in this block
+   * points at an accent above rather than introducing a colour, so the
+   * palette can still be swapped by editing that section alone.
+   *
+   * Capabilities are facts about a model, and they carry the same colour
+   * wherever a model appears: the model list, the detail pane, the
+   * composer. A capability the model lacks is greyed, never hidden.
+   * ----------------------------------------------------------------- */
+  --cap-vision: var(--color-sky);
+  --cap-tools: var(--color-signal);
+  --cap-reasoning: var(--color-violet);
+  --cap-audio: var(--color-amber);
+
+  /* The session log is colour-coded by SOURCE, which is the axis the
+   * brief asks it to be inspectable along. Each row carries its source's
+   * icon as well; colour alone is never the only signal. */
+  --src-system: var(--color-ink-4);
+  --src-skill: var(--color-sky);
+  --src-user: var(--color-ink-2);
+  --src-inject: var(--color-amber);
+  --src-reasoning: var(--color-violet);
+  --src-artifact: var(--color-signal);
+  --src-tool: var(--color-amber);
+  --src-error: var(--color-rose);
+
+  /* -------------------------------------------------------------------
+   * Brand marks. The only values in this file that are not Karl's,
+   * because they are not ours to choose: they are the vendors'. Used at
+   * full strength only where the hardware is actually present, and in
+   * ink everywhere else, so the backend picker stays a list rather than
+   * becoming a logo wall. Marks are their owners' trademarks; the use is
+   * nominative and belongs in THIRD_PARTY_NOTICES.
+   * ----------------------------------------------------------------- */
+  --brand-nvidia: #76b900;
+  --brand-amd: #ed1c24;
+  --brand-intel: #0071c5;
+  --brand-vulkan: #ac162c;
+
+  /* -------------------------------------------------------------------
    * Type. Three faces, each with one job, all vendored rather than fetched:
    * the splash must render correctly on a machine that has never been online.
    * Lockup rules live in `design/wordmark.md`.
