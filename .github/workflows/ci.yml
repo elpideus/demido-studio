@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # The design system's rules, from wayfinder ticket #9. Ticket #16 adds the
+  # rest of the repo hygiene checks to scripts/check-rules.mjs and they run in
+  # this same job; the build and test jobs arrive with the stack on #10.
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check rules
+        run: node scripts/check-rules.mjs

@@ -16,7 +16,7 @@ not a percentage and not a spinner.
 
 - **440 x 264**, frameless, transparent background, corners rounded at 12px.
 - Face is `--color-panel` with `--shadow-float` beneath it and a single lighter
-  edge along the top (`inset 0 1px 0 0 --color-panel-raised`): a rack unit's front
+  edge along the top (`inset 0 1px 0 0 --color-raised`): a rack unit's front
   bezel catching light. Neutral, because green is reserved for state.
 - Padding 26px. Content is weighted to the bottom, air above: one block, a
   faceplate, rather than a header and a footer with a void between them.

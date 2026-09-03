@@ -1,140 +1,303 @@
 /*
- * Karl: Demido Studio's palette.
+ * Karl: Demido Studio's palette, and the rest of the design system's numbers.
  *
- * Decided on wayfinder ticket #6 against four alternatives, all of them
- * measured rather than argued: a literal reading of the brief's pastel, v2's
- * Rack, a deep-pastel compromise, and Monokai. The board that produced the
- * numbers is `prototypes/brand-board.html` in the project folder.
+ * THIS IS THE ONLY FILE ALLOWED TO CONTAIN RAW VALUES. Colours, font sizes,
+ * spacing, radii, durations. Everything else in the codebase references a token
+ * from here by name. The rule is inherited from v2, where it was enforced for
+ * colour and held perfectly, and NOT enforced for type, which produced 21
+ * distinct font sizes and 468 arbitrary-value class names in the same codebase
+ * by the same author in the same year. That is the whole argument for widening
+ * it. See `docs/rules/no-raw-values.md`.
  *
- * Karl is Fluent 2's dark surface ladder carrying v2's accents. Two things are
- * worth knowing before anyone edits this file.
+ * The file has three parts and the order matters:
  *
- * First, it is not a departure from Rack. Fluent's greys and v2's greys are
- * near identical: panel #202020 against Rack's #1d1d1d is a contrast ratio of
- * 1.035, below what an eye resolves, and every surface below the interactive
- * tier is within 1.07 of its v2 counterpart. v2 arrived at Microsoft's values
- * on its own.
+ *   1. INVARIANTS. Structure. A theme cannot touch these.
+ *   2. THEMES. The 24 base colours, one block per theme.
+ *   3. DERIVED. Aliases computed from part 2. A theme never writes these.
  *
- * Second, the entire measured gain over Rack comes from ONE value: hover at
- * #323232 rather than #3a3a3a. A darker hover is the lightest surface any text
- * ever sits on, so lowering it raises the floor under every accent at once.
- * That is why rose, which carries error text, clears the 4.5 body-text floor
- * here by a real margin instead of by a hair.
- *
- * THIS IS THE ONLY FILE ALLOWED TO CONTAIN RAW COLOR VALUES. That rule is
- * inherited from v2 and it held; it is the reason the palette could be swapped
- * wholesale by editing one file.
+ * Decided across wayfinder tickets #6 (the palette), #7 and #8 (the semantic
+ * blocks) and #9 (everything else, plus the split above). The boards that
+ * produced the numbers are `prototypes/brand-board.html`, `shell-a-board.html`
+ * and `canvas-board.html` in the project folder. They are throwaway.
  *
  * Plain custom properties, deliberately. The stack is still open on ticket #10,
  * so this file commits to nothing beyond CSS itself. Whatever wins can import
  * or wrap it.
  */
 
+/* ===================================================================
+ * PART 1: INVARIANTS
+ *
+ * A theme repaints; it cannot relayout. Everything in this part is fixed for
+ * every theme that will ever exist, because the Definition of Done on this
+ * project is a screenshot of a real model using a real screen. If a theme
+ * could change what fits, every screenshot would need retaking per theme.
+ * Under this split, one screenshot stays valid across all of them.
+ * =================================================================== */
+
 :root {
-  color-scheme: dark;
+  /* -------------------------------------------------------------------
+   * Type. Seven steps, integers, named by VOICE rather than by size,
+   * because the voice is what survives a repaint. A component asks for a
+   * voice and never for a number.
+   *
+   * The boards used 21 sizes including 8.5, 9.5, 11.5, 12.5 and 13.5. That
+   * is hand-nudging, not tiers of meaning: v2 shipped the same screens on
+   * 11 and 12 and the difference was not visible. These seven are what is
+   * left once the nudging is snapped out.
+   *
+   * `prose` exists as its own step because the board's transcript runs at
+   * 12.5 over 1.6 line height, and it is the only place either board uses
+   * that pairing. Collapsing it into `body` would set sentences at
+   * button-label size, in the one part of this app where reading happens.
+   * ----------------------------------------------------------------- */
+  --text-micro: 9px;       /* counts, badge numerals, lane tick labels */
+  --text-silkscreen: 10px; /* equipment labels: uppercase, tracked, mono */
+  --text-meta: 11px;       /* timestamps, secondary rows, key hints */
+  --text-body: 12px;       /* the UI default: rows, labels, buttons, fields */
+  --text-prose: 13px;      /* text read as sentences: the transcript, help */
+  --text-strong: 15px;     /* panel titles, the composer, section heads */
+  --text-display: 18px;    /* a window's own heading, the running splash line */
+
+  /* Line height is part of the voice, not a free choice at the component. */
+  --leading-flush: 1.2;  /* labels and single-line rows */
+  --leading-ui: 1.4;     /* anything wrapping inside a control */
+  --leading-prose: 1.6;  /* --text-prose only */
+
+  /* Tracking. The positive value is the silkscreen voice; the negative is
+   * optical correction on the larger steps, where Instrument Sans runs
+   * loose. */
+  --tracking-silkscreen: 0.14em;
+  --tracking-tight: -0.01em;
+
+  /* The three faces, each with one job, all vendored rather than fetched:
+   * the splash must render correctly on a machine that has never been
+   * online. Lockup rules live in `design/wordmark.md`. */
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'Martian Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --font-kana: 'Zen Kaku Gothic New', var(--font-sans), sans-serif;
+
+  /* Martian Mono is variable on width. Two cuts, two jobs: wide for the
+   * silkscreen label voice, condensed for code so long lines stay
+   * readable. */
+  --width-silkscreen: 112;
+  --width-code: 87;
 
   /* -------------------------------------------------------------------
-   * Surfaces. Fluent 2 dark, mapped to roles rather than to heights. Down
-   * from `panel` is content, further into the page; up from it is chrome,
-   * out towards the hand. Backgrounds carry no hue: that is what lets the
-   * green mean something, because it appears only where a thing is live and
-   * never as ambient decoration.
+   * Space. A 4-based ladder with one deliberate half-step.
    *
-   * Adjacent steps here run 1.046 to 1.094, which is tight. Windows gets
-   * away with that by drawing a stroke between surfaces. We do not: islands
-   * are separated by GAPS. If the ladder proves too tight to read once real
-   * screens exist, widen it rather than reaching for --color-seam.
+   * The boards reached for 5, 6, 7, 9, 10, 11 and 14 as well; those are the
+   * same nudging as the half-pixel font sizes and they snap. The exception
+   * is 6, which the boards used nine times and always for one thing: the
+   * inside of a control. So it survives with a job, and the rule that
+   * matters stays absolute.
+   *
+   * --space-gutter IS THE BORDER. Islands are separated by it and never by
+   * a line. See `docs/rules/gaps-and-hairlines.md`.
    * ----------------------------------------------------------------- */
+  --space-hair: 2px;     /* an icon to its own label; a badge's inner pad */
+  --space-tight: 4px;    /* inside a chip; between stacked meta rows */
+  --space-control: 6px;  /* internal padding of a control. NEVER a gap
+                          * between islands, which is the whole reason this
+                          * step is allowed to exist at all. */
+  --space-gutter: 8px;   /* the gap between islands, and the rail's rhythm */
+  --space-room: 12px;    /* inside a panel, between groups in a list */
+  --space-section: 16px; /* between sections on a page */
+  --space-page: 24px;    /* a window body's own margins */
+  --space-bay: 32px;     /* major separation: empty states, wizard steps */
+
+  /* -------------------------------------------------------------------
+   * Structure. Islands float on the rack with gaps.
+   * ----------------------------------------------------------------- */
+  --radius-island: 10px;  /* a panel, a card, a page */
+  --radius-control: 6px;  /* a button, a field, a keycap */
+  --radius-chip: 4px;     /* a tag, a badge, a lane block */
+  --radius-pill: 999px;   /* only where the shape means "count" or "slot" */
+
+  /* Elevation is carried by fill, not by shadow. One shadow exists, for the
+   * things that genuinely float above the rack: menus, dialogs, the
+   * splash. */
+  --shadow-float: 0 16px 40px -8px rgb(0 0 0 / 0.8);
+
+  /* Motion: quick and mechanical, like a well-damped switch. */
+  --ease-mech: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-tap: 120ms;
+  --duration-panel: 220ms;
+  --delay-keycap: 400ms; /* hover dwell before a shortcut cap reveals (#9) */
+
+  /* -------------------------------------------------------------------
+   * Values that are not ours to theme.
+   *
+   * Vendor marks are their owners' trademarks and the use is nominative.
+   * Recolouring NVIDIA green would be getting that claim wrong. They appear
+   * at full strength only where the hardware is actually present, and in
+   * ink everywhere else, so the backend picker stays a list rather than
+   * becoming a logo wall. Both belong in THIRD_PARTY_NOTICES.
+   * ----------------------------------------------------------------- */
+  --brand-nvidia: #76b900;
+  --brand-amd: #ed1c24;
+  --brand-intel: #0071c5;
+  --brand-vulkan: #ac162c;
+
+  /* An artifact preview is a PAGE, not a surface. HTML and SVG expect white
+   * under them. Invariant for the same reason the brand marks are: it is
+   * not describing Demido's appearance. */
+  --color-canvas: #ffffff;
+}
+
+/* ===================================================================
+ * PART 2: THEMES
+ *
+ * A theme is a named set of exactly 24 values and nothing else. It declares
+ * its own `color-scheme`, because a light theme needs native scrollbars and
+ * form controls to invert with it.
+ *
+ * The 24: eight surfaces, seam, scrim, two edges, four inks, two signals,
+ * four statuses, two market directions. Anything a theme cannot say in those
+ * 24 values is not a theme, it is a fork.
+ *
+ * Themes are BUILT IN. There is no user-authored theme format yet, and when
+ * there is one it will be declarative, taking these 24 values and nothing
+ * more. It will never be arbitrary CSS: this application promises that what
+ * the model sees is inspectable, and a theme format that can hide the
+ * approval prompt, the occupancy bar or the browser's "who is driving" line
+ * is a hole straight through that promise. Decided on #9.
+ *
+ * A theme's contrast is arithmetic, not opinion, and CI recomputes it on
+ * every build. The floors are in `docs/rules/no-raw-values.md`.
+ * =================================================================== */
+
+:root,
+[data-theme='karl'] {
+  color-scheme: dark;
+
+  /* Surfaces. Fluent 2 dark, mapped to ROLES rather than to heights. Down
+   * from `panel` is content, further into the page; up from it is chrome,
+   * out towards the hand. Which element gets which is decided once, in
+   * `docs/rules/surfaces.md`, and never at the component.
+   *
+   * Backgrounds carry no hue: that is what lets the green mean something,
+   * because it appears only where a thing is live and never as ambient
+   * decoration.
+   *
+   * Karl is not a departure from v2's Rack. Panel #202020 against Rack's
+   * #1d1d1d is a ratio of 1.035, below what an eye resolves, and every
+   * surface below the interactive tier is within 1.07 of its v2
+   * counterpart. v2 arrived at Microsoft's values on its own. The entire
+   * measured gain comes from ONE value: hover at #323232 rather than
+   * #3a3a3a. A darker hover is the lightest surface any text ever sits on,
+   * so lowering it raises the floor under every accent at once.
+   *
+   * Adjacent steps run 1.046 to 1.094, which is tight. Windows gets away
+   * with that by drawing a stroke between surfaces. We do not. If the
+   * ladder proves too tight once real screens exist, widen it rather than
+   * reaching for --color-seam. */
   --color-void: #0a0a0a;   /* behind the app, and the gutters in it */
   --color-well: #161616;   /* recessed: code blocks, payload dumps, inputs */
   --color-rack: #1c1c1c;   /* chassis behind the islands, and the transcript */
   --color-panel: #202020;  /* island face: a window body, a card, a page */
-
   --color-raised: #272727; /* raised element inside an island */
   --color-chrome: #2c2c2c; /* title bars, the rail, tab strips, a nav */
   --color-hover: #323232;  /* pointer is over it, nothing more */
   --color-active: #383838; /* pressed, or being dragged */
 
-  /* The one hairline in the system, and it stays exceptional. */
+  /* The one hairline in the system, and it stays exceptional. Two allowed
+   * cases, both of them physics rather than judgement. */
   --color-seam: #2e2e2e;
 
-  --color-canvas: #ffffff;            /* artifact preview: HTML/SVG expect a page */
-  --color-scrim: rgb(0 0 0 / 0.6);    /* behind something floating over the rack */
+  --color-scrim: rgb(0 0 0 / 0.6); /* behind something floating over the rack */
 
-  /* -------------------------------------------------------------------
-   * Green appears only on state, never on furniture. --color-edge is the one
-   * tinted surface in the system and it means "this is the selected or active
-   * thing". Ratio 1.539 against panel, so it reads without a border.
-   * ----------------------------------------------------------------- */
+  /* Green appears only on state, never on furniture. --color-edge is the one
+   * tinted surface in the system and it means "this is the selected or
+   * active thing". Ratio 1.539 against panel, so it reads without a
+   * border. */
   --color-edge: #2c4434;
   --color-edge-strong: #385642;
 
-  /* -------------------------------------------------------------------
-   * Text. Ratios below are against --color-hover, the lightest surface text
-   * ever sits on, so each is a floor rather than a best case.
+  /* Text. Ratios are against --color-active, the lightest surface in the
+   * ramp, so each is a true worst case.
+   *
+   * #6 and v2 both quoted these against --color-hover, which is where the
+   * palette was tuned. That was half a step optimistic: text sits on a
+   * PRESSED control too, and `active` is lighter than `hover`. The numbers
+   * below are the recomputed ones and every readable tier still clears 4.5,
+   * so the conclusion is unchanged and only the claim is corrected. Run
+   * `node scripts/check-rules.mjs --report` to reproduce them.
    *
    * --color-ink-3 is #b0b0b0 rather than Fluent's #969696. Microsoft tunes
    * that grey against #202020 where it clears 4.5; on its own hover fill it
    * measures 4.33 and stops being body text. This is the one value where
    * Karl overrules Fluent, and the reason is the number.
-   * ----------------------------------------------------------------- */
-  --color-ink: #ffffff;    /* 12.8:1, primary */
-  --color-ink-2: #c5c5c5;  /*  7.7:1, secondary */
-  --color-ink-3: #b0b0b0;  /*  5.9:1, tertiary, still AA body text */
-  --color-ink-4: #7d7d7d;  /*  2.9:1, decorative and disabled only */
+   *
+   * --color-ink-4 is decorative and disabled ONLY. It does NOT clear 4.5 and
+   * is not meant to: putting a sentence somebody has to read in it is a bug,
+   * and it is the bug v2's own audit found seventeen times. Its CI floor is
+   * "visible at all", not "readable". */
+  --color-ink: #ffffff;    /* 11.73:1, primary */
+  --color-ink-2: #c5c5c5;  /*  6.79:1, secondary */
+  --color-ink-3: #b0b0b0;  /*  5.41:1, tertiary, still AA body text */
+  --color-ink-4: #7d7d7d;  /*  2.85:1, decorative and disabled only */
 
-  /* -------------------------------------------------------------------
-   * Accent. One signal colour, used sparingly: LEDs, focus rings, the active
+  /* Accent. One signal colour, used sparingly: LEDs, focus rings, the active
    * item. Saturated rather than pastel, and that is the whole argument: it
    * sits 0.182 of OKLCH chroma clear of a neutral ink ramp, where a true
    * pastel manages 0.066. Contrast was never the question; separation from
-   * text was.
-   * ----------------------------------------------------------------- */
-  --color-signal: #4ade80;     /* 7.4:1 on hover, 9.8:1 on rack */
+   * text was. */
+  --color-signal: #4ade80;     /* 6.73:1 worst case, 9.8:1 on rack */
   --color-signal-dim: #2f9e57; /* signal at rest, an unlit LED with current */
 
-  /* -------------------------------------------------------------------
-   * Status. Semantic only, never decorative. Ratios against --color-hover.
-   * ----------------------------------------------------------------- */
-  --color-amber: #f2c97a;  /* 8.2:1, waiting, paused, needs approval */
-  --color-sky: #8fc0f2;    /* 6.7:1, info, links, external */
-  --color-violet: #c4a8f5; /* 6.3:1, delegated agent work */
-  --color-rose: #f28f8f;   /* 5.6:1, error, destructive */
+  /* Status. Semantic only, never decorative. Ratios are worst case, as above. */
+  --color-amber: #f2c97a;  /* 7.49:1, waiting, paused, needs approval */
+  --color-sky: #8fc0f2;    /* 6.14:1, info, links, external */
+  --color-violet: #c4a8f5; /* 5.73:1, delegated agent work */
+  --color-rose: #f28f8f;   /* 5.08:1, error, destructive */
 
   /* A market going up and a market going down. Named rather than borrowed
    * from signal and violet, whose values these are: a falling price is not
    * delegated work and a rising one is not a healthy subsystem.
    *
-   * Decided on #8: a falling candle is VIOLET, not rose, and the reason is a
-   * number rather than a preference. Rose against green fails colourblind
-   * separation — deutan ΔE 4.6 against a floor of 8, the classic red/green
-   * dichromat failure — which forced hollow-up/filled-down bodies as a
-   * secondary encoding. Violet against green measures deutan 17.0 and tritan
-   * 15.8 and passes, so the crutch comes off and both bodies are filled.
+   * A falling candle is VIOLET, not rose, and the reason is a number rather
+   * than a preference. Rose against green fails colourblind separation at
+   * deutan delta-E 4.6 against a floor of 8, the classic red and green
+   * dichromat failure, which forced hollow-up and filled-down bodies as a
+   * secondary encoding. Violet against green passes, so the crutch comes off
+   * and both bodies are filled.
    *
-   * Known overlap, accepted: violet is also --color-violet's job, delegated
-   * agent work. The two never explain each other, and per-user chart colours
-   * are later work in the brief. */
+   * Two sets of numbers exist for that pair and they agree on the verdict.
+   * The dataviz skill's validate_palette.js, which produced the values on #8,
+   * reports deutan 4.6 for rose and 17.0 for violet against a floor of 8. The
+   * CIEDE2000 implementation in scripts/check-rules.mjs reports 6.1 and 46.5
+   * against the same floor, and adds protan at 52.8. Different formula, same
+   * answer: rose fails, violet clears it by a factor of five.
+   *
+   * That separation is a property of the PAIR, not of either value, which is
+   * why CI recomputes it per theme: a theme redefining signal and fall
+   * independently could walk back into the failure and nobody would see it,
+   * because both candles would still look fine. */
   --color-rise: #4ade80;
   --color-fall: #c4a8f5;
+}
 
-  /* -------------------------------------------------------------------
-   * Semantic aliases, decided on ticket #7. Everything in this block
-   * points at an accent above rather than introducing a colour, so the
-   * palette can still be swapped by editing that section alone.
-   *
-   * Capabilities are facts about a model, and they carry the same colour
-   * wherever a model appears: the model list, the detail pane, the
-   * composer. A capability the model lacks is greyed, never hidden.
-   * ----------------------------------------------------------------- */
+/* ===================================================================
+ * PART 3: DERIVED
+ *
+ * Aliases, not values. Every one points at a themed colour above, so a theme
+ * gets these for free and must never write them. This is what keeps a theme
+ * at 24 values instead of 36.
+ * =================================================================== */
+
+:root {
+  /* Capabilities are facts about a model, and they carry the same colour
+   * wherever a model appears: the model list, the detail pane, the composer.
+   * A capability the model lacks is greyed, never hidden. Decided on #7. */
   --cap-vision: var(--color-sky);
   --cap-tools: var(--color-signal);
   --cap-reasoning: var(--color-violet);
   --cap-audio: var(--color-amber);
 
-  /* The session log is colour-coded by SOURCE, which is the axis the
-   * brief asks it to be inspectable along. Each row carries its source's
-   * icon as well; colour alone is never the only signal. */
+  /* The session log is colour-coded by SOURCE, which is the axis the brief
+   * asks it to be inspectable along. Each row carries its source's icon as
+   * well; colour alone is never the only signal. Decided on #7 and #8. */
   --src-system: var(--color-ink-4);
   --src-skill: var(--color-sky);
   --src-user: var(--color-ink-2);
@@ -143,43 +306,4 @@
   --src-artifact: var(--color-signal);
   --src-tool: var(--color-amber);
   --src-error: var(--color-rose);
-
-  /* -------------------------------------------------------------------
-   * Brand marks. The only values in this file that are not Karl's,
-   * because they are not ours to choose: they are the vendors'. Used at
-   * full strength only where the hardware is actually present, and in
-   * ink everywhere else, so the backend picker stays a list rather than
-   * becoming a logo wall. Marks are their owners' trademarks; the use is
-   * nominative and belongs in THIRD_PARTY_NOTICES.
-   * ----------------------------------------------------------------- */
-  --brand-nvidia: #76b900;
-  --brand-amd: #ed1c24;
-  --brand-intel: #0071c5;
-  --brand-vulkan: #ac162c;
-
-  /* -------------------------------------------------------------------
-   * Type. Three faces, each with one job, all vendored rather than fetched:
-   * the splash must render correctly on a machine that has never been online.
-   * Lockup rules live in `design/wordmark.md`.
-   * ----------------------------------------------------------------- */
-  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
-  --font-mono: 'Martian Mono', ui-monospace, 'Cascadia Mono', monospace;
-  --font-kana: 'Zen Kaku Gothic New', var(--font-sans), sans-serif;
-
-  /* -------------------------------------------------------------------
-   * Structure. Islands float on the rack with gaps; the gap IS the border.
-   * ----------------------------------------------------------------- */
-  --radius-island: 10px;
-  --radius-control: 6px;
-  --radius-pill: 999px;
-  --spacing-gutter: 8px;
-
-  /* Elevation is carried by fill, not by shadow. One shadow exists, for the
-   * things that genuinely float above the rack: menus, dialogs, the splash. */
-  --shadow-float: 0 16px 40px -8px rgb(0 0 0 / 0.8);
-
-  /* Motion: quick and mechanical, like a well-damped switch. */
-  --ease-mech: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --duration-tap: 120ms;
-  --duration-panel: 220ms;
 }

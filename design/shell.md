@@ -61,7 +61,7 @@ the chat island gives up exactly the panel's width or height, and **nothing is c
 panels tile against each other: a panel pinned right and another pinned bottom both get their edge,
 and the desk keeps what is left.
 
-The `--spacing-gutter` of rack between chat and a pinned panel is a **draggable seam**. Dragging it
+The `--space-gutter` of rack between chat and a pinned panel is a **draggable seam**. Dragging it
 rebalances the two.
 
 ### Minimum useful size
@@ -138,7 +138,12 @@ and never sideways into a paywall, so the free rung is offered plainly rather th
 **No chats.** The chat list shows Violet, carried over from v1 unchanged: 176px wide,
 `filter: saturate(0%)`, `opacity: .05`, masked with `linear-gradient(to bottom, black 50%,
 transparent 100%)` so she sinks into the rack rather than sitting on it, with *"No chats yet."*
-beneath at 30% opacity. These are v1's own numbers, from its `Sidebar.tsx`.
+beneath. These are v1's own numbers, from its `Sidebar.tsx`.
+
+**Amended on #9.** v1 set that caption at 30% opacity, which over the rack resolves to about
+`#606060` and measures roughly 3.9:1: below the 4.5 floor, on the only text on screen at the moment
+somebody reads it. The caption is `--color-ink-3` with no opacity. Violet keeps `opacity: .05`,
+because she is decorative and the ink rule does not reach her. See `design/system.md`.
 
 **A download fails.** A row in the queue, never a dialog. It states what happened and offers retry in
 place, resuming rather than restarting; the other downloads keep running. The queue lives behind a
