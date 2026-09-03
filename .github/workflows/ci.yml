@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  # The design system's rules, from wayfinder ticket #9. Ticket #16 adds the
+  # The design system's rules (#9) and the brief checks (#12). Ticket #16 adds the
   # rest of the repo hygiene checks to scripts/check-rules.mjs and they run in
   # this same job; the build and test jobs arrive with the stack on #10.
   rules:

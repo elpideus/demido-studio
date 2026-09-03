@@ -6,10 +6,10 @@
  * Each check is independent and reports every violation it finds rather than
  * stopping at the first, so one run tells you everything.
  *
- * The shape is carried over from v2, which ran nine checks. This file starts
- * with the two that wayfinder ticket #9 owns. Ticket #16 adds the rest
- * (provenance headers, attribution, em dashes, text hygiene) to the same
- * CHECKS array.
+ * The shape is carried over from v2, which ran nine checks. This file holds the
+ * two that wayfinder ticket #9 owns and the brief checks from ticket #12.
+ * Ticket #16 adds the rest (provenance headers, attribution, em dashes, text
+ * hygiene, decision refs, crate docs) to the same CHECKS array.
  *
  * No dependencies, on purpose: the stack is still open on ticket #10, and this
  * has to run before there is one.
@@ -398,6 +398,145 @@ function checkThemeContrast() {
   }
 }
 
+// --- docs/rules/brief.md -----------------------------------------------------
+// The brief is 196 lines and it is the thing being built. v2 drifted from it by
+// summarising it and then building from the summary, which was found only by a
+// dedicated audit milestone re-reading the original item by item. These checks
+// make that audit continuous: a requirement cannot go unlisted, and a citation
+// cannot be a paraphrase, because both are matched against brief.md itself.
+//
+// Everything here is offline and structural, on purpose. See the rule doc for
+// what this deliberately does NOT check.
+
+const BRIEF = join(ROOT, 'docs', 'brief.md')
+const LEDGER = join(ROOT, 'docs', 'brief-map.md')
+
+/** Whitespace is not meaningful in a quote that has been wrapped by an editor,
+ * so both sides are squashed before matching. Nothing else is normalised: a
+ * changed word is a changed quote. */
+const squash = (s) => s.replace(/\s+/g, ' ').trim()
+
+/** Rows of docs/brief-map.md, split by the section they sit in. A row is
+ * `| B01 | "anchor" | ... |`; the section is the last `## ` heading above it. */
+function readLedger() {
+  const rows = new Map()
+  const amendments = []
+  if (!existsSync(LEDGER)) {
+    fail('brief', LEDGER, 'the ledger is missing; every brief requirement is meant to have a row here')
+    return { rows, amendments }
+  }
+  let section = ''
+  readFileSync(LEDGER, 'utf8')
+    .split('\n')
+    .forEach((text, i) => {
+      const heading = /^##\s+(.*)$/.exec(text)
+      if (heading) section = heading[1].toLowerCase()
+      const row = /^\|\s*~?~?(B\d+)~?~?\s*\|\s*(.*?)\s*\|/.exec(text)
+      if (!row) return
+      const [, id, cell] = row
+      const quoted = /^"(.*)"$/.exec(cell)
+      if (!quoted) {
+        fail('brief', LEDGER, `${id}: the second cell must be a quoted fragment of the brief`, i + 1)
+        return
+      }
+      const entry = { id, quote: quoted[1], line: i + 1 }
+      if (section.startsWith('amendment')) {
+        amendments.push(entry)
+      } else if (rows.has(id)) {
+        fail('brief', LEDGER, `${id} is used twice; an id is assigned once and never reused`, i + 1)
+      } else {
+        rows.set(id, entry)
+      }
+    })
+  return { rows, amendments }
+}
+
+function checkBrief() {
+  if (!existsSync(BRIEF)) {
+    fail('brief', BRIEF, 'the brief is missing; it is the one file this project is built from')
+    return
+  }
+  const brief = readFileSync(BRIEF, 'utf8')
+  const briefFlat = squash(brief)
+  const { rows, amendments } = readLedger()
+
+  // 1. Every anchor is verbatim. A row that has drifted from the line it claims
+  //    to track is worse than no row: it says the requirement is accounted for.
+  for (const row of rows.values()) {
+    if (!briefFlat.includes(squash(row.quote))) {
+      fail('brief', LEDGER, `${row.id}: "${row.quote}" is not in docs/brief.md verbatim`, row.line)
+    }
+  }
+
+  // 2. Every amendment names a row that exists, and still quotes the brief.
+  for (const a of amendments) {
+    if (!rows.has(a.id)) {
+      fail('brief', LEDGER, `amendment ${a.id} has no row in the ledger`, a.line)
+    }
+    if (!briefFlat.includes(squash(a.quote))) {
+      fail('brief', LEDGER, `amendment ${a.id}: "${a.quote}" is not in docs/brief.md verbatim`, a.line)
+    }
+  }
+
+  // 3. Every bullet of the brief is covered by at least one anchor. This is the
+  //    check that catches a requirement nobody has looked at: the brief grows a
+  //    line, and CI says so on the next commit rather than in an audit a
+  //    milestone later.
+  const anchors = [...rows.values()].map((r) => squash(r.quote))
+  brief.split('\n').forEach((text, i) => {
+    const bullet = /^\s*-\s+(\S.*)$/.exec(text)
+    if (!bullet) return
+    const line = squash(bullet[1])
+    if (!anchors.some((a) => line.includes(a))) {
+      fail('brief', BRIEF, `no row in docs/brief-map.md covers this requirement`, i + 1)
+    }
+  })
+
+  // 4. Citations resolve, and quote rather than paraphrase. `Brief <id>:` is
+  //    followed by the quote on the same line, or by a blockquote under it.
+  //    `Brief: silent` is the only other legal form, and it is deliberately
+  //    cheap to write and expensive to write dishonestly.
+  const prose = [
+    ...walk(join(ROOT, 'docs'), (n) => n.endsWith('.md')),
+    ...walk(join(ROOT, 'design'), (n) => n.endsWith('.md')),
+    ...['AGENTS.md', 'README.md'].map((n) => join(ROOT, n)).filter((p) => existsSync(p)),
+  ]
+  for (const file of prose) {
+    if (file === LEDGER || file === BRIEF) continue
+    const lines = readFileSync(file, 'utf8').split('\n')
+    lines.forEach((text, i) => {
+      for (const hit of text.matchAll(/\bBrief (B\d+)(:?)/g)) {
+        const [, id, colon] = hit
+        if (!rows.has(id)) {
+          fail('brief', file, `cites ${id}, which has no row in docs/brief-map.md`, i + 1)
+          continue
+        }
+        if (!colon) continue
+        const rest = text.slice(hit.index + hit[0].length)
+        const inline = /"([^"]+)"/.exec(rest)
+        let quote = inline ? inline[1] : null
+        if (!quote) {
+          // Long form: the tag line stands alone and the quote is the
+          // blockquote under it, blank lines allowed between.
+          const block = []
+          for (let j = i + 1; j < lines.length; j++) {
+            const next = lines[j].trim()
+            if (next === '' && block.length === 0) continue
+            if (!next.startsWith('>')) break
+            block.push(next.replace(/^>\s?/, ''))
+          }
+          if (block.length) quote = block.join(' ')
+        }
+        if (!quote) {
+          fail('brief', file, `${id}: a citation quotes the brief, on this line or as a blockquote under it`, i + 1)
+        } else if (!briefFlat.includes(squash(quote))) {
+          fail('brief', file, `${id}: "${quote}" is not in docs/brief.md verbatim`, i + 1)
+        }
+      }
+    })
+  }
+}
+
 // --- report ------------------------------------------------------------------
 
 /** `--report` prints the measurements instead of only the failures. Useful when
@@ -424,7 +563,7 @@ function report() {
 
 // --- run ---------------------------------------------------------------------
 
-const CHECKS = [checkNoRawValues, checkThemeContrast]
+const CHECKS = [checkNoRawValues, checkThemeContrast, checkBrief]
 
 if (process.argv.includes('--report')) {
   report()
