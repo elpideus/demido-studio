@@ -44,8 +44,8 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B01 | "check all the skills, plugins, and tools you have access to" | [#1](https://github.com/elpideus/demido-studio/issues/1) | - | n/a |
 | B02 | "a harness that integrates all the tools I need seamlessly" | - | - | - |
 | B03 | "windows-only at first, during the pre-release versions" | - | - | - |
-| B04 | "get the most out of even smaller models" | - | - | - |
-| B05 | "NOT this specific issue, but this specific KIND of issue" | - | - | - |
+| B04 | "get the most out of even smaller models" | [#13](https://github.com/elpideus/demido-studio/issues/13) | - | - |
+| B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13) | - | - |
 | B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
