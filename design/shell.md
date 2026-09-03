@@ -30,8 +30,12 @@ Icons only, on `--color-chrome`, movable to either edge of the window. Navigatio
 Settings at the bottom, per the brief. Right-clicking empty rail space or the Settings button offers
 **Edit Navbar**.
 
-Default order, top to bottom: Chats, Files, Code graph, Market charts, Session monitor, Sub-agents,
-Browser. Settings sits alone at the other end.
+Default order, top to bottom: Chats, Files, Code graph, Market charts, Session monitor, Browser.
+Settings sits alone at the other end.
+
+**Amended on #8**, and it amends the brief's own rail listing too: there is no **Sub-agents** entry.
+A sub-agent is a scope on the session log, not a window of its own, so it lives inside the session
+monitor. See `windows.md`.
 
 A rail icon has four states, and they are the only place in the UI that reports what is open:
 
@@ -59,6 +63,20 @@ and the desk keeps what is left.
 
 The `--spacing-gutter` of rack between chat and a pinned panel is a **draggable seam**. Dragging it
 rebalances the two.
+
+### Minimum useful size
+
+**Added on #8.** A pinned panel has a floor below which it stops being useful, and the seam must not
+drag past it. A panel that is squeezed instead of collapsed is the failure this rule exists to
+prevent: it keeps every element and makes all of them unreadable.
+
+Below its floor a panel **collapses to a stated reduced form**, which it must define. The session
+monitor's floor is **210px high**, and its reduced form drops the scope column to icons and detaches
+the inspector rather than compressing all three columns. A panel with no defined reduced form has a
+floor and simply stops there.
+
+At 1280×800 — the smallest window Demido claims to support — two pins and a float leave chat roughly
+670×375 of transcript. That is the worst realistic case and it was checked, not assumed.
 
 ### The gesture
 

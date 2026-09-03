@@ -102,10 +102,21 @@
   --color-rose: #f28f8f;   /* 5.6:1, error, destructive */
 
   /* A market going up and a market going down. Named rather than borrowed
-   * from signal and rose, whose values these are: a falling price is not an
-   * error and a rising one is not a healthy subsystem. */
+   * from signal and violet, whose values these are: a falling price is not
+   * delegated work and a rising one is not a healthy subsystem.
+   *
+   * Decided on #8: a falling candle is VIOLET, not rose, and the reason is a
+   * number rather than a preference. Rose against green fails colourblind
+   * separation — deutan ΔE 4.6 against a floor of 8, the classic red/green
+   * dichromat failure — which forced hollow-up/filled-down bodies as a
+   * secondary encoding. Violet against green measures deutan 17.0 and tritan
+   * 15.8 and passes, so the crutch comes off and both bodies are filled.
+   *
+   * Known overlap, accepted: violet is also --color-violet's job, delegated
+   * agent work. The two never explain each other, and per-user chart colours
+   * are later work in the brief. */
   --color-rise: #4ade80;
-  --color-fall: #f28f8f;
+  --color-fall: #c4a8f5;
 
   /* -------------------------------------------------------------------
    * Semantic aliases, decided on ticket #7. Everything in this block
