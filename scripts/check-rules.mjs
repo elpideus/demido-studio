@@ -7,17 +7,21 @@
  * stopping at the first, so one run tells you everything.
  *
  * The shape is carried over from v2, which ran nine checks. This file holds the
- * two that wayfinder ticket #9 owns and the brief checks from ticket #12.
- * Ticket #16 adds the rest (provenance headers, attribution, em dashes, text
- * hygiene, decision refs, crate docs) to the same CHECKS array.
+ * two that wayfinder ticket #9 owns, the brief checks from ticket #12, and the
+ * repo hygiene checks from ticket #16: attribution, provenance, em dashes,
+ * decision references and crate docs.
  *
- * No dependencies, on purpose: the stack is still open on ticket #10, and this
- * has to run before there is one.
+ * Two of these read git rather than files. See docs/rules/attribution.md for
+ * which commits a run is responsible for and how CI passes the range.
+ *
+ * No dependencies, on purpose: the stack is decided (ticket #10) but nothing is
+ * scaffolded, and this has to run before there is a toolchain to run it with.
  *
  * Usage: node scripts/check-rules.mjs
  */
 
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -537,6 +541,296 @@ function checkBrief() {
   }
 }
 
+// --- docs/rules/attribution.md -----------------------------------------------
+// One author, every commit signed, and no assistant named in repo metadata.
+// All three are true by hand today, which is precisely how long an unenforced
+// rule stays true. The .githooks/commit-msg hook catches a violation before the
+// commit exists; this catches it in CI, where no hook is installed.
+
+const GIT = join(ROOT, '.git')
+const EM_DASH = '\u2014'
+
+const AUTHOR = 'Stefan Cucoranu <elpideus@gmail.com>'
+
+/**
+ * Phrases that name an assistant as an author or a co-author. Deliberately
+ * narrow, because this repo has to be able to *talk* about `openclaude`,
+ * `open-webui`, `gemini-cli` and its own `.claude` directory: those names are
+ * blanked before matching, so naming a project or a path is free and being
+ * credited to an assistant is not.
+ */
+const ATTRIBUTION_LEAKS = [
+  [/^\s*co-authored-by:/im, 'a Co-Authored-By trailer'],
+  [/\bgenerated with\b/i, 'a "generated with" line'],
+  [/\u{1F916}/u, 'a robot emoji'],
+  [/\b(claude|anthropic|chatgpt|copilot|codex|devin|cursor)\b/i, 'the name of an assistant'],
+  [/\bai[- ](generated|assisted|written)\b/i, 'an AI authorship claim'],
+]
+
+const PROJECT_NAMES = /openclaude|open-webui|gemini-cli|claude-code|[.]claude/gi
+
+function gitOut(args) {
+  try {
+    return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+  } catch {
+    return null
+  }
+}
+
+const UNIT = '\u001f'
+const RECORD = '\u001e'
+
+/**
+ * The commits this run is responsible for. CI passes the push or pull-request
+ * range in RULES_RANGE; a local run checks whatever is not yet on origin/main,
+ * which is the same set the hook already saw. A repo with no origin falls back
+ * to the tip commit, so a fresh clone still checks something.
+ */
+function commitsUnderReview() {
+  const explicit = (process.env.RULES_RANGE || '').trim()
+  const format = `--format=%H${UNIT}%an <%ae>${UNIT}%cn <%ce>${UNIT}%G?${UNIT}%B${RECORD}`
+  const attempts = []
+  if (explicit) attempts.push([format, explicit])
+  else if (gitOut(['rev-parse', '--verify', '--quiet', 'origin/main'])) attempts.push([format, 'origin/main..HEAD'])
+  attempts.push([format, '-n', '1', 'HEAD'])
+
+  for (const args of attempts) {
+    const out = gitOut(['log', ...args])
+    if (out === null) continue
+    return out
+      .split(RECORD)
+      .map((record) => record.trim())
+      .filter(Boolean)
+      .map((record) => {
+        const [hash, author, committer, signature, message] = record.split(UNIT)
+        return { hash, author, committer, signature, message: message ?? '' }
+      })
+  }
+  return []
+}
+
+function checkAttribution() {
+  if (!gitOut(['rev-parse', '--git-dir'])) return
+
+  // Signature verification needs the public key. CI points git at
+  // .github/allowed_signers, and where it is configured a *good* signature is
+  // demanded rather than merely a present one.
+  const signersFile = (gitOut(['config', 'gpg.ssh.allowedSignersFile']) || '').trim()
+  const verifiable = signersFile.length > 0
+
+  for (const commit of commitsUnderReview()) {
+    const at = `commit ${commit.hash.slice(0, 8)}`
+    if (commit.author !== AUTHOR) {
+      fail('attribution', GIT, `${at} is authored by ${commit.author}, not ${AUTHOR}`)
+    }
+    if (commit.committer !== AUTHOR) {
+      fail('attribution', GIT, `${at} is committed by ${commit.committer}, not ${AUTHOR}`)
+    }
+    if (commit.signature === 'N') {
+      fail('attribution', GIT, `${at} is not signed`)
+    } else if ('BRXY'.includes(commit.signature)) {
+      fail('attribution', GIT, `${at} has a bad, revoked or expired signature (git reports "${commit.signature}")`)
+    } else if (verifiable && commit.signature !== 'G') {
+      fail('attribution', GIT, `${at} is signed by a key that is not in ${signersFile} (git reports "${commit.signature}")`)
+    }
+
+    const message = commit.message.replace(PROJECT_NAMES, 'a-project')
+    for (const [pattern, what] of ATTRIBUTION_LEAKS) {
+      if (pattern.test(message)) {
+        fail('attribution', GIT, `${at} carries ${what} in its message`)
+      }
+    }
+    if (commit.message.includes(EM_DASH)) {
+      fail('text', GIT, `${at} has an em dash in its message; use a colon, a comma, parentheses, a semicolon or a full stop`)
+    }
+  }
+}
+
+// --- docs/rules/provenance.md ------------------------------------------------
+// Ported code says where it came from, and where it came from has its license
+// on disk. The brief asks for both halves in one sentence, and the second half
+// is the one that rots: the header gets written, the license folder does not,
+// and a GPL obligation becomes a claim nobody can check.
+
+const LICENSES = join(ROOT, 'licenses')
+const NOTICES = join(ROOT, 'THIRD_PARTY_NOTICES.md')
+
+/** `Ported from <owner>/<project> @ <commit>, <license>.` See the rule doc. */
+const PROVENANCE = /Ported from ([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+) @ ([A-Za-z0-9._-]{7,40}), ([A-Za-z0-9.+-]+)\./g
+
+/** The floor. THIRD_PARTY_NOTICES.md may add to this list; it cannot shrink it
+ * below these two, because both bans are legal rather than editorial. */
+const FORBIDDEN_FLOOR = new Map([
+  ['open-webui', 'its license carries a branding-retention clause'],
+  ['openclaude', 'it is an unauthorized derivative of proprietary code'],
+])
+
+function codeFiles() {
+  return walk(ROOT, (n) => /\.(rs|ts|tsx|js|jsx|mjs|cjs|css|scss|py|html|svelte|vue|toml)$/.test(n)).filter((file) => {
+    const rel = relative(ROOT, file).split(sep).join('/')
+    return !rel.startsWith('licenses/') && !rel.startsWith('.research/')
+  })
+}
+
+/** The two tables of THIRD_PARTY_NOTICES.md: what ships, and what is banned. */
+function readNotices() {
+  const listed = new Set()
+  const forbidden = new Map(FORBIDDEN_FLOOR)
+  if (!existsSync(NOTICES)) {
+    fail('provenance', NOTICES, 'the human-readable index is missing; the in-app credits surface renders from it')
+    return { listed, forbidden }
+  }
+  let section = ''
+  for (const text of readFileSync(NOTICES, 'utf8').split('\n')) {
+    const heading = /^##\s+(.*)$/.exec(text)
+    if (heading) section = heading[1].toLowerCase()
+    const row = /^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|/.exec(text)
+    if (!row) continue
+    const [, first, second] = row
+    if (/^:?-+:?$/.test(first) || first === 'Project' || first.startsWith('_(')) continue
+    if (section.startsWith('ruled out')) forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
+    else listed.add(`${second}/${first}`.toLowerCase())
+  }
+  return { listed, forbidden }
+}
+
+function checkProvenance() {
+  const { listed, forbidden } = readNotices()
+
+  // 1. Every provenance header resolves to a license on disk, is not a banned
+  //    source, and is credited in the index the application renders.
+  for (const file of codeFiles()) {
+    const source = readFileSync(file, 'utf8')
+    for (const hit of source.matchAll(PROVENANCE)) {
+      const [, owner, project, , license] = hit
+      const line = source.slice(0, hit.index).split('\n').length
+      const banned = forbidden.get(project.toLowerCase())
+      if (banned) {
+        fail('provenance', file, `ported from ${project}, which cannot be copied from: ${banned}`, line)
+        continue
+      }
+      if (!existsSync(join(LICENSES, owner, project, 'LICENSE'))) {
+        fail('provenance', file, `names ${owner}/${project} (${license}) with no licenses/${owner}/${project}/LICENSE on disk`, line)
+      }
+      if (!listed.has(`${owner}/${project}`.toLowerCase())) {
+        fail('provenance', file, `names ${owner}/${project} with no row in THIRD_PARTY_NOTICES.md`, line)
+      }
+    }
+  }
+
+  // 2. The licenses tree and the index agree in both directions. A license
+  //    nobody credits is as broken as a credit with no license.
+  if (existsSync(LICENSES)) {
+    for (const owner of readdirSync(LICENSES, { withFileTypes: true })) {
+      if (!owner.isDirectory()) continue
+      for (const project of readdirSync(join(LICENSES, owner.name), { withFileTypes: true })) {
+        if (!project.isDirectory()) continue
+        const dir = join(LICENSES, owner.name, project.name)
+        const key = `${owner.name}/${project.name}`.toLowerCase()
+        if (!existsSync(join(dir, 'LICENSE'))) fail('provenance', dir, 'has no LICENSE file')
+        if (forbidden.has(project.name.toLowerCase())) {
+          fail('provenance', dir, `${project.name} is on the ruled-out list and must not ship`)
+        }
+        if (!listed.has(key)) fail('provenance', NOTICES, `licenses/${key} has no row in the index`)
+      }
+    }
+  }
+  for (const key of listed) {
+    if (!existsSync(join(LICENSES, ...key.split('/'), 'LICENSE'))) {
+      fail('provenance', NOTICES, `${key} is credited with no licenses/${key}/LICENSE on disk`)
+    }
+  }
+
+  // 3. The two legal bans survive an edit of the index.
+  for (const [project, why] of FORBIDDEN_FLOOR) {
+    if (!forbidden.has(project)) {
+      fail('provenance', NOTICES, `the ruled-out table no longer lists ${project}, which is banned because ${why}`)
+    }
+  }
+}
+
+// --- the em dash, AGENTS.md rule 6 -------------------------------------------
+// The one pure style rule here, and the cheapest possible demonstration of the
+// asymmetry this file exists for: a rule with a checker holds, a rule without
+// one does not.
+
+function checkText() {
+  const files = [
+    ...walk(join(ROOT, 'docs'), (n) => /\.(md|css|mjs|js|json|yml|yaml)$/.test(n)),
+    ...walk(join(ROOT, 'design'), (n) => /\.(md|css|svg)$/.test(n)),
+    ...walk(join(ROOT, 'scripts'), (n) => /\.(mjs|js|sh)$/.test(n)),
+    ...walk(join(ROOT, '.github'), (n) => /\.(yml|yaml|md)$/.test(n)),
+    ...walk(join(ROOT, '.githooks'), () => true),
+    ...codeFiles(),
+    ...['AGENTS.md', 'README.md', 'THIRD_PARTY_NOTICES.md'].map((n) => join(ROOT, n)).filter((p) => existsSync(p)),
+  ]
+  for (const file of new Set(files)) {
+    // The brief is reproduced verbatim and is never edited, and a third-party
+    // license is not ours to rewrite. Both are excluded rather than exempted.
+    const rel = relative(ROOT, file).split(sep).join('/')
+    if (rel === 'docs/brief.md' || rel.startsWith('licenses/')) continue
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .forEach((text, i) => {
+        if (text.includes(EM_DASH)) {
+          fail('text', file, 'em dash; use a colon, a comma, parentheses, a semicolon or a full stop', i + 1)
+        }
+      })
+  }
+}
+
+// --- docs/decisions/README.md ------------------------------------------------
+// A dangling decision reference tells the reader an explanation exists when it
+// does not. A reference to a superseded note is worse: it hands them reasoning
+// that has since been overturned.
+
+function checkDecisions() {
+  const notes = join(ROOT, 'docs', 'decisions')
+  const status = new Map()
+  for (const file of walk(notes, (n) => /^\d{4}-[a-z0-9-]+\.md$/.test(n))) {
+    const name = relative(notes, file).split(sep).join('/')
+    const found = /^Status:\s*(.+)$/m.exec(readFileSync(file, 'utf8'))
+    if (!found) fail('decisions', file, 'has no Status line (accepted, or superseded-by NNNN)')
+    status.set(name, (found ? found[1] : '').trim())
+  }
+
+  const prose = [
+    ...walk(join(ROOT, 'docs'), (n) => n.endsWith('.md')),
+    ...walk(join(ROOT, 'design'), (n) => n.endsWith('.md')),
+    ...codeFiles(),
+    ...['AGENTS.md', 'README.md'].map((n) => join(ROOT, n)).filter((p) => existsSync(p)),
+  ]
+  for (const file of new Set(prose)) {
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .forEach((text, i) => {
+        for (const hit of text.matchAll(/docs\/decisions\/(\d{4}-[a-z0-9-]+\.md)/g)) {
+          const name = hit[1]
+          if (!status.has(name)) {
+            fail('decisions', file, `references docs/decisions/${name}, which does not exist`, i + 1)
+          } else if (/^superseded-by/i.test(status.get(name))) {
+            fail('decisions', file, `references docs/decisions/${name}, which is ${status.get(name)}`, i + 1)
+          }
+        }
+      })
+  }
+}
+
+// --- AGENTS.md, rule 9 -------------------------------------------------------
+// Every crate documents itself, so a session that opens one crate learns what
+// it is without reading the whole tree. A no-op until the scaffold on #10.
+
+function checkCrateDocs() {
+  const crates = join(ROOT, 'src-tauri', 'crates')
+  if (!existsSync(crates)) return
+  for (const entry of readdirSync(crates, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    if (!existsSync(join(crates, entry.name, 'AGENTS.md'))) {
+      fail('crate-docs', join(crates, entry.name), 'has no AGENTS.md; every crate documents itself')
+    }
+  }
+}
+
 // --- report ------------------------------------------------------------------
 
 /** `--report` prints the measurements instead of only the failures. Useful when
@@ -563,7 +857,16 @@ function report() {
 
 // --- run ---------------------------------------------------------------------
 
-const CHECKS = [checkNoRawValues, checkThemeContrast, checkBrief]
+const CHECKS = [
+  checkNoRawValues,
+  checkThemeContrast,
+  checkBrief,
+  checkAttribution,
+  checkProvenance,
+  checkText,
+  checkDecisions,
+  checkCrateDocs,
+]
 
 if (process.argv.includes('--report')) {
   report()

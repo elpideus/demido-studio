@@ -6,15 +6,51 @@ on:
   pull_request:
 
 jobs:
-  # The design system's rules (#9) and the brief checks (#12). Ticket #16 adds the
-  # rest of the repo hygiene checks to scripts/check-rules.mjs and they run in
-  # this same job; the build and test jobs arrive with the stack on #10.
+  # Every machine-checkable rule in docs/rules/, in one job: the design system
+  # (#9), the brief (#12), and the repo hygiene rules from #16. The build and
+  # test jobs arrive with the stack on #10.
   rules:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The attribution check reads commit metadata, so the range has to be
+          # in the clone. A shallow checkout would hide exactly the commits
+          # under review.
+          fetch-depth: 0
+          # On a pull request the default ref is a merge commit GitHub itself
+          # authored, which is not a commit anyone wrote and would fail the
+          # author check on every PR. Check out the branch tip instead.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # Without this, an SSH signature is present but unverifiable, and the
+      # check can only say "signed by something". With it, "signed by Stefan".
+      - name: Trust the author's signing key
+        run: git config gpg.ssh.allowedSignersFile .github/allowed_signers
+
+      - name: Work out which commits this run is responsible for
+        id: range
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then
+            range="$BASE..HEAD"
+          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            # A new branch, a force push, or the first push to an empty repo.
+            # Falling back to the tip is the honest answer: the range does not
+            # exist, and inventing a wide one would report old commits as new.
+            range=""
+          fi
+          echo "range=$range" >> "$GITHUB_OUTPUT"
+
       - name: Check rules
+        env:
+          RULES_RANGE: ${{ steps.range.outputs.range }}
         run: node scripts/check-rules.mjs

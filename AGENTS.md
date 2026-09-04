@@ -36,33 +36,41 @@ Enforced by CI (`node scripts/check-rules.mjs`). Violating one fails the build.
 1. **Attribution.** Every commit is authored by
    `Stefan Cucoranu <elpideus@gmail.com>` and signed. Never add
    `Co-Authored-By`, and never name an AI in a commit message, a PR body, an
-   issue, or any other repo metadata. *(check lands on
-   [#16](https://github.com/elpideus/demido-studio/issues/16))*
+   issue, or any other repo metadata. See
+   [`docs/rules/attribution.md`](docs/rules/attribution.md). **Enforced now**, in
+   CI and in the `commit-msg` hook.
 2. **No code from `open-webui`**: its license forbids removing Open WebUI
    branding above 50 users. **No code from `openclaude`**: it is derived from
    proprietary Claude Code without authorization. Read them for patterns; never
    copy. Safe to port from: opencode, gemini-cli, jan, anything-llm, 9router,
-   OmniRoute. *(#16)*
+   OmniRoute. See [`docs/rules/provenance.md`](docs/rules/provenance.md).
+   **Enforced now**: a provenance header naming either one fails the build.
 3. **Nothing third-party is bundled into the installer.** Runtimes, inference
    backends and anything else are fetched from upstream onto the user's machine
    at first use. Nothing is pre-installed, and each thing states its size before
-   it is fetched. *(#16)*
+   it is fetched. Checked by review rather than by CI, because checking it
+   needs an installer and there is not one yet.
 4. **Arbitrary values live in `design/tokens.css`** and nowhere else: colour,
    type, space, radius, motion. Every theme's contrast is recomputed rather than
    claimed. See [`docs/rules/no-raw-values.md`](docs/rules/no-raw-values.md).
    **Enforced now.**
 5. **Ported code carries a provenance header** (source repo, commit, license)
-   and a matching entry under `licenses/<owner>/<repo>/LICENSE`. *(#16)*
+   and a matching entry under `licenses/<owner>/<repo>/LICENSE`, plus a row in
+   `THIRD_PARTY_NOTICES.md`. See
+   [`docs/rules/provenance.md`](docs/rules/provenance.md). **Enforced now.**
 6. **No em dashes.** Anywhere: code, comments, docs, UI copy, issues, commit
-   messages. Use a colon, a comma, parentheses, a semicolon or a full stop.
-   *(#16)*
+   messages. Use a colon, a comma, parentheses, a semicolon or a full stop. See
+   [`docs/rules/text.md`](docs/rules/text.md). **Enforced now.**
 7. **The brief stays canonical.** Anchors verbatim, every bullet covered, every
    citation quoting rather than paraphrasing. See
    [`docs/rules/brief.md`](docs/rules/brief.md). **Enforced now.**
 8. **Decision references resolve.** A `docs/decisions/NNNN-slug.md` reference in
-   code or docs points at a note that exists and is not superseded. *(#16)*
+   code or docs points at a note that exists and is not superseded. See
+   [`docs/rules/decisions.md`](docs/rules/decisions.md). **Enforced now.**
 9. **Every crate documents itself.** Each directory under `src-tauri/crates/`
-   contains an `AGENTS.md`. *(#16, once there are crates)*
+   contains an `AGENTS.md`. See
+   [`docs/rules/crate-docs.md`](docs/rules/crate-docs.md). **Enforced now**, and
+   a no-op until there are crates.
 
 Two of v2's eight rules are not here. Its colour rule is rule 4, widened from
 one family to five on
@@ -110,6 +118,9 @@ rule an agent can break without CI noticing is a rule that will be broken.
 | `design/` | The design system: `tokens.css` owns every arbitrary value, and `system.md`, `shell.md`, `windows.md` are the frozen boards. |
 | `licenses/` | One `LICENSE` per ported source, mirroring `<owner>/<repo>`. |
 | `scripts/check-rules.mjs` | The hard rules above. No dependencies, on purpose. |
+| `.githooks/` | The `commit-msg` gate. Install it once per clone (see Commands). |
+| `.github/allowed_signers` | The signing key CI verifies commits against. |
+| `.claude/` | Session guardrails: the blocked git commands, as a hook. |
 
 There is no roadmap file and no history file. v2's reached 1817 and 1364 lines,
 had to be split, and duplicated state GitHub already holds. The issues are the
@@ -135,17 +146,31 @@ Reference notes from the code they govern. When superseding one, set
 Not yet. The stack is decided
 ([#10](https://github.com/elpideus/demido-studio/issues/10): Tauri 2, Rust,
 React 19, Radix, CSS Modules, no Tailwind and no shadcn) but nothing is
-scaffolded. Until then the only gate is:
+scaffolded. Until then the gates are the rule checker and the commit hook:
 
 ```bash
+git config core.hooksPath .githooks    # once per clone, before the first commit
 node scripts/check-rules.mjs          # the hard rules above
 node scripts/check-rules.mjs --report # print the contrast measurements
 ```
 
-The frontend and Rust gates, the live-model harness invocation and the versioning
-scheme arrive with the scaffold on
-[#16](https://github.com/elpideus/demido-studio/issues/16) and the first slice on
-[#11](https://github.com/elpideus/demido-studio/issues/11).
+`check-rules.mjs` reads commit metadata as well as files. With no argument it
+checks whatever is not yet on `origin/main`; CI passes the push or pull request
+range in `RULES_RANGE`, and you can too:
+
+```bash
+RULES_RANGE=origin/main..HEAD node scripts/check-rules.mjs
+```
+
+The hook is the cheap gate and can be skipped. CI is the one that cannot, so a
+violation costs a rebase rather than a reword. Install it.
+
+Formatting and type checking (the `setup-pre-commit` skill) wait until there is
+code to format: running them against a repo of Markdown would install a hook
+that only ever passes. They arrive with the first slice on
+[#11](https://github.com/elpideus/demido-studio/issues/11), together with the
+frontend and Rust gates, the live-model harness invocation and the versioning
+scheme.
 
 ## Agent skills
 
@@ -155,5 +180,10 @@ Configuration the installed engineering skills read lives in `docs/agents/`.
   `gh` CLI. See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
   The foundation for v3 is being charted as a wayfinder map,
   [#1](https://github.com/elpideus/demido-studio/issues/1).
+- **Session guardrails.** `.claude/settings.json` refuses `git push`, hard
+  resets, `git clean`, branch deletion and history rewriting inside an agent
+  session. Those are Stefan's to run, at a terminal, with the repo in front of
+  him. Set up from the `git-guardrails-claude-code` skill on
+  [#16](https://github.com/elpideus/demido-studio/issues/16).
 - **Domain docs.** Single context. Vocabulary in `docs/glossary.md` when there
   is code to name; decision notes in `docs/decisions/`.

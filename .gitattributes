@@ -1,0 +1,31 @@
+# Line endings are normalised in the repository and checked out native, so a
+# Windows clone never turns a whole file into a diff. The seed commit warned
+# about LF to CRLF on every file it touched; this is the fix.
+* text=auto
+
+# Files that must stay LF on disk whatever the platform, because something
+# other than git reads them: shells, hooks and the CI runner.
+*.sh          text eol=lf
+*.mjs         text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+.githooks/*   text eol=lf
+.gitattributes text eol=lf
+
+# Windows-only scripts, which cmd.exe reads and which need CRLF.
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# Binary. Marked so git never rewrites a byte of them and never tries to diff
+# them as text.
+*.png         binary
+*.webp        binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.woff        binary
+*.woff2       binary
+*.pdf         binary
+*.ai          binary

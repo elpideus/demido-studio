@@ -1,0 +1,54 @@
+#!/bin/sh
+# Rejects a commit that breaks the attribution or text rules, before it exists.
+#
+# CI checks the same things (scripts/check-rules.mjs), but CI finds them after
+# the fact, when the fix is a rebase. This is the cheap gate; CI is the one that
+# cannot be skipped.
+#
+# Install: git config core.hooksPath .githooks
+#
+# See docs/rules/attribution.md and AGENTS.md rules 1 and 6.
+
+message_file="$1"
+# The commented template, the diff under --verbose, and the scissors line are
+# not part of the message, so they are stripped before matching.
+message=$(sed -e '/^#/d' -e '/^diff --git /,$d' "$message_file")
+
+fail() {
+  echo "commit-msg: $1" >&2
+  echo "            see docs/rules/attribution.md" >&2
+  exit 1
+}
+
+# Rule 1. One author, and nobody else credited.
+case "$message" in
+  *[Cc]o-[Aa]uthored-[Bb]y:*) fail "the message carries a Co-Authored-By trailer; this repo has one author" ;;
+esac
+
+# Rule 1. No assistant named. The project names this repo has to be able to
+# discuss, and its own .claude directory, are blanked first, so writing about
+# them is free.
+scrubbed=$(printf '%s' "$message" | sed -e 's/openclaude/a-project/g; s/open-webui/a-project/g; s/gemini-cli/a-project/g; s/claude-code/a-project/g; s/[.]claude/a-path/g')
+if printf '%s' "$scrubbed" | grep -Eiq 'claude|anthropic|chatgpt|copilot|codex|devin|cursor|generated with|ai[- ](generated|assisted|written)'; then
+  fail "the message names an assistant; commits are authored by one person and say so"
+fi
+
+# Rule 6. No em dashes, anywhere, including here. The character is spelled out
+# rather than written, so that this file does not violate the rule it enforces.
+em_dash=$(printf '\342\200\224')
+if printf '%s' "$message" | grep -q "$em_dash"; then
+  fail "the message has an em dash; use a colon, a comma, parentheses, a semicolon or a full stop"
+fi
+
+# Rule 1. The identity and the signature, checked here rather than discovered by
+# CI after the push.
+author="$(git var GIT_AUTHOR_IDENT | sed 's/ [0-9]* [-+][0-9]*$//')"
+if [ "$author" != "Stefan Cucoranu <elpideus@gmail.com>" ]; then
+  fail "author is $author, not Stefan Cucoranu <elpideus@gmail.com>"
+fi
+
+if [ "$(git config --get commit.gpgsign)" != "true" ]; then
+  fail "commit.gpgsign is not true; every commit is signed"
+fi
+
+exit 0

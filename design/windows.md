@@ -31,7 +31,7 @@ v2's log says what happened and never what it cost. The brief's other thesis is 
 to behave *without* eating their context, so:
 
 - every row carries its **token weight**, as a number and a bar;
-- the header carries an **occupancy bar** — 21.7k of 32k, segmented by which source is holding it;
+- the header carries an **occupancy bar**: 21.7k of 32k, segmented by which source is holding it;
 - the source column is a **ledger**, count and tokens per source, not a legend beside a search box.
 
 **This constrains `demido-trace`, and the constraint is the point of writing it down: token weight
@@ -50,13 +50,13 @@ only signal. The tokens are already in `tokens.css`: `--src-system`, `--src-skil
 > until the reply … should be visible. All prompts should be editable.
 
 A list of events is not that. Selecting an event rebuilds the prompt **as it stood at that moment**,
-block by block, **diffed against the previous assembly** — an injection appears as an inserted block
+block by block, **diffed against the previous assembly**: an injection appears as an inserted block
 you can read, an evicted one as a struck-out block with its cost. Each block header carries an edit
 affordance, which is where "all prompts should be editable" lands, and **Replay from here** is what
 makes editing worth doing.
 
 **This constrains `demido-trace` a second time, harder: the event stream must be sufficient to
-rebuild an assembly, not merely to describe one.** It also settles chat export — export is a
+rebuild an assembly, not merely to describe one.** It also settles chat export, since export is a
 projection of this, not a second exporter, exactly as the brief guesses.
 
 ### Fork and replay live on the row
@@ -79,7 +79,7 @@ describes:
 > User should be able to manually set the amount of parallel agents they want to run at the same
 > time, and how deep agents can delegate one another
 
-Parallelism is a slot strip — filled, queued, free — so "why is nothing happening" is answered on
+Parallelism is a slot strip, filled, queued and free, so "why is nothing happening" is answered on
 screen. A delegation refused at the depth limit is a row with a stated reason, and the refusal is
 handed to the agent **in its own context**, so it answers from what it has instead of stalling.
 
@@ -103,7 +103,7 @@ You always know what you are editing, because it is the thing you are standing i
 
 An earlier draft put a `GLOBAL · MODEL · CHAT · CHAR` provenance chip on every control and made the
 chip the editor. That is v2's mistake, and Stefan named it as what made v2's settings confusing. The
-one thing the chip bought — answering "why is this 0.4" — is the Navigator's job now, which lists
+one thing the chip bought, answering "why is this 0.4", is the Navigator's job now, which lists
 global and per-chat settings as separate rows that each say where they live.
 
 The character layer needs no placeholder. When the character system lands it is another section, and
@@ -114,7 +114,7 @@ nothing else changes shape.
 The binding **is** the field: click the keys, press the chord, and a conflict is shown in place
 against the command it collides with, never in a modal. Vivaldi's model, which the brief names.
 
-The column Vivaldi does not have and Demido needs is **scope** — `global`, `desk`, `panel`. Scoping
+The column Vivaldi does not have and Demido needs is **scope**: `global`, `desk`, `panel`. Scoping
 is what lets `Enter` approve a tool call without stealing `Enter` from the composer. Global beats
 panel beats desk. Two commands may share a chord in different scopes and the row says so rather than
 calling it a conflict.
@@ -122,9 +122,9 @@ calling it a conflict.
 ## Projects
 
 Name, description, icon picker with custom PNG and SVG on the face of it, attached files and folders,
-and the project's chats — one page, beside the chat list with its All / Chats / Projects filter.
+and the project's chats, one page, beside the chat list with its All / Chats / Projects filter.
 
-One rule beyond the brief: **an attached folder states what the model will actually see** — file
+One rule beyond the brief: **an attached folder states what the model will actually see**: file
 count, total size, and the exclusions applied. "Connect a project to a folder" silently meaning "and
 skip `node_modules`" is the invisible behaviour this project exists to refuse. A folder still being
 scanned says so as a row, never as a blocking dialog.
@@ -134,7 +134,7 @@ scanned says so as a row, never as a blocking dialog.
 One price axis. Never two. Timeframes, a symbol search that names which account or exchange answers,
 a crosshair and a tooltip. The last price is the only direct label.
 
-No indicators, no drawing tools, **and no volume pane** — volume is an indicator and the brief
+No indicators, no drawing tools, **and no volume pane**: volume is an indicator and the brief
 postpones all of them.
 
 Candles are **filled in both directions**, green up and violet down. The colour change is recorded in
@@ -166,20 +166,20 @@ temperature" are the same errand. `!` is there for when the verb is what you wan
 
 Typo tolerance is one mechanism with ranking, not a separate pass. A chat previews its last exchange;
 a setting previews its control. Opening a setting closes the panel, opens Settings on the right page,
-scrolls to the row and lights it briefly — "android style", in the brief's words.
+scrolls to the row and lights it briefly, "android style", in the brief's words.
 
 ## The code graph
 
 **graphify's own UI, skinned, driven with no server.** Demido implements no graph viewer.
 
-v2 wrapped graphify as a sidecar (ADR 0019) and then built its own viewer anyway — `Graph.tsx`,
+v2 wrapped graphify as a sidecar (ADR 0019) and then built its own viewer anyway: `Graph.tsx`,
 `Picture.tsx`, `Diagram.tsx`, roughly 45 kB of force-directed picture, clustering and neighbour
 lists. That is not written again. The mechanism below is v1's, in
 `demido-studio-first-version/src-tauri/src/local/graphify.rs`, and it works:
 
 1. **Build is a subprocess, in two stages, both required.**
    `python -m graphify <folder> --code-only [--update]`, then `cluster-only <folder>`. Extract alone
-   writes `graph.json`, exits 0, and **does not write `graph.html`** — v1 shipped that broken once.
+   writes `graph.json`, exits 0, and **does not write `graph.html`**: v1 shipped that broken once.
    `--code-only` is load-bearing: without it graphify demands an LLM key for any repo with a README.
 2. **The viewer is a static file**, handed to an iframe as `srcdoc`. **No server, no port, nothing to
    capture.** Before it is handed over, the vis-network `<script src>` is replaced with an inline copy
@@ -195,7 +195,7 @@ community-coded **data**. Body, sidebar, search, node info, communities, checkbo
 become Karl; the node hues stay graphify's, because recolouring them would be recolouring the answer.
 
 **The model's tools need no server either.** `python -m graphify query | path | explain`, cwd set to
-the folder, stdout captured — the same bargain as the build. MCP over stdio is available if the MCP
+the folder, stdout captured, the same bargain as the build. MCP over stdio is available if the MCP
 shape is ever wanted; an MCP server on a port is not.
 
 Standing debt, recorded: the skin is coupled to graphify's own selectors, so a release of theirs can
@@ -204,8 +204,8 @@ un-style the panel.
 ## The browser
 
 The design problem is not the browser, it is that two parties drive it. So the panel **says who is
-driving, in words**, at the bottom of the page where the action is, in `--color-violet` — the
-delegated-work colour — and names the model's last action. **Take over** is one click and one key.
+driving, in words**, at the bottom of the page where the action is, in `--color-violet`, the
+delegated-work colour, and names the model's last action. **Take over** is one click and one key.
 
 Every click the model makes is a tool call in the session log, like any other.
 
@@ -221,14 +221,14 @@ set up a Python package manager. The people this is for are precisely the people
 
 The ladder for the code graph, and the shape every provisioning surface uses:
 
-1. **uv** — one pinned archive, unpacked into Demido's own runtimes folder. A machine's own uv on
+1. **uv**: one pinned archive, unpacked into Demido's own runtimes folder. A machine's own uv on
    `PATH` always wins.
-2. **Python** — uv fetches its own interpreter. Demido manages no runtime.
-3. **graphifyy** — `uvx --from graphifyy graphify`, on first use.
-4. **build** — the two stages above.
+2. **Python**: uv fetches its own interpreter. Demido manages no runtime.
+3. **graphifyy**: `uvx --from graphifyy graphify`, on first use.
+4. **build**: the two stages above.
 
 **The rule:** a thing that must be fetched says so, says how big, and says it **before** it is
-fetched — as a step ladder with sizes and a live log, never as a modal after a click, and never as an
+fetched, as a step ladder with sizes and a live log, never as a modal after a click, and never as an
 error naming a command for the user to go and run. No step asks anyone to open a terminal.
 
 ## What this file does not decide

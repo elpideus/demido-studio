@@ -38,7 +38,7 @@ paid for in red runs. It ports.
 **The window gate.** A person ran the feature once, in a running Demido window,
 and attached a screenshot. It is **one-shot and never re-run**. It exists
 because v2's own M12 note records four defects that driving the app turned up
-and reading the code had not — among them an `@3xl:flex-row` sitting on the
+and reading the code had not, among them an `@3xl:flex-row` sitting on the
 wrong container, which meant the two-pane model browser **had never once laid
 out in two panes** while every test was green.
 
@@ -49,14 +49,14 @@ scenario is a demo. Neither is done.
 
 The closing comment carries six fields and nothing else:
 
-1. **Slice and ticket** — which slice this belongs to.
-2. **Model, quant and `llama.cpp` SHA** — the exact three, because a red that
+1. **Slice and ticket**: which slice this belongs to.
+2. **Model, quant and `llama.cpp` SHA**: the exact three, because a red that
    turns out to be an upstream fix you did not have is a day spent on nothing.
-3. **Scenario name** — the function in the live suite that proves it.
-4. **Screenshot** — dragged into the comment, so GitHub hosts it and the clone
+3. **Scenario name**: the function in the live suite that proves it.
+4. **Screenshot**: dragged into the comment, so GitHub hosts it and the clone
    stays small.
-5. **Trace fixture path** — see below.
-6. **`Bar:`** — `chose` or `used`, matching the ticket's own line.
+5. **Trace fixture path**: see below.
+6. **`Bar:`**, either `chose` or `used`, matching the ticket's own line.
 
 **The trace goes in the repo; the screenshot does not.** A screenshot is a
 moment: it proves the window laid out once and it is never diffed. A trace is
@@ -100,10 +100,10 @@ build ten weeks behind upstream produces failures that read as your own.
 
 Every slice ticket carries one line, `Bar: chose` or `Bar: used`.
 
-- **`chose`** — the model reached for the thing with nothing in the prompt
+- **`chose`**: the model reached for the thing with nothing in the prompt
   naming it. This is the default, and it is what the brief's thesis actually
   claims.
-- **`used`** — the model was told, and did it correctly.
+- **`used`**: the model was told, and did it correctly.
 
 `used` is legal only when the ticket also records **why `chose` was rejected**
 and what would raise it later. Left unguarded it re-creates v2's problem in a
@@ -122,7 +122,7 @@ Each slice ends at something a model can be pointed at, and is cut by what a
 model can newly *do* rather than by which component was touched. Vertical, never
 broad.
 
-### S1 — a model answers in the window
+### S1: a model answers in the window
 
 A managed `llama.cpp` server that Demido starts and stops, one GGUF chosen from
 the library already on disk, an answer streaming onto the desk, and the trace
@@ -131,10 +131,10 @@ recording the assembly that produced it. No tools. No downloader.
 The event-sourced trace comes along here regardless of the Session Monitor,
 because history is derived from it. What defers is the monitor's UI, not the log.
 
-`Bar: used` — there is nothing yet for a model to choose. The gate is that the
-managed route carried a real conversation into a real window.
+`Bar: used`, since there is nothing yet for a model to choose. The gate is
+that the managed route carried a real conversation into a real window.
 
-### S2 — a model uses a tool, and you can see why
+### S2: a model uses a tool, and you can see why
 
 Tool calling through the backend's own grammar, and enough trace surface to read
 the assembly that was sent. It ends the moment a model reads a file you planted,
@@ -142,7 +142,7 @@ answers from what was in it, and the answer is unguessable from anywhere else.
 
 `Bar: chose`.
 
-### S4 — a model delegates
+### S4: a model delegates
 
 Agent modes and sub-agents, scoped on the trace log rather than given a window
 of their own, per [#8](https://github.com/elpideus/demido-studio/issues/8). The
@@ -154,7 +154,7 @@ brief's demand:
 
 `Bar:` split, as above.
 
-### S3 — a model you did not already have
+### S3: a model you did not already have
 
 The model browser in two panes, search, download with the size stated first, and
 the downloaded file immediately loadable by S1's path.
