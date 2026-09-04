@@ -76,7 +76,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B26 | "Google Account OAuth" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B27 | "Market Data accounts" | - | - | - |
 | B49 | "Any other accounts added in the future." | - | - | - |
-| B28 | "I want the system to be called Nexus." | [#4](https://github.com/elpideus/demido-studio/issues/4) | - | - |
+| B28 | "I want the system to be called Nexus." | [#4](https://github.com/elpideus/demido-studio/issues/4), [#18](https://github.com/elpideus/demido-studio/issues/18) | - | - |
 | B29 | "Native graphify or graphify-like implementation" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B30 | "Email, Calendar and Contacts implementation" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B31 | "Charts visualizer" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
