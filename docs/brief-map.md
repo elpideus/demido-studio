@@ -42,7 +42,8 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | Id | Brief says | Decided | Built | Live |
 |---|---|---|---|---|
 | B01 | "check all the skills, plugins, and tools you have access to" | [#1](https://github.com/elpideus/demido-studio/issues/1) | - | n/a |
-| B02 | "a harness that integrates all the tools I need seamlessly" | - | - | - |
+| B56 | "I need to create apps on developer dashboards, provide API keys, etc." | [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
+| B02 | "a harness that integrates all the tools I need seamlessly" | [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B03 | "windows-only at first, during the pre-release versions" | - | - | - |
 | B04 | "get the most out of even smaller models" | [#13](https://github.com/elpideus/demido-studio/issues/13) | - | - |
 | B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13) | - | - |
@@ -71,13 +72,13 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B55 | "Multiple folders should be set-able for model detection" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B23 | "LLM capabilities support. Vision, Thinking toggling" | - | - | - |
 | B24 | "Task-model functionality." | - | - | - |
-| B25 | "Accounts management system" | [#5](https://github.com/elpideus/demido-studio/issues/5) | - | - |
-| B26 | "Google Account OAuth" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#5](https://github.com/elpideus/demido-studio/issues/5) | - | - |
+| B25 | "Accounts management system" | [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
+| B26 | "Google Account OAuth" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B27 | "Market Data accounts" | - | - | - |
 | B49 | "Any other accounts added in the future." | - | - | - |
 | B28 | "I want the system to be called Nexus." | [#4](https://github.com/elpideus/demido-studio/issues/4) | - | - |
 | B29 | "Native graphify or graphify-like implementation" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
-| B30 | "Email, Calendar and Contacts implementation" | [#3](https://github.com/elpideus/demido-studio/issues/3) | - | - |
+| B30 | "Email, Calendar and Contacts implementation" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B31 | "Charts visualizer" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B32 | "Chat export system." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B33 | "Full Keyboard navigation" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
@@ -99,7 +100,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 
 ## Amendments
 
-The brief wins until Stefan says otherwise in writing. Five lines have been
+The brief wins until Stefan says otherwise in writing. Six lines have been
 overruled so far, each on a ticket, each with the reasoning on that ticket.
 `brief.md` itself is never edited: its verbatim guarantee is the whole value of
 the file. This section is how a session reading the brief learns which lines no
@@ -113,3 +114,4 @@ character for character.
 | B43 | "The panels system should be inspired by Hyprland and i3 tiling systems on linux." | [#7](https://github.com/elpideus/demido-studio/issues/7) | Windows 11 and KDE behaviour: floating covers, pinned makes the desk give up exactly its width, no pin button and no minimise. |
 | B35 | "Integrated basic Web Browser that both users and LLMs have access to" | [#10](https://github.com/elpideus/demido-studio/issues/10) | One panel over two engines: the user on WebView2, the model on Chromium over CDP, because WebView2 has no isolated worlds. |
 | B12 | "allowing different users to use the software on the same machine" | [#15](https://github.com/elpideus/demido-studio/issues/15) | A Demido profile is a Windows profile. The separation is the operating system's, not Demido's: a second person makes a second Windows user. Two people at one Windows login share one profile entirely, and Demido neither detects nor warns about that. |
+| B02 | "a harness that integrates all the tools I need seamlessly" | [#17](https://github.com/elpideus/demido-studio/issues/17) | Two audiences, not one promise: no setup on the common path, and every credential visible and replaceable underneath. Google mail is one click through an app password, but Google calendar and contacts cost a guided ten minutes in the Cloud console, because Demido ships no OAuth client of its own and verification needs a domain it does not have. |
