@@ -166,7 +166,7 @@ form.
 
 ## What the shell persists, and where
 
-**One `shell.json` per account profile, written by Rust, debounced after a gesture
+**One `shell.json` per profile, written by Rust, debounced after a gesture
 settles.** It holds per-panel geometry, pre-pin geometry, pin state and edge, seam
 positions, which panels are open, the rail's edge and the rail's Edit Navbar
 order. The rail's edge keeps its own key, so resetting a layout somebody got lost
@@ -177,24 +177,23 @@ word, because startup never blocks.
 
 **This reverses v2's decision 0028**, which put the arrangement in `localStorage`
 and explicitly rejected the profile directory as "a round trip to Rust on every
-sash drag". Two things changed. Multi-account makes `localStorage` wrong outright,
-since it is one origin for the whole machine and every account on it would share
-one layout. And the sash objection dies with debouncing, which 0028 already had in
+sash drag". Two things changed. `localStorage` is one origin for the whole
+machine, so every Windows user on it would share one layout. And the sash objection dies with debouncing, which 0028 already had in
 its `SETTLE` clock and then wrote to the wrong place anyway.
 
 It stays **out** of the settings schema and its provenance machinery, which 0028
 got right: a sash position has no default worth resolving and must never appear in
 the Navigator as a thing to jump to.
 
-What "per account" means as a security boundary is ticket
-[#15](https://github.com/elpideus/demido-studio/issues/15). This only says the
-layout is scoped to whatever that boundary turns out to be.
+A profile is a Windows profile and the operating system draws the boundary
+([#15](https://github.com/elpideus/demido-studio/issues/15),
+[`docs/rules/profiles.md`](rules/profiles.md)). This only says the layout is
+scoped to it.
 
 ## What this file does not decide
 
 Which of these screens is built first
-([#11](https://github.com/elpideus/demido-studio/issues/11)), the account boundary
-itself ([#15](https://github.com/elpideus/demido-studio/issues/15)), and how a
+([#11](https://github.com/elpideus/demido-studio/issues/11)) and how a
 skill's tools actually run
 ([#14](https://github.com/elpideus/demido-studio/issues/14)), which is the runtime
 half of `docs/rules/tiles.md`.

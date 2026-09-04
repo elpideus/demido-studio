@@ -52,7 +52,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B11 | "Guided set-up on first launch" | - | - | - |
-| B12 | "Multi-account system" | - | - | - |
+| B12 | "Multi-account system" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B13 | "Two main chat modes: Chat and Agent." | - | - | - |
 | B14 | "Deep integration of Caveman-like system" | - | - | - |
 | B15 | "Tool calling and custom tools" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
@@ -68,6 +68,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B54 | "The prompt type means that the tool is nothing more than an md file that gets read and tells LLM what to do on the spot." | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B21 | "Artifact system." | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B22 | "Models Browser & Downloader" | [#7](https://github.com/elpideus/demido-studio/issues/7) | - | - |
+| B55 | "Multiple folders should be set-able for model detection" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B23 | "LLM capabilities support. Vision, Thinking toggling" | - | - | - |
 | B24 | "Task-model functionality." | - | - | - |
 | B25 | "Accounts management system" | [#5](https://github.com/elpideus/demido-studio/issues/5) | - | - |
@@ -98,7 +99,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 
 ## Amendments
 
-The brief wins until Stefan says otherwise in writing. Four lines have been
+The brief wins until Stefan says otherwise in writing. Five lines have been
 overruled so far, each on a ticket, each with the reasoning on that ticket.
 `brief.md` itself is never edited: its verbatim guarantee is the whole value of
 the file. This section is how a session reading the brief learns which lines no
@@ -111,3 +112,4 @@ character for character.
 | B42 | "Sub-Agents monitoring window" | [#8](https://github.com/elpideus/demido-studio/issues/8) | Sub-agents are a scope on the session log, not a window, so the rail loses that entry. |
 | B43 | "The panels system should be inspired by Hyprland and i3 tiling systems on linux." | [#7](https://github.com/elpideus/demido-studio/issues/7) | Windows 11 and KDE behaviour: floating covers, pinned makes the desk give up exactly its width, no pin button and no minimise. |
 | B35 | "Integrated basic Web Browser that both users and LLMs have access to" | [#10](https://github.com/elpideus/demido-studio/issues/10) | One panel over two engines: the user on WebView2, the model on Chromium over CDP, because WebView2 has no isolated worlds. |
+| B12 | "allowing different users to use the software on the same machine" | [#15](https://github.com/elpideus/demido-studio/issues/15) | A Demido profile is a Windows profile. The separation is the operating system's, not Demido's: a second person makes a second Windows user. Two people at one Windows login share one profile entirely, and Demido neither detects nor warns about that. |

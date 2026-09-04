@@ -72,7 +72,7 @@ Lesson {
   evidence     [{ session, seq }]
   confidence   integer, starts at 0
   hits, misses integers
-  scope        { account, project? }
+  scope        { profile, project? }
   state        live | retired
   created, last_used
 }
@@ -202,18 +202,20 @@ Brief B07: "recorded in an append-only session log"
 
 ## Scope
 
-Stored **per account**. Project is a rank boost, not a second store.
+Stored **per profile**. Project is a rank boost, not a second store.
 
 A lesson encodes facts about this machine and this user's habits, and the brief
 wants the machine shared by families and college rooms.
 
 Brief B12: "Multi-account system"
 
-Lessons never cross the account boundary. No sharing, no export, no sync in
+Lessons never cross the profile boundary. No sharing, no export, no sync in
 v0.1: what a user's lessons reveal about what a user does is a privacy question
-that deserves deciding rather than defaulting. This follows whatever boundary
-[#15](https://github.com/elpideus/demido-studio/issues/15) settles, and does not
-weaken it.
+that deserves deciding rather than defaulting. A profile is a Windows profile
+([#15](https://github.com/elpideus/demido-studio/issues/15)), so the lesson store
+lives under `%LOCALAPPDATA%` and the operating system holds the boundary. Two
+people at one Windows login share one lesson store, which is the cost that
+ruling names.
 
 ## How we know it transfers
 
