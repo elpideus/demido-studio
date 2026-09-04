@@ -55,12 +55,17 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B12 | "Multi-account system" | - | - | - |
 | B13 | "Two main chat modes: Chat and Agent." | - | - | - |
 | B14 | "Deep integration of Caveman-like system" | - | - | - |
-| B15 | "Tool calling and custom tools" | - | - | - |
+| B15 | "Tool calling and custom tools" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B16 | "Markdown, LaTeX and Mermaid supported in the chat bubbles." | - | - | - |
 | B17 | "Projects system that allows to group chats" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B18 | "Native web search and fetch" | - | - | - |
-| B19 | "Configurable Agents & sub-agents system." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#11](https://github.com/elpideus/demido-studio/issues/11) | - | - |
-| B20 | "Skills system. This is important because my requirements for it are complex." | - | - | - |
+| B19 | "Configurable Agents & sub-agents system." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#11](https://github.com/elpideus/demido-studio/issues/11), [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B20 | "Skills system. This is important because my requirements for it are complex." | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B50 | "I also need skills to be able to provide custom tools that LLMs can use" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B51 | "The file that gets actually loaded (if skill is enabled) is the skill.json file" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B52 | "skills also provide the required mcps and tools instead of the user having to grab them manually" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B53 | "The ones without a specific type are assumed to be the ones provided by the skill in an "engine" or "src" folder" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B54 | "The prompt type means that the tool is nothing more than an md file that gets read and tells LLM what to do on the spot." | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B21 | "Artifact system." | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B22 | "Models Browser & Downloader" | [#7](https://github.com/elpideus/demido-studio/issues/7) | - | - |
 | B23 | "LLM capabilities support. Vision, Thinking toggling" | - | - | - |

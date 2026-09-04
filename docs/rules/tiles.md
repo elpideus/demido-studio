@@ -61,7 +61,8 @@ Anything executable runs **out of process**. Third-party code does not share the
 address space of the inference supervisor, and a tile that crashes takes nothing
 with it.
 
-How a skill's tools are actually launched, supervised and killed is ticket
+How a skill's tools are actually launched, supervised and killed is
+[`skills.md`](skills.md), decided on ticket
 [#14](https://github.com/elpideus/demido-studio/issues/14), not this file. What
 this file fixes is the frame those answers have to fit.
 
