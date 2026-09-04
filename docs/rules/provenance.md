@@ -59,9 +59,14 @@ rejects them by name, and the reason is legal rather than editorial:
 | `open-webui` | Its license carries a branding-retention clause: removing Open WebUI branding above 50 users is forbidden, which our distribution cannot honour. |
 | `openclaude` | It is a derivative of proprietary code, redistributed without authorization. Its own position is not one we can inherit. |
 
-The ruled-out table in `THIRD_PARTY_NOTICES.md` is where the list lives and may
-grow. It cannot shrink below these two: both are pinned in the checker, so
-deleting a row does not lift a ban.
+The index the checker reads is the **first table** of `THIRD_PARTY_NOTICES.md`,
+the one the application renders. A later section, such as the list of packs
+chosen but not yet installed, is prose: it claims nothing and needs no license
+on disk until the commit that installs the thing.
+
+The ruled-out table is where the ban list lives and may grow. It cannot shrink
+below these two: both are pinned in the checker, so deleting a row does not lift
+a ban.
 
 ## Nothing third-party is bundled
 

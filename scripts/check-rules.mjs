@@ -688,8 +688,10 @@ function readNotices() {
     if (!row) continue
     const [, first, second] = row
     if (/^:?-+:?$/.test(first) || first === 'Project' || first.startsWith('_(')) continue
-    if (section.startsWith('ruled out')) forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
-    else listed.add(`${second}/${first}`.toLowerCase())
+    // The index is the table before the first heading. A later section is
+    // prose about things that do not ship yet, and claims nothing.
+    if (section === '') listed.add(`${second}/${first}`.toLowerCase())
+    else if (section.startsWith('ruled out')) forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
   }
   return { listed, forbidden }
 }
