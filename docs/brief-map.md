@@ -44,7 +44,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B01 | "check all the skills, plugins, and tools you have access to" | [#1](https://github.com/elpideus/demido-studio/issues/1) | - | n/a |
 | B56 | "I need to create apps on developer dashboards, provide API keys, etc." | [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B02 | "a harness that integrates all the tools I need seamlessly" | [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
-| B03 | "windows-only at first, during the pre-release versions" | - | - | - |
+| B03 | "windows-only at first, during the pre-release versions" | [#31](https://github.com/elpideus/demido-studio/issues/31) | - | - |
 | B04 | "get the most out of even smaller models" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
 | B58 | "or the user tells it where it is wrong" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#23](https://github.com/elpideus/demido-studio/issues/23) | - | - |
 | B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |

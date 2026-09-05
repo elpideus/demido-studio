@@ -114,7 +114,10 @@ commons on every start buys information the user usually does not need.
   offering rungs 1 and 2 as buttons.
 - Rot is a release gate, not a runtime one: a build whose `verified_on` is more
   than 90 days old fails to release
-  ([#4](https://github.com/elpideus/demido-studio/issues/4) rule 6).
+  ([#4](https://github.com/elpideus/demido-studio/issues/4) rule 6). Checked by
+  `scripts/check-release.mjs`, section 6 of [`releases.md`](releases.md), which
+  also re-argued this rule once Demido had a channel for talking about its own
+  build and left it exactly as written.
 
 ## 6. AI Horde is a commons, and Demido says who it is
 

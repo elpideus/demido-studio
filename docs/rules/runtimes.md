@@ -338,7 +338,16 @@ avoid an awkward question.
   cross-platform question. Section 6 adds one thing to that pile: whatever
   packages and updates Demido is also what delivers a pin, so the updater and the
   manifest are the same shipment.
-- **Whether a release ever says why a pin moved.** Section 7's dot says a newer
-  pin exists and section 4's row says how big it is. Neither says what changed,
-  and nothing here decides whether a pin carries a line of prose of its own or
-  whether the user is expected to read upstream's release notes.
+
+**Settled since, in [`releases.md`](releases.md).** Ticket
+[#31](https://github.com/elpideus/demido-studio/issues/31) answered what a
+release is and built the shipment section 6 assumed. Three things above are now
+that file's:
+
+- **Why a pin moved.** A pin entry carries a `note`, one line, rendered beside
+  **Update**, and `check-release.mjs` requires it when the pin changed.
+- **Where sections 8 and 9's rules are checked.** `scripts/check-release.mjs`,
+  in the release workflow, alongside `nexus.md`'s rot gate and hard rule 3.
+- **The dot in section 7 is shared.** A newer Demido uses the same dot and
+  resolves to the same page, as a Demido row above the manifest rows, exempt
+  from section 0's managed, linked and absent states.

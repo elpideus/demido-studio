@@ -31,7 +31,9 @@ settled, and this file plus the brief are the contract.
 
 ## Hard rules
 
-Enforced by CI (`node scripts/check-rules.mjs`). Violating one fails the build.
+Enforced by CI (`node scripts/check-rules.mjs`) on every push, except rule 3,
+which needs a built installer and so runs at the tag
+(`node scripts/check-release.mjs`). Violating one fails the build.
 
 1. **Attribution.** Every commit is authored by
    `Stefan Cucoranu <elpideus@gmail.com>` and signed. Never add
@@ -54,8 +56,11 @@ Enforced by CI (`node scripts/check-rules.mjs`). Violating one fails the build.
    each thing states its size before it is fetched. What Demido fetched it also
    owns: it deletes a superseded pin, keeps no predecessor, and never touches a
    binary the user pointed at or a cache another program filled
-   ([`docs/rules/runtimes.md`](docs/rules/runtimes.md)). Checked by review rather
-   than by CI, because checking it needs an installer and there is not one yet.
+   ([`docs/rules/runtimes.md`](docs/rules/runtimes.md)). Checked at release time
+   by `scripts/check-release.mjs`, which inspects the built bundle, since the
+   thing to check is an installer
+   ([`docs/rules/releases.md`](docs/rules/releases.md)). **Enforced at the tag**,
+   and a no-op until there is a bundle.
 4. **Arbitrary values live in `design/tokens.css`** and nowhere else: colour,
    type, space, radius, motion. Every theme's contrast is recomputed rather than
    claimed. See [`docs/rules/no-raw-values.md`](docs/rules/no-raw-values.md).
@@ -124,6 +129,7 @@ rule an agent can break without CI noticing is a rule that will be broken.
 | `design/` | The design system: `tokens.css` owns every arbitrary value, and `system.md`, `shell.md`, `windows.md` are the frozen boards. |
 | `licenses/` | One `LICENSE` per ported source, mirroring `<owner>/<repo>`. |
 | `scripts/check-rules.mjs` | The hard rules above. No dependencies, on purpose. |
+| `scripts/check-release.mjs` | The rules that only fire at a tag. See [`docs/rules/releases.md`](docs/rules/releases.md). |
 | `.githooks/` | The `commit-msg` gate. Install it once per clone (see Commands). |
 | `.github/allowed_signers` | The signing key CI verifies commits against. |
 | `.claude/` | Session guardrails: the blocked git commands, as a hook. |
