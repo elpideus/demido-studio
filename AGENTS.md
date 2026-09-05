@@ -51,7 +51,10 @@ Enforced by CI (`node scripts/check-rules.mjs`). Violating one fails the build.
    asks a question spends their attention at the worst moment, and it is how v2
    came to ship an apology where the brief asked for a feature
    ([`docs/rules/setup.md`](docs/rules/setup.md)). Nothing is pre-installed, and
-   each thing states its size before it is fetched. Checked by review rather
+   each thing states its size before it is fetched. What Demido fetched it also
+   owns: it deletes a superseded pin, keeps no predecessor, and never touches a
+   binary the user pointed at or a cache another program filled
+   ([`docs/rules/runtimes.md`](docs/rules/runtimes.md)). Checked by review rather
    than by CI, because checking it needs an installer and there is not one yet.
 4. **Arbitrary values live in `design/tokens.css`** and nowhere else: colour,
    type, space, radius, motion. Every theme's contrast is recomputed rather than

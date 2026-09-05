@@ -162,6 +162,11 @@ already has a browser Demido can drive, section 6 removes that row and the
 capability group falls to 109.8 down and 286.3 on disk**, which is the single
 largest saving available anywhere in this manifest.
 
+**This table is what the first set-up costs, not what the folder holds a year
+later.** Every row is a pin and every pin gets replaced, so what deletes the
+superseded one, what counts as verified before it goes, and where a user reads
+what is on their disk are [`runtimes.md`](runtimes.md).
+
 **Four things the measurement turned up that this file could not have said
 before it.**
 
@@ -320,7 +325,19 @@ lands. `profiles.md` scopes runtimes per profile, so a second Windows user pays
 it again. Every runtime in section 4's table has this shape and Chrome is only
 where it was first noticed, so **Demido deletes the superseded pin once the new
 one verifies**, and the runtimes surface lists what is on disk with its size.
-That is a manifest-wide rule, not a Chrome one.
+That is a manifest-wide rule, not a Chrome one, and it is
+[`runtimes.md`](runtimes.md).
+
+**Demido fetches the Chrome itself, and this row is why.**
+[#29](https://github.com/elpideus/demido-studio/issues/29) found that
+`agent-browser install` takes no version argument, that `agent-browser doctor`
+called the three-Chrome directory healthy, and that `~/.agent-browser` is keyed
+off `HOME` and shared with every other program the user drives it from. So the
+pin above is honoured by Demido unpacking `chrome-win64.zip` into its own
+runtimes folder and passing `--executable-path`, and the caches in the user's
+home are left alone. Detection in this section is unchanged: it still asks
+whether the machine already has a browser worth driving, and the answer still
+removes the row.
 
 ## 7. Once per profile, and the duplication is deliberate
 
@@ -337,7 +354,10 @@ neither asking for elevation and neither creating a machine-wide directory.**
   visible on the machine, for the user to confirm. The mechanism is the brief's
   own: Brief B55: "Multiple folders should be set-able for model detection, so that Demido Studio can use models downloaded by other tools (like LM Studio) without the need to move them or create symlinks."
 - **Each runtime row offers "point at one I already have"**, a path to a binary
-  the user owns.
+  the user owns. That makes the row **linked** rather than **managed**, which
+  [`runtimes.md`](runtimes.md) turns into a rule: Demido reads and launches it,
+  never writes inside it, never deletes it, and never counts its bytes as disk
+  Demido spent.
 
 ## 8. The connected route is a link, not the opening fork
 

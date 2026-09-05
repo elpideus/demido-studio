@@ -53,7 +53,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
 | B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
-| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27), [#28](https://github.com/elpideus/demido-studio/issues/28) | - | - |
+| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27), [#28](https://github.com/elpideus/demido-studio/issues/28), [#29](https://github.com/elpideus/demido-studio/issues/29) | - | - |
 | B12 | "Multi-account system" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B13 | "Two main chat modes: Chat and Agent." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B57 | "There should be 3 agent modes: Cautious, Balanced, Autonomous." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
