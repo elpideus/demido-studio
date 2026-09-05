@@ -66,6 +66,8 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B20 | "Skills system. This is important because my requirements for it are complex." | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B50 | "I also need skills to be able to provide custom tools that LLMs can use" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B51 | "The file that gets actually loaded (if skill is enabled) is the skill.json file" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B59 | "There are also the slash commands, that allow users to use features from the skill on demand" | [#25](https://github.com/elpideus/demido-studio/issues/25) | - | - |
+| B60 | "The "when" condition applies to these too." | [#14](https://github.com/elpideus/demido-studio/issues/14), [#25](https://github.com/elpideus/demido-studio/issues/25) | - | - |
 | B52 | "skills also provide the required mcps and tools instead of the user having to grab them manually" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B53 | "The ones without a specific type are assumed to be the ones provided by the skill in an "engine" or "src" folder" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B54 | "The prompt type means that the tool is nothing more than an md file that gets read and tells LLM what to do on the spot." | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
@@ -102,7 +104,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 
 ## Amendments
 
-The brief wins until Stefan says otherwise in writing. Seven lines have been
+The brief wins until Stefan says otherwise in writing. Eight lines have been
 overruled so far, each on a ticket, each with the reasoning on that ticket.
 `brief.md` itself is never edited: its verbatim guarantee is the whole value of
 the file. This section is how a session reading the brief learns which lines no
@@ -118,3 +120,4 @@ character for character.
 | B12 | "allowing different users to use the software on the same machine" | [#15](https://github.com/elpideus/demido-studio/issues/15) | A Demido profile is a Windows profile. The separation is the operating system's, not Demido's: a second person makes a second Windows user. Two people at one Windows login share one profile entirely, and Demido neither detects nor warns about that. |
 | B02 | "a harness that integrates all the tools I need seamlessly" | [#17](https://github.com/elpideus/demido-studio/issues/17) | Two audiences, not one promise: no setup on the common path, and every credential visible and replaceable underneath. Google mail is one click through an app password, but Google calendar and contacts cost a guided ten minutes in the Cloud console, because Demido ships no OAuth client of its own and verification needs a domain it does not have. |
 | B13 | "Two main chat modes: Chat and Agent." | [#20](https://github.com/elpideus/demido-studio/issues/20) | One loop, always the agent loop, the shape Claude Code has. A conversation that calls no tool is the same loop with nothing to do but answer. Everything the Chat mode would have done is now a set with nothing in it on the offered axis, reached by a control that can also say "files but no shell", which no mode could express. |
+| B60 | "The "when" condition applies to these too." | [#14](https://github.com/elpideus/demido-studio/issues/14) | Nothing evaluates `when` on a slash command, because the user chose it. It is help text on the command and is documented as help text. The clause still binds the skill itself: `when` at the top level says when to read the skill, and `agent.when` says when to delegate to it. |
