@@ -54,9 +54,10 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B11 | "Guided set-up on first launch" | - | - | - |
 | B12 | "Multi-account system" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
-| B13 | "Two main chat modes: Chat and Agent." | - | - | - |
+| B13 | "Two main chat modes: Chat and Agent." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
+| B57 | "There should be 3 agent modes: Cautious, Balanced, Autonomous." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B14 | "Deep integration of Caveman-like system" | - | - | - |
-| B15 | "Tool calling and custom tools" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B15 | "Tool calling and custom tools" | [#14](https://github.com/elpideus/demido-studio/issues/14), [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B16 | "Markdown, LaTeX and Mermaid supported in the chat bubbles." | - | - | - |
 | B17 | "Projects system that allows to group chats" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B18 | "Native web search and fetch" | - | - | - |
@@ -100,7 +101,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 
 ## Amendments
 
-The brief wins until Stefan says otherwise in writing. Six lines have been
+The brief wins until Stefan says otherwise in writing. Seven lines have been
 overruled so far, each on a ticket, each with the reasoning on that ticket.
 `brief.md` itself is never edited: its verbatim guarantee is the whole value of
 the file. This section is how a session reading the brief learns which lines no
@@ -115,3 +116,4 @@ character for character.
 | B35 | "Integrated basic Web Browser that both users and LLMs have access to" | [#10](https://github.com/elpideus/demido-studio/issues/10) | One panel over two engines: the user on WebView2, the model on Chromium over CDP, because WebView2 has no isolated worlds. |
 | B12 | "allowing different users to use the software on the same machine" | [#15](https://github.com/elpideus/demido-studio/issues/15) | A Demido profile is a Windows profile. The separation is the operating system's, not Demido's: a second person makes a second Windows user. Two people at one Windows login share one profile entirely, and Demido neither detects nor warns about that. |
 | B02 | "a harness that integrates all the tools I need seamlessly" | [#17](https://github.com/elpideus/demido-studio/issues/17) | Two audiences, not one promise: no setup on the common path, and every credential visible and replaceable underneath. Google mail is one click through an app password, but Google calendar and contacts cost a guided ten minutes in the Cloud console, because Demido ships no OAuth client of its own and verification needs a domain it does not have. |
+| B13 | "Two main chat modes: Chat and Agent." | [#20](https://github.com/elpideus/demido-studio/issues/20) | One loop, always the agent loop, the shape Claude Code has. A conversation that calls no tool is the same loop with nothing to do but answer. Everything the Chat mode would have done is now a set with nothing in it on the offered axis, reached by a control that can also say "files but no shell", which no mode could express. |

@@ -152,6 +152,13 @@ download indicator in the application title bar and owns per-item pause, resume 
 **A tool call in Cautious.** Nothing runs until approved. Enter approves, Escape denies, and *"always
 for this tool"* is how Cautious decays into Balanced by the user's choice rather than by nagging.
 
+**The tool picker.** A popover from the composer, beside the mode control, listing what this
+conversation offers the model: built-in groups first, then one row per installed skill, each
+expandable in place to its individual tools. Everything is on by default and a disabled tool is not
+sent to the model at all. It is the only surface for this, and it is the reason there is no Chat
+mode: an empty set is what Chat would have been. See
+[`docs/rules/tools.md`](../docs/rules/tools.md).
+
 **A model thinking.** Visible by default, streaming, collapsible, timed, and carrying its own Caveman
 level independent of the answer's. The send button becomes stop while the model runs; the elapsed
 count is the progress indicator. There is no indeterminate bar.
@@ -215,6 +222,6 @@ the words suffice, nothing is added.
 
 ## What this file does not decide
 
-The stack that builds it (#10), what Nexus may honestly promise on the empty state (#18), and which
+What the mode control gates and what the tool picker offers (#20), the stack that builds it (#10), what Nexus may honestly promise on the empty state (#18), and which
 of these screens the v0.1 slice builds first (#11). This file describes the shell; it names no
 framework and no library beyond the two icon packs.

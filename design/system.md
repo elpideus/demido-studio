@@ -126,7 +126,8 @@ incomplete shell, and ticket
 | Artifact card | rest, hover, lit | `raised`, `hover`; lit to `edge` for as long as its panel is open. |
 | Composer | rest, focused, disabled, model running | `well` at `--radius-island` (a field is a recess); focused ring `signal`; disabled states the reason in `ink-3`, never `ink-4`; send becomes stop while the model runs. |
 | Model selector | rest, open, none installed | `raised`; capability tags inline. |
-| Agent mode control | Cautious, Balanced | `raised`, active on `signal`. A shield icon on Cautious. No status dot. |
+| Agent mode control | Cautious, Balanced, Autonomous | `raised`, active on `signal`. A shield icon on Cautious. No status dot. Three states, not two ([#20](https://github.com/elpideus/demido-studio/issues/20)). |
+| Tool picker | closed, open, group expanded, group partial | Popover from the composer, `panel` on `edge`. Rows are groups (built-ins, then one per skill) with a tool count, expandable in place to individual switches. A group with some tools off renders partial, never on. |
 | Chat list | rest, filtered | `chrome` column with an All / Chats / Projects filter. Rows `ink-2`, `hover`, selected `edge`. |
 | Chat list empty state | no chats | Violet at 176px, `saturate(0%)`, `opacity: .05`, masked `linear-gradient(to bottom, black 50%, transparent 100%)`. Caption "No chats yet." in `ink-3`. |
 
