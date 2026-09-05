@@ -105,7 +105,7 @@ inside that boundary, and which deliberately sit outside it.
 | Lessons | Profile | Already ruled on [#13](https://github.com/elpideus/demido-studio/issues/13). |
 | Accounts, and every secret | Profile | DPAPI enforces this whether or not Demido intends it. |
 | Code graphs | Profile | Derived and rebuildable, which argues shared, but a graph names every path in a private project. Privacy wins over disk. |
-| Managed runtimes: uv, Python, Chromium, llama.cpp | Profile | Executables Demido fetched and will later run. A shared writable runtime directory is a path where one user replaces a binary another user executes. Duplicated on purpose. |
+| Managed runtimes: uv, Python, Node, Chromium, llama.cpp | Profile | Executables Demido fetched and will later run. A shared writable runtime directory is a path where one user replaces a binary another user executes. Duplicated on purpose, and the argument is stronger now the list is five rather than one ([`setup.md`](setup.md) §6). |
 | Model weights | Shared, by the user's own choice | Tens of gigabytes. Two Windows users on one machine should not each download Gemma. |
 
 **Model weights are shared by pointing, not by privilege.** Demido creates no
@@ -119,6 +119,13 @@ users can read them and adds that folder in each profile. The default download
 folder stays inside the profile, because a default that writes outside the
 profile is a default that needs permissions Demido should not ask for on first
 launch.
+
+**Set-up makes both escapes one click rather than a settings expedition**
+([`setup.md`](setup.md) §6): the model folder field is pre-filled from any
+readable model folder already on the machine for the user to confirm, and every
+runtime row offers a path to a binary the user already has. Both are the user
+reaching outside their own profile deliberately, which is what this section
+permits and what elevation would not be.
 
 **"Global" now means profile-global.** The settings ladder from
 [#8](https://github.com/elpideus/demido-studio/issues/8) is global, then model,

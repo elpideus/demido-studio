@@ -47,9 +47,12 @@ Enforced by CI (`node scripts/check-rules.mjs`). Violating one fails the build.
    **Enforced now**: a provenance header naming either one fails the build.
 3. **Nothing third-party is bundled into the installer.** Runtimes, inference
    backends and anything else are fetched from upstream onto the user's machine
-   at first use. Nothing is pre-installed, and each thing states its size before
-   it is fetched. Checked by review rather than by CI, because checking it
-   needs an installer and there is not one yet.
+   **at set-up**, not at first use: deferring a download to the moment a person
+   asks a question spends their attention at the worst moment, and it is how v2
+   came to ship an apology where the brief asked for a feature
+   ([`docs/rules/setup.md`](docs/rules/setup.md)). Nothing is pre-installed, and
+   each thing states its size before it is fetched. Checked by review rather
+   than by CI, because checking it needs an installer and there is not one yet.
 4. **Arbitrary values live in `design/tokens.css`** and nowhere else: colour,
    type, space, radius, motion. Every theme's contrast is recomputed rather than
    claimed. See [`docs/rules/no-raw-values.md`](docs/rules/no-raw-values.md).

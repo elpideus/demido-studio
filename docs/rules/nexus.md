@@ -142,3 +142,9 @@ That is blocking or not, hardware detection, download sequencing, and what is
 per profile rather than per machine. It inherits the offer above rather than
 re-deciding it. Two tickets writing one screen is how v2's shell came to be
 rebuilt three times in three days.
+
+**Settled, in [`setup.md`](setup.md).** The wizard is front and centre on first
+launch and every step has a way out; a user who leaves lands on the desk with
+rung 0 already answering, which is the arrangement §1 above describes. Nexus is
+what makes leaving survivable, so this file's offer and that file's door are one
+mechanism seen from two sides.

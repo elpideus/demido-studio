@@ -218,15 +218,25 @@ broad.
 
 ### S1: a model answers in the window
 
-A managed `llama.cpp` server that Demido starts and stops, one GGUF chosen from
-the library already on disk, an answer streaming onto the desk, and the trace
-recording the assembly that produced it. No tools. No downloader.
+The guided set-up, a managed `llama.cpp` server that Demido starts and stops,
+one GGUF, an answer streaming onto the desk, and the trace recording the
+assembly that produced it. No tools. No downloader.
 
 The event-sourced trace comes along here regardless of the Session Monitor,
 because history is derived from it. What defers is the monitor's UI, not the log.
 
-`Bar: used`, since there is nothing yet for a model to choose. The gate is
-that the managed route carried a real conversation into a real window.
+**The set-up wizard ships in this slice**
+([#21](https://github.com/elpideus/demido-studio/issues/21),
+[`setup.md`](setup.md)), which raises the gate rather than adding a screen to
+it. S1 was written to start from a machine with models already on disk and a rig
+already standing. That is Stefan's machine, and starting from it is the
+assumption v2 died of. **The fixture is a fresh Windows profile**: making a
+second Windows user costs nothing and Windows guarantees the profile is empty
+([`profiles.md`](profiles.md)).
+
+`Bar: used`, since there is nothing yet for a model to choose. The gate is a new
+Windows user, the wizard run from zero, and the managed route carrying a real
+conversation into a real window, with a screenshot and the trace as ever.
 
 ### S2: a model uses a tool, and you can see why
 

@@ -32,6 +32,18 @@ in the table above, with its license text under `licenses/`, on the commit that 
 | lucide | lucide-icons | ISC | [#7](https://github.com/elpideus/demido-studio/issues/7), [#9](https://github.com/elpideus/demido-studio/issues/9) |
 | simple-icons | simple-icons | CC0-1.0 | [#7](https://github.com/elpideus/demido-studio/issues/7) |
 | llama.cpp | ggml-org | MIT | [#19](https://github.com/elpideus/demido-studio/issues/19) |
+| uv | astral-sh | to confirm ([#27](https://github.com/elpideus/demido-studio/issues/27)) | [#21](https://github.com/elpideus/demido-studio/issues/21) |
+| searxng | searxng | to confirm ([#27](https://github.com/elpideus/demido-studio/issues/27)) | [#21](https://github.com/elpideus/demido-studio/issues/21) |
+| node | nodejs | to confirm ([#27](https://github.com/elpideus/demido-studio/issues/27)) | [#21](https://github.com/elpideus/demido-studio/issues/21) |
+| agent-browser | to confirm | to confirm ([#27](https://github.com/elpideus/demido-studio/issues/27)) | [#21](https://github.com/elpideus/demido-studio/issues/21) |
+| chromium | to confirm | to confirm ([#27](https://github.com/elpideus/demido-studio/issues/27)) | [#21](https://github.com/elpideus/demido-studio/issues/21) |
+
+The five rows below `llama.cpp` are what
+[#21](https://github.com/elpideus/demido-studio/issues/21) added by moving every runtime fetch from
+first use to set-up. Their owners and licenses are written as **to confirm** rather than guessed:
+[#27](https://github.com/elpideus/demido-studio/issues/27) reads each one upstream and replaces the
+placeholder. A license nobody has read is not a license, and this file is what the in-app credits
+surface renders.
 
 `llama.cpp` is credited here rather than in the table above because nothing fetches it yet. It is
 never bundled: hard rule 3 puts it on the user's disk from an upstream release, which is a fetch and
