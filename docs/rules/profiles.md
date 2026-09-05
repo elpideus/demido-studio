@@ -129,9 +129,11 @@ permits and what elevation would not be.
 
 **"Global" now means profile-global.** The settings ladder from
 [#8](https://github.com/elpideus/demido-studio/issues/8) is global, then model,
-then chat, then character. Its top rung is the profile. There is no
-machine-global settings tier, and nothing is shared between Windows users except
-the weights they chose to point at.
+then character, then chat
+([#32](https://github.com/elpideus/demido-studio/issues/32) corrected the order
+of the last two). Its top rung is the profile. There is no machine-global
+settings tier, and nothing is shared between Windows users except the weights
+they chose to point at.
 
 ## The threat model
 

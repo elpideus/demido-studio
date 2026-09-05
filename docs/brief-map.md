@@ -51,7 +51,8 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
-| B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
+| B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#32](https://github.com/elpideus/demido-studio/issues/32) | - | - |
+| B61 | "since I will need a character system implemented later down the road so users can give LLMs personalities and ways of doing things" | [#32](https://github.com/elpideus/demido-studio/issues/32) | - | - |
 | B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27), [#28](https://github.com/elpideus/demido-studio/issues/28), [#29](https://github.com/elpideus/demido-studio/issues/29), [#30](https://github.com/elpideus/demido-studio/issues/30) | - | - |
 | B12 | "Multi-account system" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |

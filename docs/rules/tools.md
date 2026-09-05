@@ -241,9 +241,15 @@ offer"*. This makes it the rule.
 
 The ordinary ladder from
 [#8](https://github.com/elpideus/demido-studio/issues/8): global, then model,
-then chat, then character, following-or-overridden, with no fourth shape
+then character, then chat, following-or-overridden, with no fourth shape
 invented for either. v2 already resolves `tools.mode` this way and has a test
 for it.
+
+The order was written here as global, model, chat, character until
+[#32](https://github.com/elpideus/demido-studio/issues/32), which found that v2's
+`stack.rs` had always ordered it the other way and that character-wins makes the
+composer's own tool picker inert. **The chat is the last word.** See
+[`docs/decisions/0007-a-chat-outranks-its-character.md`](../decisions/0007-a-chat-outranks-its-character.md).
 
 The one wrinkle is that the offered set is a **set** where every other row on
 that ladder is a scalar, and **an override replaces rather than merges**. A
@@ -254,7 +260,10 @@ specified, *"Files, Web, set by this character, overriding global"*.
 
 That gives the conversational character its mechanism after all. A persona whose
 job is talking declares an empty set and its chats open with no tools, without a
-Chat mode existing anywhere.
+Chat mode existing anywhere. It is a **default rather than a guarantee**: the
+chat is above it on the ladder, so the composer can still turn tools on for one
+conversation. [`characters.md`](characters.md) holds the rest of what a persona
+is, and none of it ships in v0.1.
 
 ## What v0.1 ships
 
