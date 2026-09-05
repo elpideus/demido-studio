@@ -73,7 +73,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B22 | "Models Browser & Downloader" | [#7](https://github.com/elpideus/demido-studio/issues/7) | - | - |
 | B55 | "Multiple folders should be set-able for model detection" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B23 | "LLM capabilities support. Vision, Thinking toggling" | - | - | - |
-| B24 | "Task-model functionality." | - | - | - |
+| B24 | "Task-model functionality." | [#24](https://github.com/elpideus/demido-studio/issues/24) | - | - |
 | B25 | "Accounts management system" | [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B26 | "Google Account OAuth" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B27 | "Market Data accounts" | - | - | - |

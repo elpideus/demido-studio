@@ -208,8 +208,14 @@ nothing. That is a real gap and it is not covered here.
 
 ## Who writes it
 
-The **local chat model**, grammar constrained to the enum, run once **after the
-turn ends** and never on the hot path. v2 already records whether a turn was
+The **task model**, grammar constrained to the enum, run once **after the
+turn ends** and never on the hot path. Both this and the judgement above it are
+task-model jobs, and
+[#24](https://github.com/elpideus/demido-studio/issues/24) settled which weights
+that means: the conversation model by default, another one if the user assigns
+it and the card has room, falling back to whichever is already resident rather
+than evicting it. [`docs/rules/tasks.md`](tasks.md) holds the role, the
+scheduling and the failure behaviour; this file holds what the job is asked. v2 already records whether a turn was
 grammar constrained (`tools/offered` carries it, precisely so that "the model
 produced arguments the schema forbids" has one explanation rather than two), so
 constraining a classifier's output is existing machinery rather than a new
