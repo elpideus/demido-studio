@@ -45,6 +45,36 @@ out in two panes** while every test was green.
 A scenario without a screenshot is an unproven UI. A screenshot without a
 scenario is a demo. Neither is done.
 
+### The window gate has one known trap
+
+Driving a Tauri window from outside needs `withGlobalTauri`, which Demido does
+not set in anything shipped, and the way it fails is designed to waste a day.
+Reproduced on [#19](https://github.com/elpideus/demido-studio/issues/19) against
+v2's build, over CDP:
+
+    typeof window.__TAURI__       = undefined
+    typeof window.__TAURI_INTERNALS__ = object
+    Object.keys(window) matching TAURI = []
+    invoke through the global     = Cannot read properties of undefined (reading 'core')
+
+The internals object is there and the public global is not, so the IPC channel
+is fine and only the handle a driver reaches for is missing. Worse, the
+internals are non-enumerable, so listing `window` reports no Tauri at all and a
+healthy app looks like a broken one. v2 saw this as "Request timeout after
+2000ms" from every webview tool while its Rust-side tools worked, which is the
+same fault one layer up, and a missing `mcp-bridge:default` capability produces
+the identical timeout. Two causes, one symptom, neither visible.
+
+So the driver asserts the global at connect time and says which of the two is
+missing, rather than timing out. A build made for evidence gets the relaxation
+through a config merged only by the dev command, never through
+`tauri.conf.json` or `capabilities/`, so a shipped build has neither the code
+nor the permission.
+
+A second trap sits beside it: a debug build loads `devUrl`, so running the
+binary without the frontend dev server serves a blank page with the right window
+title. Blank window, no error.
+
 ## What closes a ticket
 
 The closing comment carries six fields and nothing else:
@@ -93,8 +123,72 @@ note and nothing is changed, unless it reproduces at Q4_K_M. The reference model
 tolerates the same quant far better because only about four billion parameters
 are active per token.
 
-**`llama.cpp` is pinned and rebuilt.** The SHA goes in every closing comment. A
-build ten weeks behind upstream produces failures that read as your own.
+That rule stands, but the failure it anticipates has not happened yet. On
+[#19](https://github.com/elpideus/demido-studio/issues/19) all four models,
+breadth included, emitted a well-formed call on every one of three probes, and
+picked the right tool out of three offered. The rule is therefore a standing
+allowance and not an expectation, and a breadth red is now surprising enough to
+be worth a second look before it is written off as the quant.
+
+## The pin
+
+**`llama.cpp` is pinned and fetched, never built.** Hard rule 3 keeps a
+third-party binary out of the installer, so the backend is the upstream release
+archive: no compiler, no CUDA toolkit and no build on the user's machine. That
+also makes the SHA in a closing comment mean something, because it names an
+artifact anyone can download rather than one machine's build of it.
+
+| | |
+|---|---|
+| Release | `b10816` |
+| Commit | `427291b5b34cd914a31b3fd3b61a68f6184f4b9f` |
+| Dated | 2026-09-05 |
+| Archive | `llama-b10816-bin-win-cuda-13.3-x64.zip`, 143 MB |
+| Runtime | `cudart-llama-bin-win-cuda-13.3-x64.zip`, 373 MB |
+
+Two archives, not one: the build links against `cudart64_*.dll` and ships
+without it. Half a gigabyte is what the guided set-up has to state before it
+fetches anything, per Brief B11: "Guided set-up on first launch".
+
+**A CUDA build one minor version above the driver still loads.** This driver
+reports 13.2 and the 13.3 archive initialises CUDA and offloads normally. v2's
+`demido-catalog` selects the newest build whose toolkit version is at or below
+the driver's, which would hand this exact card the 12.4 archive: a 254 MB
+download instead of 143 MB, for no reason. Minor-version compatibility is the
+rule and the selector should follow it, with the major version as the real
+gate. Carried into the port as a defect, not a preference.
+
+## What the card holds
+
+Measured on the pinned build, one slot, `-ngl 99`, prompt of 2048 and 128
+generated. Idle desktop use of about 1.2 GB is included in the totals, because
+it is real and the card does not get it back.
+
+| Role | Layers | Weights | Total at 4k | Total at 32k | pp2048 | tg128 |
+|---|---|---|---|---|---|---|
+| Development, `gemma-4-E4B-it` Q8_0 | 43/43 | 4942 MiB | 6440 MiB | 6705 MiB | 2818 t/s | 48.0 t/s |
+| Reference, `gemma-4-26B-A4B-it-UD` IQ2_M | 31/31 | 9536 MiB | 11368 MiB | 11865 MiB | 1749 t/s | 81.7 t/s |
+| Breadth, `Qwen3.8-27B-Uncensored` IQ2_M | 66/66 | 9010 MiB | 10942 MiB | 12017 MiB | 485 t/s | 21.1 t/s |
+| Secondary, `Qwen3.5-9B` Q4_K_M | 33/33 | 4861 MiB | 6474 MiB | not measured | 1735 t/s | 48.2 t/s |
+
+Three things in that table are worth saying out loud.
+
+**Context is nearly free and the weights are not.** Going from 4k to 32k costs
+the reference model under 500 MiB. Every one of the three fits at 32k, so the
+32k default this rig can afford is not the constraint anyone expected. What is
+tight is the top of the table: breadth at 32k leaves 271 MiB on a 12 GB card,
+which is less than one browser window, so the harness holding one model resident
+is not tidiness, it is the only way that row loads at all.
+
+**The reference model generates faster than the development model**, 81.7
+against 48.0, because roughly four billion of its parameters are active per
+token. The development model keeps its role on prompt processing, where it is
+1.6 times faster, and on being the one with headroom to spare.
+
+**`--ctx-size` is per slot, not per server.** With the default four slots,
+`-c 4096` reserves 16k of KV and the reference model reaches 11787 MiB before
+anyone has typed anything. Demido passes both `--parallel` and `--ctx-size`
+already, so the number the user sees has to be the one they get.
 
 ## The bar: `chose` or `used`
 

@@ -24,11 +24,17 @@ These projects were read for patterns but no code may be copied from them:
 
 ## Chosen, not yet installed
 
-Decided in the design system and not yet a dependency of anything, because there is no code to depend
-on them. Each lands in the table above, with its license text under `licenses/`, on the commit that
-first installs it.
+Decided and not yet a dependency of anything, because there is no code to depend on them. Each lands
+in the table above, with its license text under `licenses/`, on the commit that first installs it.
 
 | Project | Owner | License | Chosen on |
 |---|---|---|---|
 | lucide | lucide-icons | ISC | [#7](https://github.com/elpideus/demido-studio/issues/7), [#9](https://github.com/elpideus/demido-studio/issues/9) |
 | simple-icons | simple-icons | CC0-1.0 | [#7](https://github.com/elpideus/demido-studio/issues/7) |
+| llama.cpp | ggml-org | MIT | [#19](https://github.com/elpideus/demido-studio/issues/19) |
+
+`llama.cpp` is credited here rather than in the table above because nothing fetches it yet. It is
+never bundled: hard rule 3 puts it on the user's disk from an upstream release, which is a fetch and
+still a distribution, so its license lands under `licenses/ggml-org/llama.cpp/` on the commit that
+first fetches it. The build the rig is pinned to is in
+[`docs/rules/done.md`](docs/rules/done.md).
