@@ -1,15 +1,17 @@
-# Managed runtimes: what deletes a superseded pin
+# Managed runtimes: what moves a pin, and what deletes the old one
 
-Decided on wayfinder ticket
-[#29](https://github.com/elpideus/demido-studio/issues/29). This file is the
-back half of [`setup.md`](setup.md): section 4 states what the first fetch
-costs, and this states what the folder holds a year later.
+Decided on wayfinder tickets
+[#29](https://github.com/elpideus/demido-studio/issues/29) (sections 0 to 5) and
+[#30](https://github.com/elpideus/demido-studio/issues/30) (sections 6 to 11).
+This file is the back half of [`setup.md`](setup.md): section 4 there states what
+the first fetch costs, and this states what the folder holds a year later and how
+it got that way.
 
 Brief B11: "Guided set-up on first launch"
 
-The brief asks for the installation and is silent on what removes it. Everything
-below is therefore a consequence of the manifest existing at all, not a
-requirement anybody wrote down.
+The brief asks for the installation and is silent on what updates or removes it.
+Everything below is therefore a consequence of the manifest existing at all, not
+a requirement anybody wrote down.
 
 ## The failure this exists to prevent
 
@@ -190,15 +192,153 @@ file is about state nobody reconciles. It is also the only place a user ever see
 that something went wrong, since a failed cleanup is otherwise silent by
 construction.
 
+## 6. A pin is a fact about a Demido release, and nothing else moves it
+
+Decided on wayfinder ticket
+[#30](https://github.com/elpideus/demido-studio/issues/30).
+
+**The manifest ships inside the build.** A new pin exists because a new Demido
+exists, and it got there because somebody ran it on real hardware first. Demido
+**never queries upstream for versions**: not on launch, not on a schedule, not
+behind a Check for updates button.
+
+The rejected alternative is the obvious one. GitHub's releases API and Chrome for
+Testing's `last-known-good-versions-with-downloads.json` would both answer, and
+what they would return is **a version nobody has run**.
+[#19](https://github.com/elpideus/demido-studio/issues/19) pinned `b10816` after
+finding a `llama.cpp` build that unpacks, reports its build number and then hands
+this card the wrong CUDA archive. A pin discovered from a release feed carries
+none of that evidence, so an upstream check surfaces a version Demido has no
+grounds to recommend and then asks the user to trust it anyway. That is a
+recommendation dressed as an update.
+
+**The cost is real and it already has an answer.** A `llama.cpp` fix cannot reach
+a user who has not updated Demido. The user who needs it today is not stuck:
+section 7 of [`setup.md`](setup.md) gives every row **point at one I already
+have**, which makes the row **linked**, and section 0 above already says exactly
+what Demido may and may not do with a linked binary. Running ahead of the pin is
+supported. It is just not automatic, and it is the user's build rather than
+Demido's claim.
+
+This binds the cross-platform packaging question rather than waiting on it:
+whatever ships Demido is also what ships its pins.
+
+See [`docs/decisions/0005-runtime-pins-ship-with-the-release.md`](../decisions/0005-runtime-pins-ship-with-the-release.md).
+
+## 7. Nothing is fetched without a press
+
+**No fetch is ever automatic.** Not on the first launch after an update, not in
+the background, not with a dialogue.
+
+A new pin arrives as an **Update** action on the row, at its stated download
+size, and the pin already on disk keeps working until the button is pressed.
+Section 4 of [`setup.md`](setup.md) states the rule this protects: each thing
+states its size before it is fetched. An automatic fetch honours that with a
+dialogue nobody asked for at launch, or does not honour it at all and spends
+515.5 MiB quietly. Both are the promise of the first install broken later.
+
+Brief B11: "Guided set-up on first launch"
+
+The brief asks for the installation and is silent on updating it, so this is a
+consequence of the manifest existing rather than a requirement anybody wrote
+down.
+
+**An available update is one dot on the settings navbar icon**, resolving to the
+Runtimes row. No modal, no toast, nothing at launch. A one-time notice is worse
+because it is gone once dismissed, and the page alone is worse because the page
+is a settings subpage nobody opens. A dot survives being ignored and is still
+findable a month later.
+
+**Updates are per row, and `llama.cpp` and `cudart` are one row's worth of
+action.** There is no **Update all**. Update all exists to spend 800 MiB in one
+click without reading the table, which is the opposite of what section 4 of
+`setup.md` is for. The `llama.cpp` and `cudart` pairing is not a convenience:
+section 2 above verifies both with one command because a CUDA build that cannot
+resolve `cublasLt64_13.dll` does not load a model, so they move together or not
+at all.
+
+## 8. A pin bump is never mandatory
+
+**A Demido release runs against the pin it ships with and against its
+predecessor.** A change that cannot is a release blocker, fixed by shipping the
+compatibility, not by forcing the download.
+
+This is the rule that makes section 7 honest rather than decorative. Without it,
+a release whose host code only speaks to the new `llama.cpp` leaves a user with a
+working runtime and a broken app, and "never automatic" has quietly become
+"automatic, or nothing answers". The cost lands on the person who can pay it,
+which is whoever ships the release.
+
+**One version back is the whole window**, and it is also section 9's.
+
+## 9. Rollback is one pin back, and the manifest names it
+
+Section 3 makes a rollback **a re-download of a pin the app still knows**, which
+is only true while the manifest still knows it. Since section 6 puts the manifest
+inside the release, an old pin would otherwise drop out on some release nobody
+thought about.
+
+**The manifest carries the current pin and exactly one predecessor.** That is the
+rollback horizon, it is stated on the Runtimes page, and it is the same window
+section 8 guarantees compatibility across. One number used by two rules cannot
+drift apart from itself.
+
+The rollback control is therefore a **Roll back to `b10816`** action on a managed
+row, naming the pin and its download size, and it is a plain re-fetch through
+section 2's verification like any other. A user who needs to go further back than
+one pin wants a specific build rather than a rollback, and that is what linking
+is for.
+
+## 10. A linked runtime is verified when it is pointed at
+
+Section 2 makes verification the gate before a deletion, run immediately after
+the archive unpacks. A linked row never unpacks and never deletes, so as written
+it was verified by nothing: a user could point at a `llama.cpp` that cannot
+resolve `cublasLt64_13.dll` and find out days later, mid-conversation, which is
+the interruption shape section 2 exists to prevent.
+
+**So a linked row runs the same declared verification command at the moment it is
+pointed at, and a failure means the row does not become linked.** It stays
+**absent with a reason**, exactly as a failed fetch does. Section 2 already says
+this for the first fetch, where there is nothing to delete and verification gates
+the row's state instead. Linking is the other case of the same thing.
+
+The user still owns the binary. What Demido refuses is to claim a row works when
+it has not seen it work.
+
+**After that, Demido has no opinion.** A linked row shows **the detected version
+beside the pin Demido would otherwise use**, two facts side by side, with no
+verdict, no marker and no mention anywhere else in the app. Calling the user's
+build stale is a recommendation Demido has not earned about a binary it did not
+build, and the user who linked a row opted out of version management on purpose.
+If their build passes the verification command, Demido has no complaint to make.
+
+## 11. The bytes Demido does not own are named, and that is all
+
+`~/.agent-browser` and `~/.cache/puppeteer` held **2.65 GiB** on the rig, put
+there by other tools on the same Windows profile, and section 1 makes Demido
+neither read nor write them.
+
+The Runtimes page ends with **one line naming both paths and their total**,
+outside the ledger and outside **Unused**, with **no Remove control** and words
+saying Demido did not put them there and will not touch them.
+
+The question a user opens a Runtimes page with is what is eating their disk.
+Answering it with Demido's own 1.35 GiB while a larger pile sits next door is
+true and useless. Naming it without a button is the same honesty as the linked
+row above: **Demido reports, it does not claim.** The rejected alternative,
+saying nothing because a page that lists directories it does not own invites the
+user to expect a button, is a page that withholds the most useful number on it to
+avoid an awkward question.
+
 ## What this does not decide
 
-- **How often Demido looks for a newer pin**, or whether a runtime update is
-  offered, automatic, or tied to a Demido release. This file says what happens
-  when a new pin lands, not what makes one land.
-- **The other caches on the machine.** `~/.agent-browser` and `~/.cache/puppeteer`
-  held 2.65 GiB on the rig and Demido now neither reads nor writes them. Whether
-  the Runtimes page should say so, as a courtesy rather than as a claim, is not
-  decided.
-- **Cross-platform paths.** The runtimes folder is per profile per
-  [`profiles.md`](profiles.md), and where that sits on Linux and macOS rides with
-  the rest of the cross-platform question.
+- **Where the runtimes folder sits on Linux and macOS.** It is per profile per
+  [`profiles.md`](profiles.md), and the path rides with the rest of the
+  cross-platform question. Section 6 adds one thing to that pile: whatever
+  packages and updates Demido is also what delivers a pin, so the updater and the
+  manifest are the same shipment.
+- **Whether a release ever says why a pin moved.** Section 7's dot says a newer
+  pin exists and section 4's row says how big it is. Neither says what changed,
+  and nothing here decides whether a pin carries a line of prose of its own or
+  whether the user is expected to read upstream's release notes.
