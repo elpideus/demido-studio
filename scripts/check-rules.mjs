@@ -688,10 +688,11 @@ function codeFiles() {
 /** The two tables of THIRD_PARTY_NOTICES.md: what ships, and what is banned. */
 function readNotices() {
   const listed = new Set()
+  const chosen = new Set()
   const forbidden = new Map(FORBIDDEN_FLOOR)
   if (!existsSync(NOTICES)) {
     fail('provenance', NOTICES, 'the human-readable index is missing; the in-app credits surface renders from it')
-    return { listed, forbidden }
+    return { listed, chosen, forbidden }
   }
   let section = ''
   for (const text of lines(readFileSync(NOTICES, 'utf8'))) {
@@ -705,12 +706,13 @@ function readNotices() {
     // prose about things that do not ship yet, and claims nothing.
     if (section === '') listed.add(`${second}/${first}`.toLowerCase())
     else if (section.startsWith('ruled out')) forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
+    else if (section.startsWith('chosen')) chosen.add(`${second}/${first}`.toLowerCase())
   }
-  return { listed, forbidden }
+  return { listed, chosen, forbidden }
 }
 
 function checkProvenance() {
-  const { listed, forbidden } = readNotices()
+  const { listed, chosen, forbidden } = readNotices()
 
   // 1. Every provenance header resolves to a license on disk, is not a banned
   //    source, and is credited in the index the application renders.
@@ -746,7 +748,13 @@ function checkProvenance() {
         if (forbidden.has(project.name.toLowerCase())) {
           fail('provenance', dir, `${project.name} is on the ruled-out list and must not ship`)
         }
-        if (!listed.has(key)) fail('provenance', NOTICES, `licenses/${key} has no row in the index`)
+        // A license may land ahead of the code that fetches it when there is
+        // no upstream text to unpack later, so a row under "Chosen, not yet
+        // installed" is enough to justify one on disk. Credited nowhere is
+        // still a failure. #28.
+        if (!listed.has(key) && !chosen.has(key)) {
+          fail('provenance', NOTICES, `licenses/${key} has no row in the index`)
+        }
       }
     }
   }

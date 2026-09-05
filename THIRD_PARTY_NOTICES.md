@@ -40,6 +40,13 @@ in the table above, with its license text under `licenses/`, on the commit that 
 | agent-browser | vercel-labs | Apache-2.0 | [#21](https://github.com/elpideus/demido-studio/issues/21) |
 | chrome-for-testing | google | Google Chrome Terms of Service | [#21](https://github.com/elpideus/demido-studio/issues/21), [#28](https://github.com/elpideus/demido-studio/issues/28) |
 
+**`chrome-for-testing` is the one row here that is conditional.**
+[#28](https://github.com/elpideus/demido-studio/issues/28) made it a fetch that happens only on a
+machine with no browser Demido can drive, so it is credited here on every install and present on
+disk on some. Its entry at `licenses/google/chrome-for-testing/LICENSE` is written by hand and exists
+now rather than on the commit that first fetches it, because there is no upstream text to unpack
+later and the decision not to have one is itself the thing worth recording.
+
 The rows below `llama.cpp` are what
 [#21](https://github.com/elpideus/demido-studio/issues/21) added by moving every runtime fetch from
 first use to set-up. They were written as **to confirm** rather than guessed until
@@ -51,8 +58,14 @@ them came back as something other than the placeholder said:
   which is Google Chrome under the [Google Chrome Terms of Service](https://www.google.com/chrome/terms/).
   The archive carries no license file at all, and Chrome's own credits are readable only from inside
   the running binary at `chrome://credits`, so `licenses/google/chrome-for-testing/LICENSE` has to be
-  written by hand rather than unpacked.
-  [#28](https://github.com/elpideus/demido-studio/issues/28) decides whether it is fetched at all.
+  written by hand rather than unpacked, and it is:
+  [`licenses/google/chrome-for-testing/LICENSE`](licenses/google/chrome-for-testing/LICENSE) records
+  the terms URL, the fact that all 308 archive entries carry no license of any kind, and the
+  `chrome://credits` route that is the only place a user can read Chrome's own credits.
+  [#28](https://github.com/elpideus/demido-studio/issues/28) then made the fetch conditional: Demido
+  reaches for it only when the machine has no Chrome, Brave, Vivaldi or Opera it can drive. Edge is
+  explicitly not counted, for measured reasons in
+  [`docs/rules/setup.md`](docs/rules/setup.md) section 6.
 - **`cudart` is NVIDIA's, and it is the larger half of the required download.** The companion archive
   #19 pinned is three redistributable DLLs, not part of `llama.cpp`, so it is a row of its own under
   the CUDA Toolkit EULA rather than under ggml-org's MIT.

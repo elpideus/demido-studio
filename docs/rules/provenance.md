@@ -64,6 +64,18 @@ the one the application renders. A later section, such as the list of packs
 chosen but not yet installed, is prose: it claims nothing and needs no license
 on disk until the commit that installs the thing.
 
+**"Chosen, not yet installed" may still carry a license on disk, and one case
+requires it.** The rule above is about what a row *owes*; it was read as a rule
+about what a row *may have*, and
+[#28](https://github.com/elpideus/demido-studio/issues/28) found the case that
+breaks on the second reading. Chrome for Testing ships no license text of any
+kind, so there is nothing to unpack on the commit that first fetches it and the
+entry has to be written by hand whenever it is written. Writing it at the moment
+the decision is made, rather than months later from a worse memory of why, is
+the honest order. So the checker accepts a license on disk credited under
+`Chosen, not yet installed`; credited nowhere is still a failure, and a
+provenance header in source still has to resolve to the first table.
+
 The ruled-out table is where the ban list lives and may grow. It cannot shrink
 below these two: both are pinned in the checker, so deleting a row does not lift
 a ban.

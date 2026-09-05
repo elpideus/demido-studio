@@ -1,0 +1,42 @@
+Google Chrome for Testing
+=========================
+
+This file is written by hand. It is the only entry in this tree that is not a
+copy of an upstream license text, because the thing it covers ships without one.
+
+What is fetched
+---------------
+
+`chrome-win64.zip` from the Chrome for Testing channel, resolved through
+https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json
+
+Demido Studio fetches this only when the machine has no browser it can already
+drive. See `docs/rules/setup.md` section 6. It is never bundled with Demido and
+never redistributed by it: the fetch is made by the user's own machine, from
+Google, at set-up.
+
+License
+-------
+
+Google Chrome Terms of Service, at https://www.google.com/chrome/terms/
+
+This is proprietary software. It is the only proprietary item in Demido's
+runtime manifest, and the only one that is not open source.
+
+Why there is no license text below
+----------------------------------
+
+All 308 entries of the archive were listed on 2026-09-05 and none of them is a
+license, a notice, or a terms file. Chrome carries its own credits inside the
+binary: they are readable at `chrome://credits` from a running Chrome, and
+nowhere else.
+
+A user who wants the full third-party credits for the Chrome that Demido fetched
+should open it and visit `chrome://credits`. Demido's own credits surface says
+so, rather than reproducing a text that does not exist on disk.
+
+Not affiliated
+--------------
+
+Google Chrome and Chrome for Testing are products of Google LLC. Demido Studio
+is not affiliated with, endorsed by, or sponsored by Google.

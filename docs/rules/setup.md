@@ -121,7 +121,7 @@ list of checkboxes, all on by default.
 | Group | What | Why it is here |
 |---|---|---|
 | **Required** | `llama.cpp` + `cudart`, one model | Without them nothing answers. |
-| **Capabilities** | uv, a Python interpreter, SearXNG, Node, `agent-browser`, Chrome for Testing | Each is a feature of the brief that silently does not exist without it. |
+| **Capabilities** | uv, a Python interpreter, SearXNG, Node, `agent-browser`, and Chrome for Testing if the machine has no browser Demido can drive | Each is a feature of the brief that silently does not exist without it. |
 
 **Required is not a synonym for forced.** A user can leave with neither, and
 Nexus answers on rung 0 while they decide. What "required" names is the honest
@@ -152,12 +152,15 @@ Both are MiB, 1024 by 1024, which is also what #19's `143 MB` and `373 MB` are.
 | Capability | SearXNG, its archive and its environment | commit `a30b2d47` | 23.7 | 70.7 | AGPL-3.0-or-later |
 | Capability | `node-v24.20.0-win-x64.zip` | `v24.20.0` | 35.8 | 101.8 | MIT, nodejs |
 | Capability | `agent-browser-win32-x64.exe` | `v0.36.0` | 13.2 | 13.2 | Apache-2.0, vercel-labs |
-| Capability | `chrome-win64.zip` | `152.0.7977.82` | 193.4 | 427.9 | Google Chrome Terms of Service |
+| Capability | `chrome-win64.zip`, **only if none is detected** | `152.0.7977.82` | 193.4 | 427.9 | Google Chrome Terms of Service |
 
 **Required is 515.5 down and 671.6 on disk before a single model. Every
 capability ticked is 303.2 down and 714.2 on disk.** A machine that accepts all
 of it and downloads nothing to answer with spends 818.7 MiB of network and 1.35
-GiB of disk, and 63 per cent of that disk is one browser.
+GiB of disk, and 63 per cent of that disk is one browser. **On a machine that
+already has a browser Demido can drive, section 6 removes that row and the
+capability group falls to 109.8 down and 286.3 on disk**, which is the single
+largest saving available anywhere in this manifest.
 
 **Four things the measurement turned up that this file could not have said
 before it.**
@@ -172,8 +175,8 @@ the binary, at `chrome://credits`, which is the only place a user can read them.
 It is also the one row that is often already on the machine, since
 `agent-browser` detects an existing Chrome, Brave, Playwright or Puppeteer
 install and takes `--executable-path` for anything else that speaks CDP.
-[#28](https://github.com/elpideus/demido-studio/issues/28) decides whether the
-manifest fetches it at all.
+Section 6 answers whether the manifest fetches it at all: only when the machine
+has no browser Demido can drive.
 
 **373 of the required 516 MiB is NVIDIA's, not ggml-org's.** The `cudart`
 companion is three redistributable DLLs (`cublasLt64_13.dll` alone is 439 MiB
@@ -229,7 +232,97 @@ unchanged: "Somebody who has a package manager installed has an opinion about
 how it is kept up to date, and an app that quietly used a second copy would be
 overriding that opinion with nothing to say for itself."
 
-## 6. Once per profile, and the duplication is deliberate
+## 6. The browser is detected before it is fetched, and Edge does not count
+
+Decided on [#28](https://github.com/elpideus/demido-studio/issues/28), which
+[#27](https://github.com/elpideus/demido-studio/issues/27) forced by measuring
+the row: Chrome is 193.4 MiB down and 427.9 on disk, larger than `llama.cpp` and
+its CUDA runtime together, and 63 per cent of the disk the whole manifest asks
+for.
+
+**Chrome is a conditional row, not an unconditional one.** The wizard probes for
+a browser Demido can drive before it offers to fetch one, and section 3's rule
+applies unchanged: nothing detectable is ever asked as a question, so a machine
+with a usable browser opens on a settled row with the reason attached, and a
+machine without one opens on a checkbox with 193.4 MiB beside it.
+
+> Chrome 152.0.7977.82 found at `C:\Program Files\Google\Chrome\Application` →
+> no download
+
+**What counts as detected: Chrome, Brave, Vivaldi, Opera. Not Edge.** This is
+the part that had to be measured rather than reasoned, because Edge is Chromium,
+Edge is on every Windows 11 machine, and Edge therefore looks like the answer
+that makes this whole row disappear. It is not.
+
+Three results from the rig on 2026-09-05, driving Edge 153.0.4234.19 through
+`agent-browser` v0.36.0:
+
+1. **It works.** `AGENT_BROWSER_EXECUTABLE_PATH` pointed at `msedge.exe`, then
+   `agent-browser open https://example.com` returned `✓ Example Domain` and
+   exit 0. Again with `--no-first-run --no-default-browser-check`: same result.
+   So there is no CDP-level objection, and the honest statement is not "Edge
+   cannot be driven".
+2. **It is slow, and the rig could not prove the slowness is Edge's.** Both
+   successful opens took over two minutes, and a third on a warm profile was
+   killed still hanging past three. The obvious next measurement, the same
+   open against the fetched Chrome on the same rig, **was attempted twice and
+   completed neither time**, hanging with Chrome processes alive and no result.
+   So the comparison does not exist, and the honest statement is that
+   `agent-browser` starts slowly on this machine and nothing here attributes
+   that to Edge. **This is not a leg the decision stands on**, and it is written
+   down so that nobody later cites it as one.
+3. **The binary forwards arguments to the running instance.** `msedge.exe
+   --version` printed `Opening in existing browser session.` rather than a
+   version. That is Edge's singleton hand-off. It is the real objection, and it
+   is a *variance* objection rather than a performance one: a detected-Edge path
+   behaves one way on a machine where Edge is closed and another where it is
+   open, which is the same class of failure as an engine that updates underneath
+   the app.
+
+**So Edge is reachable and not offered, on variance rather than on speed.**
+Chrome, Brave, Vivaldi and Opera are installed deliberately by someone who
+wanted them and sit still when they are not being used. Edge is present on every
+Windows 11 machine whether or not anyone chose it, and is the most likely
+browser on the machine to be *running* while Demido works. Detecting it would
+make the rung's behaviour depend on whether the user happens to have a window
+open. Section 7's existing escape covers it
+without a special case: every runtime row offers "point at one I already have",
+and a user who points that row at `msedge.exe` gets exactly what the rig got.
+The row says so in one line, because a user who can see Edge on their taskbar
+deserves the reason rather than silence:
+
+> Microsoft Edge is not offered. It is driveable and unreliably slow to start;
+> point this row at it yourself if you want it.
+
+**`--auto-connect` is refused, and named as refused.** `agent-browser` can
+discover and attach to a Chrome the user is already running, which would cost
+nothing to download and hand the model the user's live profile, cookies and
+logins. [`stack.md`](../stack.md) split the browser into two engines precisely
+so that a page the model opens cannot reach what the user is signed in to. The
+flag is in `agent-browser --help` and somebody will find it, so it is refused
+here in writing rather than left unmentioned.
+
+**`--engine lightpanda` is out of scope for the manifest.** `agent-browser`
+carries a second, non-Chromium engine that would change the size argument
+completely. The brief says what the browser is for:
+
+Brief B35: "Integrated basic Web Browser that both users and LLMs have access to"
+
+The use named there is a model checking a site it has just built. An engine that
+renders a subset of the web fails at the only job the rung has, so the saving is
+not available at this quality bar. Recorded so the next reader does not reopen
+it on the size argument alone.
+
+**What the fetch still costs when it happens, and what is done about it.** The
+rig carried **three** fetched Chromes in `~/.agent-browser/browsers`: 420 + 420 +
+429 MiB, **1.24 GiB**, because nothing removes the previous pin when a new one
+lands. `profiles.md` scopes runtimes per profile, so a second Windows user pays
+it again. Every runtime in section 4's table has this shape and Chrome is only
+where it was first noticed, so **Demido deletes the superseded pin once the new
+one verifies**, and the runtimes surface lists what is on disk with its size.
+That is a manifest-wide rule, not a Chrome one.
+
+## 7. Once per profile, and the duplication is deliberate
 
 [`profiles.md`](profiles.md) scopes managed runtimes to the profile: "A shared
 writable runtime directory is a path where one user replaces a binary another
@@ -246,7 +339,7 @@ neither asking for elevation and neither creating a machine-wide directory.**
 - **Each runtime row offers "point at one I already have"**, a path to a binary
   the user owns.
 
-## 7. The connected route is a link, not the opening fork
+## 8. The connected route is a link, not the opening fork
 
 v2 asked managed-or-connected first: "Everything else follows from it." **v3
 takes the branch instead of presenting it.** Managed is the path; "already
@@ -256,7 +349,7 @@ A new user cannot answer whether they run their own inference server, and asking
 puts the vocabulary of the entire product on screen one. `Answers::Route`
 survives in the model layer untouched; what changes is who chooses it and when.
 
-## 8. How it is driven live
+## 9. How it is driven live
 
 Set-up runs once, so a machine that has been set up cannot test it. **A fresh
 Windows profile is the fixture.** Making a second Windows user costs nothing,
@@ -270,9 +363,6 @@ screenshot and trace.
 
 ## What this does not decide
 
-- **Whether Chrome is fetched at all.** Its size and its terms are measured in
-  section 4 and they are what make the question worth asking;
-  [#28](https://github.com/elpideus/demido-studio/issues/28) answers it.
 - **Which rungs Nexus offers and in what words.** That is
   [`nexus.md`](nexus.md)'s, and this file inherits it rather than re-deciding it.
 - **What a capability's own first-use offer looks like** when it was turned off

@@ -53,7 +53,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
 | B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
-| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27) | - | - |
+| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27), [#28](https://github.com/elpideus/demido-studio/issues/28) | - | - |
 | B12 | "Multi-account system" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B13 | "Two main chat modes: Chat and Agent." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B57 | "There should be 3 agent modes: Cautious, Balanced, Autonomous." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
@@ -87,7 +87,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B32 | "Chat export system." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B33 | "Full Keyboard navigation" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B34 | "Mac Spotlight-like command panel." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
-| B35 | "Integrated basic Web Browser" | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
+| B35 | "Integrated basic Web Browser" | [#10](https://github.com/elpideus/demido-studio/issues/10), [#28](https://github.com/elpideus/demido-studio/issues/28) | - | - |
 | B36 | "it should be simple, clean, dark and minimal" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#9](https://github.com/elpideus/demido-studio/issues/9) | - | - |
 | B37 | "on par with APPLE Design Team" | [#9](https://github.com/elpideus/demido-studio/issues/9) | - | - |
 | B38 | "Use a pastel-colors palette for a more polished feel." | [#6](https://github.com/elpideus/demido-studio/issues/6) | - | - |
@@ -98,7 +98,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B43 | "Some panels should be movable by using a modifier key" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B44 | "you should test the project yourself" | [#11](https://github.com/elpideus/demido-studio/issues/11) | - | n/a |
 | B45 | "credited both in the source code and inside the program itself" | [#16](https://github.com/elpideus/demido-studio/issues/16), [#27](https://github.com/elpideus/demido-studio/issues/27) | - | n/a |
-| B46 | "A licenses folder will also be needed" | [#16](https://github.com/elpideus/demido-studio/issues/16), [#27](https://github.com/elpideus/demido-studio/issues/27) | [`licenses/`](../licenses/README.md) | n/a |
+| B46 | "A licenses folder will also be needed" | [#16](https://github.com/elpideus/demido-studio/issues/16), [#27](https://github.com/elpideus/demido-studio/issues/27), [#28](https://github.com/elpideus/demido-studio/issues/28) | [`licenses/`](../licenses/README.md) | n/a |
 | B47 | "should not be listed as a Contributor/Co-Author in git" | - | - | n/a |
 | B48 | "Repo name should be" | [#1](https://github.com/elpideus/demido-studio/issues/1) | - | n/a |
 
