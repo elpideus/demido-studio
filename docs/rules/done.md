@@ -234,12 +234,34 @@ Tool calling through the backend's own grammar, and enough trace surface to read
 the assembly that was sent. It ends the moment a model reads a file you planted,
 answers from what was in it, and the answer is unguessable from anywhere else.
 
-`Bar: chose`.
+**The capability matrix ships here, not at S4**
+([#20](https://github.com/elpideus/demido-studio/issues/20)). A tool call in
+Cautious is an approval prompt, so the gate has to be real the first time a tool
+runs at all. S4 adds delegation to it, not the modes themselves.
+
+Two more scenarios ride on this slice, both from #20.
+
+**A greeting.** With the full registry loaded, "hello" answers and calls no
+tool, on all three tiers. This is the cost of there being no Chat mode, and it
+is measured rather than assumed: #19's probe had all four models on disk pick
+the right tool out of three, three probes out of three. Three tools is not
+twelve. A tier that fails it is fixed by widening `tools.shown` to Demido's own
+tools, or by the user switching a group off in the picker, both of which already
+exist.
+
+**A denial.** Escape on the approval, and the model does something else. This is
+the path most likely to be broken and least likely to be exercised, because a
+small model handed a refusal typically retries the same call forever.
+
+`Bar: chose`, and on the denial it means it chose **something else**.
 
 ### S4: a model delegates
 
-Agent modes and sub-agents, scoped on the trace log rather than given a window
-of their own, per [#8](https://github.com/elpideus/demido-studio/issues/8). The
+Sub-agents, scoped on the trace log rather than given a window of their own, per
+[#8](https://github.com/elpideus/demido-studio/issues/8). The modes themselves
+land at S2 (#20); what this slice adds is `delegate_task`, which declares
+`Ability::Shell`, and the rule that a sub-agent inherits its parent's offered
+set and mode and can only narrow them. The
 brief's demand:
 
 > Models should be able to delegate an agent to do a specific task in a separate

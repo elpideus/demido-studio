@@ -244,9 +244,12 @@ be more work than shipping three. **Cautious is the default**, matching
 `Matrix::default()` and the unknown-name fallback, so the strictest answer wins
 every ambiguous case.
 
-Two scenarios land on [`done.md`](done.md)'s slices:
+Two scenarios land on [`done.md`](done.md)'s S2, and the **matrix ships at S2
+rather than S4**: a tool call in Cautious is an approval prompt, so the gate has
+to be real the first time a tool runs. S4 adds delegation to it, not the modes.
 
-- **S1 must include a greeting.** With the full registry loaded, "hello" must
+- **S2 must include a greeting.** S1 has no tools at all, so the full registry
+  does not exist until S2. With it loaded, "hello" must
   produce an answer and no tool call, on all three tiers. This is the cost of
   deleting the Chat mode, and it is measured rather than assumed:
   [#19](https://github.com/elpideus/demido-studio/issues/19)'s probe had all four
@@ -255,7 +258,7 @@ Two scenarios land on [`done.md`](done.md)'s slices:
   finding. Three tools is not twelve. If a tier fails, the fix is already sitting
   here in two forms, widening `tools.shown` to cover Demido's own tools, or the
   user switching a group off.
-- **S2 must include a denial**, not only an approval. *No, and the model does
+- **S2 must also include a denial**, not only an approval. *No, and the model does
   something else* is the path most likely to be broken and least likely to be
   exercised, because a small model handed a refusal typically retries the same
   call forever. `Bar: chose` on that scenario means it chose **something else**.
