@@ -49,7 +49,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B58 | "or the user tells it where it is wrong" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#23](https://github.com/elpideus/demido-studio/issues/23) | - | - |
 | B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
 | B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
-| B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
+| B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
 | B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
@@ -76,13 +76,13 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B55 | "Multiple folders should be set-able for model detection" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B23 | "LLM capabilities support. Vision, Thinking toggling" | - | - | - |
 | B24 | "Task-model functionality." | [#24](https://github.com/elpideus/demido-studio/issues/24) | - | - |
-| B25 | "Accounts management system" | [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
-| B26 | "Google Account OAuth" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
+| B25 | "Accounts management system" | [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
+| B26 | "Google Account OAuth" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
 | B27 | "Market Data accounts" | - | - | - |
-| B49 | "Any other accounts added in the future." | - | - | - |
-| B28 | "I want the system to be called Nexus." | [#4](https://github.com/elpideus/demido-studio/issues/4), [#18](https://github.com/elpideus/demido-studio/issues/18) | - | - |
+| B49 | "Any other accounts added in the future." | [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
+| B28 | "I want the system to be called Nexus." | [#4](https://github.com/elpideus/demido-studio/issues/4), [#18](https://github.com/elpideus/demido-studio/issues/18), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
 | B29 | "Native graphify or graphify-like implementation" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
-| B30 | "Email, Calendar and Contacts implementation" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
+| B30 | "Email, Calendar and Contacts implementation" | [#3](https://github.com/elpideus/demido-studio/issues/3), [#17](https://github.com/elpideus/demido-studio/issues/17), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
 | B31 | "Charts visualizer" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B32 | "Chat export system." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B33 | "Full Keyboard navigation" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |

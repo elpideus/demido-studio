@@ -184,6 +184,25 @@ guidance that can only ever produce a failed call.
 The consequence is deliberate and useful: the popover is the one place a user
 can tell an unwanted server to go away.
 
+### An account tool is not offered where its data cannot go
+
+The one thing besides the user and the skill switch that removes a tool from the
+offered set. A tool backed by a `personal` account is **not offered** when the
+conversation model sits on an endpoint that
+[`accounts.md`](accounts.md) refuses marked data for, which today means Nexus
+rung 0 and any provider whose terms reserve the right to train on what it is
+sent.
+
+This is prevention, not enforcement. The rule itself is a gate at dispatch, and
+it has to be, because the user can change models mid-chat and because of the
+inheritance rule below. Taking the tool out of the offered set is what stops a
+user on Nexus from pulling mail into a context that then cannot be sent
+anywhere.
+
+It is also the one absence the model is **not** told the user turned off, because
+the user did not. It is told the current model cannot receive that account's
+data, which is again actionable and again points at the right control.
+
 ## The offered set is an event in the log
 
 Brief B07: "recorded in an append-only session log"

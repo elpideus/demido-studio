@@ -134,6 +134,23 @@ section. The trigger section was right. The chat model is the **default**, not
 the rule, and a heavier model or Nexus stays what that file already called it:
 "a quality upgrade to the same pipeline, not a second pipeline."
 
+## A job meets the account-data gate too
+
+All four jobs read conversation content, and naming a chat sends the first
+exchange somewhere. So the boundary decided on
+[#26](https://github.com/elpideus/demido-studio/issues/26) binds a job exactly as
+it binds a turn: a job dispatches only if the endpoint it would run on is allowed
+to receive the assembly that job carries.
+
+That would make compression, the one **blocking** job, breakable by a rule about
+mail. It is not, because a job **may always run on the conversation model's own
+endpoint**, which has by definition already received the assembly. Compression
+falls back rather than stalling the turn, which is the same fallback this section
+already describes for a job that would evict the resident model. Every other job
+is `deferred`, and a deferred job that does not run is a case
+[`accounts.md`](accounts.md) is allowed to produce because the four properties
+above already require a caller to be correct without it.
+
 ## Naming a chat, and when to stop
 
 The brief says "every N messages". Taken literally that is a title that never
