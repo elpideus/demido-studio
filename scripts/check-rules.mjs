@@ -35,6 +35,20 @@ function fail(rule, file, message, line) {
   violations.push({ rule, file: relative(ROOT, file).split(sep).join('/'), line, message })
 }
 
+/**
+ * Split text into lines on either ending.
+ *
+ * `.gitattributes` checks text out native, so every file this reads is CRLF on
+ * a Windows clone. Splitting on a bare newline leaves a carriage return at the
+ * end of each line, and any regex anchored with `$` then matches nothing: the
+ * ledger's `## Amendments` heading stopped being seen, so all seven amendment
+ * rows were read as duplicates of the ledger rows they amend. Windows is the
+ * first platform, so the checker reads files as they are actually checked out.
+ */
+function lines(text) {
+  return text.split(/\r?\n/)
+}
+
 function walk(dir, predicate) {
   const out = []
   if (!existsSync(dir)) return out
@@ -118,7 +132,7 @@ function checkNoRawValues() {
     const exempt = /@raw-values-exempt:\s*(\S.*)/.exec(source.slice(0, 400))
     if (exempt) continue
 
-    source.split('\n').forEach((text, i) => {
+    lines(source).forEach((text, i) => {
       // Only a comment is exempt line by line, because explaining a token needs
       // to be able to write its value down.
       //
@@ -430,8 +444,7 @@ function readLedger() {
     return { rows, amendments }
   }
   let section = ''
-  readFileSync(LEDGER, 'utf8')
-    .split('\n')
+  lines(readFileSync(LEDGER, 'utf8'))
     .forEach((text, i) => {
       const heading = /^##\s+(.*)$/.exec(text)
       if (heading) section = heading[1].toLowerCase()
@@ -487,7 +500,7 @@ function checkBrief() {
   //    line, and CI says so on the next commit rather than in an audit a
   //    milestone later.
   const anchors = [...rows.values()].map((r) => squash(r.quote))
-  brief.split('\n').forEach((text, i) => {
+  lines(brief).forEach((text, i) => {
     const bullet = /^\s*-\s+(\S.*)$/.exec(text)
     if (!bullet) return
     const line = squash(bullet[1])
@@ -507,8 +520,8 @@ function checkBrief() {
   ]
   for (const file of prose) {
     if (file === LEDGER || file === BRIEF) continue
-    const lines = readFileSync(file, 'utf8').split('\n')
-    lines.forEach((text, i) => {
+    const cited = lines(readFileSync(file, 'utf8'))
+    cited.forEach((text, i) => {
       for (const hit of text.matchAll(/\bBrief (B\d+)(:?)/g)) {
         const [, id, colon] = hit
         if (!rows.has(id)) {
@@ -523,8 +536,8 @@ function checkBrief() {
           // Long form: the tag line stands alone and the quote is the
           // blockquote under it, blank lines allowed between.
           const block = []
-          for (let j = i + 1; j < lines.length; j++) {
-            const next = lines[j].trim()
+          for (let j = i + 1; j < cited.length; j++) {
+            const next = cited[j].trim()
             if (next === '' && block.length === 0) continue
             if (!next.startsWith('>')) break
             block.push(next.replace(/^>\s?/, ''))
@@ -681,7 +694,7 @@ function readNotices() {
     return { listed, forbidden }
   }
   let section = ''
-  for (const text of readFileSync(NOTICES, 'utf8').split('\n')) {
+  for (const text of lines(readFileSync(NOTICES, 'utf8'))) {
     const heading = /^##\s+(.*)$/.exec(text)
     if (heading) section = heading[1].toLowerCase()
     const row = /^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|/.exec(text)
