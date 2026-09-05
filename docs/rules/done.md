@@ -150,6 +150,15 @@ Two archives, not one: the build links against `cudart64_*.dll` and ships
 without it. Half a gigabyte is what the guided set-up has to state before it
 fetches anything, per Brief B11: "Guided set-up on first launch".
 
+Both figures are MiB, and
+[#27](https://github.com/elpideus/demido-studio/issues/27) added two facts to
+them. The archives expand to 182.6 and 489.0, so the pin costs 671.6 MiB of
+disk against 515.5 of network. And the larger archive is **not ggml-org's**: it
+is three NVIDIA redistributables under the CUDA Toolkit EULA, which is a
+separate row in `THIRD_PARTY_NOTICES.md` and a separate folder under
+`licenses/`. Every other runtime the set-up fetches is pinned and measured the
+same way, in [`setup.md`](setup.md) section 4.
+
 **A CUDA build one minor version above the driver still loads.** This driver
 reports 13.2 and the 13.3 archive initialises CUDA and offloads normally. v2's
 `demido-catalog` selects the newest build whose toolkit version is at or below

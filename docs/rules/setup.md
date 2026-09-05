@@ -121,7 +121,7 @@ list of checkboxes, all on by default.
 | Group | What | Why it is here |
 |---|---|---|
 | **Required** | `llama.cpp` + `cudart`, one model | Without them nothing answers. |
-| **Capabilities** | uv, a Python interpreter, SearXNG, Node, `agent-browser`, Chromium | Each is a feature of the brief that silently does not exist without it. |
+| **Capabilities** | uv, a Python interpreter, SearXNG, Node, `agent-browser`, Chrome for Testing | Each is a feature of the brief that silently does not exist without it. |
 
 **Required is not a synonym for forced.** A user can leave with neither, and
 Nexus answers on rung 0 while they decide. What "required" names is the honest
@@ -134,24 +134,94 @@ free an exit that is not a lie. A capability turned off here is offered again at
 the point its feature is first reached, in the same size-stated words, because
 that dialogue has to exist anyway for a user who changes their mind.
 
-**The sizes are measured before they are shown.** Exactly one number in the
-manifest is known today: 516 MB for the two `llama.cpp` archives, from #19. The
-rest are pinned by
-[#27](https://github.com/elpideus/demido-studio/issues/27), the same way #19
-pinned the backend, and no estimate of mine reaches a screen. A wizard whose
-headline figure is a guess is a wizard that lies in its first sentence.
+**The sizes are measured before they are shown.** A wizard whose headline figure
+is a guess is a wizard that lies in its first sentence, so every figure below
+was fetched from upstream on 2026-09-05 by
+[#27](https://github.com/elpideus/demido-studio/issues/27) and none of them is
+an estimate. **Download** is the byte count the server sends, from the response
+header. **On disk** is what the archive expands to, read out of its own index.
+Both are MiB, 1024 by 1024, which is also what #19's `143 MB` and `373 MB` are.
 
-## 5. Node is fetched, and that is the price of the browser rung
+| Group | What | Pin | Download | On disk | License |
+|---|---|---|---|---|---|
+| Required | `llama-b10816-bin-win-cuda-13.3-x64.zip` | `b10816` | 142.6 | 182.6 | MIT, ggml-org |
+| Required | `cudart-llama-bin-win-cuda-13.3-x64.zip` | same release | 372.9 | 489.0 | NVIDIA CUDA EULA |
+| Required | one model | the user's choice | varies | varies | the model's own |
+| Capability | `uv-x86_64-pc-windows-msvc.zip` | `0.12.10` | 16.2 | 40.2 | MIT or Apache-2.0, astral-sh |
+| Capability | `cpython-3.12.14+20260901-x86_64-pc-windows-msvc-install_only_stripped.tar.gz` | `20260901` | 21.0 | 60.4 | PSF-2.0 |
+| Capability | SearXNG, its archive and its environment | commit `a30b2d47` | 23.7 | 70.7 | AGPL-3.0-or-later |
+| Capability | `node-v24.20.0-win-x64.zip` | `v24.20.0` | 35.8 | 101.8 | MIT, nodejs |
+| Capability | `agent-browser-win32-x64.exe` | `v0.36.0` | 13.2 | 13.2 | Apache-2.0, vercel-labs |
+| Capability | `chrome-win64.zip` | `152.0.7977.82` | 193.4 | 427.9 | Google Chrome Terms of Service |
 
-**`agent-browser` is an npm CLI**, which v2 met as a `.cmd` on Windows that
-`CreateProcess` would not run. Fetching it reaches through to a Node runtime and
-a Chromium download. So Demido fetches Node.
+**Required is 515.5 down and 671.6 on disk before a single model. Every
+capability ticked is 303.2 down and 714.2 on disk.** A machine that accepts all
+of it and downloads nothing to answer with spends 818.7 MiB of network and 1.35
+GiB of disk, and 63 per cent of that disk is one browser.
 
-**Named plainly because it is the largest consequence of section 4**: a
-JavaScript runtime enters a Rust application's dependency list for the sake of
-one CLI. The alternative was speaking CDP directly, which is a browser
-automation stack Demido would then own; the brief asks for the feature, not for
-that.
+**Four things the measurement turned up that this file could not have said
+before it.**
+
+**Chrome is the largest thing in the manifest, and it is neither Chromium nor
+open source.** `agent-browser` fetches Google's Chrome for Testing channel,
+resolved through
+`googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json`,
+which is Google Chrome under the Google Chrome Terms of Service. Its 308-entry
+archive contains no license file of any kind: Chrome carries its credits inside
+the binary, at `chrome://credits`, which is the only place a user can read them.
+It is also the one row that is often already on the machine, since
+`agent-browser` detects an existing Chrome, Brave, Playwright or Puppeteer
+install and takes `--executable-path` for anything else that speaks CDP.
+[#28](https://github.com/elpideus/demido-studio/issues/28) decides whether the
+manifest fetches it at all.
+
+**373 of the required 516 MiB is NVIDIA's, not ggml-org's.** The `cudart`
+companion is three redistributable DLLs (`cublasLt64_13.dll` alone is 439 MiB
+expanded) under the NVIDIA CUDA Toolkit EULA, not under `llama.cpp`'s MIT. #19
+recorded the size and not the ownership, and the licenses folder the brief asks
+for has to carry both.
+
+Brief B46: "A licenses folder will also be needed"
+
+**SearXNG is AGPL-3.0-or-later**, the one copyleft dependency in the manifest,
+and its 39 wheels are not: they resolve to MIT, BSD, Apache-2.0, MPL-2.0, ISC
+and PSF-2.0 with nothing viral among them. v2 already built for the AGPL rather
+than around it, running SearXNG through Flask's test client in-process so that
+no socket is ever bound and the network clause is never engaged. That reasoning
+survives into v3 and is the reason the rung is a worker rather than a server.
+
+**The Python that uv fetches is stripped, and it still carries its license.**
+uv resolves `3.12` to `install_only_stripped`, 21.0 MiB against 46.2 for the
+full variant, and the difference is debug symbols. `LICENSE.txt` is at the root
+of both.
+
+## 5. Node is fetched, and the browser rung is not why
+
+**This section had the wrong reason in it until #27 read the package.**
+`agent-browser` is an npm CLI in the sense that npm is where most people get it,
+and v2 met it as a `.cmd` on Windows that `CreateProcess` would not run. It is
+not a Node program. It is a native Rust binary published per platform, its npm
+`bin` is a nine-line shim that spawns the right one, and its own README says the
+daemon needs neither Node nor Playwright. The same binaries are release assets
+on `github.com/vercel-labs/agent-browser`, one file, 13.2 MiB, fetched exactly
+the way `llama.cpp` and uv are fetched.
+
+**So the browser rung costs no JavaScript runtime at all**, and the npm route
+costs 39.4 MiB to download and 88.7 on disk for seven platforms' binaries when
+one is wanted. Demido takes the release asset.
+
+**Node stays in the manifest for the reason the brief actually gives it.** A
+skill ships its own MCP servers, and the brief's own example of one is
+`npx mcp-remote`:
+
+Brief B52:
+
+> skills also provide the required mcps and tools instead of the user having to grab them manually
+
+A machine with no Node runs that skill's server not at all, which is the
+`agent-browser` failure with a different name. So Node is a capability in its
+own right, ticked for MCP rather than for the browser, and a user who runs no
+npm-published server can leave it unticked without losing the browser.
 
 **Node is treated exactly as uv is treated, and for the same reason.** Never
 preferred over one already on `PATH`. `demido-python`'s sentence carries over
@@ -200,9 +270,9 @@ screenshot and trace.
 
 ## What this does not decide
 
-- **The sizes and the licenses of the manifest.**
-  [#27](https://github.com/elpideus/demido-studio/issues/27) measures them
-  upstream, as #19 did for `llama.cpp`.
+- **Whether Chrome is fetched at all.** Its size and its terms are measured in
+  section 4 and they are what make the question worth asking;
+  [#28](https://github.com/elpideus/demido-studio/issues/28) answers it.
 - **Which rungs Nexus offers and in what words.** That is
   [`nexus.md`](nexus.md)'s, and this file inherits it rather than re-deciding it.
 - **What a capability's own first-use offer looks like** when it was turned off

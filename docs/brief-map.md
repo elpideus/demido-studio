@@ -53,7 +53,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
 | B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
-| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21) | - | - |
+| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27) | - | - |
 | B12 | "Multi-account system" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B13 | "Two main chat modes: Chat and Agent." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B57 | "There should be 3 agent modes: Cautious, Balanced, Autonomous." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
@@ -97,8 +97,8 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B42 | "a VSCode-like Icons-only sidebar" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B43 | "Some panels should be movable by using a modifier key" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B44 | "you should test the project yourself" | [#11](https://github.com/elpideus/demido-studio/issues/11) | - | n/a |
-| B45 | "credited both in the source code and inside the program itself" | [#16](https://github.com/elpideus/demido-studio/issues/16) | - | n/a |
-| B46 | "A licenses folder will also be needed" | [#16](https://github.com/elpideus/demido-studio/issues/16) | [`licenses/`](../licenses/README.md) | n/a |
+| B45 | "credited both in the source code and inside the program itself" | [#16](https://github.com/elpideus/demido-studio/issues/16), [#27](https://github.com/elpideus/demido-studio/issues/27) | - | n/a |
+| B46 | "A licenses folder will also be needed" | [#16](https://github.com/elpideus/demido-studio/issues/16), [#27](https://github.com/elpideus/demido-studio/issues/27) | [`licenses/`](../licenses/README.md) | n/a |
 | B47 | "should not be listed as a Contributor/Co-Author in git" | - | - | n/a |
 | B48 | "Repo name should be" | [#1](https://github.com/elpideus/demido-studio/issues/1) | - | n/a |
 
