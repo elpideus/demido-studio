@@ -79,7 +79,11 @@ buttons, composer actions, context-menu items, tab strips. The dwell matters:
 without it, moving the pointer across the rail flashes six caps in half a
 second, which is the opposite of learning.
 
-**Never.** Inside the transcript. On anything a model produced. On more than one
+**Never.** Inside the transcript, **on anything a model produced**. A control
+that takes a decision from the person is the exception, and there are two: the
+approval prompt and the Teach field, both carrying Enter and Escape
+([#23](https://github.com/elpideus/demido-studio/issues/23) added the second and
+the clause that admits it). And never on more than one
 control within 200px of another cap. That last one is the brief's "do not overdo
 it" made checkable: density, not taste.
 
@@ -129,6 +133,9 @@ incomplete shell, and ticket
 | Agent mode control | Cautious, Balanced, Autonomous | `raised`, active on `signal`. A shield icon on Cautious. No status dot. Three states, not two ([#20](https://github.com/elpideus/demido-studio/issues/20)). |
 | Tool picker | closed, open, group expanded, group partial | Popover from the composer, `panel` on `edge`. Rows are groups (built-ins, then one per skill) with a tool count, expandable in place to individual switches. A group with some tools off renders partial, never on. |
 | Chat list | rest, filtered | `chrome` column with an All / Chats / Projects filter. Rows `ink-2`, `hover`, selected `edge`. |
+| Teach action | offered, unavailable | Ghost action on a `tool/result` row, beside Retry, in `amber`. On a row that did not fail it greys to `ink-4` and states why in one line, per the capability-tag rule. ([#23](https://github.com/elpideus/demido-studio/issues/23)) |
+| Teach field | open | `well` at `--radius-control` with a `signal` ring, anchored under the failure it teaches from and naming it. Enter and Escape caps, like the approval prompt and for the same reason. |
+| Lesson card | written, editing, collapsed | `raised`; class chip `amber` and surface chip `ink-3`, both `--radius-chip` on `well`; the `signal` line quoted on `well` behind a `rose` rule. Carries edit and discard. Collapses to a one-line strip in `ink-4` once the turn ends. |
 | Chat list empty state | no chats | Violet at 176px, `saturate(0%)`, `opacity: .05`, masked `linear-gradient(to bottom, black 50%, transparent 100%)`. Caption "No chats yet." in `ink-3`. |
 
 ### Models
@@ -168,6 +175,7 @@ incomplete shell, and ticket
 |---|---|---|
 | Settings nav | rest, hover, selected | `chrome`; selected `edge`. |
 | Setting row | following global, overridden | following shows the inherited value in `ink-4` and carries nothing; overridden shows the local value, marks the row `signal`, and carries the way back to global. No provenance chip anywhere. |
+| Lessons page | list, selected, retired | A Settings page, not a rail entry ([#23](https://github.com/elpideus/demido-studio/issues/23)). `chrome` nav, list grouped Live and Retired on `panel`, selected `edge`; retired rows at half opacity and restorable. The evidence row opens the session monitor at that event. |
 | Keybinding field | rest, capturing, conflict | The binding **is** the field: `well`, `signal` while capturing, conflict shown in place in `rose` against the command it collides with, never in a modal. A scope column of global, desk or panel. |
 
 ### Projects

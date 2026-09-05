@@ -46,6 +46,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B02 | "a harness that integrates all the tools I need seamlessly" | [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B03 | "windows-only at first, during the pre-release versions" | - | - | - |
 | B04 | "get the most out of even smaller models" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
+| B58 | "or the user tells it where it is wrong" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#23](https://github.com/elpideus/demido-studio/issues/23) | - | - |
 | B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
 | B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |

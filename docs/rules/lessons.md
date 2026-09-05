@@ -111,6 +111,7 @@ Lesson {
   surface      shell:<name> | binary:<name> | tool:<name> | lang:<ext> | host
   signal       one line of the error text, chosen by index, never composed
   remedy       one to three imperative sentences
+  origin       derived | inferred | taught
   evidence     [{ session, seq }]
   confidence   integer, starts at 0
   hits, misses integers
@@ -226,7 +227,136 @@ A heavier model, or Nexus, is a **quality upgrade to the same pipeline**, not a
 second pipeline. There is one code path and it degrades by getting a smaller
 classifier, not by changing shape.
 
-The user is never the author. The user is the auditor.
+The user is never the author of a remedy; the model writes it. The user is the
+**anchor**, the **editor** and the **auditor**, and
+[#23](https://github.com/elpideus/demido-studio/issues/23) is where each of
+those three is drawn.
+
+## What the user sees
+
+Decided on wayfinder ticket
+[#23](https://github.com/elpideus/demido-studio/issues/23), against
+`prototypes/lessons-board.html`, eight screens at 1280 by 800. That board is
+throwaway and is not in this repo.
+
+Everything above this line is invisible by construction. It runs after the turn
+ends, it stores a few hundred bytes, and nothing on screen has to move for any
+of it to work. That is the failure to avoid rather than the design to keep: the
+brief names two ways a lesson is learned and one of them is a person, and a
+person who cannot tell that their correction landed is a person for whom half
+the feature does not exist.
+
+Three ways a lesson is born, and the store now records which:
+
+| `origin` | Born from |
+|---|---|
+| `derived` | The model fixed it itself. Trigger path 1, no user involved. |
+| `inferred` | A message that followed a failure, judged a correction by the task model. Trigger path 2. |
+| `taught` | The user pressed **Teach** on the failed row. |
+
+The field is one word and it earns its place twice: the Lessons page cannot say
+where a lesson came from without it, and a false positive out of `inferred` is
+the one kind worth finding, which needs telling apart from something a person
+typed on purpose.
+
+### The affordance: Teach, on failed rows
+
+A failed `tool/result` row carries a ghost **Teach** beside **Retry**. Pressing
+it opens a one-line field **anchored to that failure**, with the quoted error
+above it, and what is typed goes to the classifier rather than to the model as a
+turn.
+
+It exists for one reason, and it is not convenience. Path 2 asks a small model
+"is this a correction?" about a message, and that is a judgement that fails in
+both directions: a false positive writes a lesson nobody asked for, a false
+negative silently drops the brief's second path. **A press is not a judgement.**
+Down the `taught` path that question is never asked, and the model's work
+collapses to the two things it is measurably good at, a thirteen-valued enum
+under a grammar and a line selected by index.
+
+Inference stays, unchanged and unweakened, because most people will simply type
+the sentence. The affordance is the high-confidence route into the same engine,
+not a second engine.
+
+### The write moment: a card, once, then a strip
+
+A lesson is text the model will be shown verbatim, and the brief wants
+everything the model sees inspectable. So the write is visible **where it
+happened**: a card under the failure carrying the class, the surface, the quoted
+`signal` line and the remedy, with **Edit** and **Discard** on it. Once the turn
+is over it collapses to a one-line strip, because a transcript that accumulates
+cards stops being a transcript.
+
+**There is no confirmation gate**, and the alternative was drawn (board 5)
+rather than argued away. An unapproved lesson never fires, so a queue nobody
+drains is the feature quietly not working, and it fails identically to having
+learned nothing at all. It also overprices the mistake: injection happens only
+after a failure, so a wrong lesson costs exactly one bad hint, is then
+measurable, and three misses retire it.
+
+**And not a toast.** It interrupts, it dismisses into nothing, and it points
+away from the one place that carries the context.
+
+### Editing at the moment, and what an edit costs
+
+Yes, in the card, and again later in the page. The remedy is model-written prose
+that will be injected word for word; the cheapest moment to fix it is while the
+failure it came from is still on screen.
+
+**A user edit resets `hits`, `misses` and `confidence` to zero** and is recorded
+in the lesson's history. The counters measure how a remedy performed, and after
+an edit it is not that remedy any more. It keeps its id, because it is still one
+live lesson for its `(class, surface)` pair and superseding itself would be
+theatre.
+
+### Where the panel lives: Settings
+
+**Lessons is a Settings page**, not a rail entry and not a tab in the session
+monitor.
+
+The rail was refused for the reason [#8](https://github.com/elpideus/demido-studio/issues/8)
+refused it a Sub-agents entry: the rail is for places, and it is already six
+deep. The monitor is the closer call, since every lesson's `evidence` points
+into the log the monitor renders, and it loses on scope: the monitor is one
+session and the store outlives all of them. The adjacency is kept without the
+move, because the evidence row **opens the monitor at that event**.
+
+The page groups Live and Retired, and a lesson's detail carries the quoted
+signal, the remedy, the evidence pointer, `hits`, `misses`, `confidence`, the
+surfaces it has actually reached, and the lesson it superseded. Retired stays
+visible, greyed and restorable, as [Being wrong](#being-wrong) already requires.
+
+### Wrong-but-succeeded, still out, and now it says so
+
+The gap [#13](https://github.com/elpideus/demido-studio/issues/13) accepted is
+unchanged: a command that exits zero and is still wrong teaches nothing. The
+affordance does not quietly reach it. Two reasons, and the second is the deeper
+one: there is no error text, so there is no line to select and the record is
+malformed at write time, and **twelve of the thirteen classes describe a way a
+command fails**. "It ran and did the wrong thing" is not one of them, and
+inventing a fourteenth is a schema change with a migration behind it.
+
+On a row that did not fail, **Teach is greyed rather than hidden**, and says why
+in one line, offering the thing that does work: tell the model in the chat, this
+turn. Greyed rather than hidden is not a fresh preference, it is
+[`design/system.md`](../../design/system.md)'s own rule for a capability tag,
+where an absent capability greys to `ink-4` and is never hidden. The board drew
+it as a live button opening a refusal; that is amended here to the greyed form.
+
+The alternative, letting the user select a line of **output** as the `signal`,
+is written down and not built. It buys the missing half at the price of the
+invariant the whole engine rests on, and nothing has yet shown the half is
+wanted.
+
+### One amendment to the design system
+
+[`design/system.md`](../../design/system.md) puts keycaps "never" inside the
+transcript, and in the same file gives the approval prompt always-visible Enter
+and Escape caps inside it. The rule is right and its wording is short by one
+clause: **never on anything a model produced**, and a control that takes a
+decision from the person is the exception. There are now two of them, the
+approval prompt and the Teach field, and both take Enter and Escape. The card at
+rest takes no cap at all.
 
 ## Retrieval
 
