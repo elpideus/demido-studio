@@ -207,6 +207,16 @@ both make: the sentence lives in the host, not in the thing being described. A
 manifest key to override it is not needed yet, and arrives without a break when
 it is.
 
+Living in the host does not mean living in a string literal. It is an entry in
+the prompt catalog like every other piece of text Demido puts in front of a
+model, editable, hashed and recorded
+([`prompts.md`](prompts.md), decided on
+[#33](https://github.com/elpideus/demido-studio/issues/33)). Because one edit to
+it changes every command in every skill at once, it is one of the entries that
+declares its dependants in the editor. It is still not refused: the brief says
+all prompts are editable, and the answer to a load-bearing string is to say what
+depends on it, never to lock it.
+
 An **optional** parameter is marked optional and nothing more. A default is a
 sentence about the author's own domain, and the prompt file is where the author
 already writes those. A `default` key would split that authorship across two

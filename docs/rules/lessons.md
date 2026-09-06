@@ -221,6 +221,18 @@ produced arguments the schema forbids" has one explanation rather than two), so
 constraining a classifier's output is existing machinery rather than a new
 dependency.
 
+**What it is asked lives in the prompt catalog**, as the entry `lessons.classify`
+([`prompts.md`](prompts.md)), and so does the wrapper the retrieved remedy is
+injected under. The class table inside that prompt is prose in its default file,
+not a block generated from the table above, and a contract test binds the two in
+both directions: a hash over a frame with a `{{classes}}` hole in it does not
+change when a class is added, which is precisely the change most likely to move
+the agreement rates. The wording those rates were measured against is pinned as
+[`evals/lessons/classifier.md`](../../evals/lessons/classifier.md), and changing
+the shipped default fails the build until the eval is re-run and the pin
+replaced. Decided on
+[#33](https://github.com/elpideus/demido-studio/issues/33).
+
 **Thinking is off.** The grammar binds the content and not the reasoning, so a
 model that reasons first spends its budget thinking and emits nothing at all:
 the reference model at a 300 token budget produced an empty string on every one

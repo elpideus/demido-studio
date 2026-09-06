@@ -48,7 +48,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B04 | "get the most out of even smaller models" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
 | B58 | "or the user tells it where it is wrong" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#23](https://github.com/elpideus/demido-studio/issues/23) | - | - |
 | B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
-| B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
+| B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#33](https://github.com/elpideus/demido-studio/issues/33) | - | - |
 | B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
 | B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#32](https://github.com/elpideus/demido-studio/issues/32) | - | - |
@@ -72,6 +72,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B52 | "skills also provide the required mcps and tools instead of the user having to grab them manually" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B53 | "The ones without a specific type are assumed to be the ones provided by the skill in an "engine" or "src" folder" | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
 | B54 | "The prompt type means that the tool is nothing more than an md file that gets read and tells LLM what to do on the spot." | [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
+| B62 | "the skill creator might need to change the tool description to better fit in their skill" | [#14](https://github.com/elpideus/demido-studio/issues/14), [#33](https://github.com/elpideus/demido-studio/issues/33) | - | - |
 | B21 | "Artifact system." | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B22 | "Models Browser & Downloader" | [#7](https://github.com/elpideus/demido-studio/issues/7) | - | - |
 | B55 | "Multiple folders should be set-able for model detection" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |

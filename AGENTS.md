@@ -82,6 +82,13 @@ which needs a built installer and so runs at the tag
    contains an `AGENTS.md`. See
    [`docs/rules/crate-docs.md`](docs/rules/crate-docs.md). **Enforced now**, and
    a no-op until there are crates.
+10. **Host prompt text is a catalog entry, not a string literal.** Anything
+    Demido wrote that the model reads, a tool's description and its parameter
+    prose included, has an id, a default file, a hash and an `Origin`, and a
+    wording a measurement was taken against cannot change without the eval being
+    re-run. See [`docs/rules/prompts.md`](docs/rules/prompts.md). **Enforced
+    now** for the pins, and a no-op on the shipped defaults until there are
+    crates.
 
 Two of v2's eight rules are not here. Its colour rule is rule 4, widened from
 one family to five on

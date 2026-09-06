@@ -210,9 +210,20 @@ Brief B07: "recorded in an append-only session log"
 When the offered set changes, that is a `tools/offered` event carrying the set
 and the layer that decided it, the same shape as any other setting change.
 
-The assembly stays a faithful record of what was actually sent, so
-[#8](https://github.com/elpideus/demido-studio/issues/8)'s rebuild needs no
-change to be correct. But correct is not answerable: a user debugging *why did
+**The set is names and hashes, not names alone.** v2's payload carried
+`names: Vec<String>`, which is not enough to rebuild anything: a tool's
+description and its parameter prose are about 1,300 tokens of host-authored text
+sent on every turn, and under names alone the monitor would render today's
+wording against a reply produced by yesterday's, silently. Each name is recorded
+with the hash of that tool's document, whose text the log holds once per session
+per hash exactly as it holds a prompt's. Per tool rather than one hash over the
+block, because the set changes per turn and per sub-agent while the wording does
+not. Decided on
+[#33](https://github.com/elpideus/demido-studio/issues/33); the register and the
+rest of the mechanism are [`prompts.md`](prompts.md)'s.
+
+With that, the assembly is a faithful record of what was actually sent, and
+[#8](https://github.com/elpideus/demido-studio/issues/8)'s rebuild is correct. But correct is not answerable: a user debugging *why did
 it not use the file tools* opens the session monitor, sees no file tools in the
 assembly, and cannot tell a deliberate absence from a dropped one. The event is
 what distinguishes them. The monitor's source ledger gains a source that

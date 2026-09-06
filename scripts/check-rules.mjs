@@ -21,6 +21,7 @@
  */
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -854,6 +855,56 @@ function checkCrateDocs() {
   }
 }
 
+// --- docs/rules/prompts.md ---------------------------------------------------
+// A host prompt is identified by the digest of its wording, and a measurement is
+// pinned to one. The check is that a pin says what it claims: the fixture must
+// hash to its own recorded digest, and a shipped default must hash to the pin
+// that a measurement was taken against. The second half is a no-op until the
+// register ships in S1, which is the same shape as the crate-docs check.
+
+const PINS = [
+  { id: 'lessons.classify', fixture: join('evals', 'lessons', 'classifier.md'), pinnedIn: 'evals/lessons/AGENTS.md' },
+]
+
+/** One line ending, whoever wrote the file. A digest that changed because a
+ * clone checked out CRLF would report an edit nobody made. */
+const digest = (text) => createHash('sha256').update(text.replace(/\r\n?/g, '\n')).digest('hex')
+
+function checkPrompts() {
+  for (const pin of PINS) {
+    const record = join(ROOT, ...pin.pinnedIn.split('/'))
+    if (!existsSync(record)) {
+      fail('prompts', record, `pins ${pin.id} and does not exist`)
+      continue
+    }
+    const found = new RegExp(`${pin.id}[\\s\\S]{0,200}?sha256\\s+([0-9a-f]{64})`).exec(readFileSync(record, 'utf8'))
+    if (!found) {
+      fail('prompts', record, `has no sha256 pin for ${pin.id}`)
+      continue
+    }
+
+    const fixture = join(ROOT, pin.fixture)
+    if (!existsSync(fixture)) {
+      fail('prompts', fixture, `is pinned for ${pin.id} and does not exist`)
+      continue
+    }
+    const actual = digest(readFileSync(fixture, 'utf8'))
+    if (actual !== found[1]) {
+      fail('prompts', fixture, `hashes to ${actual}, but ${pin.pinnedIn} pins ${found[1]}`)
+    }
+
+    // The shipped default, once there is one. Changing the wording a
+    // measurement was taken against means re-running the eval and re-pinning.
+    const shipped = join(ROOT, 'src-tauri', 'crates', 'demido-prompts', 'defaults', `${pin.id}.md`)
+    if (existsSync(shipped)) {
+      const built = digest(readFileSync(shipped, 'utf8'))
+      if (built !== found[1]) {
+        fail('prompts', shipped, `hashes to ${built}, but ${pin.id} was measured at ${found[1]}; re-run the eval and re-pin, or revert the wording`)
+      }
+    }
+  }
+}
+
 // --- report ------------------------------------------------------------------
 
 /** `--report` prints the measurements instead of only the failures. Useful when
@@ -889,6 +940,7 @@ const CHECKS = [
   checkText,
   checkDecisions,
   checkCrateDocs,
+  checkPrompts,
 ]
 
 if (process.argv.includes('--report')) {

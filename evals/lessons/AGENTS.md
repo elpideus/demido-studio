@@ -33,6 +33,24 @@ falsifiable: it is the only way to re-run the comparison that justified adding
 `not-found`, and a later vocabulary change should add a third column rather than
 overwrite either.
 
+## The wording it was measured against
+
+`classifier.md` is the exact system prompt the numbers above were produced with,
+lifted out of the harness so the fixture stops depending on a file outside the
+repo.
+
+    id      lessons.classify
+    sha256  193ae5950c47e97e54842b78a104adc5c180cdc2447db46e7360331c9e25eb5e
+
+That digest is over the file with line endings normalised to `\n`. It is a
+release gate: when `demido-prompts` ships this entry, its default must hash to
+the same value, or the eval is re-run and this pin replaced with the new
+numbers. See [`docs/rules/prompts.md`](../../docs/rules/prompts.md).
+
+The class table inside it is prose rather than a generated block, for the reason
+that file gives: a hash over a frame with a hole in it does not change when a
+class is added, which is the change most likely to move these numbers.
+
 ## Where it came from
 
 Two producers, chosen so that no single set of habits decides the vocabulary.
