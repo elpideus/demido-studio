@@ -29,9 +29,12 @@
   gap: var(--space-room);
 }
 
+/* An icon is Lucide at stroke-width 1.8, 12 to 18px, currentColor
+ * (design/system.md). 18 is the top of that range, which is what a heading
+ * mark gets; the size is system.md's own number and not a fresh one. */
 .mark {
-  width: 32px;
-  height: 32px;
+  width: 18px;
+  height: 18px;
   flex: none;
   color: var(--color-signal);
 }
@@ -92,7 +95,14 @@
   color: var(--color-signal);
 }
 
+/* Waiting is amber: docs/rules/surfaces.md rule 4. It was ink-4, which is the
+ * seventeen-times bug that file's own audit found. */
 .waiting {
+  color: var(--color-amber);
+}
+
+/* Not enabled, which is the disabled tier and is what ink-4 is for. */
+.off {
   color: var(--color-ink-4);
 }
 

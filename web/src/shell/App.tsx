@@ -10,6 +10,24 @@ type BootReport = {
   driven: boolean
 }
 
+/** How `demido_core::Error` crosses the boundary: a tag to branch on and a
+ * sentence to show. Stringifying it instead renders "[object Object]", which is
+ * the whole reason it is not a string. */
+type Failure = {
+  kind: string
+  message: string
+}
+
+const isFailure = (value: unknown): value is Failure =>
+  typeof value === 'object' && value !== null && 'kind' in value && 'message' in value
+
+/** Anything can reach a catch block, including a rejected IPC call that never
+ * got as far as Rust, so the shape is checked rather than assumed. */
+function readFailure(error: unknown): Failure {
+  if (isFailure(error)) return error
+  return { kind: 'unreachable', message: String(error) }
+}
+
 /**
  * The window this slice opens.
  *
@@ -21,19 +39,19 @@ type BootReport = {
  */
 export function App() {
   const [report, setReport] = useState<BootReport | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
 
   useEffect(() => {
     invoke<BootReport>('boot_report')
       .then(setReport)
-      .catch((error: unknown) => setFailure(String(error)))
+      .catch((error: unknown) => setFailure(readFailure(error)))
   }, [])
 
   return (
     <main className={styles.rack}>
       <section className={styles.island}>
         <header className={styles.head}>
-          <Server className={styles.mark} aria-hidden strokeWidth={1.5} />
+          <Server className={styles.mark} aria-hidden strokeWidth={1.8} />
           <div>
             <h1 className={styles.title}>Demido Studio</h1>
             <p className={styles.subtitle}>An LLM harness that makes small models behave.</p>
@@ -49,7 +67,9 @@ export function App() {
             <dt className={styles.label}>Backend</dt>
             <dd className={styles.value}>
               {failure ? (
-                <span className={styles.bad}>{failure}</span>
+                <span className={styles.bad}>
+                  {failure.kind}: {failure.message}
+                </span>
               ) : report ? (
                 <span className={styles.good}>answering, version {report.version}</span>
               ) : (
@@ -63,7 +83,7 @@ export function App() {
               {report?.driven ? (
                 <span className={styles.good}>relaxed, window.__TAURI__ present</span>
               ) : (
-                <span className={styles.waiting}>off</span>
+                <span className={styles.off}>off</span>
               )}
             </dd>
           </div>

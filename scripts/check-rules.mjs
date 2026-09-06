@@ -70,13 +70,19 @@ function walk(dir, predicate) {
  * Source the value rules apply to: the frontend package and the Rust workspace,
  * scaffolded on ticket #38. `walk` skips `target`, `gen`, `dist` and
  * `node_modules`, so what is left is what somebody wrote.
+ *
+ * The frontend root is the package rather than its `src`, because `index.html`
+ * sits beside it and a style attribute there is as raw as one in a component.
+ * `.rs` is scanned for the same reason: the rule says "anywhere", a window's
+ * background can be set from Rust, and a family that is only enforced in CSS is
+ * the unenforced half of the experiment that made this rule wide.
  */
 function sourceFiles() {
-  const roots = ['web/src', 'src-tauri']
+  const roots = ['web', 'src-tauri']
   const files = []
   for (const root of roots) {
     files.push(
-      ...walk(join(ROOT, root), (n) => /\.(css|scss|ts|tsx|js|jsx|html|svelte|vue)$/.test(n)),
+      ...walk(join(ROOT, root), (n) => /\.(css|scss|ts|tsx|js|jsx|html|svelte|vue|rs)$/.test(n)),
     )
   }
   return files

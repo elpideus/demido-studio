@@ -1,3 +1,9 @@
+# `endOfLine: auto` in .prettierrc.json is not a preference. `.gitattributes`
+# normalises line endings in the repository and checks them out native, so on a
+# Windows clone every tracked file is CRLF and the default `lf` would fail the
+# whole repo on a fresh checkout. This is the same trap scripts/check-rules.mjs
+# documents at its `lines()` helper.
+
 # Generated or vendored, and not ours to reformat.
 pnpm-lock.yaml
 src-tauri/gen/

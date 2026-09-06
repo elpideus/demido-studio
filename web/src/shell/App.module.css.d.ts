@@ -14,6 +14,7 @@ declare const styles: {
   readonly value: string
   readonly good: string
   readonly waiting: string
+  readonly off: string
   readonly bad: string
   readonly note: string
 }

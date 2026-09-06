@@ -181,10 +181,11 @@ Then:
 | `pnpm dev:drive` | The same, plus `withGlobalTauri`, for the window gate. |
 | `pnpm build` | The release bundle: the NSIS installer. |
 | `pnpm build:web` | The frontend alone. |
+| `pnpm dev:web` | The frontend dev server alone, when you want it in its own terminal. |
 | `pnpm typecheck` | `tsc --noEmit` over the frontend. |
 | `pnpm format` / `pnpm format:check` | Prettier over the repo. |
 | `pnpm check:rules` | The hard rules above. |
-| `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
+| `pnpm drive` / `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
 | `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests. |
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |

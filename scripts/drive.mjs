@@ -35,13 +35,34 @@ import { dirname } from 'node:path'
 const args = process.argv.slice(2)
 const flag = (name, fallback) => {
   const at = args.indexOf(`--${name}`)
-  return at === -1 ? fallback : args[at + 1]
+  if (at === -1) return fallback
+  const value = args[at + 1]
+  if (value === undefined || value.startsWith('--')) {
+    console.error(`drive: --${name} needs a value`)
+    process.exit(2)
+  }
+  return value
 }
 
 const PORT = Number(flag('port', 9222))
 const TIMEOUT = Number(flag('timeout', 30_000))
 const SCREENSHOT = flag('screenshot', null)
 const EVAL = flag('eval', null)
+
+/** Poll until `check` returns something truthy, or give up with `message`.
+ * Both waits in this script are this shape; writing it twice is how they come
+ * to disagree about their timeout. */
+async function until(check, message) {
+  const deadline = Date.now() + TIMEOUT
+  let detail = ''
+  while (Date.now() < deadline) {
+    const [got, why] = await check()
+    if (got) return got
+    detail = why ?? detail
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
+  die(`${message} after ${TIMEOUT}ms${detail ? ` (${detail})` : ''}`)
+}
 
 /** The socket, so a failure closes it before the process ends. Exiting with a
  * WebSocket still open trips a libuv assertion, which buries the sentence this
@@ -62,9 +83,7 @@ const die = (message) => {
  * and those are two different sentences.
  */
 async function findTarget() {
-  const deadline = Date.now() + TIMEOUT
-  let lastError = 'nothing answered'
-  while (Date.now() < deadline) {
+  return until(async () => {
     try {
       const response = await fetch(`http://127.0.0.1:${PORT}/json/list`)
       const targets = await response.json()
@@ -74,20 +93,17 @@ async function findTarget() {
       const page = targets.find(
         (t) => t.type === 'page' && t.webSocketDebuggerUrl && t.url !== 'about:blank',
       )
-      if (page) return page
-      lastError = targets.some((t) => t.type === 'page')
-        ? 'the webview is still on about:blank'
-        : `${targets.length} target(s), none of them a page`
+      if (page) return [page]
+      return [
+        null,
+        targets.some((t) => t.type === 'page')
+          ? 'the webview is still on about:blank'
+          : `${targets.length} target(s), none of them a page`,
+      ]
     } catch (error) {
-      lastError = error.cause?.code ?? error.message
+      return [null, error.cause?.code ?? error.message]
     }
-    await new Promise((resolve) => setTimeout(resolve, 250))
-  }
-  die(
-    `no debuggable window on 127.0.0.1:${PORT} after ${TIMEOUT}ms (${lastError}). ` +
-      `The port opens on any debug build, so this is either nothing running or a release ` +
-      `build, which is not drivable and is not meant to be.`,
-  )
+  }, `no debuggable window on 127.0.0.1:${PORT}. The port opens on any debug build, so this is either nothing running or a release build, which is not drivable and is not meant to be`)
 }
 
 /** A CDP session over one WebSocket, with ids matched to replies. */
@@ -115,8 +131,11 @@ async function connect(url) {
   return {
     send(method, params = {}) {
       const id = nextId++
+      // Registered before the frame goes out: a reply that arrives between the
+      // send and the registration is a reply nobody is waiting for.
+      const reply = new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
       socket.send(JSON.stringify({ id, method, params }))
-      return new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
+      return reply
     },
     close: () => socket.close(),
   }
@@ -124,20 +143,17 @@ async function connect(url) {
 
 /** Wait until the document has finished loading and has a stylesheet. */
 async function settled() {
-  const deadline = Date.now() + TIMEOUT
-  while (Date.now() < deadline) {
-    const ready = await evaluate(
-      session,
-      `document.readyState === 'complete' && document.styleSheets.length > 0`,
-    )
-    if (ready) return
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  die(`the window never finished loading: no stylesheet after ${TIMEOUT}ms`)
+  await until(
+    async () => [
+      await evaluate(`document.readyState === 'complete' && document.styleSheets.length > 0`),
+      'no stylesheet yet',
+    ],
+    'the window never finished loading',
+  )
 }
 
 /** Evaluate an expression in the page and return its value, awaiting promises. */
-async function evaluate(session, expression) {
+async function evaluate(expression) {
   const result = await session.send('Runtime.evaluate', {
     expression,
     awaitPromise: true,
@@ -162,7 +178,6 @@ async function drive() {
   // Both handles, read directly rather than by listing `window`, because the
   // internals are non-enumerable and a list reports neither.
   const handles = await evaluate(
-    session,
     `({
        tauri: typeof window.__TAURI__,
        internals: typeof window.__TAURI_INTERNALS__,
@@ -188,12 +203,12 @@ async function drive() {
 
   // The channel, not just the handle. A global that exists and cannot reach
   // Rust is the same wasted day one layer down.
-  const report = await evaluate(session, `window.__TAURI__.core.invoke('boot_report')`)
+  const report = await evaluate(`window.__TAURI__.core.invoke('boot_report')`)
   console.log(`drive: "${handles.title}" at ${handles.url}`)
   console.log(`drive: both handles present, boot_report answered version ${report.version}`)
 
   if (EVAL !== null) {
-    console.log(`drive: ${JSON.stringify(await evaluate(session, EVAL))}`)
+    console.log(`drive: ${JSON.stringify(await evaluate(EVAL))}`)
   }
 
   if (SCREENSHOT) {

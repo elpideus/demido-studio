@@ -43,12 +43,10 @@ body {
   line-height: var(--leading-ui);
   letter-spacing: var(--tracking-tight);
   -webkit-font-smoothing: antialiased;
-}
 
-/* Nothing in this application scrolls sideways. A desk that grows a horizontal
- * scrollbar has a layout defect, and hiding it here would hide the defect too,
- * so the overflow is refused rather than scrolled. */
-body {
+  /* Nothing in this application scrolls sideways. A desk that grows a
+   * horizontal scrollbar has a layout defect, and hiding it here would hide the
+   * defect too, so the overflow is refused rather than scrolled. */
   overflow-x: hidden;
 }
 
