@@ -1,7 +1,8 @@
 # Every crate documents itself
 
-**Enforced now.** `scripts/check-rules.mjs`, rule `crate-docs`. A no-op until
-there are crates.
+**Enforced now.** `scripts/check-rules.mjs`, rule `crate-docs`. Real since the
+workspace landed on
+[#38](https://github.com/elpideus/demido-studio/issues/38).
 
 Decided on wayfinder ticket
 [#16](https://github.com/elpideus/demido-studio/issues/16). This is hard rule 9
@@ -18,10 +19,9 @@ rather than by reading the tree or the root contract. The codebase is meant to
 feel like a server rack: a unit you can pull out on its own is a unit that
 explains itself on its own.
 
-The check exists before the first crate does, so that it is already true when
-they arrive rather than retrofitted across two dozen directories later. The
-scaffold lands on
-[#10](https://github.com/elpideus/demido-studio/issues/10).
+The check existed before the first crate did, so that it was already true when
+they arrived rather than retrofitted across two dozen directories later.
+`demido-core` is the first, and its `AGENTS.md` is the shape the rest follow.
 
 ## What a crate's AGENTS.md holds
 

@@ -7,8 +7,9 @@ on:
 
 jobs:
   # Every machine-checkable rule in docs/rules/, in one job: the design system
-  # (#9), the brief (#12), and the repo hygiene rules from #16. The build and
-  # test jobs arrive with the stack on #10.
+  # (#9), the brief (#12), and the repo hygiene rules from #16. It runs on Linux
+  # because it reads files and git metadata and nothing else; the build job
+  # below is the Windows one.
   rules:
     runs-on: ubuntu-latest
     steps:
@@ -54,3 +55,50 @@ jobs:
         env:
           RULES_RANGE: ${{ steps.range.outputs.range }}
         run: node scripts/check-rules.mjs
+
+  # The Rust workspace and the frontend, on the platform Demido ships on first
+  # (Brief B03: "windows-only at first, during the pre-release versions"). The
+  # gates here are the ones the pre-commit hook runs, so a session that
+  # installed the hook has already seen every failure this job can report.
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Formatting
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+          pnpm format:check
+
+      - name: Types
+        run: pnpm typecheck
+
+      - name: Lints
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets
+
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --workspace
+
+      # The frontend bundle rather than the installer. Bundling is a release
+      # concern and has its own workflow and its own checker
+      # (docs/rules/releases.md); what this job owes is that the code compiles.
+      - name: Build
+        run: |
+          pnpm build:web
+          cargo build --manifest-path src-tauri/Cargo.toml --workspace

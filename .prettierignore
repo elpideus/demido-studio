@@ -1,0 +1,15 @@
+# Generated or vendored, and not ours to reformat.
+pnpm-lock.yaml
+src-tauri/gen/
+src-tauri/target/
+web/dist/
+node_modules/
+
+# The design system is authored by hand and its comments carry the reasoning
+# that justifies each number. Prettier reflows those comments and reorders
+# nothing useful, so tokens.css is left exactly as its author wrote it.
+design/tokens.css
+
+# Prose. Markdown wraps at a column the author chose per file, and reflowing it
+# turns a one-word edit into a whole-paragraph diff.
+*.md

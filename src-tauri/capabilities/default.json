@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the main window is allowed to call. Nothing is added here for the window gate: the driving relaxation is a merged dev config and never a permission (docs/rules/done.md).",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

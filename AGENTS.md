@@ -81,7 +81,8 @@ which needs a built installer and so runs at the tag
 9. **Every crate documents itself.** Each directory under `src-tauri/crates/`
    contains an `AGENTS.md`. See
    [`docs/rules/crate-docs.md`](docs/rules/crate-docs.md). **Enforced now**, and
-   a no-op until there are crates.
+   real since the workspace landed on
+   [#38](https://github.com/elpideus/demido-studio/issues/38).
 10. **Host prompt text is a catalog entry, not a string literal.** Anything
     Demido wrote that the model reads, a tool's description and its parameter
     prose included, has an id, a default file, a hash and an `Origin`, and a
@@ -135,9 +136,12 @@ rule an agent can break without CI noticing is a rule that will be broken.
 | `docs/agents/` | Configuration the installed engineering skills read. |
 | `design/` | The design system: `tokens.css` owns every arbitrary value, and `system.md`, `shell.md`, `windows.md` are the frozen boards. |
 | `licenses/` | One `LICENSE` per ported source, mirroring `<owner>/<repo>`. |
+| `src-tauri/` | The Cargo workspace: the Tauri application, and one crate per subsystem under `crates/`. |
+| `web/` | The frontend package: React 19, TypeScript, Vite, CSS Modules. |
 | `scripts/check-rules.mjs` | The hard rules above. No dependencies, on purpose. |
+| `scripts/drive.mjs` | The window gate's driver, over CDP. No dependencies either. |
 | `scripts/check-release.mjs` | The rules that only fire at a tag. See [`docs/rules/releases.md`](docs/rules/releases.md). |
-| `.githooks/` | The `commit-msg` gate. Install it once per clone (see Commands). |
+| `.githooks/` | The `commit-msg` and `pre-commit` gates. Install them once per clone (see Commands). |
 | `.github/allowed_signers` | The signing key CI verifies commits against. |
 | `.claude/` | Session guardrails: the blocked git commands, as a hook. |
 
@@ -162,16 +166,28 @@ Reference notes from the code they govern. When superseding one, set
 
 ## Commands
 
-Not yet. The stack is decided
-([#10](https://github.com/elpideus/demido-studio/issues/10): Tauri 2, Rust,
-React 19, Radix, CSS Modules, no Tailwind and no shadcn) but nothing is
-scaffolded. Until then the gates are the rule checker and the commit hook:
+Install once per clone, in this order:
 
 ```bash
-git config core.hooksPath .githooks    # once per clone, before the first commit
-node scripts/check-rules.mjs          # the hard rules above
-node scripts/check-rules.mjs --report # print the contrast measurements
+git config core.hooksPath .githooks    # the commit-msg and pre-commit gates
+pnpm install                           # the frontend workspace and the Tauri CLI
 ```
+
+Then:
+
+| Command | What |
+|---|---|
+| `pnpm dev` | The app, with the frontend dev server. What you work in. |
+| `pnpm dev:drive` | The same, plus `withGlobalTauri`, for the window gate. |
+| `pnpm build` | The release bundle: the NSIS installer. |
+| `pnpm build:web` | The frontend alone. |
+| `pnpm typecheck` | `tsc --noEmit` over the frontend. |
+| `pnpm format` / `pnpm format:check` | Prettier over the repo. |
+| `pnpm check:rules` | The hard rules above. |
+| `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
+| `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests. |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
 
 `check-rules.mjs` reads commit metadata as well as files. With no argument it
 checks whatever is not yet on `origin/main`; CI passes the push or pull request
@@ -181,15 +197,36 @@ range in `RULES_RANGE`, and you can too:
 RULES_RANGE=origin/main..HEAD node scripts/check-rules.mjs
 ```
 
-The hook is the cheap gate and can be skipped. CI is the one that cannot, so a
-violation costs a rebase rather than a reword. Install it.
+```bash
+node scripts/check-rules.mjs --report   # print the contrast measurements
+```
 
-Formatting and type checking (the `setup-pre-commit` skill) wait until there is
-code to format: running them against a repo of Markdown would install a hook
-that only ever passes. They arrive with the first slice on
-[#11](https://github.com/elpideus/demido-studio/issues/11), together with the
-frontend and Rust gates, the live-model harness invocation and the versioning
-scheme.
+### Driving the window
+
+The window gate ([`docs/rules/done.md`](docs/rules/done.md)) owes a screenshot,
+and the way that fails is designed to waste a day. So:
+
+```bash
+pnpm dev:drive                                          # one terminal
+node scripts/drive.mjs --screenshot evidence/NN.png     # another
+```
+
+Two switches, deliberately not one. The **debugging port** opens on any debug
+build, so the driver can always connect and say what it found. **`withGlobalTauri`**
+comes from `src-tauri/tauri.drive.conf.json`, merged only by `pnpm dev:drive`,
+never through `tauri.conf.json` or `capabilities/`. Run the driver against
+`pnpm dev` and it names the missing handle in one line rather than timing out,
+which is the point. A release build has neither and is not drivable.
+
+The screenshot goes on the issue, not in the clone. `/evidence` is ignored.
+
+### The hooks
+
+`commit-msg` checks the message: identity, signature, no `Co-Authored-By`, no
+assistant named, no em dash. `pre-commit` checks the code: `cargo fmt --check`,
+`cargo clippy`, `prettier --check`, `tsc --noEmit`, and the rule checker. Both
+are the cheap gate and can be skipped with `--no-verify`; CI is the one that
+cannot, so a violation costs a re-run rather than a rebase. Install them.
 
 ## Agent skills
 

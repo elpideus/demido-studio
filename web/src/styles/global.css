@@ -1,0 +1,58 @@
+/*
+ * The design system, then the few rules that are true of every page.
+ *
+ * `design/tokens.css` is imported from where it lives rather than copied into
+ * this package: it is the design system's file, CI checks it there, and a copy
+ * is a second thing to keep in step. Everything below references a token, and
+ * `scripts/check-rules.mjs` fails the build on anything that does not.
+ */
+
+@import '../../../design/tokens.css';
+
+/* The faces are vendored rather than fetched: the splash must render on a
+ * machine that has never been online (design/wordmark.md).
+ *
+ * --font-kana is not imported here. Its only use is the wordmark's two kana,
+ * and every way of vendoring the face is wrong for a window that sets none:
+ * the full family is 120 subset files, and the Japanese subset alone is 2.2 MB
+ * for two glyphs. The splash is the thing that sets them, so the splash ticket
+ * chooses. Until then the token falls through to --font-sans, which is what its
+ * own stack already says it does. */
+@import '@fontsource-variable/instrument-sans';
+@import '@fontsource-variable/martian-mono';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* A window body is ground, not an island: docs/rules/surfaces.md. */
+  background: var(--color-rack);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+  letter-spacing: var(--tracking-tight);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Nothing in this application scrolls sideways. A desk that grows a horizontal
+ * scrollbar has a layout defect, and hiding it here would hide the defect too,
+ * so the overflow is refused rather than scrolled. */
+body {
+  overflow-x: hidden;
+}
+
+:focus-visible {
+  outline: var(--space-hair) solid var(--color-signal);
+  outline-offset: var(--space-hair);
+}

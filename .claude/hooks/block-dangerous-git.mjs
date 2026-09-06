@@ -16,15 +16,21 @@
  */
 
 const BLOCKED = [
-  [/\bgit\s+push\b/, 'pushing is a person\'s decision, not a session\'s'],
+  [/\bgit\s+push\b/, "pushing is a person's decision, not a session's"],
   [/\bpush\s+--force|\bpush\s+-f\b/, 'force pushing rewrites what other clones already have'],
   [/\bgit\s+reset\s+--hard\b/, 'a hard reset throws away work that was never committed'],
   [/\bgit\s+clean\s+-[a-z]*f/, 'git clean deletes untracked files with no undo'],
   [/\bgit\s+branch\s+-D\b/, 'deleting a branch unreviewed loses whatever only it held'],
   [/\bgit\s+checkout\s+\.(\s|$)/, 'checkout . discards every uncommitted change at once'],
   [/\bgit\s+restore\s+\.(\s|$)/, 'restore . discards every uncommitted change at once'],
-  [/\bgit\s+rebase\b.*\s-i\b|\bgit\s+rebase\s+-i\b/, 'an interactive rebase cannot run without a terminal'],
-  [/\bgit\s+commit\b[^|;&]*--amend\b/, 'amending rewrites a commit that may already be signed and pushed'],
+  [
+    /\bgit\s+rebase\b.*\s-i\b|\bgit\s+rebase\s+-i\b/,
+    'an interactive rebase cannot run without a terminal',
+  ],
+  [
+    /\bgit\s+commit\b[^|;&]*--amend\b/,
+    'amending rewrites a commit that may already be signed and pushed',
+  ],
   [/\bgit\s+filter-branch\b|\bfilter-repo\b/, 'history rewriting is never an incidental step'],
 ]
 

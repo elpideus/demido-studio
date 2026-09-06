@@ -56,7 +56,8 @@ function walk(dir, predicate) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name)
     if (entry.isDirectory()) {
-      if (['node_modules', 'target', 'dist', '.git', 'gen', 'graphify-out'].includes(entry.name)) continue
+      if (['node_modules', 'target', 'dist', '.git', 'gen', 'graphify-out'].includes(entry.name))
+        continue
       out.push(...walk(full, predicate))
     } else if (predicate(entry.name)) {
       out.push(full)
@@ -66,15 +67,17 @@ function walk(dir, predicate) {
 }
 
 /**
- * Source the value rules apply to. Written as a list of candidate roots rather
- * than one, because ticket #10 has not chosen where the frontend lives yet and
- * a missing root is not an error.
+ * Source the value rules apply to: the frontend package and the Rust workspace,
+ * scaffolded on ticket #38. `walk` skips `target`, `gen`, `dist` and
+ * `node_modules`, so what is left is what somebody wrote.
  */
 function sourceFiles() {
-  const roots = ['web/src', 'src', 'app/src', 'src-tauri']
+  const roots = ['web/src', 'src-tauri']
   const files = []
   for (const root of roots) {
-    files.push(...walk(join(ROOT, root), (n) => /\.(css|scss|ts|tsx|js|jsx|html|svelte|vue)$/.test(n)))
+    files.push(
+      ...walk(join(ROOT, root), (n) => /\.(css|scss|ts|tsx|js|jsx|html|svelte|vue)$/.test(n)),
+    )
   }
   return files
 }
@@ -119,7 +122,9 @@ const FAMILIES = [
   {
     name: 'motion',
     test: (code) =>
-      /\b(?:transition|animation)(?:-(?:duration|delay))?\s*:\s*[^;}]*?(?<![\w.-])(?!0(?![\d.]))[\d.]+m?s\b/.exec(code),
+      /\b(?:transition|animation)(?:-(?:duration|delay))?\s*:\s*[^;}]*?(?<![\w.-])(?!0(?![\d.]))[\d.]+m?s\b/.exec(
+        code,
+      ),
     use: '--duration-, --delay- or --ease-',
   },
 ]
@@ -177,7 +182,10 @@ function parse(value, over) {
   } else {
     const fn = /^rgba?\(([^)]+)\)$/.exec(v)
     if (!fn) return null
-    const parts = fn[1].split(/[\s,/]+/).filter(Boolean).map(Number)
+    const parts = fn[1]
+      .split(/[\s,/]+/)
+      .filter(Boolean)
+      .map(Number)
     if (parts.length < 3 || parts.some(Number.isNaN)) return null
     rgb = parts.slice(0, 3)
     if (parts.length > 3) alpha = parts[3]
@@ -362,7 +370,9 @@ function checkThemeContrast() {
     // The worst case is the lightest surface text ever sits on. That is not
     // hardcoded: it is whichever of the eight measures lightest, so a theme
     // that reorders the ramp is still measured against its own worst case.
-    const [worstRole, worstRgb] = surfaces.reduce((a, b) => (luminance(a[1]) > luminance(b[1]) ? a : b))
+    const [worstRole, worstRgb] = surfaces.reduce((a, b) =>
+      luminance(a[1]) > luminance(b[1]) ? a : b,
+    )
 
     for (const role of READABLE) {
       const rgb = colour(role)
@@ -392,7 +402,11 @@ function checkThemeContrast() {
       }
       const ink3 = colour('ink-3')
       if (ink3 && contrast(ink4, worstRgb) >= contrast(ink3, worstRgb)) {
-        fail('theme-contrast', TOKENS, `theme "${name}": --color-ink-4 is not dimmer than --color-ink-3`)
+        fail(
+          'theme-contrast',
+          TOKENS,
+          `theme "${name}": --color-ink-4 is not dimmer than --color-ink-3`,
+        )
       }
     }
 
@@ -441,31 +455,34 @@ function readLedger() {
   const rows = new Map()
   const amendments = []
   if (!existsSync(LEDGER)) {
-    fail('brief', LEDGER, 'the ledger is missing; every brief requirement is meant to have a row here')
+    fail(
+      'brief',
+      LEDGER,
+      'the ledger is missing; every brief requirement is meant to have a row here',
+    )
     return { rows, amendments }
   }
   let section = ''
-  lines(readFileSync(LEDGER, 'utf8'))
-    .forEach((text, i) => {
-      const heading = /^##\s+(.*)$/.exec(text)
-      if (heading) section = heading[1].toLowerCase()
-      const row = /^\|\s*~?~?(B\d+)~?~?\s*\|\s*(.*?)\s*\|/.exec(text)
-      if (!row) return
-      const [, id, cell] = row
-      const quoted = /^"(.*)"$/.exec(cell)
-      if (!quoted) {
-        fail('brief', LEDGER, `${id}: the second cell must be a quoted fragment of the brief`, i + 1)
-        return
-      }
-      const entry = { id, quote: quoted[1], line: i + 1 }
-      if (section.startsWith('amendment')) {
-        amendments.push(entry)
-      } else if (rows.has(id)) {
-        fail('brief', LEDGER, `${id} is used twice; an id is assigned once and never reused`, i + 1)
-      } else {
-        rows.set(id, entry)
-      }
-    })
+  lines(readFileSync(LEDGER, 'utf8')).forEach((text, i) => {
+    const heading = /^##\s+(.*)$/.exec(text)
+    if (heading) section = heading[1].toLowerCase()
+    const row = /^\|\s*~?~?(B\d+)~?~?\s*\|\s*(.*?)\s*\|/.exec(text)
+    if (!row) return
+    const [, id, cell] = row
+    const quoted = /^"(.*)"$/.exec(cell)
+    if (!quoted) {
+      fail('brief', LEDGER, `${id}: the second cell must be a quoted fragment of the brief`, i + 1)
+      return
+    }
+    const entry = { id, quote: quoted[1], line: i + 1 }
+    if (section.startsWith('amendment')) {
+      amendments.push(entry)
+    } else if (rows.has(id)) {
+      fail('brief', LEDGER, `${id} is used twice; an id is assigned once and never reused`, i + 1)
+    } else {
+      rows.set(id, entry)
+    }
+  })
   return { rows, amendments }
 }
 
@@ -492,7 +509,12 @@ function checkBrief() {
       fail('brief', LEDGER, `amendment ${a.id} has no row in the ledger`, a.line)
     }
     if (!briefFlat.includes(squash(a.quote))) {
-      fail('brief', LEDGER, `amendment ${a.id}: "${a.quote}" is not in docs/brief.md verbatim`, a.line)
+      fail(
+        'brief',
+        LEDGER,
+        `amendment ${a.id}: "${a.quote}" is not in docs/brief.md verbatim`,
+        a.line,
+      )
     }
   }
 
@@ -546,7 +568,12 @@ function checkBrief() {
           if (block.length) quote = block.join(' ')
         }
         if (!quote) {
-          fail('brief', file, `${id}: a citation quotes the brief, on this line or as a blockquote under it`, i + 1)
+          fail(
+            'brief',
+            file,
+            `${id}: a citation quotes the brief, on this line or as a blockquote under it`,
+            i + 1,
+          )
         } else if (!briefFlat.includes(squash(quote))) {
           fail('brief', file, `${id}: "${quote}" is not in docs/brief.md verbatim`, i + 1)
         }
@@ -585,7 +612,11 @@ const PROJECT_NAMES = /openclaude|open-webui|gemini-cli|claude-code|[.]claude/gi
 
 function gitOut(args) {
   try {
-    return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return execFileSync('git', args, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
   } catch {
     return null
   }
@@ -605,7 +636,8 @@ function commitsUnderReview() {
   const format = `--format=%H${UNIT}%an <%ae>${UNIT}%cn <%ce>${UNIT}%G?${UNIT}%B${RECORD}`
   const attempts = []
   if (explicit) attempts.push([format, explicit])
-  else if (gitOut(['rev-parse', '--verify', '--quiet', 'origin/main'])) attempts.push([format, 'origin/main..HEAD'])
+  else if (gitOut(['rev-parse', '--verify', '--quiet', 'origin/main']))
+    attempts.push([format, 'origin/main..HEAD'])
   attempts.push([format, '-n', '1', 'HEAD'])
 
   for (const args of attempts) {
@@ -643,9 +675,17 @@ function checkAttribution() {
     if (commit.signature === 'N') {
       fail('attribution', GIT, `${at} is not signed`)
     } else if ('BRXY'.includes(commit.signature)) {
-      fail('attribution', GIT, `${at} has a bad, revoked or expired signature (git reports "${commit.signature}")`)
+      fail(
+        'attribution',
+        GIT,
+        `${at} has a bad, revoked or expired signature (git reports "${commit.signature}")`,
+      )
     } else if (verifiable && commit.signature !== 'G') {
-      fail('attribution', GIT, `${at} is signed by a key that is not in ${signersFile} (git reports "${commit.signature}")`)
+      fail(
+        'attribution',
+        GIT,
+        `${at} is signed by a key that is not in ${signersFile} (git reports "${commit.signature}")`,
+      )
     }
 
     const message = commit.message.replace(PROJECT_NAMES, 'a-project')
@@ -655,7 +695,11 @@ function checkAttribution() {
       }
     }
     if (commit.message.includes(EM_DASH)) {
-      fail('text', GIT, `${at} has an em dash in its message; use a colon, a comma, parentheses, a semicolon or a full stop`)
+      fail(
+        'text',
+        GIT,
+        `${at} has an em dash in its message; use a colon, a comma, parentheses, a semicolon or a full stop`,
+      )
     }
   }
 }
@@ -670,7 +714,8 @@ const LICENSES = join(ROOT, 'licenses')
 const NOTICES = join(ROOT, 'THIRD_PARTY_NOTICES.md')
 
 /** `Ported from <owner>/<project> @ <commit>, <license>.` See the rule doc. */
-const PROVENANCE = /Ported from ([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+) @ ([A-Za-z0-9._-]{7,40}), ([A-Za-z0-9.+-]+)\./g
+const PROVENANCE =
+  /Ported from ([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+) @ ([A-Za-z0-9._-]{7,40}), ([A-Za-z0-9.+-]+)\./g
 
 /** The floor. THIRD_PARTY_NOTICES.md may add to this list; it cannot shrink it
  * below these two, because both bans are legal rather than editorial. */
@@ -680,7 +725,9 @@ const FORBIDDEN_FLOOR = new Map([
 ])
 
 function codeFiles() {
-  return walk(ROOT, (n) => /\.(rs|ts|tsx|js|jsx|mjs|cjs|css|scss|py|html|svelte|vue|toml)$/.test(n)).filter((file) => {
+  return walk(ROOT, (n) =>
+    /\.(rs|ts|tsx|js|jsx|mjs|cjs|css|scss|py|html|svelte|vue|toml)$/.test(n),
+  ).filter((file) => {
     const rel = relative(ROOT, file).split(sep).join('/')
     return !rel.startsWith('licenses/') && !rel.startsWith('.research/')
   })
@@ -692,7 +739,11 @@ function readNotices() {
   const chosen = new Set()
   const forbidden = new Map(FORBIDDEN_FLOOR)
   if (!existsSync(NOTICES)) {
-    fail('provenance', NOTICES, 'the human-readable index is missing; the in-app credits surface renders from it')
+    fail(
+      'provenance',
+      NOTICES,
+      'the human-readable index is missing; the in-app credits surface renders from it',
+    )
     return { listed, chosen, forbidden }
   }
   let section = ''
@@ -706,7 +757,8 @@ function readNotices() {
     // The index is the table before the first heading. A later section is
     // prose about things that do not ship yet, and claims nothing.
     if (section === '') listed.add(`${second}/${first}`.toLowerCase())
-    else if (section.startsWith('ruled out')) forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
+    else if (section.startsWith('ruled out'))
+      forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
     else if (section.startsWith('chosen')) chosen.add(`${second}/${first}`.toLowerCase())
   }
   return { listed, chosen, forbidden }
@@ -724,14 +776,29 @@ function checkProvenance() {
       const line = source.slice(0, hit.index).split('\n').length
       const banned = forbidden.get(project.toLowerCase())
       if (banned) {
-        fail('provenance', file, `ported from ${project}, which cannot be copied from: ${banned}`, line)
+        fail(
+          'provenance',
+          file,
+          `ported from ${project}, which cannot be copied from: ${banned}`,
+          line,
+        )
         continue
       }
       if (!existsSync(join(LICENSES, owner, project, 'LICENSE'))) {
-        fail('provenance', file, `names ${owner}/${project} (${license}) with no licenses/${owner}/${project}/LICENSE on disk`, line)
+        fail(
+          'provenance',
+          file,
+          `names ${owner}/${project} (${license}) with no licenses/${owner}/${project}/LICENSE on disk`,
+          line,
+        )
       }
       if (!listed.has(`${owner}/${project}`.toLowerCase())) {
-        fail('provenance', file, `names ${owner}/${project} with no row in THIRD_PARTY_NOTICES.md`, line)
+        fail(
+          'provenance',
+          file,
+          `names ${owner}/${project} with no row in THIRD_PARTY_NOTICES.md`,
+          line,
+        )
       }
     }
   }
@@ -768,7 +835,11 @@ function checkProvenance() {
   // 3. The two legal bans survive an edit of the index.
   for (const [project, why] of FORBIDDEN_FLOOR) {
     if (!forbidden.has(project)) {
-      fail('provenance', NOTICES, `the ruled-out table no longer lists ${project}, which is banned because ${why}`)
+      fail(
+        'provenance',
+        NOTICES,
+        `the ruled-out table no longer lists ${project}, which is banned because ${why}`,
+      )
     }
   }
 }
@@ -786,7 +857,9 @@ function checkText() {
     ...walk(join(ROOT, '.github'), (n) => /\.(yml|yaml|md)$/.test(n)),
     ...walk(join(ROOT, '.githooks'), () => true),
     ...codeFiles(),
-    ...['AGENTS.md', 'README.md', 'THIRD_PARTY_NOTICES.md'].map((n) => join(ROOT, n)).filter((p) => existsSync(p)),
+    ...['AGENTS.md', 'README.md', 'THIRD_PARTY_NOTICES.md']
+      .map((n) => join(ROOT, n))
+      .filter((p) => existsSync(p)),
   ]
   for (const file of new Set(files)) {
     // The brief is reproduced verbatim and is never edited, and a third-party
@@ -797,7 +870,12 @@ function checkText() {
       .split('\n')
       .forEach((text, i) => {
         if (text.includes(EM_DASH)) {
-          fail('text', file, 'em dash; use a colon, a comma, parentheses, a semicolon or a full stop', i + 1)
+          fail(
+            'text',
+            file,
+            'em dash; use a colon, a comma, parentheses, a semicolon or a full stop',
+            i + 1,
+          )
         }
       })
   }
@@ -831,9 +909,19 @@ function checkDecisions() {
         for (const hit of text.matchAll(/docs\/decisions\/(\d{4}-[a-z0-9-]+\.md)/g)) {
           const name = hit[1]
           if (!status.has(name)) {
-            fail('decisions', file, `references docs/decisions/${name}, which does not exist`, i + 1)
+            fail(
+              'decisions',
+              file,
+              `references docs/decisions/${name}, which does not exist`,
+              i + 1,
+            )
           } else if (/^superseded-by/i.test(status.get(name))) {
-            fail('decisions', file, `references docs/decisions/${name}, which is ${status.get(name)}`, i + 1)
+            fail(
+              'decisions',
+              file,
+              `references docs/decisions/${name}, which is ${status.get(name)}`,
+              i + 1,
+            )
           }
         }
       })
@@ -863,7 +951,11 @@ function checkCrateDocs() {
 // register ships in S1, which is the same shape as the crate-docs check.
 
 const PINS = [
-  { id: 'lessons.classify', fixture: join('evals', 'lessons', 'classifier.md'), pinnedIn: 'evals/lessons/AGENTS.md' },
+  {
+    id: 'lessons.classify',
+    fixture: join('evals', 'lessons', 'classifier.md'),
+    pinnedIn: 'evals/lessons/AGENTS.md',
+  },
 ]
 
 /** One line ending, whoever wrote the file. A digest that changed because a
@@ -877,7 +969,9 @@ function checkPrompts() {
       fail('prompts', record, `pins ${pin.id} and does not exist`)
       continue
     }
-    const found = new RegExp(`${pin.id}[\\s\\S]{0,200}?sha256\\s+([0-9a-f]{64})`).exec(readFileSync(record, 'utf8'))
+    const found = new RegExp(`${pin.id}[\\s\\S]{0,200}?sha256\\s+([0-9a-f]{64})`).exec(
+      readFileSync(record, 'utf8'),
+    )
     if (!found) {
       fail('prompts', record, `has no sha256 pin for ${pin.id}`)
       continue
@@ -899,7 +993,11 @@ function checkPrompts() {
     if (existsSync(shipped)) {
       const built = digest(readFileSync(shipped, 'utf8'))
       if (built !== found[1]) {
-        fail('prompts', shipped, `hashes to ${built}, but ${pin.id} was measured at ${found[1]}; re-run the eval and re-pin, or revert the wording`)
+        fail(
+          'prompts',
+          shipped,
+          `hashes to ${built}, but ${pin.id} was measured at ${found[1]}; re-run the eval and re-pin, or revert the wording`,
+        )
       }
     }
   }
@@ -913,7 +1011,9 @@ function report() {
   for (const [name, values] of Object.entries(readThemes())) {
     const colour = (role) => parse(values[`--color-${role}`] ?? '', null)
     const surfaces = SURFACES.map((r) => [r, colour(r)]).filter(([, c]) => c)
-    const [worstRole, worstRgb] = surfaces.reduce((a, b) => (luminance(a[1]) > luminance(b[1]) ? a : b))
+    const [worstRole, worstRgb] = surfaces.reduce((a, b) =>
+      luminance(a[1]) > luminance(b[1]) ? a : b,
+    )
     console.log(`\ntheme "${name}", measured against --color-${worstRole} (the lightest surface):`)
     for (const role of [...READABLE, 'ink-4']) {
       const rgb = colour(role)
@@ -923,7 +1023,9 @@ function report() {
     const fall = colour('fall')
     if (rise && fall) {
       for (const kind of ['deutan', 'protan']) {
-        console.log(`  rise/fall ${kind} separation   ${deltaE(dichromat(rise, kind), dichromat(fall, kind)).toFixed(1)}`)
+        console.log(
+          `  rise/fall ${kind} separation   ${deltaE(dichromat(rise, kind), dichromat(fall, kind)).toFixed(1)}`,
+        )
       }
     }
   }
