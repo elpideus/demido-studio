@@ -186,7 +186,9 @@ Then:
 | `pnpm format` / `pnpm format:check` | Prettier over the repo. |
 | `pnpm check:rules` | The hard rules above. |
 | `pnpm drive` / `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
-| `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests. |
+| `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests that need no card. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test a_real_model -- --ignored --test-threads=1` | The live-model suite. See below. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test llamacpp_contract -- --ignored --test-threads=1` | The `Backend` contract, against a real server. |
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
 
@@ -220,6 +222,23 @@ never through `tauri.conf.json` or `capabilities/`. Run the driver against
 which is the point. A release build has neither and is not drivable.
 
 The screenshot goes on the issue, not in the clone. `/evidence` is ignored.
+
+### The live-model suite
+
+The model gate of [`docs/rules/done.md`](docs/rules/done.md): a real small model,
+answering, from a terminal, with no window and nobody at the keyboard. It is
+**re-run every slice**.
+
+It is `#[ignore]`d, so `cargo test` never starts it by accident, and one model is
+resident at a time by a process-wide permit. `--test-threads=1` is not a
+suggestion: the permit bounds the card, and the harness would otherwise interleave
+two suites that each want all of it.
+
+It **fails rather than skips** when the rig is missing. A live suite that quietly
+passes on a machine with no models is the built-but-never-driven failure this
+project was restarted to avoid, and it would pass hardest in CI, where it proves
+the least. `DEMIDO_LLAMA_BIN` and `DEMIDO_MODELS` point it at the rig; the
+defaults are Stefan's machine, and the rig is described in `done.md`.
 
 ### The hooks
 

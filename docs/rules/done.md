@@ -194,10 +194,34 @@ against 48.0, because roughly four billion of its parameters are active per
 token. The development model keeps its role on prompt processing, where it is
 1.6 times faster, and on being the one with headroom to spare.
 
-**`--ctx-size` is per slot, not per server.** With the default four slots,
-`-c 4096` reserves 16k of KV and the reference model reaches 11787 MiB before
-anyone has typed anything. Demido passes both `--parallel` and `--ctx-size`
-already, so the number the user sees has to be the one they get.
+**`--ctx-size` is the whole pool, and the slots divide it.** This is the
+opposite of what [#19](https://github.com/elpideus/demido-studio/issues/19)
+recorded here, and it was corrected on
+[#39](https://github.com/elpideus/demido-studio/issues/39) by the contract test
+that ticket asked for, against the same pinned build:
+
+| Flags | `/props` reports, per slot |
+|---|---|
+| `-c 4096 --parallel 1` | 4096 |
+| `-c 3072 --parallel 2` | 1536 |
+
+So the window one generation gets is `--ctx-size` divided by `--parallel`, and
+handing `llama.cpp` the number the user asked for gives them a fraction of it,
+with the fraction set by a parallelism setting that has nothing to do with
+context. `llama.cpp`'s own `--kv-unified-per-slot` flag exists precisely because
+`-c` is not per slot.
+
+**Demido multiplies**, in `demido-inference::llamacpp::arguments`, and sends
+both flags always, because `--parallel` defaults to auto and an unstated divisor
+is a number nobody chose. The rule the correction does not change is the one
+that mattered: the number the user sees has to be the one they get, and it is
+now asserted rather than commented (`Backend::context_length` reads `/props`,
+and the contract suite compares it against what was asked for across more than
+one slot).
+
+The measurement #19 was drawing on stands; only its explanation was wrong. What
+it saw was a KV reservation larger than the context it had asked for, which is
+what `--parallel` defaulting to auto produces on this card.
 
 ## The bar: `chose` or `used`
 

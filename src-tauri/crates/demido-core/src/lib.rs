@@ -1,16 +1,19 @@
-//! Shared types, the error shape, and the composition root.
+//! Shared types and the error shape.
 //!
 //! Nothing in here knows about Tauri, about the frontend, or about any other
 //! crate in the workspace. It is the bottom of the dependency graph on purpose:
 //! every other crate may depend on it, and it depends on none of them.
 //!
+//! The composition root is **not** here, and this crate's own rule is why: it
+//! names one implementation per trait, so it depends on every crate that has
+//! one, which is upwards. It lives in the application package, which is the
+//! ceiling the tiles sit in.
+//!
 //! See `AGENTS.md` beside this file for what belongs here and what does not.
 
 pub mod error;
-pub mod wiring;
 
 pub use error::{Error, Result};
-pub use wiring::Wiring;
 
 /// The version this build carries, read from the crate manifest.
 ///

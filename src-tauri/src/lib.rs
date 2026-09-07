@@ -7,14 +7,15 @@
 //! and opens the window.
 
 mod dev_server;
+pub mod wiring;
 
 /// The port `scripts/drive.mjs` connects to. Debug builds only, and only when
 /// the dev command merged `tauri.drive.conf.json`.
 #[cfg(debug_assertions)]
 const CDP_PORT: u16 = 9222;
 
-use demido_core::Wiring;
 use serde::Serialize;
+use wiring::Wiring;
 
 /// What the window is told at boot.
 ///

@@ -101,6 +101,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+    // A test asserts by panicking; the workspace denial is about application
+    // code, where a panic is a window that vanishes.
+
     use super::*;
 
     #[test]
