@@ -964,9 +964,12 @@ const PINS = [
   },
 ]
 
-/** The register's default files, and the declaration that names them. */
-const DEFAULTS = join(ROOT, 'src-tauri', 'crates', 'demido-prompts', 'defaults')
-const CATALOG = join(ROOT, 'src-tauri', 'crates', 'demido-prompts', 'src', 'catalog.rs')
+/** The register: its crate, its default files, and the source that declares
+ * them. Both halves must exist once the crate does, or a gate that reads them
+ * would switch itself off when somebody moved a directory. */
+const REGISTER = join(ROOT, 'src-tauri', 'crates', 'demido-prompts')
+const DEFAULTS = join(REGISTER, 'defaults')
+const DECLARATION = join(REGISTER, 'src')
 
 /** One line ending, whoever wrote the file. A digest that changed because a
  * clone checked out CRLF would report an edit nobody made. */
@@ -1004,7 +1007,7 @@ function checkPrompts() {
     // arrived.
     const shipped = join(DEFAULTS, `${pin.id}.md`)
     if (!existsSync(shipped)) {
-      if (existsSync(DEFAULTS)) {
+      if (existsSync(REGISTER)) {
         fail('prompts', shipped, `${pin.id} is pinned and the register ships no default for it`)
       }
       continue
@@ -1035,13 +1038,34 @@ function checkPrompts() {
  * in review as a prose diff, and it is what lets the pin above hash it.
  */
 function checkDefaultsAreFiles() {
-  if (!existsSync(CATALOG)) return
-  lines(readFileSync(CATALOG, 'utf8')).forEach((line, index) => {
-    const declared = /^\s*default:\s*(.*)$/.exec(line)
-    if (declared && !declared[1].startsWith('include_str!')) {
-      fail('prompts', CATALOG, `a default is a file, not a literal: ${declared[1]}`, index + 1)
+  if (!existsSync(REGISTER)) return
+  if (!existsSync(DEFAULTS) || !existsSync(DECLARATION)) {
+    fail('prompts', REGISTER, 'the register has no defaults directory and no declaration to read')
+    return
+  }
+
+  // Over the whole declaration rather than one line of one file: rustfmt wraps
+  // a long value onto the next line, and a second register is one more file.
+  for (const file of walk(DECLARATION, (name) => name.endsWith('.rs'))) {
+    const source = readFileSync(file, 'utf8')
+    const declared = /\bdefault:\s*/g
+    let found
+    while ((found = declared.exec(source))) {
+      // The field's own declaration says what a default is typed as; every
+      // other `default:` is an entry saying what one holds.
+      if (source.slice(0, found.index).trimEnd().endsWith('pub')) continue
+
+      const value = source.slice(found.index + found[0].length)
+      if (value.startsWith('include_str!')) continue
+
+      fail(
+        'prompts',
+        file,
+        `a default is a file, not a literal: ${value.split('\n')[0].slice(0, 40)}`,
+        lines(source.slice(0, found.index)).length,
+      )
     }
-  })
+  }
 }
 
 /**
@@ -1065,6 +1089,14 @@ function checkDefaultsAreFiles() {
 /** Six words reads as prose. Measured against the workspace as it stood on #40:
  * the only literal in it that long was a `tracing::info!` message. */
 const PROSE_WORDS = 6
+
+/** The same threshold for a script that does not put spaces between words.
+ * Counting words would find none in Classical Chinese, and the register ships
+ * three wenyan paragraphs, so a script-blind check would be blind to exactly
+ * the text this rule exists to hold. Twelve characters is roughly two of the
+ * four-to-six character clauses those paragraphs ask a model for. */
+const PROSE_IDEOGRAPHS = 12
+const IDEOGRAPH = /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/gu
 
 /** Where prose is not a prompt: a log line, an error's own sentence, a test's
  * failure message, and the macros that read a file at compile time.
@@ -1232,8 +1264,9 @@ function checkNoHostTextLiterals() {
     const covered = accountedFor(source)
 
     for (const literal of literals) {
-      const words = literal.content.split(/\s+/).filter((word) => /[a-z]/.test(word))
-      if (words.length < PROSE_WORDS) continue
+      const words = literal.content.split(/\s+/).filter((word) => /[a-z]/i.test(word))
+      const ideographs = (literal.content.match(IDEOGRAPH) ?? []).length
+      if (words.length < PROSE_WORDS && ideographs < PROSE_IDEOGRAPHS) continue
       if (regions.some(([from, to]) => literal.start > from && literal.start < to)) continue
       if (DIAGNOSTIC.has(enclosingCall(masked, literal.start))) continue
 

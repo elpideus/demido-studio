@@ -31,6 +31,14 @@ call in it, and twenty five entries nothing sends is the failure this crate's
 own rule warns about: a prompt nothing sends is worse than no prompt, because
 the editor offers to change something that cannot matter.
 
+Three paragraphs `prompts.md` names are held back for the same reason, and they
+are the ones whose askers do not exist yet: the **lesson injection wrapper**,
+the **parameter asking sentence** (a skill's, so S2 with the tool register) and
+the **four task-model jobs**. What ships is what S1 sends or measures: the six
+caveman levels, the project tree, and the failure classifier, which is here
+because a pinned wording with no default file is a release gate that cannot
+fire.
+
 ## The seam
 
 `Paragraphs::open(dir)` and then one of four verbs:
@@ -57,6 +65,12 @@ read-only flag in writing. What an entry carries instead is its **dependants**,
 rendered above the field in the editor:
 
 > A measurement in `evals/lessons/` was taken against this wording.
+
+`Dependency` has two kinds and only one of them has an entry today.
+`Measured` is the classifier's. `Shared` is the asking sentence's, which arrives
+with the tool register: it is declared now rather than later because the editor
+renders both sentences side by side, and a kind added when its first entry
+appears would be a schema change to a seam the window is already reading.
 
 An edit **suppresses the claim rather than being refused**. `Prompt::suppressed`
 is what the window renders: a user may degrade their own classifier,
@@ -120,6 +134,15 @@ the sampling move underneath it too.
 
 One entry in `CATALOG` and one file in `defaults/`. Give it a consumer in the
 same commit.
+
+**The register's own first commit is the exception, and it is the last one.**
+[#40](https://github.com/elpideus/demido-studio/issues/40) lands eight entries
+that nothing sends yet, because it is the ticket that has to land before
+anything assembles a prompt: a turn loop that composes a system prompt from a
+string literal violates hard rule 10 at the first line of assembly and is paid
+for twice. The composer arrives in the same slice, and the entries here are the
+ones it will ask for. Every entry after that owes a consumer, which is why the
+three paragraphs above are held back rather than declared early.
 
 If it is chosen by a setting, the mapping from setting value to id belongs in
 the crate that composes the prompt, with a contract test asserting every value

@@ -229,13 +229,30 @@ pub fn placeholders_in(text: &str) -> Vec<String> {
 /// A placeholder with no value given is left standing rather than blanked, so a
 /// missing substitution reaches the eye as `{{target}}` instead of as a
 /// sentence that reads fine and means something else.
+///
+/// It reads a placeholder exactly the way [`placeholders_in`] does, one scan
+/// over the text rather than a replacement per spelling. Anything narrower
+/// disagrees with the check that let the edit through: `{{  target  }}` would
+/// validate as declared, never be filled, and reach the model as braces, which
+/// is the failure both functions exist to prevent.
 pub fn fill(text: &str, values: &[(&str, &str)]) -> String {
-    let mut out = text.to_owned();
-    for (name, value) in values {
-        out = out
-            .replace(&format!("{{{{{name}}}}}"), value)
-            .replace(&format!("{{{{ {name} }}}}"), value);
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else { break };
+
+        out.push_str(&rest[..start]);
+        match values.iter().find(|(name, _)| *name == after[..end].trim()) {
+            Some((_, value)) => out.push_str(value),
+            None => out.push_str(&rest[start..start + 2 + end + 2]),
+        }
+
+        rest = &after[end + 2..];
     }
+
+    out.push_str(rest);
     out
 }
 
@@ -362,8 +379,18 @@ mod tests {
 
     #[test]
     fn a_placeholder_written_with_spaces_is_the_same_placeholder() {
-        assert_eq!(placeholders_in("{{ target }}"), vec!["target".to_owned()]);
-        assert_eq!(fill("{{ target }}", &[(TARGET, "this")]), "this");
+        // Both functions, and for both spellings. A `set` that accepted a
+        // spelling `fill` could not fill would report a paragraph as valid and
+        // then hand the model a pair of braces.
+        for spelling in [
+            "{{target}}",
+            "{{ target }}",
+            "{{  target  }}",
+            "{{\ttarget }}",
+        ] {
+            assert_eq!(placeholders_in(spelling), vec!["target".to_owned()]);
+            assert_eq!(fill(spelling, &[(TARGET, "this")]), "this");
+        }
     }
 
     #[test]

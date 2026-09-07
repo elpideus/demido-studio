@@ -269,21 +269,30 @@ is: everything that looks like prose is refused, and the places prose
 legitimately lives are named rather than guessed at. Three limits, written down
 because a check nobody trusts is a check somebody disables.
 
-- **Diagnostics are exempt.** A log line, an error's own sentence and a test's
-  failure message are prose for a person and never reach a payload. `format!` is
-  on that list and it is the one entry that is a judgement rather than a fact:
-  every sentence Demido builds for a person interpolates the path or the error it
-  is about, and a prompt never does, because a prompt's holes are declared
-  placeholders that `Prompt::fill` puts values in. Prose assembled by `format!`
-  is therefore read as a message. A system prompt smuggled through `format!`
-  would pass, and nothing but review catches it.
+- **Diagnostics are exempt.** A log line, an error's own sentence, a test's
+  failure message, an attribute's own prose and the macros that read a file at
+  compile time are all prose for a person and never reach a payload. `format!`
+  is on that list and it is the one entry that is a judgement rather than a
+  fact: every sentence Demido builds for a person interpolates the path or the
+  error it is about, and a prompt never does, because a prompt's holes are
+  declared placeholders that `Prompt::fill` puts values in. Prose assembled by
+  `format!` is therefore read as a message. A system prompt smuggled through
+  `format!` would pass, and nothing but review catches it.
+- **Tests are exempt.** A `tests/` file and a `#[cfg(test)]` item are one long
+  assertion about text, and a suite that quotes a paragraph in order to check it
+  sends nothing. The contract probe in `demido-inference`'s contract module is
+  the exception that proves it: it is in `src/`, it really is sent to a model,
+  and it carries a `// not-a-prompt:` line saying a test sends it and a turn
+  never does.
 - **`web/` is not scanned.** The payload is assembled in Rust. Scanning UI copy
   would drown the signal, and a frontend that composed a prompt would be a
   different violation than this one.
 - **Six words is a threshold, not a boundary.** It was measured against the
   workspace as it stood: the only literal that long in it was one `tracing::info!`
   message. A five word prompt fragment passes, and the register is what makes
-  writing one pointless rather than the check.
+  writing one pointless rather than the check. Twelve characters is the same
+  threshold for a script that puts no spaces between words, because the register
+  ships three wenyan paragraphs and counting words would find none in them.
 
 Two things this file specifies that CI cannot check: the class table against the
 vocabulary, and the placeholder declaration in both directions. Both are contract
