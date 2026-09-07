@@ -50,7 +50,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B58 | "or the user tells it where it is wrong" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#23](https://github.com/elpideus/demido-studio/issues/23) | - | - |
 | B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
 | B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#33](https://github.com/elpideus/demido-studio/issues/33) | `src-tauri/crates/demido-prompts/` | - |
-| B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
+| B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#26](https://github.com/elpideus/demido-studio/issues/26) | `src-tauri/crates/demido-trace/` | - |
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
 | B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#32](https://github.com/elpideus/demido-studio/issues/32) | - | - |
 | B61 | "since I will need a character system implemented later down the road so users can give LLMs personalities and ways of doing things" | [#32](https://github.com/elpideus/demido-studio/issues/32) | - | - |

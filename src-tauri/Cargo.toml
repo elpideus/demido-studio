@@ -22,6 +22,7 @@ repository = "https://github.com/elpideus/demido-studio"
 demido-core = { path = "crates/demido-core" }
 demido-inference = { path = "crates/demido-inference" }
 demido-prompts = { path = "crates/demido-prompts" }
+demido-trace = { path = "crates/demido-trace" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -65,6 +66,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 demido-core.workspace = true
 demido-inference.workspace = true
+demido-trace.workspace = true
 serde.workspace = true
 tauri = { version = "2", features = ["devtools"] }
 tracing.workspace = true

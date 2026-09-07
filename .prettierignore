@@ -19,3 +19,9 @@ design/tokens.css
 # Prose. Markdown wraps at a column the author chose per file, and reflowing it
 # turns a one-word edit into a whole-paragraph diff.
 *.md
+
+# Evidence. A trace fixture is the log a live run actually wrote, and the
+# request it actually sent; both are rewritten by the scenario that produced
+# them (`docs/rules/done.md`). Reformatting evidence would make every live run
+# a formatting diff, and the next one would undo it.
+src-tauri/crates/*/tests/fixtures/

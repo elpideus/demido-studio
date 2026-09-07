@@ -1,0 +1,22 @@
+{
+  "model": "development",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Write your reply in as few words as it takes to stay exact.\n\n- No preamble, no restating the question, no closing summary.\n- One idea per line. Prefer a list to a paragraph.\n- Keep every identifier, number, path, flag and error string exactly as it is.\n\nCompress the wrapping, never the content. If shortening a sentence would lose a\nfact, keep the fact and lose the sentence.\n"
+    },
+    {
+      "role": "system",
+      "content": "Write your reasoning in the fewest tokens that still carry every fact.\n\n- Telegraph style. No articles, no pronouns, no linking verbs, and no\n  conjunctions where a line break will do.\n- One fact per line, and no line longer than about eight words.\n- \"->\" means \"leads to\", \"=\" means \"is\", \"!\" marks a warning.\n- Keep every identifier, number, path, flag and error string exactly as it is,\n  capitalisation included.\n\nNever drop a fact to hit the length. Answer at whatever length the facts need,\nand spend nothing on anything else.\n"
+    },
+    {
+      "role": "user",
+      "content": "What is the capital of France?"
+    }
+  ],
+  "options": {
+    "temperature": 0.0,
+    "max_tokens": 768,
+    "seed": 1
+  }
+}

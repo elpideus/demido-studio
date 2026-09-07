@@ -191,6 +191,7 @@ Then:
 | `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests that need no card. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test a_real_model -- --ignored --test-threads=1` | The live-model suite. See below. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test llamacpp_contract -- --ignored --test-threads=1` | The `Backend` contract, against a real server. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-trace --test a_real_model -- --ignored --test-threads=1` | The session log, against a real turn: the log rebuilds what was sent. |
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
 
@@ -235,6 +236,10 @@ It is `#[ignore]`d, so `cargo test` never starts it by accident, and one model i
 resident at a time by a process-wide permit. `--test-threads=1` is not a
 suggestion: the permit bounds the card, and the harness would otherwise interleave
 two suites that each want all of it.
+
+The permit is process-wide, and a test binary is a process, so the live commands
+above are run **one at a time**. There is no `--workspace --ignored` form of
+them, and asking for one would put two models on a 12 GB card.
 
 It **fails rather than skips** when the rig is missing. A live suite that quietly
 passes on a machine with no models is the built-but-never-driven failure this

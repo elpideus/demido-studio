@@ -1,0 +1,34 @@
+[package]
+name = "demido-trace"
+description = "The append-only session log, and the assembly rebuilt from it."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+demido-core.workspace = true
+# The shapes a turn is made of: a message, a parameter set, a finish reason and
+# a token count. Recording them means recording the inference crate's own types
+# rather than a second declaration of them that can drift, which is the same
+# argument that makes history a projection of this log instead of a table.
+demido-inference.workspace = true
+# A fragment is a paragraph by hash plus what filled it, so rebuilding one is
+# `Prompt::fill`. Nothing here re-implements it.
+demido-prompts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync"] }
+tokio-util = "0.7"

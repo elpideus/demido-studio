@@ -37,6 +37,17 @@ pub struct Wiring {
 /// recompiling.
 pub type Inference = Supervisor<LlamaCpp>;
 
+/// The session log implementation this build writes.
+///
+/// A type rather than a field on [`Wiring`], because a journal belongs to one
+/// session and nothing opens a session yet: chat is
+/// [#42](https://github.com/elpideus/demido-studio/issues/42). The alias is
+/// here all the same, because it is the wiring line, and the point of a tile
+/// being one line is only real while the line is in the one place that names
+/// implementations. The other implementation is `demido_trace::Memory`, which
+/// is what a session the user asks not to keep will be.
+pub type Trace = demido_trace::JsonLines;
+
 impl Wiring {
     /// The application's wiring: one implementation per trait.
     ///
