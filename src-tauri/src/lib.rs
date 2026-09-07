@@ -6,6 +6,11 @@
 //! assembles the composition root, registers the commands the window may call,
 //! and opens the window.
 
+/// Only a debug build loads `devUrl`, so only a debug build has a dev server to
+/// want. Compiled out of a release rather than merely unused there: a shipped
+/// build carries neither this check nor the CDP relaxation below, and a module
+/// left in to warn about itself is a warning every release build prints.
+#[cfg(debug_assertions)]
 mod dev_server;
 pub mod wiring;
 
