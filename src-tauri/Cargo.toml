@@ -21,8 +21,10 @@ repository = "https://github.com/elpideus/demido-studio"
 [workspace.dependencies]
 demido-core = { path = "crates/demido-core" }
 demido-inference = { path = "crates/demido-inference" }
+demido-prompts = { path = "crates/demido-prompts" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = "2"
 tracing = "0.1"
 

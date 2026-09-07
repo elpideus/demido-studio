@@ -964,6 +964,10 @@ const PINS = [
   },
 ]
 
+/** The register's default files, and the declaration that names them. */
+const DEFAULTS = join(ROOT, 'src-tauri', 'crates', 'demido-prompts', 'defaults')
+const CATALOG = join(ROOT, 'src-tauri', 'crates', 'demido-prompts', 'src', 'catalog.rs')
+
 /** One line ending, whoever wrote the file. A digest that changed because a
  * clone checked out CRLF would report an edit nobody made. */
 const digest = (text) => createHash('sha256').update(text.replace(/\r\n?/g, '\n')).digest('hex')
@@ -993,18 +997,255 @@ function checkPrompts() {
       fail('prompts', fixture, `hashes to ${actual}, but ${pin.pinnedIn} pins ${found[1]}`)
     }
 
-    // The shipped default, once there is one. Changing the wording a
-    // measurement was taken against means re-running the eval and re-pinning.
-    const shipped = join(ROOT, 'src-tauri', 'crates', 'demido-prompts', 'defaults', `${pin.id}.md`)
-    if (existsSync(shipped)) {
-      const built = digest(readFileSync(shipped, 'utf8'))
-      if (built !== found[1]) {
-        fail(
-          'prompts',
-          shipped,
-          `hashes to ${built}, but ${pin.id} was measured at ${found[1]}; re-run the eval and re-pin, or revert the wording`,
-        )
+    // The shipped default. Changing the wording a measurement was taken
+    // against means re-running the eval and re-pinning. Real since the
+    // register landed on #40: before that there was no default to hash, and
+    // the check was written first so that it was already true when one
+    // arrived.
+    const shipped = join(DEFAULTS, `${pin.id}.md`)
+    if (!existsSync(shipped)) {
+      if (existsSync(DEFAULTS)) {
+        fail('prompts', shipped, `${pin.id} is pinned and the register ships no default for it`)
       }
+      continue
+    }
+
+    const built = digest(readFileSync(shipped, 'utf8'))
+    if (built !== found[1]) {
+      fail(
+        'prompts',
+        shipped,
+        `hashes to ${built}, but ${pin.id} was measured at ${found[1]}; re-run the eval and re-pin, or revert the wording`,
+      )
+    }
+  }
+
+  checkDefaultsAreFiles()
+  checkNoHostTextLiterals()
+}
+
+/**
+ * A default is a file, never a literal, even inside the register itself.
+ *
+ * The register's own declaration is the one place a prose literal is expected
+ * to sit beside model-facing text, so it is also the one place the literal
+ * check below cannot help: the titles and summaries there are the editor's
+ * labels rather than payload, and they are marked as such. This closes the hole
+ * that marking opens. `include_str!` is what makes a change to a default read
+ * in review as a prose diff, and it is what lets the pin above hash it.
+ */
+function checkDefaultsAreFiles() {
+  if (!existsSync(CATALOG)) return
+  lines(readFileSync(CATALOG, 'utf8')).forEach((line, index) => {
+    const declared = /^\s*default:\s*(.*)$/.exec(line)
+    if (declared && !declared[1].startsWith('include_str!')) {
+      fail('prompts', CATALOG, `a default is a file, not a literal: ${declared[1]}`, index + 1)
+    }
+  })
+}
+
+/**
+ * Hard rule 10, on the code rather than on the pins: a host string the model
+ * reads has an id and a default file, so a paragraph of prose typed into a
+ * `.rs` file is a violation wherever a composer could pick it up.
+ *
+ * Nothing about a literal says whether a model will read it, so the check is
+ * shaped the way the colour rule is: everything that reads as prose is refused,
+ * and the few places prose legitimately lives are named. Those are diagnostics
+ * (a log line, an error's own sentence, a test's failure message), which never
+ * reach a payload, and anything a `// not-a-prompt:` comment accounts for in
+ * one sentence. That marker covers the run of lines it opens, up to the next
+ * blank line, and it is the only escape there is.
+ *
+ * Scoped to `src-tauri`, because the payload is assembled in Rust. Nothing in
+ * `web/` reaches a model, and scanning UI copy would drown the signal that
+ * makes this worth running.
+ */
+
+/** Six words reads as prose. Measured against the workspace as it stood on #40:
+ * the only literal in it that long was a `tracing::info!` message. */
+const PROSE_WORDS = 6
+
+/** Where prose is not a prompt: a log line, an error's own sentence, a test's
+ * failure message, and the macros that read a file at compile time.
+ *
+ * `format!` is on the list, and it is the one entry that is a judgement rather
+ * than a fact. Every sentence Demido builds for a person is interpolated,
+ * because it names the path or the error it is about; a prompt never is,
+ * because a prompt's holes are declared placeholders and `Prompt::fill` is what
+ * puts values in them. So prose assembled by interpolation is read as a message
+ * to a person. What that cannot catch is written down in `prompts.md`. */
+const DIAGNOSTIC = new Set([
+  'info',
+  'warn',
+  'error',
+  'debug',
+  'trace',
+  'print',
+  'println',
+  'eprint',
+  'eprintln',
+  'format',
+  'format_args',
+  'write',
+  'writeln',
+  'panic',
+  'todo',
+  'unimplemented',
+  'unreachable',
+  'assert',
+  'assert_eq',
+  'assert_ne',
+  'debug_assert',
+  'debug_assert_eq',
+  'debug_assert_ne',
+  'expect',
+  'expect_err',
+  'include_str',
+  'include_bytes',
+  'env',
+  'option_env',
+  'concat',
+  'doc',
+  'cfg',
+  'deprecated',
+  'must_use',
+  'should_panic',
+  'serde',
+  'allow',
+])
+
+/**
+ * The source with every comment body and every literal body blanked, one space
+ * per character, so offsets still line up. Scanning backwards for the call a
+ * literal sits in then cannot be thrown by a brace or a paren inside a string.
+ */
+function mask(source) {
+  const out = source.split('')
+  const literals = []
+  let i = 0
+
+  const blank = (from, to) => {
+    for (let at = from; at < to; at += 1) if (out[at] !== '\n') out[at] = ' '
+  }
+
+  while (i < source.length) {
+    const two = source.slice(i, i + 2)
+    if (two === '//') {
+      const end = source.indexOf('\n', i)
+      const to = end === -1 ? source.length : end
+      blank(i + 2, to)
+      i = to
+    } else if (two === '/*') {
+      const end = source.indexOf('*/', i + 2)
+      const to = end === -1 ? source.length : end
+      blank(i + 2, to)
+      i = end === -1 ? source.length : end + 2
+    } else if (source[i] === 'r' && /^r#*"/.test(source.slice(i, i + 8))) {
+      const opened = /^r(#*)"/.exec(source.slice(i))
+      const close = `"${opened[1]}`
+      const from = i + opened[0].length
+      const end = source.indexOf(close, from)
+      const to = end === -1 ? source.length : end
+      literals.push({ start: i, content: source.slice(from, to) })
+      blank(from, to)
+      i = to + close.length
+    } else if (source[i] === '"') {
+      let at = i + 1
+      while (at < source.length && source[at] !== '"') at += source[at] === '\\' ? 2 : 1
+      literals.push({ start: i, content: source.slice(i + 1, at) })
+      blank(i + 1, at)
+      i = at + 1
+    } else if (source[i] === "'" && /^'(\\.|[^'\\])'/.test(source.slice(i))) {
+      const quoted = /^'(\\.|[^'\\])'/.exec(source.slice(i))
+      blank(i + 1, i + quoted[0].length - 1)
+      i += quoted[0].length
+    } else {
+      i += 1
+    }
+  }
+
+  return { masked: out.join(''), literals }
+}
+
+/** Every `#[cfg(test)]` item's span, as `[from, to)` offsets. A test may quote a
+ * prompt to assert something about it, and sends nothing. */
+function testRegions(masked) {
+  const regions = []
+  const marker = /#\[cfg\(test\)\]/g
+  let found
+  while ((found = marker.exec(masked))) {
+    const opened = masked.indexOf('{', found.index)
+    if (opened === -1) continue
+    let depth = 0
+    let at = opened
+    for (; at < masked.length; at += 1) {
+      if (masked[at] === '{') depth += 1
+      else if (masked[at] === '}' && (depth -= 1) === 0) break
+    }
+    regions.push([found.index, at])
+  }
+  return regions
+}
+
+/** The call a literal sits in, by its last path segment: `tracing::warn!` is
+ * `warn`, `.expect(` is `expect`, `#[error(` is `error`. Empty when the literal
+ * is an argument to nothing, which is what a bare `const` prompt looks like. */
+function enclosingCall(masked, start) {
+  let depth = 0
+  for (let at = start - 1; at >= 0; at -= 1) {
+    const char = masked[at]
+    if (char === ')' || char === ']') depth += 1
+    else if (char === '(' || char === '[') {
+      if (depth === 0) {
+        const before = /([A-Za-z_][A-Za-z0-9_:]*)!?\s*$/.exec(masked.slice(0, at))
+        return before ? (before[1].split('::').pop() ?? '') : ''
+      }
+      depth -= 1
+    } else if (depth === 0 && (char === ';' || char === '{' || char === '}')) {
+      return ''
+    }
+  }
+  return ''
+}
+
+/** The lines a `// not-a-prompt:` marker accounts for: its own, and the run of
+ * non-blank lines under it. */
+function accountedFor(source) {
+  const covered = new Set()
+  const all = lines(source)
+  all.forEach((line, index) => {
+    if (!/\/\/\s*not-a-prompt:\s*\S/.test(line)) return
+    for (let at = index; at < all.length && all[at].trim() !== ''; at += 1) covered.add(at + 1)
+  })
+  return covered
+}
+
+function checkNoHostTextLiterals() {
+  for (const file of walk(join(ROOT, 'src-tauri'), (name) => name.endsWith('.rs'))) {
+    // A test file is one long assertion about text it never sends.
+    if (file.split(sep).includes('tests')) continue
+
+    const source = readFileSync(file, 'utf8')
+    const { masked, literals } = mask(source)
+    const regions = testRegions(masked)
+    const covered = accountedFor(source)
+
+    for (const literal of literals) {
+      const words = literal.content.split(/\s+/).filter((word) => /[a-z]/.test(word))
+      if (words.length < PROSE_WORDS) continue
+      if (regions.some(([from, to]) => literal.start > from && literal.start < to)) continue
+      if (DIAGNOSTIC.has(enclosingCall(masked, literal.start))) continue
+
+      const line = lines(source.slice(0, literal.start)).length
+      if (covered.has(line)) continue
+
+      fail(
+        'prompts',
+        file,
+        'reads as host prompt text; give it an id and a default file in demido-prompts, or account for it with a `// not-a-prompt:` comment',
+        line,
+      )
     }
   }
 }

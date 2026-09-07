@@ -162,6 +162,7 @@ async fn a_cancel_ends_the_stream_and_keeps_what_was_generated<B: Backend>(
     let backend = start::<B>(config).await;
 
     let mut request = simple_request(model);
+    // not-a-prompt: the suite's own probe, sent by a test and never by a turn.
     request.messages = vec![Message::user("Count slowly from one to two hundred.")];
     request.options.max_tokens = Some(2048);
 
@@ -227,6 +228,7 @@ async fn a_cancelled_generation_does_not_end_the_backend<B: Backend>(
     let cancel = Cancel::new();
     let mut request = simple_request(model);
     request.options.max_tokens = Some(2048);
+    // not-a-prompt: the suite's own probe, sent by a test and never by a turn.
     request.messages = vec![Message::user("Count slowly from one to two hundred.")];
 
     let mut stream = backend

@@ -88,8 +88,10 @@ which needs a built installer and so runs at the tag
     prose included, has an id, a default file, a hash and an `Origin`, and a
     wording a measurement was taken against cannot change without the eval being
     re-run. See [`docs/rules/prompts.md`](docs/rules/prompts.md). **Enforced
-    now** for the pins, and a no-op on the shipped defaults until there are
-    crates.
+    now**, and real on the shipped defaults since the paragraph register landed
+    on [#40](https://github.com/elpideus/demido-studio/issues/40): a prose
+    literal in `src-tauri/` fails the build unless a `// not-a-prompt:` comment
+    says in one sentence why no model reads it.
 
 Two of v2's eight rules are not here. Its colour rule is rule 4, widened from
 one family to five on
