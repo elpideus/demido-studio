@@ -15,7 +15,6 @@ declare const styles: {
   readonly head: string
   readonly why: string
   readonly rows: string
-  readonly failure: string
   readonly icon: string
 }
 export default styles

@@ -117,6 +117,22 @@ incomplete shell, and ticket
 | Snap menu | open, target hovered | `panel` with `shadow-float` at `--radius-control`; rows `hover`; the ghost preview on the desk is `edge`. Transient chrome, not a panel. |
 | Seam | rest, hover, dragging | `--space-gutter` wide, `seam` hairline (allowed case 2), `active` while dragged. |
 | Scrim | present | `scrim`. |
+| Toast | one, stacked | Transient chrome over the desk: `panel` with `shadow-float` at `--radius-control`, a `rose` `circle-alert`, the sentence in `ink-2`, and a dismiss. Oldest at the bottom, so a second one does not move the sentence being read. Goes on its own after a few seconds. **Refusals only**: see below. |
+
+**A toast reports a refusal and nothing else.** Three rules already refuse one:
+`docs/rules/runtimes.md` section 7 and `docs/rules/releases.md` section 2 for an
+available update, and `docs/rules/lessons.md` for a lesson being written. Those
+are ambient, and the argument against them holds: nobody asked, and a notice
+that dismisses into nothing is worse than a dot that survives being ignored.
+
+A refusal is the opposite. A person typed something a moment ago, it was not
+taken, the answer is only about that gesture, and it stops being true the moment
+they type something else. Nothing ambient may be routed here, and anything with
+no gesture behind it stays a dot on the settings icon or a row on a page.
+
+A failure that belongs to a **turn** is not a toast either: it is recorded on
+the session log and drawn in the transcript where the turn is, which is what
+lets it be read later.
 
 ### Chat
 

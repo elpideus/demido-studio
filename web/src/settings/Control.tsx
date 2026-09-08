@@ -32,9 +32,14 @@ import styles from './Control.module.css'
 /** What a host hands a control: what to draw, and what to do about a change. */
 type Change = {
   row: Row
-  /** Take a new value. Called on every change for a switch, and on commit for
-   * anything typed. */
-  onChange: (value: unknown) => void
+  /** Take a new value, and say whether it was taken. Called on every change for
+   * a switch, and on commit for anything typed.
+   *
+   * The answer is what a typed control puts its draft back from. A field left
+   * holding a number the ladder refused is a settings page telling the person
+   * something is saved when it is not, which is the one thing this whole crate
+   * is arranged to prevent. */
+  onChange: (value: unknown) => Promise<boolean>
 }
 
 export function Control({ row, onChange }: Change) {
@@ -119,7 +124,7 @@ function Amount({
   setting: Setting
   kind: Extract<Kind, { control: 'amount' }>
   value: unknown
-  onChange: (value: unknown) => void
+  onChange: (value: unknown) => Promise<boolean>
 }) {
   const on = typeof value === 'number'
 
@@ -130,7 +135,7 @@ function Amount({
           type="checkbox"
           className={styles.checkbox}
           checked={on}
-          onChange={(event) => onChange(event.target.checked ? kind.default : null)}
+          onChange={(event) => void onChange(event.target.checked ? kind.default : null)}
         />
         <span className={styles.switchLabel}>{on ? 'On' : 'Off'}</span>
       </label>
@@ -159,7 +164,7 @@ function Count({
   setting: Setting
   kind: Extract<Kind, { control: 'count' }>
   value: unknown
-  onChange: (value: unknown) => void
+  onChange: (value: unknown) => Promise<boolean>
 }) {
   return (
     <div className={styles.row}>
@@ -186,12 +191,12 @@ function Text({
   setting: Setting
   kind: Extract<Kind, { control: 'text' }>
   value: unknown
-  onChange: (value: unknown) => void
+  onChange: (value: unknown) => Promise<boolean>
 }) {
   const stored = typeof value === 'string' ? value : ''
-  const [draft, setDraft, commit] = useDraft(stored, (typed) => {
-    if (typed !== stored) onChange(typed)
-  })
+  const [draft, setDraft, commit] = useDraft(stored, async (typed) =>
+    typed === stored ? true : onChange(typed),
+  )
 
   return kind.multiline ? (
     <textarea
@@ -230,14 +235,25 @@ function Text({
  */
 function useDraft(
   stored: string,
-  save: (draft: string) => void,
+  save: (draft: string) => Promise<boolean>,
 ): [string, (draft: string) => void, () => void] {
   const [draft, setDraft] = useState(stored)
 
   // A draft nobody is typing into is not worth keeping over the truth.
   useEffect(() => setDraft(stored), [stored])
 
-  return [draft, setDraft, () => save(draft)]
+  return [
+    draft,
+    setDraft,
+    () => {
+      // A refused value goes back to what is saved. The ladder never took it,
+      // so leaving it in the field would make the page disagree with itself,
+      // and the toast beside it says why it went.
+      void save(draft).then((taken) => {
+        if (!taken) setDraft(stored)
+      })
+    },
+  ]
 }
 
 /**
@@ -263,18 +279,16 @@ function Number({
   max: number
   step: number
   disabled: boolean
-  onCommit: (value: number) => void
+  onCommit: (value: number) => Promise<boolean>
 }) {
   const shown = value === null ? '' : String(value)
-  const [draft, setDraft, commit] = useDraft(shown, (text) => {
+  const [draft, setDraft, commit] = useDraft(shown, async (text) => {
     const typed = globalThis.Number(text)
     // What is left in the field is not a number, so there is nothing to save
     // and nothing to refuse. Putting the stored value back is what says so.
-    if (text.trim() === '' || globalThis.Number.isNaN(typed)) {
-      setDraft(shown)
-      return
-    }
-    if (typed !== value) onCommit(typed)
+    if (text.trim() === '' || globalThis.Number.isNaN(typed)) return false
+    if (typed === value) return true
+    return onCommit(typed)
   })
 
   return (

@@ -145,15 +145,6 @@
   gap: var(--space-section);
 }
 
-/* Where a refusal is shown: beside the control it was refused for, in the one
- * colour this system gives an error. */
-.failure {
-  margin: 0;
-  color: var(--color-rose);
-  font-size: var(--text-meta);
-  line-height: var(--leading-ui);
-}
-
 .icon {
   width: var(--size-icon-small);
   height: var(--size-icon-small);

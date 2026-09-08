@@ -121,7 +121,6 @@ function Page({ tier }: { tier: Tier }) {
   const read = useSettings((settings) => settings.read)
   const set = useSettings((settings) => settings.set)
   const clear = useSettings((settings) => settings.clear)
-  const failure = useSettings((settings) => settings.failures[tier])
 
   useEffect(() => {
     void read(tier)
@@ -138,7 +137,7 @@ function Page({ tier }: { tier: Tier }) {
         <Field
           key={row.setting.id}
           row={row}
-          onChange={(value) => void set(tier, row.setting, value)}
+          onChange={(value) => set(tier, row.setting, value)}
           // The global tier has nothing under it to fall back to, so the main
           // window offers no revert. Reverting there would mean restoring a
           // schema default, which is a different gesture and would be wearing
@@ -146,10 +145,6 @@ function Page({ tier }: { tier: Tier }) {
           revert={tier === 'global' ? undefined : () => void clear(tier, row.setting)}
         />
       ))}
-      {/* A refusal is shown where the change was made. A settings page that
-       * quietly reverted would be indistinguishable from one that never
-       * saved. */}
-      {failure && <p className={styles.failure}>{failure}</p>}
     </div>
   )
 }

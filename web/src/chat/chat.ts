@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 import { append, clear } from './stream'
 
@@ -97,6 +97,39 @@ const START: Pick<
  */
 let opening = false
 
+/**
+ * Where the unlisten handles live, which is deliberately **not** this module.
+ *
+ * `listen` hands back the way to undo itself, and this used to discard it. That
+ * is fine for a subscription meant to last as long as the window, and wrong the
+ * moment the module is replaced underneath it: a hot reload evaluates a new
+ * copy of this file with `opening` back to false, while the previous copy's
+ * listener is still registered with the webview. Both then append the same
+ * token, and an answer streams as `AppleApple` and `GraGrapepe` before snapping
+ * to the recorded text when the turn ends. It reads as a model repeating
+ * itself, which is the wrong thing to go and debug, and it makes every
+ * screenshot taken after an edit a screenshot of a defect that is not there.
+ *
+ * So the handles are kept on the webview, because the thing they have to
+ * outlive is this module rather than this window. A fresh copy revokes what the
+ * previous one subscribed before subscribing itself.
+ *
+ * `import.meta.hot.dispose` is the obvious answer and does not fire here: this
+ * file is not a hot-update boundary of its own, so Vite replaces it as part of
+ * the importing component's update and the hook never runs. Measured, not
+ * assumed: with `dispose` in place, two edits produced `AprAprApricoticoticot`.
+ *
+ * In a shipped build this runs once with nothing to revoke.
+ */
+type Subscribed = { __demidoChatListeners?: UnlistenFn[] }
+
+/** Subscribe, giving up whatever an earlier copy of this module held. */
+async function resubscribe(open: () => Promise<UnlistenFn[]>) {
+  const webview = globalThis as Subscribed
+  for (const unlisten of webview.__demidoChatListeners ?? []) unlisten()
+  webview.__demidoChatListeners = await open()
+}
+
 export const useChat = create<Chat>((set, get) => ({
   ...START,
 
@@ -107,11 +140,13 @@ export const useChat = create<Chat>((set, get) => ({
     try {
       // Subscribed before anything is read, so a token generated between the
       // read and the subscription cannot be the one that is missed.
-      await listen<Update>('chat://update', ({ payload }) => {
-        if (payload.update === 'text') append({ text: payload.text })
-        else if (payload.update === 'thinking') append({ thinking: payload.text })
-      })
-      await listen<Presence>('chat://presence', ({ payload }) => set({ presence: payload }))
+      await resubscribe(async () => [
+        await listen<Update>('chat://update', ({ payload }) => {
+          if (payload.update === 'text') append({ text: payload.text })
+          else if (payload.update === 'thinking') append({ thinking: payload.text })
+        }),
+        await listen<Presence>('chat://presence', ({ payload }) => set({ presence: payload })),
+      ])
 
       const [transcript, presence] = await Promise.all([
         invoke<Said[]>('chat_transcript'),
@@ -160,11 +195,25 @@ export const useChat = create<Chat>((set, get) => ({
     } catch (error) {
       set({ failure: sentence(error) })
     } finally {
-      // The draft is discarded and the transcript is read back from the log,
-      // which is where the answer actually is. A stopped turn comes back with
-      // its partial answer in it, because that is what was recorded.
-      clear()
+      // The log is read **before** the draft is thrown away, and the swap is
+      // one tick.
+      //
+      // The other order looks equivalent and is not: clearing first leaves
+      // `running` true with an empty buffer for the length of an IPC round
+      // trip, and `Answering` draws its "Thinking." placeholder for exactly
+      // that window. The finished answer vanished and came back on every
+      // single turn.
+      //
+      // So the read is awaited while the draft is still on screen, and the
+      // clear and the set happen together afterwards. React batches the two,
+      // which is what keeps a frame carrying both the draft and the recorded
+      // answer from existing: that duplicated bubble is the failure this
+      // ordering was reaching for in the first place.
+      //
+      // A stopped turn comes back with its partial answer in it, because that
+      // is what was recorded.
       const transcript = await invoke<Said[]>('chat_transcript').catch(() => get().transcript)
+      clear()
       set({ transcript, pending: null, running: false })
     }
   },

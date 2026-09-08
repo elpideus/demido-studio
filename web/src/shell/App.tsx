@@ -4,6 +4,7 @@ import { Transcript } from '@/chat/Transcript'
 import { useChat } from '@/chat/chat'
 import { Settings } from '@/settings/Settings'
 import { Composer } from './Composer'
+import { Toasts } from './Toast'
 import { Rail } from './Rail'
 import { useDesk } from './desk'
 import styles from './App.module.css'
@@ -66,6 +67,9 @@ export function App() {
           </div>
         </div>
         {panel === 'settings' && <Settings />}
+        {/* Over everything on the desk, including the settings window, because
+         * what it reports is usually a value that window just refused. */}
+        <Toasts />
       </main>
     </div>
   )

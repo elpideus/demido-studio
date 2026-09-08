@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 
 import { useChat } from '@/chat/chat'
+import { useToasts } from '@/shell/toasts'
 
 /**
  * The settings ladder, as the window holds it.
@@ -64,25 +65,18 @@ type Settings = {
    * is absent rather than empty, so a page can tell "still reading" from "no
    * settings", which are different screens. */
   rows: Partial<Record<Tier, Row[]>>
-  /** Why the last change on a tier was refused, or nothing. A settings page
-   * that quietly reverted would be indistinguishable from one that never
-   * saved.
-   *
-   * Per tier rather than one field, because the two surfaces are open at the
-   * same time: a refusal in the chat popover printed under the global window's
-   * rows would name a row that surface does not have. */
-  failures: Partial<Record<Tier, string>>
-
   /** Read a tier's rows. Called when a surface for it opens. */
   read: (tier: Tier) => Promise<void>
-  set: (tier: Tier, setting: Setting, value: unknown) => Promise<void>
+  /** Take a value, and say whether it was taken. A control that is told no puts
+   * the saved value back, so the field never shows a number the ladder does not
+   * have. */
+  set: (tier: Tier, setting: Setting, value: unknown) => Promise<boolean>
   /** Forget this tier's opinion, so the value below it applies again. */
-  clear: (tier: Tier, setting: Setting) => Promise<void>
+  clear: (tier: Tier, setting: Setting) => Promise<boolean>
 }
 
 export const useSettings = create<Settings>((set, get) => ({
   rows: {},
-  failures: {},
 
   read: async (tier) => {
     try {
@@ -93,28 +87,25 @@ export const useSettings = create<Settings>((set, get) => ({
       // back to its defaults in Rust, so what reaches here is the channel being
       // absent, which is the frontend running without the window around it.
       console.warn('the settings could not be read', error)
-      set({ failures: { ...get().failures, [tier]: sentence(error) } })
+      useToasts.getState().show(sentence(error))
     }
   },
 
-  set: async (tier, setting, value) => {
-    await change(
-      tier,
-      setting,
-      () => invoke('settings_set', { tier, id: setting.id, value }),
-      set,
-      get,
-    )
-  },
+  set: async (tier, setting, value) =>
+    change(setting, () => invoke('settings_set', { tier, id: setting.id, value }), get),
 
-  clear: async (tier, setting) => {
-    await change(tier, setting, () => invoke('settings_clear', { tier, id: setting.id }), set, get)
-  },
+  clear: async (tier, setting) =>
+    change(setting, () => invoke('settings_clear', { tier, id: setting.id }), get),
 }))
 
 /**
  * Write a change through, read every open tier back, and start the model again
  * when the change was one the server is started with.
+ *
+ * A refusal is a toast rather than a line under the row (`web/src/shell/toasts.ts`):
+ * it answers a gesture somebody just made, it is about that gesture alone, and
+ * the two settings surfaces can both be open, so a sentence printed under one
+ * page's rows would appear under the other's as well.
  *
  * Both tiers are re-read rather than only the one that changed, because they
  * are two views of one ladder: a global value that a chat is not overriding is
@@ -127,18 +118,18 @@ export const useSettings = create<Settings>((set, get) => ({
  * every state it passes through.
  */
 async function change(
-  tier: Tier,
   setting: Setting,
   write: () => Promise<unknown>,
-  set: (partial: Partial<Settings>) => void,
   get: () => Settings,
-) {
+): Promise<boolean> {
   try {
     await write()
-    set({ failures: { ...get().failures, [tier]: undefined } })
   } catch (error) {
-    set({ failures: { ...get().failures, [tier]: sentence(error) } })
-    return
+    // Nothing is read back and nothing is redrawn: a refused value never
+    // reached the ladder, so every row on screen is already correct except the
+    // field that was typed into, and saying no is what puts that one back.
+    useToasts.getState().show(refusal(setting, error))
+    return false
   }
 
   await Promise.all((Object.keys(get().rows) as Tier[]).map((open) => get().read(open)))
@@ -146,6 +137,41 @@ async function change(
   if (setting.reloads && useChat.getState().presence.state !== 'absent') {
     useChat.getState().load()
   }
+
+  return true
+}
+
+/**
+ * What to tell the person, in this application's own words.
+ *
+ * Rust carries the fact and the window writes the sentence, which is the rule
+ * `Presence` already follows: what crossed the boundary here is "invalid a
+ * setting: conversation.context_length: outside 512 to 262144", and nobody
+ * should have to read an id or the word invalid. Everything needed to say it
+ * properly is in the declaration the row was drawn from.
+ *
+ * Anything that is not a refusal is the other kind of failure, a disk or a
+ * channel, and there the sentence Rust wrote is the only one that says what
+ * happened.
+ */
+function refusal(setting: Setting, error: unknown): string {
+  if (!isRefusal(error)) return sentence(error)
+
+  switch (setting.kind.control) {
+    case 'count':
+      return `${setting.title} is a whole number from ${setting.kind.min} to ${setting.kind.max}.`
+    case 'amount':
+      return `${setting.title} is a number from ${setting.kind.min} to ${setting.kind.max}, or off.`
+    case 'text':
+      return `${setting.title} was not saved.`
+  }
+}
+
+/** Whether the failure is the value being wrong rather than the saving of it.
+ * The tag is `demido_core::Error::kind`, which exists so a frontend branches on
+ * a tag instead of on the wording of a sentence. */
+function isRefusal(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as Failure).kind === 'invalid'
 }
 
 /** The sentence a person can act on, out of whatever was thrown. */
