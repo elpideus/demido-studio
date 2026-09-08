@@ -19,7 +19,9 @@ pub mod wiring;
 #[cfg(debug_assertions)]
 const CDP_PORT: u16 = 9222;
 
+use demido_shell::Shell;
 use serde::Serialize;
+use tauri::Manager;
 use wiring::Wiring;
 
 /// What the window is told at boot.
@@ -44,6 +46,29 @@ fn boot_report(app: tauri::AppHandle) -> BootReport {
         version: demido_core::VERSION,
         driven: app.config().app.with_global_tauri,
     }
+}
+
+/// The desk as it was left.
+///
+/// Answered from Rust rather than from the webview's storage, because a layout
+/// belongs to a profile and a profile is a Windows user
+/// (`docs/rules/profiles.md`). A layout this build cannot read is not reported
+/// here: it has already been discarded, and what comes back is the default
+/// desk. See
+/// [`docs/decisions/0010-the-desk-remembers-itself.md`](../../docs/decisions/0010-the-desk-remembers-itself.md).
+#[tauri::command]
+fn read_layout(wiring: tauri::State<'_, Wiring>) -> Shell {
+    wiring.desk.read().unwrap_or_default()
+}
+
+/// The desk as it looks now.
+///
+/// Called on every change the window makes, including the ones in the middle of
+/// a drag. Which of them becomes a file is the debouncer's decision and not the
+/// window's, so nothing in the frontend has to know how often it may speak.
+#[tauri::command]
+fn remember_layout(wiring: tauri::State<'_, Wiring>, shell: Shell) {
+    wiring.desk.remember(shell);
 }
 
 /// Build the application and run it.
@@ -96,11 +121,24 @@ pub fn run() -> demido_core::Result<()> {
         );
     }
 
-    let wiring = Wiring::assemble()?;
-
     tauri::Builder::default()
-        .manage(wiring)
-        .invoke_handler(tauri::generate_handler![boot_report])
+        // Assembled here rather than before the builder, because the one thing
+        // the composition root needs is the profile directory and Tauri is what
+        // resolves it. It is still one place naming one implementation per
+        // trait, which is what `docs/rules/tiles.md` asks for.
+        .setup(|app| {
+            let profile = app
+                .path()
+                .app_local_data_dir()
+                .map_err(|error| demido_core::Error::unavailable("the profile directory", error))?;
+            app.manage(Wiring::assemble(&profile)?);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            boot_report,
+            read_layout,
+            remember_layout
+        ])
         .run(context)
         .map_err(|error| demido_core::Error::unavailable("the application window", error))
 }

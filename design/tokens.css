@@ -107,6 +107,21 @@
   --space-bay: 32px;     /* major separation: empty states, wizard steps */
 
   /* -------------------------------------------------------------------
+   * Size. The fixed dimensions of the furniture, which are neither space
+   * nor type and so have nowhere else to live.
+   *
+   * They are here for the reason everything else is: the rail's width is
+   * one number, and a second file that also knows it is a second file to
+   * change when the rail changes. `--size-control` is the hit target of an
+   * icon-only control, so a rail item, a title-bar button and a composer
+   * action are the same square without agreeing to be by hand.
+   * ----------------------------------------------------------------- */
+  --size-icon: 18px;       /* a Lucide glyph at the top of its 12-18 range */
+  --size-icon-small: 14px; /* the same glyph inside a control, not beside one */
+  --size-control: 32px;    /* the hit target of an icon-only control */
+  --measure-prose: 760px;  /* the widest a column of text is set, whatever the window does */
+
+  /* -------------------------------------------------------------------
    * Structure. Islands float on the rack with gaps.
    * ----------------------------------------------------------------- */
   --radius-island: 10px;  /* a panel, a card, a page */

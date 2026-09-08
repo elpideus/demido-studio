@@ -644,11 +644,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "demido-shell"
+version = "0.1.0"
+dependencies = [
+ "demido-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "demido-studio"
 version = "0.1.0"
 dependencies = [
  "demido-core",
  "demido-inference",
+ "demido-shell",
  "demido-trace",
  "serde",
  "tauri",

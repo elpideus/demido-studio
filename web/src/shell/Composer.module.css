@@ -1,0 +1,70 @@
+/*
+ * The composer. A field is a recess, so it is a well at island radius
+ * (design/system.md), and every number here is a token.
+ */
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-control);
+  padding: var(--space-room);
+  background: var(--color-well);
+  border-radius: var(--radius-island);
+}
+
+/* The field is the whole recess rather than a box inside it, which is what
+ * keeps the composer one surface instead of a well inside a well. */
+.field {
+  border: none;
+  padding: 0;
+  background: none;
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-strong);
+  line-height: var(--leading-ui);
+  letter-spacing: var(--tracking-tight);
+  resize: none;
+}
+
+.field::placeholder {
+  color: var(--color-ink-4);
+}
+
+.field:focus {
+  outline: none;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+}
+
+/* Disabled states the reason, and never in ink-4: it is the only sentence on
+ * screen at the moment somebody reads it. */
+.why {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.send {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-4);
+  cursor: default;
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

@@ -1,116 +1,58 @@
 /*
- * The bootstrap surface. Every value here is a token: the ramp is
+ * The desk: the rail on one edge, chat filling everything else. The ramp is
  * docs/rules/surfaces.md and the numbers are design/tokens.css.
  */
 
-.rack {
+/* Flex rather than a grid with named columns, because the rail moving edges is
+ * then one property instead of two templates that have to stay opposites. */
+.shell {
   height: 100%;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: row;
+}
+
+.shell[data-rail='right'] {
+  flex-direction: row-reverse;
+}
+
+/* `min-width: 0` is the whole reason this application does not grow a
+ * horizontal scrollbar: without it a flex child refuses to shrink below the
+ * width of its own content, and one long line in the transcript widens the
+ * window's body instead of wrapping. The body refuses the overflow rather than
+ * scrolling it (web/src/styles/global.css), so the defect would be hidden
+ * rather than absent. */
+.desk {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-rack);
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--space-page);
 }
 
-/* An island face on the rack, separated from it by the gutter rather than by a
- * line: docs/rules/gaps-and-hairlines.md. */
-.island {
+.bay {
+  padding: 0 var(--space-page) var(--space-page);
+}
+
+/* One measure down the middle of the desk, so a wide window sets a readable
+ * paragraph rather than a two hundred character line, and the composer stays
+ * over the text it is composing. */
+.column {
   width: 100%;
-  max-width: 520px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-section);
-  padding: var(--space-bay);
-  background: var(--color-panel);
-  border-radius: var(--radius-island);
+  max-width: var(--measure-prose);
+  margin: 0 auto;
 }
 
-.head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-room);
-}
-
-/* An icon is Lucide at stroke-width 1.8, 12 to 18px, currentColor
- * (design/system.md). 18 is the top of that range, which is what a heading
- * mark gets; the size is system.md's own number and not a fresh one. */
-.mark {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  color: var(--color-signal);
-}
-
-.title {
-  margin: 0;
-  font-size: var(--text-display);
-  line-height: var(--leading-flush);
-  letter-spacing: var(--tracking-tight);
-  font-weight: 600;
-}
-
-.subtitle {
-  margin: 0;
-  color: var(--color-ink-3);
-  font-size: var(--text-meta);
-  line-height: var(--leading-ui);
-}
-
-.readout {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-tight);
-}
-
-/* A row of the readout is raised on the island, which is one step up and no
- * more: docs/rules/surfaces.md rule 1. */
-.row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-room);
-  padding: var(--space-control) var(--space-room);
-  background: var(--color-raised);
-  border-radius: var(--radius-control);
-}
-
-.label {
-  flex: none;
-  width: 72px;
-  color: var(--color-ink-4);
-  font-family: var(--font-mono);
-  font-variation-settings: 'wdth' var(--width-silkscreen);
-  font-size: var(--text-silkscreen);
-  line-height: var(--leading-flush);
-  letter-spacing: var(--tracking-silkscreen);
-  text-transform: uppercase;
-}
-
-.value {
-  margin: 0;
-  color: var(--color-ink-2);
-  font-size: var(--text-body);
-  line-height: var(--leading-flush);
-}
-
-.good {
-  color: var(--color-signal);
-}
-
-/* Waiting is amber: docs/rules/surfaces.md rule 4. It was ink-4, which is the
- * seventeen-times bug that file's own audit found. */
-.waiting {
-  color: var(--color-amber);
-}
-
-/* Not enabled, which is the disabled tier and is what ink-4 is for. */
-.off {
-  color: var(--color-ink-4);
-}
-
-.bad {
-  color: var(--color-rose);
-}
-
-.note {
+/* An empty transcript. ink-3 rather than ink-4: it is the only sentence on
+ * screen at the moment somebody reads it, which is the bug v2's own audit
+ * found seventeen times (docs/rules/surfaces.md). */
+.quiet {
   margin: 0;
   color: var(--color-ink-3);
   font-size: var(--text-prose);
