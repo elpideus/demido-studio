@@ -29,10 +29,44 @@ use demido_inference::{contract, Backend, LlamaCpp};
 async fn llamacpp_keeps_the_contract() {
     let _permit = rig::ONE_MODEL_AT_A_TIME.acquire().await.expect("a permit");
 
-    let mut config = rig::require(rig::Tier::Development);
-    config.context_length = contract::CONTEXT;
+    // The context length is the suite's own, applied through the trait's
+    // writer, so nothing here has to know that `Config` has a field for it.
+    let config = rig::require(rig::Tier::Development);
 
     contract::run::<LlamaCpp>(config, rig::Tier::Development.label()).await;
+}
+
+/// The half of the context promise the contract has no word for.
+///
+/// `--ctx-size` is the **whole** KV pool and the slots divide it
+/// ([`docs/rules/done.md`](../../../../docs/rules/done.md)), so a build that
+/// passed the user's number through raw would hand back a fraction of it and
+/// every one-slot test in the workspace would still be green. The contract's
+/// own case runs at whatever slot count the caller configured, and a slot is
+/// `llama.cpp`'s idea rather than the trait's, so this is where the multiply is
+/// measured against a running server.
+///
+/// One tier, and a number that is neither a round default nor the contract's:
+/// a server that substituted its own would pass against either.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a card and a model; see the live command in AGENTS.md"]
+async fn the_context_length_asked_for_survives_more_than_one_slot() {
+    let _permit = rig::ONE_MODEL_AT_A_TIME.acquire().await.expect("a permit");
+
+    let mut config = rig::require(rig::Tier::Development);
+    config.parallel = 2;
+    let config = LlamaCpp::with_context_length(config, 2560);
+
+    let backend = LlamaCpp::start(config).await.expect("started");
+    let got = backend.context_length().await.expect("the slot's context");
+    backend.stop().await;
+
+    assert_eq!(
+        got, 2560,
+        "the window one generation gets is --ctx-size divided by --parallel, so \
+         a generation on a two slot server still has to get the number the user \
+         set rather than half of it"
+    );
 }
 
 /// The half of "cancel leaves no orphaned process" that the contract cannot

@@ -60,6 +60,12 @@ pub fn simple_request(model: &str) -> Request {
 /// stopping are half of what this trait promises and a suite handed a live one
 /// could not test either.
 pub async fn run<B: Backend>(config: B::Config, model: &str) {
+    // Through the trait's own writer rather than by editing a field, so the
+    // case below measures the path the settings ladder actually takes: a number
+    // resolved from the ladder, handed to `with_context_length`, and read back
+    // off the running server.
+    let config = B::with_context_length(config, CONTEXT);
+
     it_names_itself::<B>();
     starting_gives_a_backend_that_is_ready::<B>(config.clone()).await;
     it_serves_the_model_it_was_started_with::<B>(config.clone(), model).await;
@@ -106,8 +112,12 @@ async fn it_serves_the_model_it_was_started_with<B: Backend>(config: B::Config, 
     backend.stop().await;
 }
 
-/// The one case that is not about stream shape, and the reason this method is
-/// on the trait at all. See [`Backend::context_length`].
+/// The one case that is not about stream shape, and the reason both context
+/// methods are on the trait at all. The number a user sets in the settings
+/// ladder reaches a process through
+/// [`Backend::with_context_length`](crate::Backend::with_context_length), and
+/// this is where it is checked against what the server says it got. See
+/// [`Backend::context_length`].
 async fn the_context_length_asked_for_is_the_one_the_slot_gets<B: Backend>(config: B::Config) {
     let backend = start::<B>(config).await;
     let got = backend.context_length().await.expect("the slot's context");

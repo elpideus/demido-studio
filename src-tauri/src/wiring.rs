@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use demido_chat::{Chat, Model};
 use demido_inference::{LlamaCpp, LlamaCppConfig, Supervisor};
+use demido_settings::Settings;
 use demido_shell::{Debounced, Files};
 
 /// Every subsystem, wired once.
@@ -39,6 +40,18 @@ pub struct Wiring {
     pub desk: Desk,
     /// The conversation: the log, the turn loop, and whatever is generating.
     pub chat: Talk,
+    /// What is in force, and where a settings page sets it.
+    ///
+    /// Shared with the chat rather than held beside it: the ladder the window
+    /// edits has to be the ladder a turn resolves, or a value changed on screen
+    /// is a value the next turn does not carry.
+    pub settings: Arc<Settings>,
+    /// The conversation the chat tier belongs to.
+    ///
+    /// The window names a tier and Rust names the subject, because there is one
+    /// session in this build and a frontend that could name a chat could name
+    /// one that does not exist.
+    pub session: &'static str,
 }
 
 /// The inference implementation this build runs.
@@ -48,6 +61,17 @@ pub struct Wiring {
 /// OpenAI-compatible endpoint, and adopting it is editing this line and
 /// recompiling.
 pub type Inference = Supervisor<LlamaCpp>;
+
+/// The settings store this build keeps the ladder in.
+///
+/// **This alias is the wiring line.** The tile is `Files`; the second
+/// implementation of that trait is `demido_settings::Memory`, which is what a
+/// session the user asks not to keep settings for would be, and swapping to it
+/// is editing this line and recompiling.
+///
+/// There is no debouncer around it, unlike the desk's: a settings change is a
+/// deliberate act rather than the residue of a drag, so it is written through.
+pub type SettingsStore = demido_settings::Files;
 
 /// The shell layout store this build keeps the desk in.
 ///
@@ -173,6 +197,11 @@ impl Wiring {
     pub fn assemble(profile: &Path) -> demido_core::Result<Self> {
         let sessions = profile.join("sessions").join(format!("{SESSION}.jsonl"));
         let inference = Arc::new(Inference::new());
+        // Read here rather than lazily: the ladder is asked for on the first
+        // load and on every turn, and a document that cannot be read is
+        // reported and the defaults are used, which is a subsystem reported and
+        // skipped rather than a window that does not open (`AGENTS.md`).
+        let settings = Arc::new(Settings::open(SettingsStore::in_profile(profile)));
         Ok(Self {
             desk: Desk::new(Files::in_profile(profile)),
             // The log is opened by the first thing that needs it, not here. A
@@ -184,7 +213,10 @@ impl Wiring {
                 move || Trace::open(&sessions),
                 inference.clone(),
                 Rig::from_environment().map(Rig::model),
+                settings.clone(),
             ),
+            settings,
+            session: SESSION,
             inference,
         })
     }

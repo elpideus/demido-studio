@@ -93,6 +93,20 @@ pub trait Backend: Send + Sync + Sized + 'static {
     /// ready to answer.
     async fn start(config: Self::Config) -> Result<Self>;
 
+    /// The same configuration, asking for a different window per generation.
+    ///
+    /// The writer beside [`Backend::context_length`], and the two are a pair on
+    /// purpose: the settings ladder resolves a number, this is how that number
+    /// reaches a process, and the reader is how the contract checks it arrived
+    /// ([`crate::contract`]). A caller cannot do this by editing a field,
+    /// because `Config` is an associated type and the ladder does not know
+    /// which backend it is talking to.
+    ///
+    /// It takes and returns the configuration rather than mutating one, so that
+    /// a supervisor comparing the running configuration against the wanted one
+    /// is comparing two whole values ([`crate::Supervisor::ensure`]).
+    fn with_context_length(config: Self::Config, tokens: u32) -> Self::Config;
+
     /// Whether it is answering. Asked on every request rather than assumed from
     /// the fact that it started once, because a process that exited leaves a
     /// handle that looks fine from the outside.

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 
 import { Transcript } from '@/chat/Transcript'
 import { useChat } from '@/chat/chat'
+import { Settings } from '@/settings/Settings'
 import { Composer } from './Composer'
 import { Rail } from './Rail'
 import { useDesk } from './desk'
@@ -28,6 +29,12 @@ import styles from './App.module.css'
  * either way, so the held frame is not a blank rectangle, it is the desk with
  * nothing on it yet.
  *
+ * A panel opens **over** the desk rather than beside it, which is
+ * `design/shell.md`'s one structural rule: chat is the surface the application
+ * is, and everything else covers it. Settings is the first panel there is, and
+ * it is drawn inside the desk rather than over the rail so that the rail stays
+ * reachable while it is open.
+ *
  * The conversation is opened beside the layout rather than after it, and the
  * desk does not wait for it. A layout decides what the first frame looks like;
  * a transcript decides what is on it, and the model behind that transcript
@@ -38,6 +45,7 @@ export function App() {
   const rail = useDesk((desk) => desk.rail)
   const hydrated = useDesk((desk) => desk.hydrated)
   const hydrate = useDesk((desk) => desk.hydrate)
+  const panel = useDesk((desk) => desk.panel)
   const open = useChat((chat) => chat.open)
 
   useEffect(() => {
@@ -57,6 +65,7 @@ export function App() {
             <Composer />
           </div>
         </div>
+        {panel === 'settings' && <Settings />}
       </main>
     </div>
   )

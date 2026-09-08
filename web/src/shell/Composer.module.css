@@ -4,6 +4,7 @@
  */
 
 .composer {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-control);
@@ -58,7 +59,8 @@
 }
 
 .send,
-.stop {
+.stop,
+.settings {
   flex: none;
   width: var(--size-control);
   height: var(--size-control);
@@ -76,6 +78,33 @@
 .send:disabled {
   color: var(--color-ink-4);
   cursor: default;
+}
+
+/* The chat's own settings, beside the sentence rather than beside send: it is
+ * about the conversation and not about this message, and it is pushed to the
+ * end of the row so the hand's resting place stays the send button. */
+.settings {
+  margin-left: auto;
+  color: var(--color-ink-3);
+}
+
+.settings:hover {
+  background: var(--color-hover);
+}
+
+.settings:active {
+  background: var(--color-active);
+}
+
+/* Open is armed, the same way stop is: state is carried by the thing itself. */
+.settings[aria-pressed='true'] {
+  background: var(--color-edge);
+  color: var(--color-signal);
+}
+
+.settings[aria-pressed='true']:hover,
+.settings[aria-pressed='true']:active {
+  background: var(--color-edge-strong);
 }
 
 .send:not(:disabled):hover {

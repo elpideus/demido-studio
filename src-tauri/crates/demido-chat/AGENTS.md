@@ -63,6 +63,28 @@ a profile that opens the app and says nothing still gets an empty log file. The
 invariant that carries weight is the one `src-tauri/src/wiring.rs` has a test
 for, that assembling the root touches no disk at all.
 
+**Every value a turn carries comes off the ladder.** The temperature, the
+system prompt and the context length are resolved from `demido-settings` per
+load and per turn, through `Ladder::for_chat` built once from this chat's own
+id. There is no `Options::default` here and no field holding a temperature: a
+second place a value can come from is a settings page that says one thing while
+the request says another. A value changed while the window is open therefore
+takes effect on the next turn, which is what
+`tests/a_turn.rs::the_temperature_sent_is_the_one_the_ladder_resolved` asserts.
+
+The system prompt goes in first, before anything anybody said, and it is
+recorded as `Source::Inject`: the taxonomy is about who put the text in the
+window, Demido put it there without being asked this turn, and `Source::System`
+is text Demido *wrote*. An empty one is left out of the assembly entirely rather
+than sent as a blank message.
+
+The context length is the one that reaches a **process** rather than a request,
+through `Backend::with_context_length` in `Chat::load`. So changing it and
+loading again really is a restart: `Supervisor::ensure` sees a different
+configuration. Until the window asks for that load, the running server still has
+the window it was started with, which is why `Setting::reloads` exists and why
+the frontend calls `chat_load` after a change that carries it.
+
 **The supervisor is shared, not owned.** `Chat::new` takes an
 `Arc<Supervisor<B>>`. The rule the supervisor enforces is that one model is
 resident on the card, and a chat that made its own would make that one model per

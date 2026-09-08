@@ -10,7 +10,8 @@ use futures_util::StreamExt;
 use serde::Serialize;
 
 use demido_inference::{Backend, Cancel, Chunk, FinishReason, Options, Role, Supervisor, Usage};
-use demido_trace::{Journal, Replay, Session, SessionId};
+use demido_settings::{Ladder, Resolved, Settings};
+use demido_trace::{Journal, Replay, Session, SessionId, Source};
 
 use crate::presence::Presence;
 use crate::update::Update;
@@ -109,6 +110,21 @@ pub struct Answer {
     pub usage: Usage,
 }
 
+/// The sampling settings of a turn, out of the ladder and nowhere else.
+///
+/// Deliberately not [`Options::default`]: a default here would be a second
+/// place a temperature can come from, and the whole point of the ladder is that
+/// there is one. Only the settings this slice exposes are read; `max_tokens`
+/// and `seed` have no rows in the schema, so a request carries neither, and the
+/// server decides.
+fn options(resolved: &Resolved) -> Options {
+    Options {
+        temperature: resolved.temperature(),
+        max_tokens: None,
+        seed: None,
+    }
+}
+
 /// One conversation.
 ///
 /// Generic over both seams it sits between, and neither for the sake of
@@ -142,7 +158,15 @@ pub struct Chat<B: Backend, J: Journal> {
     /// against (`docs/rules/done.md`).
     supervisor: Arc<Supervisor<B>>,
     model: Option<Model<B>>,
-    options: Options,
+    /// The ladder, shared with every other conversation and with the settings
+    /// page. Held rather than resolved once, because a value changed while the
+    /// window is open takes effect on the next turn and not on the next launch.
+    settings: Arc<Settings>,
+    /// Which scopes this conversation resolves through: global, then this chat.
+    ///
+    /// Built once from [`Chat::id`], because a chat's own tier is the chat, and
+    /// a ladder assembled per call is a ladder that can be assembled wrongly.
+    ladder: Ladder,
     presence: Mutex<Presence>,
     /// One turn at a time.
     ///
@@ -166,18 +190,32 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         open: impl Fn() -> demido_trace::Result<J> + Send + Sync + 'static,
         supervisor: Arc<Supervisor<B>>,
         model: Option<Model<B>>,
+        settings: Arc<Settings>,
     ) -> Self {
+        let id = id.into();
+        let ladder = Ladder::for_chat(id.to_string());
         Self {
-            id: id.into(),
+            id,
             open: Box::new(open),
             session: Mutex::new(None),
             supervisor,
             model,
-            options: Options::default(),
+            settings,
+            ladder,
             presence: Mutex::new(Presence::Absent),
             turn: tokio::sync::Mutex::new(()),
             running: Mutex::new(None),
         }
+    }
+
+    /// What is in force for this conversation, right now.
+    ///
+    /// Read again per load and per turn rather than kept, because the settings
+    /// page and this chat are looking at the same ladder and a copy taken at
+    /// construction would be a conversation that ignores what the user just
+    /// changed.
+    pub fn resolved(&self) -> Resolved {
+        self.settings.resolve(&self.ladder)
     }
 
     /// What the composer should say about the model.
@@ -210,7 +248,18 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             &mut report,
         );
 
-        match self.supervisor.ensure(model.config.clone()).await {
+        // The context length the ladder resolved, applied to the configuration
+        // the supervisor compares. So a chat that asked for a bigger window
+        // gets a server started for that window, and changing the number and
+        // loading again really is a restart rather than a no-op:
+        // `Supervisor::ensure` sees a different configuration.
+        //
+        // What the user set is what is reserved, not that number divided by the
+        // slot count (`demido_inference::llamacpp::arguments`), which is the
+        // defect `docs/rules/done.md` records and the contract suite measures.
+        let config = B::with_context_length(model.config.clone(), self.resolved().context_length());
+
+        match self.supervisor.ensure(config).await {
             Ok(_) => self.report(
                 Presence::Ready {
                     model: model.id.clone(),
@@ -284,11 +333,28 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             }
         };
 
+        // Resolved once, before the assembly, so the system prompt in the log
+        // and the temperature in the request are the same reading of the
+        // ladder. Two reads could straddle a change made from the settings page
+        // mid turn, and the log would then describe a turn nobody sent.
+        let resolved = self.resolved();
+
         // Everything up to the send is recording, and it happens under the
         // session lock. Nothing is awaited while it is held.
         let sent = self.with_session(|session| {
             let earlier = Replay::of(session.journal())?;
             let mut turn = session.begin();
+            // Who the model is being goes first, before anything anybody said,
+            // which is the only position a system message has.
+            //
+            // `Source::Inject` rather than `Source::System`: the taxonomy is
+            // about who put the text in the window, and Demido put it there
+            // without being asked this turn. `System` is text Demido *wrote*,
+            // and this is the user's own, resolved off the ladder. An empty one
+            // is left out entirely rather than sent as a blank message.
+            if !resolved.system_prompt().is_empty() {
+                turn.message(Source::Inject, Role::System, resolved.system_prompt())?;
+            }
             // History reaches the model as positions on the log rather than as
             // copies, so a long conversation does not grow the log as the
             // square of itself. This is the line that makes a second message a
@@ -297,7 +363,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 turn.carry(exchange.seq);
             }
             turn.user(said)?;
-            turn.parameters(&model, self.options.clone())?;
+            turn.parameters(&model, options(&resolved))?;
             Ok(turn.send()?)
         })?;
 

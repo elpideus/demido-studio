@@ -29,7 +29,31 @@
 }
 
 .slot {
+  position: relative;
   display: flex;
+}
+
+/* Open and focused: an 18px signal tick at the leading edge, which is the edge
+ * the rail is docked to. The marker is the only thing in the UI that reports
+ * what is open, so it sits on the slot rather than on the button and cannot be
+ * covered by a hover. */
+.slot[data-open='true']::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--space-gutter));
+  width: var(--space-hair);
+  height: var(--size-icon);
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: var(--color-signal);
+}
+
+/* The rail on the right edge puts its markers on its own leading edge too,
+ * which is the right hand side. */
+[data-rail='right'] .slot[data-open='true']::before {
+  left: auto;
+  right: calc(-1 * var(--space-gutter));
 }
 
 .item {
@@ -63,6 +87,19 @@
 .item:disabled {
   color: var(--color-ink-4);
   cursor: default;
+}
+
+/* Open and focused: signal on edge. Selected is state rather than elevation,
+ * so hovering it moves to edge-strong rather than down the grey ramp, which
+ * would read as a step back towards closed. */
+.slot[data-open='true'] .item {
+  background: var(--color-edge);
+  color: var(--color-signal);
+}
+
+.slot[data-open='true'] .item:hover,
+.slot[data-open='true'] .item:active {
+  background: var(--color-edge-strong);
 }
 
 .icon {

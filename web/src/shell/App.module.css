@@ -22,6 +22,7 @@
  * scrolling it (web/src/styles/global.css), so the defect would be hidden
  * rather than absent. */
 .desk {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;

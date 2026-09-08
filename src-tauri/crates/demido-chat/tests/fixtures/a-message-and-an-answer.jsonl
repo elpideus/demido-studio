@@ -1,4 +1,4 @@
-{"seq":1,"at":1788890749933,"session":"a-model-answers-development","turn":1,"source":"user","weight":{"tokens":13,"basis":"estimated"},"event":"chat/message","role":"user","text":"What is the capital of France? Answer in one word."}
-{"seq":2,"at":1788890749933,"session":"a-model-answers-development","turn":1,"source":"system","weight":{"tokens":0,"basis":"counted"},"event":"turn/parameters","model":"development","options":{"temperature":0.7}}
-{"seq":3,"at":1788890749933,"session":"a-model-answers-development","turn":1,"source":"system","weight":{"tokens":0,"basis":"counted"},"event":"turn/assembly","parameters":2,"blocks":[1]}
-{"seq":4,"at":1788890750051,"session":"a-model-answers-development","turn":1,"source":"reasoning","weight":{"tokens":2,"basis":"counted"},"event":"turn/completion","text":"Paris","reason":"stop","usage":{"prompt_tokens":28,"completion_tokens":2}}
+{"seq":1,"at":1788895466359,"session":"a-model-answers-development","turn":1,"source":"user","weight":{"tokens":13,"basis":"estimated"},"event":"chat/message","role":"user","text":"What is the capital of France? Answer in one word."}
+{"seq":2,"at":1788895466360,"session":"a-model-answers-development","turn":1,"source":"system","weight":{"tokens":0,"basis":"counted"},"event":"turn/parameters","model":"development","options":{"temperature":0.7}}
+{"seq":3,"at":1788895466360,"session":"a-model-answers-development","turn":1,"source":"system","weight":{"tokens":0,"basis":"counted"},"event":"turn/assembly","parameters":2,"blocks":[1]}
+{"seq":4,"at":1788895466473,"session":"a-model-answers-development","turn":1,"source":"reasoning","weight":{"tokens":2,"basis":"counted"},"event":"turn/completion","text":"Paris","reason":"stop","usage":{"prompt_tokens":28,"completion_tokens":2}}

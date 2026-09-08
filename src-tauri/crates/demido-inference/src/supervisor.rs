@@ -193,6 +193,14 @@ mod tests {
             "fake"
         }
 
+        fn with_context_length(config: FakeConfig, _tokens: u32) -> FakeConfig {
+            // This fake has no context to give. The cases here are about *when*
+            // a process is started, and a window size that changed nothing
+            // would make two configurations compare equal and hide the restart
+            // the supervisor is being asked about.
+            config
+        }
+
         async fn start(config: FakeConfig) -> Result<Self> {
             // Long enough that a second caller arriving during a start really
             // is racing it rather than finding it already finished.

@@ -25,7 +25,15 @@ use demido_inference::{
     Backend, Cancel, ChunkStream, Error as BackendError, FinishReason, Loaded, Request, Result,
     Role, Supervisor, Usage,
 };
+use serde_json::json;
+
+use demido_settings::{Ladder, Memory as SettingsMemory, Scope, Settings};
 use demido_trace::{Body, Journal, Memory, Replay, Source};
+
+/// The conversation these cases run in. Named because a per-chat setting is set
+/// against it, and a ladder that names a different chat resolves to the global
+/// value, which would pass for the wrong reason.
+const SESSION: &str = "a-turn";
 
 /// What the fake says and how it behaves, shared by the config, the backend it
 /// starts and the test that is watching.
@@ -42,8 +50,19 @@ struct Script {
     /// carries the first exchange" is asserted: at the seam, on what was
     /// actually sent.
     seen: Arc<Mutex<Vec<Request>>>,
-    /// The process is still there. A test flips it to stage a crash.
+    /// The process is still there. A test flips it to stage a crash, and it is
+    /// shared by every clone of the script because a crash is staged from
+    /// outside whichever backend is running.
     alive: Arc<AtomicBool>,
+    /// The window one generation gets, as the configuration asked for it.
+    ///
+    /// A real server is told this on its command line and reports back what the
+    /// slot got; this one hands the number back, which is enough to assert the
+    /// thing a fake can assert: that the ladder's number reached the
+    /// configuration a backend was started from. Whether a real `llama.cpp`
+    /// then reserves it is `demido_inference::contract`'s case, against a
+    /// running server.
+    context: u32,
 }
 
 impl Script {
@@ -54,6 +73,7 @@ impl Script {
             broken: false,
             seen: Arc::new(Mutex::new(Vec::new())),
             alive: Arc::new(AtomicBool::new(true)),
+            context: 4096,
         }
     }
 
@@ -80,7 +100,7 @@ impl Script {
 /// recorder is test scaffolding and has no say in it.
 impl PartialEq for Script {
     fn eq(&self, other: &Self) -> bool {
-        self.tokens == other.tokens && self.broken == other.broken
+        self.tokens == other.tokens && self.broken == other.broken && self.context == other.context
     }
 }
 
@@ -96,6 +116,13 @@ impl std::fmt::Debug for Script {
 
 struct Fake {
     script: Script,
+    /// This instance has not been stopped.
+    ///
+    /// Per backend rather than per script, unlike [`Script::alive`]: a
+    /// supervisor replacing one backend with another stops the first, and a
+    /// flag shared with the configuration would mark the replacement dead
+    /// before it answered anything.
+    running: AtomicBool,
 }
 
 #[async_trait::async_trait]
@@ -106,6 +133,11 @@ impl Backend for Fake {
         "fake"
     }
 
+    fn with_context_length(mut config: Script, tokens: u32) -> Script {
+        config.context = tokens;
+        config
+    }
+
     async fn start(config: Script) -> Result<Self> {
         if config.broken {
             return Err(BackendError::DidNotStart {
@@ -113,11 +145,14 @@ impl Backend for Fake {
                 detail: "it does not fit".into(),
             });
         }
-        Ok(Fake { script: config })
+        Ok(Fake {
+            script: config,
+            running: AtomicBool::new(true),
+        })
     }
 
     async fn ready(&self) -> bool {
-        self.script.alive.load(Ordering::SeqCst)
+        self.running.load(Ordering::SeqCst) && self.script.alive.load(Ordering::SeqCst)
     }
 
     async fn loaded(&self) -> Result<Loaded> {
@@ -128,7 +163,7 @@ impl Backend for Fake {
     }
 
     async fn context_length(&self) -> Result<u32> {
-        Ok(4096)
+        Ok(self.script.context)
     }
 
     async fn generate(&self, request: Request, cancel: Cancel) -> Result<ChunkStream> {
@@ -172,7 +207,7 @@ impl Backend for Fake {
     }
 
     async fn stop(&self) {
-        self.script.alive.store(false, Ordering::SeqCst);
+        self.running.store(false, Ordering::SeqCst);
     }
 }
 
@@ -182,16 +217,38 @@ impl Backend for Fake {
 /// again over the same storage" means for [`Memory`], so a second chat built
 /// over the same handle is a restart.
 fn chat(script: &Script, log: &Memory) -> Chat<Fake, Memory> {
+    over(
+        script,
+        log,
+        &Arc::new(Settings::open(SettingsMemory::new())),
+    )
+    .0
+}
+
+/// The same chat, over a ladder the caller can set values on, and the
+/// supervisor it loads through.
+///
+/// Handed back together because both are what a settings assertion reads: the
+/// ladder is where a value is set, and the supervisor is what the backend it
+/// produced can be asked about.
+fn over(
+    script: &Script,
+    log: &Memory,
+    settings: &Arc<Settings>,
+) -> (Chat<Fake, Memory>, Arc<Supervisor<Fake>>) {
     let log = log.clone();
-    Chat::new(
-        "a-turn",
+    let supervisor = Arc::new(Supervisor::new());
+    let chat = Chat::new(
+        SESSION,
         move || Ok(log.clone()),
-        Arc::new(Supervisor::new()),
+        supervisor.clone(),
         Some(Model {
             config: script.clone(),
             id: "scripted".into(),
         }),
-    )
+        settings.clone(),
+    );
+    (chat, supervisor)
 }
 
 /// Every update a turn produced, in order.
@@ -447,6 +504,7 @@ async fn a_chat_with_nothing_configured_says_so_and_refuses() {
         move || Ok(log.clone()),
         Arc::new(Supervisor::new()),
         None,
+        Arc::new(Settings::open(SettingsMemory::new())),
     );
 
     let (seen, report) = watch();
@@ -550,6 +608,7 @@ async fn a_refused_turn_is_an_event_on_the_same_log() {
                 config: script.clone(),
                 id: "a-model-this-backend-is-not-serving".into(),
             }),
+            Arc::new(Settings::open(SettingsMemory::new())),
         )
     };
     chat.load(|_| {}).await;
@@ -610,6 +669,7 @@ async fn the_log_is_not_opened_until_there_is_something_to_put_in_it() {
                 config: Script::saying(&["ok"]),
                 id: "scripted".into(),
             }),
+            Arc::new(Settings::open(SettingsMemory::new())),
         )
     };
 
@@ -634,4 +694,209 @@ async fn the_log_is_not_opened_until_there_is_something_to_put_in_it() {
         "the log is opened once and kept, not reopened per turn"
     );
     assert!(!log.events().expect("the log").is_empty());
+}
+
+// --- the settings ladder, as a turn reads it -------------------------------
+// `demido-settings` proves the ladder resolves. These prove the turn loop asks
+// it, which is the half that can be got wrong in this crate: a conversation
+// that resolved once at construction, or sent `Options::default`, would pass
+// every case above.
+
+/// A settings page, as a test sets one value on it.
+fn ladder() -> Arc<Settings> {
+    Arc::new(Settings::open(SettingsMemory::new()))
+}
+
+/// The temperature that reaches the backend is the ladder's, and the chat is
+/// the last word over the global tier.
+#[tokio::test]
+async fn the_temperature_sent_is_the_one_the_ladder_resolved() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::Global,
+            demido_settings::id::TEMPERATURE,
+            &json!(0.2),
+        )
+        .expect("set globally");
+
+    let script = Script::saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, _) = over(&script, &log, &settings);
+    chat.load(|_| {}).await;
+    chat.ask("hello", |_| {}).await.expect("an answer");
+
+    assert_eq!(script.sent()[0].options.temperature, Some(0.2));
+
+    settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::TEMPERATURE,
+            &json!(1.4),
+        )
+        .expect("set on this chat");
+    chat.ask("again", |_| {}).await.expect("an answer");
+
+    assert_eq!(
+        script.sent()[1].options.temperature,
+        Some(1.4),
+        "a value changed while the window is open takes effect on the next turn"
+    );
+}
+
+/// The system prompt is a ladder value, so it heads the assembly and a chat's
+/// own overrides the global one.
+#[tokio::test]
+async fn the_system_prompt_heads_the_assembly_and_the_chat_outranks_the_global() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::Global,
+            demido_settings::id::SYSTEM_PROMPT,
+            &json!("You are terse."),
+        )
+        .expect("set globally");
+
+    let script = Script::saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, _) = over(&script, &log, &settings);
+    chat.load(|_| {}).await;
+    chat.ask("hello", |_| {}).await.expect("an answer");
+
+    let first = &script.sent()[0].messages;
+    assert_eq!(first[0].role, Role::System);
+    assert_eq!(first[0].content, "You are terse.");
+    assert_eq!(first[1].role, Role::User, "then what the person typed");
+
+    settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::SYSTEM_PROMPT,
+            &json!("You are a pirate."),
+        )
+        .expect("set on this chat");
+    chat.ask("again", |_| {}).await.expect("an answer");
+
+    let second = &script.sent()[1].messages;
+    assert_eq!(second[0].content, "You are a pirate.");
+    assert_eq!(
+        second[1].role,
+        Role::User,
+        "the system prompt is not carried twice: the earlier one is not history"
+    );
+
+    // On the log like anything else, so the assembly rebuilds with it. A prompt
+    // that reached the model without reaching the log would be the one block of
+    // a turn the session log could not account for.
+    let replay = Replay::of(&log).expect("read the log");
+    assert_eq!(
+        replay.assembly(2).expect("rebuilt"),
+        script.sent()[1],
+        "the log rebuilt a different request from the one the backend was given"
+    );
+
+    // Attributed to whoever put it in the window. A prompt the monitor cannot
+    // see is a prompt nobody can edit.
+    let injected = replay
+        .events()
+        .iter()
+        .filter(|event| event.source == Source::Inject)
+        .count();
+    assert_eq!(injected, 2, "one per turn, recorded before it was sent");
+}
+
+/// A prompt nobody wrote is not a blank message. An empty system prompt is left
+/// out of the assembly entirely.
+#[tokio::test]
+async fn an_empty_system_prompt_is_absent_rather_than_blank() {
+    let script = Script::saying(&["ok"]);
+    let log = Memory::new();
+    let chat = chat(&script, &log);
+    chat.load(|_| {}).await;
+    chat.ask("hello", |_| {}).await.expect("an answer");
+
+    let messages = &script.sent()[0].messages;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].role, Role::User);
+}
+
+/// The context length is a flag on the process, so the ladder's number has to
+/// reach the configuration the supervisor starts a backend from. A chat that
+/// asked for a bigger window and got the default would be the defect
+/// `docs/rules/done.md` records, one layer up from where it was measured.
+#[tokio::test]
+async fn the_context_length_the_chat_asked_for_is_what_the_backend_is_started_with() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::CONTEXT_LENGTH,
+            &json!(8192),
+        )
+        .expect("set on this chat");
+
+    let script = Script::saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, supervisor) = over(&script, &log, &settings);
+    chat.load(|_| {}).await;
+
+    let backend = supervisor.current().await.expect("a running backend");
+    assert_eq!(
+        backend.context_length().await.expect("the slot's context"),
+        8192
+    );
+
+    // And changing it is a restart rather than a no-op, because the
+    // configuration the supervisor compares is a different one.
+    settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::CONTEXT_LENGTH,
+            &json!(16384),
+        )
+        .expect("set again");
+    chat.load(|_| {}).await;
+
+    let restarted = supervisor.current().await.expect("a running backend");
+    assert_eq!(
+        restarted
+            .context_length()
+            .await
+            .expect("the slot's context"),
+        16384
+    );
+}
+
+/// Another conversation is not this one. The ladder a chat resolves through
+/// ends at its own id, which is what makes a per-chat override reach one chat
+/// and no other.
+#[tokio::test]
+async fn an_override_made_in_one_chat_does_not_reach_another() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::chat("somebody-elses-chat"),
+            demido_settings::id::TEMPERATURE,
+            &json!(1.4),
+        )
+        .expect("set");
+
+    let script = Script::saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, _) = over(&script, &log, &settings);
+    chat.load(|_| {}).await;
+    chat.ask("hello", |_| {}).await.expect("an answer");
+
+    assert_eq!(
+        script.sent()[0].options.temperature,
+        Some(0.7),
+        "this chat resolves the schema's default, not the other chat's override"
+    );
+    assert_eq!(
+        settings
+            .resolve(&Ladder::for_chat("somebody-elses-chat"))
+            .temperature(),
+        Some(1.4),
+        "and the other chat still has what was set on it"
+    );
 }

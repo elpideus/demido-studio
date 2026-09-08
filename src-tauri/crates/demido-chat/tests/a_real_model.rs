@@ -41,8 +41,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde_json::json;
+
 use demido_chat::{Chat, Model, Presence, Update};
-use demido_inference::{FinishReason, LlamaCpp, Role, Supervisor};
+use demido_inference::{Backend, FinishReason, LlamaCpp, Role, Supervisor};
+use demido_settings::{Memory as SettingsMemory, Scope, Settings};
 use demido_trace::{Body, JsonLines, SessionId};
 
 use rig::Tier;
@@ -59,16 +62,42 @@ fn scratch(name: &str) -> PathBuf {
 
 /// A chat against a real model, logging to a real file.
 fn chat(tier: Tier, dir: &std::path::Path) -> Chat<LlamaCpp, JsonLines> {
+    over(tier, dir, &Arc::new(Settings::open(SettingsMemory::new()))).0
+}
+
+/// The name a per-chat setting is set against.
+///
+/// The same string the chat resolves its own tier under, because a ladder that
+/// names a different chat resolves to the global value and would pass for the
+/// wrong reason.
+fn session(tier: Tier) -> String {
+    format!("a-model-answers-{}", tier.label())
+}
+
+/// The same chat, over a ladder a case can set values on, and the supervisor it
+/// loads through.
+///
+/// Both are handed back because a settings claim reads both: the ladder is
+/// where a value is set, and the supervisor holds the server that has to prove
+/// it arrived.
+fn over(
+    tier: Tier,
+    dir: &std::path::Path,
+    settings: &Arc<Settings>,
+) -> (Chat<LlamaCpp, JsonLines>, Arc<Supervisor<LlamaCpp>>) {
     let path = dir.join("session.jsonl");
-    Chat::new(
-        SessionId::new(format!("a-model-answers-{}", tier.label())),
+    let supervisor = Arc::new(Supervisor::new());
+    let chat = Chat::new(
+        SessionId::new(session(tier)),
         move || JsonLines::open(&path),
-        Arc::new(Supervisor::new()),
+        supervisor.clone(),
         Some(Model {
             config: rig::require(tier),
             id: tier.label().to_owned(),
         }),
-    )
+        settings.clone(),
+    );
+    (chat, supervisor)
 }
 
 /// Load, or say which tier failed and what the backend said about it.
@@ -314,6 +343,116 @@ async fn a_chat_is_still_there_after_the_process_that_held_it_is_gone() {
     assert_eq!(history[1].text, said);
 
     keep(&path);
+}
+
+// --- the settings ladder, against a real model ------------------------------
+
+/// The system prompt is a ladder value, and a real model does what it says.
+///
+/// On every tier, because it is a claim about what a model *does* with what
+/// Demido put in front of it rather than about what Demido recorded. The chat's
+/// own prompt is set second and has to win, which is
+/// [`docs/decisions/0007-a-chat-outranks-its-character.md`](../../../../docs/decisions/0007-a-chat-outranks-its-character.md)
+/// measured rather than asserted offline: the ladder resolving is one thing,
+/// and the resolved wording reaching the weights is another.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a card and a model; see the live command in AGENTS.md"]
+async fn the_system_prompt_the_ladder_resolves_is_the_one_the_model_obeys() {
+    for tier in Tier::ALL {
+        let _permit = rig::ONE_MODEL_AT_A_TIME.acquire().await.expect("a permit");
+
+        let dir = scratch(&format!("prompted-{}", tier.label()));
+        let settings = Arc::new(Settings::open(SettingsMemory::new()));
+        settings
+            .set(
+                &Scope::Global,
+                demido_settings::id::SYSTEM_PROMPT,
+                // not-a-prompt: a probe this suite types, standing in for
+                // whatever a user would write in the field. It has no id and no
+                // default file because Demido did not write it.
+                &json!("You always answer with exactly one word: banana."),
+            )
+            .expect("set globally");
+
+        let (chat, _) = over(tier, &dir, &settings);
+        loaded(&chat, tier).await;
+
+        let answer = chat
+            .ask("What is the capital of France?", |_| {})
+            .await
+            .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
+        assert!(
+            answer.text.to_lowercase().contains("banana"),
+            "the {} model was given a global system prompt and answered: {}",
+            tier.label(),
+            answer.text
+        );
+
+        // The chat is the last word, and one turn later it says so.
+        settings
+            .set(
+                &Scope::chat(session(tier)),
+                demido_settings::id::SYSTEM_PROMPT,
+                // not-a-prompt: the same probe, on the tier that outranks the
+                // one above it.
+                &json!("You always answer with exactly one word: rutabaga."),
+            )
+            .expect("set on this chat");
+
+        let answer = chat
+            .ask("What is the capital of Italy?", |_| {})
+            .await
+            .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
+        assert!(
+            answer.text.to_lowercase().contains("rutabaga"),
+            "the {} model kept following the global prompt after this chat \
+             overrode it, and said: {}",
+            tier.label(),
+            answer.text
+        );
+
+        chat.shutdown().await;
+    }
+}
+
+/// The context length a user set is the context length reserved, asked of the
+/// server that is serving the conversation.
+///
+/// The development tier alone: this asserts nothing about weights. It is the
+/// same claim `demido_inference::contract` makes at the seam, made one layer up
+/// where the number comes off the ladder instead of out of a test fixture, and
+/// it is the acceptance criterion of
+/// [#44](https://github.com/elpideus/demido-studio/issues/44).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a card and a model; see the live command in AGENTS.md"]
+async fn the_context_length_set_on_a_chat_is_the_one_the_server_reserves() {
+    let _permit = rig::ONE_MODEL_AT_A_TIME.acquire().await.expect("a permit");
+
+    let tier = Tier::Development;
+    let dir = scratch("reserved");
+    let settings = Arc::new(Settings::open(SettingsMemory::new()));
+
+    // Deliberately not a round number and not the schema's default: a server
+    // that quietly substituted its own would pass against either.
+    settings
+        .set(
+            &Scope::chat(session(tier)),
+            demido_settings::id::CONTEXT_LENGTH,
+            &json!(3072),
+        )
+        .expect("set on this chat");
+
+    let (chat, supervisor) = over(tier, &dir, &settings);
+    loaded(&chat, tier).await;
+
+    let backend = supervisor.current().await.expect("a running backend");
+    assert_eq!(
+        backend.context_length().await.expect("the slot's context"),
+        3072,
+        "the number the user set is the number the slot got. llama.cpp's          --ctx-size is the whole pool, so a build that passed it through raw          would hand back a fraction of it"
+    );
+
+    chat.shutdown().await;
 }
 
 /// Commit the trace beside the scenario that produced it.

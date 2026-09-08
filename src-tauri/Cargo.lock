@@ -612,6 +612,7 @@ dependencies = [
  "async-trait",
  "demido-core",
  "demido-inference",
+ "demido-settings",
  "demido-trace",
  "futures-core",
  "futures-util",
@@ -663,6 +664,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "demido-settings"
+version = "0.1.0"
+dependencies = [
+ "demido-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "demido-shell"
 version = "0.1.0"
 dependencies = [
@@ -680,9 +692,11 @@ dependencies = [
  "demido-chat",
  "demido-core",
  "demido-inference",
+ "demido-settings",
  "demido-shell",
  "demido-trace",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tokio",

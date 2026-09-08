@@ -19,10 +19,14 @@ import styles from './Rail.module.css'
  * Brief B42: "a VSCode-like Icons-only sidebar"
  *
  * `design/shell.md` fixes the order and the amendment that removed Sub-agents
- * from it, and `design/system.md` fixes the four states a rail item has. Only
- * the closed one is drawn here, because nothing opens yet: an item that lit up
- * for a panel that does not exist would make the rail lie about what is open,
- * and the rail is the only place in the UI that answers that question.
+ * from it, and `design/system.md` fixes the four states a rail item has. Two of
+ * them are drawn: closed, and open and focused, which is what Settings is now
+ * that there is a panel behind it. The other two need a panel that can be open
+ * without being focused and one that can be pinned, and both of those are the
+ * window manager's. An item with nothing to open stays disabled, because an
+ * item that lit up for a panel that does not exist would make the rail lie
+ * about what is open, and the rail is the only place in the UI that answers
+ * that question.
  */
 
 /** The rail's default order, top to bottom, from `design/shell.md`. There is no
@@ -43,6 +47,8 @@ type At = { x: number; y: number }
 export function Rail() {
   const rail = useDesk((desk) => desk.rail)
   const dock = useDesk((desk) => desk.dock)
+  const panel = useDesk((desk) => desk.panel)
+  const toggle = useDesk((desk) => desk.toggle)
   const [menu, setMenu] = useState<At | null>(null)
 
   return (
@@ -63,9 +69,16 @@ export function Rail() {
         ))}
       </ul>
 
-      {/* Settings sits alone at the other end, per the brief's own aside. */}
+      {/* Settings sits alone at the other end, per the brief's own aside. It is
+       * the one entry with something behind it, so it is the one that can
+       * report a state other than closed. */}
       <ul className={styles.group}>
-        <Item label="Settings" icon={Settings} />
+        <Item
+          label="Settings"
+          icon={Settings}
+          open={panel === 'settings'}
+          onOpen={() => toggle('settings')}
+        />
       </ul>
 
       {menu && <Menu at={menu} rail={rail} dock={dock} close={() => setMenu(null)} />}
@@ -74,24 +87,44 @@ export function Rail() {
 }
 
 /**
- * One rail icon, closed.
+ * One rail icon.
  *
- * Closed is `ink-4` with no marker (`design/system.md`). The other three states
- * arrive with the panels that can be in them, on the window manager's own
- * ticket; drawing them now would mean inventing what they report.
+ * Closed is `ink-4` with no marker; open and focused is `signal` on `edge` with
+ * an 18px `signal` tick (`design/system.md`). The other two states, open but
+ * not focused and pinned, arrive with the panels that can be in them, on the
+ * window manager's own ticket; drawing them now would mean inventing what they
+ * report.
+ *
+ * An item with no `onOpen` has nothing to open and is disabled.
  */
-function Item({ label, icon: Icon }: { label: string; icon: LucideIcon }) {
-  // The name sits on the slot rather than on the button, because the button is
-  // disabled until it has a panel to open and a disabled control reports
-  // nothing on hover.
+function Item({
+  label,
+  icon: Icon,
+  open = false,
+  onOpen,
+}: {
+  label: string
+  icon: LucideIcon
+  open?: boolean
+  onOpen?: () => void
+}) {
+  // The name sits on the slot rather than on the button, because most items are
+  // still disabled and a disabled control reports nothing on hover.
   //
   // `title` is the browser's tooltip and design/system.md specifies Demido's
   // own, revealed after --delay-keycap on a panel face. This is a stand-in
   // until that component exists: a rail of unlabelled icons that says nothing
   // on hover is worse than one that says it in the wrong shape.
   return (
-    <li className={styles.slot} title={label}>
-      <button type="button" className={styles.item} aria-label={label} disabled>
+    <li className={styles.slot} title={label} data-open={open}>
+      <button
+        type="button"
+        className={styles.item}
+        aria-label={label}
+        aria-pressed={onOpen ? open : undefined}
+        disabled={!onOpen}
+        onClick={onOpen}
+      >
         <Icon className={styles.icon} strokeWidth={1.8} aria-hidden />
       </button>
     </li>

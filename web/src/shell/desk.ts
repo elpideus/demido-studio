@@ -35,6 +35,10 @@ export type Shell = {
  * still being read, so the first frame is never blank. */
 const DEFAULT: Shell = { rail: 'left' }
 
+/** A panel that can be over the desk. One so far, and the rail is the only
+ * place in the UI that reports what is open (`design/shell.md`). */
+export type Panel = 'settings'
+
 type Desk = Shell & {
   /** False until Rust has answered. Nothing is reported back before it is
    * true: writing during hydration would save the default over the layout
@@ -44,11 +48,25 @@ type Desk = Shell & {
   hydrate: () => Promise<void>
   /** Move the rail to an edge. */
   dock: (side: Side) => void
+
+  /** What is open over the desk, or nothing.
+   *
+   * **Deliberately not part of `Shell`.** `Shell` is what Rust remembers, and
+   * whether a settings window happened to be open when the app closed is not
+   * an arrangement anybody made: reopening on it would be the app deciding
+   * where you were going. The geometry of a panel *is* layout and belongs in
+   * `Shell` when panels have any, which is the window manager's own ticket. */
+  panel: Panel | null
+  /** Open a panel, or close it when it is the one already open. The rail's
+   * icons are toggles, the way a taskbar's are. */
+  toggle: (panel: Panel) => void
+  close: () => void
 }
 
 export const useDesk = create<Desk>((set, get) => ({
   ...DEFAULT,
   hydrated: false,
+  panel: null,
 
   hydrate: async () => {
     if (get().hydrated) return
@@ -70,6 +88,10 @@ export const useDesk = create<Desk>((set, get) => ({
     set({ rail: side })
     remember({ rail: side })
   },
+
+  toggle: (panel) => set({ panel: get().panel === panel ? null : panel }),
+
+  close: () => set({ panel: null }),
 }))
 
 /**

@@ -23,6 +23,7 @@ demido-chat = { path = "crates/demido-chat" }
 demido-core = { path = "crates/demido-core" }
 demido-inference = { path = "crates/demido-inference" }
 demido-prompts = { path = "crates/demido-prompts" }
+demido-settings = { path = "crates/demido-settings" }
 demido-shell = { path = "crates/demido-shell" }
 demido-trace = { path = "crates/demido-trace" }
 serde = { version = "1", features = ["derive"] }
@@ -69,9 +70,13 @@ tauri-build = { version = "2", features = [] }
 demido-chat.workspace = true
 demido-core.workspace = true
 demido-inference.workspace = true
+demido-settings.workspace = true
 demido-shell.workspace = true
 demido-trace.workspace = true
 serde.workspace = true
+# A setting's value crosses the boundary as whatever the schema says it is, so
+# the command that carries one takes a `Value` rather than a type per kind.
+serde_json.workspace = true
 tauri = { version = "2", features = ["devtools"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,0 +1,160 @@
+/*
+ * The settings window and the chat's own popover. Roles are
+ * docs/rules/surfaces.md, the shapes are design/system.md, and every number is
+ * a token from design/tokens.css.
+ */
+
+/* Behind something floating over the rack. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-scrim);
+}
+
+/* A panel frame: an island face at island radius, floating, so it carries the
+ * one shadow in the system. Centred rather than placed, because where a panel
+ * sits is geometry the window manager owns and this slice has none. */
+.window {
+  position: absolute;
+  top: var(--space-bay);
+  bottom: var(--space-bay);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(var(--measure-prose), calc(100% - 2 * var(--space-bay)));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+  box-shadow: var(--shadow-float);
+}
+
+/* A bar rather than a surface. Maximise and close is what a panel title bar
+ * carries, and maximise arrives with the gesture that can honour it. */
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  padding: var(--space-control) var(--space-control) var(--space-control) var(--space-room);
+  background: var(--color-chrome);
+}
+
+.name {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-strong);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+.close {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.close:hover {
+  background: var(--color-hover);
+}
+
+.close:active {
+  background: var(--color-active);
+}
+
+/* The nav and the page it drives. The gap between them is the border. */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.nav {
+  flex: none;
+  width: calc(6 * var(--size-control));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  padding: var(--space-room);
+  background: var(--color-chrome);
+}
+
+/* Selected is `edge`, which means state and not elevation. There is one
+ * section, so it is always the selected one. */
+.section {
+  padding: var(--space-control) var(--space-room);
+  border-radius: var(--radius-control);
+  background: var(--color-edge);
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+}
+
+.page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-page);
+}
+
+/* A popover from the composer, the shape design/system.md gives the tool
+ * picker: a panel face with the one shadow, over the desk rather than in it. */
+.popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-gutter));
+  width: min(calc(100% - 2 * var(--space-gutter)), var(--measure-prose));
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+  padding: var(--space-room);
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+  box-shadow: var(--shadow-float);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+.why {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* Rows are separated by a gap, which is the border. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+}
+
+/* Where a refusal is shown: beside the control it was refused for, in the one
+ * colour this system gives an error. */
+.failure {
+  margin: 0;
+  color: var(--color-rose);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

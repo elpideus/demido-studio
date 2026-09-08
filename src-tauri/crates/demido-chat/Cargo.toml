@@ -17,6 +17,10 @@ demido-core.workspace = true
 # The seam a turn is sent through, and the supervisor that keeps one model
 # resident. Nothing here knows what a backend is made of.
 demido-inference.workspace = true
+# What is in force for this conversation. The turn loop resolves the ladder
+# rather than being handed values, so nothing above it can send a request the
+# ladder did not decide.
+demido-settings.workspace = true
 # The source of truth. A transcript is a projection of this log, never a table
 # beside it, which is the one thing that makes the log worth writing.
 demido-trace.workspace = true

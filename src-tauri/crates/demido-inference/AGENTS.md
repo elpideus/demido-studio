@@ -18,7 +18,18 @@ an implementation.
 
 It takes a `Config` rather than a started backend, because starting and stopping
 are half of what the trait promises and a suite handed a live one could not test
-either.
+either. The suite applies its own context length through
+`Backend::with_context_length`, which is the writer paired with
+`Backend::context_length`: the settings ladder resolves a number, the writer is
+how that number reaches a process whose `Config` the ladder cannot know the
+shape of, and the reader is how the case checks it arrived.
+
+What the contract cannot ask is what happens across **more than one slot**: a
+slot is `llama.cpp`'s idea and the trait has no word for one. That half lives in
+`tests/llamacpp_contract.rs`, at `--parallel 2`, and it is the half
+[`docs/rules/done.md`](../../../docs/rules/done.md) measured: `--ctx-size` is
+the whole KV pool, so a build that passed the user's number through raw would
+hand back a fraction of it and every one-slot test would still be green.
 
 | Implementation | Where | Runs the suite in |
 |---|---|---|

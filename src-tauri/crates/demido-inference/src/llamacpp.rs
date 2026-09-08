@@ -206,6 +206,11 @@ impl Backend for LlamaCpp {
         "llama.cpp"
     }
 
+    fn with_context_length(mut config: Config, tokens: u32) -> Config {
+        config.context_length = tokens;
+        config
+    }
+
     async fn start(config: Config) -> Result<Self> {
         if !config.binary.exists() {
             return Err(did_not_start(format!(
