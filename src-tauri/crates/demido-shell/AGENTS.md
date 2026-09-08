@@ -71,6 +71,14 @@ actually hits: move the rail, then close the window.
 Reads pass through it, so the desk reads back what it last said even before that
 has reached the disk.
 
+**It is deliberately not a `Store`**, and so the contract suite is deliberately
+never run against it. A `Store` promises that what was written comes back from
+storage; a debouncer's whole job is that a write has *not* happened yet, so a
+`Debounced` that implemented the trait would pass the suite only by flushing on
+every call, which is the thing it exists to avoid. It is a policy wrapped around
+a store rather than a second kind of one, which is why `Wiring`'s `Desk` alias
+names `Files` as the tile and `Debounced` as what surrounds it.
+
 ## Per profile is the operating system's doing
 
 [`docs/rules/profiles.md`](../../../docs/rules/profiles.md) rules that a Demido

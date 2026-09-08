@@ -44,10 +44,17 @@ pub type Inference = Supervisor<LlamaCpp>;
 
 /// The shell layout store this build keeps the desk in.
 ///
-/// **This alias is the wiring line**, and it names two tiles at once: where a
-/// layout is kept, and when a gesture becomes a file. The second implementation
-/// of the inner one is `demido_shell::Memory`, which is what a build with
-/// nowhere to write would be, and swapping to it is editing this line.
+/// **This alias is the wiring line.** The tile is `Files`; the second
+/// implementation of that trait is `demido_shell::Memory`, which is what a
+/// build with nowhere to write would be, and swapping to it is editing this
+/// line and recompiling.
+///
+/// `Debounced` is not a second tile and does not implement `Store`. It is the
+/// policy about *when* a gesture becomes a file, wrapped around whichever store
+/// this line names, and it deliberately keeps no layout of its own: a type that
+/// implemented `Store` while its writes were still in a queue would claim a
+/// promise the contract suite tests and it only keeps eventually. See
+/// `demido-shell/AGENTS.md`.
 ///
 /// See
 /// [`docs/decisions/0010-the-desk-remembers-itself.md`](../../docs/decisions/0010-the-desk-remembers-itself.md).

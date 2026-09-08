@@ -38,8 +38,14 @@ pub struct BootReport {
     driven: bool,
 }
 
-/// The first call the window makes, and the one the driver makes to prove the
-/// IPC channel is real rather than merely present.
+/// What `scripts/drive.mjs` calls to prove the IPC channel is real rather than
+/// merely present.
+///
+/// The window itself no longer calls it: the desk asks for its layout instead,
+/// which is a real question with a real answer. This stays because the window
+/// gate's driver asserts on it (`docs/rules/done.md`), and a channel proof that
+/// depends on whatever the current screen happens to ask for is a proof that
+/// breaks every time the screen changes.
 #[tauri::command]
 fn boot_report(app: tauri::AppHandle) -> BootReport {
     BootReport {

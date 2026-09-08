@@ -31,18 +31,6 @@ pub enum Side {
     Right,
 }
 
-impl Side {
-    /// The other edge. The rail has exactly two homes, so moving it is a
-    /// toggle rather than a coordinate.
-    #[must_use]
-    pub fn flipped(self) -> Self {
-        match self {
-            Self::Left => Self::Right,
-            Self::Right => Self::Left,
-        }
-    }
-}
-
 /// The arrangement of the desk.
 ///
 /// `Default` is the desk a fresh profile gets, and it is also what a layout
@@ -91,12 +79,6 @@ mod tests {
     #[test]
     fn a_fresh_desk_has_the_rail_on_the_left() {
         assert_eq!(Shell::default().rail, Side::Left);
-    }
-
-    #[test]
-    fn the_rail_has_two_homes_and_moving_it_is_a_toggle() {
-        assert_eq!(Side::Left.flipped(), Side::Right);
-        assert_eq!(Side::Right.flipped().flipped(), Side::Right);
     }
 
     /// The window is handed the arrangement and never the generation. If this

@@ -28,19 +28,22 @@ import styles from './Rail.module.css'
 /** The rail's default order, top to bottom, from `design/shell.md`. There is no
  * Sub-agents entry: a sub-agent is a scope on the session log rather than a
  * window, which amended the brief's own listing on #8. */
-const NAVIGATION: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: 'chats', label: 'Chats', icon: MessagesSquare },
-  { id: 'files', label: 'Files', icon: FolderTree },
-  { id: 'code', label: 'Code graph', icon: Waypoints },
-  { id: 'market', label: 'Market charts', icon: ChartCandlestick },
-  { id: 'session', label: 'Session monitor', icon: Activity },
-  { id: 'browser', label: 'Browser', icon: Globe },
+const NAVIGATION: { label: string; icon: LucideIcon }[] = [
+  { label: 'Chats', icon: MessagesSquare },
+  { label: 'Files', icon: FolderTree },
+  { label: 'Code graph', icon: Waypoints },
+  { label: 'Market charts', icon: ChartCandlestick },
+  { label: 'Session monitor', icon: Activity },
+  { label: 'Browser', icon: Globe },
 ]
+
+/** Where a menu was raised. The rail's own coordinates, in the viewport. */
+type At = { x: number; y: number }
 
 export function Rail() {
   const rail = useDesk((desk) => desk.rail)
   const dock = useDesk((desk) => desk.dock)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<At | null>(null)
 
   return (
     <nav
@@ -56,7 +59,7 @@ export function Rail() {
     >
       <ul className={styles.group}>
         {NAVIGATION.map((entry) => (
-          <Item key={entry.id} label={entry.label} icon={entry.icon} />
+          <Item key={entry.label} label={entry.label} icon={entry.icon} />
         ))}
       </ul>
 
@@ -81,6 +84,11 @@ function Item({ label, icon: Icon }: { label: string; icon: LucideIcon }) {
   // The name sits on the slot rather than on the button, because the button is
   // disabled until it has a panel to open and a disabled control reports
   // nothing on hover.
+  //
+  // `title` is the browser's tooltip and design/system.md specifies Demido's
+  // own, revealed after --delay-keycap on a panel face. This is a stand-in
+  // until that component exists: a rail of unlabelled icons that says nothing
+  // on hover is worse than one that says it in the wrong shape.
   return (
     <li className={styles.slot} title={label}>
       <button type="button" className={styles.item} aria-label={label} disabled>
@@ -108,7 +116,7 @@ function Menu({
   dock,
   close,
 }: {
-  at: { x: number; y: number }
+  at: At
   rail: Side
   dock: (side: Side) => void
   close: () => void

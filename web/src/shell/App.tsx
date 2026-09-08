@@ -18,18 +18,26 @@ import styles from './App.module.css'
  * The rail sits on either edge, and which edge is remembered by Rust in the
  * profile's `shell.json`
  * (`docs/decisions/0010-the-desk-remembers-itself.md`). It is read once, here,
- * and the window draws the default until the answer arrives, so the first frame
- * is a desk rather than a blank rectangle.
+ * and **nothing is drawn until the answer arrives**. That answer is a file read
+ * on the other side of an IPC call, so it cannot be had before the first paint;
+ * the choice is between one frame of bare rack and a rail that appears on the
+ * left and jumps to the right, and a desk that visibly rearranges itself at
+ * every launch is the worse of the two. The rack is the window's own background
+ * either way, so the held frame is not a blank rectangle, it is the desk with
+ * nothing on it yet.
  *
  * The composer sends nothing. The turn loop is the next ticket.
  */
 export function App() {
   const rail = useDesk((desk) => desk.rail)
+  const hydrated = useDesk((desk) => desk.hydrated)
   const hydrate = useDesk((desk) => desk.hydrate)
 
   useEffect(() => {
     void hydrate()
   }, [hydrate])
+
+  if (!hydrated) return <div className={styles.shell} />
 
   return (
     <div className={styles.shell} data-rail={rail}>

@@ -66,9 +66,9 @@ export const useDesk = create<Desk>((set, get) => ({
   },
 
   dock: (side) => {
-    if (get().rail === side) return
+    if (get().rail === side || !get().hydrated) return
     set({ rail: side })
-    remember(get())
+    remember({ rail: side })
   },
 }))
 
@@ -80,9 +80,7 @@ export const useDesk = create<Desk>((set, get) => ({
  * (`demido-shell::Debounced`), so nothing in the frontend has to know how often
  * it may speak, and a failure to save is not something the desk stops for.
  */
-function remember(desk: Desk) {
-  if (!desk.hydrated) return
-  const shell: Shell = { rail: desk.rail }
+function remember(shell: Shell) {
   invoke('remember_layout', { shell }).catch((error: unknown) => {
     console.warn('the desk arrangement was not saved', error)
   })
