@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 
+import { Transcript } from '@/chat/Transcript'
+import { useChat } from '@/chat/chat'
 import { Composer } from './Composer'
 import { Rail } from './Rail'
 import { useDesk } from './desk'
@@ -26,16 +28,22 @@ import styles from './App.module.css'
  * either way, so the held frame is not a blank rectangle, it is the desk with
  * nothing on it yet.
  *
- * The composer sends nothing. The turn loop is the next ticket.
+ * The conversation is opened beside the layout rather than after it, and the
+ * desk does not wait for it. A layout decides what the first frame looks like;
+ * a transcript decides what is on it, and the model behind that transcript
+ * takes minutes to load. Holding the window for either would be a boot screen,
+ * and startup never blocks (`AGENTS.md`).
  */
 export function App() {
   const rail = useDesk((desk) => desk.rail)
   const hydrated = useDesk((desk) => desk.hydrated)
   const hydrate = useDesk((desk) => desk.hydrate)
+  const open = useChat((chat) => chat.open)
 
   useEffect(() => {
     void hydrate()
-  }, [hydrate])
+    void open()
+  }, [hydrate, open])
 
   if (!hydrated) return <div className={styles.shell} />
 
@@ -43,14 +51,7 @@ export function App() {
     <div className={styles.shell} data-rail={rail}>
       <Rail />
       <main className={styles.desk}>
-        {/* The transcript is the rack itself rather than an island on it
-         * (docs/rules/surfaces.md), which is what makes chat read as the
-         * surface rather than as the largest card on one. */}
-        <div className={styles.transcript}>
-          <div className={styles.column}>
-            <p className={styles.quiet}>Nothing has been said yet.</p>
-          </div>
-        </div>
+        <Transcript />
         <div className={styles.bay}>
           <div className={styles.column}>
             <Composer />

@@ -16,9 +16,11 @@
 //! this a wiring file rather than a second place where tiles reach for each
 //! other.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use demido_inference::{LlamaCpp, Supervisor};
+use demido_chat::{Chat, Model};
+use demido_inference::{LlamaCpp, LlamaCppConfig, Supervisor};
 use demido_shell::{Debounced, Files};
 
 /// Every subsystem, wired once.
@@ -28,10 +30,15 @@ use demido_shell::{Debounced, Files};
 #[non_exhaustive]
 pub struct Wiring {
     /// The one backend, and the rule that only one model is resident.
-    pub inference: Inference,
+    ///
+    /// Shared with the chat rather than held beside it: two supervisors is two
+    /// models on a card sized for one.
+    pub inference: Arc<Inference>,
     /// What the desk looked like last time, and where the next arrangement
     /// goes.
     pub desk: Desk,
+    /// The conversation: the log, the turn loop, and whatever is generating.
+    pub chat: Talk,
 }
 
 /// The inference implementation this build runs.
@@ -62,14 +69,93 @@ pub type Desk = Debounced<Files>;
 
 /// The session log implementation this build writes.
 ///
-/// A type rather than a field on [`Wiring`], because a journal belongs to one
-/// session and nothing opens a session yet: chat is
-/// [#42](https://github.com/elpideus/demido-studio/issues/42). The alias is
-/// here all the same, because it is the wiring line, and the point of a tile
-/// being one line is only real while the line is in the one place that names
-/// implementations. The other implementation is `demido_trace::Memory`, which
-/// is what a session the user asks not to keep will be.
+/// **This alias is the wiring line.** The other implementation is
+/// `demido_trace::Memory`, which is what a session the user asks not to keep
+/// will be, and swapping to it is editing this line and recompiling.
 pub type Trace = demido_trace::JsonLines;
+
+/// The conversation this build runs: the turn loop over the two tiles above it.
+///
+/// Not a wiring line of its own. `demido_chat::Chat` implements no trait and is
+/// generic over the two that matter, so this names the pair the two lines above
+/// already chose. The supervisor it talks through is [`Wiring::inference`],
+/// which is that line's one instance.
+pub type Talk = Chat<LlamaCpp, Trace>;
+
+/// The one session this build has, until there is a chat list to have more.
+///
+/// A conversation per profile, in a file the next launch reads. Chats,
+/// projects and the list that holds them are their own tickets; what S1 needs
+/// is that closing the window and opening it again finds the conversation
+/// where it was left, and that is a path rather than a feature.
+const SESSION: &str = "session";
+
+/// Where the model comes from until something decides it properly.
+///
+/// The set-up wizard ([#48](https://github.com/elpideus/demido-studio/issues/48))
+/// picks the runtime and the weights, and the settings ladder
+/// ([#44](https://github.com/elpideus/demido-studio/issues/44)) is where they
+/// are changed afterwards. Both land after this ticket, and until they do a
+/// build has to get a model from somewhere or the desk has nothing to answer
+/// with at all.
+///
+/// So: two environment variables, both naming files that must exist, and both
+/// documented in the root `AGENTS.md` beside the command that uses them. An
+/// absent one is not an error and not a warning. It is `Presence::Absent`,
+/// which is the ordinary first launch on a machine where set-up has not run,
+/// and it is the state the composer already knows how to draw.
+///
+/// `DEMIDO_MODEL_FILE` rather than `DEMIDO_MODEL`, because the live suites
+/// already read `DEMIDO_MODELS` and that one is a library root
+/// (`demido-inference/tests/rig.rs`). One character between two variables that
+/// mean a file and a directory is a trap set for somebody in a hurry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rig {
+    /// `llama-server`, fetched from upstream and never bundled (hard rule 3).
+    pub binary: PathBuf,
+    /// The GGUF to load.
+    pub model: PathBuf,
+}
+
+impl Rig {
+    /// The rig this machine is pointed at, or nothing.
+    pub fn from_environment() -> Option<Self> {
+        let binary = PathBuf::from(std::env::var_os("DEMIDO_LLAMA_BIN")?);
+        let model = PathBuf::from(std::env::var_os("DEMIDO_MODEL_FILE")?);
+        if !binary.is_file() || !model.is_file() {
+            tracing::warn!(
+                binary = %binary.display(),
+                model = %model.display(),
+                "the rig named by the environment is not on disk; the desk opens with nothing loaded"
+            );
+            return None;
+        }
+        Some(Self { binary, model })
+    }
+
+    /// What to start, and what the request must call it.
+    ///
+    /// The alias is the model file's own name, so the id in the log and the
+    /// file on disk cannot come apart. `--parallel 1`, because the context
+    /// length a caller asks for is divided by the slot count and this build
+    /// asks for one window (`docs/rules/done.md`).
+    fn model(self) -> Model<LlamaCpp> {
+        // The whole file name where there is no stem, rather than a name this
+        // file invented: an id nobody can trace back to a file on disk is worse
+        // than an ugly one.
+        let id = self
+            .model
+            .file_stem()
+            .unwrap_or(self.model.as_os_str())
+            .to_string_lossy()
+            .into_owned();
+
+        let mut config = LlamaCppConfig::new(self.binary, self.model);
+        config.alias.clone_from(&id);
+        config.parallel = 1;
+        Model { config, id }
+    }
+}
 
 impl Wiring {
     /// The application's wiring: one implementation per trait.
@@ -85,9 +171,21 @@ impl Wiring {
     /// so a failure here is reserved for the case where there would be no
     /// window worth opening at all.
     pub fn assemble(profile: &Path) -> demido_core::Result<Self> {
+        let sessions = profile.join("sessions").join(format!("{SESSION}.jsonl"));
+        let inference = Arc::new(Inference::new());
         Ok(Self {
-            inference: Inference::new(),
             desk: Desk::new(Files::in_profile(profile)),
+            // The log is opened by the first thing that needs it, not here. A
+            // root that opened one would make opening a window a thing that can
+            // fail on a full or read-only disk, before there is a desk to
+            // report it on.
+            chat: Talk::new(
+                SESSION,
+                move || Trace::open(&sessions),
+                inference.clone(),
+                Rig::from_environment().map(Rig::model),
+            ),
+            inference,
         })
     }
 }

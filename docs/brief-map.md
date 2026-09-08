@@ -61,7 +61,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B57 | "There should be 3 agent modes: Cautious, Balanced, Autonomous." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B14 | "Deep integration of Caveman-like system" | - | - | - |
 | B15 | "Tool calling and custom tools" | [#14](https://github.com/elpideus/demido-studio/issues/14), [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
-| B16 | "Markdown, LaTeX and Mermaid supported in the chat bubbles." | - | - | - |
+| B16 | "Markdown, LaTeX and Mermaid supported in the chat bubbles." | - | `web/src/chat/Markdown.tsx`, Markdown and fenced code only: LaTeX and Mermaid have no decision ticket and are not S1's to invent | - |
 | B17 | "Projects system that allows to group chats" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B18 | "Native web search and fetch" | - | - | - |
 | B19 | "Configurable Agents & sub-agents system." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#11](https://github.com/elpideus/demido-studio/issues/11), [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |

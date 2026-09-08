@@ -1,0 +1,85 @@
+/*
+ * The transcript: the rack itself, scrolling under the composer. The roles are
+ * docs/rules/surfaces.md and the numbers are design/tokens.css.
+ */
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-page);
+}
+
+/* One measure down the middle of the desk, so a wide window sets a readable
+ * paragraph rather than a two hundred character line. */
+.column {
+  width: 100%;
+  max-width: var(--measure-prose);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* Islands are separated by gaps, and so are the things said on the rack. */
+  gap: var(--space-room);
+}
+
+/* An empty transcript. ink-3 rather than ink-4: it is the only sentence on
+ * screen at the moment somebody reads it (docs/rules/surfaces.md). */
+.quiet {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-prose);
+  line-height: var(--leading-prose);
+}
+
+.bubble[data-role='user'] {
+  /* A question is shorter than an answer and shaped like one, so it takes the
+   * width it needs and sits at the end of the measure rather than filling it.
+   * The measure is the bound; nothing narrower is a number anybody chose. */
+  align-self: flex-end;
+  padding: var(--space-room);
+  border-radius: var(--radius-island);
+  background: var(--color-raised);
+}
+
+/* The answer is unfilled on the rack. It is the thing being read, and a card
+ * around it would make the surface the reader is looking at an island on
+ * another one. */
+.bubble[data-role='assistant'] {
+  align-self: stretch;
+}
+
+/* Reasoning, while it is arriving. The block design/system.md specifies is
+ * collapsible, timed and carries its own Caveman level; none of those exist
+ * yet, so this is the reasoning shown in its own voice and nothing more. A
+ * control that did nothing would be worse than one that is not there.
+ *
+ * It is shown while the answer streams and not afterwards, because the
+ * transcript is Replay::history and that projection carries what was said
+ * rather than the thinking beside it. The thinking is on the log all the same,
+ * on the completion event, so the block's "done" state is a read away when
+ * there is a block to put it in. */
+.reasoning {
+  margin: 0 0 var(--space-room);
+  padding: var(--space-room);
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  /* design/system.md gives the thinking block a well ground and an
+   * src-reasoning accent. The accent is the ink here rather than a rule down
+   * the side, because a hairline is allowed in two cases and this is neither
+   * (docs/rules/gaps-and-hairlines.md). Violet measures 5.73:1. */
+  color: var(--src-reasoning);
+  font-size: var(--text-meta);
+  line-height: var(--leading-prose);
+  white-space: pre-wrap;
+}
+
+/* A turn that failed. It states what happened where the answer would have been,
+ * in the reading ink rather than in a dialog: a failure the desk carries on
+ * around is a line in the conversation. */
+.failure {
+  margin: 0;
+  color: var(--color-rose);
+  font-size: var(--text-prose);
+  line-height: var(--leading-prose);
+}

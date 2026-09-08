@@ -29,13 +29,6 @@
   background: var(--color-rack);
 }
 
-.transcript {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--space-page);
-}
-
 .bay {
   padding: 0 var(--space-page) var(--space-page);
 }
@@ -47,14 +40,4 @@
   width: 100%;
   max-width: var(--measure-prose);
   margin: 0 auto;
-}
-
-/* An empty transcript. ink-3 rather than ink-4: it is the only sentence on
- * screen at the moment somebody reads it, which is the bug v2's own audit
- * found seventeen times (docs/rules/surfaces.md). */
-.quiet {
-  margin: 0;
-  color: var(--color-ink-3);
-  font-size: var(--text-prose);
-  line-height: var(--leading-prose);
 }

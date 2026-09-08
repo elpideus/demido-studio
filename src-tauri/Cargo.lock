@@ -605,6 +605,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "demido-chat"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "demido-core",
+ "demido-inference",
+ "demido-trace",
+ "futures-core",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "demido-core"
 version = "0.1.0"
 dependencies = [
@@ -658,6 +677,7 @@ dependencies = [
 name = "demido-studio"
 version = "0.1.0"
 dependencies = [
+ "demido-chat",
  "demido-core",
  "demido-inference",
  "demido-shell",

@@ -30,6 +30,13 @@
   color: var(--color-ink-4);
 }
 
+/* A disabled field keeps its own ink: what it holds is a draft somebody typed,
+ * and greying it out reads as the text being gone rather than as the model
+ * being absent. The sentence beside it is what says why. */
+.field:disabled {
+  color: var(--color-ink-3);
+}
+
 .field:focus {
   outline: none;
 }
@@ -50,7 +57,8 @@
   line-height: var(--leading-ui);
 }
 
-.send {
+.send,
+.stop {
   flex: none;
   width: var(--size-control);
   height: var(--size-control);
@@ -60,8 +68,64 @@
   border: none;
   border-radius: var(--radius-control);
   background: var(--color-raised);
+  color: var(--color-ink-2);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.send:disabled {
   color: var(--color-ink-4);
   cursor: default;
+}
+
+.send:not(:disabled):hover {
+  background: var(--color-hover);
+}
+
+.send:not(:disabled):active {
+  background: var(--color-active);
+}
+
+/* A chip on the composer's own recess, so it is raised rather than another
+ * well. It sits beside the sentence that says what went wrong, because that
+ * sentence is the only context it has. */
+.retry {
+  flex: none;
+  margin-left: auto;
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.retry:hover {
+  background: var(--color-hover);
+}
+
+.retry:active {
+  background: var(--color-active);
+}
+
+/* Stop is the same control in the same place, and it is armed rather than
+ * decorated: state is carried by the thing itself (design/shell.md's ban on a
+ * status dot), so the surface says selected and the icon says what it does.
+ * Armed is `edge`, and pressed or hovered while armed is `edge-strong`, which
+ * is the row docs/rules/surfaces.md has for it: `hover` and `active` are the
+ * unselected ramp and would read as a step down from selected. */
+.stop {
+  background: var(--color-edge);
+  color: var(--color-signal);
+}
+
+.stop:hover,
+.stop:active {
+  background: var(--color-edge-strong);
 }
 
 .icon {

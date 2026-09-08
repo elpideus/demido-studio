@@ -2,9 +2,11 @@
 // is a build step that has to run before `tsc` and a stale one lies. A class
 // this file does not name is a type error, which is the point.
 declare const styles: {
-  readonly shell: string
-  readonly desk: string
-  readonly bay: string
+  readonly transcript: string
   readonly column: string
+  readonly quiet: string
+  readonly bubble: string
+  readonly reasoning: string
+  readonly failure: string
 }
 export default styles

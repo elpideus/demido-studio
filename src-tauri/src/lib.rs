@@ -6,6 +6,7 @@
 //! assembles the composition root, registers the commands the window may call,
 //! and opens the window.
 
+pub mod chat;
 /// Only a debug build loads `devUrl`, so only a debug build has a dev server to
 /// want. Compiled out of a release rather than merely unused there: a shipped
 /// build carries neither this check nor the CDP relaxation below, and a module
@@ -143,8 +144,29 @@ pub fn run() -> demido_core::Result<()> {
         .invoke_handler(tauri::generate_handler![
             boot_report,
             read_layout,
-            remember_layout
+            remember_layout,
+            chat::chat_transcript,
+            chat::chat_presence,
+            chat::chat_load,
+            chat::chat_send,
+            chat::chat_stop
         ])
-        .run(context)
-        .map_err(|error| demido_core::Error::unavailable("the application window", error))
+        .build(context)
+        .map_err(|error| demido_core::Error::unavailable("the application window", error))?
+        .run(|app, event| {
+            // Give the card back on the way out.
+            //
+            // A `llama.cpp` server is killed when the handle to it is dropped,
+            // and a process that exits does not drop anything: without this the
+            // window closes and several gigabytes stay resident in VRAM with
+            // nothing on screen left that could stop them. The one place that
+            // is true of is here, because this is the only place that knows the
+            // application is ending rather than a window closing.
+            if matches!(event, tauri::RunEvent::Exit) {
+                tracing::info!("giving the card back");
+                tauri::async_runtime::block_on(app.state::<Wiring>().chat.shutdown());
+            }
+        });
+
+    Ok(())
 }

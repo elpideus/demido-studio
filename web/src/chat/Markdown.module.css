@@ -1,0 +1,130 @@
+/*
+ * A rendered answer. Prose type at prose leading, on the rack, per
+ * design/system.md's Transcript row; every number is a token.
+ */
+
+.prose {
+  font-size: var(--text-prose);
+  line-height: var(--leading-prose);
+  color: var(--color-ink-2);
+}
+
+/* The first and last blocks give up their outer margin so a bubble's padding is
+ * the only space around its content. Without this every message is padded twice
+ * at the top and once too little at the bottom. */
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose blockquote,
+.prose table {
+  margin: 0 0 var(--space-room);
+}
+
+/* Headings are the body's own weight rather than a second type scale. An answer
+ * is a paragraph with structure, not a document with a title. */
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: var(--space-section) 0 var(--space-tight);
+  font-size: var(--text-strong);
+  line-height: var(--leading-ui);
+  letter-spacing: var(--tracking-tight);
+  color: var(--color-ink);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: var(--space-section);
+}
+
+.prose li {
+  margin: 0 0 var(--space-tight);
+}
+
+/* A quote is a recess rather than a rule down its left: a hairline is allowed
+ * in exactly two cases and this is neither (docs/rules/gaps-and-hairlines.md),
+ * and the ramp already has a step for text set apart from the text around it. */
+.prose blockquote {
+  padding: var(--space-room);
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-ink-3);
+}
+
+/* An inline code span is a recess in the line. Martian Mono is variable on
+ * width and --width-code is the condensed cut it ships for exactly this, so
+ * long lines stay readable (design/tokens.css). */
+.code {
+  padding: 0 var(--space-tight);
+  border-radius: var(--radius-chip);
+  background: var(--color-well);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-variation-settings: 'wdth' var(--width-code);
+}
+
+/* A fence is the recess, and the code inside it stops being one: a well in a
+ * well is still a well. It scrolls sideways inside itself, because nothing in
+ * this application scrolls sideways (web/src/styles/global.css) and a long line
+ * of code has to go somewhere. */
+.fence {
+  margin: 0 0 var(--space-room);
+  padding: var(--space-room);
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  overflow-x: auto;
+}
+
+.fence .code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--color-ink-2);
+  line-height: var(--leading-flush);
+}
+
+/* design/tokens.css gives links to --color-sky ("info, links, external"), and
+ * reserves signal for LEDs, focus rings and the active item. */
+.link {
+  color: var(--color-sky);
+  text-decoration: underline;
+  /* It is drawn and does not navigate: this window is the application. See
+   * Markdown.tsx. */
+  cursor: default;
+}
+
+.prose table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.prose th,
+.prose td {
+  padding: var(--space-tight) var(--space-control);
+  text-align: left;
+}
+
+/* A header row is told apart by its ink rather than by a fill, so a table reads
+ * the same in a user bubble and in an assistant one, which sit on different
+ * surfaces. Ink alone rather than a weight: weight is type, and the type family
+ * has no token for one (docs/rules/no-raw-values.md). */
+.prose th {
+  color: var(--color-ink);
+}
+
+.prose img {
+  max-width: 100%;
+  border-radius: var(--radius-control);
+}

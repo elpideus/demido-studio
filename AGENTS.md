@@ -179,7 +179,7 @@ Then:
 
 | Command | What |
 |---|---|
-| `pnpm dev` | The app, with the frontend dev server. What you work in. |
+| `pnpm dev` | The app, with the frontend dev server. What you work in. Set `DEMIDO_LLAMA_BIN` and `DEMIDO_MODEL_FILE` to give it a model to answer with. |
 | `pnpm dev:drive` | The same, plus `withGlobalTauri`, for the window gate. |
 | `pnpm build` | The release bundle: the NSIS installer. |
 | `pnpm build:web` | The frontend alone. |
@@ -192,8 +192,24 @@ Then:
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test a_real_model -- --ignored --test-threads=1` | The live-model suite. See below. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test llamacpp_contract -- --ignored --test-threads=1` | The `Backend` contract, against a real server. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-trace --test a_real_model -- --ignored --test-threads=1` | The session log, against a real turn: the log rebuilds what was sent. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model -- --ignored --test-threads=1` | The turn loop, against a real model: an answer streams, a second message carries the first exchange, a stop is recorded. |
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
+
+### The model the window answers with
+
+The set-up wizard ([#48](https://github.com/elpideus/demido-studio/issues/48))
+has not landed, so a running window is pointed at a model by two environment
+variables, both naming a **file**:
+
+```bash
+DEMIDO_LLAMA_BIN=.../llama-server.exe DEMIDO_MODEL_FILE=.../model.gguf pnpm dev
+```
+
+Neither set, or either naming something that is not on disk, and the desk opens
+with the composer disabled saying nothing is loaded, which is the ordinary first
+launch. They are deliberately not the live suite's `DEMIDO_MODELS`, which is a
+library root rather than a file.
 
 `check-rules.mjs` reads commit metadata as well as files. With no argument it
 checks whatever is not yet on `origin/main`; CI passes the push or pull request

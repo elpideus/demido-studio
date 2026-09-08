@@ -666,7 +666,7 @@ impl Log {
         if lines.len() == LOG_LINES {
             lines.pop_front();
         }
-        lines.push_back(line);
+        lines.push_back(plain(&line));
     }
 
     fn tail(&self) -> Vec<String> {
@@ -675,6 +675,36 @@ impl Log {
             Err(_) => Vec::new(),
         }
     }
+}
+
+/// One log line with its terminal colours taken out.
+///
+/// `llama.cpp` writes ANSI escapes even into a pipe, and this text is not going
+/// to a terminal: it is the sentence a person reads when a model will not load,
+/// on a composer that has nowhere to put a control code. Stripped here rather
+/// than at whichever screen happens to show it, because there will be more than
+/// one and the log has no business carrying them at all.
+fn plain(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut characters = line.chars();
+    while let Some(character) = characters.next() {
+        if character != '\u{1b}' {
+            out.push(character);
+            continue;
+        }
+        // A CSI sequence: ESC [ then parameters, then one letter that ends it.
+        // Anything else after an ESC is a sequence this does not know, and the
+        // ESC alone is dropped rather than guessed at.
+        if characters.next() != Some('[') {
+            continue;
+        }
+        for parameter in characters.by_ref() {
+            if parameter.is_ascii_alphabetic() {
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// A message the wire shape is built from, for tests that do not need a server.
@@ -692,11 +722,29 @@ fn probe_request() -> Request {
 
 #[cfg(test)]
 mod tests {
+
     #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
     // A test asserts by panicking; the workspace denial is about application
     // code, where a panic is a window that vanishes.
 
     use super::*;
+
+    #[test]
+    fn a_kept_log_line_carries_no_terminal_colours() {
+        // Taken from a real failed load: llama.cpp colours its stderr even when
+        // stderr is a pipe, and this line is shown on the composer.
+        let coloured = "\u{1b}[0m\u{1b}[31mE cmn  common_init_: failed to load model\u{1b}[0m";
+        assert_eq!(
+            super::plain(coloured),
+            "E cmn  common_init_: failed to load model"
+        );
+    }
+
+    #[test]
+    fn a_line_with_no_escapes_is_left_alone() {
+        let line = "srv    load_model: loading model 'gemma-4-E4B-it-Q8_0.gguf'";
+        assert_eq!(super::plain(line), line);
+    }
 
     fn config() -> Config {
         let mut config = Config::new("llama-server", "S:/models/tiny.gguf");

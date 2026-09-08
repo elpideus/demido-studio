@@ -7,6 +7,8 @@ declare const styles: {
   readonly foot: string
   readonly why: string
   readonly send: string
+  readonly stop: string
+  readonly retry: string
   readonly icon: string
 }
 export default styles
