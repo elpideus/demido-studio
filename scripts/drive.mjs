@@ -27,6 +27,16 @@
  *   node scripts/drive.mjs                # assert the handles and the channel
  *   node scripts/drive.mjs --screenshot evidence/38.png
  *   node scripts/drive.mjs --eval "document.title"
+ *   node scripts/drive.mjs --window splash --screenshot evidence/47.png
+ *
+ * There are two windows now, the desk and the splash it opens ahead of
+ * (`design/splash.md`), so a run says which one it means. `--window splash`
+ * takes the splash; anything else is matched as a substring of the page URL;
+ * the default, `desk`, is every window that is not the splash. It defaults that
+ * way because the splash is gone within a second of an ordinary launch, and a
+ * driver that silently caught it would report a different window on every run.
+ * `DEMIDO_BOOT_HOLD_MS` is what holds the splash still long enough to
+ * photograph.
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs'
@@ -47,6 +57,13 @@ const flag = (name, fallback) => {
 const PORT = Number(flag('port', 9222))
 const TIMEOUT = Number(flag('timeout', 30_000))
 const SCREENSHOT = flag('screenshot', null)
+/** Which window: `desk` is anything that is not the splash, and any other
+ * value is matched as a substring of the page URL. The desk is served from the
+ * dev server's root rather than from a path that names it, so it is identified
+ * by what it is not. */
+const WINDOW = flag('window', 'desk')
+const wanted = (target) =>
+  WINDOW === 'desk' ? !target.url.includes('splash') : target.url.includes(WINDOW)
 const EVAL = flag('eval', null)
 
 /** Poll until `check` returns something truthy, or give up with `message`.
@@ -90,15 +107,20 @@ async function findTarget() {
       // `about:blank` is the webview before it has navigated. Connecting to it
       // reports both handles missing, which is the one wrong answer this
       // script exists to never give, so it is waited out rather than read.
-      const page = targets.find(
+      const pages = targets.filter(
         (t) => t.type === 'page' && t.webSocketDebuggerUrl && t.url !== 'about:blank',
       )
+      const page = pages.find(wanted)
       if (page) return [page]
       return [
         null,
-        targets.some((t) => t.type === 'page')
-          ? 'the webview is still on about:blank'
-          : `${targets.length} target(s), none of them a page`,
+        pages.length
+          ? `${pages.length} window(s), none of them matching "${WINDOW}": ${pages
+              .map((t) => t.url)
+              .join(', ')}`
+          : targets.some((t) => t.type === 'page')
+            ? 'the webview is still on about:blank'
+            : `${targets.length} target(s), none of them a page`,
       ]
     } catch (error) {
       return [null, error.cause?.code ?? error.message]
@@ -213,7 +235,16 @@ async function drive() {
 
   if (SCREENSHOT) {
     await session.send('Page.enable')
-    const shot = await session.send('Page.captureScreenshot', { format: 'png' })
+    // The splash is a transparent frameless window with a rounded face
+    // (design/splash.md). Without this the capture composites it onto white and
+    // the evidence shows four white corners the running window does not have.
+    await session.send('Emulation.setDefaultBackgroundColorOverride', {
+      color: { r: 0, g: 0, b: 0, a: 0 },
+    })
+    const shot = await session.send('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: false,
+    })
     mkdirSync(dirname(SCREENSHOT), { recursive: true })
     writeFileSync(SCREENSHOT, Buffer.from(shot.data, 'base64'))
     console.log(`drive: screenshot written to ${SCREENSHOT}`)

@@ -12,12 +12,13 @@
 /* The faces are vendored rather than fetched: the splash must render on a
  * machine that has never been online (design/wordmark.md).
  *
- * --font-kana is not imported here. Its only use is the wordmark's two kana,
- * and every way of vendoring the face is wrong for a window that sets none:
- * the full family is 120 subset files, and the Japanese subset alone is 2.2 MB
- * for two glyphs. The splash is the thing that sets them, so the splash ticket
- * chooses. Until then the token falls through to --font-sans, which is what its
- * own stack already says it does. */
+ * --font-kana is not imported here. Its only use is the wordmark's kana, and
+ * every way of vendoring the face is wrong for a window that sets none: the
+ * full family is 120 subset files, and the Japanese subset alone is 957 KB for
+ * three glyphs. The splash is the thing that sets them, so the splash chooses,
+ * and it chose one 18 KB numbered subset declared in web/src/splash/splash.css.
+ * Here the token falls through to --font-sans, which is what its own stack
+ * already says it does. */
 @import '@fontsource-variable/instrument-sans';
 @import '@fontsource-variable/martian-mono';
 

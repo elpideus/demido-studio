@@ -32,6 +32,15 @@ export default defineConfig({
     fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
   },
   build: {
+    // Two pages, because there are two windows and the splash is not a route
+    // inside the desk: it is painted before the desk exists (design/splash.md),
+    // so it is its own document with its own entry and nothing of React in it.
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        splash: fileURLToPath(new URL('./splash.html', import.meta.url)),
+      },
+    },
     // Tauri 2 targets WebView2 and WKWebView; both support ES2022.
     target: 'es2022',
     minify: process.env.TAURI_ENV_DEBUG ? false : 'esbuild',

@@ -82,6 +82,10 @@ serde.workspace = true
 # the command that carries one takes a `Value` rather than a type per kind.
 serde_json.workspace = true
 tauri = { version = "2", features = ["devtools"] }
+# The startup sequence holds between stages and lingers on the finished scale
+# before the desk takes over (`src/boot.rs`). Tauri's async runtime is this
+# same tokio, so the timer is the one already running rather than a second one.
+tokio = { version = "1", features = ["time"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

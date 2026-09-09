@@ -233,6 +233,21 @@ pnpm dev:drive                                          # one terminal
 node scripts/drive.mjs --screenshot evidence/NN.png     # another
 ```
 
+There are two windows, so a run says which one it means: `--window splash` takes
+the splash, and the default takes the desk. The splash is gone within a second
+of an ordinary launch, so two debug-only environment variables hold it still
+long enough to photograph, and both are no-ops in a release build:
+
+```bash
+DEMIDO_BOOT_HOLD_MS=2500 pnpm dev:drive                 # a stage per 2.5s
+DEMIDO_BOOT_FAIL=settings pnpm dev:drive                # that stage's tick goes rose
+node scripts/drive.mjs --window splash --screenshot evidence/NN.png
+```
+
+`DEMIDO_BOOT_FAIL` takes stage ids from `src-tauri/src/boot.rs`, comma
+separated. It is how the screenshot of a subsystem being reported and skipped is
+taken without breaking a real one.
+
 Two switches, deliberately not one. The **debugging port** opens on any debug
 build, so the driver can always connect and say what it found. **`withGlobalTauri`**
 comes from `src-tauri/tauri.drive.conf.json`, merged only by `pnpm dev:drive`,

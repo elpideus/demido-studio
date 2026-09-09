@@ -6,6 +6,7 @@
 //! assembles the composition root, registers the commands the window may call,
 //! and opens the window.
 
+pub mod boot;
 pub mod chat;
 /// Only a debug build loads `devUrl`, so only a debug build has a dev server to
 /// want. Compiled out of a release rather than merely unused there: a shipped
@@ -20,6 +21,8 @@ pub mod wiring;
 /// the dev command merged `tauri.drive.conf.json`.
 #[cfg(debug_assertions)]
 const CDP_PORT: u16 = 9222;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use demido_shell::Shell;
 use serde::Serialize;
@@ -55,6 +58,44 @@ fn boot_report(app: tauri::AppHandle) -> BootReport {
         driven: app.config().app.with_global_tauri,
     }
 }
+
+/// Start the sequence the splash draws, at the splash's word.
+///
+/// The window asks rather than being told, because the events are the whole
+/// point: a sequence begun before the splash was listening would paint its
+/// first two stages into nothing, and a splash that misses a stage is a splash
+/// reporting a boot that did not happen. Called once; a second call is a
+/// reload of the same window and is refused rather than run twice.
+#[tauri::command]
+fn boot_begin(app: tauri::AppHandle) {
+    begin(&app);
+}
+
+/// The one place the sequence starts, whoever asks: the splash when it is
+/// listening, the watchdog when the splash never speaks.
+///
+/// The guard is what makes those two callers safe to have. A boot that ran
+/// twice would open the desk twice and close a splash that is already gone.
+fn begin(app: &tauri::AppHandle) {
+    if app.state::<Started>().0.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move { boot::run(handle).await });
+}
+
+/// Whether the sequence has been started. See [`begin`].
+#[derive(Debug, Default)]
+struct Started(AtomicBool);
+
+/// How long the splash is given to start listening before the sequence runs
+/// without it.
+///
+/// Startup never blocks (`AGENTS.md`), and that has to hold for the splash
+/// itself: a window whose webview fails to load would otherwise be an app that
+/// never opens its desk. Long enough for a cold WebView2 to boot on a slow
+/// machine, short enough that nobody sits in front of a frozen splash.
+const SPLASH_SPEAKS_WITHIN: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// The desk as it was left.
 ///
@@ -140,10 +181,26 @@ pub fn run() -> demido_core::Result<()> {
                 .app_local_data_dir()
                 .map_err(|error| demido_core::Error::unavailable("the profile directory", error))?;
             app.manage(Wiring::assemble(&profile)?);
+            app.manage(boot::Failures::default());
+            app.manage(Started::default());
+
+            // The splash is expected to ask for the sequence itself, and this
+            // is what happens when it cannot. See `SPLASH_SPEAKS_WITHIN`.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(SPLASH_SPEAKS_WITHIN).await;
+                if !handle.state::<Started>().0.load(Ordering::SeqCst) {
+                    tracing::warn!("the splash never asked for the sequence; starting it anyway");
+                    begin(&handle);
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             boot_report,
+            boot_begin,
+            boot::boot_stages,
+            boot::boot_failures,
             read_layout,
             remember_layout,
             chat::chat_transcript,

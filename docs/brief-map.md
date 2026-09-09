@@ -96,7 +96,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B38 | "Use a pastel-colors palette for a more polished feel." | [#6](https://github.com/elpideus/demido-studio/issues/6) | - | - |
 | B39 | "keep in mind to not mix-match systems for no reason" | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B40 | "Keep arbitrary values like colors localized" | [#9](https://github.com/elpideus/demido-studio/issues/9) | - | - |
-| B41 | "There should be a splash small window" | [#6](https://github.com/elpideus/demido-studio/issues/6) | - | - |
+| B41 | "There should be a splash small window" | [#6](https://github.com/elpideus/demido-studio/issues/6) | `web/src/splash/`, `src-tauri/src/boot.rs` | - |
 | B42 | "a VSCode-like Icons-only sidebar" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#8](https://github.com/elpideus/demido-studio/issues/8) | `web/src/shell/`, `src-tauri/crates/demido-shell/` | - |
 | B43 | "Some panels should be movable by using a modifier key" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B44 | "you should test the project yourself" | [#11](https://github.com/elpideus/demido-studio/issues/11) | - | n/a |
