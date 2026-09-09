@@ -30,4 +30,7 @@ tracing.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+# The live gate drives the real chain: this machine is detected, the selector
+# picks, and only then is anything fetched.
+demido-hardware.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }

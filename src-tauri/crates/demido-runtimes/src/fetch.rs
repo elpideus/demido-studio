@@ -36,6 +36,19 @@ impl Fetchable for demido_catalog::Archive {
     }
 }
 
+/// A reference is fetchable wherever the thing is, because the caller that
+/// matters holds references: `demido_catalog::Selection::archives` yields
+/// `&Archive` out of the manifest, and a row is fetched from exactly that.
+impl<T: Fetchable + ?Sized> Fetchable for &T {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+
+    fn url(&self) -> String {
+        (**self).url()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Progress {
     pub bytes: u64,

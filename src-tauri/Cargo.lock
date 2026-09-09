@@ -687,6 +687,7 @@ version = "0.1.0"
 dependencies = [
  "demido-catalog",
  "demido-core",
+ "demido-hardware",
  "demido-inference",
  "futures-util",
  "reqwest 0.12.28",

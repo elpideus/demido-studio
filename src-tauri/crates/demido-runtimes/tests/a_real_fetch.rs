@@ -22,7 +22,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use demido_catalog::{Archive, Kind, MANIFEST};
+use demido_catalog::{Archive, Kind, Selector, MANIFEST};
+use demido_hardware::Machine;
 use demido_runtimes::{Cancel, Files, Installed, Runtimes, Verification, LLAMA_CPP};
 
 /// The CPU build: 17.6 MiB, no card needed to unpack it, and the same fetch
@@ -56,6 +57,24 @@ fn a_model() -> PathBuf {
     model
 }
 
+/// A profile whose verification is the declared command, run for real.
+fn profile(dir: &PathBuf) -> Runtimes<Files> {
+    let model = a_model();
+    Runtimes::new(
+        Files::in_profile(dir),
+        dir.join("runtimes"),
+        move |installed: Installed| {
+            let model = model.clone();
+            Box::pin(async move {
+                Verification::LoadsAModelAndGeneratesOneToken
+                    .run(&installed, &model)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        },
+    )
+}
+
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
         .join("demido-runtimes-live")
@@ -70,20 +89,7 @@ fn scratch(name: &str) -> PathBuf {
 #[ignore = "downloads a real archive and needs a model; the window gate runs it"]
 async fn the_pinned_build_arrives_verifies_and_is_owned() {
     let dir = scratch("required");
-    let model = a_model();
-    let runtimes = Runtimes::new(
-        Files::in_profile(&dir),
-        dir.join("runtimes"),
-        move |installed: Installed| {
-            let model = model.clone();
-            Box::pin(async move {
-                Verification::LoadsAModelAndGeneratesOneToken
-                    .run(&installed, &model)
-                    .await
-                    .map_err(|error| error.to_string())
-            })
-        },
-    );
+    let runtimes = profile(&dir);
     let build = cpu_build();
 
     let seen = AtomicU64::new(0);
@@ -199,4 +205,87 @@ async fn a_cancelled_fetch_resumes_from_upstream_rather_than_restarting() {
         drift < 512 * 1024,
         "the resumed file is {whole} bytes against a measured {expected}"
     );
+}
+
+/// The gate the rig exists for: what this machine is actually asked to run.
+///
+/// Detection, selection and the fetch in one line each, which is the whole
+/// chain #45 and #46 split between them. It is the CUDA pair rather than the
+/// CPU build on purpose, because the two things only this can prove are that
+/// the companion lands beside the build (`llama-server` resolves
+/// `cublasLt64_13.dll` next to itself) and that verification touches the card
+/// at all. `docs/rules/runtimes.md` section 2: "a CUDA build that cannot
+/// resolve `cublasLt64_13.dll` does not load a model", and a check that never
+/// asks the card cannot tell.
+///
+/// Offload stays `Auto`, which is `LlamaCppConfig`'s default: verification
+/// asks whether the runtime runs, not whether one particular model fits, and a
+/// row called broken because a 8 GiB model did not fit a 12 GiB card would be
+/// the wrong answer to the right question.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads 515.5 MiB and needs the card; the window gate runs it"]
+async fn the_pair_this_machine_selects_arrives_and_verifies_on_the_card() {
+    let dir = scratch("cuda");
+    let runtimes = profile(&dir);
+
+    let machine = Machine::detect();
+    let selector = Selector::for_machine(&machine);
+    let selection = selector.selection().expect("this machine gets a build");
+    let archives: Vec<&Archive> = selection.archives().collect();
+    println!(
+        "detected {:?}, chose {} and {} companion(s), {:.1} MiB down and {:.1} on disk",
+        machine.preselection(),
+        selection.build.name,
+        selection.companions.len(),
+        selection.download_mib(),
+        selection.on_disk_mib()
+    );
+    assert!(
+        archives
+            .iter()
+            .any(|archive| archive.kind == Kind::CudaRuntime),
+        "this gate is the CUDA pair; the selector offered {:?}",
+        archives.iter().map(|a| a.name).collect::<Vec<_>>()
+    );
+
+    let outcome = runtimes
+        .fetch_row(
+            LLAMA_CPP,
+            selection.build.pin,
+            &archives,
+            |archive, progress| {
+                if progress.total > 0 && progress.bytes == progress.total {
+                    println!("{archive}: {} bytes", progress.bytes);
+                }
+            },
+            &Cancel::new(),
+        )
+        .await
+        .expect("the fetch itself");
+    assert_eq!(outcome, demido_runtimes::Outcome::Verified);
+
+    let row = dir.join("runtimes").join(demido_runtimes::directory_name(
+        LLAMA_CPP,
+        selection.build.pin,
+    ));
+    assert!(row.join("llama-server.exe").exists(), "the build");
+    let dlls = std::fs::read_dir(&row)
+        .expect("read the row")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("cudart64_"))
+        .count();
+    assert!(
+        dlls > 0,
+        "the companion unpacked beside the build rather than into a folder of its own"
+    );
+
+    let ledger = runtimes.read().expect("read");
+    println!("ledger: {:.1} MiB", ledger.on_disk_mib());
+    assert!(
+        (ledger.on_disk_mib() - selection.on_disk_mib()).abs() < 40.0,
+        "measured {:.1} MiB against a manifest claiming {:.1}",
+        ledger.on_disk_mib(),
+        selection.on_disk_mib()
+    );
+    assert!(runtimes.unused().expect("diffed").is_empty());
 }
