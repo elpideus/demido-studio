@@ -49,6 +49,12 @@ delete them, and there is nothing to remember to filter at a call site.
   directories: a cancelled fetch's `.part` is bytes nothing names, and 373 MiB
   of half a `cudart` that no screen mentions is the same silence with a smaller
   number.
+- **This crate contains no URL.** Every address comes through
+  `Fetchable::url`, from a pin that shipped inside the build or a path the user
+  pointed at, which is how "Demido never queries upstream for a version, on any
+  trigger" is enforced rather than promised.
+  `tests/no_upstream_lookup.rs` reads the crate's own source and fails on a
+  literal or a release feed by name.
 - **No seam for the network or for verification.** Both are real process, real
   socket and real card behaviour, and the ticket refuses a mock for them in as
   many words. `manage::VerifyFn` is a plain closure held on `Runtimes`, which
