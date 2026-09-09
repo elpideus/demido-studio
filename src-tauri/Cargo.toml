@@ -19,8 +19,10 @@ authors = ["Stefan Cucoranu <elpideus@gmail.com>"]
 repository = "https://github.com/elpideus/demido-studio"
 
 [workspace.dependencies]
+demido-catalog = { path = "crates/demido-catalog" }
 demido-chat = { path = "crates/demido-chat" }
 demido-core = { path = "crates/demido-core" }
+demido-hardware = { path = "crates/demido-hardware" }
 demido-inference = { path = "crates/demido-inference" }
 demido-prompts = { path = "crates/demido-prompts" }
 demido-settings = { path = "crates/demido-settings" }
