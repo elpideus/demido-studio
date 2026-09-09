@@ -56,6 +56,16 @@ jobs:
           RULES_RANGE: ${{ steps.range.outputs.range }}
         run: node scripts/check-rules.mjs
 
+      # The tag-time rules, run on every push as well as at a tag. Nothing here
+      # can fail on a push that would not also fail on the tag, and finding out
+      # that a pin moved without its line at the moment somebody is cutting a
+      # release is the expensive way to find out. The artifact half of it is
+      # skipped without an installer and says so; the release workflow is what
+      # runs this again with --bundle --require-bundle
+      # (docs/rules/releases.md section 6).
+      - name: Check the release rules
+        run: node scripts/check-release.mjs
+
   # The Rust workspace and the frontend, on the platform Demido ships on first
   # (Brief B03: "windows-only at first, during the pre-release versions"). The
   # gates here are the ones the pre-commit hook runs, so a session that

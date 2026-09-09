@@ -113,9 +113,13 @@ A machine can hold several profiles, each with its own runtimes folder, vault,
 chats and session log ([`profiles.md`](profiles.md)).
 
 - The installer replaces **application binaries only**.
-- `deleteAppDataOnUninstall` is set to `false` **explicitly**, though that is
-  already the default, because it is the load-bearing one and a default is not a
-  decision.
+- `deleteAppDataOnUninstall` is **`false`**, which is Tauri's own behaviour and
+  not a field anybody can write down: Tauri 2's NSIS bundler rejects the key
+  outright ("unknown field"), so the explicit setting this rule asked for fails
+  the build. `check-release.mjs` enforces the half that can still go wrong: the
+  key is never set to anything else under a name the bundler does accept, and
+  `installerHooks` is empty, since a hook is the one place an uninstall could
+  reach a profile's data.
 - **Uninstall leaves every profile's data where it is and says so on the way
   out.** The alternative is a checkbox that deletes a vault.
 
@@ -142,6 +146,14 @@ checker and `AGENTS.md` reaches **zero review-enforced hard rules**.
 
 A fourth check is free and prevents a whole class of confusion: **the tag matches
 the version in `tauri.conf.json` and `Cargo.toml`**.
+
+**The script runs twice, and only the second run has an installer.** Before the
+build it fails the tag on the version, the pin, rot and the bundle configuration,
+which is where a broken release is cheapest to catch; after the build it is run
+again with `--bundle <installer>`, because check 3 above inspects an artifact
+that does not exist until then. A run with no installer says which check it could
+not make rather than passing quietly, and `--require-bundle` makes that absence a
+failure for the second run.
 
 ## 7. Two keys, and only one of them costs money
 

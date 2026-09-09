@@ -187,6 +187,7 @@ Then:
 | `pnpm typecheck` | `tsc --noEmit` over the frontend. |
 | `pnpm format` / `pnpm format:check` | Prettier over the repo. |
 | `pnpm check:rules` | The hard rules above. |
+| `pnpm check:release` | The rules that only fire at a tag. Run again with `--bundle <installer>` after `pnpm build` to inspect the artifact. |
 | `pnpm drive` / `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
 | `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests that need no card. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test a_real_model -- --ignored --test-threads=1` | The live-model suite. See below. |

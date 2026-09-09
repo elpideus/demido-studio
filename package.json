@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:rules": "node scripts/check-rules.mjs",
+    "check:release": "node scripts/check-release.mjs",
     "drive": "node scripts/drive.mjs"
   },
   "devDependencies": {
