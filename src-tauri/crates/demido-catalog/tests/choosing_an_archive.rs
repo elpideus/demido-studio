@@ -10,7 +10,9 @@
 // A test asserts by panicking. The workspace denies these in application code,
 // where a panic is a window that vanishes; here a panic is the report.
 
-use demido_catalog::{Arch, Archive, Availability, Kind, License, Os, Selector, Target, MANIFEST};
+use demido_catalog::{
+    Arch, Archive, Availability, Group, Kind, License, Os, Selector, Target, MANIFEST,
+};
 use demido_hardware::{
     CudaDriver, CudaVersion, Ecosystem, Gpu, Machine, Preselection, Reason, Vendor,
 };
@@ -26,6 +28,7 @@ fn published() -> Vec<Archive> {
     let mut archives: Vec<Archive> = MANIFEST.to_vec();
     archives.push(Archive {
         name: "llama-b10816-bin-win-cuda-12.4-x64.zip",
+        group: Group::Required,
         pin: "b10816",
         kind: Kind::Build,
         ecosystem: Ecosystem::Cuda,
@@ -38,6 +41,7 @@ fn published() -> Vec<Archive> {
     });
     archives.push(Archive {
         name: "cudart-llama-bin-win-cuda-12.4-x64.zip",
+        group: Group::Required,
         pin: "b10816",
         kind: Kind::CudaRuntime,
         ecosystem: Ecosystem::Cuda,

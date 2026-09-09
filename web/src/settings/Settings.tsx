@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
+import { AcceleratorControl, ModelFolderControl } from '@/setup/Controls'
 import { useDesk } from '@/shell/desk'
 import { Field } from './Control'
 import { useSettings, type Row, type Tier } from './ladder'
@@ -22,6 +23,12 @@ import styles from './Settings.module.css'
  *
  * Neither surface knows how a control is drawn. Both hand a row to [`Field`],
  * which is the component the set-up wizard renders too.
+ *
+ * The Set-up section is the other half of that rule and the reason
+ * `docs/rules/setup.md` section 2 gives for it: the accelerator row here and
+ * the accelerator row in the wizard are the same component, so they cannot
+ * come to disagree, and nothing the wizard built is thrown away when set-up is
+ * over.
  */
 
 /**
@@ -35,6 +42,7 @@ import styles from './Settings.module.css'
  */
 export function Settings() {
   const close = useDesk((desk) => desk.close)
+  const [section, setSection] = useState<Section>('conversation')
 
   // On the document rather than on the section, because the window is opened
   // from the rail and focus is still on the rail's button when it appears. A
@@ -68,16 +76,53 @@ export function Settings() {
            * the second section is what a page becomes, and a nav that appeared
            * when the second one landed would move every row on screen. */}
           <nav className={styles.nav} aria-label="Sections">
-            <span className={styles.section} aria-current="page">
-              Conversation
-            </span>
+            {SECTIONS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className={styles.section}
+                aria-current={name === section ? 'page' : undefined}
+                onClick={() => setSection(name)}
+              >
+                {name === 'conversation' ? 'Conversation' : 'Set-up'}
+              </button>
+            ))}
           </nav>
           <div className={styles.page}>
-            <Page tier="global" />
+            {section === 'conversation' ? <Page tier="global" /> : <SetupPage />}
           </div>
         </div>
       </section>
     </>
+  )
+}
+
+/** The sections the main window has. Two, and the second is where set-up is
+ * changed after the wizard is gone. */
+const SECTIONS = ['conversation', 'setup'] as const
+
+type Section = (typeof SECTIONS)[number]
+
+/**
+ * The set-up section: the same controls the wizard drew.
+ *
+ * No second implementation of either of them, which is the whole point. What
+ * differs is the heading over each, because a settings page is read by
+ * somebody who already has an install and a wizard is read by somebody who
+ * does not.
+ */
+function SetupPage() {
+  return (
+    <div className={styles.rows}>
+      <section className={styles.group}>
+        <h2 className={styles.groupName}>Accelerator</h2>
+        <AcceleratorControl />
+      </section>
+      <section className={styles.group}>
+        <h2 className={styles.groupName}>Model folders</h2>
+        <ModelFolderControl />
+      </section>
+    </div>
   )
 }
 

@@ -89,15 +89,43 @@
   background: var(--color-chrome);
 }
 
-/* Selected is `edge`, which means state and not elevation. There is one
- * section, so it is always the selected one. */
+/* Selected is `edge`, which means state and not elevation. */
 .section {
   padding: var(--space-control) var(--space-room);
+  border: none;
   border-radius: var(--radius-control);
-  background: var(--color-edge);
-  color: var(--color-ink-2);
+  background: none;
+  color: var(--color-ink-3);
+  font-family: inherit;
   font-size: var(--text-body);
   line-height: var(--leading-flush);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.section:hover {
+  background: var(--color-hover);
+}
+
+.section[aria-current='page'] {
+  background: var(--color-edge);
+  color: var(--color-ink-2);
+}
+
+/* One titled group of a page. The gap is the border. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+}
+
+.groupName {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-strong);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
 }
 
 .page {

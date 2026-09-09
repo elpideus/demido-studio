@@ -15,6 +15,7 @@ pub mod chat;
 #[cfg(debug_assertions)]
 mod dev_server;
 pub mod settings;
+pub mod setup;
 pub mod wiring;
 
 /// The port `scripts/drive.mjs` connects to. Debug builds only, and only when
@@ -210,7 +211,18 @@ pub fn run() -> demido_core::Result<()> {
             chat::chat_stop,
             settings::settings_rows,
             settings::settings_set,
-            settings::settings_clear
+            settings::settings_clear,
+            setup::setup_state,
+            setup::setup_choose_accelerator,
+            setup::setup_tick,
+            setup::setup_add_folder,
+            setup::setup_remove_folder,
+            setup::setup_choose_model,
+            setup::setup_leave,
+            setup::setup_resume,
+            setup::setup_fetch,
+            setup::setup_link,
+            setup::setup_finish
         ])
         .build(context)
         .map_err(|error| demido_core::Error::unavailable("the application window", error))?

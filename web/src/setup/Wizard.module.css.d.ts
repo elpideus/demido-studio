@@ -6,17 +6,20 @@ declare const styles: {
   readonly window: string
   readonly bar: string
   readonly name: string
-  readonly close: string
-  readonly body: string
-  readonly nav: string
-  readonly section: string
-  readonly group: string
-  readonly groupName: string
+  readonly leave: string
+  readonly steps: string
+  readonly step: string
+  readonly dot: string
   readonly page: string
-  readonly popover: string
   readonly head: string
+  readonly heading: string
   readonly why: string
-  readonly rows: string
+  readonly foot: string
+  readonly spacer: string
+  readonly action: string
+  readonly quiet: string
+  readonly outstanding: string
+  readonly rest: string
   readonly icon: string
 }
 export default styles

@@ -200,17 +200,23 @@ Then:
 ### The model the window answers with
 
 The set-up wizard ([#48](https://github.com/elpideus/demido-studio/issues/48))
-has not landed, so a running window is pointed at a model by two environment
-variables, both naming a **file**:
+is what points a window at a model: the accelerator row, the manifest it
+fetches, the model folder read out of what is already on the machine, and the
+model that answers. It writes `setup.json` in the profile, and the desk reads
+it at startup, so an ordinary launch needs no environment at all.
+
+The two variables are still here, and they are now the **fallback**: they are
+how a developer points a running window at a rig without setting one up, and
+what set-up settled wins over them.
 
 ```bash
 DEMIDO_LLAMA_BIN=.../llama-server.exe DEMIDO_MODEL_FILE=.../model.gguf pnpm dev
 ```
 
-Neither set, or either naming something that is not on disk, and the desk opens
-with the composer disabled saying nothing is loaded, which is the ordinary first
-launch. They are deliberately not the live suite's `DEMIDO_MODELS`, which is a
-library root rather than a file.
+With neither set-up nor either variable, or either naming something that is not
+on disk, the desk opens with the composer disabled saying set-up is not
+finished, and the wizard is over it. They are deliberately not the live suite's
+`DEMIDO_MODELS`, which is a library root rather than a file.
 
 `check-rules.mjs` reads commit metadata as well as files. With no argument it
 checks whatever is not yet on `origin/main`; CI passes the push or pull request

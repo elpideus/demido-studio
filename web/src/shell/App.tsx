@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { Transcript } from '@/chat/Transcript'
 import { useChat } from '@/chat/chat'
 import { Settings } from '@/settings/Settings'
+import { SetupRow, Wizard, useSetupOnce } from '@/setup/Wizard'
 import { Composer } from './Composer'
 import { Toasts } from './Toast'
 import { Rail } from './Rail'
@@ -36,6 +37,13 @@ import styles from './App.module.css'
  * it is drawn inside the desk rather than over the rail so that the rail stays
  * reachable while it is open.
  *
+ * The set-up wizard is drawn over all of it, and it is the first thing on
+ * screen on a profile that has not finished set-up
+ * (`docs/rules/setup.md` section 1). It is read beside the layout and the
+ * conversation rather than before them, because a person who has already set
+ * up must not wait on a folder scan to see their desk, and one who has not
+ * gets the wizard a frame later on a desk that is already drawn.
+ *
  * The conversation is opened beside the layout rather than after it, and the
  * desk does not wait for it. A layout decides what the first frame looks like;
  * a transcript decides what is on it, and the model behind that transcript
@@ -48,6 +56,7 @@ export function App() {
   const hydrate = useDesk((desk) => desk.hydrate)
   const panel = useDesk((desk) => desk.panel)
   const open = useChat((chat) => chat.open)
+  useSetupOnce()
 
   useEffect(() => {
     void hydrate()
@@ -63,10 +72,15 @@ export function App() {
         <Transcript />
         <div className={styles.bay}>
           <div className={styles.column}>
+            {/* Above the composer rather than in a corner: what it offers is
+             * the rest of the set-up, and the composer beside it is the thing
+             * that cannot answer until that is done. */}
+            <SetupRow />
             <Composer />
           </div>
         </div>
         {panel === 'settings' && <Settings />}
+        <Wizard />
         {/* Over everything on the desk, including the settings window, because
          * what it reports is usually a value that window just refused. */}
         <Toasts />

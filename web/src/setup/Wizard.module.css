@@ -1,0 +1,240 @@
+/*
+ * The set-up wizard, over the desk, and the row that offers the rest of it
+ * afterwards. Roles are docs/rules/surfaces.md, shapes are design/system.md,
+ * and every number is a token from design/tokens.css.
+ */
+
+/* Behind something floating over the rack. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-scrim);
+}
+
+/* Front and centre, which is what docs/rules/setup.md section 1 asks for in as
+ * many words: not a row in a corner, not minimised by default. A panel frame
+ * with the one shadow in the system. */
+.window {
+  position: absolute;
+  top: var(--space-bay);
+  bottom: var(--space-bay);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(var(--measure-prose), calc(100% - 2 * var(--space-bay)));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+  box-shadow: var(--shadow-float);
+}
+
+/* A bar rather than a surface. */
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  padding: var(--space-control) var(--space-room);
+  background: var(--color-chrome);
+}
+
+.name {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-strong);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* The way out, on every step. */
+.leave {
+  flex: none;
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.leave:hover {
+  background: var(--color-hover);
+}
+
+/* The steps, across the top. A bar, like the settings nav is a bar. */
+.steps {
+  flex: none;
+  display: flex;
+  gap: var(--space-tight);
+  padding: var(--space-tight) var(--space-room);
+  background: var(--color-chrome);
+}
+
+.step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.step:hover {
+  background: var(--color-hover);
+}
+
+/* Selected is `edge`: state, not elevation. */
+.step[aria-current='step'] {
+  background: var(--color-edge);
+  color: var(--color-ink);
+}
+
+.step[data-standing='done'] {
+  color: var(--color-ink-2);
+}
+
+.step[data-standing='later'] {
+  color: var(--color-ink-4);
+}
+
+/* A step nobody has settled carries a mark that is not a tick. Small, and it
+ * is the only decorative shape in this file. */
+.dot {
+  flex: none;
+  width: var(--space-control);
+  height: var(--space-control);
+  border-radius: var(--radius-pill);
+  background: currentcolor;
+  opacity: 0.4;
+}
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+  padding: var(--space-page);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+.heading {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-strong);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+.why {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-room);
+  background: var(--color-chrome);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-edge);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.action:hover {
+  background: var(--color-edge-strong);
+}
+
+.action:disabled {
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  cursor: default;
+}
+
+.quiet {
+  flex: none;
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.quiet:hover {
+  background: var(--color-hover);
+}
+
+/* The persistent row on the desk. An island raised on the rack, above the
+ * composer, and the gap around it is its border. */
+.outstanding {
+  display: flex;
+  align-items: center;
+  gap: var(--space-room);
+  margin-bottom: var(--space-gutter);
+  padding: var(--space-control) var(--space-room);
+  border-radius: var(--radius-island);
+  background: var(--color-panel);
+  color: var(--color-ink-2);
+}
+
+.rest {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

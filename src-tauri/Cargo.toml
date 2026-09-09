@@ -27,6 +27,7 @@ demido-inference = { path = "crates/demido-inference" }
 demido-prompts = { path = "crates/demido-prompts" }
 demido-runtimes = { path = "crates/demido-runtimes" }
 demido-settings = { path = "crates/demido-settings" }
+demido-setup = { path = "crates/demido-setup" }
 demido-shell = { path = "crates/demido-shell" }
 demido-trace = { path = "crates/demido-trace" }
 serde = { version = "1", features = ["derive"] }
@@ -71,10 +72,14 @@ workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+demido-catalog.workspace = true
 demido-chat.workspace = true
 demido-core.workspace = true
+demido-hardware.workspace = true
 demido-inference.workspace = true
+demido-runtimes.workspace = true
 demido-settings.workspace = true
+demido-setup.workspace = true
 demido-shell.workspace = true
 demido-trace.workspace = true
 serde.workspace = true

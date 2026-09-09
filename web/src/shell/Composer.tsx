@@ -3,6 +3,7 @@ import { Send, SlidersHorizontal, Square } from 'lucide-react'
 
 import { useChat, type Presence } from '@/chat/chat'
 import { ChatSettings } from '@/settings/Settings'
+import { useSetup } from '@/setup/setup'
 import styles from './Composer.module.css'
 
 /**
@@ -25,10 +26,13 @@ import styles from './Composer.module.css'
  * nothing else. You always know what you are editing because it is the thing
  * you are standing in.
  *
- * The two ways out of the empty state that `design/shell.md` promises, Browse
- * models and Start on Nexus, are still not here. They land with the set-up
- * wizard and the model browser that can honour them; a button that goes nowhere
- * is a worse empty state than one button fewer.
+ * The empty state now has one way out and it is the true one: on a profile
+ * where set-up is outstanding the composer says so and offers to take it up,
+ * rather than saying "pick a model" on a machine with no backend to load one
+ * with. Nexus is the other way out `design/shell.md` promises and is not in
+ * S1, so the desk behind the door has no Nexus rung
+ * ([#48](https://github.com/elpideus/demido-studio/issues/48)); a button that
+ * goes nowhere is a worse empty state than one button fewer.
  */
 export function Composer() {
   const presence = useChat((chat) => chat.presence)
@@ -36,6 +40,8 @@ export function Composer() {
   const send = useChat((chat) => chat.send)
   const stop = useChat((chat) => chat.stop)
   const load = useChat((chat) => chat.load)
+  const outstanding = useSetup((setup) => setup.view !== null && !setup.view.complete)
+  const resume = useSetup((setup) => setup.resume)
   const [message, setMessage] = useState('')
   const [settings, setSettings] = useState(false)
   const bay = useRef<HTMLDivElement>(null)
@@ -86,7 +92,19 @@ export function Composer() {
         }}
       />
       <div className={styles.foot}>
-        <p className={styles.why}>{why(presence)}</p>
+        <p className={styles.why}>
+          {outstanding && presence.state === 'absent'
+            ? 'Set-up is not finished, so there is nothing loaded to answer with.'
+            : why(presence)}
+        </p>
+        {/* The way back into the wizard, from the place a person notices they
+         * cannot send anything. It is the same gesture the desk's set-up row
+         * makes, and it reaches the same plan. */}
+        {outstanding && presence.state === 'absent' && (
+          <button type="button" className={styles.retry} onClick={() => void resume()}>
+            Finish set-up
+          </button>
+        )}
         {/* The way back from a crashed or failed start. Without it the composer
          * that reports the failure is also the composer that can never be used
          * again, and a subsystem that is reported and skipped has to be one the

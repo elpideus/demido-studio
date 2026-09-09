@@ -21,8 +21,11 @@ use std::sync::Arc;
 
 use demido_chat::{Chat, Model};
 use demido_inference::{LlamaCpp, LlamaCppConfig, Supervisor};
+use demido_runtimes::Runtimes;
 use demido_settings::Settings;
 use demido_shell::{Debounced, Files};
+
+use crate::setup::Setup;
 
 /// Every subsystem, wired once.
 ///
@@ -46,6 +49,13 @@ pub struct Wiring {
     /// edits has to be the ladder a turn resolves, or a value changed on screen
     /// is a value the next turn does not carry.
     pub settings: Arc<Settings>,
+    /// The guided set-up: what was answered, what is outstanding, and what
+    /// the answers name as the thing to talk to.
+    ///
+    /// Shared rather than held beside the chat, because the wizard's last step
+    /// points the conversation at a model and the settings page edits the same
+    /// answers ([#48](https://github.com/elpideus/demido-studio/issues/48)).
+    pub setup: Arc<Setup>,
     /// The conversation the chat tier belongs to.
     ///
     /// The window names a tier and Rust names the subject, because there is one
@@ -61,6 +71,20 @@ pub struct Wiring {
 /// OpenAI-compatible endpoint, and adopting it is editing this line and
 /// recompiling.
 pub type Inference = Supervisor<LlamaCpp>;
+
+/// The set-up answers store this build writes.
+///
+/// **This alias is the wiring line.** The tile is `Files`; the second
+/// implementation of that trait is what a profile that keeps no answers would
+/// be, and swapping to it is editing this line and recompiling. The contract
+/// suite it would have to pass is `demido_setup::contract`.
+pub type AnswersStore = demido_setup::Files;
+
+/// The runtimes ledger store this build writes.
+///
+/// **This alias is the wiring line.** As above: one name, one implementation,
+/// one place.
+pub type RuntimesStore = demido_runtimes::Files;
 
 /// The settings store this build keeps the ladder in.
 ///
@@ -141,6 +165,15 @@ pub struct Rig {
     pub model: PathBuf,
 }
 
+impl From<demido_setup::Target> for Rig {
+    fn from(target: demido_setup::Target) -> Self {
+        Self {
+            binary: target.binary,
+            model: target.model,
+        }
+    }
+}
+
 impl Rig {
     /// The rig this machine is pointed at, or nothing.
     pub fn from_environment() -> Option<Self> {
@@ -163,7 +196,7 @@ impl Rig {
     /// file on disk cannot come apart. `--parallel 1`, because the context
     /// length a caller asks for is divided by the slot count and this build
     /// asks for one window (`docs/rules/done.md`).
-    fn model(self) -> Model<LlamaCpp> {
+    pub fn model(self) -> Model<LlamaCpp> {
         // The whole file name where there is no stem, rather than a name this
         // file invented: an id nobody can trace back to a file on disk is worse
         // than an ugly one.
@@ -197,6 +230,20 @@ impl Wiring {
     pub fn assemble(profile: &Path) -> demido_core::Result<Self> {
         let sessions = profile.join("sessions").join(format!("{SESSION}.jsonl"));
         let inference = Arc::new(Inference::new());
+
+        // The answers first, because the runtimes verification reads them: the
+        // declared check is "load a model already on disk", and which models
+        // are on disk is the models step's answer
+        // (`docs/rules/runtimes.md`, `docs/rules/setup.md` section 4).
+        let answers = Arc::new(AnswersStore::in_profile(profile));
+        let ledger = RuntimesStore::in_profile(profile);
+        let runtimes_dir = ledger.runtimes_dir();
+        let runtimes = Arc::new(Runtimes::new(
+            ledger,
+            runtimes_dir.clone(),
+            crate::setup::verification(answers.clone()),
+        ));
+        let setup = Arc::new(Setup::new(answers, runtimes, runtimes_dir));
         // Read here rather than lazily: the ladder is asked for on the first
         // load and on every turn, and a document that cannot be read is
         // reported and the defaults are used, which is a subsystem reported and
@@ -212,10 +259,21 @@ impl Wiring {
                 SESSION,
                 move || Trace::open(&sessions),
                 inference.clone(),
-                Rig::from_environment().map(Rig::model),
+                // What set-up settled, and the environment only when it has
+                // settled nothing. The wizard is the answer to this question
+                // now; the two variables stay because they are how a
+                // developer points a running window at a rig without setting
+                // up a profile, and they are documented as that in
+                // `AGENTS.md`.
+                setup
+                    .target()
+                    .map(Rig::from)
+                    .or_else(Rig::from_environment)
+                    .map(Rig::model),
                 settings.clone(),
             ),
             settings,
+            setup,
             session: SESSION,
             inference,
         })
@@ -273,6 +331,44 @@ mod tests {
         }
         let reopened = Wiring::assemble(&dir).expect("assembled again");
         assert_eq!(reopened.desk.read(), Some(arranged));
+    }
+
+    /// Two profiles, two set-ups, two runtimes folders.
+    ///
+    /// `docs/rules/profiles.md` scopes both to the profile and
+    /// `docs/rules/setup.md` section 7 accepts the duplication on purpose:
+    /// "A shared writable runtime directory is a path where one user replaces
+    /// a binary another user executes." A second Windows user is a second
+    /// `app_local_data_dir`, so this is that rule at the only level a test can
+    /// reach it: what one profile answered is not what the other reads.
+    #[test]
+    fn a_second_profile_gets_its_own_set_up() {
+        use demido_setup::Store as _;
+
+        let mine = profile("mine");
+        let theirs = profile("theirs");
+        let answers = demido_setup::Answers {
+            model: Some(PathBuf::from("D:/models/gemma-4-E4B-it-Q8_0.gguf")),
+            closed: true,
+            ..demido_setup::Answers::default()
+        };
+        AnswersStore::in_profile(&mine)
+            .write(&answers)
+            .expect("wrote one profile's answers");
+
+        let ours = Wiring::assemble(&mine).expect("assembled");
+        let others = Wiring::assemble(&theirs).expect("assembled");
+
+        assert_eq!(ours.setup.answers().expect("read"), answers);
+        assert_eq!(
+            others.setup.answers().expect("read"),
+            demido_setup::Answers::default(),
+            "a second Windows user starts at the wizard, not at somebody else's model"
+        );
+        assert!(
+            !theirs.exists(),
+            "and reading it created nothing on their disk"
+        );
     }
 
     /// Assembling starts nothing. Startup never blocks (`AGENTS.md`), and a

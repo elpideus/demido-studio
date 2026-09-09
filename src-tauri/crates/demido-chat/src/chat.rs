@@ -75,10 +75,23 @@ impl From<Error> for demido_core::Error {
 /// what [`Supervisor`] compares to decide whether the running backend is the
 /// one being asked for. The id is what `Request::model` has to carry, which the
 /// backend itself declares and refuses any other name for.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Model<B: Backend> {
     pub config: B::Config,
     pub id: String,
+}
+
+/// Written out rather than derived, because a derive would ask for `B: Clone`
+/// and `B` is the backend itself rather than anything anybody clones. What has
+/// to be cloneable is the configuration, which is the thing the supervisor
+/// compares.
+impl<B: Backend> Clone for Model<B> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            id: self.id.clone(),
+        }
+    }
 }
 
 /// One thing said, as the transcript draws it.
@@ -157,7 +170,15 @@ pub struct Chat<B: Backend, J: Journal> {
     /// set of weights beside the first, on a card the whole design is sized
     /// against (`docs/rules/done.md`).
     supervisor: Arc<Supervisor<B>>,
-    model: Option<Model<B>>,
+    /// What answers, or nothing.
+    ///
+    /// Behind a lock rather than owned outright, because the set-up wizard is
+    /// what settles it and the wizard runs while this chat already exists
+    /// ([#48](https://github.com/elpideus/demido-studio/issues/48)). A model
+    /// fixed at construction would mean the wizard's last step and the
+    /// composer disagreeing about what answers until the app was restarted,
+    /// which is the one thing `demido-setup`'s `target` exists to prevent.
+    model: Mutex<Option<Model<B>>>,
     /// The ladder, shared with every other conversation and with the settings
     /// page. Held rather than resolved once, because a value changed while the
     /// window is open takes effect on the next turn and not on the next launch.
@@ -197,9 +218,9 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         Self {
             id,
             open: Box::new(open),
+            model: Mutex::new(model),
             session: Mutex::new(None),
             supervisor,
-            model,
             settings,
             ladder,
             presence: Mutex::new(Presence::Absent),
@@ -226,6 +247,29 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             .clone()
     }
 
+    /// What answers right now.
+    ///
+    /// Cloned out of the lock rather than borrowed, because loading takes
+    /// minutes and a guard held across it would be a settings page that
+    /// blocked on a model reading several gigabytes off disk.
+    fn model(&self) -> Option<Model<B>> {
+        self.model
+            .lock()
+            .unwrap_or_else(|held| held.into_inner())
+            .clone()
+    }
+
+    /// Point this conversation at a model, or at nothing.
+    ///
+    /// What the set-up wizard's last step calls. It does not load: loading is
+    /// [`Chat::load`], which the caller runs next and the composer already
+    /// draws every state of. Separating them is what lets a model be settled
+    /// while the previous one is still resident, with the supervisor deciding
+    /// what that means for the card.
+    pub fn point_at(&self, model: Option<Model<B>>) {
+        *self.model.lock().unwrap_or_else(|held| held.into_inner()) = model;
+    }
+
     /// Start the model, reporting every state it passes through.
     ///
     /// `report` is called on each transition rather than only at the end,
@@ -237,7 +281,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// desk carries on around, per `AGENTS.md`: startup never blocks, and a
     /// subsystem that fails is reported and skipped.
     pub async fn load(&self, mut report: impl FnMut(&Presence)) -> Presence {
-        let Some(model) = self.model.as_ref() else {
+        let Some(model) = self.model() else {
             return self.report(Presence::Absent, &mut report);
         };
 

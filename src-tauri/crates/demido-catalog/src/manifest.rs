@@ -36,6 +36,23 @@ pub enum Kind {
     CudaRuntime,
 }
 
+/// Which of section 4's two groups an archive belongs to.
+///
+/// **The group is a field, not a screen.** `docs/rules/setup.md` section 4
+/// offers both groups with their sizes, and the wizard's manifest step draws
+/// whatever is here: adding uv, Python, SearXNG, Node, `agent-browser` or
+/// Chrome is adding rows with `Group::Capability` on them, never a second step
+/// and never a second code path
+/// ([#48](https://github.com/elpideus/demido-studio/issues/48)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Group {
+    /// Without it nothing answers.
+    Required,
+    /// A feature of the brief that silently does not exist without it.
+    Capability,
+}
+
 /// Whose terms an archive arrives under.
 ///
 /// Two, because the required group is two owners: 373 of the required 516 MiB
@@ -128,6 +145,8 @@ impl std::fmt::Display for Arch {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Archive {
     pub name: &'static str,
+    /// Which of section 4's two groups this is in.
+    pub group: Group,
     /// The release this file belongs to. Part of its URL, so it is what makes
     /// the URL permanent.
     pub pin: &'static str,
@@ -166,6 +185,7 @@ impl Archive {
 pub const MANIFEST: &[Archive] = &[
     Archive {
         name: "llama-b10816-bin-win-cuda-13.3-x64.zip",
+        group: Group::Required,
         pin: RELEASE,
         kind: Kind::Build,
         ecosystem: Ecosystem::Cuda,
@@ -178,6 +198,7 @@ pub const MANIFEST: &[Archive] = &[
     },
     Archive {
         name: "cudart-llama-bin-win-cuda-13.3-x64.zip",
+        group: Group::Required,
         pin: RELEASE,
         kind: Kind::CudaRuntime,
         ecosystem: Ecosystem::Cuda,
@@ -190,6 +211,7 @@ pub const MANIFEST: &[Archive] = &[
     },
     Archive {
         name: "llama-b10816-bin-win-cpu-x64.zip",
+        group: Group::Required,
         pin: RELEASE,
         kind: Kind::Build,
         ecosystem: Ecosystem::Cpu,

@@ -712,6 +712,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "demido-setup"
+version = "0.1.0"
+dependencies = [
+ "demido-core",
+ "demido-hardware",
+ "demido-runtimes",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "demido-shell"
 version = "0.1.0"
 dependencies = [
@@ -726,10 +739,14 @@ dependencies = [
 name = "demido-studio"
 version = "0.1.0"
 dependencies = [
+ "demido-catalog",
  "demido-chat",
  "demido-core",
+ "demido-hardware",
  "demido-inference",
+ "demido-runtimes",
  "demido-settings",
+ "demido-setup",
  "demido-shell",
  "demido-trace",
  "serde",

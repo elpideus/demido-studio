@@ -7,8 +7,11 @@
 //! the wrong CUDA archive, so anything that passes without touching the GPU is
 //! a check that the download finished, which the byte count already gives us.
 //!
-//! For the required group the table's own words are "loads the smallest model
-//! already on disk and generates one token", and that is what
+//! For the required group the table's own words are "loads a model already on
+//! disk and generates one token: the one set-up settled on, and the smallest
+//! on disk until it has". Which model that is belongs to the caller, which is
+//! why `run` takes one: this crate runs the command and
+//! `src-tauri/src/setup.rs` decides what it is pointed at. That is what
 //! `demido_inference::Backend` already does. Building on it rather than
 //! reimplementing it is the point: a second, less tested `llama.cpp` client
 //! written here to keep a crate boundary tidy would be verifying something

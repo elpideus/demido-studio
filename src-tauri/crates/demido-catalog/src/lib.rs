@@ -26,6 +26,6 @@ mod manifest;
 mod select;
 mod selector;
 
-pub use manifest::{Arch, Archive, Kind, License, Os, MANIFEST, RELEASE};
+pub use manifest::{Arch, Archive, Group, Kind, License, Os, MANIFEST, RELEASE};
 pub use select::{select, NoBuild, Selection, Target};
 pub use selector::{Availability, Row, Selector, ACCELERATORS};

@@ -17,10 +17,11 @@
 
 use std::path::PathBuf;
 
-use demido_catalog::{Kind, MANIFEST};
+use demido_catalog::{Group, Kind, MANIFEST};
 
 /// One row of section 4's table, as written.
 struct Measured {
+    group: String,
     what: String,
     pin: String,
     download_mib: f64,
@@ -72,6 +73,7 @@ fn measured() -> Vec<Measured> {
             continue;
         };
         rows.push(Measured {
+            group: cells[0].clone(),
             what: cells[1].clone(),
             pin: cells[2].clone(),
             download_mib,
@@ -109,6 +111,14 @@ fn every_pin_size_and_license_in_the_manifest_is_the_measured_one() {
             row.pin.as_str()
         };
         assert_eq!(archive.pin, pin, "{}: pin", archive.name);
+        // The group is data on the row rather than a screen the wizard has
+        // one of per group, so section 4's first cell is asserted like every
+        // other cell of it.
+        let group = match archive.group {
+            Group::Required => "Required",
+            Group::Capability => "Capability",
+        };
+        assert_eq!(group, row.group, "{}: group", archive.name);
         assert_eq!(
             archive.download_mib, row.download_mib,
             "{}: download size",
