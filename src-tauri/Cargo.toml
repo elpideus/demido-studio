@@ -25,6 +25,7 @@ demido-core = { path = "crates/demido-core" }
 demido-hardware = { path = "crates/demido-hardware" }
 demido-inference = { path = "crates/demido-inference" }
 demido-prompts = { path = "crates/demido-prompts" }
+demido-runtimes = { path = "crates/demido-runtimes" }
 demido-settings = { path = "crates/demido-settings" }
 demido-shell = { path = "crates/demido-shell" }
 demido-trace = { path = "crates/demido-trace" }
@@ -33,6 +34,7 @@ serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
 tracing = "0.1"
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 # Clippy runs as a gate, so what it refuses is written down here rather than
 # passed on a command line that half the callers will forget.
