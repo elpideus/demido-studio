@@ -83,8 +83,11 @@ The closing comment carries six fields and nothing else:
 2. **Model, quant and `llama.cpp` SHA**: the exact three, because a red that
    turns out to be an upstream fix you did not have is a day spent on nothing.
 3. **Scenario name**: the function in the live suite that proves it.
-4. **Screenshot**: dragged into the comment, so GitHub hosts it and the clone
-   stays small.
+4. **Screenshot**: pushed to the `evidence` branch and linked by raw URL, so
+   GitHub hosts it and the clone stays small. `AGENTS.md` has the four
+   commands. Dragging it into the comment by hand does the same thing and is
+   the slower path; the branch is what lets a session close a ticket without a
+   human at the keyboard.
 5. **Trace fixture path**: see below.
 6. **`Bar:`**, either `chose` or `used`, matching the ticket's own line.
 

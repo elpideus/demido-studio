@@ -264,6 +264,28 @@ which is the point. A release build has neither and is not drivable.
 
 The screenshot goes on the issue, not in the clone. `/evidence` is ignored.
 
+**How it reaches the issue: the `evidence` branch.** Not by hand, and not by
+dragging. `evidence` is an orphan branch of PNGs that exists only to give the
+images a URL an issue can render, so `main` never carries them and a clone
+never pays for them. Add the file there and reference it by raw URL:
+
+```bash
+git worktree add ../evidence-wt evidence
+cp evidence/NN-what-it-shows.png ../evidence-wt/
+git -C ../evidence-wt add . && git -C ../evidence-wt commit -m "Evidence for #NN: what it shows"
+git -C ../evidence-wt push origin evidence
+git worktree remove ../evidence-wt
+```
+
+```markdown
+![What the reader is looking at](https://raw.githubusercontent.com/elpideus/demido-studio/evidence/NN-what-it-shows.png)
+```
+
+Name the file `NN-what-it-shows.png`, ticket number first, and write alt text
+that says what the screenshot proves rather than what it is. A session that
+does this can close a ticket without a human at the keyboard, which is the
+whole point of the driver above.
+
 ### The live-model suite
 
 The model gate of [`docs/rules/done.md`](docs/rules/done.md): a real small model,
