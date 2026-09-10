@@ -73,7 +73,18 @@ export function AcceleratorControl() {
               onClick={() => void choose(row.ecosystem)}
             >
               <span className={styles.optionName}>
-                {label(row.ecosystem)}
+                <span className={styles.vendor}>
+                  {/* The vendor mark, at full strength only where the hardware
+                      is present and in ink everywhere else, which is the rule
+                      `design/tokens.css` states over the `--brand-*` block. A
+                      swatch rather than a logo: the use is nominative, and a
+                      picker of four logos is the logo wall that block refuses.
+                      CPU carries none, because it names no vendor. */}
+                  {mark(row.ecosystem) && (
+                    <span className={styles.mark} data-brand={mark(row.ecosystem)} aria-hidden />
+                  )}
+                  {label(row.ecosystem)}
+                </span>
                 {row.ecosystem === chosen && (
                   <Check className={styles.icon} strokeWidth={1.8} aria-hidden />
                 )}
@@ -105,7 +116,9 @@ export function ManifestControl() {
   const view = useSetup((setup) => setup.view)
   const busy = useSetup((setup) => setup.busy)
   const fetching = useSetup((setup) => setup.fetching)
+  const failed = useSetup((setup) => setup.failed)
   const fetch = useSetup((setup) => setup.fetch)
+  const cancelFetch = useSetup((setup) => setup.cancelFetch)
   if (!view) return null
 
   const wanted = view.manifest.flatMap((group) =>
@@ -134,15 +147,28 @@ export function ManifestControl() {
           <p className={styles.total}>
             {mib(download)} to download, {mib(onDisk)} on disk.
           </p>
-          <button
-            type="button"
-            className={styles.action}
-            disabled={busy}
-            onClick={() => void fetch()}
-          >
-            {busy ? 'Fetching' : 'Fetch'}
-          </button>
+          {/* While a fetch runs the cancel is what this foot offers, because a
+              second Fetch would be the same fetch and the thing a person wants
+              at that moment is the way out. What has arrived stays on disk. */}
+          {busy ? (
+            <button type="button" className={styles.quiet} onClick={() => void cancelFetch()}>
+              Cancel
+            </button>
+          ) : (
+            <button type="button" className={styles.action} onClick={() => void fetch()}>
+              {failed ? 'Try again' : 'Fetch'}
+            </button>
+          )}
         </div>
+      )}
+      {/* Failed is `rose` with the retry in place (`design/system.md`): the
+          button above is the retry, and it says so rather than being a second
+          control that appears here. */}
+      {failed && !busy && (
+        <p className={styles.failed} role="status">
+          {failed} What arrived is still on disk, so taking it up again costs the rest rather than
+          all of it.
+        </p>
       )}
       {fetching && (
         <div className={styles.progress}>
@@ -429,6 +455,20 @@ function total(rows: RuntimeRow[], of: (row: RuntimeRow) => number): number {
 }
 
 /** What an accelerator is called, which is not what its slug is. */
+/** Whose hardware a row is about, or nothing when it names no vendor. */
+function mark(ecosystem: Ecosystem): 'nvidia' | 'amd' | 'vulkan' | null {
+  switch (ecosystem) {
+    case 'cuda':
+      return 'nvidia'
+    case 'rocm':
+      return 'amd'
+    case 'vulkan':
+      return 'vulkan'
+    case 'cpu':
+      return null
+  }
+}
+
 function label(ecosystem: Ecosystem): string {
   switch (ecosystem) {
     case 'cuda':

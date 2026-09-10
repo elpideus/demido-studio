@@ -221,6 +221,7 @@ pub fn run() -> demido_core::Result<()> {
             setup::setup_leave,
             setup::setup_resume,
             setup::setup_fetch,
+            setup::setup_cancel_fetch,
             setup::setup_link,
             setup::setup_finish
         ])

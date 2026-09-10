@@ -59,6 +59,15 @@ pub struct Setup {
     /// without this the second would write the answers it read before the
     /// first landed, losing it.
     writing: Mutex<()>,
+    /// The fetch in flight, so something can call it off.
+    ///
+    /// `docs/rules/runtimes.md`'s acceptance wants "progress, a cancel and a
+    /// resume, so that a failed fetch is not a reinstall", and a cancel is
+    /// only a cancel if a second call can reach the token the first one is
+    /// waiting on. Held here rather than made per fetch for the same reason
+    /// the chat holds its own: the thing that stops a run is not the thing
+    /// that started it.
+    fetching: Mutex<Option<demido_runtimes::Cancel>>,
 }
 
 impl Setup {
@@ -73,6 +82,35 @@ impl Setup {
             runtimes_dir,
             machine: OnceLock::new(),
             writing: Mutex::new(()),
+            fetching: Mutex::new(None),
+        }
+    }
+
+    /// Arm the cancel a fetch will wait on, or disarm it when the fetch is
+    /// over however it ended.
+    fn arm(&self, cancel: Option<demido_runtimes::Cancel>) {
+        *self
+            .fetching
+            .lock()
+            .unwrap_or_else(|held| held.into_inner()) = cancel;
+    }
+
+    /// Call off the fetch in flight. `false` when there was none.
+    ///
+    /// Nothing is deleted and nothing is recorded: the `.part` file is left
+    /// exactly where it was, which is what makes the next fetch a resume
+    /// rather than a reinstall (`demido-runtimes`' fetcher).
+    pub fn cancel_fetch(&self) -> bool {
+        let fetching = self
+            .fetching
+            .lock()
+            .unwrap_or_else(|held| held.into_inner());
+        match fetching.as_ref() {
+            Some(cancel) => {
+                cancel.cancel();
+                true
+            }
+            None => false,
         }
     }
 
@@ -464,6 +502,11 @@ pub fn setup_resume(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<Vie
 }
 
 /// Fetch the ticked rows, verify them, and report the bytes as they arrive.
+///
+/// The cancel is armed for as long as this runs, so [`setup_cancel_fetch`] can
+/// reach it. A cancelled fetch returns the view like any other: what it left on
+/// disk is a partial file the next fetch resumes from, and the row is still
+/// absent, which is the truth the wizard should draw.
 #[tauri::command]
 pub async fn setup_fetch(app: AppHandle) -> demido_core::Result<View> {
     let (setup, runtimes) = {
@@ -478,22 +521,37 @@ pub async fn setup_fetch(app: AppHandle) -> demido_core::Result<View> {
             let archives: Vec<Archive> = selection.archives().copied().collect();
             let pin = selection.build.pin.to_owned();
             let handle = app.clone();
-            let outcome = runtimes
+            let cancel = demido_runtimes::Cancel::new();
+            setup.arm(Some(cancel.clone()));
+            let fetched = runtimes
                 .fetch_row(
                     LLAMA_CPP,
                     &pin,
                     &archives,
                     |archive, progress| report(&handle, LLAMA_CPP, archive, progress),
-                    &demido_runtimes::Cancel::new(),
+                    &cancel,
                 )
-                .await?;
-            if let Outcome::Refused { reason } = outcome {
+                .await;
+            // Disarmed before the error is raised, so a refusal does not leave
+            // a cancelled token armed for the retry to trip over.
+            setup.arm(None);
+            if let Outcome::Refused { reason } = fetched? {
                 tracing::warn!(reason, "the fetched runtime did not verify");
             }
         }
     }
 
     view(&setup)
+}
+
+/// Call off the fetch in flight. `false` when there was none.
+///
+/// `docs/rules/runtimes.md`: what is on disk when this returns is the partial
+/// file, so taking the fetch up again costs the bytes that did not arrive
+/// rather than all of them.
+#[tauri::command]
+pub fn setup_cancel_fetch(wiring: tauri::State<'_, Wiring>) -> bool {
+    wiring.setup.cancel_fetch()
 }
 
 /// Point a row at a binary the person already has.

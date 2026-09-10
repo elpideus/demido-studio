@@ -7,6 +7,8 @@ declare const styles: {
   readonly detected: string
   readonly option: string
   readonly optionName: string
+  readonly vendor: string
+  readonly mark: string
   readonly optionWhy: string
   readonly group: string
   readonly groupName: string
@@ -28,6 +30,7 @@ declare const styles: {
   readonly progress: string
   readonly bar: string
   readonly filled: string
+  readonly failed: string
   readonly folder: string
   readonly suggested: string
   readonly folderPath: string

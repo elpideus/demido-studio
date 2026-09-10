@@ -78,6 +78,40 @@
   gap: var(--space-room);
 }
 
+.vendor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+/* The vendor mark. Not ours to theme, so it is a token from the block
+ * design/tokens.css keeps outside the themes, and it is at full strength only
+ * on a row whose hardware is here. */
+.mark {
+  flex: none;
+  width: var(--space-control);
+  height: var(--space-control);
+  border-radius: var(--radius-chip);
+}
+
+.mark[data-brand='nvidia'] {
+  background: var(--brand-nvidia);
+}
+
+.mark[data-brand='amd'] {
+  background: var(--brand-amd);
+}
+
+.mark[data-brand='vulkan'] {
+  background: var(--brand-vulkan);
+}
+
+/* Absent hardware greys the mark rather than hiding it, the way a capability
+ * tag is greyed and never hidden: the row still says what it is about. */
+.option[data-offered='false'] .mark {
+  background: var(--color-ink-3);
+}
+
 .optionWhy {
   color: var(--color-ink-3);
   font-size: var(--text-meta);
@@ -275,6 +309,15 @@
   height: 100%;
   background: var(--color-signal);
   transition: width var(--duration-tap) var(--ease-mech);
+}
+
+/* A fetch that did not finish. `rose` is the error step, and the retry is the
+ * foot's own button rather than a second one here (design/system.md). */
+.failed {
+  margin: 0;
+  color: var(--color-rose);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
 }
 
 /* A folder models are read from, and one offered because it is already here. */

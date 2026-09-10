@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 import { useChat, type Presence } from '@/chat/chat'
+import { sentence } from '@/shell/failure'
 import { useToasts } from '@/shell/toasts'
 
 /**
@@ -117,9 +118,6 @@ export type View = {
 /** What arrives on `setup://progress` while a fetch runs. */
 type Fetching = { id: string; archive: string; bytes: number; total: number }
 
-/** The shape a Rust command rejects with: `demido_core::Error`. */
-type Failure = { kind: string; message: string }
-
 type Setup = {
   /** The view, or nothing until the first read has answered. A surface draws
    * nothing rather than an empty wizard while it is in flight: an empty
@@ -133,6 +131,14 @@ type Setup = {
   busy: boolean
   /** The archive being fetched and how far it has got, or nothing. */
   fetching: Fetching | null
+  /** Why the last fetch did not finish, drawn on the ladder rather than only
+   * raised as a toast.
+   *
+   * `design/system.md`: a failed row is `rose` with the retry in place. A
+   * toast is gone in four seconds and the thing it was about is a download
+   * somebody was watching, so the sentence stays next to the button that tries
+   * again. Cleared when the next fetch starts. */
+  failed: string | null
 
   /** Read the view, and subscribe to the bytes. Called once, by the desk. */
   open: () => Promise<void>
@@ -145,6 +151,8 @@ type Setup = {
   removeFolder: (path: string) => Promise<void>
   chooseModel: (path: string) => Promise<void>
   fetch: () => Promise<void>
+  /** Call off the fetch in flight. What has arrived stays on disk. */
+  cancelFetch: () => Promise<void>
   link: (id: string, path: string) => Promise<void>
   leave: () => Promise<void>
   resume: () => Promise<void>
@@ -157,6 +165,7 @@ export const useSetup = create<Setup>((set, get) => ({
   step: null,
   busy: false,
   fetching: null,
+  failed: null,
 
   open: async () => {
     await subscribe(set)
@@ -198,11 +207,28 @@ export const useSetup = create<Setup>((set, get) => ({
   },
 
   fetch: async () => {
-    set({ busy: true })
+    // The sentence from the last attempt goes before the next one starts, so
+    // what is on screen is never a stale reason for a fetch now running.
+    set({ busy: true, failed: null })
     try {
-      await gesture(set, () => invoke<View>('setup_fetch'))
+      set({ view: await invoke<View>('setup_fetch') })
+    } catch (error) {
+      // Not a toast. This is the one refusal in this store that has a row of
+      // its own to sit on, and a download is the thing a person is most likely
+      // to have looked away from.
+      set({ failed: sentence(error) })
     } finally {
       set({ busy: false, fetching: null })
+    }
+  },
+
+  cancelFetch: async () => {
+    try {
+      // The command answers whether there was one to stop; the fetch's own
+      // call is what returns the view, so there is nothing to take back here.
+      await invoke<boolean>('setup_cancel_fetch')
+    } catch (error) {
+      console.warn('the fetch was not called off', error)
     }
   },
 
@@ -266,12 +292,4 @@ async function subscribe(set: (partial: Partial<Setup>) => void): Promise<void> 
     console.warn('the fetch will report no progress', error)
     subscribed = null
   }
-}
-
-/** The sentence a person can act on, out of whatever was thrown. */
-function sentence(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'message' in error) {
-    return String((error as Failure).message)
-  }
-  return String(error)
 }
