@@ -147,7 +147,13 @@
    * Recolouring NVIDIA green would be getting that claim wrong. They appear
    * at full strength only where the hardware is actually present, and in
    * ink everywhere else, so the backend picker stays a list rather than
-   * becoming a logo wall. Both belong in THIRD_PARTY_NOTICES.
+   * becoming a logo wall. They all belong in THIRD_PARTY_NOTICES.
+   *
+   * Two of the four are drawn today, by the backend picker's CUDA and ROCm
+   * rows. Only a row naming a vendor can be asked whether that vendor's card
+   * is present, and Vulkan is an API while CPU is the machine, so Intel's and
+   * Khronos's sit here unused rather than being spent on a row that cannot
+   * honour the rule above.
    * ----------------------------------------------------------------- */
   --brand-nvidia: #76b900;
   --brand-amd: #ed1c24;

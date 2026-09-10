@@ -253,11 +253,7 @@ export const useSetup = create<Setup>((set, get) => ({
   },
 
   finish: async () => {
-    // Finishing is not a `gesture` (it takes a presence back, not a view), so
-    // it clears the sentence itself. The manifest control is the settings
-    // page's as well as the wizard's, and a reason left behind would surface
-    // there after the wizard had closed.
-    set({ busy: true, failed: null })
+    set({ busy: true })
     try {
       // The presence comes back because loading is minutes and the chat store
       // is what draws every state of it. It is handed over rather than kept
@@ -266,6 +262,13 @@ export const useSetup = create<Setup>((set, get) => ({
       const presence = await invoke<Presence>('setup_finish')
       useChat.setState({ presence })
       await get().read()
+      // Cleared here and not beside `busy`, because finishing can refuse and a
+      // refusal leaves the row as absent as the failed fetch left it: the
+      // reason is still the truth. Not a `gesture` either, since this takes a
+      // presence back rather than a view. The manifest control is the settings
+      // page's as well as the wizard's, so a sentence left behind would surface
+      // there once the wizard had closed.
+      set({ failed: null })
     } catch (error) {
       useToasts.getState().show(sentence(error))
     } finally {
