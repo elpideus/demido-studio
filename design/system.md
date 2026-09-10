@@ -168,8 +168,15 @@ lets it be read later.
 
 | Component | States | Tokens |
 |---|---|---|
-| Backend picker | available, unavailable, selected | `panel` cards; a `--brand-*` mark at full strength only where the hardware is present, `ink-3` otherwise. |
+| Backend picker | available, unavailable, selected | Cards one step up from whatever island hosts them, which is `raised` on the wizard's `panel` page (`surfaces.md` rule 1, one step at a time); selected `edge`. A `--brand-*` mark at full strength only where the hardware is present, `ink-3` otherwise, and a row naming no vendor carries none. An unavailable row states why and is never disabled. |
 | Provisioning step ladder | pending, running, done, failed | Pending `ink-4`, running `signal`, done `signal-dim`, failed `rose`, matching `splash.md`. Every step states its size **before** it fetches. Never a modal, never a command to go and run. |
+| Wizard window | first launch, resumed, left | Its own window at `--radius-island`; the page is `panel` on the window's `rack`. Leaving is offered at every step and is never final (`setup.md` section 1). |
+| Wizard step nav | current, done, later | `raised` rows in the wizard's column; current `edge`, done `ink-2`, later `ink-4`. A step nobody has settled carries a dot in `currentcolor`, not a tick, because a tick would claim it is done. |
+| Runtime row | absent, ticked, managed, linked | `raised`. States its download and its size on disk before a byte is spent; a row already on disk cannot be ticked, because a checkbox that cleared it would read as a delete. A linked row's bytes are never counted as disk Demido spent (`runtimes.md`). |
+| Archive list | always | Under its runtime row, in the silkscreen voice at `ink-3`: name, download, size on disk, licence. A build and the runtime it links against are one row and two archives. |
+| Fetch foot | idle, running, failed | The total for what is ticked, then one button: `Fetch`, `Cancel` while it runs, `Try again` after a failure. The reason sits beside it in `rose` and says what is still on disk, because a toast is gone before a download is. |
+| Model folder row | confirmed, suggested | `raised`; a suggested folder quieter at `ink-3` until it is taken. Folders are read where they are, so nothing is moved and no symlink is made. |
+| Desk set-up row | outstanding | `raised`, under the transcript and above the composer, naming what is left and offering to take it up. Drawn from the plan, which is derived from disk, so a folder somebody deleted is offered again without anything being un-remembered. |
 
 ### Session monitor
 
