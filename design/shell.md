@@ -190,8 +190,8 @@ Brand colours are the one exception, because they are not ours to choose: `--bra
 hardware is actually present, and in ink everywhere else, so the backend picker stays a list rather
 than becoming a logo wall. Only a row naming a vendor can answer that question, so the picker draws
 two of the four: CUDA carries NVIDIA's and ROCm carries AMD's, while Vulkan is an API and CPU is the
-machine. The other two are palette waiting for a row that can honour the rule, not colour something
-is already using.
+machine. The other two are palette waiting for a row that can honour the rule, rather than colour
+anything draws today.
 
 ## Icons come from packs
 
