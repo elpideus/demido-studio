@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { ArrowRight, Check, Wrench } from 'lucide-react'
 
-import { useChat } from '@/chat/chat'
+import { loading, useChat } from '@/chat/chat'
 import { AcceleratorControl, ManifestControl, ModelControl, ModelFolderControl } from './Controls'
 import { useSetup, type Step } from './setup'
 import styles from './Wizard.module.css'
@@ -117,7 +117,7 @@ export function Wizard() {
               {presence.state === 'ready'
                 ? `${presence.model} is loaded and the desk is ready.`
                 : presence.state === 'loading'
-                  ? `Loading ${presence.model}. The first launch reads several gigabytes off disk.`
+                  ? loading(presence.model)
                   : presence.state === 'failed'
                     ? presence.detail
                     : 'Nothing has been loaded yet. Finishing starts the model you chose.'}

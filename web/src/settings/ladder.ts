@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 
 import { useChat } from '@/chat/chat'
+import { sentence, type Failure } from '@/shell/failure'
 import { useToasts } from '@/shell/toasts'
 
 /**
@@ -56,9 +57,6 @@ export type Row = {
   inherited: unknown
   inheritedFrom: Origin
 }
-
-/** The shape a Rust command rejects with: `demido_core::Error`. */
-type Failure = { kind: string; message: string }
 
 type Settings = {
   /** The rows of each tier that has been asked for. A tier nobody has opened
@@ -172,12 +170,4 @@ function refusal(setting: Setting, error: unknown): string {
  * a tag instead of on the wording of a sentence. */
 function isRefusal(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as Failure).kind === 'invalid'
-}
-
-/** The sentence a person can act on, out of whatever was thrown. */
-function sentence(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'message' in error) {
-    return String((error as Failure).message)
-  }
-  return String(error)
 }

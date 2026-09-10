@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
+import { sentence } from '@/shell/failure'
+
 import { append, clear } from './stream'
 
 /**
@@ -35,6 +37,16 @@ export type Presence =
   | { state: 'ready'; model: string }
   | { state: 'failed'; detail: string }
 
+/** What a model that is still on its way says, in the one wording.
+ *
+ * Said by the composer, which will not send while it is true, and by the
+ * wizard's last step, which is waiting for the same load. It was written twice
+ * before this existed, so the two surfaces could come to describe one load
+ * differently. */
+export function loading(model: string): string {
+  return `Loading ${model}. The first launch reads several gigabytes off disk.`
+}
+
 /** What arrives on `chat://update` while a turn runs. The Rust `Update`.
  *
  * The window acts on the first two. `done` and `failed` are on the channel
@@ -47,9 +59,6 @@ type Update =
   | { update: 'thinking'; text: string }
   | { update: 'done' }
   | { update: 'failed' }
-
-/** The shape a Rust command rejects with: `demido_core::Error`. */
-type Failure = { kind: string; message: string }
 
 type Chat = {
   presence: Presence
@@ -228,11 +237,3 @@ export const useChat = create<Chat>((set, get) => ({
     })
   },
 }))
-
-/** The sentence a person can act on, out of whatever was thrown. */
-function sentence(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'message' in error) {
-    return String((error as Failure).message)
-  }
-  return String(error)
-}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Send, SlidersHorizontal, Square } from 'lucide-react'
 
-import { useChat, type Presence } from '@/chat/chat'
+import { loading, useChat, type Presence } from '@/chat/chat'
 import { ChatSettings } from '@/settings/Settings'
 import { useSetup } from '@/setup/setup'
 import styles from './Composer.module.css'
@@ -159,7 +159,7 @@ function why(presence: Presence): string {
       // The sentence `design/shell.md` wrote for exactly this moment.
       return 'Pick a model to start. Nothing is loaded yet.'
     case 'loading':
-      return `Loading ${presence.model}. The first launch reads several gigabytes off disk.`
+      return loading(presence.model)
     case 'failed':
       return presence.detail
     case 'ready':
