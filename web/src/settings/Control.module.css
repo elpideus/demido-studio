@@ -1,0 +1,157 @@
+/*
+ * A setting, drawn from its declaration. The ramp is docs/rules/surfaces.md and
+ * every number is a token from design/tokens.css.
+ *
+ * A field is a recess, so every input here is a well. The row itself is not a
+ * surface at all: it sits on whatever island its host is, and the gap is what
+ * separates it from the next one.
+ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  min-height: var(--size-control);
+}
+
+.title {
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+}
+
+/* Overridden marks the row, and the mark is the words: design/shell.md bans a
+ * coloured circle beside a label, so the name of the setting is what carries
+ * the state. */
+.field[data-overridden='true'] .title {
+  color: var(--color-signal);
+}
+
+/* The way back to global. A chip on whatever island the host is, so it is
+ * raised rather than another recess. */
+.revert {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.revert:hover {
+  background: var(--color-hover);
+}
+
+.revert:active {
+  background: var(--color-active);
+}
+
+/* Following global reads the inherited value in ink-4 (design/system.md). The
+ * sentence under the row stays ink-3: docs/rules/surfaces.md keeps ink-4 to
+ * decorative and disabled, and what this marks is the value being handed down
+ * rather than typed here, not the caption being less worth reading. */
+.field[data-following='true'] .number,
+.field[data-following='true'] .text,
+.field[data-following='true'] .switchLabel,
+.field[data-following='true'] .aside {
+  color: var(--color-ink-4);
+}
+
+.summary {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-room);
+}
+
+.number,
+.text {
+  padding: var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+}
+
+.number {
+  width: calc(4 * var(--size-control));
+}
+
+.text {
+  width: 100%;
+  resize: vertical;
+}
+
+.number:focus,
+.text:focus {
+  outline: var(--space-hair) solid var(--color-signal);
+  outline-offset: 0;
+}
+
+/* A field that is switched off keeps its own ink, the way the composer's does:
+ * what it holds is a number somebody typed, and greying it out reads as the
+ * number being gone rather than as the parameter being unsent. */
+.number:disabled {
+  color: var(--color-ink-3);
+}
+
+.switch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  cursor: pointer;
+}
+
+/* The browser's own control, repainted rather than replaced: a checkbox drawn
+ * by hand is a checkbox that has to reimplement focus, keyboard and the
+ * platform's own hit target. */
+.checkbox {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  accent-color: var(--color-signal);
+  cursor: pointer;
+}
+
+.switchLabel {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+/* The unit, or what happens when nothing is sent. Silkscreen: it labels a
+ * control rather than saying anything. */
+.aside {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

@@ -1,0 +1,36 @@
+[package]
+name = "demido-runtimes"
+description = "Fetches, verifies and owns the archives demido-catalog selects."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+demido-catalog.workspace = true
+demido-core.workspace = true
+# The declared verification command for the required group is "load a model
+# and generate one token", which is what this crate's `Backend` already does.
+# Reimplementing it here would be a second, less tested llama.cpp client.
+demido-inference.workspace = true
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["fs", "io-util", "process", "rt", "sync", "time"] }
+tokio-util = "0.7"
+tracing.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+# The live gate drives the real chain: this machine is detected, the selector
+# picks, and only then is anything fetched.
+demido-hardware.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }

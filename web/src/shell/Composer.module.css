@@ -1,0 +1,163 @@
+/*
+ * The composer. A field is a recess, so it is a well at island radius
+ * (design/system.md), and every number here is a token.
+ */
+
+.composer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-control);
+  padding: var(--space-room);
+  background: var(--color-well);
+  border-radius: var(--radius-island);
+}
+
+/* The field is the whole recess rather than a box inside it, which is what
+ * keeps the composer one surface instead of a well inside a well. */
+.field {
+  border: none;
+  padding: 0;
+  background: none;
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-strong);
+  line-height: var(--leading-ui);
+  letter-spacing: var(--tracking-tight);
+  resize: none;
+}
+
+.field::placeholder {
+  color: var(--color-ink-4);
+}
+
+/* A disabled field keeps its own ink: what it holds is a draft somebody typed,
+ * and greying it out reads as the text being gone rather than as the model
+ * being absent. The sentence beside it is what says why. */
+.field:disabled {
+  color: var(--color-ink-3);
+}
+
+.field:focus {
+  outline: none;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+}
+
+/* Disabled states the reason, and never in ink-4: it is the only sentence on
+ * screen at the moment somebody reads it. */
+.why {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.send,
+.stop,
+.settings {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.send:disabled {
+  color: var(--color-ink-4);
+  cursor: default;
+}
+
+/* The chat's own settings, beside the sentence rather than beside send: it is
+ * about the conversation and not about this message, and it is pushed to the
+ * end of the row so the hand's resting place stays the send button. */
+.settings {
+  margin-left: auto;
+  color: var(--color-ink-3);
+}
+
+.settings:hover {
+  background: var(--color-hover);
+}
+
+.settings:active {
+  background: var(--color-active);
+}
+
+/* Open is armed, the same way stop is: state is carried by the thing itself. */
+.settings[aria-pressed='true'] {
+  background: var(--color-edge);
+  color: var(--color-signal);
+}
+
+.settings[aria-pressed='true']:hover,
+.settings[aria-pressed='true']:active {
+  background: var(--color-edge-strong);
+}
+
+.send:not(:disabled):hover {
+  background: var(--color-hover);
+}
+
+.send:not(:disabled):active {
+  background: var(--color-active);
+}
+
+/* A chip on the composer's own recess, so it is raised rather than another
+ * well. It sits beside the sentence that says what went wrong, because that
+ * sentence is the only context it has. */
+.retry {
+  flex: none;
+  margin-left: auto;
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.retry:hover {
+  background: var(--color-hover);
+}
+
+.retry:active {
+  background: var(--color-active);
+}
+
+/* Stop is the same control in the same place, and it is armed rather than
+ * decorated: state is carried by the thing itself (design/shell.md's ban on a
+ * status dot), so the surface says selected and the icon says what it does.
+ * Armed is `edge`, and pressed or hovered while armed is `edge-strong`, which
+ * is the row docs/rules/surfaces.md has for it: `hover` and `active` are the
+ * unselected ramp and would read as a step down from selected. */
+.stop {
+  background: var(--color-edge);
+  color: var(--color-signal);
+}
+
+.stop:hover,
+.stop:active {
+  background: var(--color-edge-strong);
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

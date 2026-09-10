@@ -1,0 +1,27 @@
+# `endOfLine: auto` in .prettierrc.json is not a preference. `.gitattributes`
+# normalises line endings in the repository and checks them out native, so on a
+# Windows clone every tracked file is CRLF and the default `lf` would fail the
+# whole repo on a fresh checkout. This is the same trap scripts/check-rules.mjs
+# documents at its `lines()` helper.
+
+# Generated or vendored, and not ours to reformat.
+pnpm-lock.yaml
+src-tauri/gen/
+src-tauri/target/
+web/dist/
+node_modules/
+
+# The design system is authored by hand and its comments carry the reasoning
+# that justifies each number. Prettier reflows those comments and reorders
+# nothing useful, so tokens.css is left exactly as its author wrote it.
+design/tokens.css
+
+# Prose. Markdown wraps at a column the author chose per file, and reflowing it
+# turns a one-word edit into a whole-paragraph diff.
+*.md
+
+# Evidence. A trace fixture is the log a live run actually wrote, and the
+# request it actually sent; both are rewritten by the scenario that produced
+# them (`docs/rules/done.md`). Reformatting evidence would make every live run
+# a formatting diff, and the next one would undo it.
+src-tauri/crates/*/tests/fixtures/

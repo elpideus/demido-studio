@@ -1,0 +1,389 @@
+/*
+ * The set-up controls, drawn once for two hosts. Roles are
+ * docs/rules/surfaces.md, the shapes are design/system.md, and every number is
+ * a token from design/tokens.css.
+ *
+ * A control is not a surface: it sits on whatever island its host is, and the
+ * gap between rows is the border (docs/rules/gaps-and-hairlines.md).
+ */
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+/* What detection saw, and what a step says about itself. */
+.detected {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* One accelerator, or one model. A chip raised on the island, and selected is
+ * `edge`, which means state rather than elevation. */
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-hair);
+  width: 100%;
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.option:hover {
+  background: var(--color-hover);
+}
+
+.option:active {
+  background: var(--color-active);
+}
+
+.option[data-chosen='true'] {
+  background: var(--color-edge);
+}
+
+.option[data-chosen='true']:active {
+  background: var(--color-edge-strong);
+}
+
+/* A row nothing is fetched for is still a row. It reads quieter because it
+ * carries a reason rather than a size, and it is deliberately not disabled:
+ * a disabled control states nothing, and this one states why. */
+.option[data-offered='false'] .optionName {
+  color: var(--color-ink-3);
+}
+
+.optionName {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+}
+
+.vendor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+/* The vendor mark. Not ours to theme, so it is a token from the block
+ * design/tokens.css keeps outside the themes, and it is at full strength only
+ * on a row whose hardware is here. */
+.mark {
+  flex: none;
+  width: var(--space-control);
+  height: var(--space-control);
+  border-radius: var(--radius-chip);
+}
+
+.mark[data-brand='nvidia'] {
+  background: var(--brand-nvidia);
+}
+
+.mark[data-brand='amd'] {
+  background: var(--brand-amd);
+}
+
+/* Absent hardware greys the mark rather than hiding it, the way a capability
+ * tag is greyed and never hidden: the row still says what it is about. It keys
+ * on the hardware and not on whether a build is fetched, because the mark is a
+ * claim about the card rather than about our manifest. */
+/* `[data-brand]` is carried along so this outranks the colour rules above on
+ * specificity rather than on source order, which a reorder would silently
+ * break. */
+.mark[data-brand][data-present='false'] {
+  background: var(--color-ink-3);
+}
+
+.optionWhy {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* One group of the manifest. The heading is the group's own words. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+.groupName {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+/* One runtime row: what it is, what it costs, and the way to point at one you
+ * already have. An island face, because it is a card rather than a chip. */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  padding: var(--space-room);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  cursor: pointer;
+}
+
+/* The browser's own control, repainted rather than replaced, exactly as the
+ * settings page does it. */
+.checkbox {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  accent-color: var(--color-signal);
+  cursor: pointer;
+}
+
+.rowName {
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+}
+
+.rowWhy {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.archives {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.archive {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+.archiveName {
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  line-height: var(--leading-flush);
+  overflow-wrap: anywhere;
+}
+
+/* Stated before a byte is spent. Both figures, always. */
+.archiveSize {
+  color: var(--color-ink-4);
+  font-size: var(--text-micro);
+  line-height: var(--leading-flush);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+}
+
+.total {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* The one thing on a step that spends bytes. Raised, so it reads as the thing
+ * to reach for. */
+.action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-edge);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.action:hover {
+  background: var(--color-edge-strong);
+}
+
+.action:disabled {
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  cursor: default;
+}
+
+/* A way out or a way sideways: the same shape, quieter. */
+.quiet {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.quiet:hover {
+  background: var(--color-hover);
+}
+
+.point {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+/* A field is a recess. */
+.path {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+}
+
+.path:focus {
+  outline: var(--space-hair) solid var(--color-signal);
+  outline-offset: 0;
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+.bar {
+  height: var(--space-control);
+  border-radius: var(--radius-pill);
+  background: var(--color-well);
+  overflow: hidden;
+}
+
+.filled {
+  height: 100%;
+  background: var(--color-signal);
+  transition: width var(--duration-tap) var(--ease-mech);
+}
+
+/* A fetch that did not finish. `rose` is the error step, and the retry is the
+ * foot's own button rather than a second one here (design/system.md). */
+.failed {
+  margin: 0;
+  color: var(--color-rose);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* A folder models are read from, and one offered because it is already here. */
+.folder,
+.suggested {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  width: 100%;
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  text-align: left;
+}
+
+.suggested {
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.suggested:hover {
+  background: var(--color-hover);
+}
+
+.folderPath {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+}
+
+.folderCount {
+  flex: none;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+}
+
+.remove {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.remove:hover {
+  background: var(--color-hover);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

@@ -83,8 +83,11 @@ The closing comment carries six fields and nothing else:
 2. **Model, quant and `llama.cpp` SHA**: the exact three, because a red that
    turns out to be an upstream fix you did not have is a day spent on nothing.
 3. **Scenario name**: the function in the live suite that proves it.
-4. **Screenshot**: dragged into the comment, so GitHub hosts it and the clone
-   stays small.
+4. **Screenshot**: pushed to the `evidence` branch and linked by raw URL, so
+   GitHub hosts it and the clone stays small. `AGENTS.md` has the four
+   commands. Dragging it into the comment by hand does the same thing and is
+   the slower path; the branch is what lets a session close a ticket without a
+   human at the keyboard.
 5. **Trace fixture path**: see below.
 6. **`Bar:`**, either `chose` or `used`, matching the ticket's own line.
 
@@ -194,10 +197,34 @@ against 48.0, because roughly four billion of its parameters are active per
 token. The development model keeps its role on prompt processing, where it is
 1.6 times faster, and on being the one with headroom to spare.
 
-**`--ctx-size` is per slot, not per server.** With the default four slots,
-`-c 4096` reserves 16k of KV and the reference model reaches 11787 MiB before
-anyone has typed anything. Demido passes both `--parallel` and `--ctx-size`
-already, so the number the user sees has to be the one they get.
+**`--ctx-size` is the whole pool, and the slots divide it.** This is the
+opposite of what [#19](https://github.com/elpideus/demido-studio/issues/19)
+recorded here, and it was corrected on
+[#39](https://github.com/elpideus/demido-studio/issues/39) by the contract test
+that ticket asked for, against the same pinned build:
+
+| Flags | `/props` reports, per slot |
+|---|---|
+| `-c 4096 --parallel 1` | 4096 |
+| `-c 3072 --parallel 2` | 1536 |
+
+So the window one generation gets is `--ctx-size` divided by `--parallel`, and
+handing `llama.cpp` the number the user asked for gives them a fraction of it,
+with the fraction set by a parallelism setting that has nothing to do with
+context. `llama.cpp`'s own `--kv-unified-per-slot` flag exists precisely because
+`-c` is not per slot.
+
+**Demido multiplies**, in `demido-inference::llamacpp::arguments`, and sends
+both flags always, because `--parallel` defaults to auto and an unstated divisor
+is a number nobody chose. The rule the correction does not change is the one
+that mattered: the number the user sees has to be the one they get, and it is
+now asserted rather than commented (`Backend::context_length` reads `/props`,
+and the contract suite compares it against what was asked for across more than
+one slot).
+
+The measurement #19 was drawing on stands; only its explanation was wrong. What
+it saw was a KV reservation larger than the context it had asked for, which is
+what `--parallel` defaulting to auto produces on this card.
 
 ## The bar: `chose` or `used`
 
@@ -246,6 +273,20 @@ second Windows user costs nothing and Windows guarantees the profile is empty
 `Bar: used`, since there is nothing yet for a model to choose. The gate is a new
 Windows user, the wizard run from zero, and the managed route carrying a real
 conversation into a real window, with a screenshot and the trace as ever.
+
+**The fixture was deferred, and the deferral is the point of saying so.**
+[#49](https://github.com/elpideus/demido-studio/issues/49) closed S1 on a
+configured profile: the desk, the turn loop and the streamed answer were driven,
+and the wizard from zero, the real fetch and the per-row retry were not. Those
+three moved to [#79](https://github.com/elpideus/demido-studio/issues/79) rather
+than being dropped, so the paragraph above still describes what S1 owes and #79
+is where the debt is carried.
+
+This is the first time this file has been read and then not followed, and it is
+recorded here rather than only on the ticket, because a rule that quietly went
+unmet once is how the audit-milestone failure starts. What was traded is a
+sitting; what was bought is the risk that #48's coldest path is broken and
+nobody knows yet.
 
 ### S2: a model uses a tool, and you can see why
 

@@ -1,0 +1,25 @@
+[package]
+name = "demido-setup"
+description = "What the guided set-up was told, and what that leaves outstanding."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+demido-core.workspace = true
+demido-hardware.workspace = true
+# The plan is derived from what is on disk, and what is on disk is the runtimes
+# ledger. Reading it here rather than being handed a boolean is what makes
+# "outstanding is derived rather than remembered" true of the code.
+demido-runtimes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

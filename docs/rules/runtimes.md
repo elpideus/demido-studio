@@ -104,7 +104,7 @@ exits zero.
 
 | Row | Verified by |
 |---|---|
-| `llama.cpp` | Loads the smallest model already on disk and generates one token |
+| `llama.cpp` | Loads a model already on disk and generates one token: the one set-up settled on, and the smallest on disk until it has |
 | `cudart` | The same command. A CUDA build that cannot resolve `cublasLt64_13.dll` does not load a model |
 | uv | Runs a one-line script on the managed interpreter |
 | CPython | The same command |
@@ -112,6 +112,17 @@ exits zero.
 | `agent-browser` | Opens `about:blank` with `--executable-path` at the managed Chrome |
 | Chrome | The same command |
 | SearXNG | Answers one query through the in-process Flask client |
+
+**Which model, amended on
+[#48](https://github.com/elpideus/demido-studio/issues/48).** This row said
+"the smallest model already on disk" and now says the chosen one first. The rig
+is why: `~/.lmstudio/models` holds `mtp-gemma-4-E4B-it-Q8_0.gguf`, an MTP
+variant the pinned build refuses outright, and it is small, so the old rule put
+it in front of a `llama.cpp` that works and recorded the row as absent with an
+error about somebody else's download. Verifying the **pair that is going to
+run** is the stronger check anyway, and the smallest stays as the fallback for
+the moment before anybody has chosen, which is where the check still has to
+work.
 
 Three things this table is saying deliberately.
 

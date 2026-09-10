@@ -81,14 +81,17 @@ which needs a built installer and so runs at the tag
 9. **Every crate documents itself.** Each directory under `src-tauri/crates/`
    contains an `AGENTS.md`. See
    [`docs/rules/crate-docs.md`](docs/rules/crate-docs.md). **Enforced now**, and
-   a no-op until there are crates.
+   real since the workspace landed on
+   [#38](https://github.com/elpideus/demido-studio/issues/38).
 10. **Host prompt text is a catalog entry, not a string literal.** Anything
     Demido wrote that the model reads, a tool's description and its parameter
     prose included, has an id, a default file, a hash and an `Origin`, and a
     wording a measurement was taken against cannot change without the eval being
     re-run. See [`docs/rules/prompts.md`](docs/rules/prompts.md). **Enforced
-    now** for the pins, and a no-op on the shipped defaults until there are
-    crates.
+    now**, and real on the shipped defaults since the paragraph register landed
+    on [#40](https://github.com/elpideus/demido-studio/issues/40): a prose
+    literal in `src-tauri/` fails the build unless a `// not-a-prompt:` comment
+    says in one sentence why no model reads it.
 
 Two of v2's eight rules are not here. Its colour rule is rule 4, widened from
 one family to five on
@@ -135,9 +138,12 @@ rule an agent can break without CI noticing is a rule that will be broken.
 | `docs/agents/` | Configuration the installed engineering skills read. |
 | `design/` | The design system: `tokens.css` owns every arbitrary value, and `system.md`, `shell.md`, `windows.md` are the frozen boards. |
 | `licenses/` | One `LICENSE` per ported source, mirroring `<owner>/<repo>`. |
+| `src-tauri/` | The Cargo workspace: the Tauri application, and one crate per subsystem under `crates/`. |
+| `web/` | The frontend package: React 19, TypeScript, Vite, CSS Modules. |
 | `scripts/check-rules.mjs` | The hard rules above. No dependencies, on purpose. |
+| `scripts/drive.mjs` | The window gate's driver, over CDP. No dependencies either. |
 | `scripts/check-release.mjs` | The rules that only fire at a tag. See [`docs/rules/releases.md`](docs/rules/releases.md). |
-| `.githooks/` | The `commit-msg` gate. Install it once per clone (see Commands). |
+| `.githooks/` | The `commit-msg` and `pre-commit` gates. Install them once per clone (see Commands). |
 | `.github/allowed_signers` | The signing key CI verifies commits against. |
 | `.claude/` | Session guardrails: the blocked git commands, as a hook. |
 
@@ -162,16 +168,55 @@ Reference notes from the code they govern. When superseding one, set
 
 ## Commands
 
-Not yet. The stack is decided
-([#10](https://github.com/elpideus/demido-studio/issues/10): Tauri 2, Rust,
-React 19, Radix, CSS Modules, no Tailwind and no shadcn) but nothing is
-scaffolded. Until then the gates are the rule checker and the commit hook:
+Install once per clone, in this order:
 
 ```bash
-git config core.hooksPath .githooks    # once per clone, before the first commit
-node scripts/check-rules.mjs          # the hard rules above
-node scripts/check-rules.mjs --report # print the contrast measurements
+git config core.hooksPath .githooks    # the commit-msg and pre-commit gates
+pnpm install                           # the frontend workspace and the Tauri CLI
 ```
+
+Then:
+
+| Command | What |
+|---|---|
+| `pnpm dev` | The app, with the frontend dev server. What you work in. Set `DEMIDO_LLAMA_BIN` and `DEMIDO_MODEL_FILE` to give it a model to answer with. |
+| `pnpm dev:drive` | The same, plus `withGlobalTauri`, for the window gate. |
+| `pnpm build` | The release bundle: the NSIS installer. |
+| `pnpm build:web` | The frontend alone. |
+| `pnpm dev:web` | The frontend dev server alone, when you want it in its own terminal. |
+| `pnpm typecheck` | `tsc --noEmit` over the frontend. |
+| `pnpm format` / `pnpm format:check` | Prettier over the repo. |
+| `pnpm check:rules` | The hard rules above. |
+| `pnpm check:release` | The rules that only fire at a tag. Run again with `--bundle <installer>` after `pnpm build` to inspect the artifact. |
+| `pnpm drive` / `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
+| `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests that need no card. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test a_real_model -- --ignored --test-threads=1` | The live-model suite. See below. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test llamacpp_contract -- --ignored --test-threads=1` | The `Backend` contract, against a real server. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-trace --test a_real_model -- --ignored --test-threads=1` | The session log, against a real turn: the log rebuilds what was sent. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model -- --ignored --test-threads=1` | The turn loop, against a real model: an answer streams, a second message carries the first exchange, a stop is recorded. |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
+
+### The model the window answers with
+
+The set-up wizard ([#48](https://github.com/elpideus/demido-studio/issues/48))
+is what points a window at a model: the accelerator row, the manifest it
+fetches, the model folder read out of what is already on the machine, and the
+model that answers. It writes `setup.json` in the profile, and the desk reads
+it at startup, so an ordinary launch needs no environment at all.
+
+The two variables are still here, and they are now the **fallback**: they are
+how a developer points a running window at a rig without setting one up, and
+what set-up settled wins over them.
+
+```bash
+DEMIDO_LLAMA_BIN=.../llama-server.exe DEMIDO_MODEL_FILE=.../model.gguf pnpm dev
+```
+
+With neither set-up nor either variable, or either naming something that is not
+on disk, the desk opens with the composer disabled saying set-up is not
+finished, and the wizard is over it. They are deliberately not the live suite's
+`DEMIDO_MODELS`, which is a library root rather than a file.
 
 `check-rules.mjs` reads commit metadata as well as files. With no argument it
 checks whatever is not yet on `origin/main`; CI passes the push or pull request
@@ -181,15 +226,94 @@ range in `RULES_RANGE`, and you can too:
 RULES_RANGE=origin/main..HEAD node scripts/check-rules.mjs
 ```
 
-The hook is the cheap gate and can be skipped. CI is the one that cannot, so a
-violation costs a rebase rather than a reword. Install it.
+```bash
+node scripts/check-rules.mjs --report   # print the contrast measurements
+```
 
-Formatting and type checking (the `setup-pre-commit` skill) wait until there is
-code to format: running them against a repo of Markdown would install a hook
-that only ever passes. They arrive with the first slice on
-[#11](https://github.com/elpideus/demido-studio/issues/11), together with the
-frontend and Rust gates, the live-model harness invocation and the versioning
-scheme.
+### Driving the window
+
+The window gate ([`docs/rules/done.md`](docs/rules/done.md)) owes a screenshot,
+and the way that fails is designed to waste a day. So:
+
+```bash
+pnpm dev:drive                                          # one terminal
+node scripts/drive.mjs --screenshot evidence/NN.png     # another
+```
+
+There are two windows, so a run says which one it means: `--window splash` takes
+the splash, and the default takes the desk. The splash is gone within a second
+of an ordinary launch, so two debug-only environment variables hold it still
+long enough to photograph, and both are no-ops in a release build:
+
+```bash
+DEMIDO_BOOT_HOLD_MS=2500 pnpm dev:drive                 # a stage per 2.5s
+DEMIDO_BOOT_FAIL=settings pnpm dev:drive                # that stage's tick goes rose
+node scripts/drive.mjs --window splash --screenshot evidence/NN.png
+```
+
+`DEMIDO_BOOT_FAIL` takes stage ids from `src-tauri/src/boot.rs`, comma
+separated. It is how the screenshot of a subsystem being reported and skipped is
+taken without breaking a real one.
+
+Two switches, deliberately not one. The **debugging port** opens on any debug
+build, so the driver can always connect and say what it found. **`withGlobalTauri`**
+comes from `src-tauri/tauri.drive.conf.json`, merged only by `pnpm dev:drive`,
+never through `tauri.conf.json` or `capabilities/`. Run the driver against
+`pnpm dev` and it names the missing handle in one line rather than timing out,
+which is the point. A release build has neither and is not drivable.
+
+The screenshot goes on the issue, not in the clone. `/evidence` is ignored.
+
+**How it reaches the issue: the `evidence` branch.** Not by hand, and not by
+dragging. `evidence` is an orphan branch of PNGs that exists only to give the
+images a URL an issue can render, so `main` never carries them and a clone
+never pays for them. Add the file there and reference it by raw URL:
+
+```bash
+git worktree add ../evidence-wt evidence
+cp evidence/NN-what-it-shows.png ../evidence-wt/
+git -C ../evidence-wt add . && git -C ../evidence-wt commit -m "Evidence for #NN: what it shows"
+git -C ../evidence-wt push origin evidence
+git worktree remove ../evidence-wt
+```
+
+```markdown
+![What the reader is looking at](https://raw.githubusercontent.com/elpideus/demido-studio/evidence/NN-what-it-shows.png)
+```
+
+Name the file `NN-what-it-shows.png`, ticket number first, and write alt text
+that says what the screenshot proves rather than what it is. A session that
+does this can close a ticket without a human at the keyboard, which is the
+whole point of the driver above.
+
+### The live-model suite
+
+The model gate of [`docs/rules/done.md`](docs/rules/done.md): a real small model,
+answering, from a terminal, with no window and nobody at the keyboard. It is
+**re-run every slice**.
+
+It is `#[ignore]`d, so `cargo test` never starts it by accident, and one model is
+resident at a time by a process-wide permit. `--test-threads=1` is not a
+suggestion: the permit bounds the card, and the harness would otherwise interleave
+two suites that each want all of it.
+
+The permit is process-wide, and a test binary is a process, so the live commands
+above are run **one at a time**. There is no `--workspace --ignored` form of
+them, and asking for one would put two models on a 12 GB card.
+
+It **fails rather than skips** when the rig is missing. A live suite that quietly
+passes on a machine with no models is the built-but-never-driven failure this
+project was restarted to avoid, and it would pass hardest in CI, where it proves
+the least. `DEMIDO_LLAMA_BIN` and `DEMIDO_MODELS` point it at the rig; the
+defaults are Stefan's machine, and the rig is described in `done.md`.
+
+### The hooks
+
+`commit-msg` checks the message: identity, signature, no `Co-Authored-By`, no
+assistant named, no em dash. `pre-commit` checks the code: `cargo fmt --check`,
+`cargo clippy`, `prettier --check`, `tsc --noEmit`, and the rule checker. Both
+are the cheap gate and can be skipped with `--no-verify`; CI is the one that
+cannot, so a violation costs a re-run rather than a rebase. Install them.
 
 ## Agent skills
 

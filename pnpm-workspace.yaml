@@ -1,0 +1,7 @@
+packages:
+  - 'web'
+
+# pnpm 11 blocks a dependency's build scripts until it is named here.
+# esbuild ships a platform binary that vite needs at build time.
+allowBuilds:
+  esbuild: true

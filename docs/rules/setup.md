@@ -142,10 +142,18 @@ an estimate. **Download** is the byte count the server sends, from the response
 header. **On disk** is what the archive expands to, read out of its own index.
 Both are MiB, 1024 by 1024, which is also what #19's `143 MB` and `373 MB` are.
 
+The CPU row is the one figure #27 did not take, because section 3's first cut
+was read as CUDA alone. It is measured the same way, on 2026-09-09 by
+[#45](https://github.com/elpideus/demido-studio/issues/45), and it is a
+**required** row rather than a capability: a machine with no CUDA driver has
+nothing to answer with until it arrives. It is an alternative to the two CUDA
+rows and never an addition to them, which is why the totals below are unchanged.
+
 | Group | What | Pin | Download | On disk | License |
 |---|---|---|---|---|---|
 | Required | `llama-b10816-bin-win-cuda-13.3-x64.zip` | `b10816` | 142.6 | 182.6 | MIT, ggml-org |
 | Required | `cudart-llama-bin-win-cuda-13.3-x64.zip` | same release | 372.9 | 489.0 | NVIDIA CUDA EULA |
+| Required | `llama-b10816-bin-win-cpu-x64.zip`, **only when no CUDA build can load** | same release | 17.6 | 44.6 | MIT, ggml-org |
 | Required | one model | the user's choice | varies | varies | the model's own |
 | Capability | `uv-x86_64-pc-windows-msvc.zip` | `0.12.10` | 16.2 | 40.2 | MIT or Apache-2.0, astral-sh |
 | Capability | `cpython-3.12.14+20260901-x86_64-pc-windows-msvc-install_only_stripped.tar.gz` | `20260901` | 21.0 | 60.4 | PSF-2.0 |

@@ -56,7 +56,8 @@ function walk(dir, predicate) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name)
     if (entry.isDirectory()) {
-      if (['node_modules', 'target', 'dist', '.git', 'gen', 'graphify-out'].includes(entry.name)) continue
+      if (['node_modules', 'target', 'dist', '.git', 'gen', 'graphify-out'].includes(entry.name))
+        continue
       out.push(...walk(full, predicate))
     } else if (predicate(entry.name)) {
       out.push(full)
@@ -66,15 +67,23 @@ function walk(dir, predicate) {
 }
 
 /**
- * Source the value rules apply to. Written as a list of candidate roots rather
- * than one, because ticket #10 has not chosen where the frontend lives yet and
- * a missing root is not an error.
+ * Source the value rules apply to: the frontend package and the Rust workspace,
+ * scaffolded on ticket #38. `walk` skips `target`, `gen`, `dist` and
+ * `node_modules`, so what is left is what somebody wrote.
+ *
+ * The frontend root is the package rather than its `src`, because `index.html`
+ * sits beside it and a style attribute there is as raw as one in a component.
+ * `.rs` is scanned for the same reason: the rule says "anywhere", a window's
+ * background can be set from Rust, and a family that is only enforced in CSS is
+ * the unenforced half of the experiment that made this rule wide.
  */
 function sourceFiles() {
-  const roots = ['web/src', 'src', 'app/src', 'src-tauri']
+  const roots = ['web', 'src-tauri']
   const files = []
   for (const root of roots) {
-    files.push(...walk(join(ROOT, root), (n) => /\.(css|scss|ts|tsx|js|jsx|html|svelte|vue)$/.test(n)))
+    files.push(
+      ...walk(join(ROOT, root), (n) => /\.(css|scss|ts|tsx|js|jsx|html|svelte|vue|rs)$/.test(n)),
+    )
   }
   return files
 }
@@ -119,7 +128,9 @@ const FAMILIES = [
   {
     name: 'motion',
     test: (code) =>
-      /\b(?:transition|animation)(?:-(?:duration|delay))?\s*:\s*[^;}]*?(?<![\w.-])(?!0(?![\d.]))[\d.]+m?s\b/.exec(code),
+      /\b(?:transition|animation)(?:-(?:duration|delay))?\s*:\s*[^;}]*?(?<![\w.-])(?!0(?![\d.]))[\d.]+m?s\b/.exec(
+        code,
+      ),
     use: '--duration-, --delay- or --ease-',
   },
 ]
@@ -177,7 +188,10 @@ function parse(value, over) {
   } else {
     const fn = /^rgba?\(([^)]+)\)$/.exec(v)
     if (!fn) return null
-    const parts = fn[1].split(/[\s,/]+/).filter(Boolean).map(Number)
+    const parts = fn[1]
+      .split(/[\s,/]+/)
+      .filter(Boolean)
+      .map(Number)
     if (parts.length < 3 || parts.some(Number.isNaN)) return null
     rgb = parts.slice(0, 3)
     if (parts.length > 3) alpha = parts[3]
@@ -362,7 +376,9 @@ function checkThemeContrast() {
     // The worst case is the lightest surface text ever sits on. That is not
     // hardcoded: it is whichever of the eight measures lightest, so a theme
     // that reorders the ramp is still measured against its own worst case.
-    const [worstRole, worstRgb] = surfaces.reduce((a, b) => (luminance(a[1]) > luminance(b[1]) ? a : b))
+    const [worstRole, worstRgb] = surfaces.reduce((a, b) =>
+      luminance(a[1]) > luminance(b[1]) ? a : b,
+    )
 
     for (const role of READABLE) {
       const rgb = colour(role)
@@ -392,7 +408,11 @@ function checkThemeContrast() {
       }
       const ink3 = colour('ink-3')
       if (ink3 && contrast(ink4, worstRgb) >= contrast(ink3, worstRgb)) {
-        fail('theme-contrast', TOKENS, `theme "${name}": --color-ink-4 is not dimmer than --color-ink-3`)
+        fail(
+          'theme-contrast',
+          TOKENS,
+          `theme "${name}": --color-ink-4 is not dimmer than --color-ink-3`,
+        )
       }
     }
 
@@ -441,31 +461,34 @@ function readLedger() {
   const rows = new Map()
   const amendments = []
   if (!existsSync(LEDGER)) {
-    fail('brief', LEDGER, 'the ledger is missing; every brief requirement is meant to have a row here')
+    fail(
+      'brief',
+      LEDGER,
+      'the ledger is missing; every brief requirement is meant to have a row here',
+    )
     return { rows, amendments }
   }
   let section = ''
-  lines(readFileSync(LEDGER, 'utf8'))
-    .forEach((text, i) => {
-      const heading = /^##\s+(.*)$/.exec(text)
-      if (heading) section = heading[1].toLowerCase()
-      const row = /^\|\s*~?~?(B\d+)~?~?\s*\|\s*(.*?)\s*\|/.exec(text)
-      if (!row) return
-      const [, id, cell] = row
-      const quoted = /^"(.*)"$/.exec(cell)
-      if (!quoted) {
-        fail('brief', LEDGER, `${id}: the second cell must be a quoted fragment of the brief`, i + 1)
-        return
-      }
-      const entry = { id, quote: quoted[1], line: i + 1 }
-      if (section.startsWith('amendment')) {
-        amendments.push(entry)
-      } else if (rows.has(id)) {
-        fail('brief', LEDGER, `${id} is used twice; an id is assigned once and never reused`, i + 1)
-      } else {
-        rows.set(id, entry)
-      }
-    })
+  lines(readFileSync(LEDGER, 'utf8')).forEach((text, i) => {
+    const heading = /^##\s+(.*)$/.exec(text)
+    if (heading) section = heading[1].toLowerCase()
+    const row = /^\|\s*~?~?(B\d+)~?~?\s*\|\s*(.*?)\s*\|/.exec(text)
+    if (!row) return
+    const [, id, cell] = row
+    const quoted = /^"(.*)"$/.exec(cell)
+    if (!quoted) {
+      fail('brief', LEDGER, `${id}: the second cell must be a quoted fragment of the brief`, i + 1)
+      return
+    }
+    const entry = { id, quote: quoted[1], line: i + 1 }
+    if (section.startsWith('amendment')) {
+      amendments.push(entry)
+    } else if (rows.has(id)) {
+      fail('brief', LEDGER, `${id} is used twice; an id is assigned once and never reused`, i + 1)
+    } else {
+      rows.set(id, entry)
+    }
+  })
   return { rows, amendments }
 }
 
@@ -492,7 +515,12 @@ function checkBrief() {
       fail('brief', LEDGER, `amendment ${a.id} has no row in the ledger`, a.line)
     }
     if (!briefFlat.includes(squash(a.quote))) {
-      fail('brief', LEDGER, `amendment ${a.id}: "${a.quote}" is not in docs/brief.md verbatim`, a.line)
+      fail(
+        'brief',
+        LEDGER,
+        `amendment ${a.id}: "${a.quote}" is not in docs/brief.md verbatim`,
+        a.line,
+      )
     }
   }
 
@@ -546,7 +574,12 @@ function checkBrief() {
           if (block.length) quote = block.join(' ')
         }
         if (!quote) {
-          fail('brief', file, `${id}: a citation quotes the brief, on this line or as a blockquote under it`, i + 1)
+          fail(
+            'brief',
+            file,
+            `${id}: a citation quotes the brief, on this line or as a blockquote under it`,
+            i + 1,
+          )
         } else if (!briefFlat.includes(squash(quote))) {
           fail('brief', file, `${id}: "${quote}" is not in docs/brief.md verbatim`, i + 1)
         }
@@ -585,7 +618,11 @@ const PROJECT_NAMES = /openclaude|open-webui|gemini-cli|claude-code|[.]claude/gi
 
 function gitOut(args) {
   try {
-    return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return execFileSync('git', args, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
   } catch {
     return null
   }
@@ -605,7 +642,8 @@ function commitsUnderReview() {
   const format = `--format=%H${UNIT}%an <%ae>${UNIT}%cn <%ce>${UNIT}%G?${UNIT}%B${RECORD}`
   const attempts = []
   if (explicit) attempts.push([format, explicit])
-  else if (gitOut(['rev-parse', '--verify', '--quiet', 'origin/main'])) attempts.push([format, 'origin/main..HEAD'])
+  else if (gitOut(['rev-parse', '--verify', '--quiet', 'origin/main']))
+    attempts.push([format, 'origin/main..HEAD'])
   attempts.push([format, '-n', '1', 'HEAD'])
 
   for (const args of attempts) {
@@ -643,9 +681,17 @@ function checkAttribution() {
     if (commit.signature === 'N') {
       fail('attribution', GIT, `${at} is not signed`)
     } else if ('BRXY'.includes(commit.signature)) {
-      fail('attribution', GIT, `${at} has a bad, revoked or expired signature (git reports "${commit.signature}")`)
+      fail(
+        'attribution',
+        GIT,
+        `${at} has a bad, revoked or expired signature (git reports "${commit.signature}")`,
+      )
     } else if (verifiable && commit.signature !== 'G') {
-      fail('attribution', GIT, `${at} is signed by a key that is not in ${signersFile} (git reports "${commit.signature}")`)
+      fail(
+        'attribution',
+        GIT,
+        `${at} is signed by a key that is not in ${signersFile} (git reports "${commit.signature}")`,
+      )
     }
 
     const message = commit.message.replace(PROJECT_NAMES, 'a-project')
@@ -655,7 +701,11 @@ function checkAttribution() {
       }
     }
     if (commit.message.includes(EM_DASH)) {
-      fail('text', GIT, `${at} has an em dash in its message; use a colon, a comma, parentheses, a semicolon or a full stop`)
+      fail(
+        'text',
+        GIT,
+        `${at} has an em dash in its message; use a colon, a comma, parentheses, a semicolon or a full stop`,
+      )
     }
   }
 }
@@ -670,7 +720,8 @@ const LICENSES = join(ROOT, 'licenses')
 const NOTICES = join(ROOT, 'THIRD_PARTY_NOTICES.md')
 
 /** `Ported from <owner>/<project> @ <commit>, <license>.` See the rule doc. */
-const PROVENANCE = /Ported from ([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+) @ ([A-Za-z0-9._-]{7,40}), ([A-Za-z0-9.+-]+)\./g
+const PROVENANCE =
+  /Ported from ([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+) @ ([A-Za-z0-9._-]{7,40}), ([A-Za-z0-9.+-]+)\./g
 
 /** The floor. THIRD_PARTY_NOTICES.md may add to this list; it cannot shrink it
  * below these two, because both bans are legal rather than editorial. */
@@ -680,7 +731,9 @@ const FORBIDDEN_FLOOR = new Map([
 ])
 
 function codeFiles() {
-  return walk(ROOT, (n) => /\.(rs|ts|tsx|js|jsx|mjs|cjs|css|scss|py|html|svelte|vue|toml)$/.test(n)).filter((file) => {
+  return walk(ROOT, (n) =>
+    /\.(rs|ts|tsx|js|jsx|mjs|cjs|css|scss|py|html|svelte|vue|toml)$/.test(n),
+  ).filter((file) => {
     const rel = relative(ROOT, file).split(sep).join('/')
     return !rel.startsWith('licenses/') && !rel.startsWith('.research/')
   })
@@ -692,7 +745,11 @@ function readNotices() {
   const chosen = new Set()
   const forbidden = new Map(FORBIDDEN_FLOOR)
   if (!existsSync(NOTICES)) {
-    fail('provenance', NOTICES, 'the human-readable index is missing; the in-app credits surface renders from it')
+    fail(
+      'provenance',
+      NOTICES,
+      'the human-readable index is missing; the in-app credits surface renders from it',
+    )
     return { listed, chosen, forbidden }
   }
   let section = ''
@@ -706,7 +763,8 @@ function readNotices() {
     // The index is the table before the first heading. A later section is
     // prose about things that do not ship yet, and claims nothing.
     if (section === '') listed.add(`${second}/${first}`.toLowerCase())
-    else if (section.startsWith('ruled out')) forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
+    else if (section.startsWith('ruled out'))
+      forbidden.set(first.toLowerCase(), second || 'it is on the ruled-out list')
     else if (section.startsWith('chosen')) chosen.add(`${second}/${first}`.toLowerCase())
   }
   return { listed, chosen, forbidden }
@@ -724,14 +782,29 @@ function checkProvenance() {
       const line = source.slice(0, hit.index).split('\n').length
       const banned = forbidden.get(project.toLowerCase())
       if (banned) {
-        fail('provenance', file, `ported from ${project}, which cannot be copied from: ${banned}`, line)
+        fail(
+          'provenance',
+          file,
+          `ported from ${project}, which cannot be copied from: ${banned}`,
+          line,
+        )
         continue
       }
       if (!existsSync(join(LICENSES, owner, project, 'LICENSE'))) {
-        fail('provenance', file, `names ${owner}/${project} (${license}) with no licenses/${owner}/${project}/LICENSE on disk`, line)
+        fail(
+          'provenance',
+          file,
+          `names ${owner}/${project} (${license}) with no licenses/${owner}/${project}/LICENSE on disk`,
+          line,
+        )
       }
       if (!listed.has(`${owner}/${project}`.toLowerCase())) {
-        fail('provenance', file, `names ${owner}/${project} with no row in THIRD_PARTY_NOTICES.md`, line)
+        fail(
+          'provenance',
+          file,
+          `names ${owner}/${project} with no row in THIRD_PARTY_NOTICES.md`,
+          line,
+        )
       }
     }
   }
@@ -768,7 +841,11 @@ function checkProvenance() {
   // 3. The two legal bans survive an edit of the index.
   for (const [project, why] of FORBIDDEN_FLOOR) {
     if (!forbidden.has(project)) {
-      fail('provenance', NOTICES, `the ruled-out table no longer lists ${project}, which is banned because ${why}`)
+      fail(
+        'provenance',
+        NOTICES,
+        `the ruled-out table no longer lists ${project}, which is banned because ${why}`,
+      )
     }
   }
 }
@@ -786,7 +863,9 @@ function checkText() {
     ...walk(join(ROOT, '.github'), (n) => /\.(yml|yaml|md)$/.test(n)),
     ...walk(join(ROOT, '.githooks'), () => true),
     ...codeFiles(),
-    ...['AGENTS.md', 'README.md', 'THIRD_PARTY_NOTICES.md'].map((n) => join(ROOT, n)).filter((p) => existsSync(p)),
+    ...['AGENTS.md', 'README.md', 'THIRD_PARTY_NOTICES.md']
+      .map((n) => join(ROOT, n))
+      .filter((p) => existsSync(p)),
   ]
   for (const file of new Set(files)) {
     // The brief is reproduced verbatim and is never edited, and a third-party
@@ -797,7 +876,12 @@ function checkText() {
       .split('\n')
       .forEach((text, i) => {
         if (text.includes(EM_DASH)) {
-          fail('text', file, 'em dash; use a colon, a comma, parentheses, a semicolon or a full stop', i + 1)
+          fail(
+            'text',
+            file,
+            'em dash; use a colon, a comma, parentheses, a semicolon or a full stop',
+            i + 1,
+          )
         }
       })
   }
@@ -831,9 +915,19 @@ function checkDecisions() {
         for (const hit of text.matchAll(/docs\/decisions\/(\d{4}-[a-z0-9-]+\.md)/g)) {
           const name = hit[1]
           if (!status.has(name)) {
-            fail('decisions', file, `references docs/decisions/${name}, which does not exist`, i + 1)
+            fail(
+              'decisions',
+              file,
+              `references docs/decisions/${name}, which does not exist`,
+              i + 1,
+            )
           } else if (/^superseded-by/i.test(status.get(name))) {
-            fail('decisions', file, `references docs/decisions/${name}, which is ${status.get(name)}`, i + 1)
+            fail(
+              'decisions',
+              file,
+              `references docs/decisions/${name}, which is ${status.get(name)}`,
+              i + 1,
+            )
           }
         }
       })
@@ -863,8 +957,19 @@ function checkCrateDocs() {
 // register ships in S1, which is the same shape as the crate-docs check.
 
 const PINS = [
-  { id: 'lessons.classify', fixture: join('evals', 'lessons', 'classifier.md'), pinnedIn: 'evals/lessons/AGENTS.md' },
+  {
+    id: 'lessons.classify',
+    fixture: join('evals', 'lessons', 'classifier.md'),
+    pinnedIn: 'evals/lessons/AGENTS.md',
+  },
 ]
+
+/** The register: its crate, its default files, and the source that declares
+ * them. Both halves must exist once the crate does, or a gate that reads them
+ * would switch itself off when somebody moved a directory. */
+const REGISTER = join(ROOT, 'src-tauri', 'crates', 'demido-prompts')
+const DEFAULTS = join(REGISTER, 'defaults')
+const DECLARATION = join(REGISTER, 'src')
 
 /** One line ending, whoever wrote the file. A digest that changed because a
  * clone checked out CRLF would report an edit nobody made. */
@@ -877,7 +982,9 @@ function checkPrompts() {
       fail('prompts', record, `pins ${pin.id} and does not exist`)
       continue
     }
-    const found = new RegExp(`${pin.id}[\\s\\S]{0,200}?sha256\\s+([0-9a-f]{64})`).exec(readFileSync(record, 'utf8'))
+    const found = new RegExp(`${pin.id}[\\s\\S]{0,200}?sha256\\s+([0-9a-f]{64})`).exec(
+      readFileSync(record, 'utf8'),
+    )
     if (!found) {
       fail('prompts', record, `has no sha256 pin for ${pin.id}`)
       continue
@@ -893,14 +1000,285 @@ function checkPrompts() {
       fail('prompts', fixture, `hashes to ${actual}, but ${pin.pinnedIn} pins ${found[1]}`)
     }
 
-    // The shipped default, once there is one. Changing the wording a
-    // measurement was taken against means re-running the eval and re-pinning.
-    const shipped = join(ROOT, 'src-tauri', 'crates', 'demido-prompts', 'defaults', `${pin.id}.md`)
-    if (existsSync(shipped)) {
-      const built = digest(readFileSync(shipped, 'utf8'))
-      if (built !== found[1]) {
-        fail('prompts', shipped, `hashes to ${built}, but ${pin.id} was measured at ${found[1]}; re-run the eval and re-pin, or revert the wording`)
+    // The shipped default. Changing the wording a measurement was taken
+    // against means re-running the eval and re-pinning. Real since the
+    // register landed on #40: before that there was no default to hash, and
+    // the check was written first so that it was already true when one
+    // arrived.
+    const shipped = join(DEFAULTS, `${pin.id}.md`)
+    if (!existsSync(shipped)) {
+      if (existsSync(REGISTER)) {
+        fail('prompts', shipped, `${pin.id} is pinned and the register ships no default for it`)
       }
+      continue
+    }
+
+    const built = digest(readFileSync(shipped, 'utf8'))
+    if (built !== found[1]) {
+      fail(
+        'prompts',
+        shipped,
+        `hashes to ${built}, but ${pin.id} was measured at ${found[1]}; re-run the eval and re-pin, or revert the wording`,
+      )
+    }
+  }
+
+  checkDefaultsAreFiles()
+  checkNoHostTextLiterals()
+}
+
+/**
+ * A default is a file, never a literal, even inside the register itself.
+ *
+ * The register's own declaration is the one place a prose literal is expected
+ * to sit beside model-facing text, so it is also the one place the literal
+ * check below cannot help: the titles and summaries there are the editor's
+ * labels rather than payload, and they are marked as such. This closes the hole
+ * that marking opens. `include_str!` is what makes a change to a default read
+ * in review as a prose diff, and it is what lets the pin above hash it.
+ */
+function checkDefaultsAreFiles() {
+  if (!existsSync(REGISTER)) return
+  if (!existsSync(DEFAULTS) || !existsSync(DECLARATION)) {
+    fail('prompts', REGISTER, 'the register has no defaults directory and no declaration to read')
+    return
+  }
+
+  // Over the whole declaration rather than one line of one file: rustfmt wraps
+  // a long value onto the next line, and a second register is one more file.
+  for (const file of walk(DECLARATION, (name) => name.endsWith('.rs'))) {
+    const source = readFileSync(file, 'utf8')
+    const declared = /\bdefault:\s*/g
+    let found
+    while ((found = declared.exec(source))) {
+      // The field's own declaration says what a default is typed as; every
+      // other `default:` is an entry saying what one holds.
+      if (source.slice(0, found.index).trimEnd().endsWith('pub')) continue
+
+      const value = source.slice(found.index + found[0].length)
+      if (value.startsWith('include_str!')) continue
+
+      fail(
+        'prompts',
+        file,
+        `a default is a file, not a literal: ${value.split('\n')[0].slice(0, 40)}`,
+        lines(source.slice(0, found.index)).length,
+      )
+    }
+  }
+}
+
+/**
+ * Hard rule 10, on the code rather than on the pins: a host string the model
+ * reads has an id and a default file, so a paragraph of prose typed into a
+ * `.rs` file is a violation wherever a composer could pick it up.
+ *
+ * Nothing about a literal says whether a model will read it, so the check is
+ * shaped the way the colour rule is: everything that reads as prose is refused,
+ * and the few places prose legitimately lives are named. Those are diagnostics
+ * (a log line, an error's own sentence, a test's failure message), which never
+ * reach a payload, and anything a `// not-a-prompt:` comment accounts for in
+ * one sentence. That marker covers the run of lines it opens, up to the next
+ * blank line, and it is the only escape there is.
+ *
+ * Scoped to `src-tauri`, because the payload is assembled in Rust. Nothing in
+ * `web/` reaches a model, and scanning UI copy would drown the signal that
+ * makes this worth running.
+ */
+
+/** Six words reads as prose. Measured against the workspace as it stood on #40:
+ * the only literal in it that long was a `tracing::info!` message. */
+const PROSE_WORDS = 6
+
+/** The same threshold for a script that does not put spaces between words.
+ * Counting words would find none in Classical Chinese, and the register ships
+ * three wenyan paragraphs, so a script-blind check would be blind to exactly
+ * the text this rule exists to hold. Twelve characters is roughly two of the
+ * four-to-six character clauses those paragraphs ask a model for. */
+const PROSE_IDEOGRAPHS = 12
+const IDEOGRAPH = /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/gu
+
+/** Where prose is not a prompt: a log line, an error's own sentence, a test's
+ * failure message, and the macros that read a file at compile time.
+ *
+ * `format!` is on the list, and it is the one entry that is a judgement rather
+ * than a fact. Every sentence Demido builds for a person is interpolated,
+ * because it names the path or the error it is about; a prompt never is,
+ * because a prompt's holes are declared placeholders and `Prompt::fill` is what
+ * puts values in them. So prose assembled by interpolation is read as a message
+ * to a person. What that cannot catch is written down in `prompts.md`. */
+const DIAGNOSTIC = new Set([
+  'info',
+  'warn',
+  'error',
+  'debug',
+  'trace',
+  'print',
+  'println',
+  'eprint',
+  'eprintln',
+  'format',
+  'format_args',
+  'write',
+  'writeln',
+  'panic',
+  'todo',
+  'unimplemented',
+  'unreachable',
+  'assert',
+  'assert_eq',
+  'assert_ne',
+  'debug_assert',
+  'debug_assert_eq',
+  'debug_assert_ne',
+  'expect',
+  'expect_err',
+  'include_str',
+  'include_bytes',
+  'env',
+  'option_env',
+  'concat',
+  'doc',
+  'cfg',
+  'deprecated',
+  'must_use',
+  'should_panic',
+  'serde',
+  'allow',
+])
+
+/**
+ * The source with every comment body and every literal body blanked, one space
+ * per character, so offsets still line up. Scanning backwards for the call a
+ * literal sits in then cannot be thrown by a brace or a paren inside a string.
+ */
+function mask(source) {
+  const out = source.split('')
+  const literals = []
+  let i = 0
+
+  const blank = (from, to) => {
+    for (let at = from; at < to; at += 1) if (out[at] !== '\n') out[at] = ' '
+  }
+
+  while (i < source.length) {
+    const two = source.slice(i, i + 2)
+    if (two === '//') {
+      const end = source.indexOf('\n', i)
+      const to = end === -1 ? source.length : end
+      blank(i + 2, to)
+      i = to
+    } else if (two === '/*') {
+      const end = source.indexOf('*/', i + 2)
+      const to = end === -1 ? source.length : end
+      blank(i + 2, to)
+      i = end === -1 ? source.length : end + 2
+    } else if (source[i] === 'r' && /^r#*"/.test(source.slice(i, i + 8))) {
+      const opened = /^r(#*)"/.exec(source.slice(i))
+      const close = `"${opened[1]}`
+      const from = i + opened[0].length
+      const end = source.indexOf(close, from)
+      const to = end === -1 ? source.length : end
+      literals.push({ start: i, content: source.slice(from, to) })
+      blank(from, to)
+      i = to + close.length
+    } else if (source[i] === '"') {
+      let at = i + 1
+      while (at < source.length && source[at] !== '"') at += source[at] === '\\' ? 2 : 1
+      literals.push({ start: i, content: source.slice(i + 1, at) })
+      blank(i + 1, at)
+      i = at + 1
+    } else if (source[i] === "'" && /^'(\\.|[^'\\])'/.test(source.slice(i))) {
+      const quoted = /^'(\\.|[^'\\])'/.exec(source.slice(i))
+      blank(i + 1, i + quoted[0].length - 1)
+      i += quoted[0].length
+    } else {
+      i += 1
+    }
+  }
+
+  return { masked: out.join(''), literals }
+}
+
+/** Every `#[cfg(test)]` item's span, as `[from, to)` offsets. A test may quote a
+ * prompt to assert something about it, and sends nothing. */
+function testRegions(masked) {
+  const regions = []
+  const marker = /#\[cfg\(test\)\]/g
+  let found
+  while ((found = marker.exec(masked))) {
+    const opened = masked.indexOf('{', found.index)
+    if (opened === -1) continue
+    let depth = 0
+    let at = opened
+    for (; at < masked.length; at += 1) {
+      if (masked[at] === '{') depth += 1
+      else if (masked[at] === '}' && (depth -= 1) === 0) break
+    }
+    regions.push([found.index, at])
+  }
+  return regions
+}
+
+/** The call a literal sits in, by its last path segment: `tracing::warn!` is
+ * `warn`, `.expect(` is `expect`, `#[error(` is `error`. Empty when the literal
+ * is an argument to nothing, which is what a bare `const` prompt looks like. */
+function enclosingCall(masked, start) {
+  let depth = 0
+  for (let at = start - 1; at >= 0; at -= 1) {
+    const char = masked[at]
+    if (char === ')' || char === ']') depth += 1
+    else if (char === '(' || char === '[') {
+      if (depth === 0) {
+        const before = /([A-Za-z_][A-Za-z0-9_:]*)!?\s*$/.exec(masked.slice(0, at))
+        return before ? (before[1].split('::').pop() ?? '') : ''
+      }
+      depth -= 1
+    } else if (depth === 0 && (char === ';' || char === '{' || char === '}')) {
+      return ''
+    }
+  }
+  return ''
+}
+
+/** The lines a `// not-a-prompt:` marker accounts for: its own, and the run of
+ * non-blank lines under it. */
+function accountedFor(source) {
+  const covered = new Set()
+  const all = lines(source)
+  all.forEach((line, index) => {
+    if (!/\/\/\s*not-a-prompt:\s*\S/.test(line)) return
+    for (let at = index; at < all.length && all[at].trim() !== ''; at += 1) covered.add(at + 1)
+  })
+  return covered
+}
+
+function checkNoHostTextLiterals() {
+  for (const file of walk(join(ROOT, 'src-tauri'), (name) => name.endsWith('.rs'))) {
+    // A test file is one long assertion about text it never sends.
+    if (file.split(sep).includes('tests')) continue
+
+    const source = readFileSync(file, 'utf8')
+    const { masked, literals } = mask(source)
+    const regions = testRegions(masked)
+    const covered = accountedFor(source)
+
+    for (const literal of literals) {
+      const words = literal.content.split(/\s+/).filter((word) => /[a-z]/i.test(word))
+      const ideographs = (literal.content.match(IDEOGRAPH) ?? []).length
+      if (words.length < PROSE_WORDS && ideographs < PROSE_IDEOGRAPHS) continue
+      if (regions.some(([from, to]) => literal.start > from && literal.start < to)) continue
+      if (DIAGNOSTIC.has(enclosingCall(masked, literal.start))) continue
+
+      const line = lines(source.slice(0, literal.start)).length
+      if (covered.has(line)) continue
+
+      fail(
+        'prompts',
+        file,
+        'reads as host prompt text; give it an id and a default file in demido-prompts, or account for it with a `// not-a-prompt:` comment',
+        line,
+      )
     }
   }
 }
@@ -913,7 +1291,9 @@ function report() {
   for (const [name, values] of Object.entries(readThemes())) {
     const colour = (role) => parse(values[`--color-${role}`] ?? '', null)
     const surfaces = SURFACES.map((r) => [r, colour(r)]).filter(([, c]) => c)
-    const [worstRole, worstRgb] = surfaces.reduce((a, b) => (luminance(a[1]) > luminance(b[1]) ? a : b))
+    const [worstRole, worstRgb] = surfaces.reduce((a, b) =>
+      luminance(a[1]) > luminance(b[1]) ? a : b,
+    )
     console.log(`\ntheme "${name}", measured against --color-${worstRole} (the lightest surface):`)
     for (const role of [...READABLE, 'ink-4']) {
       const rgb = colour(role)
@@ -923,7 +1303,9 @@ function report() {
     const fall = colour('fall')
     if (rise && fall) {
       for (const kind of ['deutan', 'protan']) {
-        console.log(`  rise/fall ${kind} separation   ${deltaE(dichromat(rise, kind), dichromat(fall, kind)).toFixed(1)}`)
+        console.log(
+          `  rise/fall ${kind} separation   ${deltaE(dichromat(rise, kind), dichromat(fall, kind)).toFixed(1)}`,
+        )
       }
     }
   }

@@ -1,0 +1,61 @@
+#!/bin/sh
+# Formatting and type checking, before the commit exists.
+#
+# The companion to `commit-msg`, which checks the message. This checks the code.
+# Both are the cheap gate; CI is the one that cannot be skipped, so a violation
+# here costs a re-run and a violation there costs a rebase.
+#
+# Install: git config core.hooksPath .githooks
+#
+# It runs the whole tree rather than the staged subset. A partial commit that
+# passes because the broken file was not staged is a hook that teaches a session
+# to ignore hooks, which is the failure mode #16 named when it deferred this
+# until there was code to check.
+#
+# See AGENTS.md, Commands.
+
+set -e
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+step() {
+  printf 'pre-commit: %s\n' "$1" >&2
+}
+
+fail() {
+  printf 'pre-commit: %s\n' "$1" >&2
+  printf '            fix it, or commit with --no-verify and answer to CI instead\n' >&2
+  exit 1
+}
+
+# Rust. `--check` rather than a rewrite: a hook that edits the tree under a
+# commit is a hook that commits something nobody read.
+if [ -f src-tauri/Cargo.toml ]; then
+  step 'cargo fmt --check'
+  cargo fmt --manifest-path src-tauri/Cargo.toml --all --check || fail 'rustfmt found unformatted Rust'
+
+  step 'cargo clippy'
+  cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --quiet \
+    || fail 'clippy refused something; the lints are in src-tauri/Cargo.toml'
+fi
+
+# The frontend. Both need the workspace installed, and saying so beats a stack
+# trace from a missing binary.
+if [ -f package.json ]; then
+  [ -d node_modules ] || fail 'node_modules is missing; run pnpm install'
+
+  step 'prettier --check'
+  pnpm exec prettier --check . || fail 'Prettier found unformatted files; run pnpm format'
+
+  step 'tsc --noEmit'
+  pnpm typecheck || fail 'TypeScript refused the frontend'
+fi
+
+# The hard rules of AGENTS.md that read files rather than commit metadata. The
+# commit under construction is not in the range yet, so the attribution half of
+# this is the `commit-msg` hook's job and not this one's.
+step 'check-rules'
+node scripts/check-rules.mjs || fail 'a hard rule failed; see docs/rules/'
+
+exit 0

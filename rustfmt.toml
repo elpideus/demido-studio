@@ -1,0 +1,3 @@
+# Defaults, with the two settings this repo actually has an opinion about.
+edition = "2021"
+max_width = 100

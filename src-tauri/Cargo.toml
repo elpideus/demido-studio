@@ -1,0 +1,105 @@
+# The Cargo workspace. One member per crate under `crates/`, plus the Tauri
+# application itself, which is this package.
+#
+# Adding a crate is `crates/<name>/`, an `AGENTS.md` beside its `Cargo.toml`
+# (hard rule 9), and one line in `[workspace.dependencies]`. It is deliberately
+# not a design decision: see `docs/stack.md`.
+
+[workspace]
+members = ["crates/*"]
+
+[workspace.package]
+# The version being worked towards, not the last one shipped. See
+# `docs/rules/versioning.md`.
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+authors = ["Stefan Cucoranu <elpideus@gmail.com>"]
+repository = "https://github.com/elpideus/demido-studio"
+
+[workspace.dependencies]
+demido-catalog = { path = "crates/demido-catalog" }
+demido-chat = { path = "crates/demido-chat" }
+demido-core = { path = "crates/demido-core" }
+demido-hardware = { path = "crates/demido-hardware" }
+demido-inference = { path = "crates/demido-inference" }
+demido-prompts = { path = "crates/demido-prompts" }
+demido-runtimes = { path = "crates/demido-runtimes" }
+demido-settings = { path = "crates/demido-settings" }
+demido-setup = { path = "crates/demido-setup" }
+demido-shell = { path = "crates/demido-shell" }
+demido-trace = { path = "crates/demido-trace" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tracing = "0.1"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+
+# Clippy runs as a gate, so what it refuses is written down here rather than
+# passed on a command line that half the callers will forget.
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+# A panic in a desktop app is a window that vanishes. Startup never blocks
+# (`AGENTS.md`), and a subsystem that fails is reported and skipped, which is
+# not something `unwrap` can express.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[package]
+name = "demido-studio"
+# An application and its internal library. Never published to crates.io, which
+# is what lets the workspace path dependencies stay version-less.
+publish = false
+description = "An LLM harness that makes small models behave, and shows you why."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "demido_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+demido-catalog.workspace = true
+demido-chat.workspace = true
+demido-core.workspace = true
+demido-hardware.workspace = true
+demido-inference.workspace = true
+demido-runtimes.workspace = true
+demido-settings.workspace = true
+demido-setup.workspace = true
+demido-shell.workspace = true
+demido-trace.workspace = true
+serde.workspace = true
+# A setting's value crosses the boundary as whatever the schema says it is, so
+# the command that carries one takes a `Value` rather than a type per kind.
+serde_json.workspace = true
+tauri = { version = "2", features = ["devtools"] }
+# The startup sequence holds between stages and lingers on the finished scale
+# before the desk takes over (`src/boot.rs`). Tauri's async runtime is this
+# same tokio, so the timer is the one already running rather than a second one.
+tokio = { version = "1", features = ["time"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

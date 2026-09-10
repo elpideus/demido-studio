@@ -23,8 +23,9 @@ cannot drift from the thing it claims to track.
 
 **Decided.** The ticket that settled how this requirement is met, or `-`.
 
-**Built.** Where the code lives, or `-`. Everything is `-` today: v3 has no code
-yet.
+**Built.** Where the code lives, or `-`. Almost everything is `-`: the workspace
+landed on [#38](https://github.com/elpideus/demido-studio/issues/38) and the
+slices are what fill this column in.
 
 **Live.** A link to the Definition-of-Done evidence
 ([`docs/rules/done.md`](rules/done.md): a live-model scenario and a screenshot of
@@ -44,23 +45,23 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B01 | "check all the skills, plugins, and tools you have access to" | [#1](https://github.com/elpideus/demido-studio/issues/1) | - | n/a |
 | B56 | "I need to create apps on developer dashboards, provide API keys, etc." | [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
 | B02 | "a harness that integrates all the tools I need seamlessly" | [#17](https://github.com/elpideus/demido-studio/issues/17) | - | - |
-| B03 | "windows-only at first, during the pre-release versions" | [#31](https://github.com/elpideus/demido-studio/issues/31) | - | - |
+| B03 | "windows-only at first, during the pre-release versions" | [#31](https://github.com/elpideus/demido-studio/issues/31) | `src-tauri/tauri.conf.json`, `scripts/check-release.mjs`, `src-tauri/crates/demido-hardware/`: one NSIS installer at `currentUser` and no second target, checked at release time, over an accelerator probe gated on Windows and one line from the platform after it | [#49](https://github.com/elpideus/demido-studio/issues/49) |
 | B04 | "get the most out of even smaller models" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
 | B58 | "or the user tells it where it is wrong" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#23](https://github.com/elpideus/demido-studio/issues/23) | - | - |
 | B05 | "NOT this specific issue, but this specific KIND of issue" | [#13](https://github.com/elpideus/demido-studio/issues/13), [#22](https://github.com/elpideus/demido-studio/issues/22) | - | - |
-| B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#33](https://github.com/elpideus/demido-studio/issues/33) | - | - |
-| B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
+| B06 | "All prompts should be editable. Requests monitorable." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#33](https://github.com/elpideus/demido-studio/issues/33) | `src-tauri/crates/demido-prompts/`, and the log half of monitorable in `src-tauri/crates/demido-trace/`: the Session Monitor is a window that defers, the record it would read is not | [#49](https://github.com/elpideus/demido-studio/issues/49) |
+| B07 | "recorded in an append-only session log" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#26](https://github.com/elpideus/demido-studio/issues/26) | `src-tauri/crates/demido-trace/` | [#49](https://github.com/elpideus/demido-studio/issues/49) |
 | B08 | "reverting back the session and files to a previous status" | - | - | - |
-| B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#32](https://github.com/elpideus/demido-studio/issues/32) | - | - |
-| B61 | "since I will need a character system implemented later down the road so users can give LLMs personalities and ways of doing things" | [#32](https://github.com/elpideus/demido-studio/issues/32) | - | - |
-| B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
-| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27), [#28](https://github.com/elpideus/demido-studio/issues/28), [#29](https://github.com/elpideus/demido-studio/issues/29), [#30](https://github.com/elpideus/demido-studio/issues/30) | - | - |
+| B09 | "both at a model/global level as well as at a per-chat level" | [#8](https://github.com/elpideus/demido-studio/issues/8), [#32](https://github.com/elpideus/demido-studio/issues/32) | `src-tauri/crates/demido-settings/`, `web/src/settings/`, two tiers live and four stored | [#44](https://github.com/elpideus/demido-studio/issues/44), [#49](https://github.com/elpideus/demido-studio/issues/49) |
+| B61 | "since I will need a character system implemented later down the road so users can give LLMs personalities and ways of doing things" | [#32](https://github.com/elpideus/demido-studio/issues/32) | `src-tauri/crates/demido-settings/`: the character tier of the stored shape, and the system prompt as a ladder value rather than a field on a chat | - |
+| B10 | "The codebase should be modular and simple by design." | [#10](https://github.com/elpideus/demido-studio/issues/10) | `src-tauri/` | [#49](https://github.com/elpideus/demido-studio/issues/49) |
+| B11 | "Guided set-up on first launch" | [#21](https://github.com/elpideus/demido-studio/issues/21), [#27](https://github.com/elpideus/demido-studio/issues/27), [#28](https://github.com/elpideus/demido-studio/issues/28), [#29](https://github.com/elpideus/demido-studio/issues/29), [#30](https://github.com/elpideus/demido-studio/issues/30) | `src-tauri/crates/demido-hardware/`, `src-tauri/crates/demido-catalog/`, `src-tauri/crates/demido-runtimes/`, `src-tauri/crates/demido-setup/`, `web/src/setup/`: the accelerator detected, pre-selected and still a row, the manifest it picks from, the fetch that verifies what it took and owns it afterwards, and the wizard over the desk whose every step renders the control the settings page renders | [#48](https://github.com/elpideus/demido-studio/issues/48), partly: driven on a configured profile, not from zero ([#79](https://github.com/elpideus/demido-studio/issues/79)) |
 | B12 | "Multi-account system" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
 | B13 | "Two main chat modes: Chat and Agent." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B57 | "There should be 3 agent modes: Cautious, Balanced, Autonomous." | [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
 | B14 | "Deep integration of Caveman-like system" | - | - | - |
 | B15 | "Tool calling and custom tools" | [#14](https://github.com/elpideus/demido-studio/issues/14), [#20](https://github.com/elpideus/demido-studio/issues/20) | - | - |
-| B16 | "Markdown, LaTeX and Mermaid supported in the chat bubbles." | - | - | - |
+| B16 | "Markdown, LaTeX and Mermaid supported in the chat bubbles." | - | `web/src/chat/Markdown.tsx`, Markdown and fenced code only: LaTeX and Mermaid have no decision ticket and are not S1's to invent | - |
 | B17 | "Projects system that allows to group chats" | [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
 | B18 | "Native web search and fetch" | - | - | - |
 | B19 | "Configurable Agents & sub-agents system." | [#8](https://github.com/elpideus/demido-studio/issues/8), [#11](https://github.com/elpideus/demido-studio/issues/11), [#14](https://github.com/elpideus/demido-studio/issues/14) | - | - |
@@ -75,7 +76,7 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B62 | "the skill creator might need to change the tool description to better fit in their skill" | [#14](https://github.com/elpideus/demido-studio/issues/14), [#33](https://github.com/elpideus/demido-studio/issues/33) | - | - |
 | B21 | "Artifact system." | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B22 | "Models Browser & Downloader" | [#7](https://github.com/elpideus/demido-studio/issues/7) | - | - |
-| B55 | "Multiple folders should be set-able for model detection" | [#15](https://github.com/elpideus/demido-studio/issues/15) | - | - |
+| B55 | "Multiple folders should be set-able for model detection" | [#15](https://github.com/elpideus/demido-studio/issues/15), [#48](https://github.com/elpideus/demido-studio/issues/48) | `src-tauri/crates/demido-setup/src/discover.rs`, `web/src/setup/Controls.tsx`: the folders LM Studio and the others already fill, offered as rows to confirm, and every GGUF under the confirmed ones | [#48](https://github.com/elpideus/demido-studio/issues/48), partly: driven on a configured profile, not from zero ([#79](https://github.com/elpideus/demido-studio/issues/79)) |
 | B23 | "LLM capabilities support. Vision, Thinking toggling" | - | - | - |
 | B24 | "Task-model functionality." | [#24](https://github.com/elpideus/demido-studio/issues/24) | - | - |
 | B25 | "Accounts management system" | [#5](https://github.com/elpideus/demido-studio/issues/5), [#17](https://github.com/elpideus/demido-studio/issues/17), [#26](https://github.com/elpideus/demido-studio/issues/26) | - | - |
@@ -95,8 +96,8 @@ single "covered" column hides exactly the distinction that set v2 aside.
 | B38 | "Use a pastel-colors palette for a more polished feel." | [#6](https://github.com/elpideus/demido-studio/issues/6) | - | - |
 | B39 | "keep in mind to not mix-match systems for no reason" | [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B40 | "Keep arbitrary values like colors localized" | [#9](https://github.com/elpideus/demido-studio/issues/9) | - | - |
-| B41 | "There should be a splash small window" | [#6](https://github.com/elpideus/demido-studio/issues/6) | - | - |
-| B42 | "a VSCode-like Icons-only sidebar" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#8](https://github.com/elpideus/demido-studio/issues/8) | - | - |
+| B41 | "There should be a splash small window" | [#6](https://github.com/elpideus/demido-studio/issues/6) | `web/src/splash/`, `src-tauri/src/boot.rs` | [#47](https://github.com/elpideus/demido-studio/issues/47) |
+| B42 | "a VSCode-like Icons-only sidebar" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#8](https://github.com/elpideus/demido-studio/issues/8) | `web/src/shell/`, `src-tauri/crates/demido-shell/` | [#42](https://github.com/elpideus/demido-studio/issues/42), [#49](https://github.com/elpideus/demido-studio/issues/49) |
 | B43 | "Some panels should be movable by using a modifier key" | [#7](https://github.com/elpideus/demido-studio/issues/7), [#10](https://github.com/elpideus/demido-studio/issues/10) | - | - |
 | B44 | "you should test the project yourself" | [#11](https://github.com/elpideus/demido-studio/issues/11) | - | n/a |
 | B45 | "credited both in the source code and inside the program itself" | [#16](https://github.com/elpideus/demido-studio/issues/16), [#27](https://github.com/elpideus/demido-studio/issues/27) | - | n/a |

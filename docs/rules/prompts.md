@@ -252,15 +252,54 @@ Settings renders.
 1. **The eval pin is self-consistent.** `evals/lessons/AGENTS.md` records a
    digest for `evals/lessons/classifier.md`, and it must be the digest of that
    file, whitespace normalised to `\n`. **Enforced now.**
-2. **A shipped default matches its pin.** When
-   `src-tauri/crates/demido-prompts/defaults/<id>.md` exists for a pinned id, its
-   normalised text must hash to the pinned digest. **A no-op until the register
-   ships in S1.**
+2. **A shipped default matches its pin.**
+   `src-tauri/crates/demido-prompts/defaults/<id>.md` must exist for a pinned id
+   once the register ships, and its normalised text must hash to the pinned
+   digest. **Enforced now**, and real since the register landed on
+   [#40](https://github.com/elpideus/demido-studio/issues/40).
+3. **A default is a file.** Every `default:` in the register's declaration is an
+   `include_str!`. **Enforced now.** It is what makes a change to a default read
+   in review as a prose diff, and it is what leaves check 2 something to hash.
+4. **Host prose is not a literal.** A string in `src-tauri/` that reads as prose,
+   six words or more, fails unless it is a diagnostic or a `// not-a-prompt:`
+   comment accounts for it in one sentence. **Enforced now.**
 
-Two things this file specifies that CI cannot check until there is code: the
-class table against the class enum, and the placeholder declaration in both
-directions. Both are contract tests in the crate, and v2 already wrote the
-second one.
+Check 4 is the rule itself rather than its pins, and it is shaped the way rule 4
+is: everything that looks like prose is refused, and the places prose
+legitimately lives are named rather than guessed at. Three limits, written down
+because a check nobody trusts is a check somebody disables.
+
+- **Diagnostics are exempt.** A log line, an error's own sentence, a test's
+  failure message, an attribute's own prose and the macros that read a file at
+  compile time are all prose for a person and never reach a payload. `format!`
+  is on that list and it is the one entry that is a judgement rather than a
+  fact: every sentence Demido builds for a person interpolates the path or the
+  error it is about, and a prompt never does, because a prompt's holes are
+  declared placeholders that `Prompt::fill` puts values in. Prose assembled by
+  `format!` is therefore read as a message. A system prompt smuggled through
+  `format!` would pass, and nothing but review catches it.
+- **Tests are exempt.** A `tests/` file and a `#[cfg(test)]` item are one long
+  assertion about text, and a suite that quotes a paragraph in order to check it
+  sends nothing. The contract probe in `demido-inference`'s contract module is
+  the exception that proves it: it is in `src/`, it really is sent to a model,
+  and it carries a `// not-a-prompt:` line saying a test sends it and a turn
+  never does.
+- **`web/` is not scanned.** The payload is assembled in Rust. Scanning UI copy
+  would drown the signal, and a frontend that composed a prompt would be a
+  different violation than this one.
+- **Six words is a threshold, not a boundary.** It was measured against the
+  workspace as it stood: the only literal that long in it was one `tracing::info!`
+  message. A five word prompt fragment passes, and the register is what makes
+  writing one pointless rather than the check. Twelve characters is the same
+  threshold for a script that puts no spaces between words, because the register
+  ships three wenyan paragraphs and counting words would find none in them.
+
+Two things this file specifies that CI cannot check: the class table against the
+vocabulary, and the placeholder declaration in both directions. Both are contract
+tests in the crate, `tests/class_table.rs` and `catalog`'s own suite. The first
+reads `docs/rules/lessons.md` directly, because the vocabulary has one owner and
+a copy of it inside the crate to test against would be a third place the thirteen
+classes are written down.
 
 ## What this deliberately does not do
 
