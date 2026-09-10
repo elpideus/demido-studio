@@ -8,6 +8,7 @@
 pnpm-lock.yaml
 src-tauri/gen/
 src-tauri/target/
+web/.vite/
 web/dist/
 node_modules/
 
