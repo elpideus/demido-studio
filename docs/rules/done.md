@@ -271,6 +271,20 @@ second Windows user costs nothing and Windows guarantees the profile is empty
 Windows user, the wizard run from zero, and the managed route carrying a real
 conversation into a real window, with a screenshot and the trace as ever.
 
+**The fixture was deferred, and the deferral is the point of saying so.**
+[#49](https://github.com/elpideus/demido-studio/issues/49) closed S1 on a
+configured profile: the desk, the turn loop and the streamed answer were driven,
+and the wizard from zero, the real fetch and the per-row retry were not. Those
+three moved to [#79](https://github.com/elpideus/demido-studio/issues/79) rather
+than being dropped, so the paragraph above still describes what S1 owes and #79
+is where the debt is carried.
+
+This is the first time this file has been read and then not followed, and it is
+recorded here rather than only on the ticket, because a rule that quietly went
+unmet once is how the audit-milestone failure starts. What was traded is a
+sitting; what was bought is the risk that #48's coldest path is broken and
+nobody knows yet.
+
 ### S2: a model uses a tool, and you can see why
 
 Tool calling through the backend's own grammar, and enough trace surface to read
