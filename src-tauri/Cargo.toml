@@ -29,6 +29,7 @@ demido-runtimes = { path = "crates/demido-runtimes" }
 demido-settings = { path = "crates/demido-settings" }
 demido-setup = { path = "crates/demido-setup" }
 demido-shell = { path = "crates/demido-shell" }
+demido-tools = { path = "crates/demido-tools" }
 demido-trace = { path = "crates/demido-trace" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

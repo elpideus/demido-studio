@@ -1,0 +1,29 @@
+[package]
+name = "demido-tools"
+description = "The tool trait, the registry, and the Files group confined to a workspace."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# A tool runs asynchronously because one of them will run a program (#51). The
+# five here never await anything, and are async so that the trait does not have
+# to change shape the first time one does.
+async-trait = "0.1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Confinement is only interesting against real paths, real symlinks and the
+# real path shapes Windows accepts, so every test here stands on a real
+# directory rather than on a filesystem trait.
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }
