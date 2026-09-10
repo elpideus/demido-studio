@@ -95,7 +95,7 @@ impl Setup {
             .unwrap_or_else(|held| held.into_inner()) = cancel;
     }
 
-    /// Call off the fetch in flight. `false` when there was none.
+    /// Signal the fetch in flight. `false` when there was none to signal.
     ///
     /// Nothing is deleted and nothing is recorded: the `.part` file is left
     /// exactly where it was, which is what makes the next fetch a resume
@@ -195,12 +195,15 @@ pub struct AcceleratorView {
     /// One per accelerator, always, including the ones no build is fetched
     /// for. A row's absence is a question nobody can ask about.
     pub rows: Vec<demido_catalog::Row>,
-    /// The accelerators this machine's cards indicate, which is not the same
-    /// question as which rows can be taken: `Vendor::indicates` keeps the two
-    /// apart so "a row nobody can pick yet is still an honest row", and the
-    /// vendor mark is the one thing that has to follow the hardware rather
-    /// than the manifest (`design/tokens.css`, the `--brand-*` block).
-    pub present: Vec<Ecosystem>,
+    /// Who made the cards in this machine, each named once.
+    ///
+    /// Not which rows can be taken, which is the manifest's answer, and not
+    /// what detection recommends, which is `preselection`. It is here for one
+    /// thing: the vendor mark is at full strength only where that vendor's
+    /// card is actually in the machine (`design/tokens.css`, the `--brand-*`
+    /// block), and that is a question about hardware rather than about what
+    /// Demido has pinned.
+    pub vendors: Vec<demido_hardware::Vendor>,
     /// What the machine indicated and why. The window writes the sentence.
     pub preselection: Preselection,
     /// The row selected right now.
@@ -283,7 +286,7 @@ fn view(setup: &Setup) -> demido_core::Result<View> {
         closed: answers.closed,
         accelerator: AcceleratorView {
             rows: selector.rows.clone(),
-            present: present(setup.machine()),
+            vendors: vendors(setup.machine()),
             preselection: selector.preselection.clone(),
             chosen: selector.chosen,
             overridden: answers
@@ -381,17 +384,19 @@ fn manifest(selector: &Selector<'_>, answers: &Answers, ledger: &Ledger) -> Vec<
     groups
 }
 
-/// The accelerators this machine's cards indicate, each named once.
+/// Who made the cards in this machine, each named once.
 ///
-/// A fact about the hardware and nothing else: a card whose accelerator has no
-/// build yet is still a card that is here, which is the distinction
-/// `Vendor::indicates` exists to keep.
-fn present(machine: &Machine) -> Vec<Ecosystem> {
-    let mut found: Vec<Ecosystem> = Vec::new();
+/// The vendor and not what it indicates: `Vendor::indicates` answers which
+/// accelerator a card is driven through, which sends Intel and everything
+/// unrecognised to Vulkan, and Vulkan is an API rather than a vendor. Asking it
+/// whose hardware is present would coat the Vulkan row in Khronos red on a
+/// machine whose only adapter is a virtual one, and leave it grey on a machine
+/// with a card that runs Vulkan perfectly well.
+fn vendors(machine: &Machine) -> Vec<demido_hardware::Vendor> {
+    let mut found: Vec<demido_hardware::Vendor> = Vec::new();
     for gpu in &machine.gpus {
-        let ecosystem = gpu.vendor.indicates();
-        if !found.contains(&ecosystem) {
-            found.push(ecosystem);
+        if !found.contains(&gpu.vendor) {
+            found.push(gpu.vendor);
         }
     }
     found
@@ -579,10 +584,16 @@ pub async fn setup_fetch(app: AppHandle) -> demido_core::Result<View> {
     view(&setup)
 }
 
-/// Call off the fetch in flight. `false` when there was none.
+/// Signal the fetch in flight. `false` when there was none to signal.
 ///
-/// `docs/rules/runtimes.md`: what is on disk when this returns is the partial
-/// file, so taking the fetch up again costs the bytes that did not arrive
+/// Not "the fetch stopped": the token is read between chunks, so a cancel that
+/// arrives after the last byte does not unpick an unpack and a verification
+/// already under way, and that row installs. What the answer says is whether
+/// there was a fetch listening, which is why the window does not draw anything
+/// from it and waits for `setup_fetch` to return the view instead.
+///
+/// `docs/rules/runtimes.md`: what is on disk when a fetch does stop is the
+/// partial file, so taking it up again costs the bytes that did not arrive
 /// rather than all of them.
 #[tauri::command]
 pub fn setup_cancel_fetch(wiring: tauri::State<'_, Wiring>) -> bool {

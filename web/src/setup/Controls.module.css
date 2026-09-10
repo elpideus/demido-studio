@@ -102,15 +102,14 @@
   background: var(--brand-amd);
 }
 
-.mark[data-brand='vulkan'] {
-  background: var(--brand-vulkan);
-}
-
 /* Absent hardware greys the mark rather than hiding it, the way a capability
  * tag is greyed and never hidden: the row still says what it is about. It keys
  * on the hardware and not on whether a build is fetched, because the mark is a
  * claim about the card rather than about our manifest. */
-.mark[data-present='false'] {
+/* `[data-brand]` is carried along so this outranks the colour rules above on
+ * specificity rather than on source order, which a reorder would silently
+ * break. */
+.mark[data-brand][data-present='false'] {
   background: var(--color-ink-3);
 }
 

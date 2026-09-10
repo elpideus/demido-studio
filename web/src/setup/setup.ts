@@ -24,6 +24,9 @@ import { useToasts } from '@/shell/toasts'
 /** An accelerator, as Rust names it. */
 export type Ecosystem = 'cuda' | 'rocm' | 'vulkan' | 'cpu'
 
+/** Who made an adapter, resolved from its PCI vendor id. The Rust `Vendor`. */
+export type Vendor = 'nvidia' | 'amd' | 'intel' | 'other'
+
 /** The CUDA a driver runs. The Rust `CudaVersion`. */
 export type CudaVersion = { major: number; minor: number }
 
@@ -49,10 +52,10 @@ export type AcceleratorRow = {
 
 export type Accelerator = {
   rows: AcceleratorRow[]
-  /** The accelerators this machine's cards indicate, which is not which rows
-   * can be taken: the Rust `Vendor::indicates` keeps those apart, and the
-   * vendor mark follows the hardware rather than the manifest. */
-  present: Ecosystem[]
+  /** Who made the cards in this machine. The Rust `Vendor`, and the only thing
+   * the vendor mark is allowed to key on: a card being here is a fact about
+   * hardware, while whether a row can be taken is the manifest's answer. */
+  vendors: Vendor[]
   preselection: { ecosystem: Ecosystem; reason: Reason }
   chosen: Ecosystem
   overridden: boolean
@@ -250,7 +253,11 @@ export const useSetup = create<Setup>((set, get) => ({
   },
 
   finish: async () => {
-    set({ busy: true })
+    // Finishing is not a `gesture` (it takes a presence back, not a view), so
+    // it clears the sentence itself. The manifest control is the settings
+    // page's as well as the wizard's, and a reason left behind would surface
+    // there after the wizard had closed.
+    set({ busy: true, failed: null })
     try {
       // The presence comes back because loading is minutes and the chat store
       // is what draws every state of it. It is handed over rather than kept
@@ -275,10 +282,12 @@ async function gesture(
   write: () => Promise<View>,
 ): Promise<void> {
   try {
-    // A gesture that landed makes the last fetch's sentence stale: the rows it
-    // was about have just been replaced. Without this the reason outlives the
-    // retry button, which disappears with the foot as soon as nothing is
-    // ticked, and promises a resume nothing can start.
+    // Any gesture that landed moved the set-up on, so the last fetch's
+    // sentence is about a screen that is gone. Without this the reason outlives
+    // the retry button, which disappears with the foot as soon as nothing is
+    // ticked, and promises a resume nothing can start. Every gesture and not
+    // only the ones about runtime rows, because the cheap mistake here is a
+    // stale sentence and there is no cost to clearing one early.
     set({ view: await write(), failed: null })
   } catch (error) {
     useToasts.getState().show(sentence(error))

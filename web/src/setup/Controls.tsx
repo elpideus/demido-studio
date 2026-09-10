@@ -10,6 +10,7 @@ import {
   type Reason,
   type RowState,
   type RuntimeRow,
+  type Vendor,
 } from './setup'
 import styles from './Controls.module.css'
 
@@ -46,7 +47,7 @@ export function AcceleratorControl() {
   const view = useSetup((setup) => setup.view)
   const choose = useSetup((setup) => setup.choose)
   if (!view) return null
-  const { rows, preselection, chosen, overridden, present } = view.accelerator
+  const { rows, preselection, chosen, overridden, vendors } = view.accelerator
 
   return (
     <div className={styles.control}>
@@ -57,6 +58,7 @@ export function AcceleratorControl() {
       <div className={styles.rows} role="radiogroup" aria-label="Accelerator">
         {rows.map((row) => {
           const offered = row.availability.availability === 'offered'
+          const made = vendor(row.ecosystem)
           return (
             <button
               key={row.ecosystem}
@@ -81,15 +83,16 @@ export function AcceleratorControl() {
                       picker of four logos is the logo wall that block refuses.
                       CPU carries none, because it names no vendor.
 
-                      `present` and not `offered`: a card that is here with no
-                      build fetched for it yet is still a card that is here, and
-                      greying its vendor over our own manifest would be the mark
-                      saying something about the hardware that is not true. */}
-                  {mark(row.ecosystem) && (
+                      The vendor and not whether the row is offered: a card
+                      that is here with no build fetched for it yet is still a
+                      card that is here, and greying its vendor over our own
+                      manifest would be the mark saying something about the
+                      hardware that is not true. */}
+                  {made && (
                     <span
                       className={styles.mark}
-                      data-brand={mark(row.ecosystem)}
-                      data-present={present.includes(row.ecosystem)}
+                      data-brand={made}
+                      data-present={vendors.includes(made)}
                       aria-hidden
                     />
                   )}
@@ -467,15 +470,18 @@ function total(rows: RuntimeRow[], of: (row: RuntimeRow) => number): number {
 }
 
 /** What an accelerator is called, which is not what its slug is. */
-/** Whose hardware a row is about, or nothing when it names no vendor. */
-function mark(ecosystem: Ecosystem): 'nvidia' | 'amd' | 'vulkan' | null {
+/** Whose hardware a row is about, or nothing when it names no vendor.
+ *
+ * Two rows of four. Vulkan is an API and CPU is the machine, so neither is a
+ * vendor whose presence could be checked, and a mark that cannot honour "only
+ * where the hardware is present" is a mark that does not belong on the row. */
+function vendor(ecosystem: Ecosystem): Vendor | null {
   switch (ecosystem) {
     case 'cuda':
       return 'nvidia'
     case 'rocm':
       return 'amd'
     case 'vulkan':
-      return 'vulkan'
     case 'cpu':
       return null
   }
