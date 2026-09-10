@@ -107,8 +107,10 @@
 }
 
 /* Absent hardware greys the mark rather than hiding it, the way a capability
- * tag is greyed and never hidden: the row still says what it is about. */
-.option[data-offered='false'] .mark {
+ * tag is greyed and never hidden: the row still says what it is about. It keys
+ * on the hardware and not on whether a build is fetched, because the mark is a
+ * claim about the card rather than about our manifest. */
+.mark[data-present='false'] {
   background: var(--color-ink-3);
 }
 

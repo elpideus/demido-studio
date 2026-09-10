@@ -46,7 +46,7 @@ export function AcceleratorControl() {
   const view = useSetup((setup) => setup.view)
   const choose = useSetup((setup) => setup.choose)
   if (!view) return null
-  const { rows, preselection, chosen, overridden } = view.accelerator
+  const { rows, preselection, chosen, overridden, present } = view.accelerator
 
   return (
     <div className={styles.control}>
@@ -79,9 +79,19 @@ export function AcceleratorControl() {
                       `design/tokens.css` states over the `--brand-*` block. A
                       swatch rather than a logo: the use is nominative, and a
                       picker of four logos is the logo wall that block refuses.
-                      CPU carries none, because it names no vendor. */}
+                      CPU carries none, because it names no vendor.
+
+                      `present` and not `offered`: a card that is here with no
+                      build fetched for it yet is still a card that is here, and
+                      greying its vendor over our own manifest would be the mark
+                      saying something about the hardware that is not true. */}
                   {mark(row.ecosystem) && (
-                    <span className={styles.mark} data-brand={mark(row.ecosystem)} aria-hidden />
+                    <span
+                      className={styles.mark}
+                      data-brand={mark(row.ecosystem)}
+                      data-present={present.includes(row.ecosystem)}
+                      aria-hidden
+                    />
                   )}
                   {label(row.ecosystem)}
                 </span>
@@ -166,7 +176,9 @@ export function ManifestControl() {
           control that appears here. */}
       {failed && !busy && (
         <p className={styles.failed} role="status">
-          {failed} What arrived is still on disk, so taking it up again costs the rest rather than
+          {/* The full stop is here because no `demido_core::Error` carries one,
+              and two sentences run together without it. */}
+          {failed}. What arrived is still on disk, so taking it up again costs the rest rather than
           all of it.
         </p>
       )}

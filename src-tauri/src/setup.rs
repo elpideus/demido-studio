@@ -26,7 +26,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use demido_catalog::{Archive, Availability, Group, Kind, Selector};
 use demido_hardware::{Ecosystem, Machine, Preselection};
 use demido_runtimes::{
-    Installed, Ledger, Outcome, Progress, RowState, Runtimes, Verification, LLAMA_CPP,
+    FetchError, Installed, Ledger, Outcome, Progress, RowState, Runtimes, Verification, LLAMA_CPP,
 };
 use demido_setup::{Answers, Model, Plan, Store as _};
 
@@ -195,6 +195,12 @@ pub struct AcceleratorView {
     /// One per accelerator, always, including the ones no build is fetched
     /// for. A row's absence is a question nobody can ask about.
     pub rows: Vec<demido_catalog::Row>,
+    /// The accelerators this machine's cards indicate, which is not the same
+    /// question as which rows can be taken: `Vendor::indicates` keeps the two
+    /// apart so "a row nobody can pick yet is still an honest row", and the
+    /// vendor mark is the one thing that has to follow the hardware rather
+    /// than the manifest (`design/tokens.css`, the `--brand-*` block).
+    pub present: Vec<Ecosystem>,
     /// What the machine indicated and why. The window writes the sentence.
     pub preselection: Preselection,
     /// The row selected right now.
@@ -277,6 +283,7 @@ fn view(setup: &Setup) -> demido_core::Result<View> {
         closed: answers.closed,
         accelerator: AcceleratorView {
             rows: selector.rows.clone(),
+            present: present(setup.machine()),
             preselection: selector.preselection.clone(),
             chosen: selector.chosen,
             overridden: answers
@@ -372,6 +379,22 @@ fn manifest(selector: &Selector<'_>, answers: &Answers, ledger: &Ledger) -> Vec<
         }
     }
     groups
+}
+
+/// The accelerators this machine's cards indicate, each named once.
+///
+/// A fact about the hardware and nothing else: a card whose accelerator has no
+/// build yet is still a card that is here, which is the distinction
+/// `Vendor::indicates` exists to keep.
+fn present(machine: &Machine) -> Vec<Ecosystem> {
+    let mut found: Vec<Ecosystem> = Vec::new();
+    for gpu in &machine.gpus {
+        let ecosystem = gpu.vendor.indicates();
+        if !found.contains(&ecosystem) {
+            found.push(ecosystem);
+        }
+    }
+    found
 }
 
 /// Which ledger row an archive belongs to.
@@ -504,9 +527,11 @@ pub fn setup_resume(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<Vie
 /// Fetch the ticked rows, verify them, and report the bytes as they arrive.
 ///
 /// The cancel is armed for as long as this runs, so [`setup_cancel_fetch`] can
-/// reach it. A cancelled fetch returns the view like any other: what it left on
-/// disk is a partial file the next fetch resumes from, and the row is still
-/// absent, which is the truth the wizard should draw.
+/// reach it. A cancelled fetch returns the view rather than the refusal the
+/// fetcher raises: somebody asking for a stop and getting an error step is
+/// being told their own decision went wrong. What is on disk afterwards is a
+/// partial file the next fetch resumes from, and the row is still absent, which
+/// is the truth the wizard should draw.
 #[tauri::command]
 pub async fn setup_fetch(app: AppHandle) -> demido_core::Result<View> {
     let (setup, runtimes) = {
@@ -535,8 +560,18 @@ pub async fn setup_fetch(app: AppHandle) -> demido_core::Result<View> {
             // Disarmed before the error is raised, so a refusal does not leave
             // a cancelled token armed for the retry to trip over.
             setup.arm(None);
-            if let Outcome::Refused { reason } = fetched? {
-                tracing::warn!(reason, "the fetched runtime did not verify");
+            match fetched {
+                Ok(Outcome::Refused { reason }) => {
+                    tracing::warn!(reason, "the fetched runtime did not verify");
+                }
+                Ok(_) => {}
+                // A stop is not a failure. The fetcher has no way to say so but
+                // by the error path, and this is the only caller that knows the
+                // stop was asked for.
+                Err(demido_runtimes::Error::Fetch(FetchError::Cancelled { archive })) => {
+                    tracing::info!(archive, "the fetch was called off");
+                }
+                Err(error) => return Err(error.into()),
             }
         }
     }

@@ -49,6 +49,10 @@ export type AcceleratorRow = {
 
 export type Accelerator = {
   rows: AcceleratorRow[]
+  /** The accelerators this machine's cards indicate, which is not which rows
+   * can be taken: the Rust `Vendor::indicates` keeps those apart, and the
+   * vendor mark follows the hardware rather than the manifest. */
+  present: Ecosystem[]
   preselection: { ecosystem: Ecosystem; reason: Reason }
   chosen: Ecosystem
   overridden: boolean
@@ -217,6 +221,10 @@ export const useSetup = create<Setup>((set, get) => ({
       // its own to sit on, and a download is the thing a person is most likely
       // to have looked away from.
       set({ failed: sentence(error) })
+      // A fetch is several archives, so one failing leaves the ones that did
+      // arrive settled on disk and stale on screen. `read` does not clear the
+      // sentence, which is why it is not a `gesture`.
+      await get().read()
     } finally {
       set({ busy: false, fetching: null })
     }
@@ -267,7 +275,11 @@ async function gesture(
   write: () => Promise<View>,
 ): Promise<void> {
   try {
-    set({ view: await write() })
+    // A gesture that landed makes the last fetch's sentence stale: the rows it
+    // was about have just been replaced. Without this the reason outlives the
+    // retry button, which disappears with the foot as soon as nothing is
+    // ticked, and promises a resume nothing can start.
+    set({ view: await write(), failed: null })
   } catch (error) {
     useToasts.getState().show(sentence(error))
   }
