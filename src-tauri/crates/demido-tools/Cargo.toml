@@ -13,13 +13,24 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-# A tool runs asynchronously because one of them will run a program (#51). The
-# five here never await anything, and are async so that the trait does not have
-# to change shape the first time one does.
+# A tool runs asynchronously because `run_command` runs a program. The Files
+# group never awaits anything, and is async so that there is one trait.
 async-trait = "0.1"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# `run_command`: the child, both of its pipes read while it runs, and the
+# deadline it is killed at.
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "time"] }
+
+[target.'cfg(windows)'.dependencies]
+# A job object, so killing a call kills what the call started. See `src/tree.rs`.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 # Confinement is only interesting against real paths, real symlinks and the

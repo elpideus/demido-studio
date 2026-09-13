@@ -1,7 +1,7 @@
 # demido-tools
 
 What a model can do, and where it may do it: the tool trait, the registry, the
-workspace every path goes through, and the Files group.
+workspace every path goes through, the Files group, and the Shell group.
 
 Brief B15: "Tool calling and custom tools like run_command, read_file, write_file, delete_file, list_dir, etc."
 
@@ -52,11 +52,10 @@ outside it with something worth stealing in it) and holds it to three promises:
    accident, an `Intent` never claims to touch a path it could not reach, and
    nothing outside is read, written or taken away.
 
-`tests/confinement.rs` calls it for every tool in `files()`. **An implementation
-that does not call it is not an implementation**, which is the rule's own
-wording and is what `run_command`
-([#51](https://github.com/elpideus/demido-studio/issues/51)) and any tool named
-by a server Demido did not write inherit by calling it.
+`tests/confinement.rs` calls it for every tool in `files()` and `shell()`. **An
+implementation that does not call it is not an implementation**, which is the
+rule's own wording, and it is what any tool named by a server Demido did not
+write inherits by calling it.
 
 `Tool` is an unusual trait to hold this way, because its implementations are not
 interchangeable: nobody swaps `read_file` for `write_file`, so it is not a tile
@@ -81,6 +80,107 @@ handed instead of `Context::resolve`, both fail it, each naming the tool.
 | `files` | `read_file`, `write_file`, `delete_file`. |
 | `listing` | `list_directory`. |
 | `search` | `search_files`, first-party rather than whatever `grep` is on the machine. |
+| `command` | `run_command`, the Shell group. |
+| `tree` | A job object: killing a call kills everything the call started. |
+
+## run_command
+
+The Shell group, one tool, [#51](https://github.com/elpideus/demido-studio/issues/51).
+It declares `Ability::Shell`, and four things about it are worth knowing before
+touching it.
+
+**A shell is confined where it starts and nowhere else.** `cwd` goes through
+`Context::resolve_dir` like every other path, which is what the contract holds
+it to, and a running program can then reach whatever the user can. That is the
+whole reason it is `Shell` and the cautious modes ask.
+
+**A command that ran failed by its exit status, never by stderr.** There is no
+tool-result record in v3 yet
+([#54](https://github.com/elpideus/demido-studio/issues/54),
+[#55](https://github.com/elpideus/demido-studio/issues/55)), so the field is the
+`Outcome` itself: a command that exits non-zero, or is killed at its deadline,
+is `Err`, and one that exits zero is `Ok` however much it wrote to stderr, per
+[`lessons.md`](../../../docs/rules/lessons.md). A call refused before anything
+ran (no command, a `cwd` outside the workspace, `cmd.exe` not starting) is
+`Err` as well, because it is a failed call like any other tool's. What
+`lessons.md` rules out is stderr as a trigger, and nothing here uses it; when
+the record arrives, whether a lesson may anchor to a refusal is that ticket's to
+decide, and the message says which kind it was. A killed command gets
+the runner's own line, `the command did not finish within <n> seconds and was
+killed`, because a failure with no text never becomes a lesson.
+
+**The call owns its tree.** The child goes into a job object on the line after
+the spawn, and the job is killed when the child exits, when the deadline
+passes, and when the call's future is dropped, which is what stopping a
+generation mid call does. Nothing a command started outlives the call that
+started it, including a server somebody meant to leave running. That is
+deliberate for now: a background process nobody in the window can see or stop
+is the leak this exists to prevent, and the day a model needs to start one on
+purpose is the day that becomes a tool of its own. On Unix `tree` is a no-op.
+
+**`destructive` is decided per call, from the command.** `looks_destructive`
+is a net and not a wall: it recognises a program whose purpose is to remove
+something (`rm`, `del`, `taskkill`) and a handful of phrases where the flag is
+the danger (`reset --hard`, `push --force`), and it will miss `xargs rm`. It
+lives in `RunCommand::intent`, which is the declaration the matrix reads, so it
+is still the tool saying what one call is about to do rather than anybody
+keeping a list of names.
+
+**This departs from [`tools.md`](../../../docs/rules/tools.md), and it is open.**
+That file says a tool that is unsure should declare itself destructive, and a
+shell is unsure about every command it does not recognise. Following it
+literally makes every command destructive, so Autonomous asks before each one
+and its Shell column means nothing. v2 chose the net and so does this, until
+Stefan decides between the rule and the column; until then, in Autonomous, an
+unrecognised destructive command runs without asking.
+
+### What is not tested automatically, and why
+
+**There is no automated test of a hung child.** What is tested, against real
+`cmd.exe` and a real grandchild started with `start /b`: that a dropped call,
+a call past its deadline and a call that returned all leave nothing running,
+proved by a marker the grandchild would have written had it lived. What is not:
+
+- a child that hangs in a way the job cannot end, such as one stuck in a driver
+  call, or one that broke away from its job on purpose;
+- the window between spawning the child and putting it in the job (`tree.rs`
+  says why it is open);
+- stopping a real generation from the window while a command runs, which needs
+  the approval and the turn loop of
+  [#55](https://github.com/elpideus/demido-studio/issues/55) before anything can
+  press Stop on a tool call.
+
+The last one is owed to the window gate: the teardown is exercised by hand there
+and the result recorded in the closing comment.
+
+The ticket said there would be no automated test of a long-running child at
+all, and there are three, so this narrows its promise rather than keeping it.
+They turned out cheap and deterministic: the grandchild is a planted script that
+writes a marker after three seconds, so nothing waits on a process that might
+not end. What stays manual is exactly what cannot be made deterministic.
+
+Three smaller gaps, recorded rather than closed:
+
+- If the job object cannot be created or the child cannot be put in one,
+  `Tree::around` falls back to killing the child alone, and says nothing. The
+  crate has no logger to say it with, and refusing to run the command would be
+  worse than cleaning up after it less well.
+- A command killed at its deadline loses what it had printed; only the runner's
+  line comes back. That line is what `lessons.md` selects on, so the lesson
+  engine loses nothing, but a model does.
+- The working directory is written without `\\?\`, so a workspace path longer
+  than `MAX_PATH` cannot be one. `cmd.exe` could not use it with the prefix
+  either. The others are recorded here
+because a test that waits on a process the operating system cannot end is a
+test that hangs CI, and a suite that sometimes hangs is a suite people turn off.
+
+**Whether a bare name is found in the working directory is the user's call.**
+`cmd.exe` searches the current directory before `PATH` unless
+`NoDefaultCurrentDirectoryInExePath` is set, and the session that wrote this
+had it set, so `greet` failed where `.\greet` ran. `run_command` passes the
+environment through rather than overriding a setting somebody chose, and the
+tests name a planted script as `.\name`, which PATHEXT and the quoting apply to
+just the same.
 
 ## These tools deliberately get no seam
 
@@ -211,11 +311,78 @@ this ticket. Progressive disclosure arrives with the picker
 different question from the picker's, which
 [`tools.md`](../../../docs/rules/tools.md) is careful about.
 `Context::for_call` went with `delegate_task`, which is S4.
-`permission.rs` is [#53](https://github.com/elpideus/demido-studio/issues/53)'s
-and `command.rs` is [#51](https://github.com/elpideus/demido-studio/issues/51)'s,
-deliberately: `run_command` is one tool and most of a crate, and reviewing it
-alongside `demido-core`'s job objects is what keeps the Windows-shaped half in
-one place.
+`permission.rs` is [#53](https://github.com/elpideus/demido-studio/issues/53)'s.
+
+## The run_command and demido-core review
+
+Recorded on [#51](https://github.com/elpideus/demido-studio/issues/51).
+`run_command` depends on three things v2 kept in `demido-core`: the job
+object, `PATHEXT`, and the `cmd.exe` quoting. They were reviewed together, as
+the ticket asked, so that the Windows-shaped half is decided in one place.
+
+### Carried over, largely as it stood
+
+- **`command.rs`'s `shell`**: `cmd /d /s /c` with the whole command line put on
+  verbatim through `raw_arg`, and the comment about the model that found it.
+  `a_quoted_argument_reaches_the_program_the_way_it_was_typed` and the test with
+  a space in the program's name were checked by mutation: with a plain
+  `.arg(command)` both fail.
+- **`looks_destructive`**, with all three of its lists (programs, wrapper words,
+  phrases) and both of its test tables. `pwsh` joined the wrappers, and a
+  program named with its extension or its path is now recognised.
+- **The deadline**: 60 seconds unless asked, never more than 600.
+- **`demido-core::tree`**, into `tree.rs`: the job object, `KILL_ON_JOB_CLOSE`,
+  and the reasoning about why killing the child is not killing the work.
+
+### Rewritten, and why
+
+- **`tree` lives here, not in `demido-core`.** v3's `demido-core` says in its
+  own `AGENTS.md` that nothing which talks to a process belongs in it, and that
+  a type with one caller lives with its caller. In v2 two crates started trees
+  (MCP servers and the market sidecar); in v3 `run_command` is the only one.
+  If a second caller arrives, the move is to its own crate rather than down
+  into the bottom of the graph.
+- **The call owns its tree.** v2's `run_command` never used `tree` at all: it
+  relied on `kill_on_drop`, which kills `cmd.exe` and leaves whatever `cmd.exe`
+  started, and `output()`, which waits for every holder of the pipes. A
+  grandchild started with `start /b` therefore held a v2 call open until it
+  finished, and survived a stopped one. v3 kills the job when the child exits,
+  at the deadline and on drop.
+- **`failed` follows the exit status.** v2 answered a non-zero exit with `Ok`
+  and an `(exit code N)` line, so a failed command and a successful one were the
+  same arm and `failed` had to be inferred from prose. It is `Err` now, and a
+  zero exit with stderr is `Ok` (`lessons.md`).
+- **The deadline's message is the runner's line from `lessons.md`**, rather
+  than v2's wording, because the lesson engine selects on it.
+- **`cwd` is new.** v2 always ran in the workspace root. Taking a directory
+  gives the contract's confinement half something to hold `run_command` to,
+  and costs a model nothing it had.
+- **Output is cut at a ceiling**, per stream, and the pipes are drained past it
+  so a chatty child never blocks on a full pipe. v2's description promised
+  shortening and nothing did it.
+- **The description and the parameter prose are gone**, to the register on
+  [#52](https://github.com/elpideus/demido-studio/issues/52), as for the Files
+  group.
+- **The working directory is written without `\\?\`.** A canonical workspace
+  root carries the prefix on Windows, and `cmd.exe` refuses it as a current
+  directory and quietly substitutes the Windows directory.
+
+### Not ported, and not missing
+
+- **`program.rs`** (`PATHEXT` resolved by hand). `CreateProcess` does not read
+  `PATHEXT`, which is why v2 needed it to spawn `npx` directly. `run_command`
+  spawns `cmd.exe`, which reads `PATHEXT` itself in its own order, and
+  `a_bare_name_finds_its_extension_the_way_a_terminal_would` holds it to that.
+  Its two v2 callers, MCP and the web fetch ladder, are not in v3.
+- **`child.rs` and `noise.rs`**: a long-lived child talking over its pipes.
+  `run_command`'s child is not long-lived and is not talked to. Their callers
+  are MCP and the market sidecar.
+- **`cancel.rs`**: v3 already has `demido-inference`'s `Cancel`, and a tool is
+  stopped by dropping its future, which is what the tests do.
+- **`atomic.rs`**: `write_file` and `demido-prompts` each stage and rename
+  inline, as #50 recorded. Two instances, not three.
+- **`paths.rs` and v2's `error.rs`**: v3's `demido-core` and `demido-settings`
+  already own what they did.
 
 Port quarantine still applies. Nothing here has been driven live yet; that is
 [#59](https://github.com/elpideus/demido-studio/issues/59).

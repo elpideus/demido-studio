@@ -15,7 +15,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use demido_tools::contract::{holds_for, Rig};
-use demido_tools::{files, Call, Registry, Workspace};
+use demido_tools::{files, shell, Call, Registry, Workspace};
 use serde_json::{json, Value};
 
 /// A project, a secret outside it, and both directories kept alive.
@@ -56,6 +56,25 @@ async fn every_tool_in_the_files_group_keeps_the_contract() {
     // cannot come apart. A fresh rig per tool, because the contract asserts
     // what is left outside afterwards.
     for tool in files() {
+        let (_project, outside, workspace) = rig();
+        holds_for(
+            tool.as_ref(),
+            Rig {
+                workspace: &workspace,
+                outside: outside.path(),
+            },
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn every_tool_in_the_shell_group_keeps_the_contract() {
+    // A shell is not confined by the workspace once it is running, and says so
+    // in `command.rs`. What the contract holds it to is where it starts: a
+    // `cwd` outside the project is refused as confinement, before anything
+    // runs, and nothing outside is touched.
+    for tool in shell() {
         let (_project, outside, workspace) = rig();
         holds_for(
             tool.as_ref(),

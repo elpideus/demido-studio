@@ -27,10 +27,11 @@
 //!    correct route the shortest one, and a tool determined to call `std::fs`
 //!    with a raw string still can.
 //!
-//! The suite exists now, with five implementations and before the sixth, which
+//! The suite was written with five implementations and before the sixth, which
 //! is the point of the rule. `run_command`
-//! ([#51](https://github.com/elpideus/demido-studio/issues/51)) and a tool
-//! named by a server Demido did not write both inherit it by calling it.
+//! ([#51](https://github.com/elpideus/demido-studio/issues/51)) was the sixth
+//! and is held to it by its `cwd`; a tool named by a server Demido did not
+//! write inherits it the same way, by calling it.
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 

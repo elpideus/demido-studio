@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::arguments;
+use crate::command::RunCommand;
 use crate::files::{DeleteFile, ReadFile, WriteFile};
 use crate::listing::ListDirectory;
 use crate::search::SearchFiles;
@@ -83,6 +84,15 @@ pub fn files() -> Vec<Box<dyn Tool>> {
     ]
 }
 
+/// The Shell group: `run_command`.
+///
+/// A group of one, and a group anyway: the picker offers groups
+/// ([`docs/rules/tools.md`](../../../../docs/rules/tools.md)), and "files but
+/// no shell" is a set it has to be able to say.
+pub fn shell() -> Vec<Box<dyn Tool>> {
+    vec![Box::new(RunCommand)]
+}
+
 /// The tools on offer, and where they may work.
 #[derive(Clone, Default)]
 pub struct Registry {
@@ -102,9 +112,12 @@ impl Registry {
 
     /// A registry holding the Files group, which is what v0.1 ships.
     pub fn of_files(workspace: Option<Workspace>) -> Self {
-        files()
-            .into_iter()
-            .fold(Self::open(workspace), Self::with_boxed)
+        Self::open(workspace).with_group(files())
+    }
+
+    /// Add a whole group, as `files()` or `shell()` hands it over.
+    pub fn with_group(self, group: Vec<Box<dyn Tool>>) -> Self {
+        group.into_iter().fold(self, Self::with_boxed)
     }
 
     /// Add one.
@@ -466,6 +479,20 @@ mod tests {
             .expect_err("nothing on offer");
         assert!(!failure.retryable, "no wording of the arguments fixes this");
         assert!(failure.message.contains("No workspace is set"), "{failure}");
+    }
+
+    #[tokio::test]
+    async fn run_command_is_registered_as_the_shell_group_and_runs_from_a_call() {
+        let (_dir, workspace) = workspace();
+        let registry = Registry::of_files(Some(workspace)).with_group(shell());
+
+        let planned = registry
+            .plan(&call("run_command", r#"{"command": "echo registered"}"#))
+            .expect("a plan");
+        assert_eq!(planned.intent.ability, Ability::Shell);
+
+        let answer = planned.run().await.expect("it ran");
+        assert!(answer.contains("registered"), "{answer}");
     }
 
     #[test]
