@@ -7,7 +7,7 @@
 //! a measurement was taken against.
 //!
 //! `docs/rules/prompts.md` splits that text into two **registers**, by who asks
-//! for it. This crate ships the first:
+//! for it. This crate ships both:
 //!
 //! | Register | Holds | Asked for by |
 //! |---|---|---|
@@ -15,10 +15,10 @@
 //! | Tools | One document per host tool | The registry, by tool name |
 //!
 //! [`catalog`] declares what paragraphs exist and what they say when nobody has
-//! touched them; [`register`] decides what one says right now. The tool
-//! register joins them in S2, when there is a tool call to put one in front of:
-//! a prompt nothing sends is worse than no prompt, because the editor offers to
-//! change something that cannot matter.
+//! touched them; [`register`] decides what one says right now. [`tools`] is
+//! both halves for the tool register, and shares `register`'s reading, writing
+//! and hashing: a tool's description and its parameter prose are one document
+//! with one hash.
 //!
 //! Two registers rather than one list because a tool description is not a
 //! paragraph the composer picks up, it is a field on a struct the registry
@@ -31,8 +31,10 @@
 
 pub mod catalog;
 pub mod register;
+pub mod tools;
 
 pub use catalog::{
     fill, id, paragraph, placeholders_in, Dependant, Dependency, Paragraph, CATALOG,
 };
 pub use register::{Error, Origin, Paragraphs, Prompt, Result};
+pub use tools::{sections, tool, Document, Sections, ToolEntry, Tools, TOOLS};

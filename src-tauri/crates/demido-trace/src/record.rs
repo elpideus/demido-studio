@@ -17,23 +17,29 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use demido_inference::{FinishReason, Message, Options, Request, Role, Usage};
-use demido_prompts::Prompt;
+use demido_prompts::{Document, Prompt};
 
-use crate::event::{Body, Entry, Event, Filling, SessionId, Source, Weight};
+use crate::event::{Body, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight};
 use crate::journal::{Error, Journal, Result};
 use crate::replay::Replay;
 use crate::weight::{Estimate, Weigher};
 
 /// One conversation, recording itself.
 ///
-/// Holds the journal, the weigher, and the two pieces of bookkeeping that make
-/// the log cheap: which turn is next, and which paragraph wordings have already
-/// been written out in full this session.
+/// Holds the journal, the weigher, and the bookkeeping that makes the log
+/// cheap: which turn is next, which paragraph and tool wordings have already
+/// been written out in full this session, and the tool set last recorded as
+/// offered.
 pub struct Session<J: Journal> {
     id: SessionId,
     journal: J,
     weigher: Box<dyn Weigher>,
     versioned: Mutex<BTreeSet<String>>,
+    /// Kept apart from `versioned` because a `tool/version` and a
+    /// `prompt/version` are different events, and one register's hash being
+    /// written must never excuse the other's.
+    documented: Mutex<BTreeSet<String>>,
+    offered: Mutex<Option<Vec<Offer>>>,
     turns: AtomicU32,
 }
 
@@ -59,6 +65,8 @@ impl<J: Journal> Session<J> {
             journal,
             weigher: Box::new(weigher),
             versioned: Mutex::new(BTreeSet::new()),
+            documented: Mutex::new(BTreeSet::new()),
+            offered: Mutex::new(None),
             turns: AtomicU32::new(0),
         }
     }
@@ -90,7 +98,9 @@ impl<J: Journal> Session<J> {
     ///   fragment after a restart does not emit a second `prompt/version` for
     ///   a hash the log already holds. `docs/rules/prompts.md` says once per
     ///   session per hash, and a session that came back from disk is the same
-    ///   session.
+    ///   session. Tool documents the same way;
+    /// - the tool set last offered, so an unchanged set after a restart is not
+    ///   recorded as a change nobody made.
     pub fn resume(&self) -> Result<()> {
         let events = self.journal.events()?;
 
@@ -99,13 +109,19 @@ impl<J: Journal> Session<J> {
             Ordering::SeqCst,
         );
 
-        let mut versioned = self
-            .versioned
-            .lock()
-            .unwrap_or_else(|held| held.into_inner());
+        let mut versioned = held(&self.versioned);
+        let mut documented = held(&self.documented);
+        let mut offered = held(&self.offered);
         for event in &events {
-            if let Body::Version { hash, .. } = &event.body {
-                versioned.insert(hash.clone());
+            match &event.body {
+                Body::Version { hash, .. } => {
+                    versioned.insert(hash.clone());
+                }
+                Body::ToolVersion { hash, .. } => {
+                    documented.insert(hash.clone());
+                }
+                Body::Offered { tools, .. } => *offered = Some(tools.clone()),
+                _ => {}
             }
         }
 
@@ -166,15 +182,28 @@ impl<J: Journal> Session<J> {
             .append(Entry::new(self.id.clone(), turn, source, weight, body))
     }
 
+    /// Write a tool document's full wording, at most once per session per hash.
+    fn document(&self, turn: u32, document: &Document) -> Result<()> {
+        if !held(&self.documented).insert(document.hash.clone()) {
+            return Ok(());
+        }
+
+        self.write(
+            turn,
+            Source::System,
+            self.weigher.weigh(&document.text),
+            Body::ToolVersion {
+                name: document.tool.name.to_owned(),
+                hash: document.hash.clone(),
+                text: document.text.clone(),
+            },
+        )?;
+        Ok(())
+    }
+
     /// Write a paragraph's full wording, at most once per session per hash.
     fn version(&self, turn: u32, prompt: &Prompt) -> Result<()> {
-        let first = {
-            let mut versioned = self
-                .versioned
-                .lock()
-                .unwrap_or_else(|held| held.into_inner());
-            versioned.insert(prompt.hash.clone())
-        };
+        let first = held(&self.versioned).insert(prompt.hash.clone());
         if !first {
             return Ok(());
         }
@@ -191,6 +220,12 @@ impl<J: Journal> Session<J> {
         )?;
         Ok(())
     }
+}
+
+/// A lock whose holder panicked is still the bookkeeping it was: nothing in
+/// it is left half written by an insert or an assignment.
+fn held<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    lock.lock().unwrap_or_else(|held| held.into_inner())
 }
 
 /// One exchange, being assembled.
@@ -265,6 +300,60 @@ impl<J: Journal> Turn<'_, J> {
                     .collect(),
             },
         )
+    }
+
+    /// Record the tools this turn offers, in the order it offers them, and
+    /// what decided that set.
+    ///
+    /// Each document's text is written once per session per hash, and the set
+    /// itself only when it differs from the last one recorded: the set in
+    /// force at any event is the last `tools/offered` before it, which costs
+    /// one event per change rather than a field on every turn. Answers with
+    /// the event's position when one was written.
+    ///
+    /// A change is a different list of names and hashes. The same list decided
+    /// by a different layer is not one, because the set did not change; with
+    /// one [`Layer`] that cannot happen, and the picker
+    /// ([#56](https://github.com/elpideus/demido-studio/issues/56)) is where a
+    /// second layer arrives and where that is worth deciding again.
+    ///
+    /// It adds no block to the assembly. The request carries no tools until
+    /// the payload does ([#54](https://github.com/elpideus/demido-studio/issues/54));
+    /// what this makes true now is that the set a turn was offered can be
+    /// rebuilt in the wording it was offered in (`Replay::offered`).
+    pub fn offer(&mut self, layer: Layer, documents: &[Document]) -> Result<Option<u64>> {
+        for document in documents {
+            self.session.document(self.number, document)?;
+        }
+
+        let tools: Vec<Offer> = documents
+            .iter()
+            .map(|document| Offer {
+                name: document.tool.name.to_owned(),
+                hash: document.hash.clone(),
+            })
+            .collect();
+
+        // Held across the write, so two turns racing cannot both decide the
+        // set changed and record it twice.
+        let mut last = held(&self.session.offered);
+        if last.as_ref() == Some(&tools) {
+            return Ok(None);
+        }
+
+        let event = self.session.write(
+            self.number,
+            Source::System,
+            // The documents are already weighed, once each, as they were
+            // written. Weighing the set again would count them twice.
+            Weight::NOTHING,
+            Body::Offered {
+                tools: tools.clone(),
+                layer,
+            },
+        )?;
+        *last = Some(tools);
+        Ok(Some(event.seq))
     }
 
     /// Place something somebody said in the assembly, verbatim.

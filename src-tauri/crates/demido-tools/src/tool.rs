@@ -284,9 +284,9 @@ pub trait Tool: Send + Sync {
     /// own description) is host-authored prompt text and belongs in the tool
     /// register, per hard rule 10 and
     /// [`0008`](../../../../docs/decisions/0008-a-tool-description-is-a-prompt.md).
-    /// It arrives with that register on
-    /// [#52](https://github.com/elpideus/demido-studio/issues/52) and is merged
-    /// onto this shape when a payload is assembled. What is here is the half
+    /// [`crate::Registry::offered`] merges it onto this shape
+    /// ([#52](https://github.com/elpideus/demido-studio/issues/52)), adding
+    /// prose and changing nothing else. What is here is the half
     /// that is a contract with the parser rather than a prompt: the property
     /// names, their types, which are required, and that the schema closes
     /// itself.

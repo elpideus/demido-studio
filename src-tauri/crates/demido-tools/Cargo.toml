@@ -16,6 +16,9 @@ workspace = true
 # A tool runs asynchronously because `run_command` runs a program. The Files
 # group never awaits anything, and is async so that there is one trait.
 async-trait = "0.1"
+# A tool's description and its parameter prose are the tool register's, and the
+# registry merges them onto the shape declared here when it offers a tool.
+demido-prompts.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

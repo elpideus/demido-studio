@@ -18,8 +18,26 @@ use std::collections::BTreeMap;
 
 use demido_inference::{Message, Request, Role};
 
-use crate::event::{Basis, Body, Event, Source, Weight};
+use crate::event::{Basis, Body, Event, Layer, Source, Weight};
 use crate::journal::{Error, Journal, Result};
+
+/// The tools on offer at some moment, in the wording they were offered in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offering {
+    /// Where the set was recorded.
+    pub seq: u64,
+    pub layer: Layer,
+    pub tools: Vec<OfferedTool>,
+}
+
+/// One tool of an [`Offering`]: its name, its hash, and the document recorded
+/// under that hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfferedTool {
+    pub name: String,
+    pub hash: String,
+    pub text: String,
+}
 
 /// One thing said, as a transcript shows it.
 ///
@@ -166,6 +184,78 @@ impl Replay {
             .ok_or(Error::NotSent { turn })
     }
 
+    /// The tools on offer as of event `at`, in the wording they were offered
+    /// in, or `None` when nothing had been offered by then.
+    ///
+    /// The set is the last `tools/offered` at or before `at`, and each tool's
+    /// text is the `tool/version` recorded under its hash, looked for backwards
+    /// from the set exactly as a fragment's wording is. That is what keeps a
+    /// document edited after the fact from rewriting the record of a reply
+    /// from before it.
+    pub fn offered(&self, at: u64) -> Result<Option<Offering>> {
+        let Some((seq, layer, tools)) =
+            self.events
+                .iter()
+                .rev()
+                .find_map(|event| match &event.body {
+                    Body::Offered { tools, layer } if event.seq <= at => {
+                        Some((event.seq, *layer, tools))
+                    }
+                    _ => None,
+                })
+        else {
+            return Ok(None);
+        };
+
+        let tools = tools
+            .iter()
+            .map(|offer| {
+                Ok(OfferedTool {
+                    name: offer.name.clone(),
+                    hash: offer.hash.clone(),
+                    text: self.document(&offer.hash, seq)?.to_owned(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Some(Offering { seq, layer, tools }))
+    }
+
+    /// The tool document recorded under a hash, before event `before`.
+    fn document(&self, hash: &str, before: u64) -> Result<&str> {
+        self.recorded(hash, before, |body| match body {
+            Body::ToolVersion { hash, text, .. } => Some((hash.as_str(), text.as_str())),
+            _ => None,
+        })
+    }
+
+    /// The text some version event recorded under `hash`, searched backwards
+    /// from event `before`.
+    ///
+    /// One search for both registers, told apart only by which event counts as
+    /// a version of it, so a paragraph's wording and a tool's document are
+    /// found by exactly the same rule. Backwards, because an edit mid session
+    /// writes a second version under a new hash and a session can hold both.
+    /// Two versions never share a hash, so this is exact rather than nearest.
+    fn recorded<'a>(
+        &'a self,
+        hash: &str,
+        before: u64,
+        version: fn(&'a Body) -> Option<(&'a str, &'a str)>,
+    ) -> Result<&'a str> {
+        self.events
+            .iter()
+            .rev()
+            .skip_while(|event| event.seq >= before)
+            .find_map(|event| match version(&event.body) {
+                Some((recorded, text)) if recorded == hash => Some(text),
+                _ => None,
+            })
+            .ok_or_else(|| Error::Unversioned {
+                hash: hash.to_owned(),
+            })
+    }
+
     /// What one turn occupied, as the sum of the blocks its assembly named.
     ///
     /// The assembly event itself weighs nothing, so this is the number the
@@ -249,24 +339,11 @@ impl Replay {
     /// written.
     ///
     /// Searched backwards from the fragment rather than forwards from the
-    /// start, because an edit mid session writes a second version under a new
-    /// hash and a session can hold both. Two versions never share a hash, so
-    /// this is exact rather than nearest.
+    /// start ([`Replay::recorded`] says why).
     fn wording(&self, hash: &str, before: u64) -> Result<&str> {
-        self.events
-            .iter()
-            .rev()
-            .skip_while(|event| event.seq >= before)
-            .find_map(|event| match &event.body {
-                Body::Version {
-                    hash: recorded,
-                    text,
-                    ..
-                } if recorded == hash => Some(text.as_str()),
-                _ => None,
-            })
-            .ok_or_else(|| Error::Unversioned {
-                hash: hash.to_owned(),
-            })
+        self.recorded(hash, before, |body| match body {
+            Body::Version { hash, text, .. } => Some((hash.as_str(), text.as_str())),
+            _ => None,
+        })
     }
 }

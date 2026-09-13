@@ -255,14 +255,28 @@ Settings renders.
 2. **A shipped default matches its pin.**
    `src-tauri/crates/demido-prompts/defaults/<id>.md` must exist for a pinned id
    once the register ships, and its normalised text must hash to the pinned
-   digest. **Enforced now**, and real since the register landed on
-   [#40](https://github.com/elpideus/demido-studio/issues/40).
+   digest. A pin on a tool document names its default,
+   `defaults/tools/<name>.md`, and is held the same way: the fixture is the
+   whole document, description and parameter sections together, because that
+   is what the hash covers. **Enforced now**, and
+   real since the register landed on
+   [#40](https://github.com/elpideus/demido-studio/issues/40). No tool document
+   is pinned yet, because no measurement has been taken against one.
 3. **A default is a file.** Every `default:` in the register's declaration is an
    `include_str!`. **Enforced now.** It is what makes a change to a default read
    in review as a prose diff, and it is what leaves check 2 something to hash.
 4. **Host prose is not a literal.** A string in `src-tauri/` that reads as prose,
    six words or more, fails unless it is a diagnostic or a `// not-a-prompt:`
    comment accounts for it in one sentence. **Enforced now.**
+
+5. **A host tool has a document, and its prose lives nowhere else.** A tool in
+   `demido-tools` whose `name` has no `defaults/tools/<name>.md` declared in the
+   tool register fails, a `"description"` key typed into a schema there fails,
+   and a default file nothing in the register declares fails. **Enforced now**,
+   since the tool register landed on
+   [#52](https://github.com/elpideus/demido-studio/issues/52). What a script
+   cannot read is whether a document's parameters are its schema's properties;
+   that is a contract test, `demido-tools`' `tests/documents.rs`.
 
 Check 4 is the rule itself rather than its pins, and it is shaped the way rule 4
 is: everything that looks like prose is refused, and the places prose

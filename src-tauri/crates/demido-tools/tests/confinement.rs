@@ -15,7 +15,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use demido_tools::contract::{holds_for, Rig};
-use demido_tools::{files, shell, Call, Registry, Workspace};
+use demido_tools::{files, shell, Call, Registry, Tool, Workspace};
 use serde_json::{json, Value};
 
 /// A project, a secret outside it, and both directories kept alive.
@@ -33,8 +33,9 @@ fn rig() -> (tempfile::TempDir, tempfile::TempDir, Workspace) {
 /// A tool's schema closes itself, so handing every tool the same arguments
 /// would have most of them refused for a property they never declared, and a
 /// refusal about an argument proves nothing about a path.
-fn call(spec: &demido_tools::Spec, given: Value) -> Call {
-    let declared = spec.parameters["properties"].as_object().expect("declared");
+fn call(tool: &dyn Tool, given: Value) -> Call {
+    let parameters = tool.parameters();
+    let declared = parameters["properties"].as_object().expect("declared");
     let kept: serde_json::Map<String, Value> = given
         .as_object()
         .expect("an object")
@@ -44,8 +45,8 @@ fn call(spec: &demido_tools::Spec, given: Value) -> Call {
         .collect();
 
     Call {
-        id: format!("call-{}", spec.name),
-        name: spec.name.clone(),
+        id: format!("call-{}", tool.name()),
+        name: tool.name().to_owned(),
         arguments: Value::Object(kept).to_string(),
     }
 }
@@ -105,10 +106,10 @@ async fn no_tool_follows_a_symlink_out_of_the_workspace() {
     std::os::windows::fs::symlink_dir(outside.path(), project.path().join("escape")).unwrap();
 
     let registry = Registry::of_files(Some(workspace));
-    for spec in registry.offered() {
+    for tool in files() {
         let outcome = registry
             .run(&call(
-                &spec,
+                tool.as_ref(),
                 json!({
                     "path": "escape/secret.txt",
                     "content": "planted by a tool",
@@ -120,7 +121,7 @@ async fn no_tool_follows_a_symlink_out_of_the_workspace() {
         assert!(
             outcome.is_err(),
             "{} followed a link out of the workspace: {outcome:?}",
-            spec.name
+            tool.name()
         );
     }
 

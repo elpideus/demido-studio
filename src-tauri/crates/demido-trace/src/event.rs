@@ -159,6 +159,34 @@ impl Filling {
     }
 }
 
+/// One tool in an offered set: which tool, and which wording of it.
+///
+/// Named rather than a pair for the same reason [`Filling`] is: the raw JSON
+/// tab is read by a person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Offer {
+    pub name: String,
+    /// The hash of the tool's document, description and parameter prose
+    /// together. Its text is the `tool/version` recorded under it.
+    pub hash: String,
+}
+
+/// What decided the offered set, so the monitor can tell a deliberate absence
+/// from a dropped one (`docs/rules/tools.md`).
+///
+/// One layer today, because one thing decides the set today. The picker
+/// ([#56](https://github.com/elpideus/demido-studio/issues/56)), a skill's
+/// switch, an account an endpoint may not receive and a sub-agent narrowing its
+/// parent each add a variant with the code that decides, rather than being
+/// declared here as a shape nothing can yet be held to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Layer {
+    /// What this build registers, and whether a workspace is set for it to
+    /// act in. No workspace offers nothing.
+    Registry,
+}
+
 /// What happened.
 ///
 /// The variant names are the event names the rules already use:
@@ -187,6 +215,28 @@ pub enum Body {
         hash: String,
         text: String,
     },
+
+    /// The full text of one host tool's document, written once per session per
+    /// hash, exactly as [`Body::Version`] is for a paragraph.
+    ///
+    /// A separate event rather than a `prompt/version` with a tool name in its
+    /// `id`, because a tool name and a paragraph id are two namespaces
+    /// (`docs/rules/prompts.md`).
+    #[serde(rename = "tool/version")]
+    ToolVersion {
+        name: String,
+        hash: String,
+        text: String,
+    },
+
+    /// The set of tools on offer changed, and what changed it.
+    ///
+    /// Written when the set changes, never on every turn: the set in force at
+    /// any event is the last one of these before it. A set is a name and a
+    /// hash per tool, in the order they are offered, so the same names in new
+    /// wording is a change too.
+    #[serde(rename = "tools/offered")]
+    Offered { tools: Vec<Offer>, layer: Layer },
 
     /// A paragraph placed in an assembly, by hash and by what filled it.
     #[serde(rename = "prompt/fragment")]

@@ -31,6 +31,7 @@
 
 use std::sync::Arc;
 
+use demido_prompts::{Document, Tools};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -55,17 +56,21 @@ pub struct Call {
     pub arguments: String,
 }
 
-/// One tool as a payload carries it.
+/// One tool as a payload carries it: its shape, with its document's prose on it.
 ///
-/// The description and the prose inside the schema are not here: they are host
-/// prompt text, they live in the tool register, and they are merged onto this
-/// when a payload is assembled
-/// ([#52](https://github.com/elpideus/demido-studio/issues/52)). What this
-/// carries is the half that is a contract with the parser.
+/// The two halves come from two places on purpose. `parameters` is the shape
+/// the tool declares, the one [`arguments::faults`] parses a call against, with
+/// a `description` added to each property the document gives prose to and
+/// nothing else changed. `description` and that prose are the tool register's
+/// ([`0008`](../../../../docs/decisions/0008-a-tool-description-is-a-prompt.md)),
+/// and `document` is kept beside them so that what is recorded as offered is the
+/// name and the hash of exactly the wording that was merged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spec {
     pub name: String,
+    pub description: String,
     pub parameters: Value,
+    pub document: Document,
 }
 
 /// The Files group: `read_file`, `list_directory`, `search_files`,
@@ -142,17 +147,29 @@ impl Registry {
         self
     }
 
-    /// Everything the model may be told about.
+    /// Everything the model may be told about, in the words `documents` holds
+    /// for it right now.
     ///
     /// Empty when there is no workspace: a model that is shown a tool will call
     /// it, and a call that cannot succeed however it is written is worse than a
     /// tool that was never mentioned.
-    pub fn offered(&self) -> Vec<Spec> {
+    ///
+    /// A registered tool with no document is not offered. Every host tool has
+    /// one, and `tests/documents.rs` fails the commit that adds a tool without
+    /// one, so this is the state nothing reaches rather than a fallback: a tool
+    /// offered with no words on it is the one thing a 4B model picks worst, and
+    /// a tool offered with words nobody can edit or log is rule 10 broken.
+    pub fn offered(&self, documents: &Tools) -> Vec<Spec> {
         self.on_offer()
             .into_iter()
-            .map(|tool| Spec {
-                name: tool.name().to_owned(),
-                parameters: tool.parameters(),
+            .filter_map(|tool| {
+                let document = documents.get(tool.name())?;
+                Some(Spec {
+                    name: tool.name().to_owned(),
+                    description: document.description().to_owned(),
+                    parameters: described(tool.parameters(), &document),
+                    document,
+                })
             })
             .collect()
     }
@@ -233,8 +250,8 @@ impl Registry {
     /// It lists what there is, because a model that guessed a name will guess
     /// another one unless it is shown the set.
     fn no_such_tool(&self, asked: &str) -> Failure {
-        let offered = self.offered();
-        let names: Vec<&str> = offered.iter().map(|spec| spec.name.as_str()).collect();
+        let on_offer = self.on_offer();
+        let names: Vec<&str> = on_offer.iter().map(|tool| tool.name()).collect();
 
         if names.is_empty() {
             // Why there is nothing, not just that there is nothing. Almost
@@ -297,6 +314,26 @@ impl std::fmt::Debug for Planned<'_> {
             .field("intent", &self.intent)
             .finish()
     }
+}
+
+/// A tool's shape with its document's parameter prose on it.
+///
+/// Prose is added to a property the shape already declares and to nothing
+/// else. A document that gives prose to a property the tool does not take adds
+/// no property, whoever wrote the file, because the shape is a contract with
+/// the parser and the document is not a party to it.
+fn described(mut shape: Value, document: &Document) -> Value {
+    let Some(properties) = shape.get_mut("properties").and_then(Value::as_object_mut) else {
+        return shape;
+    };
+    for (name, declared) in properties.iter_mut() {
+        let (Some(prose), Some(declared)) = (document.parameter(name), declared.as_object_mut())
+        else {
+            continue;
+        };
+        declared.insert("description".to_owned(), Value::String(prose.to_owned()));
+    }
+    shape
 }
 
 /// A schema, said in one line, for a model that has just got it wrong.
@@ -363,8 +400,13 @@ mod tests {
     fn the_files_group_is_five_tools_and_they_are_the_five_named() {
         let (_dir, workspace) = workspace();
         let registry = Registry::of_files(Some(workspace));
+        let prompts = tempfile::tempdir().expect("a directory");
 
-        let names: Vec<String> = registry.offered().into_iter().map(|it| it.name).collect();
+        let names: Vec<String> = registry
+            .offered(&Tools::open(prompts.path()))
+            .into_iter()
+            .map(|it| it.name)
+            .collect();
         assert_eq!(
             names,
             [
@@ -499,8 +541,9 @@ mod tests {
     fn a_later_registration_of_a_name_replaces_the_earlier_one() {
         let (_dir, workspace) = workspace();
         let registry = Registry::of_files(Some(workspace)).with(ReadFile);
+        let prompts = tempfile::tempdir().expect("a directory");
 
-        assert_eq!(registry.offered().len(), 5);
+        assert_eq!(registry.offered(&Tools::open(prompts.path())).len(), 5);
     }
 
     #[test]

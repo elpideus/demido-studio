@@ -67,7 +67,8 @@ as the estimated one.
 |---|---|
 | `record` | `Session` and `Turn`. A turn records itself and `Turn::send` hands back the request to send, so nothing can send an assembly it did not record. |
 | | `Turn::carry` takes a **position**, never text, and resolves it from the log. Taking the text as well would be the one call left that could put words in the log's mouth, and it would look exactly like a correct one. |
-| `replay` | `Replay`. History, the rebuild, the per-turn occupancy and the per-source ledger, all over the same events. |
+| | `Turn::offer` records the tools on offer as `tools/offered`, a name and a hash per tool and the `Layer` that decided the set, only when the set changes. Each tool's document is a `tool/version`, once per session per hash, the rule `prompt/version` keeps ([#52](https://github.com/elpideus/demido-studio/issues/52)). |
+| `replay` | `Replay`. History, the rebuild, the per-turn occupancy and the per-source ledger, all over the same events. `Replay::offered` is the set in force at any event, in the wording it was offered in, so an edit made later cannot rewrite the record of an earlier reply. |
 
 An assembly refers to its blocks **by sequence number** rather than copying
 them, which is what keeps a forty turn session from holding forty copies of its

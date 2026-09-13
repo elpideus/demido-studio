@@ -230,13 +230,35 @@ Not here. A tool's description and the `description` fields inside its parameter
 schema are host-authored prompt text with an id, a default file, a hash and an
 `Origin`, per hard rule 10 and
 [`0008`](../../../docs/decisions/0008-a-tool-description-is-a-prompt.md). They
-live in `demido-prompts`' tool register and are merged onto the shape declared
-here when a payload is assembled
+live in `demido-prompts`' tool register, one document per tool, and
+`Registry::offered(&Tools)` merges them onto the shape declared here
 ([#52](https://github.com/elpideus/demido-studio/issues/52)). What a
 `parameters()` body carries is the half that is a contract with the parser: the
 property names, their types, which are required, and that the schema closes
 itself. The contract suite is what keeps a description from being typed back
-in, at any depth.
+in, at any depth, and `scripts/check-rules.mjs` refuses a `"description"` key
+here too.
+
+A `Spec` carries the `Document` it was described from, so whoever records the
+offered set records the name and hash of exactly the wording that was merged.
+
+**`tests/documents.rs` is the contract between the two halves.** Every host
+tool has a document and every document names a host tool; a document declares
+exactly its schema's properties; and what is offered is the shape with prose
+added and nothing else, even for a document written by hand that gives prose to
+a property the tool does not take. It is not in `contract::holds_for`, because
+that suite is also what a tool Demido did not write is held to, and such a tool
+has no host document.
+
+A registered tool with no document is **not offered**. For a host tool that is a
+state the test above keeps anything from reaching, not a fallback: a tool
+offered with no words on it is the one a small model picks worst. **It is wrong
+for a tool Demido did not write**, which has no host document and would vanish
+from the set with no event saying why, exactly the dropped absence `tools.md`
+records `tools/offered` to explain. No such tool exists in v3 yet. The ticket
+that registers the first one (an MCP tool, whose wording is the server's and is
+captured in the approval digest) replaces this filter with that tool's own
+wording, and is the place to decide it.
 
 A **failure message is not in the register.** It is a sentence about a path or an
 error, assembled with `format!`, and

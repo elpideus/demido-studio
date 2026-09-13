@@ -94,6 +94,18 @@ fn what_went_in_comes_back_unchanged<J: Journal>(open: &impl Fn(&str) -> J) {
             hash: "sha256:0".into(),
             text: "one fact a line.\n\ttabbed, \"quoted\", 漢字\n".into(),
         },
+        Body::ToolVersion {
+            name: "read_file".into(),
+            hash: "sha256:1".into(),
+            text: "Read a file.\n\n## path\n\nWhere, \"quoted\".\n".into(),
+        },
+        Body::Offered {
+            tools: vec![crate::event::Offer {
+                name: "read_file".into(),
+                hash: "sha256:1".into(),
+            }],
+            layer: crate::event::Layer::Registry,
+        },
         Body::Fragment {
             role: Role::System,
             hash: "sha256:0".into(),
