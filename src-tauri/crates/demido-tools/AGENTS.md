@@ -126,13 +126,16 @@ lives in `RunCommand::intent`, which is the declaration the matrix reads, so it
 is still the tool saying what one call is about to do rather than anybody
 keeping a list of names.
 
-**This departs from [`tools.md`](../../../docs/rules/tools.md), and it is open.**
+**This departs from [`tools.md`](../../../docs/rules/tools.md), deliberately.**
 That file says a tool that is unsure should declare itself destructive, and a
 shell is unsure about every command it does not recognise. Following it
 literally makes every command destructive, so Autonomous asks before each one
-and its Shell column means nothing. v2 chose the net and so does this, until
-Stefan decides between the rule and the column; until then, in Autonomous, an
-unrecognised destructive command runs without asking.
+and the matrix's Autonomous Shell cell, which is Allow, could never be reached.
+The two rules cannot both hold for a shell, and the table is the more specific
+of them, so the net stands, as it did in v2: in Autonomous an unrecognised
+destructive command runs without asking, which is what choosing Autonomous
+accepts. The matrix ([#53](https://github.com/elpideus/demido-studio/issues/53))
+is where that is exercised, and the place to revisit it.
 
 ### What is not tested automatically, and why
 
@@ -152,6 +155,22 @@ proved by a marker the grandchild would have written had it lived. What is not:
 
 The last one is owed to the window gate: the teardown is exercised by hand there
 and the result recorded in the closing comment.
+
+**Exercised by hand on #51**, outside the test harness, with a throwaway driver
+that ran `RunCommand` through the `Tool` trait and read the operating system's
+process table (`Win32_Process`, by command line) before and after. The tree was
+`cmd.exe` running a script that started `node` and `powershell` in the
+background with `start /b`, then an hour-long `ping` in the foreground: four
+real processes, none of which would ever end on its own.
+
+| How the call ended | Running before | Running 2 s after |
+|---|---|---|
+| Dropped mid-run, as Stop drops it | 4 | 0 |
+| Killed at a 10 s deadline, answering with the `lessons.md` line | 4 | 0 |
+| Child exited zero with `node` and `powershell` still running | 3 | 0 |
+
+The window gate on [#59](https://github.com/elpideus/demido-studio/issues/59)
+repeats this through a real Stop, which is the part a driver cannot stand in for.
 
 The ticket said there would be no automated test of a long-running child at
 all, and there are three, so this narrows its promise rather than keeping it.
