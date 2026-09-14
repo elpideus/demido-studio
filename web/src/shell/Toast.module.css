@@ -1,0 +1,89 @@
+/*
+ * Refusals over the desk. Transient chrome, the shape design/system.md gives
+ * the snap menu, and every number is a token from design/tokens.css.
+ */
+
+/* Bottom of the desk and out of the composer's way, on the measure the desk
+ * already sets so a sentence here lines up with the transcript above it. */
+.rail {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-gutter);
+  padding: 0 var(--space-page) var(--space-page);
+  /* The desk under it stays usable: this is an answer, not a modal. */
+  pointer-events: none;
+}
+
+.toast {
+  max-width: var(--measure-prose);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-control);
+  padding: var(--space-control) var(--space-control) var(--space-control) var(--space-room);
+  background: var(--color-panel);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+  pointer-events: auto;
+  animation: arrive var(--duration-panel) var(--ease-mech);
+}
+
+/* It comes up from where it will sit rather than flying in from an edge: the
+ * desk is not a place things travel across. */
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-control));
+  }
+}
+
+/* State is an icon in the one colour this system gives an error, never a dot
+ * beside a label (design/shell.md). */
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  /* Optically centred on the first line of the sentence beside it. */
+  margin-top: var(--space-hair);
+  color: var(--color-rose);
+}
+
+/* The sentence somebody has to read, so it is body ink and never ink-4. */
+.message {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+}
+
+.close {
+  flex: none;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.close:hover {
+  background: var(--color-hover);
+}
+
+.close:active {
+  background: var(--color-active);
+}
+
+.close_icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

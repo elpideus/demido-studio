@@ -1,0 +1,46 @@
+[package]
+name = "demido-chat"
+description = "The session, the assembly it composes, and the turn loop that runs it."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+demido-core.workspace = true
+# The seam a turn is sent through, and the supervisor that keeps one model
+# resident. Nothing here knows what a backend is made of.
+demido-inference.workspace = true
+# What is in force for this conversation. The turn loop resolves the ladder
+# rather than being handed values, so nothing above it can send a request the
+# ladder did not decide.
+demido-settings.workspace = true
+# The source of truth. A transcript is a projection of this log, never a table
+# beside it, which is the one thing that makes the log worth writing.
+demido-trace.workspace = true
+# The matrix a call is ruled on by. The loop hands it the mode and the call's
+# intent and does what it says; it never reads the mode itself.
+demido-permission.workspace = true
+# What a refusal tells the model, and the words a tool is offered in.
+demido-prompts.workspace = true
+# The registry a call is dispatched through.
+demido-tools.workspace = true
+futures-util = "0.3"
+serde.workspace = true
+# A call's arguments, parsed, for the person deciding about them.
+serde_json.workspace = true
+thiserror.workspace = true
+# `select!`, so a stop reaches a call waiting on a person or on a command.
+tokio = { version = "1", features = ["macros", "sync"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# A project on disk for the tools to act on.
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

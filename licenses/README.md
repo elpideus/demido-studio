@@ -9,5 +9,10 @@ license reproduced here, at `licenses/<owner>/<project>/LICENSE`.
           LICENSE
 
 Ported source carries a provenance header naming the source repo, the commit and the license, and
-must have a matching entry in this tree. See `THIRD_PARTY_NOTICES.md` for the human-readable index
-that is also surfaced inside the application.
+must have a matching entry in this tree:
+
+    // Ported from opencode/opencode @ 4f2c1ab, MIT.
+
+See [`docs/rules/provenance.md`](../docs/rules/provenance.md) for the exact shape and what CI checks,
+and `THIRD_PARTY_NOTICES.md` for the human-readable index that is also surfaced inside the
+application.
