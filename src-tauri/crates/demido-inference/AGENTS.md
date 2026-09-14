@@ -34,6 +34,15 @@ hand back a fraction of it and every one-slot test would still be green.
 | Implementation | Where | Runs the suite in |
 |---|---|---|
 | `LlamaCpp` | `src/llamacpp.rs` | `tests/llamacpp_contract.rs` |
+| `Scripted` | `src/scripted.rs` | `tests/scripted_contract.rs` |
+
+`Scripted` is a backend that is entirely bookkeeping: each generation replies
+with the next scripted steps (text, reasoning, a whole call), and the last reply
+repeats. It is what drives the turn loop with no card in the machine
+([#54](https://github.com/elpideus/demido-studio/issues/54)), and it is held to
+the contract rather than trusted, so a loop proved against it is proved against
+the promises `llama.cpp` keeps. It ships in the library, like the contract, for
+the tests of the crates above this one.
 
 The second implementation the suite was written for is an OpenAI-compatible
 endpoint. It does not ship in S1. For such a backend `start` connects and `stop`
@@ -50,19 +59,32 @@ way those rules can be tested at all: every one of them is about *when* a
 process is started, and none is observable through a real `llama.cpp` without a
 card and several gigabytes.
 
-## What S1 leaves out, and why it is additive
+## Tool calls, added the way this file said they would be
 
-No tools, no grammar, no `Capabilities`. S1 has no tools
-([`docs/rules/done.md`](../../../docs/rules/done.md)), so the shapes they need
-are not declared here yet: each is a `Chunk` variant, a `Request` field, and a
-contract case saying what a backend must do with it. Declaring them now would be
-declaring a contract nothing can be held to.
+S1 had no tools and declared none of their shapes. S2 added them additively
+([#54](https://github.com/elpideus/demido-studio/issues/54)):
+`Request::tools`, `Role::Tool` with `Message::answers` naming the call a
+result is for, `Message::calls` on an assistant message, `Chunk::Call`, and
+`FinishReason::ToolCalls`. The contract case that goes with them,
+`a_call_arrives_whole_and_before_done`, sends a request carrying an answered
+call and holds whatever comes back to three things a loop depends on: every
+call has an id and a name, every call comes before `Done`, and `Done` says
+`ToolCalls` exactly when there were calls. It asserts nothing about whether a
+model chooses to call.
+
+`llama.cpp` streams a call's arguments a few characters per frame. The decoder
+assembles each call and hands it on whole once the stream ends, and a cancelled
+stream hands on none: half an argument list is not a call.
+
+Still not here: grammars and `Capabilities`, for the same reason tools were not
+in S1.
 
 ## The tests
 
 `cargo test -p demido-inference` runs everything that needs no card: the wire
-shape, the command line, the startup failures, and the supervisor's ordering
-rules against a fake.
+shape, a call decoded from streamed frames, the command line, the startup
+failures, the supervisor's ordering rules against a fake, and the whole contract
+suite against `Scripted`.
 
 The two suites that need a real model are `#[ignore]`d and run by the live
 command in [`AGENTS.md`](../../../AGENTS.md). They **fail rather than skip**

@@ -14,7 +14,7 @@ use std::future::Future;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use demido_runtimes::{Fetchable, Files, Installed, Outcome, RowState, Runtimes};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -62,11 +62,16 @@ fn zip_of(files: &[Entry]) -> Vec<u8> {
     buffer.into_inner()
 }
 
+/// Every path the server was asked for, in order.
+type Requested = Arc<Mutex<Vec<String>>>;
+
 /// Serve a fixed set of paths until the test drops the handle.
-async fn serve(files: HashMap<String, Vec<u8>>) -> String {
+async fn serve(files: HashMap<String, Vec<u8>>) -> (String, Requested) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bound");
     let addr = listener.local_addr().expect("an address");
     let files = Arc::new(files);
+    let requested: Requested = Arc::default();
+    let log = Arc::clone(&requested);
 
     tokio::spawn(async move {
         loop {
@@ -74,13 +79,16 @@ async fn serve(files: HashMap<String, Vec<u8>>) -> String {
                 return;
             };
             let files = Arc::clone(&files);
+            let log = Arc::clone(&log);
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 4096];
                 let read = socket.read(&mut buffer).await.unwrap_or(0);
                 let request = String::from_utf8_lossy(&buffer[..read]).to_string();
-                let path = request.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let path = request.split_whitespace().nth(1).unwrap_or("/");
+                let path = path.trim_start_matches('/').to_owned();
+                log.lock().expect("the log").push(path.clone());
 
-                let response = match files.get(path.trim_start_matches('/')) {
+                let response = match files.get(&path) {
                     Some(body) => {
                         let mut head = format!(
                             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -100,7 +108,7 @@ async fn serve(files: HashMap<String, Vec<u8>>) -> String {
         }
     });
 
-    format!("http://{addr}")
+    (format!("http://{addr}"), requested)
 }
 
 type Verified = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
@@ -116,6 +124,7 @@ fn refuses(_installed: Installed) -> Verified {
 struct Rig {
     dir: PathBuf,
     root: String,
+    requested: Requested,
     runtimes: Runtimes<Files>,
 }
 
@@ -126,11 +135,12 @@ impl Rig {
             .iter()
             .map(|(name, entries)| ((*name).to_owned(), zip_of(entries)))
             .collect();
-        let root = serve(files).await;
+        let (root, requested) = serve(files).await;
         let runtimes = Runtimes::new(Files::in_profile(&dir), dir.join("runtimes"), verify);
         Self {
             dir,
             root,
+            requested,
             runtimes,
         }
     }
@@ -352,6 +362,40 @@ async fn a_failed_fetch_names_the_archive_that_failed() {
     assert!(
         !message.contains(BUILD),
         "and does not blame the one that arrived: {message}"
+    );
+}
+
+/// Found on #79 with the network pulled halfway through `cudart`: pressing
+/// Try again downloaded the 142.6 MiB build that had already arrived, because
+/// its zip was deleted the moment it unpacked and the zip is what `fetch`
+/// takes to mean "already here". A retry costs the rest, never all of it.
+#[tokio::test]
+async fn a_retry_does_not_fetch_again_an_archive_that_already_arrived() {
+    let rig = Rig::new(
+        "retry",
+        &[(BUILD, &[("llama-server.exe", b"a build" as &[u8])])],
+        passes,
+    )
+    .await;
+    let items = [rig.served(BUILD), rig.served(CUDART)];
+    for _ in 0..2 {
+        rig.runtimes
+            .fetch_row(
+                "llama.cpp",
+                "b10816",
+                &items,
+                |_, _| {},
+                &demido_runtimes::Cancel::new(),
+            )
+            .await
+            .expect_err("the companion is not on the server");
+    }
+
+    let requested = rig.requested.lock().expect("the log").clone();
+    assert_eq!(
+        requested.iter().filter(|path| *path == BUILD).count(),
+        1,
+        "the build arrived on the first attempt: {requested:?}"
     );
 }
 

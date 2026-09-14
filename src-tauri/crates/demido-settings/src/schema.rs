@@ -10,7 +10,7 @@
 //! control without registering it three times. None of that prose is ever sent
 //! to a model, which is why every entry is accounted for against hard rule 10.
 //!
-//! **Three settings, not thirty.** v2 declared twenty four samplers before
+//! **Six settings, not thirty.** v2 declared twenty four samplers before
 //! anything sent one. What is here is what this slice actually resolves, sends
 //! and can be held to; the rest is additive, and a setting added later is an
 //! entry in [`SCHEMA`] and nothing else.
@@ -30,7 +30,28 @@ pub mod id {
     pub const SYSTEM_PROMPT: &str = "conversation.system_prompt";
     pub const TEMPERATURE: &str = "conversation.temperature";
     pub const CONTEXT_LENGTH: &str = "conversation.context_length";
+    /// How many times one message may send the model back to its tools. Not
+    /// the mode's to decide: `docs/rules/tools.md` keeps the mode to
+    /// permissions and nothing else.
+    pub const STEP_LIMIT: &str = "tools.step_limit";
+    /// Which row of the permission matrix is in force. **Permitted**, in
+    /// `docs/rules/tools.md`'s two axes: what runs without asking, and read by
+    /// the matrix and nothing else.
+    pub const TOOLS_MODE: &str = "tools.mode";
+    /// Which tools the model is shown. **Offered**, the other axis: the one row
+    /// on the ladder that is a set rather than a scalar, and an override of it
+    /// replaces the set below rather than merging with it.
+    pub const TOOLS_OFFERED: &str = "tools.offered";
 }
+
+/// The names a mode is stored under, strictest first.
+///
+/// Written here rather than read from `demido-permission`, because this crate
+/// sits below it, and held to that crate's own list by
+/// `demido-chat/tests/offered.rs` so the two cannot come apart. The first is the
+/// default for the reason the matrix's first row is: the strictest answer wins
+/// every ambiguous case.
+pub const MODES: &[&str] = &["cautious", "balanced", "autonomous"];
 
 /// One setting: what it is called, what it means, and what it will accept.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -87,6 +108,18 @@ pub enum Kind {
         default: &'static str,
         multiline: bool,
     },
+    /// One name out of a fixed list.
+    Choice {
+        default: &'static str,
+        options: &'static [&'static str],
+    },
+    /// A set of names, or nothing, which is **every** name there is.
+    ///
+    /// Nothing is not the empty set, for the reason off is not zero: nothing is
+    /// a tier with no opinion, and the empty set is an opinion, a conversation
+    /// offered no tools. The names are not checked against a registry here,
+    /// because this crate has none: a name nothing registers offers nothing.
+    Set {},
 }
 
 /// Why a value was refused.
@@ -160,6 +193,43 @@ pub static SCHEMA: &[Setting] = &[
         },
         reloads: true,
     },
+    // not-a-prompt: a settings page's own label and caption, as above.
+    Setting {
+        id: id::STEP_LIMIT,
+        section: "Tools",
+        title: "Steps per message",
+        summary: "How many rounds of tool calls one message may take before the model has to stop.",
+        // v2's default, and a whole number rather than off: a loop with no
+        // ceiling is the runaway this setting exists to end.
+        kind: Kind::Count {
+            default: 8,
+            min: 1,
+            max: 100,
+        },
+        reloads: false,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above. The mode
+    // is never prose to a model (`docs/rules/tools.md`), and neither is this.
+    Setting {
+        id: id::TOOLS_MODE,
+        section: "Tools",
+        title: "Agent mode",
+        summary: "What runs without asking. Cautious asks before anything that writes or runs a program.",
+        kind: Kind::Choice {
+            default: MODES[0],
+            options: MODES,
+        },
+        reloads: false,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above.
+    Setting {
+        id: id::TOOLS_OFFERED,
+        section: "Tools",
+        title: "Tools",
+        summary: "What the model is shown. A tool switched off is not sent to it at all.",
+        kind: Kind::Set {},
+        reloads: false,
+    },
 ];
 
 /// The setting with this id, if this build has one.
@@ -181,7 +251,8 @@ impl Setting {
                 }
             }
             Kind::Count { default, .. } => json!(default),
-            Kind::Text { default, .. } => json!(default),
+            Kind::Text { default, .. } | Kind::Choice { default, .. } => json!(default),
+            Kind::Set {} => Value::Null,
         }
     }
 
@@ -227,6 +298,37 @@ impl Setting {
                 .as_str()
                 .map(|text| json!(text))
                 .ok_or(Invalid::WrongType { expected: "text" }),
+
+            Kind::Choice { options, .. } => {
+                let name = value
+                    .as_str()
+                    .ok_or(Invalid::WrongType { expected: "a name" })?;
+                if !options.contains(&name) {
+                    return Err(Invalid::OutOfRange {
+                        allowed: options.join(", "),
+                    });
+                }
+                Ok(json!(name))
+            }
+
+            Kind::Set {} => {
+                // Nothing is a real answer: every name there is.
+                if value.is_null() {
+                    return Ok(Value::Null);
+                }
+                // not-a-prompt: what a refusal says to the person who typed it.
+                let wrong = Invalid::WrongType {
+                    expected: "a list of names, or nothing for all of them",
+                };
+                let mut names: Vec<&str> = Vec::new();
+                for item in value.as_array().ok_or_else(|| wrong.clone())? {
+                    let name = item.as_str().ok_or_else(|| wrong.clone())?;
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+                Ok(json!(names))
+            }
         }
     }
 }
@@ -308,8 +410,54 @@ mod tests {
         assert_eq!(declared.accept(&json!(8192)), Ok(json!(8192)));
     }
 
-    /// Only the context length is a flag on the process. The other two are
-    /// fields of a request and take effect on the next turn.
+    /// Cautious unless somebody says otherwise, and never a name the matrix
+    /// does not have a row for.
+    #[test]
+    fn the_mode_is_one_of_three_names_and_cautious_by_default() {
+        let declared = setting(id::TOOLS_MODE).expect("declared");
+        assert_eq!(declared.default_value(), json!("cautious"));
+        for name in ["cautious", "balanced", "autonomous"] {
+            assert_eq!(declared.accept(&json!(name)), Ok(json!(name)));
+        }
+        assert!(matches!(
+            declared.accept(&json!("Autonomous")),
+            Err(Invalid::OutOfRange { .. })
+        ));
+        assert!(matches!(
+            declared.accept(&json!(2)),
+            Err(Invalid::WrongType { .. })
+        ));
+    }
+
+    /// Everything, until somebody names a set. A set is names, each once, and
+    /// the empty set is a real answer: a conversation with no tools.
+    #[test]
+    fn the_offered_set_is_everything_by_default_and_a_list_of_names_otherwise() {
+        let declared = setting(id::TOOLS_OFFERED).expect("declared");
+        assert_eq!(declared.default_value(), Value::Null);
+        assert_eq!(declared.accept(&Value::Null), Ok(Value::Null));
+        assert_eq!(declared.accept(&json!([])), Ok(json!([])));
+        assert_eq!(
+            declared.accept(&json!(["read_file", "run_command"])),
+            Ok(json!(["read_file", "run_command"]))
+        );
+        assert!(matches!(
+            declared.accept(&json!(["read_file", 3])),
+            Err(Invalid::WrongType { .. })
+        ));
+        assert!(matches!(
+            declared.accept(&json!("read_file")),
+            Err(Invalid::WrongType { .. })
+        ));
+        assert_eq!(
+            declared.accept(&json!(["read_file", "read_file"])),
+            Ok(json!(["read_file"])),
+            "a name twice is the same set"
+        );
+    }
+
+    /// Only the context length is a flag on the process. Every other setting
+    /// is read per turn and takes effect on the next one.
     #[test]
     fn the_only_setting_that_costs_a_reload_is_the_one_the_server_starts_with() {
         let reloading: Vec<&str> = SCHEMA

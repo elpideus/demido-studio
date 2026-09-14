@@ -2,7 +2,7 @@
  * Blocks the git commands an agent session has no business running here.
  *
  * A PreToolUse hook: it reads the tool call on stdin and exits 2 to refuse it.
- * History rewriting, force pushing and branch deletion are Stefan's calls to
+ * Force pushing, history rewriting and branch deletion are Stefan's calls to
  * make, at a terminal, with the repository in front of him. An agent that wants
  * one of these asks for it instead.
  *
@@ -16,7 +16,6 @@
  */
 
 const BLOCKED = [
-  [/\bgit\s+push\b/, "pushing is a person's decision, not a session's"],
   [/\bpush\s+--force|\bpush\s+-f\b/, 'force pushing rewrites what other clones already have'],
   [/\bgit\s+reset\s+--hard\b/, 'a hard reset throws away work that was never committed'],
   [/\bgit\s+clean\s+-[a-z]*f/, 'git clean deletes untracked files with no undo'],

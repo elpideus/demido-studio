@@ -956,6 +956,9 @@ function checkCrateDocs() {
 // that a measurement was taken against. The second half is a no-op until the
 // register ships in S1, which is the same shape as the crate-docs check.
 
+/** `default` is the shipped file under `defaults/`, and says which register the
+ * pin is in: a paragraph's is `<id>.md`, a tool document's is
+ * `tools/<name>.md`. A pin without one is a paragraph. */
 const PINS = [
   {
     id: 'lessons.classify',
@@ -1005,7 +1008,7 @@ function checkPrompts() {
     // register landed on #40: before that there was no default to hash, and
     // the check was written first so that it was already true when one
     // arrived.
-    const shipped = join(DEFAULTS, `${pin.id}.md`)
+    const shipped = join(DEFAULTS, ...(pin.default ?? `${pin.id}.md`).split('/'))
     if (!existsSync(shipped)) {
       if (existsSync(REGISTER)) {
         fail('prompts', shipped, `${pin.id} is pinned and the register ships no default for it`)
@@ -1024,7 +1027,75 @@ function checkPrompts() {
   }
 
   checkDefaultsAreFiles()
+  checkToolRegister()
   checkNoHostTextLiterals()
+}
+
+/**
+ * The tool register (#52), from the side of the tools it describes.
+ *
+ * Three ways a tool's prose ends up somewhere the register cannot see it: a
+ * host tool nobody wrote a document for, a `"description"` typed back into a
+ * schema, and a default file nothing declares, which is a document the editor
+ * would offer and no payload would ever send. The literal check below cannot
+ * catch the second, because a description of five words is not six.
+ *
+ * What a script cannot read is whether a document's parameters are the
+ * schema's properties. That is `demido-tools`' `tests/documents.rs`.
+ */
+const TOOLS_SOURCE = join(ROOT, 'src-tauri', 'crates', 'demido-tools', 'src')
+
+function checkToolRegister() {
+  if (!existsSync(REGISTER) || !existsSync(TOOLS_SOURCE)) return
+
+  const declaration = walk(DECLARATION, (name) => name.endsWith('.rs'))
+    .map((file) => readFileSync(file, 'utf8'))
+    .join('\n')
+  const declares = (path) => declaration.includes(`include_str!("../defaults/${path}")`)
+
+  for (const file of walk(TOOLS_SOURCE, (name) => name.endsWith('.rs'))) {
+    const source = readFileSync(file, 'utf8')
+    const { masked, literals } = mask(source)
+    const regions = testRegions(masked)
+    const inTest = (at) => regions.some(([from, to]) => at > from && at < to)
+
+    // A host tool is an implementation that names itself with a literal. All
+    // six do. One that returned a constant would pass here, and
+    // `tests/documents.rs` is what still catches it, for the groups it reads.
+    const named = /fn\s+name\s*\(\s*&self\s*\)\s*->\s*&str\s*\{\s*"([A-Za-z0-9_]+)"/g
+    let found
+    while ((found = named.exec(source))) {
+      if (inTest(found.index)) continue
+      const tool = found[1]
+      if (!declares(`tools/${tool}.md`)) {
+        fail(
+          'prompts',
+          file,
+          `${tool} is a host tool with no document in the tool register; add defaults/tools/${tool}.md and a ToolEntry declaring it`,
+          lines(source.slice(0, found.index)).length,
+        )
+      }
+    }
+
+    for (const literal of literals) {
+      if (literal.content !== 'description' || inTest(literal.start)) continue
+      const after = masked.slice(literal.start + literal.content.length + 2)
+      if (!/^\s*:/.test(after)) continue
+      fail(
+        'prompts',
+        file,
+        "a tool's prose is a document in the tool register, not a `description` in its schema",
+        lines(source.slice(0, literal.start)).length,
+      )
+    }
+  }
+
+  for (const file of walk(DEFAULTS, (name) => name.endsWith('.md'))) {
+    const path = relative(DEFAULTS, file).split(sep).join('/')
+    if (!declares(path)) {
+      fail('prompts', file, 'is a default nothing in the register declares, so nothing sends it')
+    }
+  }
 }
 
 /**

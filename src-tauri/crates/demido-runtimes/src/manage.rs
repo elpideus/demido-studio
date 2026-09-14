@@ -72,7 +72,7 @@ impl From<Error> for demido_core::Error {
             Error::NotAllowed { action, state } => {
                 demido_core::Error::invalid(action, format!("the row is {state} row"))
             }
-            other => demido_core::Error::unavailable("the runtimes", other.to_string()),
+            other => demido_core::Error::unavailable("the runtime", other.to_string()),
         }
     }
 }
@@ -202,7 +202,12 @@ impl<S: Store> Runtimes<S> {
         };
 
         let dest = self.row_dir(id, pin)?;
-        let mut archives = Vec::new();
+        // Every archive arrives before any is unpacked. A finished zip on disk
+        // is what `fetch` takes to mean "already here", so deleting the build
+        // as soon as it expanded made a retry after a failed `cudart` download
+        // the build again (#79): a failed fetch became a reinstall of the half
+        // that had worked.
+        let mut zips = Vec::new();
         for item in items {
             let archive = fetch(
                 item,
@@ -212,11 +217,17 @@ impl<S: Store> Runtimes<S> {
                 cancel,
             )
             .await?;
-            unpack(&archive, &dest)?;
-            // The zip is this crate's litter once expanded, and only the
-            // expanded tree counts toward what the row spent.
-            let _ = std::fs::remove_file(&archive);
+            zips.push(archive);
+        }
+        let mut archives = Vec::new();
+        for (item, zip) in items.iter().zip(&zips) {
+            unpack(zip, &dest)?;
             archives.push(item.name().to_owned());
+        }
+        // The zips are this crate's litter once expanded, and only the
+        // expanded tree counts toward what the row spent.
+        for zip in &zips {
+            let _ = std::fs::remove_file(zip);
         }
 
         let verified = (self.verify)(Installed::Managed {

@@ -16,15 +16,15 @@
 // A test asserts by panicking. The workspace denies these in application code,
 // where a panic is a window that vanishes; here a panic is the report.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::future::Ready;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Chat, Model, Presence, Update};
-use demido_inference::{
-    Backend, Cancel, ChunkStream, Error as BackendError, FinishReason, Loaded, Request, Result,
-    Role, Supervisor, Usage,
-};
+use demido_chat::{Asking, Chat, Decision, Model, Presence, Toolbox, Update};
+use demido_inference::scripted::{Script, Scripted};
+use demido_inference::{Backend, FinishReason, Role, Supervisor};
+use demido_tools::Registry;
 use serde_json::json;
 
 use demido_settings::{Ladder, Memory as SettingsMemory, Scope, Settings};
@@ -35,180 +35,41 @@ use demido_trace::{Body, Journal, Memory, Replay, Source};
 /// value, which would pass for the wrong reason.
 const SESSION: &str = "a-turn";
 
-/// What the fake says and how it behaves, shared by the config, the backend it
-/// starts and the test that is watching.
-#[derive(Clone)]
-struct Script {
-    /// The answer, one chunk per token, so a stop can land in the middle of it.
-    tokens: Vec<String>,
-    /// How long a token takes. Long enough that a stop is a generation in
-    /// flight rather than one that had already finished.
-    pause: Duration,
-    /// It refuses to start, the way a model too large for the card does.
-    broken: bool,
-    /// Every request the backend was handed. This is how "the second message
-    /// carries the first exchange" is asserted: at the seam, on what was
-    /// actually sent.
-    seen: Arc<Mutex<Vec<Request>>>,
-    /// The process is still there. A test flips it to stage a crash, and it is
-    /// shared by every clone of the script because a crash is staged from
-    /// outside whichever backend is running.
-    alive: Arc<AtomicBool>,
-    /// The window one generation gets, as the configuration asked for it.
-    ///
-    /// A real server is told this on its command line and reports back what the
-    /// slot got; this one hands the number back, which is enough to assert the
-    /// thing a fake can assert: that the ladder's number reached the
-    /// configuration a backend was started from. Whether a real `llama.cpp`
-    /// then reserves it is `demido_inference::contract`'s case, against a
-    /// running server.
-    context: u32,
+/// A script that answers with these tokens, one chunk each.
+///
+/// The backend is `demido_inference::scripted`, which passes the contract suite
+/// `llama.cpp` does: these cases are about the loop's ordering, and a fake with
+/// promises of its own would be proving the loop against the wrong ones.
+fn saying(tokens: &[&str]) -> Script {
+    Script::serving("scripted").then_say(tokens)
 }
 
-impl Script {
-    fn saying(tokens: &[&str]) -> Self {
-        Self {
-            tokens: tokens.iter().map(|token| (*token).to_owned()).collect(),
-            pause: Duration::from_millis(1),
-            broken: false,
-            seen: Arc::new(Mutex::new(Vec::new())),
-            alive: Arc::new(AtomicBool::new(true)),
-            context: 4096,
-        }
-    }
-
-    fn slowly(mut self) -> Self {
-        self.pause = Duration::from_millis(40);
-        self
-    }
-
-    fn broken() -> Self {
-        let mut script = Self::saying(&[]);
-        script.broken = true;
-        script
-    }
-
-    fn sent(&self) -> Vec<Request> {
-        self.seen
-            .lock()
-            .map(|seen| seen.clone())
-            .unwrap_or_default()
-    }
+/// Slow enough that a stop is a generation in flight rather than one that had
+/// already finished.
+fn slowly(script: Script) -> Script {
+    script.pausing(Duration::from_millis(40))
 }
 
-/// Two configurations are the same backend when they load the same thing. The
-/// recorder is test scaffolding and has no say in it.
-impl PartialEq for Script {
-    fn eq(&self, other: &Self) -> bool {
-        self.tokens == other.tokens && self.broken == other.broken && self.context == other.context
-    }
+/// Nothing offered: these cases are about a turn with nothing to call, which is
+/// the same loop with nothing to do but answer.
+///
+/// The prompts directory is never created. Nothing is offered, so nothing is
+/// read from it, and a refusal would read the built-in wording.
+fn toolbox() -> Toolbox {
+    Toolbox::open(
+        Registry::default(),
+        std::env::temp_dir()
+            .join(format!("demido-a-turn-{}", std::process::id()))
+            .join("prompts"),
+    )
 }
 
-impl Eq for Script {}
-
-impl std::fmt::Debug for Script {
-    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        out.debug_struct("Script")
-            .field("broken", &self.broken)
-            .finish()
-    }
-}
-
-struct Fake {
-    script: Script,
-    /// This instance has not been stopped.
-    ///
-    /// Per backend rather than per script, unlike [`Script::alive`]: a
-    /// supervisor replacing one backend with another stops the first, and a
-    /// flag shared with the configuration would mark the replacement dead
-    /// before it answered anything.
-    running: AtomicBool,
-}
-
-#[async_trait::async_trait]
-impl Backend for Fake {
-    type Config = Script;
-
-    fn name() -> &'static str {
-        "fake"
-    }
-
-    fn with_context_length(mut config: Script, tokens: u32) -> Script {
-        config.context = tokens;
-        config
-    }
-
-    async fn start(config: Script) -> Result<Self> {
-        if config.broken {
-            return Err(BackendError::DidNotStart {
-                backend: "fake".into(),
-                detail: "it does not fit".into(),
-            });
-        }
-        Ok(Fake {
-            script: config,
-            running: AtomicBool::new(true),
-        })
-    }
-
-    async fn ready(&self) -> bool {
-        self.running.load(Ordering::SeqCst) && self.script.alive.load(Ordering::SeqCst)
-    }
-
-    async fn loaded(&self) -> Result<Loaded> {
-        Ok(Loaded {
-            id: "scripted".into(),
-            size: None,
-        })
-    }
-
-    async fn context_length(&self) -> Result<u32> {
-        Ok(self.script.context)
-    }
-
-    async fn generate(&self, request: Request, cancel: Cancel) -> Result<ChunkStream> {
-        if let Ok(mut seen) = self.script.seen.lock() {
-            seen.push(request.clone());
-        }
-        // A backend serves one model and refuses any other name rather than
-        // answering with what it has, which is what the contract suite holds
-        // every implementation to.
-        if request.model != "scripted" {
-            return Err(BackendError::Refused {
-                backend: "fake".into(),
-                detail: format!("this server is serving scripted, not {}", request.model),
-            });
-        }
-        let script = self.script.clone();
-
-        Ok(Box::pin(async_stream::stream! {
-            let mut said = 0u32;
-            for token in &script.tokens {
-                tokio::select! {
-                    // Cancelling ends the stream promptly, and what was already
-                    // generated is kept: the contract's own words.
-                    () = cancel.cancelled() => {
-                        yield Ok(demido_inference::Chunk::Done {
-                            reason: FinishReason::Cancelled,
-                            usage: Usage { prompt_tokens: 7, completion_tokens: said },
-                        });
-                        return;
-                    }
-                    () = tokio::time::sleep(script.pause) => {}
-                }
-                said += 1;
-                yield Ok(demido_inference::Chunk::Text { text: token.clone() });
-            }
-            yield Ok(demido_inference::Chunk::Done {
-                reason: FinishReason::Stop,
-                usage: Usage { prompt_tokens: 7, completion_tokens: said },
-            });
-        }))
-    }
-
-    async fn stop(&self) {
-        self.running.store(false, Ordering::SeqCst);
-    }
+/// Nobody should be asked anything in a turn that offers nothing.
+fn nobody(asking: Asking) -> Ready<Decision> {
+    panic!(
+        "nothing is offered, and yet {} was asked about",
+        asking.tool
+    )
 }
 
 /// A chat over a log in memory, talking to a script.
@@ -216,7 +77,7 @@ impl Backend for Fake {
 /// The journal is handed back by the opener as a clone, which is what "opened
 /// again over the same storage" means for [`Memory`], so a second chat built
 /// over the same handle is a restart.
-fn chat(script: &Script, log: &Memory) -> Chat<Fake, Memory> {
+fn chat(script: &Script, log: &Memory) -> Chat<Scripted, Memory> {
     over(
         script,
         log,
@@ -235,7 +96,7 @@ fn over(
     script: &Script,
     log: &Memory,
     settings: &Arc<Settings>,
-) -> (Chat<Fake, Memory>, Arc<Supervisor<Fake>>) {
+) -> (Chat<Scripted, Memory>, Arc<Supervisor<Scripted>>) {
     let log = log.clone();
     let supervisor = Arc::new(Supervisor::new());
     let chat = Chat::new(
@@ -247,6 +108,7 @@ fn over(
             id: "scripted".into(),
         }),
         settings.clone(),
+        toolbox(),
     );
     (chat, supervisor)
 }
@@ -288,14 +150,14 @@ fn watch() -> (Arc<Mutex<Vec<Presence>>>, impl FnMut(&Presence)) {
 /// transcript, which is a projection of the log and not a copy of either.
 #[tokio::test]
 async fn a_message_gets_an_answer_and_the_transcript_comes_out_of_the_log() {
-    let script = Script::saying(&["Par", "is", "."]);
+    let script = saying(&["Par", "is", "."]);
     let log = Memory::new();
     let chat = chat(&script, &log);
     chat.load(|_| {}).await;
 
     let watched = Watched::default();
     let answer = chat
-        .ask("What is the capital of France?", watched.sink())
+        .ask("What is the capital of France?", watched.sink(), nobody)
         .await
         .expect("an answer");
 
@@ -332,15 +194,15 @@ async fn a_message_gets_an_answer_and_the_transcript_comes_out_of_the_log() {
 /// was about to happen even if the process dies mid-request.
 #[tokio::test]
 async fn what_was_sent_is_what_the_log_says_was_sent() {
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     let chat = chat(&script, &log);
     chat.load(|_| {}).await;
-    chat.ask("hello", |_| {}).await.expect("an answer");
+    chat.ask("hello", |_| {}, nobody).await.expect("an answer");
 
     let replay = Replay::of(&log).expect("read the log");
     let rebuilt = replay.assembly(1).expect("rebuilt");
-    let sent = script.sent();
+    let sent = script.requests();
     assert_eq!(
         rebuilt, sent[0],
         "the log rebuilt a different request from the one the backend was given"
@@ -350,17 +212,19 @@ async fn what_was_sent_is_what_the_log_says_was_sent() {
 /// A conversation rather than a series of first questions.
 #[tokio::test]
 async fn a_second_message_carries_the_first_exchange() {
-    let script = Script::saying(&["Paris"]);
+    let script = saying(&["Paris"]);
     let log = Memory::new();
     let chat = chat(&script, &log);
     chat.load(|_| {}).await;
 
-    chat.ask("What is the capital of France?", |_| {})
+    chat.ask("What is the capital of France?", |_| {}, nobody)
         .await
         .expect("an answer");
-    chat.ask("And of Italy?", |_| {}).await.expect("an answer");
+    chat.ask("And of Italy?", |_| {}, nobody)
+        .await
+        .expect("an answer");
 
-    let sent = script.sent();
+    let sent = script.requests();
     assert_eq!(sent.len(), 2);
     assert_eq!(
         sent[0].messages.len(),
@@ -395,7 +259,7 @@ async fn a_second_message_carries_the_first_exchange() {
 /// rather than what was intended.
 #[tokio::test]
 async fn a_stop_records_the_partial_answer_and_the_stop() {
-    let script = Script::saying(&["one ", "two ", "three ", "four ", "five "]).slowly();
+    let script = slowly(saying(&["one ", "two ", "three ", "four ", "five "]));
     let log = Memory::new();
     let chat = Arc::new(chat(&script, &log));
     chat.load(|_| {}).await;
@@ -403,7 +267,7 @@ async fn a_stop_records_the_partial_answer_and_the_stop() {
     let stopping = chat.clone();
     let asking = {
         let chat = chat.clone();
-        tokio::spawn(async move { chat.ask("count to five", |_| {}).await })
+        tokio::spawn(async move { chat.ask("count to five", |_| {}, nobody).await })
     };
 
     // After the generation is really under way, so this is a stop rather than a
@@ -443,21 +307,21 @@ async fn a_stop_records_the_partial_answer_and_the_stop() {
 /// press stop and then ask something else.
 #[tokio::test]
 async fn the_message_after_a_stop_is_answered_normally() {
-    let script = Script::saying(&["a", "b", "c", "d"]).slowly();
+    let script = slowly(saying(&["a", "b", "c", "d"]));
     let log = Memory::new();
     let chat = Arc::new(chat(&script, &log));
     chat.load(|_| {}).await;
 
     let asking = {
         let chat = chat.clone();
-        tokio::spawn(async move { chat.ask("first", |_| {}).await })
+        tokio::spawn(async move { chat.ask("first", |_| {}, nobody).await })
     };
     tokio::time::sleep(Duration::from_millis(60)).await;
     chat.stop();
     asking.await.expect("joined").expect("a stopped answer");
 
     assert!(chat.presence().is_ready(), "a stop is not an unload");
-    let answer = chat.ask("second", |_| {}).await.expect("an answer");
+    let answer = chat.ask("second", |_| {}, nobody).await.expect("an answer");
     assert_eq!(answer.reason, FinishReason::Stop);
     assert_eq!(answer.turn, 2);
 }
@@ -466,13 +330,13 @@ async fn the_message_after_a_stop_is_answered_normally() {
 /// first time, because there is nowhere else for a chat to have been.
 #[tokio::test]
 async fn a_chat_reopened_over_its_log_is_the_chat_that_was_there() {
-    let script = Script::saying(&["Paris"]);
+    let script = saying(&["Paris"]);
     let log = Memory::new();
 
     {
         let chat = chat(&script, &log);
         chat.load(|_| {}).await;
-        chat.ask("What is the capital of France?", |_| {})
+        chat.ask("What is the capital of France?", |_| {}, nobody)
             .await
             .expect("an answer");
     }
@@ -484,7 +348,7 @@ async fn a_chat_reopened_over_its_log_is_the_chat_that_was_there() {
 
     reopened.load(|_| {}).await;
     let answer = reopened
-        .ask("And of Italy?", |_| {})
+        .ask("And of Italy?", |_| {}, nobody)
         .await
         .expect("an answer");
     assert_eq!(
@@ -499,12 +363,13 @@ async fn a_chat_reopened_over_its_log_is_the_chat_that_was_there() {
 #[tokio::test]
 async fn a_chat_with_nothing_configured_says_so_and_refuses() {
     let log = Memory::new();
-    let chat: Chat<Fake, Memory> = Chat::new(
+    let chat: Chat<Scripted, Memory> = Chat::new(
         "empty",
         move || Ok(log.clone()),
         Arc::new(Supervisor::new()),
         None,
         Arc::new(Settings::open(SettingsMemory::new())),
+        toolbox(),
     );
 
     let (seen, report) = watch();
@@ -515,7 +380,7 @@ async fn a_chat_with_nothing_configured_says_so_and_refuses() {
         "a fresh install passes through no loading state"
     );
 
-    let refused = chat.ask("hello", |_| {}).await;
+    let refused = chat.ask("hello", |_| {}, nobody).await;
     assert!(matches!(
         refused,
         Err(demido_chat::Error::NotReady(Presence::Absent))
@@ -531,7 +396,10 @@ async fn a_chat_with_nothing_configured_says_so_and_refuses() {
 #[tokio::test]
 async fn a_model_that_will_not_start_is_reported_and_the_desk_stays_usable() {
     let log = Memory::new();
-    let chat = chat(&Script::broken(), &log);
+    let chat = chat(
+        &Script::serving("scripted").refusing_to_start("it does not fit"),
+        &log,
+    );
 
     let (seen, report) = watch();
     let presence = chat.load(report).await;
@@ -550,7 +418,7 @@ async fn a_model_that_will_not_start_is_reported_and_the_desk_stays_usable() {
     );
 
     assert!(chat.history().is_ok(), "the desk is still usable");
-    assert!(chat.ask("hello", |_| {}).await.is_err());
+    assert!(chat.ask("hello", |_| {}, nobody).await.is_err());
 }
 
 /// A process that exited leaves a handle that looks fine from the outside, so
@@ -558,16 +426,16 @@ async fn a_model_that_will_not_start_is_reported_and_the_desk_stays_usable() {
 /// thrown.
 #[tokio::test]
 async fn a_backend_that_crashed_is_reported_and_the_desk_stays_usable() {
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     let chat = chat(&script, &log);
     chat.load(|_| {}).await;
     assert!(chat.presence().is_ready());
 
     // It crashed. Nothing told anybody.
-    script.alive.store(false, Ordering::SeqCst);
+    script.crash();
 
-    let failed = chat.ask("hello", |_| {}).await;
+    let failed = chat.ask("hello", |_| {}, nobody).await;
     assert!(
         matches!(failed, Err(demido_chat::Error::Gone)),
         "{failed:?}"
@@ -583,9 +451,9 @@ async fn a_backend_that_crashed_is_reported_and_the_desk_stays_usable() {
 
     // And it can be started again, which is what makes this reported rather
     // than fatal.
-    script.alive.store(true, Ordering::SeqCst);
+    script.revive();
     chat.load(|_| {}).await;
-    assert!(chat.ask("hello", |_| {}).await.is_ok());
+    assert!(chat.ask("hello", |_| {}, nobody).await.is_ok());
 }
 
 /// A refused turn is an event on the same log, against the assembly it tried
@@ -593,12 +461,12 @@ async fn a_backend_that_crashed_is_reported_and_the_desk_stays_usable() {
 /// explain itself.
 #[tokio::test]
 async fn a_refused_turn_is_an_event_on_the_same_log() {
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     // The backend serves `scripted` and this chat asks under another name,
     // which is the one refusal a supervised server can be made to produce on
     // demand.
-    let chat: Chat<Fake, Memory> = {
+    let chat: Chat<Scripted, Memory> = {
         let log = log.clone();
         Chat::new(
             "refused",
@@ -609,12 +477,13 @@ async fn a_refused_turn_is_an_event_on_the_same_log() {
                 id: "a-model-this-backend-is-not-serving".into(),
             }),
             Arc::new(Settings::open(SettingsMemory::new())),
+            toolbox(),
         )
     };
     chat.load(|_| {}).await;
 
     let watched = Watched::default();
-    let refused = chat.ask("hello", watched.sink()).await;
+    let refused = chat.ask("hello", watched.sink(), nobody).await;
     assert!(
         matches!(refused, Err(demido_chat::Error::Backend(_))),
         "{refused:?}"
@@ -635,7 +504,7 @@ async fn a_refused_turn_is_an_event_on_the_same_log() {
     assert_eq!(
         replay.assembly(1).expect("rebuilt"),
         script
-            .sent()
+            .requests()
             .first()
             .cloned()
             .unwrap_or_else(|| panic!("nothing reached the backend")),
@@ -655,7 +524,7 @@ async fn the_log_is_not_opened_until_there_is_something_to_put_in_it() {
     let opened = Arc::new(AtomicUsize::new(0));
     let log = Memory::new();
 
-    let chat: Chat<Fake, Memory> = {
+    let chat: Chat<Scripted, Memory> = {
         let opened = opened.clone();
         let log = log.clone();
         Chat::new(
@@ -666,10 +535,11 @@ async fn the_log_is_not_opened_until_there_is_something_to_put_in_it() {
             },
             Arc::new(Supervisor::new()),
             Some(Model {
-                config: Script::saying(&["ok"]),
+                config: saying(&["ok"]),
                 id: "scripted".into(),
             }),
             Arc::new(Settings::open(SettingsMemory::new())),
+            toolbox(),
         )
     };
 
@@ -685,9 +555,9 @@ async fn the_log_is_not_opened_until_there_is_something_to_put_in_it() {
         "loading a model opens nothing"
     );
 
-    chat.ask("hello", |_| {}).await.expect("an answer");
+    chat.ask("hello", |_| {}, nobody).await.expect("an answer");
     assert_eq!(opened.load(Ordering::SeqCst), 1);
-    chat.ask("again", |_| {}).await.expect("an answer");
+    chat.ask("again", |_| {}, nobody).await.expect("an answer");
     assert_eq!(
         opened.load(Ordering::SeqCst),
         1,
@@ -720,13 +590,13 @@ async fn the_temperature_sent_is_the_one_the_ladder_resolved() {
         )
         .expect("set globally");
 
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     let (chat, _) = over(&script, &log, &settings);
     chat.load(|_| {}).await;
-    chat.ask("hello", |_| {}).await.expect("an answer");
+    chat.ask("hello", |_| {}, nobody).await.expect("an answer");
 
-    assert_eq!(script.sent()[0].options.temperature, Some(0.2));
+    assert_eq!(script.requests()[0].options.temperature, Some(0.2));
 
     settings
         .set(
@@ -735,10 +605,10 @@ async fn the_temperature_sent_is_the_one_the_ladder_resolved() {
             &json!(1.4),
         )
         .expect("set on this chat");
-    chat.ask("again", |_| {}).await.expect("an answer");
+    chat.ask("again", |_| {}, nobody).await.expect("an answer");
 
     assert_eq!(
-        script.sent()[1].options.temperature,
+        script.requests()[1].options.temperature,
         Some(1.4),
         "a value changed while the window is open takes effect on the next turn"
     );
@@ -757,13 +627,13 @@ async fn the_system_prompt_heads_the_assembly_and_the_chat_outranks_the_global()
         )
         .expect("set globally");
 
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     let (chat, _) = over(&script, &log, &settings);
     chat.load(|_| {}).await;
-    chat.ask("hello", |_| {}).await.expect("an answer");
+    chat.ask("hello", |_| {}, nobody).await.expect("an answer");
 
-    let first = &script.sent()[0].messages;
+    let first = &script.requests()[0].messages;
     assert_eq!(first[0].role, Role::System);
     assert_eq!(first[0].content, "You are terse.");
     assert_eq!(first[1].role, Role::User, "then what the person typed");
@@ -775,9 +645,9 @@ async fn the_system_prompt_heads_the_assembly_and_the_chat_outranks_the_global()
             &json!("You are a pirate."),
         )
         .expect("set on this chat");
-    chat.ask("again", |_| {}).await.expect("an answer");
+    chat.ask("again", |_| {}, nobody).await.expect("an answer");
 
-    let second = &script.sent()[1].messages;
+    let second = &script.requests()[1].messages;
     assert_eq!(second[0].content, "You are a pirate.");
     assert_eq!(
         second[1].role,
@@ -791,7 +661,7 @@ async fn the_system_prompt_heads_the_assembly_and_the_chat_outranks_the_global()
     let replay = Replay::of(&log).expect("read the log");
     assert_eq!(
         replay.assembly(2).expect("rebuilt"),
-        script.sent()[1],
+        script.requests()[1],
         "the log rebuilt a different request from the one the backend was given"
     );
 
@@ -809,13 +679,13 @@ async fn the_system_prompt_heads_the_assembly_and_the_chat_outranks_the_global()
 /// out of the assembly entirely.
 #[tokio::test]
 async fn an_empty_system_prompt_is_absent_rather_than_blank() {
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     let chat = chat(&script, &log);
     chat.load(|_| {}).await;
-    chat.ask("hello", |_| {}).await.expect("an answer");
+    chat.ask("hello", |_| {}, nobody).await.expect("an answer");
 
-    let messages = &script.sent()[0].messages;
+    let messages = &script.requests()[0].messages;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].role, Role::User);
 }
@@ -835,7 +705,7 @@ async fn the_context_length_the_chat_asked_for_is_what_the_backend_is_started_wi
         )
         .expect("set on this chat");
 
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     let (chat, supervisor) = over(&script, &log, &settings);
     chat.load(|_| {}).await;
@@ -881,14 +751,14 @@ async fn an_override_made_in_one_chat_does_not_reach_another() {
         )
         .expect("set");
 
-    let script = Script::saying(&["ok"]);
+    let script = saying(&["ok"]);
     let log = Memory::new();
     let (chat, _) = over(&script, &log, &settings);
     chat.load(|_| {}).await;
-    chat.ask("hello", |_| {}).await.expect("an answer");
+    chat.ask("hello", |_| {}, nobody).await.expect("an answer");
 
     assert_eq!(
-        script.sent()[0].options.temperature,
+        script.requests()[0].options.temperature,
         Some(0.7),
         "this chat resolves the schema's default, not the other chat's override"
     );
@@ -899,4 +769,43 @@ async fn an_override_made_in_one_chat_does_not_reach_another() {
         Some(1.4),
         "and the other chat still has what was set on it"
     );
+}
+
+/// The mode is never prose. Nothing Demido assembles describes a mode to the
+/// model, because a permission the model is told about is a permission that
+/// depends on whether the model obeyed it.
+///
+/// Asserted at the seam, on every request the backend was handed, so it holds
+/// for whatever the assembly grows to carry. When the mode arrives on the
+/// ladder ([#56](https://github.com/elpideus/demido-studio/issues/56)) this
+/// case sets it, and the assertion does not change.
+#[tokio::test]
+async fn nothing_sent_to_the_model_names_a_mode() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::Global,
+            demido_settings::id::SYSTEM_PROMPT,
+            &json!("You are terse."),
+        )
+        .expect("set globally");
+
+    let script = saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, _) = over(&script, &log, &settings);
+    chat.load(|_| {}).await;
+    chat.ask("hello", |_| {}, nobody).await.expect("an answer");
+    chat.ask("again", |_| {}, nobody).await.expect("an answer");
+
+    let sent = script.requests();
+    assert_eq!(sent.len(), 2);
+    for request in sent {
+        let payload = format!("{request:?}").to_lowercase();
+        for name in demido_permission::Mode::names() {
+            assert!(
+                !payload.contains(name),
+                "the {name} mode reached the payload"
+            );
+        }
+    }
 }

@@ -48,6 +48,15 @@ const EXTENSION: &str = "gguf";
 /// exactly what a runtime verification reaches for.
 const COMPANION: &str = "mmproj";
 
+/// What a multi-token-prediction head is called, and it is not a model either.
+///
+/// The draft half of speculative decoding, shipped beside the model it
+/// speeds up as `mtp-<model>.gguf`. `llama.cpp` will not create a context
+/// from one alone, and like a projector it is the smallest file in its
+/// folder. Matched as a prefix, because a model whose name merely contains
+/// the three letters is still a model.
+const DRAFT_HEAD: &str = "mtp-";
+
 /// One model file, as it was found.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,7 +192,8 @@ fn collect(root: &Path, folder: &Path, depth: usize, found: &mut Vec<Model>) {
             .unwrap_or(path.as_os_str())
             .to_string_lossy()
             .into_owned();
-        if name.to_ascii_lowercase().contains(COMPANION) {
+        let lowercase = name.to_ascii_lowercase();
+        if lowercase.contains(COMPANION) || lowercase.starts_with(DRAFT_HEAD) {
             continue;
         }
         let size_mib = entry
@@ -261,6 +271,26 @@ mod tests {
             smallest(std::slice::from_ref(&dir)),
             Some(dir.join("gemma-4-E4B-it-Q8_0.gguf")),
             "a verification that loaded a projector would refuse a runtime that works"
+        );
+    }
+
+    /// Found on #79, in LM Studio's own folder for Gemma 4 E4B: a 94 MiB
+    /// multi-token-prediction head beside the 7.8 GiB model. `llama.cpp`
+    /// refuses to create a context from it, and as the smallest file there it
+    /// was what the runtime was verified against, so a download that worked
+    /// was thrown away.
+    #[test]
+    fn a_draft_head_is_not_offered_as_a_model() {
+        let dir = scratch("mtp");
+        model(&dir, "gemma-4-E4B-it-Q8_0.gguf", 64);
+        model(&dir, "mtp-gemma-4-E4B-it-Q8_0.gguf", 8);
+        let found = models(std::slice::from_ref(&dir));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "gemma-4-E4B-it-Q8_0.gguf");
+        assert_eq!(
+            smallest(std::slice::from_ref(&dir)),
+            Some(dir.join("gemma-4-E4B-it-Q8_0.gguf")),
+            "a verification that loaded a draft head would refuse a runtime that works"
         );
     }
 

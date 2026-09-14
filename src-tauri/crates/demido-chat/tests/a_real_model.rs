@@ -43,12 +43,21 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use demido_chat::{Chat, Model, Presence, Update};
+use demido_chat::{Asking, Chat, Decision, Model, Presence, Toolbox, Update};
 use demido_inference::{Backend, FinishReason, LlamaCpp, Role, Supervisor};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
+use demido_tools::Registry;
 use demido_trace::{Body, JsonLines, SessionId};
 
 use rig::Tier;
+
+/// Nothing is offered in these scenarios, so nobody is ever asked.
+fn nobody(asking: Asking) -> std::future::Ready<Decision> {
+    panic!(
+        "nothing is offered, and yet {} was asked about",
+        asking.tool
+    )
+}
 
 /// A scratch directory for the log a run writes.
 fn scratch(name: &str) -> PathBuf {
@@ -96,6 +105,9 @@ fn over(
             id: tier.label().to_owned(),
         }),
         settings.clone(),
+        // Nothing offered. These scenarios are S1's, a model answering; what a
+        // model does with tools on offer is S2's live suite (#59).
+        Toolbox::open(Registry::default(), dir.join("prompts")),
     );
     (chat, supervisor)
 }
@@ -148,7 +160,7 @@ async fn a_message_gets_an_answer_that_arrives_as_it_is_generated() {
 
         let watched = Watched::default();
         let answer = chat
-            .ask("What is the capital of France?", watched.sink())
+            .ask("What is the capital of France?", watched.sink(), nobody)
             .await
             .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
 
@@ -196,12 +208,17 @@ async fn a_second_message_carries_the_first_exchange() {
         chat.ask(
             "My name is Ada Lovelace. Reply with just the word: noted.",
             |_| {},
+            nobody,
         )
         .await
         .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
 
         let answer = chat
-            .ask("What is my name? Answer with the name alone.", |_| {})
+            .ask(
+                "What is my name? Answer with the name alone.",
+                |_| {},
+                nobody,
+            )
             .await
             .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
 
@@ -251,7 +268,7 @@ async fn stopping(tier: Tier) {
         let chat = chat.clone();
         let sink = watched.sink();
         tokio::spawn(async move {
-            chat.ask("Count slowly from one to two hundred.", sink)
+            chat.ask("Count slowly from one to two hundred.", sink, nobody)
                 .await
         })
     };
@@ -301,7 +318,11 @@ async fn stopping(tier: Tier) {
     // a restart button.
     assert!(chat.presence().is_ready());
     let next = chat
-        .ask("What is the capital of France? Answer in one word.", |_| {})
+        .ask(
+            "What is the capital of France? Answer in one word.",
+            |_| {},
+            nobody,
+        )
         .await
         .expect("the message after a stop is answered normally");
     assert_eq!(next.reason, FinishReason::Stop);
@@ -327,7 +348,11 @@ async fn a_chat_is_still_there_after_the_process_that_held_it_is_gone() {
         let chat = chat(tier, &dir);
         loaded(&chat, tier).await;
         let answer = chat
-            .ask("What is the capital of France? Answer in one word.", |_| {})
+            .ask(
+                "What is the capital of France? Answer in one word.",
+                |_| {},
+                nobody,
+            )
             .await
             .expect("an answer");
         chat.shutdown().await;
@@ -378,7 +403,7 @@ async fn the_system_prompt_the_ladder_resolves_is_the_one_the_model_obeys() {
         loaded(&chat, tier).await;
 
         let answer = chat
-            .ask("What is the capital of France?", |_| {})
+            .ask("What is the capital of France?", |_| {}, nobody)
             .await
             .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
         assert!(
@@ -400,7 +425,7 @@ async fn the_system_prompt_the_ladder_resolves_is_the_one_the_model_obeys() {
             .expect("set on this chat");
 
         let answer = chat
-            .ask("What is the capital of Italy?", |_| {})
+            .ask("What is the capital of Italy?", |_| {}, nobody)
             .await
             .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
         assert!(

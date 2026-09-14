@@ -47,7 +47,9 @@ mode could express.
 
 ## Permitted: the matrix
 
-Carried forward from v2's `demido-tools::permission`, which is good and stays.
+Carried forward from v2's `demido-tools::permission`, which is good and stays,
+into its own crate, `demido-permission`, so that `demido-tools` still knows
+nothing about a mode.
 One pure matrix, three presets over it, nothing hardcoded per mode: an `Intent`
 goes in, a verdict comes out, and three modes are three rows in a table rather
 than three code paths. The third one is always written in a hurry.
@@ -62,7 +64,7 @@ Three rules hold it up.
 
 **Destructive always asks**, in every mode including the one that approves
 everything else. It is not a preset, it is the floor under all of them, it
-cannot be waived by `always_allow`, and a tool that is unsure should declare
+cannot be waived by *always for this tool*, and a tool that is unsure should declare
 itself destructive: erring towards asking costs a click, erring the other way
 costs the thing.
 
@@ -280,7 +282,7 @@ is, and none of it ships in v0.1.
 
 All three modes, because they are three rows in one table and shipping two would
 be more work than shipping three. **Cautious is the default**, matching
-`Matrix::default()` and the unknown-name fallback, so the strictest answer wins
+`Mode::default()` and the unknown-name fallback, so the strictest answer wins
 every ambiguous case.
 
 Two scenarios land on [`done.md`](done.md)'s S2, and the **matrix ships at S2

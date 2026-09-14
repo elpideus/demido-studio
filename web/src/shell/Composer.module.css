@@ -60,7 +60,7 @@
 
 .send,
 .stop,
-.settings {
+.control {
   flex: none;
   width: var(--size-control);
   height: var(--size-control);
@@ -80,30 +80,37 @@
   cursor: default;
 }
 
-/* The chat's own settings, beside the sentence rather than beside send: it is
- * about the conversation and not about this message, and it is pushed to the
- * end of the row so the hand's resting place stays the send button. */
-.settings {
+/* The mode, the tool picker and the chat's own settings, beside the sentence
+ * rather than beside send, and pushed to the end of the row so the hand's
+ * resting place stays the send button. */
+.controls {
+  flex: none;
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+.control {
   color: var(--color-ink-3);
 }
 
-.settings:hover {
+.control:hover {
   background: var(--color-hover);
 }
 
-.settings:active {
+.control:active {
   background: var(--color-active);
 }
 
 /* Open is armed, the same way stop is: state is carried by the thing itself. */
-.settings[aria-pressed='true'] {
+.control[aria-pressed='true'] {
   background: var(--color-edge);
   color: var(--color-signal);
 }
 
-.settings[aria-pressed='true']:hover,
-.settings[aria-pressed='true']:active {
+.control[aria-pressed='true']:hover,
+.control[aria-pressed='true']:active {
   background: var(--color-edge-strong);
 }
 

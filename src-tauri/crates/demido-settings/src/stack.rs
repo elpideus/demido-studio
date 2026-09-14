@@ -328,6 +328,36 @@ impl Resolved {
         u32::try_from(self.count_of(id::CONTEXT_LENGTH).unwrap_or_default()).unwrap_or(u32::MAX)
     }
 
+    /// How many rounds of tool calls one message may take.
+    #[must_use]
+    pub fn step_limit(&self) -> u32 {
+        // Never nothing, for the reason the context length is never nothing.
+        u32::try_from(self.count_of(id::STEP_LIMIT).unwrap_or_default()).unwrap_or(u32::MAX)
+    }
+
+    /// The stored name of the mode in force. A name and never a mode: only the
+    /// permission matrix turns one into a verdict (`demido_permission::Mode`).
+    #[must_use]
+    pub fn mode(&self) -> &str {
+        self.text_of(id::TOOLS_MODE)
+    }
+
+    /// The names of the tools on offer, or `None` for every tool there is.
+    ///
+    /// Whichever tier set it set all of it: an override replaces the set below
+    /// rather than merging with it, because a merge has no way to say *off*
+    /// (`docs/rules/tools.md`).
+    #[must_use]
+    pub fn offered(&self) -> Option<Vec<String>> {
+        self.get(id::TOOLS_OFFERED).as_array().map(|names| {
+            names
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+    }
+
     /// Who the model is being, or the empty string where nobody has said.
     ///
     /// Empty rather than absent is the honest default: an empty system prompt
@@ -449,6 +479,46 @@ mod tests {
 
         assert!(row.set_here);
         assert_eq!(row.from, Origin::Tier(Tier::Chat));
+    }
+
+    /// `docs/rules/tools.md`: an override of the offered set **replaces** the
+    /// set below it. A merge could never say *off*.
+    #[test]
+    fn an_offered_set_override_replaces_the_inherited_set_rather_than_merging() {
+        let mut stack = Stack::new();
+        stack.insert(
+            Tier::Global,
+            values(&[(id::TOOLS_OFFERED, json!(["read_file", "run_command"]))]),
+        );
+        stack.insert(
+            Tier::Chat,
+            values(&[(id::TOOLS_OFFERED, json!(["write_file"]))]),
+        );
+
+        let resolved = stack.resolve();
+        assert_eq!(resolved.offered(), Some(vec!["write_file".to_owned()]));
+        assert_eq!(resolved.origin(id::TOOLS_OFFERED), Origin::Tier(Tier::Chat));
+    }
+
+    #[test]
+    fn nobody_naming_a_set_offers_everything_and_the_mode_is_cautious() {
+        let resolved = Stack::new().resolve();
+        assert_eq!(resolved.offered(), None, "None is every tool there is");
+        assert_eq!(resolved.mode(), "cautious");
+    }
+
+    #[test]
+    fn the_mode_resolves_through_the_ladder_with_the_chat_last() {
+        let mut stack = Stack::new();
+        stack.insert(Tier::Global, values(&[(id::TOOLS_MODE, json!("balanced"))]));
+        assert_eq!(stack.resolve().mode(), "balanced");
+
+        stack.insert(Tier::Chat, values(&[(id::TOOLS_MODE, json!("autonomous"))]));
+        assert_eq!(stack.resolve().mode(), "autonomous");
+        assert_eq!(
+            stack.resolve().origin(id::TOOLS_MODE),
+            Origin::Tier(Tier::Chat)
+        );
     }
 
     #[test]

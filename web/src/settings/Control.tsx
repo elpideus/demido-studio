@@ -52,7 +52,59 @@ export function Control({ row, onChange }: Change) {
       return <Count setting={setting} kind={setting.kind} value={value} onChange={onChange} />
     case 'text':
       return <Text setting={setting} kind={setting.kind} value={value} onChange={onChange} />
+    case 'choice':
+      return <Choice setting={setting} kind={setting.kind} value={value} onChange={onChange} />
+    case 'set':
+      // A set is the tool picker's, and the popover is its whole surface
+      // (`docs/rules/tools.md`). A settings page is handed none to draw.
+      return null
   }
+}
+
+/**
+ * One name out of a few, all of them in view.
+ *
+ * Buttons in a row rather than a dropdown: three options are fewer than a menu
+ * is worth opening, and the one in force is the one on `edge`, which is state
+ * rather than elevation (`docs/rules/surfaces.md`).
+ */
+function Choice({
+  setting,
+  kind,
+  value,
+  onChange,
+}: {
+  setting: Setting
+  kind: Extract<Kind, { control: 'choice' }>
+  value: unknown
+  onChange: (value: unknown) => Promise<boolean>
+}) {
+  const chosen = typeof value === 'string' ? value : kind.default
+
+  return (
+    <div className={styles.choices} id={setting.id} role="radiogroup" aria-label={setting.title}>
+      {kind.options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          className={styles.choice}
+          aria-checked={option === chosen}
+          onClick={() => {
+            if (option !== chosen) void onChange(option)
+          }}
+        >
+          {spoken(option)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** A stored name as a person reads it. The names are ids, so the window
+ * capitalises them rather than Rust sending a second copy in prose. */
+export function spoken(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
 /**

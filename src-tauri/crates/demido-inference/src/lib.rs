@@ -10,9 +10,12 @@ pub mod backend;
 pub mod contract;
 pub mod llamacpp;
 pub mod model;
+pub mod scripted;
 pub mod supervisor;
 
 pub use backend::{Backend, Cancel, ChunkStream, Error, Result};
 pub use llamacpp::{Config as LlamaCppConfig, LlamaCpp, Offload};
-pub use model::{Chunk, FinishReason, Loaded, Message, Options, Request, Role, Usage};
+pub use model::{
+    Chunk, FinishReason, Loaded, Message, Options, Request, Role, ToolCall, ToolSpec, Usage,
+};
 pub use supervisor::Supervisor;

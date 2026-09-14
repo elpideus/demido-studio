@@ -13,7 +13,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use demido_chat::{Presence, Said, Update};
+use demido_chat::{Decision, Offering, Presence, Said, Update};
 
 use crate::wiring::Wiring;
 
@@ -38,6 +38,16 @@ const PRESENCE: &str = "chat://presence";
 #[tauri::command]
 pub fn chat_transcript(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<Vec<Said>> {
     Ok(wiring.chat.history()?)
+}
+
+/// What the tool picker draws: every group, with its tools.
+///
+/// Only the shape. Which of them are on is the ladder's `tools.offered`, read
+/// and written through the settings commands like any other value, so the
+/// picker and a turn are looking at the same set.
+#[tauri::command]
+pub fn chat_tools(wiring: tauri::State<'_, Wiring>) -> Vec<Offering> {
+    wiring.chat.groups()
 }
 
 /// What the composer should say about the model right now.
@@ -76,7 +86,16 @@ pub async fn chat_send(
 ) -> demido_core::Result<()> {
     wiring
         .chat
-        .ask(&message, |update: Update| emit(&app, UPDATE, &update))
+        .ask(
+            &message,
+            |update: Update| emit(&app, UPDATE, &update),
+            // Unreachable in this build, and a denial rather than an approval
+            // so that it could never be the reason something ran: no workspace
+            // is set, so nothing is offered and every call is answered by the
+            // registry before the matrix is asked. The approval row that asks
+            // a person is #55's.
+            |_asking| std::future::ready(Decision::Deny),
+        )
         .await?;
     Ok(())
 }

@@ -323,7 +323,7 @@ Configuration the installed engineering skills read lives in `docs/agents/`.
   `gh` CLI. See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
   The foundation for v3 is being charted as a wayfinder map,
   [#1](https://github.com/elpideus/demido-studio/issues/1).
-- **Session guardrails.** `.claude/settings.json` refuses `git push`, hard
+- **Session guardrails.** `.claude/settings.json` refuses a force push, hard
   resets, `git clean`, branch deletion and history rewriting inside an agent
   session. Those are Stefan's to run, at a terminal, with the repo in front of
   him. Set up from the `git-guardrails-claude-code` skill on

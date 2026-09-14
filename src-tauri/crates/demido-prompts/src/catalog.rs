@@ -92,7 +92,17 @@ pub mod id {
     pub const CAVEMAN_WENYAN_ULTRA: &str = "caveman.wenyan-ultra";
     pub const CONTEXT_TREE: &str = "context.tree";
     pub const LESSONS_CLASSIFY: &str = "lessons.classify";
+    pub const TOOLS_DENIED: &str = "tools.denied";
+    pub const TOOLS_OFF: &str = "tools.off";
+    pub const TOOLS_STOPPED: &str = "tools.stopped";
+    pub const TOOLS_LIMIT: &str = "tools.limit";
 }
+
+/// The tool a declined call named, so the model is told which of its calls did
+/// not run.
+pub const TOOL: &str = "tool";
+/// How many tool steps a turn may take, as the step limit resolved it.
+pub const STEPS: &str = "steps";
 
 /// The name of the one placeholder the caveman paragraphs take: what the rule
 /// is being applied to, which is either the reply or the reasoning that
@@ -190,6 +200,38 @@ pub static CATALOG: &[Paragraph] = &[
         placeholders: &[],
         dependants: MEASURED_AGAINST_THE_LESSON_CORPUS,
         default: include_str!("../defaults/lessons.classify.md"),
+    },
+    Paragraph {
+        id: id::TOOLS_DENIED,
+        title: "A declined call",
+        summary: "What the model is told in place of a result when you decline a call, so it does something else rather than asking again.",
+        placeholders: &[TOOL],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/tools.denied.md"),
+    },
+    Paragraph {
+        id: id::TOOLS_OFF,
+        title: "A call to a tool you switched off",
+        summary: "What the model is told when it names a tool you turned off in the picker, so it tells you rather than working around you.",
+        placeholders: &[TOOL],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/tools.off.md"),
+    },
+    Paragraph {
+        id: id::TOOLS_STOPPED,
+        title: "A stopped call",
+        summary: "What the model is told about a call that was still waiting or running when you stopped the turn.",
+        placeholders: &[],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/tools.stopped.md"),
+    },
+    Paragraph {
+        id: id::TOOLS_LIMIT,
+        title: "A call past the step limit",
+        summary: "What the model is told about a call that did not run because the turn had used every step it was allowed.",
+        placeholders: &[STEPS],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/tools.limit.md"),
     },
 ];
 

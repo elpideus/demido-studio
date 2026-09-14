@@ -24,16 +24,23 @@ demido-settings.workspace = true
 # The source of truth. A transcript is a projection of this log, never a table
 # beside it, which is the one thing that makes the log worth writing.
 demido-trace.workspace = true
+# The matrix a call is ruled on by. The loop hands it the mode and the call's
+# intent and does what it says; it never reads the mode itself.
+demido-permission.workspace = true
+# What a refusal tells the model, and the words a tool is offered in.
+demido-prompts.workspace = true
+# The registry a call is dispatched through.
+demido-tools.workspace = true
 futures-util = "0.3"
 serde.workspace = true
+# A call's arguments, parsed, for the person deciding about them.
+serde_json.workspace = true
 thiserror.workspace = true
-tokio = { version = "1", features = ["sync"] }
+# `select!`, so a stop reaches a call waiting on a person or on a command.
+tokio = { version = "1", features = ["macros", "sync"] }
 tracing.workspace = true
 
 [dev-dependencies]
-async-trait = "0.1"
-async-stream = "0.3"
-futures-core = "0.3"
-serde_json.workspace = true
+# A project on disk for the tools to act on.
+tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
-tokio-util = "0.7"

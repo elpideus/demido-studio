@@ -34,6 +34,16 @@ pub enum Error {
     #[error("{id}: nothing will fill {{{{{name}}}}}")]
     Undeclared { id: String, name: String },
 
+    /// A tool document gives prose to a parameter the tool does not take.
+    ///
+    /// The schema's shape is a contract with the parser and is not editable
+    /// (`docs/rules/prompts.md`), so prose for a property that does not exist
+    /// could only ever describe nothing. Refused for the same reason
+    /// [`Error::Undeclared`] is. Besides a tool nobody declared, those two are
+    /// the whole of what a tool edit refuses.
+    #[error("{tool} takes no parameter called {name}")]
+    UnknownParameter { tool: String, name: String },
+
     #[error(transparent)]
     Write(#[from] demido_core::Error),
 }
@@ -151,16 +161,12 @@ impl Paragraphs {
             }
         }
 
-        if text == normalise(paragraph.default) {
-            return self.reset(id);
-        }
-
-        write(&self.path(paragraph), &text)?;
-        write(
+        edit(
+            &self.path(paragraph),
             &self.base_path(paragraph),
-            &digest(&normalise(paragraph.default)),
+            paragraph.default,
+            &text,
         )?;
-
         Ok(self.read(paragraph))
     }
 
@@ -168,8 +174,7 @@ impl Paragraphs {
     /// claims it supports come back with it.
     pub fn reset(&self, id: &str) -> Result<Prompt> {
         let paragraph = catalog::paragraph(id).ok_or_else(|| Error::Unknown(id.to_owned()))?;
-        remove(&self.path(paragraph))?;
-        remove(&self.base_path(paragraph))?;
+        forget(&self.path(paragraph), &self.base_path(paragraph))?;
 
         Ok(self.read(paragraph))
     }
@@ -196,66 +201,137 @@ impl Paragraphs {
     /// than failing the turn that asked. A prompt is not something a
     /// conversation is allowed to refuse to start over.
     fn read(&self, paragraph: &'static Paragraph) -> Prompt {
-        let path = self.path(paragraph);
-        let built_in = normalise(paragraph.default);
-
-        let (text, origin, mut note) = match std::fs::read_to_string(&path) {
-            Ok(text) => (normalise(&text), Origin::Edited, None),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                (built_in.clone(), Origin::BuiltIn, None)
-            }
-            Err(err) => {
-                tracing::warn!(?path, %err, "an edited prompt could not be read");
-                (
-                    built_in.clone(),
-                    Origin::BuiltIn,
-                    Some(format!(
-                        "{} could not be read ({err}), so the built-in text was used instead.",
-                        path.display()
-                    )),
-                )
-            }
-        };
-
-        let base = match origin {
-            Origin::BuiltIn => None,
-            Origin::Edited => std::fs::read_to_string(self.base_path(paragraph))
-                .ok()
-                .map(|base| base.trim().to_owned())
-                .filter(|base| !base.is_empty()),
-        };
-
-        // The built-in wording has moved on since this edit was made. Said
-        // once, as a note, with the editor's diff and reset behind it.
-        // not-a-prompt: shown to the person who made the edit, never sent.
-        if let Some(base) = &base {
-            if base != &digest(&built_in) && note.is_none() {
-                note = Some(
-                    "This was edited from an earlier version of the built-in text, which has since changed. Reset to take the new wording, or keep this one."
-                        .to_owned(),
-                );
-            }
-        }
-
-        let suppressed = match origin {
-            Origin::BuiltIn => Vec::new(),
-            Origin::Edited => paragraph
-                .dependants
-                .iter()
-                .filter(|dependant| matches!(dependant.kind, Dependency::Measured { .. }))
-                .collect(),
-        };
+        let Stored {
+            text,
+            origin,
+            hash,
+            base,
+            note,
+        } = stored(
+            &self.path(paragraph),
+            &self.base_path(paragraph),
+            paragraph.default,
+        );
 
         Prompt {
             paragraph,
-            hash: digest(&text),
+            suppressed: suppressed(origin, paragraph.dependants),
             text,
             origin,
+            hash,
             base,
-            suppressed,
             note,
         }
     }
+}
+
+/// One entry as it stands on disk, whichever register it belongs to.
+///
+/// `docs/rules/prompts.md`: the versioning, the edit path and the log record
+/// are the same in both registers. This is that sameness, written once, so a
+/// tool document and a paragraph cannot come to disagree about what an edit
+/// is, what its hash covers, or what happens when one cannot be read.
+pub(crate) struct Stored {
+    pub text: String,
+    pub origin: Origin,
+    pub hash: String,
+    pub base: Option<String>,
+    pub note: Option<String>,
+}
+
+/// The text in force at `path`, falling back to `shipped`, and everything true
+/// about where it came from.
+///
+/// An unreadable edit falls back to the built-in text and says so, rather than
+/// failing the turn that asked. A prompt is not something a conversation is
+/// allowed to refuse to start over.
+pub(crate) fn stored(path: &Path, base_path: &Path, shipped: &str) -> Stored {
+    let built_in = normalise(shipped);
+
+    let (text, origin, mut note) = match std::fs::read_to_string(path) {
+        Ok(text) => (normalise(&text), Origin::Edited, None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            (built_in.clone(), Origin::BuiltIn, None)
+        }
+        Err(err) => {
+            tracing::warn!(?path, %err, "an edited prompt could not be read");
+            (
+                built_in.clone(),
+                Origin::BuiltIn,
+                Some(format!(
+                    "{} could not be read ({err}), so the built-in text was used instead.",
+                    path.display()
+                )),
+            )
+        }
+    };
+
+    let base = match origin {
+        Origin::BuiltIn => None,
+        Origin::Edited => std::fs::read_to_string(base_path)
+            .ok()
+            .map(|base| base.trim().to_owned())
+            .filter(|base| !base.is_empty()),
+    };
+
+    // The built-in wording has moved on since this edit was made. Said
+    // once, as a note, with the editor's diff and reset behind it.
+    // not-a-prompt: shown to the person who made the edit, never sent.
+    if let Some(base) = &base {
+        if base != &digest(&built_in) && note.is_none() {
+            note = Some(
+                "This was edited from an earlier version of the built-in text, which has since changed. Reset to take the new wording, or keep this one."
+                    .to_owned(),
+            );
+        }
+    }
+
+    Stored {
+        hash: digest(&text),
+        text,
+        origin,
+        base,
+        note,
+    }
+}
+
+/// The measured claims an entry's text no longer supports: every one of them
+/// once it has been edited, and none while it is the built-in wording.
+pub(crate) fn suppressed(
+    origin: Origin,
+    dependants: &'static [Dependant],
+) -> Vec<&'static Dependant> {
+    match origin {
+        Origin::BuiltIn => Vec::new(),
+        Origin::Edited => dependants
+            .iter()
+            .filter(|dependant| matches!(dependant.kind, Dependency::Measured { .. }))
+            .collect(),
+    }
+}
+
+/// Write an edit that has already been checked, or reset when it is the
+/// built-in text.
+///
+/// Text identical to the default leaves no file, so a user who types the
+/// default out by hand still receives a later build's improved wording. An
+/// edit records the base hash it was made from beside it.
+pub(crate) fn edit(path: &Path, base_path: &Path, shipped: &str, text: &str) -> Result<()> {
+    let built_in = normalise(shipped);
+    if text == built_in {
+        return forget(path, base_path);
+    }
+
+    write(path, text)?;
+    write(base_path, &digest(&built_in))?;
+    Ok(())
+}
+
+/// Remove an edit and the base it was made from.
+pub(crate) fn forget(path: &Path, base_path: &Path) -> Result<()> {
+    remove(path)?;
+    remove(base_path)?;
+    Ok(())
 }
 
 /// One line ending, whoever wrote the file.
@@ -264,7 +340,7 @@ impl Paragraphs {
 /// changed because a file was opened in an editor that writes CRLF would report
 /// an edit nobody made, on a machine that had merely checked the repository out
 /// differently. `scripts/check-rules.mjs` normalises the same way.
-fn normalise(text: &str) -> String {
+pub(crate) fn normalise(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
 }
 

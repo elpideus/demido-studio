@@ -1,13 +1,14 @@
 //! What a request to a model looks like, and what comes back.
 //!
 //! Deliberately smaller than any provider's API, and smaller again than v2's,
-//! which carried tool calls, grammars and twenty four samplers. S1 has no tools
-//! ([`docs/rules/done.md`](../../../../docs/rules/done.md)), so the shapes they
-//! need are not here yet. Every one of them is additive: a `Chunk` variant, a
-//! `Request` field, and a contract case that says what a backend must do with
-//! it. Declaring them now would be declaring a contract nothing can be held to.
+//! which carried grammars and twenty four samplers. Tool calling arrived with
+//! S2 ([#54](https://github.com/elpideus/demido-studio/issues/54)) the way this
+//! file said it would, additively: [`Chunk::Call`], [`Request::tools`], a
+//! [`Role::Tool`] message answering a call, and a contract case saying what a
+//! backend must do with them.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Who said it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,6 +17,32 @@ pub enum Role {
     System,
     User,
     Assistant,
+    /// What came back from a call, going back to the model. A message in this
+    /// role names the call it answers ([`Message::answers`]).
+    Tool,
+}
+
+/// One call the model asked for, whole.
+///
+/// The arguments are the text the model produced rather than a parsed value:
+/// a call that never parsed still has to be answered, and what it needs is an
+/// objection naming what the parser found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    /// What the backend called this call. A result is tied to it by this, so a
+    /// backend never hands one out blank.
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+/// One tool a request offers: its name, what it is for, and the JSON Schema of
+/// its arguments with their prose on it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
 }
 
 /// One turn of the conversation, as the model will see it.
@@ -23,6 +50,12 @@ pub enum Role {
 pub struct Message {
     pub role: Role,
     pub content: String,
+    /// The calls an assistant message asked for, in the order it asked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calls: Vec<ToolCall>,
+    /// For a [`Role::Tool`] message, the id of the call it answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answers: Option<String>,
 }
 
 impl Message {
@@ -30,6 +63,24 @@ impl Message {
         Self {
             role,
             content: content.into(),
+            calls: Vec::new(),
+            answers: None,
+        }
+    }
+
+    /// What the model said, and the calls it asked for with it.
+    pub fn calling(content: impl Into<String>, calls: Vec<ToolCall>) -> Self {
+        Self {
+            calls,
+            ..Self::assistant(content)
+        }
+    }
+
+    /// What came back from the call with this id.
+    pub fn result(call: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            answers: Some(call.into()),
+            ..Self::new(Role::Tool, content)
         }
     }
 
@@ -53,6 +104,11 @@ pub struct Request {
     /// refuses any other name rather than answering with what it has.
     pub model: String,
     pub messages: Vec<Message>,
+    /// What the model may call. Empty is a request that offers nothing, which
+    /// is a conversation with nothing to do but answer rather than a different
+    /// kind of request (`docs/rules/tools.md`: there is no Chat mode).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ToolSpec>,
     pub options: Options,
 }
 
@@ -108,6 +164,10 @@ pub enum Chunk {
     Text { text: String },
     /// Reasoning, where the model separates it from its answer.
     Thinking { text: String },
+    /// A call, whole. A backend that receives one in pieces assembles it
+    /// before handing it on, and a call cut off by a cancel is never handed on:
+    /// half an argument list is not something anybody can run or answer.
+    Call { call: ToolCall },
     /// The generation finished. Always the last chunk of a successful stream.
     Done { reason: FinishReason, usage: Usage },
 }
@@ -119,6 +179,10 @@ pub enum FinishReason {
     Stop,
     /// It hit the token ceiling, so the answer is cut off.
     Length,
+    /// It stopped to have its calls run. Said whenever a stream carried a
+    /// [`Chunk::Call`] and was not cancelled, so a caller never has to count
+    /// calls to learn that the turn is not over.
+    ToolCalls,
     /// The caller cancelled. The partial answer before it is real output and is
     /// kept: `done.md`'s window gate is a person pressing stop, and a
     /// transcript that discards what was already on screen does not match what

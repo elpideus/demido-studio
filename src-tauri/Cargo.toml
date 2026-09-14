@@ -24,11 +24,13 @@ demido-chat = { path = "crates/demido-chat" }
 demido-core = { path = "crates/demido-core" }
 demido-hardware = { path = "crates/demido-hardware" }
 demido-inference = { path = "crates/demido-inference" }
+demido-permission = { path = "crates/demido-permission" }
 demido-prompts = { path = "crates/demido-prompts" }
 demido-runtimes = { path = "crates/demido-runtimes" }
 demido-settings = { path = "crates/demido-settings" }
 demido-setup = { path = "crates/demido-setup" }
 demido-shell = { path = "crates/demido-shell" }
+demido-tools = { path = "crates/demido-tools" }
 demido-trace = { path = "crates/demido-trace" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -81,6 +83,9 @@ demido-runtimes.workspace = true
 demido-settings.workspace = true
 demido-setup.workspace = true
 demido-shell.workspace = true
+# The groups the conversation offers. Named here, at the root, because which
+# tools a build ships is a wiring decision.
+demido-tools.workspace = true
 demido-trace.workspace = true
 serde.workspace = true
 # A setting's value crosses the boundary as whatever the schema says it is, so

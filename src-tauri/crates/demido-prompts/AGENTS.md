@@ -17,7 +17,7 @@ the crate is the half of it that runs.
 | Register | Holds | Asked for by | Ships |
 |---|---|---|---|
 | **Paragraphs** | Text composed into a prompt: the caveman levels, the project tree, the failure classifier. | The composer, by id | S1, here |
-| **Tools** | One document per host tool: its description and the prose in its parameter schema. | The registry, by tool name | S2 |
+| **Tools** | One document per host tool: its description and the prose in its parameter schema. | The registry, by tool name | S2, here |
 
 Two registers rather than one list because a tool description is not a paragraph
 the composer picks up, it is a field on a struct the registry builds, and
@@ -26,18 +26,27 @@ than two because the versioning, the log record, the edit path and the editor
 are the same in both cases, and the failure this crate exists to prevent is
 exactly the one that follows from two places deciding what a prompt says.
 
-**The tool register is not here yet, and that is deliberate.** S1 has no tool
-call in it, and twenty five entries nothing sends is the failure this crate's
-own rule warns about: a prompt nothing sends is worse than no prompt, because
-the editor offers to change something that cannot matter.
+**The tool register holds exactly the six host tools there are**
+([#52](https://github.com/elpideus/demido-studio/issues/52)), not v2's twenty
+five. A document for a tool that does not exist is the failure this crate's own
+rule warns about: a prompt nothing sends is worse than no prompt, because the
+editor offers to change something that cannot matter.
 
 Three paragraphs `prompts.md` names are held back for the same reason, and they
 are the ones whose askers do not exist yet: the **lesson injection wrapper**,
-the **parameter asking sentence** (a skill's, so S2 with the tool register) and
+the **parameter asking sentence** (a skill's, so with the first skill) and
 the **four task-model jobs**. What ships is what S1 sends or measures: the six
 caveman levels, the project tree, and the failure classifier, which is here
 because a pinned wording with no default file is a release gate that cannot
-fire.
+fire. S2's turn loop ([#54](https://github.com/elpideus/demido-studio/issues/54))
+added the three things it tells a model in place of a result: `tools.denied`,
+`tools.stopped` and `tools.limit`.
+[#56](https://github.com/elpideus/demido-studio/issues/56) added a fourth,
+`tools.off`, for a call naming a tool the user switched off in the picker.
+
+`describe` lives here too: a tool's shape with its document's prose merged on.
+Both the registry and the session log's rebuild call it, so there is one answer
+to what a model was shown.
 
 ## The seam
 
@@ -54,6 +63,45 @@ fire.
 `register` decides what it says right now. Nobody else invents default text,
 builds a path into the prompts directory, or computes a version.
 
+`Tools::open(dir)` is the same four verbs over the tool register, keyed by tool
+name and stored under `tools/` in the same directory. `tools` holds both halves
+for it, the declaration and the handle, and shares `register`'s reading, writing
+and hashing rather than having its own: the two registers cannot come to
+disagree about what an edit is.
+
+## A tool is one document
+
+`prompts.md` and
+[`0008`](../../../docs/decisions/0008-a-tool-description-is-a-prompt.md). A
+tool's description and its parameter prose are one file, edited as one text and
+hashed together, so one hash covers everything about that tool the model reads:
+
+```text
+Read a text file from the workspace. ...
+
+## path
+
+Path relative to the workspace root, such as src/main.rs
+```
+
+The description is everything before the first `## <parameter>` heading. A
+heading is `## ` and one word; anything else, a markdown heading with a space in
+it included, is prose.
+
+**The schema's shape is not here and is not editable.** Property names, types
+and which are required are a contract with the parser, and they live with the
+tool in `demido-tools`, whose registry merges this prose onto them when it
+offers a tool. What a `ToolEntry` declares is the list of parameter names it
+gives prose to. `set` refuses a section for any other name, and a placeholder,
+which no tool document declares; a section may be dropped. `demido-tools`'
+`tests/documents.rs` binds the declared list to the real schema in both
+directions, and holds the merge to adding prose and nothing else, even for a
+file written by hand that `set` would have refused.
+
+Adding a tool is a `ToolEntry` in `TOOLS` and a file in `defaults/tools/`, in
+the commit that adds the tool. `scripts/check-rules.mjs` fails a host tool with
+no document.
+
 It holds no loaded state. Every call reads the directory again, which is what
 makes hot reload a property of the design rather than a feature somebody has to
 remember to wire up.
@@ -68,7 +116,7 @@ rendered above the field in the editor:
 
 `Dependency` has two kinds and only one of them has an entry today.
 `Measured` is the classifier's. `Shared` is the asking sentence's, which arrives
-with the tool register: it is declared now rather than later because the editor
+with the first skill: it is declared now rather than later because the editor
 renders both sentences side by side, and a kind added when its first entry
 appears would be a schema change to a seam the window is already reading.
 
@@ -77,9 +125,11 @@ is what the window renders: a user may degrade their own classifier,
 `Origin::Edited` records that they did, and nothing detects that it hurt. That
 cost is written down rather than glossed.
 
-The one thing `set` refuses is a placeholder nothing will fill, which is not a
-judgement about the wording: it is a name that could never expand, and the
-failure is invisible until a model is handed a literal pair of braces.
+The one thing `Paragraphs::set` refuses is a placeholder nothing will fill,
+which is not a judgement about the wording: it is a name that could never
+expand, and the failure is invisible until a model is handed a literal pair of
+braces. `Tools::set` refuses that and one more thing of the same kind, prose for
+a parameter the tool does not take (below).
 
 ## Invariants
 

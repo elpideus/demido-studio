@@ -9,7 +9,8 @@ declare const styles: {
   readonly send: string
   readonly stop: string
   readonly retry: string
-  readonly settings: string
+  readonly control: string
+  readonly controls: string
   readonly icon: string
 }
 export default styles

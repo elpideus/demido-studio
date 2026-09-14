@@ -14,6 +14,8 @@ declare const styles: {
   readonly checkbox: string
   readonly switchLabel: string
   readonly aside: string
+  readonly choices: string
+  readonly choice: string
   readonly icon: string
 }
 export default styles
