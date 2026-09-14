@@ -9,6 +9,18 @@ hand-assembled, and an append-only session log so nothing the model sees is hidd
 [wayfinder map](../../issues?q=label%3Awayfinder%3Amap) for what is decided and what is still open,
 and [`docs/brief.md`](docs/brief.md) for the canonical brief this project is built against.
 
+## Building it
+
+Rust and pnpm, then:
+
+```bash
+git config core.hooksPath .githooks
+pnpm install
+pnpm dev
+```
+
+`AGENTS.md` has the rest of the commands and the rules they enforce.
+
 ## License
 
 GPL-3.0-or-later. See [`LICENSE`](LICENSE), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and

@@ -1,0 +1,28 @@
+[package]
+name = "demido-hardware"
+description = "What this machine can run: the adapters, and the accelerator its cards indicate."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Loaded at runtime, never linked: the CUDA driver library is present only on
+# machines that have an NVIDIA driver, and asking it what CUDA it runs is the
+# only way to pick between the builds a release publishes.
+libloading = "0.9"
+serde.workspace = true
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Foundation",
+] }

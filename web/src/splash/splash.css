@@ -1,0 +1,224 @@
+/*
+ * @raw-values-exempt: the splash is a lockup, not UI. docs/rules/no-raw-values.md
+ * exception 1 fixes the window at 440 by 264, the mark at 36px, Demido at 23px
+ * and the kana at 9.2px, and design/splash.md fixes the frame those sit in:
+ * 26px of padding, a 12px corner, and a scale whose ticks are 11px at rest and
+ * 18px running. Typography set once at a fixed size is not text on a scale. The
+ * exemption is the type, space and radius families only: every colour below is
+ * a Karl token, because a lockup is exempt from the scale and never from the
+ * palette.
+ *
+ * design/splash.md is the board this file draws. Read it before changing a
+ * number here: the numbers are the drawing.
+ */
+
+@import '../../../design/tokens.css';
+
+/* Vendored, never fetched: the splash must render correctly on a machine that
+ * has never been online (design/wordmark.md). */
+@import '@fontsource-variable/instrument-sans';
+@import '@fontsource-variable/martian-mono';
+
+/* The kana, and only the one subset that carries デミド.
+ *
+ * global.css left this face to the splash ticket on purpose: the full family is
+ * 120 subset files and the whole Japanese subset is 957 KB for three glyphs.
+ * Fontsource's numbered subset 119 covers U+30a1-30e1, which is every character
+ * in the signature, at 18 KB, so the face is declared here by hand rather than
+ * by importing a stylesheet that would declare the other 119. */
+@font-face {
+  font-family: 'Zen Kaku Gothic New';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url('@fontsource/zen-kaku-gothic-new/files/zen-kaku-gothic-new-119-500-normal.woff2')
+    format('woff2');
+  unicode-range: U+30a1-30e1;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* The window is transparent and the face below is what is seen, which is what
+ * gives the splash a rounded corner on a platform that has no opinion about
+ * one. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+#splash {
+  height: 100%;
+}
+
+/* A rack unit's front bezel catching light: --color-panel, --shadow-float
+ * beneath it, and a single lighter edge along the top. Neutral, because green
+ * is reserved for state. */
+.splash {
+  height: 100%;
+  padding: 26px;
+  border-radius: 12px;
+  background: var(--color-panel);
+  box-shadow:
+    inset 0 1px 0 0 var(--color-raised),
+    var(--shadow-float);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+
+  /* Content weighted to the bottom, air above: one block, a faceplate, rather
+   * than a header and a footer with a void between them. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 24px;
+  user-select: none;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- the lockup
+ * The stacked lockup of design/wordmark.md: mark, Demido, デミド under Demido
+ * alone, with the version beneath at the wordmark's own left edge so the block
+ * reads as one stamped plate rather than three loose lines.
+ */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.mark {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  color: var(--color-ink);
+}
+
+.mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.lockup {
+  display: flex;
+  align-items: baseline;
+  gap: 0.34em;
+  font-size: 23px;
+  line-height: var(--leading-flush);
+}
+
+.name {
+  display: flex;
+  flex-direction: column;
+}
+
+.name b {
+  font-weight: 600;
+  font-size: 23px;
+  letter-spacing: -0.022em;
+  color: var(--color-ink);
+}
+
+/* デミド transliterates Demido and nothing else, so it sits under that word
+ * alone: centring it under the pair would state something untrue. */
+.kana {
+  font-family: var(--font-kana);
+  font-weight: 500;
+  font-size: 9.2px;
+  letter-spacing: 0.1em;
+  color: var(--color-ink-3);
+  margin-top: 3px;
+}
+
+.studio {
+  font-weight: 400;
+  font-size: 23px;
+  letter-spacing: -0.01em;
+  color: var(--color-ink-3);
+}
+
+/* Indented to the wordmark's own left edge (the mark plus its gap), so the
+ * block reads as one stamped plate rather than three loose lines. */
+.version {
+  margin: 5px 0 0;
+  padding-left: 50px;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-silkscreen);
+  color: var(--color-ink-4);
+}
+
+/* ----------------------------------------------------------------- the scale
+ * One tick per startup stage, then the line naming the stage running. The
+ * running tick is the only full-height one. That is the whole animation: no
+ * sweep, no pulse, no indeterminate bar.
+ */
+
+.foot {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.scale {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 18px;
+}
+
+.tick {
+  width: 3px;
+  height: 11px;
+  border-radius: 1.5px;
+  background: var(--color-ink-4);
+  transition:
+    height var(--duration-tap) var(--ease-mech),
+    background-color var(--duration-tap) var(--ease-mech);
+}
+
+.tick[data-state='done'] {
+  background: var(--color-signal-dim);
+}
+
+.tick[data-state='running'] {
+  height: 18px;
+  background: var(--color-signal);
+}
+
+/* A subsystem that fails turns its tick rose and the splash carries on to the
+ * next one. It is information, not an alarm. */
+.tick[data-state='failed'] {
+  background: var(--color-rose);
+}
+
+.stage {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  line-height: var(--leading-flush);
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage[data-failed='true'] {
+  color: var(--color-rose);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick {
+    transition: none;
+  }
+}
