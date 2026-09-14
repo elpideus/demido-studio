@@ -41,6 +41,8 @@ because a pinned wording with no default file is a release gate that cannot
 fire. S2's turn loop ([#54](https://github.com/elpideus/demido-studio/issues/54))
 added the three things it tells a model in place of a result: `tools.denied`,
 `tools.stopped` and `tools.limit`.
+[#56](https://github.com/elpideus/demido-studio/issues/56) added a fourth,
+`tools.off`, for a call naming a tool the user switched off in the picker.
 
 `describe` lives here too: a tool's shape with its document's prose merged on.
 Both the registry and the session log's rebuild call it, so there is one answer

@@ -205,6 +205,7 @@ pub fn run() -> demido_core::Result<()> {
             read_layout,
             remember_layout,
             chat::chat_transcript,
+            chat::chat_tools,
             chat::chat_presence,
             chat::chat_load,
             chat::chat_send,

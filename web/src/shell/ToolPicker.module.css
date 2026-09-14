@@ -1,0 +1,200 @@
+/*
+ * The tool picker. A popover from the composer, the shape design/system.md
+ * gives it: a panel face with the one shadow, over the desk rather than in it.
+ * Roles are docs/rules/surfaces.md and every number is a token.
+ */
+
+.popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-gutter));
+  width: min(calc(100% - 2 * var(--space-gutter)), calc(12 * var(--size-control)));
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+  padding: var(--space-room);
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+  box-shadow: var(--shadow-float);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  min-height: var(--size-control);
+}
+
+.name {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-strong);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+.why {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* The way back to global: a chip on the popover's island, so it is raised. */
+.revert {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.revert:hover {
+  background: var(--color-hover);
+}
+
+.revert:active {
+  background: var(--color-active);
+}
+
+/* Rows are separated by a gap, which is the border. */
+.groups,
+.tools {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+/* A group's tools, set in under its name so the expansion reads as belonging
+ * to the row above rather than as more groups. */
+.tools {
+  padding-left: var(--space-page);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  min-height: var(--size-control);
+}
+
+/* The whole name is the hit target for expanding, not only the chevron. */
+.expand {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-control);
+  padding: var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-2);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.expand:hover {
+  background: var(--color-hover);
+}
+
+.chevron {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  color: var(--color-ink-3);
+  transition: transform var(--duration-tap) var(--ease-mech);
+}
+
+.expand[aria-expanded='true'] .chevron {
+  transform: rotate(90deg);
+}
+
+.label {
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+}
+
+.count {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+/* A tool is named as the model calls it, so it is set in the mono face. */
+.tool {
+  padding: var(--space-control);
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+/* The switch. Off is a recess, because nothing is in it. On and partial are
+ * `edge` with the mark lit, which is state rather than elevation: partial is
+ * the same surface as on with a different mark, so it can never be read as
+ * off, and never as on either, because the mark is a bar. */
+.switch {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-signal);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.switch:hover {
+  background: var(--color-hover);
+}
+
+.switch[data-state='on'],
+.switch[data-state='partial'] {
+  background: var(--color-edge);
+}
+
+.switch[data-state='on']:hover,
+.switch[data-state='partial']:hover {
+  background: var(--color-edge-strong);
+}
+
+.mark,
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

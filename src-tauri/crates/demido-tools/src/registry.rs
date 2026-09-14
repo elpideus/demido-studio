@@ -78,20 +78,43 @@ pub struct Spec {
     pub document: Document,
 }
 
+/// Tools that are switched on and off together, under one name.
+///
+/// The grain the picker offers
+/// ([`docs/rules/tools.md`](../../../../docs/rules/tools.md)): a group is one
+/// row, expandable to its tools. The name is the fact, and the words a window
+/// draws for it are the window's.
+pub struct Group {
+    pub name: &'static str,
+    tools: Vec<Box<dyn Tool>>,
+}
+
+impl IntoIterator for Group {
+    type Item = Box<dyn Tool>;
+    type IntoIter = std::vec::IntoIter<Box<dyn Tool>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.tools.into_iter()
+    }
+}
+
 /// The Files group: `read_file`, `list_directory`, `search_files`,
 /// `write_file` and `delete_file`.
 ///
 /// Written down once, here, so that a caller assembling a registry names the
 /// group rather than five tools, and the day a sixth joins the group it joins
 /// every caller.
-pub fn files() -> Vec<Box<dyn Tool>> {
-    vec![
-        Box::new(ReadFile),
-        Box::new(ListDirectory),
-        Box::new(SearchFiles),
-        Box::new(WriteFile),
-        Box::new(DeleteFile),
-    ]
+pub fn files() -> Group {
+    Group {
+        name: "files",
+        tools: vec![
+            Box::new(ReadFile),
+            Box::new(ListDirectory),
+            Box::new(SearchFiles),
+            Box::new(WriteFile),
+            Box::new(DeleteFile),
+        ],
+    }
 }
 
 /// The Shell group: `run_command`.
@@ -99,14 +122,24 @@ pub fn files() -> Vec<Box<dyn Tool>> {
 /// A group of one, and a group anyway: the picker offers groups
 /// ([`docs/rules/tools.md`](../../../../docs/rules/tools.md)), and "files but
 /// no shell" is a set it has to be able to say.
-pub fn shell() -> Vec<Box<dyn Tool>> {
-    vec![Box::new(RunCommand)]
+pub fn shell() -> Group {
+    Group {
+        name: "shell",
+        tools: vec![Box::new(RunCommand)],
+    }
+}
+
+/// One registered tool, and the group it was registered in.
+#[derive(Clone)]
+struct Registered {
+    group: &'static str,
+    tool: Arc<dyn Tool>,
 }
 
 /// The tools on offer, and where they may work.
 #[derive(Clone, Default)]
 pub struct Registry {
-    tools: Vec<Arc<dyn Tool>>,
+    tools: Vec<Registered>,
     workspace: Option<Workspace>,
 }
 
@@ -126,18 +159,6 @@ impl Registry {
     }
 
     /// Add a whole group, as `files()` or `shell()` hands it over.
-    pub fn with_group(self, group: Vec<Box<dyn Tool>>) -> Self {
-        group.into_iter().fold(self, Self::with_boxed)
-    }
-
-    /// Add one.
-    pub fn with(self, tool: impl Tool + 'static) -> Self {
-        self.with_boxed(Box::new(tool))
-    }
-
-    /// Add one that is already behind a pointer, for a caller holding a list
-    /// rather than a value: the Files group is written down once, in `files`,
-    /// rather than named twice and drifting the day a sixth joins it.
     ///
     /// **A name is offered once.** A later registration of a name replaces the
     /// earlier one rather than sitting beside it, because two tools with one
@@ -145,11 +166,58 @@ impl Registry {
     /// that cannot say which ran. It is an invariant rather than an override
     /// feature: nothing in v0.1 registers a name twice, and this is what keeps
     /// the day something does from being the day it is discovered.
-    pub fn with_boxed(mut self, tool: Box<dyn Tool>) -> Self {
-        let tool: Arc<dyn Tool> = Arc::from(tool);
-        self.tools.retain(|existing| existing.name() != tool.name());
-        self.tools.push(tool);
+    pub fn with_group(mut self, group: Group) -> Self {
+        let name = group.name;
+        for tool in group {
+            let tool: Arc<dyn Tool> = Arc::from(tool);
+            self.tools
+                .retain(|existing| existing.tool.name() != tool.name());
+            self.tools.push(Registered { group: name, tool });
+        }
         self
+    }
+
+    /// Every group registered, in registration order, each with its tools'
+    /// names. Whether or not there is a workspace: this is what a person may
+    /// switch on, not what the model is shown.
+    pub fn groups(&self) -> Vec<(&'static str, Vec<String>)> {
+        let mut groups: Vec<(&'static str, Vec<String>)> = Vec::new();
+        for entry in &self.tools {
+            let name = entry.tool.name().to_owned();
+            match groups.iter_mut().find(|(group, _)| *group == entry.group) {
+                Some((_, names)) => names.push(name),
+                None => groups.push((entry.group, vec![name])),
+            }
+        }
+        groups
+    }
+
+    /// The same registry holding only the tools named, in their registered
+    /// order.
+    ///
+    /// What the picker's set becomes. **Left out is absent**: not offered, and
+    /// not planned, so a call naming one is a name this registry has never
+    /// heard of (`docs/rules/tools.md`: disabled means absent). A name nothing
+    /// registers narrows to nothing rather than failing.
+    #[must_use]
+    pub fn only(&self, names: &[String]) -> Self {
+        Self {
+            tools: self
+                .tools
+                .iter()
+                .filter(|entry| names.iter().any(|name| name == entry.tool.name()))
+                .cloned()
+                .collect(),
+            workspace: self.workspace.clone(),
+        }
+    }
+
+    /// Whether a tool by this name is on offer.
+    ///
+    /// Asked of the whole registry and of a narrowed one, it is how the turn
+    /// loop tells a tool the person switched off from a name the model guessed.
+    pub fn offers(&self, name: &str) -> bool {
+        self.on_offer().iter().any(|tool| tool.name() == name)
     }
 
     /// Everything the model may be told about, in the words `documents` holds
@@ -247,7 +315,7 @@ impl Registry {
     /// What the model may be shown right now.
     fn on_offer(&self) -> Vec<&Arc<dyn Tool>> {
         match self.workspace {
-            Some(_) => self.tools.iter().collect(),
+            Some(_) => self.tools.iter().map(|entry| &entry.tool).collect(),
             None => Vec::new(),
         }
     }
@@ -527,10 +595,61 @@ mod tests {
     #[test]
     fn a_later_registration_of_a_name_replaces_the_earlier_one() {
         let (_dir, workspace) = workspace();
-        let registry = Registry::of_files(Some(workspace)).with(ReadFile);
+        let registry = Registry::of_files(Some(workspace)).with_group(files());
         let prompts = tempfile::tempdir().expect("a directory");
 
         assert_eq!(registry.offered(&Tools::open(prompts.path())).len(), 5);
+    }
+
+    /// What the picker draws: groups in the order they were registered, each
+    /// with its tools, whether or not a workspace is set. Switching a tool on
+    /// is a choice a person can make before there is anywhere for it to act.
+    #[test]
+    fn the_groups_are_named_and_listed_whether_or_not_there_is_a_workspace() {
+        let registry = Registry::of_files(None).with_group(shell());
+
+        assert_eq!(
+            registry.groups(),
+            vec![
+                (
+                    "files",
+                    vec![
+                        "read_file".to_owned(),
+                        "list_directory".to_owned(),
+                        "search_files".to_owned(),
+                        "write_file".to_owned(),
+                        "delete_file".to_owned()
+                    ]
+                ),
+                ("shell", vec!["run_command".to_owned()]),
+            ]
+        );
+    }
+
+    /// Narrowed is absent: not offered, and not planned either, so a call
+    /// naming a tool switched off never reaches the matrix.
+    #[test]
+    fn a_narrowed_registry_neither_offers_nor_plans_what_it_left_out() {
+        let (_dir, workspace) = workspace();
+        let registry = Registry::of_files(Some(workspace)).with_group(shell());
+        let prompts = tempfile::tempdir().expect("a directory");
+        let narrowed = registry.only(&["read_file".to_owned()]);
+
+        let names: Vec<String> = narrowed
+            .offered(&Tools::open(prompts.path()))
+            .into_iter()
+            .map(|it| it.name)
+            .collect();
+        assert_eq!(names, ["read_file"]);
+        assert!(narrowed
+            .plan(&call("run_command", r#"{"command": "echo no"}"#))
+            .is_err());
+        assert!(registry.offers("run_command"));
+        assert!(!narrowed.offers("run_command"));
+        assert!(
+            !registry.offers("read_files"),
+            "a guessed name is not a tool"
+        );
     }
 
     #[test]

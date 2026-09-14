@@ -36,10 +36,11 @@ day the character system lands. The contract suite asserts it
 (`every_tier_survives_the_round_trip`), so a store that quietly dropped the tiers
 nothing uses would fail rather than be discovered later.
 
-## The schema is three settings
+## The schema is what a turn sends
 
-`schema.rs` holds `conversation.system_prompt`, `conversation.temperature` and
-`conversation.context_length`, and nothing else. v2 declared twenty four
+`schema.rs` holds `conversation.system_prompt`, `conversation.temperature`,
+`conversation.context_length`, `tools.step_limit`, `tools.mode` and
+`tools.offered`, and nothing else. v2 declared twenty four
 samplers before anything sent one. A setting added later is one entry in
 `SCHEMA`; a setting declared before something resolves and sends it is a
 contract nothing can be held to.
@@ -68,6 +69,21 @@ does not carry the parameter at all and leaves the choice to the server; `0.0`
 is a request that carries zero. On `llama.cpp` those are different generations.
 v2 stored both as zero and could express neither, which is why this is a kind
 rather than a convention.
+
+## The offered set is a set, and nothing is not empty
+
+`Kind::Set` is the one row on the ladder that is not a scalar
+([#56](https://github.com/elpideus/demido-studio/issues/56),
+`docs/rules/tools.md`). A tier holds a list of tool names, and whichever tier
+wins wins completely: an override **replaces** the set below it, because a merge
+has no way to say *off*. `null` is no opinion, which resolves to every tool
+there is; `[]` is an opinion, a conversation offered nothing. This crate holds
+no registry, so the names are not checked here, and a name nothing registers
+offers nothing.
+
+`tools.mode` is a `Kind::Choice` over `MODES`, which is written here because
+this crate sits below `demido-permission`, and held to that crate's own list by
+`demido-chat/tests/offered.rs`.
 
 ## The store, and how it differs from the desk's
 

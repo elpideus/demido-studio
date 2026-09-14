@@ -439,10 +439,9 @@ impl<J: Journal> Turn<'_, J> {
     /// the event's position when one was written.
     ///
     /// A change is a different list of names and hashes. The same list decided
-    /// by a different layer is not one, because the set did not change; with
-    /// one [`Layer`] that cannot happen, and the picker
-    /// ([#56](https://github.com/elpideus/demido-studio/issues/56)) is where a
-    /// second layer arrives and where that is worth deciding again.
+    /// by a different layer is not one, because the set did not change: a chat
+    /// that switches on exactly the tools global already offered has changed
+    /// who says so, and nothing about what the model was shown.
     ///
     /// Each tool is its document and its schema's shape. It adds no block:
     /// the tools go in the request's own `tools`, each described by merging

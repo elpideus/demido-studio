@@ -128,12 +128,23 @@ happened. *Always* is read back off the log at the start of each turn, so it
 holds on later messages; #55 moves where it is written to the ladder's chat
 tier.
 
-**The mode is the matrix's, and the step limit is the ladder's.** `Toolbox`
-holds the mode's stored name and hands a `Mode` to `demido_permission::verdict`
-per call, and nothing else here reads it. The limit is `tools.step_limit`,
-resolved like the temperature. `tests/a_tool.rs` runs the same runaway script
-under all three modes and gets the same count. The mode is fixed per
-conversation until #56 puts it on the ladder.
+**The mode is the matrix's, and the step limit is the ladder's.** Both are
+resolved off the ladder once per message, `tools.mode` and `tools.step_limit`,
+like the temperature, so a mode changed between two messages rules the second.
+The mode's stored name becomes a `Mode` handed to `demido_permission::verdict`
+per call, and nothing else here reads it. `tests/a_tool.rs` runs the same
+runaway script under all three modes and gets the same count.
+
+**Offered is a set on the ladder, and absent means absent.**
+[#56](https://github.com/elpideus/demido-studio/issues/56). `tools.offered` is
+resolved per message and the registry is narrowed to it before anything else
+happens, so the log's `tools/offered`, the request's `tools` and the registry a
+call is planned against are one list. The event carries the layer that decided
+it: `registry` when nobody named a set, otherwise the tier that did. A call
+naming a registered tool that is not in the set is refused with `tools.off`
+before planning, so the model is told the user turned it off rather than that
+the name is not a tool. `tests/offered.rs` asserts all of it against what the
+scripted backend received.
 
 **A stop reaches whatever the turn is doing.** One cancellation token for the
 whole turn. Mid generation, the backend ends the stream with what it had and
@@ -161,6 +172,7 @@ and a fix, and it is not something a frontend can derive from a tag.
 |---|---|
 | `tests/a_turn.rs` | The ordering rules, against a scripted backend. |
 | `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, and what a stop leaves. Against the same scripted backend. |
+| `tests/offered.rs` | What reaches the payload: the offered set and the mode off the ladder, a switched-off tool absent and refused as off, and one chat's set reaching no other. |
 
 The scripted backend is `demido_inference::scripted`, which passes the
 `Backend` contract suite, rather than a fake written here: a loop proved against

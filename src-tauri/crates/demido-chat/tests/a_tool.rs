@@ -55,8 +55,16 @@ impl Rig {
         }
     }
 
-    /// A chat over the Files and Shell groups, in the mode named.
+    /// A chat over the Files and Shell groups, in the mode named on its own
+    /// tier of the ladder.
     fn chat(&self, mode: &str) -> Chat<Scripted, Memory> {
+        self.settings
+            .set(
+                &Scope::chat(SESSION),
+                demido_settings::id::TOOLS_MODE,
+                &json!(mode),
+            )
+            .unwrap();
         let workspace = Workspace::open(self.project.path()).unwrap();
         let registry = Registry::open(Some(workspace))
             .with_group(files())
@@ -71,7 +79,7 @@ impl Rig {
                 id: "scripted".into(),
             }),
             self.settings.clone(),
-            Toolbox::open(registry, self.prompts.path()).in_mode(mode),
+            Toolbox::open(registry, self.prompts.path()),
         )
     }
 

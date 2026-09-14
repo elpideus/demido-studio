@@ -45,7 +45,7 @@ pub mod store;
 pub use document::{Document, Ladder, Scope, GENERATION};
 pub use file::Files;
 pub use memory::Memory;
-pub use schema::{id, setting, Invalid, Kind, Setting, SCHEMA};
+pub use schema::{id, setting, Invalid, Kind, Setting, MODES, SCHEMA};
 pub use settings::{Error, Result, Settings};
 pub use stack::{Origin, Resolved, Row, Stack, Tier, Values};
 pub use store::Store;

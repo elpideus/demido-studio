@@ -2,31 +2,28 @@
 //! on them.
 //!
 //! Two axes, kept apart the way `docs/rules/tools.md` keeps them. **Offered** is
-//! the registry and the tool register: what the model is shown. **Permitted** is
-//! the mode: what runs without asking, read by the matrix and by nothing else
-//! (`demido_permission`). A toolbox holds both and decides neither; the turn loop
-//! asks each its own question.
+//! the registry narrowed to the set the ladder resolved, in the tool register's
+//! words: what the model is shown. **Permitted** is the mode, also off the
+//! ladder, read by the matrix and by nothing else (`demido_permission`). A
+//! toolbox holds neither setting and decides neither; the turn loop resolves
+//! both per turn and asks each its own question.
 
 use std::path::PathBuf;
 
-use demido_permission::Mode;
 use demido_prompts::{Paragraphs, Prompt, Tools};
 use demido_tools::{Ability, Registry, Spec};
 use serde::Serialize;
 
-/// The tools one conversation offers, the words they are offered in, and the
-/// mode their calls are ruled on under.
+/// The tools one conversation could offer, and the words they are offered in.
 pub struct Toolbox {
+    /// Everything registered. The set a turn offers is this, narrowed.
     registry: Registry,
     documents: Tools,
     /// Where a refusal's wording comes from: a declined call, a stopped one, a
-    /// call past the step limit. Host prompt text, so a catalog entry (hard
-    /// rule 10), and the same directory the tool documents are edited in.
+    /// call past the step limit, a call to a tool switched off. Host prompt
+    /// text, so a catalog entry (hard rule 10), and the same directory the tool
+    /// documents are edited in.
     paragraphs: Paragraphs,
-    /// The stored name of the mode, never a [`Mode`]: only the matrix reads a
-    /// mode. Empty until something names one, which the matrix reads as an
-    /// unknown name and so as Cautious.
-    mode: String,
 }
 
 impl Toolbox {
@@ -38,30 +35,36 @@ impl Toolbox {
             registry,
             documents: Tools::open(prompts.clone()),
             paragraphs: Paragraphs::open(prompts),
-            mode: String::new(),
         }
     }
 
-    /// Rule on calls under the mode stored as `name`.
-    ///
-    /// Fixed for the life of the conversation until the mode is a value on the
-    /// settings ladder, which is
-    /// [#56](https://github.com/elpideus/demido-studio/issues/56)'s.
-    #[must_use]
-    pub fn in_mode(mut self, name: &str) -> Self {
-        name.clone_into(&mut self.mode);
-        self
+    /// What the picker draws: every group, with its tools' names.
+    pub fn groups(&self) -> Vec<Offering> {
+        self.registry
+            .groups()
+            .into_iter()
+            .map(|(group, tools)| Offering {
+                group: group.to_owned(),
+                tools,
+            })
+            .collect()
     }
 
-    pub(crate) fn mode(&self) -> Mode {
-        Mode::named(&self.mode)
+    /// The registry as one turn offers it: narrowed to `set`, or all of it when
+    /// nobody on the ladder named one.
+    pub(crate) fn narrowed(&self, set: Option<&[String]>) -> Registry {
+        match set {
+            Some(names) => self.registry.only(names),
+            None => self.registry.clone(),
+        }
     }
 
-    /// Everything on offer this turn, each with its document and its shape.
-    pub(crate) fn offered(&self) -> Vec<Spec> {
-        self.registry.offered(&self.documents)
+    /// Everything `registry` offers, each with its document and its shape.
+    pub(crate) fn offered(&self, registry: &Registry) -> Vec<Spec> {
+        registry.offered(&self.documents)
     }
 
+    /// Everything registered, before any set narrowed it.
     pub(crate) fn registry(&self) -> &Registry {
         &self.registry
     }
@@ -69,6 +72,15 @@ impl Toolbox {
     pub(crate) fn paragraph(&self, id: &str) -> Option<Prompt> {
         self.paragraphs.get(id)
     }
+}
+
+/// One row of the picker: a group, and the tools a person can switch in it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Offering {
+    /// The group's name. The words drawn for it are the window's.
+    pub group: String,
+    pub tools: Vec<String>,
 }
 
 /// One call waiting on a person: the tool, what it declares, and the exact

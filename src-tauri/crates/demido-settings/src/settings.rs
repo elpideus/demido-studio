@@ -242,6 +242,39 @@ mod tests {
         );
     }
 
+    /// The offered set, across chats: one chat's set is that chat's alone, and
+    /// a global set is what a chat that has said nothing opens with, including
+    /// one that did not exist when the set was changed.
+    #[test]
+    fn a_set_changed_in_one_chat_stays_there_and_a_global_set_opens_new_chats() {
+        let settings = settings();
+        settings
+            .set(
+                &Scope::chat("one"),
+                id::TOOLS_OFFERED,
+                &json!(["read_file"]),
+            )
+            .expect("set");
+        assert_eq!(
+            settings.resolve(&Ladder::for_chat("two")).offered(),
+            None,
+            "another chat still offers everything"
+        );
+
+        settings
+            .set(&Scope::Global, id::TOOLS_OFFERED, &json!([]))
+            .expect("set");
+        assert_eq!(
+            settings.resolve(&Ladder::for_chat("made-later")).offered(),
+            Some(vec![])
+        );
+        assert_eq!(
+            settings.resolve(&Ladder::for_chat("one")).offered(),
+            Some(vec!["read_file".to_owned()]),
+            "the chat is the last word"
+        );
+    }
+
     /// The system prompt is a ladder value, which means a chat can have its own
     /// without editing the one every other chat uses.
     #[test]

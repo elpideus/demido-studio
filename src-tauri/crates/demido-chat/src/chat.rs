@@ -15,11 +15,12 @@ use demido_inference::{
 };
 use demido_permission::{Mode, Verdict};
 use demido_prompts::{catalog, id};
-use demido_settings::{Ladder, Resolved, Settings};
+use demido_settings::{Ladder, Origin, Resolved, Settings, Tier};
+use demido_tools::Registry;
 use demido_trace::{Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
 
 use crate::presence::Presence;
-use crate::toolbox::{Asking, Toolbox};
+use crate::toolbox::{Asking, Offering, Toolbox};
 use crate::update::Update;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -267,6 +268,12 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         self.settings.resolve(&self.ladder)
     }
 
+    /// Every group this conversation could offer, with its tools: what the
+    /// picker draws. Which of them are on is the ladder's, in [`Chat::resolved`].
+    pub fn groups(&self) -> Vec<Offering> {
+        self.tools.groups()
+    }
+
     /// What the composer should say about the model.
     pub fn presence(&self) -> Presence {
         self.presence
@@ -427,10 +434,19 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // mid turn, and the log would then describe a turn nobody sent.
         let resolved = self.resolved();
         // The same for the register: one reading of what is on offer, so the
-        // tools the log names and the tools the request carries are one list.
+        // tools the log names, the tools the request carries and the tools a
+        // call is planned against are one list. The set is the ladder's, so a
+        // tool switched off is not in any of the three (`docs/rules/tools.md`:
+        // disabled means absent).
+        let rules = Rules {
+            registry: self.tools.narrowed(resolved.offered().as_deref()),
+            mode: Mode::named(resolved.mode()),
+            limit: resolved.step_limit(),
+        };
+        let layer = layer(resolved.origin(demido_settings::id::TOOLS_OFFERED));
         let offered: Vec<(demido_prompts::Document, serde_json::Value)> = self
             .tools
-            .offered()
+            .offered(&rules.registry)
             .into_iter()
             .map(|spec| (spec.document, spec.shape))
             .collect();
@@ -460,7 +476,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 turn.carry(seq);
             }
             turn.user(said)?;
-            turn.offer(Layer::Registry, &offered)?;
+            turn.offer(layer, &offered)?;
             turn.parameters(&model, options(&resolved))?;
             Ok(turn.send()?)
         })?;
@@ -469,14 +485,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         let cancel = Cancel::new();
         self.arm(Some(cancel.clone()));
         let outcome = self
-            .steps(
-                &backend,
-                sent,
-                &cancel,
-                &mut sink,
-                &mut approve,
-                resolved.step_limit(),
-            )
+            .steps(&backend, sent, &cancel, &mut sink, &mut approve, &rules)
             .await;
         self.arm(None);
 
@@ -556,9 +565,10 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// send the turn again carrying the answers; stop when it answers without
     /// calling, when a stop lands, or when the step limit is reached.
     ///
-    /// **The limit is the ladder's and never the mode's.** The mode is handed to
-    /// the matrix per call and read by nothing else here
-    /// (`docs/rules/tools.md`: the mode gates permissions and nothing else).
+    /// **The limit is the ladder's and never the mode's.** Both are resolved
+    /// off the ladder once per message, and the mode is handed to the matrix per
+    /// call and read by nothing else here (`docs/rules/tools.md`: the mode gates
+    /// permissions and nothing else).
     async fn steps<F>(
         &self,
         backend: &B,
@@ -566,12 +576,12 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         cancel: &Cancel,
         sink: &mut (impl FnMut(Update) + Send),
         approve: &mut (impl FnMut(Asking) -> F + Send),
-        limit: u32,
+        rules: &Rules,
     ) -> Result<Answer>
     where
         F: Future<Output = Decision> + Send,
     {
-        let mode = self.tools.mode();
+        let limit = rules.limit;
         // Standing answers are read off the log, so an *always* given on an
         // earlier message still holds on this one.
         let mut always =
@@ -607,7 +617,8 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             let mut blocks = vec![answer.seq];
             for (at, (seq, call)) in calls.iter().enumerate() {
                 let ruling = Ruling {
-                    mode: &mode,
+                    registry: &rules.registry,
+                    mode: &rules.mode,
                     always: &mut always,
                     declined: &mut declined,
                 };
@@ -636,9 +647,10 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// Answer one call: run it, or record why not. `None` when a stop landed
     /// before it finished.
     ///
-    /// The order is the matrix's to set out: a call that cannot be understood
-    /// is answered with why; one identical to a call the person just declined
-    /// is refused without asking again; the matrix rules on the rest, and the
+    /// The order is the matrix's to set out: a call to a tool the person
+    /// switched off is refused as that; a call that cannot be understood is
+    /// answered with why; one identical to a call the person just declined is
+    /// refused without asking again; the matrix rules on the rest, and the
     /// person is asked only when it says to ask.
     async fn dispatch<F>(
         &self,
@@ -652,7 +664,22 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     where
         F: Future<Output = Decision> + Send,
     {
-        let planned = match self.tools.registry().plan(&demido_tools::Call {
+        // Registered, and not in the set: somebody closed it. Told as that
+        // rather than as a name that is not a tool, which would send the model
+        // looking for another way to do what a person deliberately turned off
+        // (`docs/rules/tools.md`).
+        if !ruling.registry.offers(&call.name) && self.tools.registry().offers(&call.name) {
+            return self
+                .refuse(
+                    turn,
+                    seq,
+                    id::TOOLS_OFF,
+                    &[(catalog::TOOL, call.name.as_str())],
+                )
+                .map(Some);
+        }
+
+        let planned = match ruling.registry.plan(&demido_tools::Call {
             id: call.id.clone(),
             name: call.name.clone(),
             arguments: call.arguments.clone(),
@@ -879,9 +906,30 @@ struct Generation {
     calls: Vec<(u64, ToolCall)>,
 }
 
-/// What one turn rules on its calls with: the mode, and what the person has
-/// already said this turn and before it.
+/// What one message is ruled by, resolved off the ladder once: the tools on
+/// offer, the mode, and how many steps it may take.
+struct Rules {
+    registry: Registry,
+    mode: Mode,
+    limit: u32,
+}
+
+/// Which layer decided the offered set: a tier of the ladder, or nobody, which
+/// is everything the registry has.
+fn layer(origin: Origin) -> Layer {
+    match origin {
+        Origin::Default => Layer::Registry,
+        Origin::Tier(Tier::Global) => Layer::Global,
+        Origin::Tier(Tier::Model) => Layer::Model,
+        Origin::Tier(Tier::Character) => Layer::Character,
+        Origin::Tier(Tier::Chat) => Layer::Chat,
+    }
+}
+
+/// What one call is ruled on with: the tools on offer, the mode, and what the
+/// person has already said this turn and before it.
 struct Ruling<'a> {
+    registry: &'a Registry,
     mode: &'a Mode,
     always: &'a mut Vec<String>,
     /// Calls the person declined this turn, by name and arguments.

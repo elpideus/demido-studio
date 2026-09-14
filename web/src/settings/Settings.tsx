@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { AcceleratorControl, ModelFolderControl } from '@/setup/Controls'
 import { useDesk } from '@/shell/desk'
 import { Field } from './Control'
-import { useSettings, type Row, type Tier } from './ladder'
+import { MODE, OFFERED, useSettings, type Row, type Tier } from './ladder'
 import styles from './Settings.module.css'
 
 /**
@@ -154,6 +154,21 @@ export function ChatSettings({ close }: { close: () => void }) {
 }
 
 /**
+ * Whether a row belongs on this surface.
+ *
+ * The offered set is drawn by the tool picker and nowhere else: the popover is
+ * its whole surface (`docs/rules/tools.md`). The mode is a chat's to change
+ * from the control beside the picker, so the chat's own popover leaves it out
+ * rather than drawing a second control for it, and the main window keeps it as
+ * the default every new chat opens with.
+ */
+function drawnOn(tier: Tier, row: Row): boolean {
+  if (row.setting.id === OFFERED) return false
+  if (row.setting.id === MODE) return tier === 'global'
+  return true
+}
+
+/**
  * One tier's rows.
  *
  * The rows are read when the surface opens and read back after every change,
@@ -178,18 +193,20 @@ function Page({ tier }: { tier: Tier }) {
 
   return (
     <div className={styles.rows}>
-      {rows.map((row: Row) => (
-        <Field
-          key={row.setting.id}
-          row={row}
-          onChange={(value) => set(tier, row.setting, value)}
-          // The global tier has nothing under it to fall back to, so the main
-          // window offers no revert. Reverting there would mean restoring a
-          // schema default, which is a different gesture and would be wearing
-          // the same icon.
-          revert={tier === 'global' ? undefined : () => void clear(tier, row.setting)}
-        />
-      ))}
+      {rows
+        .filter((row) => drawnOn(tier, row))
+        .map((row: Row) => (
+          <Field
+            key={row.setting.id}
+            row={row}
+            onChange={(value) => set(tier, row.setting, value)}
+            // The global tier has nothing under it to fall back to, so the main
+            // window offers no revert. Reverting there would mean restoring a
+            // schema default, which is a different gesture and would be wearing
+            // the same icon.
+            revert={tier === 'global' ? undefined : () => void clear(tier, row.setting)}
+          />
+        ))}
     </div>
   )
 }

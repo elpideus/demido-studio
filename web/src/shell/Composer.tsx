@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, SlidersHorizontal, Square } from 'lucide-react'
+import { Send, SlidersHorizontal, Square, Wrench } from 'lucide-react'
 
 import { loading, useChat, type Presence } from '@/chat/chat'
+import { useSettings } from '@/settings/ladder'
 import { ChatSettings } from '@/settings/Settings'
 import { useSetup } from '@/setup/setup'
+import { ModeControl } from './ModeControl'
+import { ToolPicker } from './ToolPicker'
 import styles from './Composer.module.css'
+
+/** Which popover the composer has open. One at a time: they stand in the same
+ * place over the field. */
+type Open = 'settings' | 'tools' | 'mode' | null
 
 /**
  * The composer.
@@ -42,21 +49,32 @@ export function Composer() {
   const load = useChat((chat) => chat.load)
   const outstanding = useSetup((setup) => setup.view !== null && !setup.view.complete)
   const resume = useSetup((setup) => setup.resume)
+  const readSettings = useSettings((settings) => settings.read)
   const [message, setMessage] = useState('')
-  const [settings, setSettings] = useState(false)
+  const [open, setOpen] = useState<Open>(null)
   const bay = useRef<HTMLDivElement>(null)
+
+  // The chat tier is read when the desk mounts rather than when a popover
+  // opens, because the mode control draws its shield at rest: the strictest
+  // mode's one standing mark cannot wait for somebody to open a menu.
+  useEffect(() => {
+    void readSettings('chat')
+  }, [readSettings])
 
   // Dismissed by a click outside it, which is what makes it a popover rather
   // than a window. Captured, so a click that lands on a control still closes
   // the popover before that control acts on it, the way the rail's menu does.
   useEffect(() => {
-    if (!settings) return
+    if (!open) return
     const dismiss = (event: MouseEvent) => {
-      if (!bay.current?.contains(event.target as Node)) setSettings(false)
+      if (!bay.current?.contains(event.target as Node)) setOpen(null)
     }
     document.addEventListener('mousedown', dismiss, true)
     return () => document.removeEventListener('mousedown', dismiss, true)
-  }, [settings])
+  }, [open])
+
+  const toggle = (which: Exclude<Open, null>) => setOpen(open === which ? null : which)
+  const close = () => setOpen(null)
 
   const ready = presence.state === 'ready'
   const said = message.trim()
@@ -69,7 +87,8 @@ export function Composer() {
 
   return (
     <div className={styles.composer} ref={bay}>
-      {settings && <ChatSettings close={() => setSettings(false)} />}
+      {open === 'settings' && <ChatSettings close={close} />}
+      {open === 'tools' && <ToolPicker close={close} />}
       <textarea
         className={styles.field}
         rows={2}
@@ -114,18 +133,33 @@ export function Composer() {
             Try again
           </button>
         )}
-        {/* Always available, including while nothing is loaded: a context
-         * length or a system prompt set before a model starts is the ordinary
-         * order to do it in, and it is the one the set-up wizard will use. */}
-        <button
-          type="button"
-          className={styles.settings}
-          aria-label="This chat's settings"
-          aria-pressed={settings}
-          onClick={() => setSettings(!settings)}
-        >
-          <SlidersHorizontal className={styles.icon} strokeWidth={1.8} aria-hidden />
-        </button>
+        {/* The two axes side by side and kept apart (`docs/rules/tools.md`):
+         * what runs without asking, then what the model is shown. Both are
+         * always available, including while nothing is loaded, because they
+         * are decided about the message before it is sent. The chat's own
+         * settings follow: a context length or a system prompt set before a
+         * model starts is the ordinary order to do it in. */}
+        <div className={styles.controls}>
+          <ModeControl open={open === 'mode'} toggle={() => toggle('mode')} close={close} />
+          <button
+            type="button"
+            className={styles.control}
+            aria-label="Tools"
+            aria-pressed={open === 'tools'}
+            onClick={() => toggle('tools')}
+          >
+            <Wrench className={styles.icon} strokeWidth={1.8} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className={styles.control}
+            aria-label="This chat's settings"
+            aria-pressed={open === 'settings'}
+            onClick={() => toggle('settings')}
+          >
+            <SlidersHorizontal className={styles.icon} strokeWidth={1.8} aria-hidden />
+          </button>
+        </div>
         {running ? (
           <button type="button" className={styles.stop} aria-label="Stop" onClick={stop}>
             <Square className={styles.icon} strokeWidth={1.8} aria-hidden />

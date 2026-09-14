@@ -13,7 +13,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use demido_chat::{Decision, Presence, Said, Update};
+use demido_chat::{Decision, Offering, Presence, Said, Update};
 
 use crate::wiring::Wiring;
 
@@ -38,6 +38,16 @@ const PRESENCE: &str = "chat://presence";
 #[tauri::command]
 pub fn chat_transcript(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<Vec<Said>> {
     Ok(wiring.chat.history()?)
+}
+
+/// What the tool picker draws: every group, with its tools.
+///
+/// Only the shape. Which of them are on is the ladder's `tools.offered`, read
+/// and written through the settings commands like any other value, so the
+/// picker and a turn are looking at the same set.
+#[tauri::command]
+pub fn chat_tools(wiring: tauri::State<'_, Wiring>) -> Vec<Offering> {
+    wiring.chat.groups()
 }
 
 /// What the composer should say about the model right now.

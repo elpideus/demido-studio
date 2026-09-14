@@ -21,6 +21,11 @@ import { useToasts } from '@/shell/toasts'
  * subject.
  */
 
+/** The two ids the composer draws, rather than a settings page. The Rust
+ * `id::TOOLS_MODE` and `id::TOOLS_OFFERED`. */
+export const MODE = 'tools.mode'
+export const OFFERED = 'tools.offered'
+
 /** The tiers a surface here can edit. Rust has four and stores four. */
 export type Tier = 'global' | 'chat'
 
@@ -33,6 +38,10 @@ export type Kind =
   | { control: 'amount'; default: number; min: number; max: number; on: boolean }
   | { control: 'count'; default: number; min: number; max: number }
   | { control: 'text'; default: string; multiline: boolean }
+  | { control: 'choice'; default: string; options: string[] }
+  /** A set of names, stored as a list or as `null` for every name there is.
+   * Drawn by the composer's tool picker and nowhere else. */
+  | { control: 'set' }
 
 /** One setting's declaration. The Rust `Setting`. */
 export type Setting = {
@@ -161,6 +170,8 @@ function refusal(setting: Setting, error: unknown): string {
     case 'amount':
       return `${setting.title} is a number from ${setting.kind.min} to ${setting.kind.max}, or off.`
     case 'text':
+    case 'choice':
+    case 'set':
       return `${setting.title} was not saved.`
   }
 }

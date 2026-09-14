@@ -151,6 +151,41 @@
   line-height: var(--leading-flush);
 }
 
+/* A choice: every option in view, on the row's own island. Raised at rest, and
+ * the one in force on `edge` with its words lit, which is the row
+ * docs/rules/surfaces.md has for selected. */
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-tight);
+}
+
+.choice {
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.choice:hover {
+  background: var(--color-hover);
+}
+
+.choice[aria-checked='true'] {
+  background: var(--color-edge);
+  color: var(--color-signal);
+}
+
+.choice[aria-checked='true']:hover {
+  background: var(--color-edge-strong);
+}
+
 .icon {
   width: var(--size-icon-small);
   height: var(--size-icon-small);

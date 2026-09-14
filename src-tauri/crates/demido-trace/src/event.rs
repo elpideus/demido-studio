@@ -197,17 +197,26 @@ pub enum Decision {
 /// What decided the offered set, so the monitor can tell a deliberate absence
 /// from a dropped one (`docs/rules/tools.md`).
 ///
-/// One layer today, because one thing decides the set today. The picker
-/// ([#56](https://github.com/elpideus/demido-studio/issues/56)), a skill's
-/// switch, an account an endpoint may not receive and a sub-agent narrowing its
-/// parent each add a variant with the code that decides, rather than being
-/// declared here as a shape nothing can yet be held to.
+/// The registry, and the settings ladder's four tiers, which is where the
+/// picker writes ([#56](https://github.com/elpideus/demido-studio/issues/56)).
+/// A skill's switch, an account an endpoint may not receive and a sub-agent
+/// narrowing its parent each add a variant with the code that decides, rather
+/// than being declared here as a shape nothing can yet be held to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Layer {
     /// What this build registers, and whether a workspace is set for it to
-    /// act in. No workspace offers nothing.
+    /// act in, with nobody on the ladder having named a set. No workspace
+    /// offers nothing.
     Registry,
+    /// A set named for every conversation.
+    Global,
+    /// A set named for one model. Stored, and nothing names a model in v0.1.
+    Model,
+    /// A set named by a character. Stored, and there are no characters in v0.1.
+    Character,
+    /// A set named for this conversation, from the picker. The last word.
+    Chat,
 }
 
 /// What happened.
