@@ -18,7 +18,7 @@ use std::future::{ready, Ready};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Asking, Chat, Decision, Model, Toolbox};
+use demido_chat::{Asking, Chat, Decision, Model, Moment, Outcome, Toolbox};
 use demido_inference::scripted::{Script, Scripted, Step};
 use demido_inference::{FinishReason, Role, Supervisor, ToolCall};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
@@ -198,17 +198,183 @@ async fn a_call_is_dispatched_run_and_its_result_is_in_the_next_request() {
         result.content
     );
 
-    let transcript: Vec<String> = chat
-        .history()
-        .unwrap()
-        .into_iter()
-        .map(|said| said.text)
+    let transcript = chat.transcript().unwrap();
+    let said: Vec<String> = transcript
+        .iter()
+        .filter_map(|moment| match moment {
+            Moment::Said(said) => Some(said.text.clone()),
+            Moment::Called(_) => None,
+        })
         .collect();
     assert_eq!(
-        transcript,
+        said,
         vec!["When is the meeting?", "Thursday."],
         "an answer that only called is not a bubble of its own"
     );
+
+    // #55: the call and its result are in the transcript, at the point in the
+    // turn where they happened, which here is between the question and the
+    // answer that came out of them.
+    assert!(
+        matches!(
+            &transcript[1],
+            Moment::Called(called)
+                if called.tool == "read_file"
+                    && called.arguments.contains("notes.txt")
+                    && matches!(
+                        &called.outcome,
+                        Some(Outcome::Returned { text, failed: false })
+                            if text.contains("The meeting moved to Thursday.")
+                    )
+        ),
+        "{:?}",
+        transcript[1]
+    );
+}
+
+/// A failed call reads as failed in the transcript, so a broken tool and a
+/// model paraphrasing one do not look alike.
+#[tokio::test]
+async fn a_failed_call_reads_as_a_failure_in_the_transcript() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "read_file", r#"{"path": "missing.txt"}"#)
+        .then_say(&["It is not there."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+    chat.ask("Read it.", |_| {}, nobody()).await.unwrap();
+
+    let transcript = chat.transcript().unwrap();
+    let called = only_call(&transcript);
+    assert!(
+        matches!(called.outcome, Some(Outcome::Returned { failed: true, .. })),
+        "{:?}",
+        called.outcome
+    );
+}
+
+/// A declined call is answered in the transcript too, and it is not a failed
+/// tool: nothing was attempted.
+#[tokio::test]
+async fn a_declined_call_reads_as_declined_rather_than_as_a_failure() {
+    let script = Script::serving("scripted")
+        .then_call(
+            "call-1",
+            "write_file",
+            r#"{"path": "plan.txt", "content": "x"}"#,
+        )
+        .then_say(&["Then I will not."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+    chat.ask(
+        "Write it.",
+        |_| {},
+        Person::answering(&[Decision::Deny]).approve(),
+    )
+    .await
+    .unwrap();
+
+    let transcript = chat.transcript().unwrap();
+    let called = only_call(&transcript);
+    assert_eq!(called.decision, Some(Decision::Deny));
+    assert!(
+        matches!(&called.outcome, Some(Outcome::Refused { text }) if text.contains("declined")),
+        "{:?}",
+        called.outcome
+    );
+}
+
+/// *Always for this tool* is written to the ladder's **chat** tier and to no
+/// other. #55's own line: one answer about one conversation is not consent for
+/// every conversation the person ever opens.
+#[tokio::test]
+async fn always_for_this_tool_writes_the_chat_tier_and_never_the_global_one() {
+    let script = Script::serving("scripted")
+        .then_call(
+            "call-1",
+            "write_file",
+            r#"{"path": "a.txt", "content": "a"}"#,
+        )
+        .then_say(&["Written."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    chat.ask(
+        "Write a.",
+        |_| {},
+        Person::answering(&[Decision::Always]).approve(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        rig.settings
+            .resolve(&demido_settings::Ladder::for_chat(SESSION))
+            .always(),
+        vec!["write_file".to_owned()]
+    );
+    assert_eq!(
+        rig.settings
+            .resolve(&demido_settings::Ladder::for_chat("another"))
+            .always(),
+        Vec::<String>::new(),
+        "another conversation was never asked and never answered"
+    );
+    assert_eq!(
+        rig.settings
+            .resolve(&demido_settings::Ladder::global())
+            .always(),
+        Vec::<String>::new(),
+        "and the global tier is not where a transcript may write"
+    );
+}
+
+/// The floor, held in the loop rather than in the window: a window that sent
+/// *always* about a destructive call gets the call allowed and nothing
+/// remembered, because the matrix asks about the next one too.
+#[tokio::test]
+async fn always_on_a_destructive_call_is_not_remembered_however_it_arrives() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "delete_file", r#"{"path": "notes.txt"}"#)
+        .then_say(&["Gone."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    chat.ask(
+        "Delete it.",
+        |_| {},
+        Person::answering(&[Decision::Always]).approve(),
+    )
+    .await
+    .unwrap();
+
+    assert!(!rig.path("notes.txt").exists(), "the call still ran");
+    assert_eq!(
+        rig.settings
+            .resolve(&demido_settings::Ladder::for_chat(SESSION))
+            .always(),
+        Vec::<String>::new(),
+        "nothing destructive is ever covered by an always"
+    );
+}
+
+/// The one call in a transcript. Panics with what is there when there is not
+/// exactly one, which is what a reader of a failed test wants.
+fn only_call(transcript: &[Moment]) -> &demido_chat::Called {
+    let calls: Vec<&demido_chat::Called> = transcript
+        .iter()
+        .filter_map(|moment| match moment {
+            Moment::Called(called) => Some(called),
+            Moment::Said(_) => None,
+        })
+        .collect();
+    match calls.as_slice() {
+        [one] => one,
+        other => panic!("expected one call in the transcript, found {}", other.len()),
+    }
 }
 
 /// A call and its result are two events, each with a source and a weight.

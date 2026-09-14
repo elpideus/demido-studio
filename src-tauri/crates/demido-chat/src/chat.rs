@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
 use serde::Serialize;
+use serde_json::json;
 
 use demido_inference::{
     Backend, Cancel, Chunk, FinishReason, Options, Role, Supervisor, ToolCall, Usage,
@@ -130,6 +131,72 @@ pub struct Said {
     pub turn: u32,
     pub role: Role,
     pub text: String,
+}
+
+/// One moment in the transcript: something said, or a call and what came back.
+///
+/// The window draws a bubble for the first and a **tool call row**
+/// (`design/system.md`) for the second, at the point in the turn where each
+/// happened. Tagged rather than two lists, because the order is the thing being
+/// drawn: a call that arrived between two sentences belongs between them.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "moment", rename_all = "camelCase")]
+pub enum Moment {
+    Said(Said),
+    Called(Called),
+}
+
+/// One call, as the transcript draws it.
+///
+/// Narrower than [`demido_trace::Called`] in the way [`Said`] is narrower than
+/// an `Exchange`: no source and no weight, which are the Session Monitor's axes
+/// and would be rendered by somebody if a row were handed them.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Called {
+    pub seq: u64,
+    pub turn: u32,
+    pub tool: String,
+    /// The model's own text, whether or not it parses.
+    pub arguments: String,
+    /// What the person answered, where they were asked at all.
+    pub decision: Option<Decision>,
+    /// What came back, or nothing while the call is still waiting or running.
+    pub outcome: Option<Outcome>,
+}
+
+/// What came back from one call, as the transcript draws it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub enum Outcome {
+    /// The tool was attempted, and `failed` is its own outcome. The window
+    /// draws a failure as a failure rather than as text: a broken tool and a
+    /// model paraphrasing one must not look alike (#55).
+    Returned { text: String, failed: bool },
+    /// Demido's own answer to a call it did not run.
+    Refused { text: String },
+}
+
+impl From<demido_trace::Called> for Called {
+    fn from(called: demido_trace::Called) -> Self {
+        Self {
+            seq: called.seq,
+            turn: called.turn,
+            tool: called.name,
+            arguments: called.arguments,
+            decision: called.decision,
+            outcome: called.outcome.map(Outcome::from),
+        }
+    }
+}
+
+impl From<demido_trace::Outcome> for Outcome {
+    fn from(outcome: demido_trace::Outcome) -> Self {
+        match outcome {
+            demido_trace::Outcome::Returned { text, failed } => Outcome::Returned { text, failed },
+            demido_trace::Outcome::Refused { text } => Outcome::Refused { text },
+        }
+    }
 }
 
 /// A finished turn.
@@ -373,17 +440,28 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// This is what a restart draws, and it is the same read as the first
     /// launch: a chat survives closing the app because it was never anywhere
     /// but the log.
-    pub fn history(&self) -> Result<Vec<Said>> {
+    ///
+    /// It carries the calls as well as the messages, because
+    /// [#55](https://github.com/elpideus/demido-studio/issues/55) draws a call
+    /// and its result **in the transcript at the point in the turn where they
+    /// happened**, rather than in a window somebody has to know to open. The
+    /// pairing of a call with what came back is
+    /// [`demido_trace::Replay::transcript`]'s, over the same events the monitor
+    /// reads as two rows.
+    pub fn transcript(&self) -> Result<Vec<Moment>> {
         self.with_session(|session| {
             let replay = Replay::of(session.journal())?;
             Ok(replay
-                .history()
+                .transcript()?
                 .into_iter()
-                .map(|exchange| Said {
-                    seq: exchange.seq,
-                    turn: exchange.turn,
-                    role: exchange.role,
-                    text: exchange.text,
+                .map(|moment| match moment {
+                    demido_trace::Moment::Said(exchange) => Moment::Said(Said {
+                        seq: exchange.seq,
+                        turn: exchange.turn,
+                        role: exchange.role,
+                        text: exchange.text,
+                    }),
+                    demido_trace::Moment::Called(called) => Moment::Called(called.into()),
                 })
                 .collect())
         })
@@ -442,6 +520,12 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             registry: self.tools.narrowed(resolved.offered().as_deref()),
             mode: Mode::named(resolved.mode()),
             limit: resolved.step_limit(),
+            // Off the ladder's chat tier rather than off the log (#55). The log
+            // still says which of the three the person answered, because that
+            // is what happened; what is in force next turn is a setting, so it
+            // is where every other value in force is, and a person who wants it
+            // back has a row rather than an un-appendable log to edit.
+            always: resolved.always(),
         };
         let layer = layer(resolved.origin(demido_settings::id::TOOLS_OFFERED));
         let offered: Vec<(demido_prompts::Document, serde_json::Value)> = self
@@ -582,10 +666,10 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         F: Future<Output = Decision> + Send,
     {
         let limit = rules.limit;
-        // Standing answers are read off the log, so an *always* given on an
-        // earlier message still holds on this one.
-        let mut always =
-            self.with_session(|session| Ok(Replay::of(session.journal())?.always()))?;
+        // Standing answers come off the ladder, resolved once with everything
+        // else this message is ruled by, so an *always* given on an earlier
+        // message still holds on this one.
+        let mut always = rules.always.clone();
         let mut declined: Vec<(String, serde_json::Value)> = Vec::new();
         let mut taken = 0u32;
 
@@ -626,7 +710,16 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     .dispatch(answer.turn, *seq, call, ruling, cancel, approve)
                     .await?
                 {
-                    Some(block) => blocks.push(block),
+                    Some(block) => {
+                        blocks.push(block);
+                        // The call has an answer now, and the transcript draws
+                        // one row for the pair. The window is told where, and
+                        // reads the log for what.
+                        sink(Update::Returned {
+                            turn: answer.turn,
+                            call: *seq,
+                        });
+                    }
                     // Stopped while this call waited or ran. It and every call
                     // after it are answered as stopped, and nothing else runs.
                     None => {
@@ -726,10 +819,18 @@ impl<B: Backend, J: Journal> Chat<B, J> {
 
             match decision {
                 Decision::Allow => {}
+                // Never on a destructive call, whatever the window sent. The
+                // matrix's floor is that such a call asks every time and that
+                // *always* cannot waive it (`docs/rules/tools.md`), and a floor
+                // that only held while the frontend agreed with it would be a
+                // floor a second frontend could step through. The decision is
+                // still recorded as what the person answered, because it is.
+                Decision::Always if planned.intent.destructive => {}
                 Decision::Always => {
                     if !ruling.always.contains(&call.name) {
                         ruling.always.push(call.name.clone());
                     }
+                    self.remember_always(ruling.always);
                 }
                 Decision::Deny => {
                     ruling.declined.push(this);
@@ -752,6 +853,30 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             Err(failure) => self.returned(turn, seq, &failure.message, true),
         }
         .map(Some)
+    }
+
+    /// Keep *always for this tool* where every other value in force is kept:
+    /// the ladder's **chat** tier, and never the global one.
+    ///
+    /// #55's own line, and the reason is the size of the promise. The person
+    /// answered about a call in this conversation; writing that globally would
+    /// turn one answer into consent for every conversation they ever open,
+    /// which is not what was said and is not something a row in a transcript
+    /// should be able to do. `Scope::chat` is the only scope this writes, and
+    /// the tier is named here rather than passed in so there is nowhere to pass
+    /// a different one from.
+    ///
+    /// Best effort, and deliberately not `?`: a ladder that would not take the
+    /// write means the next turn asks again, which is the safe direction, and
+    /// failing the turn over it would throw away a call the person just allowed.
+    fn remember_always(&self, names: &[String]) {
+        let scope = demido_settings::Scope::chat(self.id.to_string());
+        if let Err(error) =
+            self.settings
+                .set(&scope, demido_settings::id::TOOLS_ALWAYS, &json!(names))
+        {
+            tracing::warn!(%error, "always for this tool was not saved; it holds for this turn only");
+        }
     }
 
     fn returned(&self, turn: u32, call: u64, text: &str, failed: bool) -> Result<u64> {
@@ -827,6 +952,17 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 .collect::<Result<Vec<_>>>()?;
             Ok((seq, calls))
         })?;
+
+        // Told after the recording and not before it, so a window that reads
+        // the log on being told finds what it was told about. What it was
+        // streaming is now on the record, which is what lets it stop drawing a
+        // draft and draw the log instead.
+        for (call, _) in &calls {
+            sink(Update::Called {
+                turn: sent.turn,
+                seq: *call,
+            });
+        }
 
         Ok(Generation {
             answer: Answer {
@@ -907,11 +1043,13 @@ struct Generation {
 }
 
 /// What one message is ruled by, resolved off the ladder once: the tools on
-/// offer, the mode, and how many steps it may take.
+/// offer, the mode, how many steps it may take, and what has already been
+/// answered *always for this tool*.
 struct Rules {
     registry: Registry,
     mode: Mode,
     limit: u32,
+    always: Vec<String>,
 }
 
 /// Which layer decided the offered set: a tier of the ladder, or nobody, which

@@ -12,7 +12,7 @@
 //! ## There is no chat state
 //!
 //! [`Chat`] holds a journal, a supervisor and a cancellation token. It holds no
-//! messages. A transcript is [`Chat::history`], which is a projection of the
+//! messages. A transcript is [`Chat::transcript`], which is a projection of the
 //! log, so closing the window and opening it again is the same read as drawing
 //! the desk for the first time. That is not a feature of this crate, it is the
 //! absence of one: v2 kept a message list beside its log and the two could
@@ -49,7 +49,7 @@ pub mod presence;
 pub mod toolbox;
 pub mod update;
 
-pub use chat::{Answer, Chat, Error, Model, Result, Said};
+pub use chat::{Answer, Called, Chat, Error, Model, Moment, Outcome, Result, Said};
 pub use demido_trace::Decision;
 pub use presence::Presence;
 pub use toolbox::{Asking, Offering, Toolbox};

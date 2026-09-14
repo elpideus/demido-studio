@@ -358,6 +358,28 @@ impl Resolved {
         })
     }
 
+    /// The tools this conversation has been answered *always for this tool*
+    /// about, or nothing.
+    ///
+    /// A set like [`Resolved::offered`] and read the same way, and the one
+    /// difference is what an absence means: no tool was ever answered always,
+    /// rather than every tool there is. Nothing here is a permission by itself;
+    /// it is handed to `demido_permission::verdict`, which still asks about a
+    /// destructive call whatever this says.
+    #[must_use]
+    pub fn always(&self) -> Vec<String> {
+        self.get(id::TOOLS_ALWAYS)
+            .as_array()
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Who the model is being, or the empty string where nobody has said.
     ///
     /// Empty rather than absent is the honest default: an empty system prompt

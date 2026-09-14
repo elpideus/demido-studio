@@ -25,6 +25,27 @@ pub enum Update {
     /// Reasoning, where the model separates it. Visible by default
     /// (`design/system.md`), and it is the window that decides that.
     Thinking { text: String },
+    /// The model asked for a call, and the answer that asked for it and the
+    /// call itself are both on the log.
+    ///
+    /// It carries positions rather than the call, and that is the point. The
+    /// transcript is a projection of the log
+    /// (`docs/decisions/0011-the-window-draws-the-log-not-its-draft.md`), so
+    /// what the window needs is to be told there is something new to read, not
+    /// to be handed a second copy of it that could disagree. It is also the
+    /// moment the window's streaming draft stops being a draft: everything
+    /// generated so far is recorded, so the buffer is thrown away and the
+    /// answer is redrawn from the record.
+    ///
+    /// Once per call, never per token, so the read it causes is affordable.
+    Called {
+        turn: u32,
+        /// Where the call sits on the log.
+        seq: u64,
+    },
+    /// A call was answered, however it was: a result, or Demido's own answer to
+    /// one it did not run. `call` is the call's position on the log.
+    Returned { turn: u32, call: u64 },
     /// The turn is over, however it ended. A stop arrives here too, carrying
     /// [`FinishReason::Cancelled`] and whatever was generated before it.
     Done {

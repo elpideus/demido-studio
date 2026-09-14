@@ -55,6 +55,55 @@ pub struct Exchange {
     pub weight: Weight,
 }
 
+/// One moment in a transcript, in the order it happened.
+///
+/// A transcript is not only what was said. `design/system.md` gives the chat a
+/// **tool call row** beside its messages, and
+/// [#55](https://github.com/elpideus/demido-studio/issues/55) puts it where the
+/// call happened rather than in a window somebody has to go and open. So the
+/// projection a bubble list is drawn from carries both.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Moment {
+    Said(Exchange),
+    Called(Called),
+}
+
+/// One call, with what the person said about it and what came back.
+///
+/// **The pairing is the transcript's, never the log's.** A call and its result
+/// are two events each carrying their own source and weight, which is what
+/// `demido-chat/AGENTS.md` fixes and what the session monitor reads. A row on
+/// screen is the other question: what one call did, from asking to answered,
+/// and a reader who has to match two rows by a sequence number is a reader
+/// doing a join by hand.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Called {
+    /// The call's own position on the log.
+    pub seq: u64,
+    pub turn: u32,
+    pub name: String,
+    /// The model's own text, whether or not it parses. Shown as written: a row
+    /// that pretty-printed what the model actually sent would be the one place
+    /// in this application where the record is tidied before it is read.
+    pub arguments: String,
+    /// What the person answered, where they were asked at all.
+    pub decision: Option<Decision>,
+    /// What came back, or nothing while the call is still waiting or running.
+    pub outcome: Option<Outcome>,
+}
+
+/// What came back from one call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// The tool was attempted. `failed` is its own outcome, so a broken tool
+    /// and a model paraphrasing one do not read alike.
+    Returned { text: String, failed: bool },
+    /// Demido's own answer to a call it did not run: declined, stopped, or past
+    /// the step limit. Filled from the paragraph the log recorded, like any
+    /// other refusal, rather than written again here.
+    Refused { text: String },
+}
+
 /// What one source cost over a session: the ledger in the monitor's left
 /// column, "count and tokens per source, not a legend beside a search box".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -137,6 +186,81 @@ impl Replay {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The transcript: what was said, and every call, in the order it happened.
+    ///
+    /// **Literally** [`Replay::history`] with the tool calls put back in. The
+    /// messages are that function's own answer rather than the same filter
+    /// written again, so the two projections cannot come to disagree about what
+    /// counts as a bubble: a change to one is a change to both.
+    ///
+    /// Ordered by position, which is what puts a call between the answer that
+    /// asked for it and whatever the model said next. Sequence numbers are
+    /// unique, so the order is total and the sort decides nothing.
+    ///
+    /// Fallible where `history` is not, because a refusal is stored as a hash
+    /// and its values: reading one means filling the paragraph the log recorded
+    /// under that hash, which is the same rebuild [`Replay::block`] does and can
+    /// fail the same way, on a log that lost the version event.
+    pub fn transcript(&self) -> Result<Vec<Moment>> {
+        let mut moments: Vec<Moment> = self.history().into_iter().map(Moment::Said).collect();
+
+        for event in &self.events {
+            let Body::Call {
+                name, arguments, ..
+            } = &event.body
+            else {
+                continue;
+            };
+            moments.push(Moment::Called(Called {
+                seq: event.seq,
+                turn: event.turn,
+                name: name.clone(),
+                arguments: arguments.clone(),
+                decision: self.decided(event.seq),
+                outcome: self.outcome(event.seq)?,
+            }));
+        }
+
+        moments.sort_by_key(|moment| match moment {
+            Moment::Said(exchange) => exchange.seq,
+            Moment::Called(called) => called.seq,
+        });
+        Ok(moments)
+    }
+
+    /// What the person answered about the call at `call`, where they were asked.
+    fn decided(&self, call: u64) -> Option<Decision> {
+        self.events.iter().find_map(|event| match &event.body {
+            Body::Decided {
+                call: about,
+                decision,
+            } if *about == call => Some(*decision),
+            _ => None,
+        })
+    }
+
+    /// What came back for the call at `call`, or nothing while it is still
+    /// waiting on somebody or running.
+    fn outcome(&self, call: u64) -> Result<Option<Outcome>> {
+        let answer = self.events.iter().find(|event| match &event.body {
+            Body::Result { call: about, .. } | Body::Refusal { call: about, .. } => *about == call,
+            _ => false,
+        });
+        match answer.map(|event| (&event.body, event.seq)) {
+            Some((Body::Result { text, failed, .. }, _)) => Ok(Some(Outcome::Returned {
+                text: text.clone(),
+                failed: *failed,
+            })),
+            // Filled rather than copied, which is the whole shape of a refusal
+            // on this log: the paragraph is held once per session and this puts
+            // the values back into it.
+            Some((Body::Refusal { .. }, seq)) => Ok(Some(Outcome::Refused {
+                text: self.block(seq)?.content,
+            })),
+            _ => Ok(None),
+        }
     }
 
     /// Every block a later turn carries, in the order it happened: what the

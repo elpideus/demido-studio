@@ -231,7 +231,7 @@ fn work(app: &AppHandle, id: &str) -> demido_core::Result<()> {
             let _ = wiring.desk.read();
             Ok(())
         }
-        "log" => wiring.chat.history().map(|_| ()).map_err(Into::into),
+        "log" => wiring.chat.transcript().map(|_| ()).map_err(Into::into),
         // Absent is not failed. A machine where set-up has not run has no
         // runtime and still has a usable desk with the composer disabled, which
         // is the ordinary first launch (`crate::wiring::Rig`).

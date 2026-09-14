@@ -42,6 +42,17 @@ pub mod id {
     /// on the ladder that is a set rather than a scalar, and an override of it
     /// replaces the set below rather than merging with it.
     pub const TOOLS_OFFERED: &str = "tools.offered";
+    /// Which tools the person said *always for this tool* about.
+    ///
+    /// Written by the approval row in the transcript and by nothing else, and
+    /// **only ever at the chat tier**
+    /// ([#55](https://github.com/elpideus/demido-studio/issues/55)): a decision
+    /// taken about one call in one conversation is not a decision about every
+    /// conversation, and a control that quietly widened it to all of them would
+    /// be the nagging this answer exists to end turning into a blanket consent
+    /// nobody gave. This crate stores what it is handed; the tier is the
+    /// caller's, and `demido-chat/tests/a_tool.rs` is what holds it to the chat.
+    pub const TOOLS_ALWAYS: &str = "tools.always";
 }
 
 /// The names a mode is stored under, strictest first.
@@ -227,6 +238,16 @@ pub static SCHEMA: &[Setting] = &[
         section: "Tools",
         title: "Tools",
         summary: "What the model is shown. A tool switched off is not sent to it at all.",
+        kind: Kind::Set {},
+        reloads: false,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above. Nothing
+    // draws this one today: the approval row writes it and the matrix reads it.
+    Setting {
+        id: id::TOOLS_ALWAYS,
+        section: "Tools",
+        title: "Always allowed",
+        summary: "The tools you answered always for, in this conversation. Never covers a call that cannot be undone.",
         kind: Kind::Set {},
         reloads: false,
     },
