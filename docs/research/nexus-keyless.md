@@ -26,12 +26,12 @@ code showing exactly how. That is the reason section 3 is written the way it is.
 
 v2 checked four endpoints on one afternoon (Hack Club, GitHub Models, GaiaNet, Pollinations),
 found them gone or cached, and wrote
-`docs/decisions/0026-nexus-is-a-key-the-user-fetches.md`, whose central claim was:
+v2's decision note 0026, `nexus-is-a-key-the-user-fetches`, whose central claim was:
 
 > There is, today, no legitimate OpenAI-compatible endpoint that will generate a fresh token for
 > a stranger.
 
-Two days later `docs/decisions/0034-keyless-is-not-dead.md` reversed it, having found six working
+Two days later v2's note 0034, `keyless-is-not-dead`, reversed it, having found six working
 anonymous upstreams already sitting in the project's own earlier code, and recorded the lesson:
 "Four endpoints checked once is not a fact about the web."
 
