@@ -44,6 +44,20 @@ fn saying(tokens: &[&str]) -> Script {
     Script::serving("scripted").then_say(tokens)
 }
 
+/// The messages of a transcript, which is all these cases have in it: nothing
+/// is offered here, so nothing is ever called. The call rows are
+/// `tests/a_tool.rs`'s.
+fn said<B: Backend, J: demido_trace::Journal>(chat: &Chat<B, J>) -> Vec<demido_chat::Said> {
+    chat.transcript()
+        .expect("a transcript")
+        .into_iter()
+        .filter_map(|moment| match moment {
+            demido_chat::Moment::Said(said) => Some(said),
+            demido_chat::Moment::Called(_) => None,
+        })
+        .collect()
+}
+
 /// Slow enough that a stop is a generation in flight rather than one that had
 /// already finished.
 fn slowly(script: Script) -> Script {
@@ -178,7 +192,7 @@ async fn a_message_gets_an_answer_and_the_transcript_comes_out_of_the_log() {
         "the turn ends with exactly one done, so the window stops without counting"
     );
 
-    let history = chat.history().expect("a transcript");
+    let history = said(&chat);
     assert_eq!(history.len(), 2, "a question and an answer");
     assert_eq!(history[0].role, Role::User);
     assert_eq!(history[0].text, "What is the capital of France?");
@@ -296,7 +310,7 @@ async fn a_stop_records_the_partial_answer_and_the_stop() {
     assert_eq!(completion.0, answer.text);
 
     assert_eq!(
-        chat.history().expect("a transcript").len(),
+        chat.transcript().expect("a transcript").len(),
         2,
         "a stopped answer is still an answer in the transcript"
     );
@@ -342,7 +356,7 @@ async fn a_chat_reopened_over_its_log_is_the_chat_that_was_there() {
     }
 
     let reopened = chat(&script, &log);
-    let history = reopened.history().expect("a transcript");
+    let history = said(&reopened);
     assert_eq!(history.len(), 2, "the chat is still there");
     assert_eq!(history[1].text, "Paris");
 
@@ -386,7 +400,7 @@ async fn a_chat_with_nothing_configured_says_so_and_refuses() {
         Err(demido_chat::Error::NotReady(Presence::Absent))
     ));
     assert!(
-        chat.history().expect("a transcript").is_empty(),
+        chat.transcript().expect("a transcript").is_empty(),
         "a refused turn writes no message"
     );
 }
@@ -417,7 +431,7 @@ async fn a_model_that_will_not_start_is_reported_and_the_desk_stays_usable() {
         "loading is reported while it lasts, or a slow load reads as a broken app"
     );
 
-    assert!(chat.history().is_ok(), "the desk is still usable");
+    assert!(chat.transcript().is_ok(), "the desk is still usable");
     assert!(chat.ask("hello", |_| {}, nobody).await.is_err());
 }
 
@@ -445,7 +459,7 @@ async fn a_backend_that_crashed_is_reported_and_the_desk_stays_usable() {
         "a dead process must not be reported as a model that is answering"
     );
     assert!(
-        chat.history().expect("a transcript").is_empty(),
+        chat.transcript().expect("a transcript").is_empty(),
         "nothing was said, so nothing is on the log"
     );
 

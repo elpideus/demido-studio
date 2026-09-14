@@ -1,0 +1,150 @@
+/*
+ * The approval row. design/system.md: `raised` with an `amber` accent and a
+ * raised-hand icon, Enter and Escape caps always visible, carrying "always for
+ * this tool". The numbers are design/tokens.css.
+ */
+
+.approval {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-control);
+  padding: var(--space-room);
+  border-radius: var(--radius-island);
+  background: var(--color-raised);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  min-width: 0;
+  /* The accent. Amber is the status colour for waiting and needs-approval, and
+   * it is the ink of the hand and the tool's name rather than a rule down the
+   * side of the card (docs/rules/gaps-and-hairlines.md). */
+  color: var(--color-amber);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+
+.tool {
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+/* What the tool declared it will do, which is the axis the matrix ruled on. */
+.ability {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+}
+
+.summary {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-prose);
+  line-height: var(--leading-prose);
+}
+
+/* The exact arguments that will run. A recess, like every other payload
+ * (docs/rules/surfaces.md), and never truncated: this is the thing being
+ * agreed to. */
+.arguments {
+  margin: 0;
+  padding: var(--space-control);
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The matrix's floor, said in one line where the button would have been. */
+.floor {
+  margin: 0;
+  color: var(--color-rose);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.answers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-gutter);
+}
+
+/* A button at rest is `raised` (docs/rules/surfaces.md), and this row is
+ * already `raised`, so the two collide. They move one step DOWN rather than up:
+ * `chrome` is a bar rather than a surface, and design/system.md makes exactly
+ * this move in the other direction when it sends a cap on `chrome` to `panel`.
+ * That also leaves the cap inside the button on its own specified `raised`,
+ * clearing the button underneath it without a hairline. */
+.allow,
+.deny,
+.always {
+  display: flex;
+  align-items: center;
+  gap: var(--space-control);
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  color: var(--color-ink-2);
+  font: inherit;
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+
+.allow:hover,
+.deny:hover,
+.always:hover {
+  background: var(--color-hover);
+}
+
+.allow:active,
+.deny:active,
+.always:active {
+  background: var(--color-active);
+}
+
+/* The one that runs something reads as the live answer; the one that does not
+ * is the quiet one. Neither is a coloured fill, because the row already carries
+ * one accent and a second would be two things claiming to be the state. */
+.allow {
+  color: var(--color-signal);
+}
+
+/* The way Cautious decays, offered plainly rather than buried: it is the point
+ * of the row existing more than once. Quieter than the two answers about this
+ * call, because it is an answer about every later one. */
+.always {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+}
+
+/* design/system.md: `--radius-control`, the silkscreen voice, `ink-3`, and no
+ * hairline, because `raised` already clears the surface it sits on. Every cap
+ * here is inside one of the buttons above, which are `panel`, so it is the
+ * token the rule names and not a departure from it. */
+.cap {
+  padding: 0 var(--space-tight);
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}

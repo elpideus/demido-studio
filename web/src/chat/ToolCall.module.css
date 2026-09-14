@@ -1,0 +1,121 @@
+/*
+ * The tool call row. design/system.md: `raised`, `src-tool` accent, `signal`
+ * running, `ink-3` done, `rose` failed. The numbers are design/tokens.css.
+ */
+
+.call {
+  align-self: stretch;
+  padding: var(--space-control) var(--space-room);
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  /* The accent is the icon's ink rather than a rule down the side: a hairline
+   * is allowed in two cases and this is neither
+   * (docs/rules/gaps-and-hairlines.md). */
+  color: var(--src-tool);
+}
+
+.call[data-state='running'] {
+  color: var(--color-signal);
+}
+
+.call[data-state='done'] {
+  color: var(--color-ink-3);
+}
+
+.call[data-state='failed'] {
+  color: var(--color-rose);
+}
+
+/* Declined, stopped, or past the step limit has no rule of its own, and that is
+ * the answer rather than an omission: nothing was attempted, so it is not a
+ * failure, and what is left is the row's own `src-tool` accent above. Amber is
+ * the colour of a thing that waited on a person, and a refusal is what that
+ * waiting came to. */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  min-width: 0;
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+/* The equipment label voice: this is a name a machine has, not a word somebody
+ * wrote. */
+.tool {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+/* The model's own text for the arguments, on one line. It is truncated rather
+ * than wrapped, because the row is a header: what the call did at a glance,
+ * with the detail underneath it. */
+.arguments {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-ink-4);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-meta);
+}
+
+/* What came back, in the reading ink rather than in the row's state colour: it
+ * is output to be read, and colouring it would make a long listing look like a
+ * long error. A recess, like every other payload dump (docs/rules/surfaces.md).
+ */
+.result {
+  margin: var(--space-control) 0 0;
+  padding: var(--space-control);
+  border-radius: var(--radius-chip);
+  background: var(--color-well);
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  /* Wrapped rather than scrolled sideways: a result is read, and a horizontal
+   * scrollbar inside a transcript is a thing nobody finds. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  gap: var(--space-hair);
+  margin-top: var(--space-tight);
+  padding: var(--space-hair) var(--space-tight);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  font: inherit;
+  font-size: var(--text-meta);
+  cursor: pointer;
+}
+
+.more:hover {
+  background: var(--color-hover);
+}
+
+.chevron {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  transition: transform var(--duration-tap) var(--ease-mech);
+}
+
+.more[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}

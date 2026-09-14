@@ -39,14 +39,24 @@ nothing uses would fail rather than be discovered later.
 ## The schema is what a turn sends
 
 `schema.rs` holds `conversation.system_prompt`, `conversation.temperature`,
-`conversation.context_length`, `tools.step_limit`, `tools.mode` and
-`tools.offered`, and nothing else. v2 declared twenty four
+`conversation.context_length`, `tools.step_limit`, `tools.mode`,
+`tools.offered` and `tools.always`, and nothing else. v2 declared twenty four
 samplers before anything sent one. A setting added later is one entry in
 `SCHEMA`; a setting declared before something resolves and sends it is a
 contract nothing can be held to.
 
-The prefix is the **section**, not the tier. Any of the three can be set on any
+The prefix is the **section**, not the tier. Any of them can be set on any
 tier, and `conversation` is the page they are drawn on.
+
+`tools.always` is the one with a rule about *which* tier, and the rule is not
+this crate's to keep. It is what the approval row writes when somebody answers
+*always for this tool*
+([#55](https://github.com/elpideus/demido-studio/issues/55)), and it is written
+with `Scope::chat` and never globally: one answer about one conversation is not
+consent for every conversation. This crate stores what it is handed, the caller
+names the scope, and `demido-chat/tests/a_tool.rs` is what holds it to the chat.
+It is also the one setting no surface draws, because it is a record of answers
+somebody gave about calls they were shown rather than a control.
 
 Two fields on `Setting` are worth knowing about:
 

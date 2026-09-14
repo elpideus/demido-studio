@@ -215,6 +215,39 @@ impl Rig {
     }
 }
 
+/// Where the model may act, until a project decides it.
+///
+/// A projects system is what attaches a folder to a conversation, and it is its
+/// own ticket. Until then a window has no workspace at all, and a registry with
+/// no workspace offers nothing, so every tool in this build is unreachable from
+/// the desk: the approval row, the call row and the result row
+/// ([#55](https://github.com/elpideus/demido-studio/issues/55)) would all be
+/// code nobody could ever put in front of a person.
+///
+/// So: one environment variable naming a folder that must exist, exactly the
+/// shape [`Rig::from_environment`] already has and documented beside it in
+/// `AGENTS.md`. It is how a developer points a running window at a folder, not
+/// a feature and not a setting, and it is the last of these: a second one would
+/// be a configuration system growing in the composition root.
+///
+/// An absent or unusable one is not an error and not a warning worth stopping
+/// for. It is a desk with no tools on it, which is a state the loop, the picker
+/// and the model are all already correct about.
+fn workspace() -> Option<demido_tools::Workspace> {
+    let named = PathBuf::from(std::env::var_os("DEMIDO_WORKSPACE")?);
+    match demido_tools::Workspace::open(&named) {
+        Ok(workspace) => Some(workspace),
+        Err(error) => {
+            tracing::warn!(
+                folder = %named.display(),
+                %error,
+                "the workspace named by the environment cannot be used; the desk opens with no tools"
+            );
+            None
+        }
+    }
+}
+
 impl Wiring {
     /// The application's wiring: one implementation per trait.
     ///
@@ -272,12 +305,13 @@ impl Wiring {
                     .or_else(Rig::from_environment)
                     .map(Rig::model),
                 settings.clone(),
-                // The Files and Shell groups, over no workspace until one is
-                // set, which offers nothing: a model shown a tool that cannot
-                // succeed however it is called is worse than one never shown
-                // it. Opening the prompts directory creates nothing.
+                // The Files and Shell groups, over whatever folder this window
+                // was pointed at. With none, the registry offers nothing: a
+                // model shown a tool that cannot succeed however it is called
+                // is worse than one never shown it. Opening the prompts
+                // directory creates nothing.
                 Toolbox::open(
-                    Registry::open(None)
+                    Registry::open(workspace())
                         .with_group(demido_tools::files())
                         .with_group(demido_tools::shell()),
                     profile.join("prompts"),

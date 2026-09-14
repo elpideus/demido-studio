@@ -13,9 +13,18 @@ this later), should be visible."
 
 **`Chat` holds no messages.** It holds a journal, a supervisor and the
 cancellation token of whatever is generating right now. A transcript is
-`Chat::history`, which is a projection of the log, so drawing the desk after a
-restart is the same read as drawing it the first time. A chat that survives
+`Chat::transcript`, which is a projection of the log, so drawing the desk after
+a restart is the same read as drawing it the first time. A chat that survives
 closing the app does so because it was never anywhere but the log.
+
+It carries the **calls** as well as the messages
+([#55](https://github.com/elpideus/demido-studio/issues/55)), because a call and
+its result are drawn in the transcript at the point in the turn where they
+happened rather than in a window somebody has to know to open. The pairing of a
+call with what came back is `demido_trace::Replay::transcript`'s, over the same
+events the session monitor reads as two rows: a row on screen answers "what did
+this call do", and a reader who has to match two rows by a sequence number is a
+reader doing a join by hand.
 
 That absence is the point rather than an omission. v2 kept a message list beside
 its log, and two stores over one conversation is two stores that can eventually
@@ -121,12 +130,27 @@ again. Then the matrix rules, and the person is asked only when it says `Ask`.
 
 **The approval is a callback, not a trait.** `ask` takes
 `FnMut(Asking) -> impl Future<Output = Decision>`. The window is the only real
-implementation (#55), and a trait would buy a second one that exists only in
-tests (`tiles.md`); `Asking` is the interface it would have. Every decision is
-a `tool/decision` event, so the log says which of allow, deny and always
-happened. *Always* is read back off the log at the start of each turn, so it
-holds on later messages; #55 moves where it is written to the ladder's chat
-tier.
+implementation, and it landed on #55 as `src-tauri/src/chat.rs`'s `Approvals`: an
+event out, a `chat_decide` command back, a `oneshot` between them. A trait would
+buy a second one that exists only in tests (`tiles.md`); `Asking` is the
+interface it would have.
+
+Every decision is a `tool/decision` event, so the log says which of allow, deny
+and always happened.
+
+***Always for this tool* is a setting, and it is the chat's.** #55 moved it off
+the log and onto the ladder's `tools.always`, written with `Scope::chat` and
+never at the global tier: a person answering about one call in one conversation
+did not consent for every conversation they will ever open. The log still says
+what they answered, because that is what happened; what is in force next turn is
+resolved with the mode and the step limit, once per message, like every other
+value.
+
+The **floor is held here rather than in the window**: an *always* about a
+destructive call runs that call and is not remembered, whatever a frontend sent.
+`docs/rules/tools.md` says such a call asks every time and that *always* cannot
+waive it, and a floor that only held while the window agreed with it is a floor
+a second window steps through.
 
 **The mode is the matrix's, and the step limit is the ladder's.** Both are
 resolved off the ladder once per message, `tools.mode` and `tools.step_limit`,
@@ -171,7 +195,7 @@ and a fix, and it is not something a frontend can derive from a tag.
 | Suite | What it proves |
 |---|---|
 | `tests/a_turn.rs` | The ordering rules, against a scripted backend. |
-| `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, and what a stop leaves. Against the same scripted backend. |
+| `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, what a stop leaves, what the transcript draws for a call, and which tier an *always* is written to. Against the same scripted backend. |
 | `tests/offered.rs` | What reaches the payload: the offered set and the mode off the ladder, a switched-off tool absent and refused as off, and one chat's set reaching no other. |
 
 The scripted backend is `demido_inference::scripted`, which passes the

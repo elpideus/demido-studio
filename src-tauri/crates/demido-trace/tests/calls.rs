@@ -186,7 +186,7 @@ fn a_refusal_is_rebuilt_from_the_wording_it_was_sent_in() {
 }
 
 #[test]
-fn a_decision_says_which_of_the_three_and_always_is_read_back_by_tool() {
+fn a_decision_says_which_of_the_three_happened() {
     let prompts = tempfile::tempdir().unwrap();
     let session = Session::new("decisions", Memory::new());
     let first = first_step(&session, &Tools::open(prompts.path()));
@@ -226,11 +226,11 @@ fn a_decision_says_which_of_the_three_and_always_is_read_back_by_tool() {
         .filter(|event| matches!(event.body, Body::Decided { .. }))
         .all(|event| event.source == Source::User));
 
-    assert_eq!(
-        Replay::of(session.journal()).unwrap().always(),
-        vec!["tool_2".to_owned()],
-        "only an always is a standing answer, and it is kept by tool name"
-    );
+    // What is in force after an *always* is not asked of this log. It is
+    // `tools.always` on the settings ladder's chat tier
+    // ([#55](https://github.com/elpideus/demido-studio/issues/55)), and
+    // `demido-chat/tests/a_tool.rs` is what holds it there. The log's job is
+    // to say which of the three was answered, which is what is asserted above.
 }
 
 #[test]

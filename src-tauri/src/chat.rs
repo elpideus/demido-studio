@@ -10,10 +10,14 @@
 //! `chat_send` would deliver the whole thing at once, which is a spinner with
 //! extra steps.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::oneshot;
 
-use demido_chat::{Decision, Offering, Presence, Said, Update};
+use demido_chat::{Asking, Decision, Moment, Offering, Presence, Update};
 
 use crate::wiring::Wiring;
 
@@ -31,13 +35,80 @@ const UPDATE: &str = "chat://update";
 /// the outcome shows an idle composer for all of them.
 const PRESENCE: &str = "chat://presence";
 
+/// A call waiting on the person.
+///
+/// An event rather than the return value of a command, for the same reason the
+/// tokens are: the turn is already running when it happens, and nobody asked a
+/// question this would be the answer to. What the window draws from it is a row
+/// in the transcript rather than a dialog (`design/shell.md`), so it arrives on
+/// the same channel the rest of the turn does.
+const ASKING: &str = "chat://asking";
+
+/// The calls waiting on somebody at the window, and the answers coming back.
+///
+/// The turn loop takes the approval as a **callback**, not a trait
+/// ([#54](https://github.com/elpideus/demido-studio/issues/54)), and this is the
+/// one real implementation of it: emit, then wait for a command to answer. The
+/// rendezvous is a `oneshot` per call, because a decision is a question with one
+/// answer and a channel that could deliver two would be a second approval
+/// nobody gave.
+///
+/// It lives here rather than in [`Wiring`] on purpose. Every other thing in the
+/// root is a subsystem the workspace could be built without Tauri around; this
+/// is the window being the person, and it exists only because there is a window.
+#[derive(Default)]
+pub struct Approvals {
+    /// Keyed by the call's position on the log, which is what a decision is
+    /// recorded against. Calls are dispatched one at a time, so this holds at
+    /// most one; keyed anyway, because "at most one" is the loop's property and
+    /// not this map's.
+    waiting: Mutex<HashMap<u64, oneshot::Sender<Decision>>>,
+}
+
+impl Approvals {
+    /// Wait on the call at `seq`. The answer arrives through [`chat_decide`],
+    /// or the receiver is dropped, which is what a stop does.
+    fn waiting(&self, seq: u64) -> oneshot::Receiver<Decision> {
+        let (tell, told) = oneshot::channel();
+        self.waiting
+            .lock()
+            .unwrap_or_else(|held| held.into_inner())
+            .insert(seq, tell);
+        told
+    }
+
+    /// Take the answer to the call at `seq`, if anything is waiting for one.
+    fn answer(&self, seq: u64, decision: Decision) -> bool {
+        let sender = self
+            .waiting
+            .lock()
+            .unwrap_or_else(|held| held.into_inner())
+            .remove(&seq);
+        // `send` fails when the turn stopped waiting, which a stop does. The
+        // answer is dropped and nothing runs, which is the right outcome and
+        // not an error worth reporting: the person answered a question that had
+        // already been withdrawn.
+        sender.is_some_and(|sender| sender.send(decision).is_ok())
+    }
+
+    /// Forget whatever is still waiting. Called when a turn ends, however it
+    /// ended: a sender left behind is an answer with nowhere to go, and the row
+    /// on screen is gone the moment the turn is over.
+    fn settle(&self) {
+        self.waiting
+            .lock()
+            .unwrap_or_else(|held| held.into_inner())
+            .clear();
+    }
+}
+
 /// The transcript, which is a projection of the session log.
 ///
 /// Asked once when the desk mounts. A chat is still there after a restart
 /// because this is the same read either way, not because anything was restored.
 #[tauri::command]
-pub fn chat_transcript(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<Vec<Said>> {
-    Ok(wiring.chat.history()?)
+pub fn chat_transcript(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<Vec<Moment>> {
+    Ok(wiring.chat.transcript()?)
 }
 
 /// What the tool picker draws: every group, with its tools.
@@ -84,20 +155,47 @@ pub async fn chat_send(
     wiring: tauri::State<'_, Wiring>,
     message: String,
 ) -> demido_core::Result<()> {
-    wiring
+    let outcome = wiring
         .chat
         .ask(
             &message,
             |update: Update| emit(&app, UPDATE, &update),
-            // Unreachable in this build, and a denial rather than an approval
-            // so that it could never be the reason something ran: no workspace
-            // is set, so nothing is offered and every call is answered by the
-            // registry before the matrix is asked. The approval row that asks
-            // a person is #55's.
-            |_asking| std::future::ready(Decision::Deny),
+            // The person at the window, as a callback. The call goes out as an
+            // event and the answer comes back through `chat_decide`; a stop
+            // drops this future, which drops the receiver, and nothing is run.
+            |asking: Asking| {
+                let app = app.clone();
+                async move {
+                    // Registered before the event goes out: an answer that
+                    // arrived between the two would be an answer nobody is
+                    // waiting for.
+                    let told = app.state::<Approvals>().waiting(asking.call);
+                    emit(&app, ASKING, &asking);
+                    // A window that went away without answering is a denial.
+                    // Erring towards asking costs a click and erring the other
+                    // way costs the thing (`docs/rules/tools.md`).
+                    told.await.unwrap_or(Decision::Deny)
+                }
+            },
         )
-        .await?;
+        .await;
+
+    // However the turn ended. A sender still in the map is an answer with
+    // nowhere to go, and the row it belongs to is off the screen by now.
+    app.state::<Approvals>().settle();
+    outcome?;
     Ok(())
+}
+
+/// What the person answered about one call.
+///
+/// `call` is the call's position on the session log, which is what the row was
+/// drawn from and what the decision is recorded against. A call nothing is
+/// waiting on answers `false`: a stop withdraws the question, and a click that
+/// lands a frame after one is a click on something that is no longer there.
+#[tauri::command]
+pub fn chat_decide(app: AppHandle, call: u64, decision: Decision) -> bool {
+    app.state::<Approvals>().answer(call, decision)
 }
 
 /// Call off the generation in flight. `false` when there was none.

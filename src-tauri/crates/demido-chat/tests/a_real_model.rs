@@ -69,6 +69,19 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
+/// The messages of a transcript. Nothing is offered in these scenarios, so
+/// nothing is ever called and this is the whole of it.
+fn messages(chat: &Chat<LlamaCpp, JsonLines>) -> Vec<demido_chat::Said> {
+    chat.transcript()
+        .expect("a transcript")
+        .into_iter()
+        .filter_map(|moment| match moment {
+            demido_chat::Moment::Said(said) => Some(said),
+            demido_chat::Moment::Called(_) => None,
+        })
+        .collect()
+}
+
 /// A chat against a real model, logging to a real file.
 fn chat(tier: Tier, dir: &std::path::Path) -> Chat<LlamaCpp, JsonLines> {
     over(tier, dir, &Arc::new(Settings::open(SettingsMemory::new()))).0
@@ -180,7 +193,7 @@ async fn a_message_gets_an_answer_that_arrives_as_it_is_generated() {
         );
 
         // The transcript is the log read back, and it is the only record.
-        let history = chat.history().expect("a transcript");
+        let history = messages(&chat);
         assert_eq!(history.len(), 2, "a question and an answer");
         assert_eq!(history[0].role, Role::User);
         assert_eq!(history[1].text, answer.text);
@@ -362,7 +375,7 @@ async fn a_chat_is_still_there_after_the_process_that_held_it_is_gone() {
     // Everything holding the log is dropped. What is left is the file, which is
     // the only thing a restart has.
     let reopened = chat(tier, &dir);
-    let history = reopened.history().expect("a transcript");
+    let history = messages(&reopened);
     assert_eq!(history.len(), 2, "the chat is still there after a restart");
     assert_eq!(history[0].role, Role::User);
     assert_eq!(history[1].text, said);

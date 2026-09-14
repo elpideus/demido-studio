@@ -183,6 +183,10 @@ pub fn run() -> demido_core::Result<()> {
                 .map_err(|error| demido_core::Error::unavailable("the profile directory", error))?;
             app.manage(Wiring::assemble(&profile)?);
             app.manage(boot::Failures::default());
+            // The window being the person a call waits on. Managed beside the
+            // root rather than inside it: it exists only because there is a
+            // window (`src/chat.rs`).
+            app.manage(chat::Approvals::default());
             app.manage(Started::default());
 
             // The splash is expected to ask for the sequence itself, and this
@@ -210,6 +214,7 @@ pub fn run() -> demido_core::Result<()> {
             chat::chat_load,
             chat::chat_send,
             chat::chat_stop,
+            chat::chat_decide,
             settings::settings_rows,
             settings::settings_set,
             settings::settings_clear,

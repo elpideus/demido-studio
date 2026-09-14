@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { AcceleratorControl, ModelFolderControl } from '@/setup/Controls'
 import { useDesk } from '@/shell/desk'
 import { Field } from './Control'
-import { MODE, OFFERED, useSettings, type Row, type Tier } from './ladder'
+import { ALWAYS, MODE, OFFERED, useSettings, type Row, type Tier } from './ladder'
 import styles from './Settings.module.css'
 
 /**
@@ -161,9 +161,15 @@ export function ChatSettings({ close }: { close: () => void }) {
  * from the control beside the picker, so the chat's own popover leaves it out
  * rather than drawing a second control for it, and the main window keeps it as
  * the default every new chat opens with.
+ *
+ * *Always for this tool* is written by the approval row in the transcript and
+ * drawn by nothing (#55). It is a record of answers somebody gave about calls
+ * they were shown, and a settings page offering to edit it would be a page
+ * offering to grant a permission nobody was asked for. Taking one back is the
+ * work the Lessons page's shape will do, not a set field.
  */
 function drawnOn(tier: Tier, row: Row): boolean {
-  if (row.setting.id === OFFERED) return false
+  if (row.setting.id === OFFERED || row.setting.id === ALWAYS) return false
   if (row.setting.id === MODE) return tier === 'global'
   return true
 }

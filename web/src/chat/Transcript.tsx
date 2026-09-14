@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react'
 
+import { Approval } from './Approval'
 import { Markdown } from './Markdown'
+import { ToolCall } from './ToolCall'
+import { useApprovals } from './approvals'
 import { useChat, type Said } from './chat'
 import { useStreaming } from './stream'
 import styles from './Transcript.module.css'
@@ -24,6 +27,7 @@ export function Transcript() {
   const running = useChat((chat) => chat.running)
   const failure = useChat((chat) => chat.failure)
   const hydrated = useChat((chat) => chat.hydrated)
+  const asking = useApprovals((approval) => approval.asking)
 
   const scroller = useRef<HTMLDivElement>(null)
   const foot = useRef<HTMLDivElement>(null)
@@ -48,16 +52,38 @@ export function Transcript() {
       <div className={styles.column}>
         {empty && <p className={styles.quiet}>Nothing has been said yet.</p>}
 
-        {transcript.map((said) => (
-          <Bubble key={said.seq} role={said.role} text={said.text} />
-        ))}
+        {/* What was said and what was called, in the order the log has them, so
+         * a call is drawn between the answer that asked for it and whatever the
+         * model said next (#55).
+         *
+         * The one call being asked about is left out here and drawn below as
+         * the approval instead. It is on the log already, because it is
+         * recorded before anybody is asked, and a row saying it is running over
+         * a row asking whether it may would be one call drawn twice, in two
+         * states, neither of them the true one. `design/system.md` gives the
+         * call row "awaiting approval" as a state, and the approval prompt is
+         * what that state looks like. */}
+        {transcript.map((moment) =>
+          moment.moment === 'said' ? (
+            <Bubble key={moment.seq} role={moment.role} text={moment.text} />
+          ) : moment.seq === asking?.call ? null : (
+            <ToolCall key={moment.seq} called={moment} />
+          ),
+        )}
 
         {/* The message that was just sent. It is on the log already; it is drawn
-         * from here because the log is read back once, at the end of the turn,
-         * rather than after every event. */}
+         * from here because the log is read back at the end of the turn and
+         * whenever a call is recorded, rather than after every event. */}
         {pending && <Bubble role="user" text={pending} />}
 
-        {running && <Answering />}
+        {/* Not while a call waits on somebody: the model is not thinking then,
+         * it is stopped, and a "Thinking." over an approval row would be the
+         * window saying the opposite of what is happening. */}
+        {running && !asking && <Answering />}
+
+        {/* Last, because it is the thing that just happened: every call before
+         * it has an answer, and this is the one that does not. */}
+        {asking && <Approval asking={asking} />}
 
         {failure && (
           <p className={styles.failure} role="status">

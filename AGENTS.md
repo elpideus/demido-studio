@@ -218,6 +218,25 @@ on disk, the desk opens with the composer disabled saying set-up is not
 finished, and the wizard is over it. They are deliberately not the live suite's
 `DEMIDO_MODELS`, which is a library root rather than a file.
 
+### The folder the model may act in
+
+Attaching a folder to a conversation is the projects system's, and it is its own
+ticket. Until it lands a window has no workspace, and a registry with no
+workspace offers nothing at all, so no tool in this build is reachable from the
+desk and the approval row, the call row and the result row
+([#55](https://github.com/elpideus/demido-studio/issues/55)) are code nobody
+could put in front of a person.
+
+So there is one more variable, the same shape as the two above, and it is the
+last of them:
+
+```bash
+DEMIDO_WORKSPACE=S:/scratch/project pnpm dev:drive
+```
+
+A folder that is not there is not an error. It is a desk with no tools on it,
+which is a state the loop, the picker and the model are already correct about.
+
 `check-rules.mjs` reads commit metadata as well as files. With no argument it
 checks whatever is not yet on `origin/main`; CI passes the push or pull request
 range in `RULES_RANGE`, and you can too:

@@ -25,6 +25,9 @@ import { useToasts } from '@/shell/toasts'
  * `id::TOOLS_MODE` and `id::TOOLS_OFFERED`. */
 export const MODE = 'tools.mode'
 export const OFFERED = 'tools.offered'
+/** What the approval row writes, and the one row no surface draws. The Rust
+ * `id::TOOLS_ALWAYS`. */
+export const ALWAYS = 'tools.always'
 
 /** The tiers a surface here can edit. Rust has four and stores four. */
 export type Tier = 'global' | 'chat'

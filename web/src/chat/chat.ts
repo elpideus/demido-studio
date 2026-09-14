@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 import { sentence } from '@/shell/failure'
 
+import { useApprovals, type Asking } from './approvals'
 import { append, clear } from './stream'
 
 /**
@@ -29,6 +30,36 @@ export type Said = {
   role: 'system' | 'user' | 'assistant'
   text: string
 }
+
+/** What came back from a call. The Rust `Outcome`, tagged. */
+export type Outcome =
+  /** The tool was attempted. `failed` is its own outcome, so a broken tool and
+   * a model paraphrasing one are drawn differently. */
+  | { outcome: 'returned'; text: string; failed: boolean }
+  /** Demido's own answer to a call it did not run: declined, stopped, or past
+   * the step limit. */
+  | { outcome: 'refused'; text: string }
+
+/** One call, as the transcript draws it. The Rust `Called`. */
+export type Called = {
+  seq: number
+  turn: number
+  name: string
+  /** The model's own text, whether or not it parses. */
+  arguments: string
+  /** Nothing while the call is still waiting on somebody or running. */
+  outcome: Outcome | null
+}
+
+/**
+ * One moment in the transcript. The Rust `Moment`, tagged.
+ *
+ * A transcript is not only what was said: a call and its result are drawn **in
+ * the transcript at the point in the turn where they happened**
+ * ([#55](https://github.com/elpideus/demido-studio/issues/55)), so the order is
+ * part of what is being drawn and the two kinds arrive in one list.
+ */
+export type Moment = ({ moment: 'said' } & Said) | ({ moment: 'called' } & Called)
 
 /** Whether there is anything to talk to. The Rust `Presence`, tagged. */
 export type Presence =
@@ -57,12 +88,17 @@ export function loading(model: string): string {
 type Update =
   | { update: 'text'; text: string }
   | { update: 'thinking'; text: string }
+  /** The log gained something the transcript draws: a call, or what came back
+   * from one. It carries nothing, because the window is told there is
+   * something new to read and reads the log for what it is, which is the same
+   * rule the finished turn follows. */
+  | { update: 'recorded' }
   | { update: 'done' }
   | { update: 'failed' }
 
 type Chat = {
   presence: Presence
-  transcript: Said[]
+  transcript: Moment[]
   /** The message that was just sent, drawn while its turn runs. It has no
    * sequence number yet, because it is not on the log until the turn begins,
    * and it is replaced by the log's own copy when the turn ends. */
@@ -77,6 +113,14 @@ type Chat = {
 
   /** Subscribe, read the log, and start the model. Called once, by the desk. */
   open: () => Promise<void>
+  /** Read the log again, mid turn, and give up the draft.
+   *
+   * What a `recorded` update asks for. Everything generated up to
+   * that point is recorded, so the streaming buffer has stopped being a draft
+   * and the record is better than it: it carries the calls, which a token
+   * stream cannot. The pending message goes with it for the same reason, since
+   * the log now has its own copy and two would be one bubble drawn twice. */
+  reread: () => Promise<void>
   /** Start the model again after it failed. */
   load: () => void
   send: (message: string) => Promise<void>
@@ -153,12 +197,19 @@ export const useChat = create<Chat>((set, get) => ({
         await listen<Update>('chat://update', ({ payload }) => {
           if (payload.update === 'text') append({ text: payload.text })
           else if (payload.update === 'thinking') append({ thinking: payload.text })
+          else if (payload.update === 'recorded') void get().reread()
         }),
         await listen<Presence>('chat://presence', ({ payload }) => set({ presence: payload })),
+        // A call is waiting on somebody. It is a row in the transcript rather
+        // than a dialog (`design/shell.md`), so it goes to a store the
+        // transcript draws from and opens nothing.
+        await listen<Asking>('chat://asking', ({ payload }) => {
+          useApprovals.getState().waiting(payload)
+        }),
       ])
 
       const [transcript, presence] = await Promise.all([
-        invoke<Said[]>('chat_transcript'),
+        invoke<Moment[]>('chat_transcript'),
         invoke<Presence>('chat_presence'),
       ])
       set({ transcript, presence, hydrated: true })
@@ -176,6 +227,17 @@ export const useChat = create<Chat>((set, get) => ({
     // passes through arrives on `chat://presence`, which is why this is not
     // awaited.
     get().load()
+  },
+
+  reread: async () => {
+    // The read and the clear happen together, so no frame carries both the
+    // draft and the record of it. That is the same ordering `send` takes at the
+    // end of a turn, and for the same reason: a duplicated bubble is something
+    // somebody sees.
+    const transcript = await invoke<Moment[]>('chat_transcript').catch(() => null)
+    if (!transcript) return
+    clear()
+    set({ transcript, pending: null })
   },
 
   load: () => {
@@ -221,9 +283,13 @@ export const useChat = create<Chat>((set, get) => ({
       //
       // A stopped turn comes back with its partial answer in it, because that
       // is what was recorded.
-      const transcript = await invoke<Said[]>('chat_transcript').catch(() => get().transcript)
+      const transcript = await invoke<Moment[]>('chat_transcript').catch(() => get().transcript)
       clear()
       set({ transcript, pending: null, running: false })
+      // Whatever was still waiting on the person is not waiting any more. A
+      // stop is the case this is for: the question was withdrawn, and the row
+      // asking it goes with it.
+      useApprovals.getState().settled()
     }
   },
 
