@@ -1,0 +1,43 @@
+[package]
+name = "demido-tools"
+description = "The tool trait, the registry, and the Files group confined to a workspace."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# A tool runs asynchronously because `run_command` runs a program. The Files
+# group never awaits anything, and is async so that there is one trait.
+async-trait = "0.1"
+# A tool's description and its parameter prose are the tool register's, and the
+# registry merges them onto the shape declared here when it offers a tool.
+demido-prompts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# `run_command`: the child, both of its pipes read while it runs, and the
+# deadline it is killed at.
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "time"] }
+
+[target.'cfg(windows)'.dependencies]
+# A job object, so killing a call kills what the call started. See `src/tree.rs`.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+# Confinement is only interesting against real paths, real symlinks and the
+# real path shapes Windows accepts, so every test here stands on a real
+# directory rather than on a filesystem trait.
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }
