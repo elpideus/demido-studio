@@ -1,0 +1,332 @@
+# Demido Studio agent contract
+
+An LLM harness that makes small models behave, and shows you why.
+
+Read this file fully. It is deliberately short; everything else loads on demand.
+
+---
+
+## Read the brief. Every session.
+
+[`docs/brief.md`](docs/brief.md) is Stefan's brief, copied verbatim. It is 196
+lines. Read all of it. Never summarise it, never work from a summary of it, and
+never resolve a ticket or write a line of code from one.
+
+Then read [`docs/brief-map.md`](docs/brief-map.md): every requirement of the
+brief as a row, what has been decided about it, what has been built, whether a
+real model has ever driven it, and which lines Stefan has since overruled. Find
+the rows your work touches. Fill in the cell you earn.
+
+Cite the brief in every resolution and in anything you write into the repo, in
+the form [`docs/rules/brief.md`](docs/rules/brief.md) fixes. CI checks that your
+quote is really in the brief.
+
+This is not ceremony. v2 was set aside for three reasons, and one of them was
+that its milestones 10 and 11 were built from a summary of the brief instead of
+the brief, discovered only by an audit milestone that re-read the original item
+by item. v2's own contract file pointed every session at a 1817-line roadmap
+under the words **"Read this first."** That roadmap was the summary. v3 has no
+roadmap: the open issues are the sequence, the map is the index of what is
+settled, and this file plus the brief are the contract.
+
+## Hard rules
+
+Enforced by CI (`node scripts/check-rules.mjs`) on every push, except rule 3,
+which needs a built installer and so runs at the tag
+(`node scripts/check-release.mjs`). Violating one fails the build.
+
+1. **Attribution.** Every commit is authored by
+   `Stefan Cucoranu <elpideus@gmail.com>` and signed. Never add
+   `Co-Authored-By`, and never name an AI in a commit message, a PR body, an
+   issue, or any other repo metadata. See
+   [`docs/rules/attribution.md`](docs/rules/attribution.md). **Enforced now**, in
+   CI and in the `commit-msg` hook.
+2. **No code from `open-webui`**: its license forbids removing Open WebUI
+   branding above 50 users. **No code from `openclaude`**: it is derived from
+   proprietary Claude Code without authorization. Read them for patterns; never
+   copy. Safe to port from: opencode, gemini-cli, jan, anything-llm, 9router,
+   OmniRoute. See [`docs/rules/provenance.md`](docs/rules/provenance.md).
+   **Enforced now**: a provenance header naming either one fails the build.
+3. **Nothing third-party is bundled into the installer.** Runtimes, inference
+   backends and anything else are fetched from upstream onto the user's machine
+   **at set-up**, not at first use: deferring a download to the moment a person
+   asks a question spends their attention at the worst moment, and it is how v2
+   came to ship an apology where the brief asked for a feature
+   ([`docs/rules/setup.md`](docs/rules/setup.md)). Nothing is pre-installed, and
+   each thing states its size before it is fetched. What Demido fetched it also
+   owns: it deletes a superseded pin, keeps no predecessor, and never touches a
+   binary the user pointed at or a cache another program filled
+   ([`docs/rules/runtimes.md`](docs/rules/runtimes.md)). Checked at release time
+   by `scripts/check-release.mjs`, which inspects the built bundle, since the
+   thing to check is an installer
+   ([`docs/rules/releases.md`](docs/rules/releases.md)). **Enforced at the tag**,
+   and a no-op until there is a bundle.
+4. **Arbitrary values live in `design/tokens.css`** and nowhere else: colour,
+   type, space, radius, motion. Every theme's contrast is recomputed rather than
+   claimed. See [`docs/rules/no-raw-values.md`](docs/rules/no-raw-values.md).
+   **Enforced now.**
+5. **Ported code carries a provenance header** (source repo, commit, license)
+   and a matching entry under `licenses/<owner>/<repo>/LICENSE`, plus a row in
+   `THIRD_PARTY_NOTICES.md`. See
+   [`docs/rules/provenance.md`](docs/rules/provenance.md). **Enforced now.**
+6. **No em dashes.** Anywhere: code, comments, docs, UI copy, issues, commit
+   messages. Use a colon, a comma, parentheses, a semicolon or a full stop. See
+   [`docs/rules/text.md`](docs/rules/text.md). **Enforced now.**
+7. **The brief stays canonical.** Anchors verbatim, every bullet covered, every
+   citation quoting rather than paraphrasing. See
+   [`docs/rules/brief.md`](docs/rules/brief.md). **Enforced now.**
+8. **Decision references resolve.** A `docs/decisions/NNNN-slug.md` reference in
+   code or docs points at a note that exists and is not superseded. See
+   [`docs/rules/decisions.md`](docs/rules/decisions.md). **Enforced now.**
+9. **Every crate documents itself.** Each directory under `src-tauri/crates/`
+   contains an `AGENTS.md`. See
+   [`docs/rules/crate-docs.md`](docs/rules/crate-docs.md). **Enforced now**, and
+   real since the workspace landed on
+   [#38](https://github.com/elpideus/demido-studio/issues/38).
+10. **Host prompt text is a catalog entry, not a string literal.** Anything
+    Demido wrote that the model reads, a tool's description and its parameter
+    prose included, has an id, a default file, a hash and an `Origin`, and a
+    wording a measurement was taken against cannot change without the eval being
+    re-run. See [`docs/rules/prompts.md`](docs/rules/prompts.md). **Enforced
+    now**, and real on the shipped defaults since the paragraph register landed
+    on [#40](https://github.com/elpideus/demido-studio/issues/40): a prose
+    literal in `src-tauri/` fails the build unless a `// not-a-prompt:` comment
+    says in one sentence why no model reads it.
+
+Two of v2's eight rules are not here. Its colour rule is rule 4, widened from
+one family to five on
+[#9](https://github.com/elpideus/demido-studio/issues/9). Its dev-only MCP
+bridge rule waits until there is a bridge.
+
+The asymmetry that justifies all of this was measured in v2, in one codebase, by
+one author, in one year: the **enforced** colour rule held perfectly across 214
+commits, while the **unenforced** type rule grew to 21 distinct font sizes. A
+rule an agent can break without CI noticing is a rule that will be broken.
+
+## Design rules
+
+- **Driven live, or it is not done.** A ticket closes on two gates that fail
+  differently: a live-model scenario, and a screenshot of the running window.
+  See [`docs/rules/done.md`](docs/rules/done.md). Twelve v2 features were built,
+  unit-tested and never once operated; the first live run found a bug in the
+  newest of them within one question.
+- **Port quarantine.** A v2 crate is a *candidate*, never a port. It enters v3
+  inside a vertical slice, and only once that slice is driven live.
+- **Startup never blocks.** A subsystem that fails is reported and skipped; the
+  app still reaches a usable state. Never trap the user on a boot screen.
+- **Islands are separated by gaps, not borders.** The gap is the border. A
+  hairline is allowed only in the two cases named in
+  [`docs/rules/gaps-and-hairlines.md`](docs/rules/gaps-and-hairlines.md).
+- **Every surface has a declared role**, decided in
+  [`docs/rules/surfaces.md`](docs/rules/surfaces.md), not at the component. A
+  component that wants a surface the table has no row for is asking for a row.
+- **Icons come from a pack** (Lucide, Simple Icons). Never drawn by hand.
+- **Tiles are swappable.** Every trait has a contract test suite that any
+  implementation must pass, written before the second implementation. See
+  [`docs/rules/tiles.md`](docs/rules/tiles.md).
+- **Prefer deleting to adding.** This codebase should feel like a server rack:
+  pull a unit out and the rest keeps running.
+
+## Where things are
+
+| Path | What |
+|---|---|
+| `docs/brief.md` | The brief, verbatim. **Read this first.** |
+| `docs/brief-map.md` | Every requirement, its state, and the amendments. |
+| `docs/rules/` | One file per rule. The CI-enforced ones say so at the top. |
+| `docs/decisions/` | Why things are the way they are. Short notes, one per load-bearing choice, each linking the ticket that holds the reasoning. |
+| `docs/agents/` | Configuration the installed engineering skills read. |
+| `design/` | The design system: `tokens.css` owns every arbitrary value, and `system.md`, `shell.md`, `windows.md` are the frozen boards. |
+| `licenses/` | One `LICENSE` per ported source, mirroring `<owner>/<repo>`. |
+| `src-tauri/` | The Cargo workspace: the Tauri application, and one crate per subsystem under `crates/`. |
+| `web/` | The frontend package: React 19, TypeScript, Vite, CSS Modules. |
+| `scripts/check-rules.mjs` | The hard rules above. No dependencies, on purpose. |
+| `scripts/drive.mjs` | The window gate's driver, over CDP. No dependencies either. |
+| `scripts/check-release.mjs` | The rules that only fire at a tag. See [`docs/rules/releases.md`](docs/rules/releases.md). |
+| `.githooks/` | The `commit-msg` and `pre-commit` gates. Install them once per clone (see Commands). |
+| `.github/allowed_signers` | The signing key CI verifies commits against. |
+| `.claude/` | Session guardrails: the blocked git commands, as a hook. |
+
+There is no roadmap file and no history file. v2's reached 1817 and 1364 lines,
+had to be split, and duplicated state GitHub already holds. The issues are the
+sequence, a release tag is the history.
+
+## Decision notes
+
+`docs/decisions/NNNN-slug.md`, and only for a choice that is hard to reverse,
+surprising without context, and the result of a real trade-off. Ordinary
+features and bugfixes do not get one.
+
+A note is **short**: the decision stated in a few lines, plus a link to the
+ticket or session that holds the reasoning. It exists so that code can reference
+it and so a reader offline can still find out why. The reasoning lives in
+exactly one place, and it is not the note. A wayfinder resolution earns a note
+only when code will point at it.
+
+Reference notes from the code they govern. When superseding one, set
+`Status: superseded-by NNNN` and update the references.
+
+## Commands
+
+Install once per clone, in this order:
+
+```bash
+git config core.hooksPath .githooks    # the commit-msg and pre-commit gates
+pnpm install                           # the frontend workspace and the Tauri CLI
+```
+
+Then:
+
+| Command | What |
+|---|---|
+| `pnpm dev` | The app, with the frontend dev server. What you work in. Set `DEMIDO_LLAMA_BIN` and `DEMIDO_MODEL_FILE` to give it a model to answer with. |
+| `pnpm dev:drive` | The same, plus `withGlobalTauri`, for the window gate. |
+| `pnpm build` | The release bundle: the NSIS installer. |
+| `pnpm build:web` | The frontend alone. |
+| `pnpm dev:web` | The frontend dev server alone, when you want it in its own terminal. |
+| `pnpm typecheck` | `tsc --noEmit` over the frontend. |
+| `pnpm format` / `pnpm format:check` | Prettier over the repo. |
+| `pnpm check:rules` | The hard rules above. |
+| `pnpm check:release` | The rules that only fire at a tag. Run again with `--bundle <installer>` after `pnpm build` to inspect the artifact. |
+| `pnpm drive` / `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
+| `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests that need no card. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test a_real_model -- --ignored --test-threads=1` | The live-model suite. See below. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test llamacpp_contract -- --ignored --test-threads=1` | The `Backend` contract, against a real server. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-trace --test a_real_model -- --ignored --test-threads=1` | The session log, against a real turn: the log rebuilds what was sent. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model -- --ignored --test-threads=1` | The turn loop, against a real model: an answer streams, a second message carries the first exchange, a stop is recorded. |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
+
+### The model the window answers with
+
+The set-up wizard ([#48](https://github.com/elpideus/demido-studio/issues/48))
+is what points a window at a model: the accelerator row, the manifest it
+fetches, the model folder read out of what is already on the machine, and the
+model that answers. It writes `setup.json` in the profile, and the desk reads
+it at startup, so an ordinary launch needs no environment at all.
+
+The two variables are still here, and they are now the **fallback**: they are
+how a developer points a running window at a rig without setting one up, and
+what set-up settled wins over them.
+
+```bash
+DEMIDO_LLAMA_BIN=.../llama-server.exe DEMIDO_MODEL_FILE=.../model.gguf pnpm dev
+```
+
+With neither set-up nor either variable, or either naming something that is not
+on disk, the desk opens with the composer disabled saying set-up is not
+finished, and the wizard is over it. They are deliberately not the live suite's
+`DEMIDO_MODELS`, which is a library root rather than a file.
+
+`check-rules.mjs` reads commit metadata as well as files. With no argument it
+checks whatever is not yet on `origin/main`; CI passes the push or pull request
+range in `RULES_RANGE`, and you can too:
+
+```bash
+RULES_RANGE=origin/main..HEAD node scripts/check-rules.mjs
+```
+
+```bash
+node scripts/check-rules.mjs --report   # print the contrast measurements
+```
+
+### Driving the window
+
+The window gate ([`docs/rules/done.md`](docs/rules/done.md)) owes a screenshot,
+and the way that fails is designed to waste a day. So:
+
+```bash
+pnpm dev:drive                                          # one terminal
+node scripts/drive.mjs --screenshot evidence/NN.png     # another
+```
+
+There are two windows, so a run says which one it means: `--window splash` takes
+the splash, and the default takes the desk. The splash is gone within a second
+of an ordinary launch, so two debug-only environment variables hold it still
+long enough to photograph, and both are no-ops in a release build:
+
+```bash
+DEMIDO_BOOT_HOLD_MS=2500 pnpm dev:drive                 # a stage per 2.5s
+DEMIDO_BOOT_FAIL=settings pnpm dev:drive                # that stage's tick goes rose
+node scripts/drive.mjs --window splash --screenshot evidence/NN.png
+```
+
+`DEMIDO_BOOT_FAIL` takes stage ids from `src-tauri/src/boot.rs`, comma
+separated. It is how the screenshot of a subsystem being reported and skipped is
+taken without breaking a real one.
+
+Two switches, deliberately not one. The **debugging port** opens on any debug
+build, so the driver can always connect and say what it found. **`withGlobalTauri`**
+comes from `src-tauri/tauri.drive.conf.json`, merged only by `pnpm dev:drive`,
+never through `tauri.conf.json` or `capabilities/`. Run the driver against
+`pnpm dev` and it names the missing handle in one line rather than timing out,
+which is the point. A release build has neither and is not drivable.
+
+The screenshot goes on the issue, not in the clone. `/evidence` is ignored.
+
+**How it reaches the issue: the `evidence` branch.** Not by hand, and not by
+dragging. `evidence` is an orphan branch of PNGs that exists only to give the
+images a URL an issue can render, so `main` never carries them and a clone
+never pays for them. Add the file there and reference it by raw URL:
+
+```bash
+git worktree add ../evidence-wt evidence
+cp evidence/NN-what-it-shows.png ../evidence-wt/
+git -C ../evidence-wt add . && git -C ../evidence-wt commit -m "Evidence for #NN: what it shows"
+git -C ../evidence-wt push origin evidence
+git worktree remove ../evidence-wt
+```
+
+```markdown
+![What the reader is looking at](https://raw.githubusercontent.com/elpideus/demido-studio/evidence/NN-what-it-shows.png)
+```
+
+Name the file `NN-what-it-shows.png`, ticket number first, and write alt text
+that says what the screenshot proves rather than what it is. A session that
+does this can close a ticket without a human at the keyboard, which is the
+whole point of the driver above.
+
+### The live-model suite
+
+The model gate of [`docs/rules/done.md`](docs/rules/done.md): a real small model,
+answering, from a terminal, with no window and nobody at the keyboard. It is
+**re-run every slice**.
+
+It is `#[ignore]`d, so `cargo test` never starts it by accident, and one model is
+resident at a time by a process-wide permit. `--test-threads=1` is not a
+suggestion: the permit bounds the card, and the harness would otherwise interleave
+two suites that each want all of it.
+
+The permit is process-wide, and a test binary is a process, so the live commands
+above are run **one at a time**. There is no `--workspace --ignored` form of
+them, and asking for one would put two models on a 12 GB card.
+
+It **fails rather than skips** when the rig is missing. A live suite that quietly
+passes on a machine with no models is the built-but-never-driven failure this
+project was restarted to avoid, and it would pass hardest in CI, where it proves
+the least. `DEMIDO_LLAMA_BIN` and `DEMIDO_MODELS` point it at the rig; the
+defaults are Stefan's machine, and the rig is described in `done.md`.
+
+### The hooks
+
+`commit-msg` checks the message: identity, signature, no `Co-Authored-By`, no
+assistant named, no em dash. `pre-commit` checks the code: `cargo fmt --check`,
+`cargo clippy`, `prettier --check`, `tsc --noEmit`, and the rule checker. Both
+are the cheap gate and can be skipped with `--no-verify`; CI is the one that
+cannot, so a violation costs a re-run rather than a rebase. Install them.
+
+## Agent skills
+
+Configuration the installed engineering skills read lives in `docs/agents/`.
+
+- **Issue tracker.** GitHub issues on `elpideus/demido-studio`, driven by the
+  `gh` CLI. See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+  The foundation for v3 is being charted as a wayfinder map,
+  [#1](https://github.com/elpideus/demido-studio/issues/1).
+- **Session guardrails.** `.claude/settings.json` refuses a force push, hard
+  resets, `git clean`, branch deletion and history rewriting inside an agent
+  session. Those are Stefan's to run, at a terminal, with the repo in front of
+  him. Set up from the `git-guardrails-claude-code` skill on
+  [#16](https://github.com/elpideus/demido-studio/issues/16).
+- **Domain docs.** Single context. Vocabulary in `docs/glossary.md` when there
+  is code to name; decision notes in `docs/decisions/`.

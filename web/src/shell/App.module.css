@@ -1,0 +1,44 @@
+/*
+ * The desk: the rail on one edge, chat filling everything else. The ramp is
+ * docs/rules/surfaces.md and the numbers are design/tokens.css.
+ */
+
+/* Flex rather than a grid with named columns, because the rail moving edges is
+ * then one property instead of two templates that have to stay opposites. */
+.shell {
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+}
+
+.shell[data-rail='right'] {
+  flex-direction: row-reverse;
+}
+
+/* `min-width: 0` is the whole reason this application does not grow a
+ * horizontal scrollbar: without it a flex child refuses to shrink below the
+ * width of its own content, and one long line in the transcript widens the
+ * window's body instead of wrapping. The body refuses the overflow rather than
+ * scrolling it (web/src/styles/global.css), so the defect would be hidden
+ * rather than absent. */
+.desk {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-rack);
+}
+
+.bay {
+  padding: 0 var(--space-page) var(--space-page);
+}
+
+/* One measure down the middle of the desk, so a wide window sets a readable
+ * paragraph rather than a two hundred character line, and the composer stays
+ * over the text it is composing. */
+.column {
+  width: 100%;
+  max-width: var(--measure-prose);
+  margin: 0 auto;
+}

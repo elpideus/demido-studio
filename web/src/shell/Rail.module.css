@@ -1,0 +1,150 @@
+/*
+ * The rail. Roles are docs/rules/surfaces.md, the states are design/system.md,
+ * and every number is a token from design/tokens.css.
+ */
+
+/* A bar rather than a surface, so it is chrome and not an island. Its width is
+ * one control plus the gutter either side, which is why neither number is
+ * written here. */
+.rail {
+  flex: none;
+  width: calc(var(--size-control) + 2 * var(--space-gutter));
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-gutter) 0;
+  background: var(--color-chrome);
+}
+
+/* Navigation at the top, Settings alone at the other end, on the rail's own
+ * rhythm. */
+.group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-gutter);
+}
+
+.slot {
+  position: relative;
+  display: flex;
+}
+
+/* Open and focused: an 18px signal tick at the leading edge, which is the edge
+ * the rail is docked to. The marker is the only thing in the UI that reports
+ * what is open, so it sits on the slot rather than on the button and cannot be
+ * covered by a hover. */
+.slot[data-open='true']::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--space-gutter));
+  width: var(--space-hair);
+  height: var(--size-icon);
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: var(--color-signal);
+}
+
+/* The rail on the right edge puts its markers on its own leading edge too,
+ * which is the right hand side. */
+[data-rail='right'] .slot[data-open='true']::before {
+  left: auto;
+  right: calc(-1 * var(--space-gutter));
+}
+
+.item {
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-4);
+  cursor: pointer;
+  transition: background-color var(--duration-tap) var(--ease-mech);
+}
+
+/* Hover moves the ground and never the ink. design/shell.md gives --color-ink-2
+ * to "open, not focused", so lightening a closed item on hover would make it
+ * report that something is open. */
+.item:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.item:active:not(:disabled) {
+  background: var(--color-active);
+}
+
+/* Closed is ink-4 with no marker, and a rail item with no panel to open is
+ * closed and stays closed. The browser's own dimming would put it below that,
+ * so the colour is stated rather than inherited. */
+.item:disabled {
+  color: var(--color-ink-4);
+  cursor: default;
+}
+
+/* Open and focused: signal on edge. Selected is state rather than elevation,
+ * so hovering it moves to edge-strong rather than down the grey ramp, which
+ * would read as a step back towards closed. */
+.slot[data-open='true'] .item {
+  background: var(--color-edge);
+  color: var(--color-signal);
+}
+
+.slot[data-open='true'] .item:hover,
+.slot[data-open='true'] .item:active {
+  background: var(--color-edge-strong);
+}
+
+.icon {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+
+/* Transient chrome, the shape design/system.md gives the snap menu: a panel
+ * face with the one shadow in the system, at control radius rather than island
+ * radius because it is a menu and not a page. */
+.menu {
+  position: fixed;
+  min-width: calc(4 * var(--size-control));
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-tight);
+  background: var(--color-panel);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+}
+
+.menu[data-flip='true'] {
+  transform: translateX(-100%);
+}
+
+.row {
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-chip);
+  background: none;
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+/* The edge the rail is already on. Disabled rather than hidden, so the menu is
+ * the same two rows every time it opens and reading it is not a puzzle. */
+.row:disabled {
+  color: var(--color-ink-4);
+  cursor: default;
+}
