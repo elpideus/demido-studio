@@ -620,6 +620,7 @@ dependencies = [
  "async-trait",
  "demido-core",
  "demido-inference",
+ "demido-permission",
  "demido-settings",
  "demido-trace",
  "futures-core",
@@ -667,6 +668,16 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "demido-permission"
+version = "0.1.0"
+dependencies = [
+ "demido-prompts",
+ "demido-tools",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

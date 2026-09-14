@@ -24,6 +24,7 @@ demido-chat = { path = "crates/demido-chat" }
 demido-core = { path = "crates/demido-core" }
 demido-hardware = { path = "crates/demido-hardware" }
 demido-inference = { path = "crates/demido-inference" }
+demido-permission = { path = "crates/demido-permission" }
 demido-prompts = { path = "crates/demido-prompts" }
 demido-runtimes = { path = "crates/demido-runtimes" }
 demido-settings = { path = "crates/demido-settings" }

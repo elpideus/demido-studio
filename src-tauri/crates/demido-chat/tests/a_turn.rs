@@ -900,3 +900,42 @@ async fn an_override_made_in_one_chat_does_not_reach_another() {
         "and the other chat still has what was set on it"
     );
 }
+
+/// The mode is never prose. Nothing Demido assembles describes a mode to the
+/// model, because a permission the model is told about is a permission that
+/// depends on whether the model obeyed it.
+///
+/// Asserted at the seam, on every request the backend was handed, so it holds
+/// for whatever the assembly grows to carry. When the mode arrives on the
+/// ladder ([#56](https://github.com/elpideus/demido-studio/issues/56)) this
+/// case sets it, and the assertion does not change.
+#[tokio::test]
+async fn nothing_sent_to_the_model_names_a_mode() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::Global,
+            demido_settings::id::SYSTEM_PROMPT,
+            &json!("You are terse."),
+        )
+        .expect("set globally");
+
+    let script = Script::saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, _) = over(&script, &log, &settings);
+    chat.load(|_| {}).await;
+    chat.ask("hello", |_| {}).await.expect("an answer");
+    chat.ask("again", |_| {}).await.expect("an answer");
+
+    let sent = script.sent();
+    assert_eq!(sent.len(), 2);
+    for request in sent {
+        let payload = format!("{request:?}").to_lowercase();
+        for name in demido_permission::Mode::names() {
+            assert!(
+                !payload.contains(name),
+                "the {name} mode reached the payload"
+            );
+        }
+    }
+}

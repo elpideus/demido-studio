@@ -352,7 +352,10 @@ this ticket. Progressive disclosure arrives with the picker
 different question from the picker's, which
 [`tools.md`](../../../docs/rules/tools.md) is careful about.
 `Context::for_call` went with `delegate_task`, which is S4.
-`permission.rs` is [#53](https://github.com/elpideus/demido-studio/issues/53)'s.
+`permission.rs` did not come here either. The matrix is
+[#53](https://github.com/elpideus/demido-studio/issues/53)'s and lives in
+`demido-permission`, which depends on this crate, so the dependency list above
+still says a tool knows nothing about a mode.
 
 ## The run_command and demido-core review
 

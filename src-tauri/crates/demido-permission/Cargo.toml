@@ -1,0 +1,28 @@
+[package]
+name = "demido-permission"
+description = "The permission matrix: an intent and a mode in, a verdict out."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# `Intent` and `Ability`, which is everything the matrix decides on. The arrow
+# points this way and never back: a tool knows nothing about a mode, and the
+# dependency list of `demido-tools` is where that stays enforceable.
+demido-tools.workspace = true
+
+[dev-dependencies]
+# Every text Demido wrote that a model reads, so "the mode is never prose" is
+# asserted against the whole register rather than against one prompt.
+demido-prompts.workspace = true
+serde_json.workspace = true
+# The Balanced row is asserted on the intents the real tools declare, and a
+# tool declares against a real workspace.
+tempfile = "3"
