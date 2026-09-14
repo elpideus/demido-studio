@@ -25,27 +25,26 @@ pub enum Update {
     /// Reasoning, where the model separates it. Visible by default
     /// (`design/system.md`), and it is the window that decides that.
     Thinking { text: String },
-    /// The model asked for a call, and the answer that asked for it and the
-    /// call itself are both on the log.
+    /// The log gained something the transcript draws: a call the model asked
+    /// for, or what came back from one.
     ///
-    /// It carries positions rather than the call, and that is the point. The
-    /// transcript is a projection of the log
+    /// It carries nothing, and that is the point. The transcript is a
+    /// projection of the log
     /// (`docs/decisions/0011-the-window-draws-the-log-not-its-draft.md`), so
-    /// what the window needs is to be told there is something new to read, not
-    /// to be handed a second copy of it that could disagree. It is also the
-    /// moment the window's streaming draft stops being a draft: everything
-    /// generated so far is recorded, so the buffer is thrown away and the
-    /// answer is redrawn from the record.
+    /// what the window needs is to be told there is something new to read
+    /// rather than to be handed a second copy of it that could disagree. It is
+    /// also the moment the window's streaming draft stops being a draft:
+    /// everything generated so far is recorded, so the buffer is thrown away
+    /// and the answer is redrawn from the record.
+    ///
+    /// One event rather than a call event and a result event, because nothing
+    /// does anything different with the two: both mean *read the log*, and the
+    /// log is where the difference between them already lives, as two events
+    /// with their own sources and weights. A reader that wants to tell them
+    /// apart is the Session Monitor, and it reads the log.
     ///
     /// Once per call, never per token, so the read it causes is affordable.
-    Called {
-        turn: u32,
-        /// Where the call sits on the log.
-        seq: u64,
-    },
-    /// A call was answered, however it was: a result, or Demido's own answer to
-    /// one it did not run. `call` is the call's position on the log.
-    Returned { turn: u32, call: u64 },
+    Recorded,
     /// The turn is over, however it ended. A stop arrives here too, carrying
     /// [`FinishReason::Cancelled`] and whatever was generated before it.
     Done {

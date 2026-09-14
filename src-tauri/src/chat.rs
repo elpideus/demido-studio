@@ -66,6 +66,17 @@ pub struct Approvals {
 }
 
 impl Approvals {
+    /// Wait on the call at `seq`. The answer arrives through [`chat_decide`],
+    /// or the receiver is dropped, which is what a stop does.
+    fn waiting(&self, seq: u64) -> oneshot::Receiver<Decision> {
+        let (tell, told) = oneshot::channel();
+        self.waiting
+            .lock()
+            .unwrap_or_else(|held| held.into_inner())
+            .insert(seq, tell);
+        told
+    }
+
     /// Take the answer to the call at `seq`, if anything is waiting for one.
     fn answer(&self, seq: u64, decision: Decision) -> bool {
         let sender = self
@@ -155,12 +166,10 @@ pub async fn chat_send(
             |asking: Asking| {
                 let app = app.clone();
                 async move {
-                    let (tell, told) = oneshot::channel();
-                    app.state::<Approvals>()
-                        .waiting
-                        .lock()
-                        .unwrap_or_else(|held| held.into_inner())
-                        .insert(asking.call, tell);
+                    // Registered before the event goes out: an answer that
+                    // arrived between the two would be an answer nobody is
+                    // waiting for.
+                    let told = app.state::<Approvals>().waiting(asking.call);
                     emit(&app, ASKING, &asking);
                     // A window that went away without answering is a denial.
                     // Erring towards asking costs a click and erring the other

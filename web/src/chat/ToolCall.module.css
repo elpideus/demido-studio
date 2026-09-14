@@ -26,12 +26,11 @@
   color: var(--color-rose);
 }
 
-/* Declined, stopped, or past the step limit. Nothing was attempted, so it is
- * not a failure: amber is the colour of a thing that waited on a person, and
- * this is what that waiting came to. */
-.call[data-state='refused'] {
-  color: var(--src-tool);
-}
+/* Declined, stopped, or past the step limit has no rule of its own, and that is
+ * the answer rather than an omission: nothing was attempted, so it is not a
+ * failure, and what is left is the row's own `src-tool` accent above. Amber is
+ * the colour of a thing that waited on a person, and a refusal is what that
+ * waiting came to. */
 
 .head {
   display: flex;

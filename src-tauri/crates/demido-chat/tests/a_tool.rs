@@ -18,7 +18,7 @@ use std::future::{ready, Ready};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Asking, Chat, Decision, Model, Moment, Outcome, Toolbox};
+use demido_chat::{Asking, Called, Chat, Decision, Model, Moment, Outcome, Toolbox};
 use demido_inference::scripted::{Script, Scripted, Step};
 use demido_inference::{FinishReason, Role, Supervisor, ToolCall};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
@@ -219,7 +219,7 @@ async fn a_call_is_dispatched_run_and_its_result_is_in_the_next_request() {
         matches!(
             &transcript[1],
             Moment::Called(called)
-                if called.tool == "read_file"
+                if called.name == "read_file"
                     && called.arguments.contains("notes.txt")
                     && matches!(
                         &called.outcome,
@@ -277,7 +277,6 @@ async fn a_declined_call_reads_as_declined_rather_than_as_a_failure() {
 
     let transcript = chat.transcript().unwrap();
     let called = only_call(&transcript);
-    assert_eq!(called.decision, Some(Decision::Deny));
     assert!(
         matches!(&called.outcome, Some(Outcome::Refused { text }) if text.contains("declined")),
         "{:?}",
@@ -363,8 +362,8 @@ async fn always_on_a_destructive_call_is_not_remembered_however_it_arrives() {
 
 /// The one call in a transcript. Panics with what is there when there is not
 /// exactly one, which is what a reader of a failed test wants.
-fn only_call(transcript: &[Moment]) -> &demido_chat::Called {
-    let calls: Vec<&demido_chat::Called> = transcript
+fn only_call(transcript: &[Moment]) -> &Called {
+    let calls: Vec<&Called> = transcript
         .iter()
         .filter_map(|moment| match moment {
             Moment::Called(called) => Some(called),

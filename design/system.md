@@ -141,7 +141,7 @@ lets it be read later.
 | Transcript | scrolled, at top | `rack`. `--text-prose` at `--leading-prose`, `ink-2`. |
 | Message | user, assistant, streaming | user on `raised` at `--radius-island`; assistant unfilled on `rack`. Inline code spans `well`. |
 | Thinking block | collapsed, streaming, done | `well` ground, `src-reasoning` accent, elapsed count in the silkscreen voice. Visible by default, collapsible, carries its own Caveman level. |
-| Tool call row | pending, awaiting approval, running, done, failed | `raised`; `src-tool` accent, `signal` running, `ink-3` done, `rose` failed. |
+| Tool call row | pending, awaiting approval, running, done, failed, **refused** | `raised`; `src-tool` accent, `signal` running, `ink-3` done, `rose` failed, `src-tool` refused. Awaiting approval is drawn by the approval prompt below rather than by a second row for the same call. |
 | Approval prompt | waiting, approved, denied | `raised` with an `amber` accent and a raised-hand icon. Enter and Escape caps always visible. Carries "always for this tool". |
 | Artifact card | rest, hover, lit | `raised`, `hover`; lit to `edge` for as long as its panel is open. |
 | Composer | rest, focused, disabled, model running | `well` at `--radius-island` (a field is a recess); focused ring `signal`; disabled states the reason in `ink-3`, never `ink-4`; send becomes stop while the model runs. |
@@ -261,6 +261,21 @@ own audit called out, where the failing text is the only thing on screen at the
 moment somebody reads it. **The caption moves to `ink-3` with no opacity.**
 Violet herself keeps `opacity: .05`; she is decorative and the rule does not
 reach her. This amends `shell.md`.
+
+**The tool call row needed a sixth state.**
+[#55](https://github.com/elpideus/demido-studio/issues/55) built the row and
+found that a call can end in a way none of the five describes: **refused**, the
+person declined it, or a stop landed, or it was past the step limit. `done` is
+untrue because nothing ran, and `failed` is worse than untrue, because it is
+`rose` and would report a person's own decision as a defect. The state is added
+with the `src-tool` accent it falls back to, which is the colour of a thing that
+waited on somebody and is what that waiting came to.
+
+The same ticket found that **awaiting approval** is not a second drawing of the
+row. The approval prompt already carries the tool, the ability and the
+arguments, so a row above it saying the call is running would be one call on
+screen twice in two states, neither of them true. The prompt is what that state
+looks like.
 
 **`splash.md` names a token that no longer exists.** Its inner top edge is
 specified as `inset 0 1px 0 0 --color-panel-raised`, which was v2's name for the

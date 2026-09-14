@@ -49,8 +49,8 @@ pub mod presence;
 pub mod toolbox;
 pub mod update;
 
-pub use chat::{Answer, Called, Chat, Error, Model, Moment, Outcome, Result, Said};
-pub use demido_trace::Decision;
+pub use chat::{Answer, Chat, Error, Model, Moment, Result, Said};
+pub use demido_trace::{Called, Decision, Outcome};
 pub use presence::Presence;
 pub use toolbox::{Asking, Offering, Toolbox};
 pub use update::Update;

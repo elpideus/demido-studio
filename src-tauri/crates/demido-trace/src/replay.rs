@@ -16,9 +16,11 @@
 
 use std::collections::BTreeMap;
 
+use serde::Serialize;
+
 use demido_inference::{FinishReason, Message, Request, Role, ToolCall, ToolSpec};
 
-use crate::event::{Basis, Body, Decision, Event, Layer, Source, Weight};
+use crate::event::{Basis, Body, Event, Layer, Source, Weight};
 use crate::journal::{Error, Journal, Result};
 
 /// The tools on offer at some moment, in the wording they were offered in.
@@ -68,7 +70,7 @@ pub enum Moment {
     Called(Called),
 }
 
-/// One call, with what the person said about it and what came back.
+/// One call, with what came back from it.
 ///
 /// **The pairing is the transcript's, never the log's.** A call and its result
 /// are two events each carrying their own source and weight, which is what
@@ -76,7 +78,13 @@ pub enum Moment {
 /// screen is the other question: what one call did, from asking to answered,
 /// and a reader who has to match two rows by a sequence number is a reader
 /// doing a join by hand.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Serializable because the window draws it as it stands. There is nothing to
+/// narrow on the way: unlike an [`Exchange`], this carries no source and no
+/// weight to keep off a chat bubble, so a second copy of it in `demido-chat`
+/// would be a rename and two `From` impls.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Called {
     /// The call's own position on the log.
     pub seq: u64,
@@ -86,14 +94,13 @@ pub struct Called {
     /// that pretty-printed what the model actually sent would be the one place
     /// in this application where the record is tidied before it is read.
     pub arguments: String,
-    /// What the person answered, where they were asked at all.
-    pub decision: Option<Decision>,
     /// What came back, or nothing while the call is still waiting or running.
     pub outcome: Option<Outcome>,
 }
 
 /// What came back from one call.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
 pub enum Outcome {
     /// The tool was attempted. `failed` is its own outcome, so a broken tool
     /// and a model paraphrasing one do not read alike.
@@ -204,8 +211,18 @@ impl Replay {
     /// under that hash, which is the same rebuild [`Replay::block`] does and can
     /// fail the same way, on a log that lost the version event.
     pub fn transcript(&self) -> Result<Vec<Moment>> {
-        let mut moments: Vec<Moment> = self.history().into_iter().map(Moment::Said).collect();
+        // One pass for what answered what, rather than a search of the whole
+        // log per call. The transcript is re-read every time a call is
+        // recorded, so a scan per call is a scan per call per call, and a long
+        // session is where somebody would notice.
+        let mut answers: BTreeMap<u64, u64> = BTreeMap::new();
+        for event in &self.events {
+            if let Body::Result { call, .. } | Body::Refusal { call, .. } = &event.body {
+                answers.entry(*call).or_insert(event.seq);
+            }
+        }
 
+        let mut moments: Vec<Moment> = self.history().into_iter().map(Moment::Said).collect();
         for event in &self.events {
             let Body::Call {
                 name, arguments, ..
@@ -218,8 +235,10 @@ impl Replay {
                 turn: event.turn,
                 name: name.clone(),
                 arguments: arguments.clone(),
-                decision: self.decided(event.seq),
-                outcome: self.outcome(event.seq)?,
+                outcome: answers
+                    .get(&event.seq)
+                    .map(|seq| self.outcome(*seq))
+                    .transpose()?,
             }));
         }
 
@@ -230,36 +249,20 @@ impl Replay {
         Ok(moments)
     }
 
-    /// What the person answered about the call at `call`, where they were asked.
-    fn decided(&self, call: u64) -> Option<Decision> {
-        self.events.iter().find_map(|event| match &event.body {
-            Body::Decided {
-                call: about,
-                decision,
-            } if *about == call => Some(*decision),
-            _ => None,
-        })
-    }
-
-    /// What came back for the call at `call`, or nothing while it is still
-    /// waiting on somebody or running.
-    fn outcome(&self, call: u64) -> Result<Option<Outcome>> {
-        let answer = self.events.iter().find(|event| match &event.body {
-            Body::Result { call: about, .. } | Body::Refusal { call: about, .. } => *about == call,
-            _ => false,
-        });
-        match answer.map(|event| (&event.body, event.seq)) {
-            Some((Body::Result { text, failed, .. }, _)) => Ok(Some(Outcome::Returned {
+    /// The answer at `seq`, read as what a row shows.
+    fn outcome(&self, seq: u64) -> Result<Outcome> {
+        match &self.at(seq)?.body {
+            Body::Result { text, failed, .. } => Ok(Outcome::Returned {
                 text: text.clone(),
                 failed: *failed,
-            })),
+            }),
             // Filled rather than copied, which is the whole shape of a refusal
             // on this log: the paragraph is held once per session and this puts
             // the values back into it.
-            Some((Body::Refusal { .. }, seq)) => Ok(Some(Outcome::Refused {
+            Body::Refusal { .. } => Ok(Outcome::Refused {
                 text: self.block(seq)?.content,
-            })),
-            _ => Ok(None),
+            }),
+            _ => Err(Error::NotABlock { seq }),
         }
     }
 
@@ -289,33 +292,13 @@ impl Replay {
             .collect()
     }
 
-    /// The tools the person has said *always* about in this session, by name,
-    /// in the order they said it.
-    ///
-    /// Read off the decisions rather than kept anywhere, so it is whatever the
-    /// log says it is.
-    pub fn always(&self) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
-        for event in &self.events {
-            let Body::Decided {
-                call,
-                decision: Decision::Always,
-            } = &event.body
-            else {
-                continue;
-            };
-            if let Ok(Event {
-                body: Body::Call { name, .. },
-                ..
-            }) = self.at(*call)
-            {
-                if !names.contains(name) {
-                    names.push(name.clone());
-                }
-            }
-        }
-        names
-    }
+    // What the person has answered *always for this tool* about used to be read
+    // back from here, off the `tool/decision` events. It is a **setting** now,
+    // `tools.always` on the ladder's chat tier
+    // ([#55](https://github.com/elpideus/demido-studio/issues/55)), resolved
+    // once per message with the mode and the step limit. The log still records
+    // which of the three was answered, because that is what happened; a second
+    // way to ask what is in force would be a second thing to keep in step.
 
     fn exchange(&self, event: &Event, role: Role, text: String) -> Exchange {
         Exchange {

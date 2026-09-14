@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 /**
  * Keyboard shortcuts, and the one property that makes them safe to have.
@@ -17,13 +17,19 @@ import { useEffect } from 'react'
  * `design/windows.md` again: two commands may share a chord in different scopes
  * and that is not a conflict.
  *
- * **A chord typed into a field is not a shortcut**, unless it is global. This is
- * the half that answers the composer. The composer's Enter is the field's own
- * behaviour rather than a binding, so a scope order alone would not have saved
- * it: both would fire, the message would send *and* the call would be approved,
- * from one keystroke. Anything a person is typing into keeps its keys; a global
- * binding is the deliberate exception, because a Navigator you cannot open from
- * a text field is a Navigator you cannot open.
+ * **A field keeps the chords it actually uses.** This is the half that answers
+ * the composer. Its Enter is the field's own behaviour rather than a binding,
+ * so a scope order alone would not have saved it: both would fire, the message
+ * would send *and* the call would be approved, from one keystroke.
+ *
+ * Which chords those are is [`typed`], and it is a rule rather than a list of
+ * exceptions: **a bare key with no Ctrl, Alt or Meta is text, and everything
+ * else is a shortcut.** Escape is the one bare key carved out of it, because no
+ * text field in this application does anything with Escape and every surface
+ * that can be dismissed already listens for it. Without that carve-out the
+ * approval row's Escape would be unreachable in practice: focus sits in the
+ * composer, so denying would mean clicking somewhere else first, which is the
+ * opposite of the point of binding a key to it.
  *
  * A chord somebody else has already acted on is left alone, so a popover that
  * closes itself on Escape is not also a denial.
@@ -66,13 +72,30 @@ function chordOf(event: KeyboardEvent): string {
   return parts.join('+')
 }
 
-/** Whether the keystroke is being typed into something rather than pressed at
- * the application. A `contenteditable` counts, because the artifact editor and
- * the prompt editor will both be one. */
-function typing(target: EventTarget | null): boolean {
+/** Whether the keystroke is going into something a person is typing in. A
+ * `contenteditable` counts, because the artifact editor and the prompt editor
+ * will both be one. */
+function editable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (target.isContentEditable) return true
   return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+}
+
+/**
+ * Whether this chord is the field's rather than the application's.
+ *
+ * A bare key is text, or caret movement, or the Enter that submits it, and a
+ * field owns all of those. A key with Ctrl, Alt or Meta on it is not text in
+ * any field, so it stays a shortcut wherever it is pressed.
+ *
+ * Escape is the carve-out, and there is exactly one. No field here does
+ * anything with it, every dismissable surface already listens for it, and the
+ * approval row's Deny would otherwise be a key nobody can reach without
+ * clicking somewhere else first.
+ */
+function typed(event: KeyboardEvent): boolean {
+  if (event.key === 'Escape') return false
+  return !event.ctrlKey && !event.altKey && !event.metaKey
 }
 
 function handle(event: KeyboardEvent) {
@@ -82,7 +105,7 @@ function handle(event: KeyboardEvent) {
   if (event.defaultPrevented) return
 
   const chord = chordOf(event)
-  const scoped = typing(event.target) ? (['global'] as Scope[]) : ORDER
+  const scoped = editable(event.target) && typed(event) ? (['global'] as Scope[]) : ORDER
   for (const scope of scoped) {
     const binding = [...bound].find((it) => it.scope === scope && it.chord === chord)
     if (!binding) continue
@@ -94,7 +117,7 @@ function handle(event: KeyboardEvent) {
 }
 
 /** Listen, and bind a chord until the returned function is called. */
-export function bind(binding: Binding): () => void {
+function bind(binding: Binding): () => void {
   if (!listening) {
     // On the document rather than on any element: a binding at `desk` or
     // `panel` scope is about what is open, not about what has focus, and a
@@ -110,21 +133,16 @@ export function bind(binding: Binding): () => void {
 }
 
 /**
- * Bind a chord while `when` is true.
+ * Bind a chord for as long as the component is mounted.
  *
- * `when` rather than mounting and unmounting the caller, because a component
- * that is on screen and not currently taking decisions is the ordinary case: an
- * approval row that has been answered is still drawn, and it must not still be
- * holding Enter.
+ * The caller's own presence is the condition, which is the right one here: a
+ * row that is no longer taking a decision is a row that is no longer drawn.
+ * `run` is kept in a ref rather than in the dependency list, so an inline
+ * closure at the call site does not rebind on every render.
  */
-export function useKey(
-  scope: Scope,
-  chord: string,
-  run: (event: KeyboardEvent) => void,
-  when = true,
-) {
-  useEffect(() => {
-    if (!when) return
-    return bind({ scope, chord, run })
-  }, [scope, chord, run, when])
+export function useKey(scope: Scope, chord: string, run: (event: KeyboardEvent) => void) {
+  const latest = useRef(run)
+  latest.current = run
+
+  useEffect(() => bind({ scope, chord, run: (event) => latest.current(event) }), [scope, chord])
 }

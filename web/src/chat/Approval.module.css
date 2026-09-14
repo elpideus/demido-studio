@@ -84,6 +84,12 @@
   gap: var(--space-gutter);
 }
 
+/* A button at rest is `raised` (docs/rules/surfaces.md), and this row is
+ * already `raised`, so the two collide. They move one step DOWN rather than up:
+ * `chrome` is a bar rather than a surface, and design/system.md makes exactly
+ * this move in the other direction when it sends a cap on `chrome` to `panel`.
+ * That also leaves the cap inside the button on its own specified `raised`,
+ * clearing the button underneath it without a hairline. */
 .allow,
 .deny,
 .always {
@@ -93,7 +99,7 @@
   padding: var(--space-control) var(--space-room);
   border: none;
   border-radius: var(--radius-control);
-  background: var(--color-chrome);
+  background: var(--color-panel);
   color: var(--color-ink-2);
   font: inherit;
   font-size: var(--text-body);
@@ -127,24 +133,18 @@
   font-size: var(--text-meta);
 }
 
-/* design/system.md: `--radius-control`, the silkscreen voice, `ink-3`, no
- * hairline. On `chrome` because the row it sits on is `raised`, which is the
- * same one-step move the rule states for a cap on `chrome`. */
+/* design/system.md: `--radius-control`, the silkscreen voice, `ink-3`, and no
+ * hairline, because `raised` already clears the surface it sits on. Every cap
+ * here is inside one of the buttons above, which are `panel`, so it is the
+ * token the rule names and not a departure from it. */
 .cap {
   padding: 0 var(--space-tight);
   border-radius: var(--radius-control);
-  background: var(--color-chrome);
+  background: var(--color-raised);
   color: var(--color-ink-3);
   font-family: var(--font-mono);
   font-variation-settings: 'wdth' var(--width-silkscreen);
   font-size: var(--text-silkscreen);
   letter-spacing: var(--tracking-silkscreen);
   text-transform: uppercase;
-}
-
-/* On the buttons themselves the cap sits on the button's own chrome, so it
- * steps up again rather than disappearing into it. */
-.allow .cap,
-.deny .cap {
-  background: var(--color-raised);
 }

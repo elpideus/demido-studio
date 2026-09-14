@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 import { sentence } from '@/shell/failure'
 
-import { useApprovals, type Asking, type Decision } from './approvals'
+import { useApprovals, type Asking } from './approvals'
 import { append, clear } from './stream'
 
 /**
@@ -44,10 +44,9 @@ export type Outcome =
 export type Called = {
   seq: number
   turn: number
-  tool: string
+  name: string
   /** The model's own text, whether or not it parses. */
   arguments: string
-  decision: Decision | null
   /** Nothing while the call is still waiting on somebody or running. */
   outcome: Outcome | null
 }
@@ -89,12 +88,11 @@ export function loading(model: string): string {
 type Update =
   | { update: 'text'; text: string }
   | { update: 'thinking'; text: string }
-  /** The model asked for a call, and it is on the log. Both of these carry
-   * positions rather than the call itself: the window is told there is
+  /** The log gained something the transcript draws: a call, or what came back
+   * from one. It carries nothing, because the window is told there is
    * something new to read and reads the log for what it is, which is the same
    * rule the finished turn follows. */
-  | { update: 'called'; turn: number; seq: number }
-  | { update: 'returned'; turn: number; call: number }
+  | { update: 'recorded' }
   | { update: 'done' }
   | { update: 'failed' }
 
@@ -117,7 +115,7 @@ type Chat = {
   open: () => Promise<void>
   /** Read the log again, mid turn, and give up the draft.
    *
-   * What a `called` or a `returned` update asks for. Everything generated up to
+   * What a `recorded` update asks for. Everything generated up to
    * that point is recorded, so the streaming buffer has stopped being a draft
    * and the record is better than it: it carries the calls, which a token
    * stream cannot. The pending message goes with it for the same reason, since
@@ -199,9 +197,7 @@ export const useChat = create<Chat>((set, get) => ({
         await listen<Update>('chat://update', ({ payload }) => {
           if (payload.update === 'text') append({ text: payload.text })
           else if (payload.update === 'thinking') append({ thinking: payload.text })
-          else if (payload.update === 'called' || payload.update === 'returned') {
-            void get().reread()
-          }
+          else if (payload.update === 'recorded') void get().reread()
         }),
         await listen<Presence>('chat://presence', ({ payload }) => set({ presence: payload })),
         // A call is waiting on somebody. It is a row in the transcript rather

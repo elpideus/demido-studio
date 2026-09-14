@@ -18,7 +18,7 @@ use demido_permission::{Mode, Verdict};
 use demido_prompts::{catalog, id};
 use demido_settings::{Ladder, Origin, Resolved, Settings, Tier};
 use demido_tools::Registry;
-use demido_trace::{Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
+use demido_trace::{Called, Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
 
 use crate::presence::Presence;
 use crate::toolbox::{Asking, Offering, Toolbox};
@@ -139,64 +139,17 @@ pub struct Said {
 /// (`design/system.md`) for the second, at the point in the turn where each
 /// happened. Tagged rather than two lists, because the order is the thing being
 /// drawn: a call that arrived between two sentences belongs between them.
+///
+/// [`Said`] is this crate's own because it is [`demido_trace::Exchange`] with
+/// the monitor's two axes taken off it. [`Called`] is the log's own type
+/// unchanged, because there is nothing on it to take off: a copy here would be
+/// a rename and two `From` impls, which is a second declaration that can drift
+/// rather than a narrowing that means something.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "moment", rename_all = "camelCase")]
 pub enum Moment {
     Said(Said),
     Called(Called),
-}
-
-/// One call, as the transcript draws it.
-///
-/// Narrower than [`demido_trace::Called`] in the way [`Said`] is narrower than
-/// an `Exchange`: no source and no weight, which are the Session Monitor's axes
-/// and would be rendered by somebody if a row were handed them.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Called {
-    pub seq: u64,
-    pub turn: u32,
-    pub tool: String,
-    /// The model's own text, whether or not it parses.
-    pub arguments: String,
-    /// What the person answered, where they were asked at all.
-    pub decision: Option<Decision>,
-    /// What came back, or nothing while the call is still waiting or running.
-    pub outcome: Option<Outcome>,
-}
-
-/// What came back from one call, as the transcript draws it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "camelCase")]
-pub enum Outcome {
-    /// The tool was attempted, and `failed` is its own outcome. The window
-    /// draws a failure as a failure rather than as text: a broken tool and a
-    /// model paraphrasing one must not look alike (#55).
-    Returned { text: String, failed: bool },
-    /// Demido's own answer to a call it did not run.
-    Refused { text: String },
-}
-
-impl From<demido_trace::Called> for Called {
-    fn from(called: demido_trace::Called) -> Self {
-        Self {
-            seq: called.seq,
-            turn: called.turn,
-            tool: called.name,
-            arguments: called.arguments,
-            decision: called.decision,
-            outcome: called.outcome.map(Outcome::from),
-        }
-    }
-}
-
-impl From<demido_trace::Outcome> for Outcome {
-    fn from(outcome: demido_trace::Outcome) -> Self {
-        match outcome {
-            demido_trace::Outcome::Returned { text, failed } => Outcome::Returned { text, failed },
-            demido_trace::Outcome::Refused { text } => Outcome::Refused { text },
-        }
-    }
 }
 
 /// A finished turn.
@@ -461,7 +414,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                         role: exchange.role,
                         text: exchange.text,
                     }),
-                    demido_trace::Moment::Called(called) => Moment::Called(called.into()),
+                    demido_trace::Moment::Called(called) => Moment::Called(called),
                 })
                 .collect())
         })
@@ -713,12 +666,9 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     Some(block) => {
                         blocks.push(block);
                         // The call has an answer now, and the transcript draws
-                        // one row for the pair. The window is told where, and
-                        // reads the log for what.
-                        sink(Update::Returned {
-                            turn: answer.turn,
-                            call: *seq,
-                        });
+                        // one row for the pair. The window is told there is
+                        // something to read, and reads the log for what.
+                        sink(Update::Recorded);
                     }
                     // Stopped while this call waited or ran. It and every call
                     // after it are answered as stopped, and nothing else runs.
@@ -957,11 +907,8 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // the log on being told finds what it was told about. What it was
         // streaming is now on the record, which is what lets it stop drawing a
         // draft and draw the log instead.
-        for (call, _) in &calls {
-            sink(Update::Called {
-                turn: sent.turn,
-                seq: *call,
-            });
+        if !calls.is_empty() {
+            sink(Update::Recorded);
         }
 
         Ok(Generation {

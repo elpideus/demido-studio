@@ -94,9 +94,9 @@ export function Approval({ asking }: { asking: Asking }) {
  * A keycap.
  *
  * `design/system.md` gives it `--radius-control`, the silkscreen voice and
- * `ink-3`, and no hairline, because its surface already clears whatever it sits
- * on. That clause is written for a cap on `chrome` moving to `panel`; this row
- * is `raised`, so the cap moves the same one step, to `chrome`.
+ * `ink-3`, and no hairline, because `raised` already clears whatever it sits
+ * on. Every cap here is inside one of the answer buttons, which stepped down to
+ * `panel` to clear this `raised` row, so the cap keeps the token the rule names.
  */
 function Cap({ children }: { children: string }) {
   return <kbd className={styles.cap}>{children}</kbd>
