@@ -38,7 +38,13 @@ the **parameter asking sentence** (a skill's, so with the first skill) and
 the **four task-model jobs**. What ships is what S1 sends or measures: the six
 caveman levels, the project tree, and the failure classifier, which is here
 because a pinned wording with no default file is a release gate that cannot
-fire.
+fire. S2's turn loop ([#54](https://github.com/elpideus/demido-studio/issues/54))
+added the three things it tells a model in place of a result: `tools.denied`,
+`tools.stopped` and `tools.limit`.
+
+`describe` lives here too: a tool's shape with its document's prose merged on.
+Both the registry and the session log's rebuild call it, so there is one answer
+to what a model was shown.
 
 ## The seam
 

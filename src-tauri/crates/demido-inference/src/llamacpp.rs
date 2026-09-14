@@ -28,7 +28,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
 use crate::backend::{Backend, Cancel, ChunkStream, Error, Result};
-use crate::model::{Chunk, FinishReason, Loaded, Request, Role, Usage};
+use crate::model::{Chunk, FinishReason, Loaded, Request, Role, ToolCall, Usage};
 
 /// How many stderr lines to keep. Enough to hold the startup banner, which is
 /// where the answer usually is, without growing without bound over a long
@@ -389,10 +389,27 @@ fn to_wire(request: &Request) -> serde_json::Value {
         .messages
         .iter()
         .map(|message| {
-            serde_json::json!({
-                "role": role_name(message.role),
-                "content": message.content,
-            })
+            let mut wire = serde_json::Map::new();
+            wire.insert("role".into(), serde_json::json!(role_name(message.role)));
+            wire.insert("content".into(), serde_json::json!(message.content));
+            if !message.calls.is_empty() {
+                let calls: Vec<serde_json::Value> = message
+                    .calls
+                    .iter()
+                    .map(|call| {
+                        serde_json::json!({
+                            "id": call.id,
+                            "type": "function",
+                            "function": { "name": call.name, "arguments": call.arguments },
+                        })
+                    })
+                    .collect();
+                wire.insert("tool_calls".into(), serde_json::json!(calls));
+            }
+            if let Some(call) = &message.answers {
+                wire.insert("tool_call_id".into(), serde_json::json!(call));
+            }
+            serde_json::Value::Object(wire)
         })
         .collect();
 
@@ -407,6 +424,26 @@ fn to_wire(request: &Request) -> serde_json::Value {
         "stream_options".into(),
         serde_json::json!({ "include_usage": true }),
     );
+    // Left off entirely when nothing is offered, rather than sent empty: a
+    // request with no tools is an ordinary completion, and `--jinja` is what
+    // makes the server read them when there are some.
+    if !request.tools.is_empty() {
+        let tools: Vec<serde_json::Value> = request
+            .tools
+            .iter()
+            .map(|tool| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    },
+                })
+            })
+            .collect();
+        body.insert("tools".into(), serde_json::json!(tools));
+    }
 
     let options = &request.options;
     if let Some(temperature) = options.temperature {
@@ -426,6 +463,7 @@ fn role_name(role: Role) -> &'static str {
         Role::System => "system",
         Role::User => "user",
         Role::Assistant => "assistant",
+        Role::Tool => "tool",
     }
 }
 
@@ -435,6 +473,11 @@ fn role_name(role: Role) -> &'static str {
 /// cancelling drops the HTTP response and the server sees the connection go
 /// away. Waiting for the generation to finish and discarding it would leave the
 /// card busy for as long as the answer nobody wanted takes.
+///
+/// A call arrives in pieces, its arguments a few characters per frame, and is
+/// handed on whole once the stream has ended. A cancel hands on none of them:
+/// what a stop leaves is the text so far, and half an argument list is not a
+/// call.
 fn decode(
     bytes: impl futures_core::Stream<Item = reqwest::Result<bytes::Bytes>> + Send + 'static,
     cancel: Cancel,
@@ -445,6 +488,7 @@ fn decode(
         let mut usage = Usage::default();
         let mut reason: Option<FinishReason> = None;
         let mut finished = false;
+        let mut calls: Vec<ToolCall> = Vec::new();
 
         loop {
             let next = tokio::select! {
@@ -506,6 +550,9 @@ fn decode(
                     if let Some(text) = choice.delta.reasoning_content.filter(|t| !t.is_empty()) {
                         yield Ok(Chunk::Thinking { text });
                     }
+                    for piece in choice.delta.tool_calls {
+                        assemble(&mut calls, piece);
+                    }
                     if let Some(said) = choice.finish_reason {
                         finished = true;
                         // Held until the stream really ends, so Done stays last.
@@ -523,8 +570,66 @@ fn decode(
             return;
         }
 
-        yield Ok(Chunk::Done { reason: reason.unwrap_or(FinishReason::Stop), usage });
+        // Whatever the server said the reason was, a stream that carried calls
+        // stopped to have them run, and saying so is this decoder's job rather
+        // than the caller's.
+        let reason = match calls.is_empty() {
+            true => reason.unwrap_or(FinishReason::Stop),
+            false => FinishReason::ToolCalls,
+        };
+        for call in calls {
+            yield Ok(Chunk::Call { call });
+        }
+        yield Ok(Chunk::Done { reason, usage });
     }
+}
+
+/// Fold one streamed piece of a call into the calls so far.
+///
+/// Pieces are keyed by `index`, the id and the name arrive once and the
+/// arguments arrive as fragments to append. A server that sends no id gets one
+/// made up from the position, because a call nobody can answer by id is a call
+/// the next request cannot carry.
+fn assemble(calls: &mut Vec<ToolCall>, piece: CallPiece) {
+    while calls.len() <= piece.index {
+        calls.push(ToolCall {
+            id: format!("call-{}", calls.len()),
+            name: String::new(),
+            arguments: String::new(),
+        });
+    }
+    let Some(call) = calls.get_mut(piece.index) else {
+        return;
+    };
+    if let Some(id) = piece.id.filter(|id| !id.is_empty()) {
+        call.id = id;
+    }
+    if let Some(function) = piece.function {
+        if let Some(name) = function.name {
+            call.name.push_str(&name);
+        }
+        if let Some(arguments) = function.arguments {
+            call.arguments.push_str(&arguments);
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct CallPiece {
+    #[serde(default)]
+    index: usize,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<FunctionPiece>,
+}
+
+#[derive(serde::Deserialize)]
+struct FunctionPiece {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -549,6 +654,17 @@ struct Delta {
     content: Option<String>,
     #[serde(default)]
     reasoning_content: Option<String>,
+    /// `null` on most frames, which `default` alone would refuse.
+    #[serde(default, deserialize_with = "null_is_none")]
+    tool_calls: Vec<CallPiece>,
+}
+
+fn null_is_none<'de, D>(deserializer: D) -> std::result::Result<Vec<CallPiece>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    Ok(Option::<Vec<CallPiece>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(serde::Deserialize)]
@@ -721,6 +837,7 @@ fn probe_request() -> Request {
             crate::model::Message::system("You are terse."),
             crate::model::Message::user("Hello."),
         ],
+        tools: Vec::new(),
         options: crate::model::Options::default(),
     }
 }
@@ -869,6 +986,124 @@ mod tests {
         assert!(body.get("seed").is_none(), "{body}");
         assert!(body.get("max_tokens").is_none(), "{body}");
         assert!(body.get("temperature").is_some(), "the default is a value");
+    }
+
+    #[test]
+    fn a_call_and_its_answer_go_on_the_wire_the_way_the_server_reads_them() {
+        let mut request = probe_request();
+        request.messages.push(crate::model::Message::calling(
+            "",
+            vec![ToolCall {
+                id: "call-7".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"a.txt"}"#.into(),
+            }],
+        ));
+        request
+            .messages
+            .push(crate::model::Message::result("call-7", "1: hi"));
+        request.tools.push(crate::model::ToolSpec {
+            name: "read_file".into(),
+            description: "Read a file.".into(),
+            parameters: serde_json::json!({ "type": "object" }),
+        });
+
+        let body = to_wire(&request);
+        let asked = &body["messages"][2];
+        assert_eq!(asked["role"], "assistant");
+        assert_eq!(asked["tool_calls"][0]["id"], "call-7");
+        assert_eq!(asked["tool_calls"][0]["type"], "function");
+        assert_eq!(asked["tool_calls"][0]["function"]["name"], "read_file");
+        assert_eq!(
+            asked["tool_calls"][0]["function"]["arguments"], r#"{"path":"a.txt"}"#,
+            "arguments are the model's own text, not a re-serialised value"
+        );
+        let answer = &body["messages"][3];
+        assert_eq!(answer["role"], "tool");
+        assert_eq!(answer["tool_call_id"], "call-7");
+        assert_eq!(body["tools"][0]["function"]["name"], "read_file");
+        assert_eq!(
+            body["tools"][0]["function"]["parameters"],
+            serde_json::json!({ "type": "object" })
+        );
+        assert!(
+            body["messages"][0].get("tool_calls").is_none(),
+            "a message that asked for nothing carries no empty list"
+        );
+    }
+
+    #[test]
+    fn a_request_offering_nothing_carries_no_tools_key() {
+        let body = to_wire(&probe_request());
+        assert!(body.get("tools").is_none(), "{body}");
+    }
+
+    async fn decoded(frames: &[&str], cancel: Cancel) -> Vec<Chunk> {
+        use futures_util::StreamExt;
+        let bytes: Vec<reqwest::Result<bytes::Bytes>> = frames
+            .iter()
+            .map(|frame| Ok(bytes::Bytes::from(format!("data: {frame}\n\n"))))
+            .collect();
+        decode(futures_util::stream::iter(bytes), cancel)
+            .map(|chunk| chunk.expect("a chunk"))
+            .collect()
+            .await
+    }
+
+    /// The frames `llama.cpp` streams for one call, its arguments split across
+    /// three of them.
+    const A_STREAMED_CALL: &[&str] = &[
+        r#"{"choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"abc","type":"function","function":{"name":"read_file","arguments":""}}]},"finish_reason":null}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":"}}]},"finish_reason":null}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"notes.txt\"}"}}]},"finish_reason":null}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":null},"finish_reason":"tool_calls"}]}"#,
+        r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#,
+        "[DONE]",
+    ];
+
+    #[tokio::test]
+    async fn a_call_streamed_in_pieces_is_handed_on_whole_before_done() {
+        let chunks = decoded(A_STREAMED_CALL, Cancel::new()).await;
+
+        assert_eq!(
+            chunks,
+            vec![
+                Chunk::Call {
+                    call: ToolCall {
+                        id: "abc".into(),
+                        name: "read_file".into(),
+                        arguments: r#"{"path":"notes.txt"}"#.into(),
+                    }
+                },
+                Chunk::Done {
+                    reason: FinishReason::ToolCalls,
+                    usage: Usage {
+                        prompt_tokens: 10,
+                        completion_tokens: 5
+                    },
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_stream_hands_on_no_call() {
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let chunks = decoded(A_STREAMED_CALL, cancel).await;
+        assert!(
+            !chunks
+                .iter()
+                .any(|chunk| matches!(chunk, Chunk::Call { .. })),
+            "half an argument list is not a call: {chunks:?}"
+        );
+        assert!(matches!(
+            chunks.last(),
+            Some(Chunk::Done {
+                reason: FinishReason::Cancelled,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]

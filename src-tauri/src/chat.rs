@@ -13,7 +13,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use demido_chat::{Presence, Said, Update};
+use demido_chat::{Decision, Presence, Said, Update};
 
 use crate::wiring::Wiring;
 
@@ -76,7 +76,16 @@ pub async fn chat_send(
 ) -> demido_core::Result<()> {
     wiring
         .chat
-        .ask(&message, |update: Update| emit(&app, UPDATE, &update))
+        .ask(
+            &message,
+            |update: Update| emit(&app, UPDATE, &update),
+            // Unreachable in this build, and a denial rather than an approval
+            // so that it could never be the reason something ran: no workspace
+            // is set, so nothing is offered and every call is answered by the
+            // registry before the matrix is asked. The approval row that asks
+            // a person is #55's.
+            |_asking| std::future::ready(Decision::Deny),
+        )
         .await?;
     Ok(())
 }

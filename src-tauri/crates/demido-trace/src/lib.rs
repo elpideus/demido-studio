@@ -56,7 +56,9 @@ pub mod record;
 pub mod replay;
 pub mod weight;
 
-pub use event::{Basis, Body, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight};
+pub use event::{
+    Basis, Body, Decision, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight,
+};
 pub use journal::{Error, Journal, Result};
 pub use jsonl::JsonLines;
 pub use memory::Memory;

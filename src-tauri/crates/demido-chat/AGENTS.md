@@ -95,6 +95,58 @@ conversation, on a card the whole design is sized against.
 around it. A backend that died between two turns is found when the turn is
 attempted, reported, and startable again.
 
+## A turn with tools in it
+
+[#54](https://github.com/elpideus/demido-studio/issues/54). One loop, always,
+per [`docs/rules/tools.md`](../../../docs/rules/tools.md): a turn that offers
+nothing is the same loop with nothing to do but answer.
+
+**Generate, answer every call, send again.** `Chat::ask` records the assembly
+with the `Toolbox`'s offered set in it, streams one generation, records the
+completion and then each call, and answers each call in order. What came back
+goes on the end of the same turn's assembly through `Session::step`, which is
+recorded before it is sent, exactly as the first one was.
+
+**Each call is answered, always, and in one of two ways.** A `tool/result` for
+a call that was attempted, `failed` taken from the tool's own outcome. A
+`tool/refusal` for one that was not: declined, stopped, or past the step limit,
+in a paragraph's wording (hard rule 10). Every call needs one, because a next
+request carrying an answer's calls without what came back for them is one a
+server refuses.
+
+**The order inside a call is fixed.** The registry plans it, and a call it
+cannot understand is a failed result. A call identical, by name and parsed
+arguments, to one the person declined this turn is refused without asking
+again. Then the matrix rules, and the person is asked only when it says `Ask`.
+
+**The approval is a callback, not a trait.** `ask` takes
+`FnMut(Asking) -> impl Future<Output = Decision>`. The window is the only real
+implementation (#55), and a trait would buy a second one that exists only in
+tests (`tiles.md`); `Asking` is the interface it would have. Every decision is
+a `tool/decision` event, so the log says which of allow, deny and always
+happened. *Always* is read back off the log at the start of each turn, so it
+holds on later messages; #55 moves where it is written to the ladder's chat
+tier.
+
+**The mode is the matrix's, and the step limit is the ladder's.** `Toolbox`
+holds the mode's stored name and hands a `Mode` to `demido_permission::verdict`
+per call, and nothing else here reads it. The limit is `tools.step_limit`,
+resolved like the temperature. `tests/a_tool.rs` runs the same runaway script
+under all three modes and gets the same count. The mode is fixed per
+conversation until #56 puts it on the ladder.
+
+**A stop reaches whatever the turn is doing.** One cancellation token for the
+whole turn. Mid generation, the backend ends the stream with what it had and
+hands on no half-built call; a call that had already arrived is answered as
+stopped. Waiting on the person or running a tool, the wait is dropped, which
+for `run_command` kills the process tree, and that call and every one after it
+are answered as stopped. The answer comes back `Cancelled` either way, and the
+next message can be sent.
+
+**The step limit ends the turn as a failure.** The calls past it are refused,
+a `turn/failure` with kind `step-limit` is written, and `ask` returns
+`Error::StepLimit`.
+
 ## Presence carries the fact, never the wording
 
 `Presence` says whether there is anything to talk to. The sentence the composer
@@ -108,6 +160,11 @@ and a fix, and it is not something a frontend can derive from a tag.
 | Suite | What it proves |
 |---|---|
 | `tests/a_turn.rs` | The ordering rules, against a scripted backend. |
+| `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, and what a stop leaves. Against the same scripted backend. |
+
+The scripted backend is `demido_inference::scripted`, which passes the
+`Backend` contract suite, rather than a fake written here: a loop proved against
+a fake that keeps its own promises is proved against the wrong ones.
 | `tests/a_real_model.rs` | The model gate of `docs/rules/done.md`: a real model, on all three tiers. |
 
 The live one is `#[ignore]`d and runs one at a time under the rig's process-wide

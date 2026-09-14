@@ -11,10 +11,16 @@
 use demido_prompts::{Document, Tools};
 use demido_trace::{Body, Journal, JsonLines, Layer, Memory, Replay, Session};
 
-fn documents(tools: &Tools, names: &[&str]) -> Vec<Document> {
+/// Each tool as a turn offers it: its document, and a shape for the prose.
+fn documents(tools: &Tools, names: &[&str]) -> Vec<(Document, serde_json::Value)> {
     names
         .iter()
-        .map(|name| tools.get(name).expect("a host tool"))
+        .map(|name| {
+            (
+                tools.get(name).expect("a host tool"),
+                serde_json::json!({ "type": "object" }),
+            )
+        })
         .collect()
 }
 
@@ -61,7 +67,7 @@ fn the_offered_set_is_a_name_and_a_hash_per_tool_and_never_the_text() {
     assert_eq!(line["event"], "tools/offered");
     assert_eq!(line["layer"], "registry");
     assert_eq!(line["tools"][0]["name"], "read_file");
-    assert_eq!(line["tools"][0]["hash"], offered[0].hash.as_str());
+    assert_eq!(line["tools"][0]["hash"], offered[0].0.hash.as_str());
     assert_eq!(line["tools"][1]["name"], "list_directory");
     assert!(
         line["tools"][0].get("text").is_none(),

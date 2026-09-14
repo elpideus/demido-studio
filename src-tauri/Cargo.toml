@@ -83,6 +83,9 @@ demido-runtimes.workspace = true
 demido-settings.workspace = true
 demido-setup.workspace = true
 demido-shell.workspace = true
+# The groups the conversation offers. Named here, at the root, because which
+# tools a build ships is a wiring decision.
+demido-tools.workspace = true
 demido-trace.workspace = true
 serde.workspace = true
 # A setting's value crosses the boundary as whatever the schema says it is, so

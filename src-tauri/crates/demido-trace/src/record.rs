@@ -16,10 +16,12 @@ use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
-use demido_inference::{FinishReason, Message, Options, Request, Role, Usage};
+use demido_inference::{FinishReason, Message, Options, Request, Role, ToolCall, ToolSpec, Usage};
 use demido_prompts::{Document, Prompt};
 
-use crate::event::{Body, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight};
+use crate::event::{
+    Body, Decision, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight,
+};
 use crate::journal::{Error, Journal, Result};
 use crate::replay::Replay;
 use crate::weight::{Estimate, Weigher};
@@ -39,7 +41,8 @@ pub struct Session<J: Journal> {
     /// `prompt/version` are different events, and one register's hash being
     /// written must never excuse the other's.
     documented: Mutex<BTreeSet<String>>,
-    offered: Mutex<Option<Vec<Offer>>>,
+    /// The last `tools/offered`: where it was written, and the set it holds.
+    offered: Mutex<Option<(u64, Vec<Offer>)>>,
     turns: AtomicU32,
 }
 
@@ -83,6 +86,8 @@ impl<J: Journal> Session<J> {
             number: self.turns.fetch_add(1, Ordering::SeqCst) + 1,
             blocks: Vec::new(),
             parameters: None,
+            tools: Vec::new(),
+            offered: None,
         }
     }
 
@@ -120,7 +125,7 @@ impl<J: Journal> Session<J> {
                 Body::ToolVersion { hash, .. } => {
                     documented.insert(hash.clone());
                 }
-                Body::Offered { tools, .. } => *offered = Some(tools.clone()),
+                Body::Offered { tools, .. } => *offered = Some((event.seq, tools.clone())),
                 _ => {}
             }
         }
@@ -152,6 +157,124 @@ impl<J: Journal> Session<J> {
             },
         )?;
         Ok(event.seq)
+    }
+
+    /// One call an answer asked for. `completion` is that answer's position.
+    ///
+    /// Weighed as the name and the arguments, the text the model spent on it.
+    pub fn called(&self, turn: u32, completion: u64, call: &ToolCall) -> Result<u64> {
+        let weight = self
+            .weigher
+            .weigh(&call.name)
+            .and(self.weigher.weigh(&call.arguments));
+        let event = self.write(
+            turn,
+            Source::Tool,
+            weight,
+            Body::Call {
+                completion,
+                id: call.id.clone(),
+                name: call.name.clone(),
+                arguments: call.arguments.clone(),
+            },
+        )?;
+        Ok(event.seq)
+    }
+
+    /// What the person answered when asked about the call at `call`.
+    ///
+    /// Weighs nothing: a decision is never sent to the model. What the model is
+    /// told about a denial is the refusal written after it.
+    pub fn decided(&self, turn: u32, call: u64, decision: Decision) -> Result<u64> {
+        let event = self.write(
+            turn,
+            Source::User,
+            Weight::NOTHING,
+            Body::Decided { call, decision },
+        )?;
+        Ok(event.seq)
+    }
+
+    /// What came back from the call at `call`, verbatim.
+    pub fn returned(&self, turn: u32, call: u64, text: &str, failed: bool) -> Result<u64> {
+        let event = self.write(
+            turn,
+            Source::Tool,
+            self.weigher.weigh(text),
+            Body::Result {
+                call,
+                text: text.to_owned(),
+                failed,
+            },
+        )?;
+        Ok(event.seq)
+    }
+
+    /// Demido's answer to a call it did not run, in a paragraph's wording.
+    ///
+    /// Recorded the way a fragment is: the wording once per session, then the
+    /// hash and what filled it, so the rebuild fills it again.
+    pub fn refused(
+        &self,
+        turn: u32,
+        call: u64,
+        prompt: &Prompt,
+        values: &[(&str, &str)],
+    ) -> Result<u64> {
+        self.version(turn, prompt)?;
+        let event = self.write(
+            turn,
+            Source::System,
+            self.weigher.weigh(&prompt.fill(values)),
+            Body::Refusal {
+                call,
+                hash: prompt.hash.clone(),
+                values: values
+                    .iter()
+                    .map(|(name, value)| Filling::new(*name, *value))
+                    .collect(),
+            },
+        )?;
+        Ok(event.seq)
+    }
+
+    /// Send the same turn again, carrying what its last step produced.
+    ///
+    /// A turn that used a tool is sent once per step: the answer that asked for
+    /// the calls and what came back from each go on the end of the assembly it
+    /// was sent with, under the same parameters and the same offered set, and
+    /// the new assembly is recorded before it is handed back to send. `blocks`
+    /// are positions this session already wrote, in the order the model should
+    /// read them.
+    pub fn step(&self, sent: &Sent, blocks: &[u64]) -> Result<Sent> {
+        let replay = Replay::of(&self.journal)?;
+        let mut request = sent.request.clone();
+        for seq in blocks {
+            request.messages.push(replay.block(*seq)?);
+        }
+        let mut named = sent.blocks.clone();
+        named.extend_from_slice(blocks);
+
+        let event = self.write(
+            sent.turn,
+            Source::System,
+            // As for the first assembly: its blocks carry their own weights.
+            Weight::NOTHING,
+            Body::Assembly {
+                parameters: sent.parameters,
+                blocks: named.clone(),
+                tools: sent.offered,
+            },
+        )?;
+
+        Ok(Sent {
+            turn: sent.turn,
+            seq: event.seq,
+            request,
+            parameters: sent.parameters,
+            blocks: named,
+            offered: sent.offered,
+        })
     }
 
     /// Something went wrong, in this turn or beside it.
@@ -238,6 +361,10 @@ pub struct Turn<'a, J: Journal> {
     number: u32,
     blocks: Vec<Block>,
     parameters: Option<Parameters>,
+    /// What the request offers, merged from what [`Turn::offer`] recorded.
+    tools: Vec<ToolSpec>,
+    /// The `tools/offered` event in force, which the assembly names.
+    offered: Option<u64>,
 }
 
 /// One block of an assembly being built.
@@ -317,28 +444,52 @@ impl<J: Journal> Turn<'_, J> {
     /// ([#56](https://github.com/elpideus/demido-studio/issues/56)) is where a
     /// second layer arrives and where that is worth deciding again.
     ///
-    /// It adds no block to the assembly. The request carries no tools until
-    /// the payload does ([#54](https://github.com/elpideus/demido-studio/issues/54));
-    /// what this makes true now is that the set a turn was offered can be
-    /// rebuilt in the wording it was offered in (`Replay::offered`).
-    pub fn offer(&mut self, layer: Layer, documents: &[Document]) -> Result<Option<u64>> {
-        for document in documents {
+    /// Each tool is its document and its schema's shape. It adds no block:
+    /// the tools go in the request's own `tools`, each described by merging
+    /// the document's prose onto the shape, and the assembly names the set in
+    /// force so that the rebuild merges the same two things the same way.
+    ///
+    /// Nothing offered in a session that has never offered anything records
+    /// nothing, because nothing changed.
+    pub fn offer(
+        &mut self,
+        layer: Layer,
+        tools: &[(Document, serde_json::Value)],
+    ) -> Result<Option<u64>> {
+        for (document, _) in tools {
             self.session.document(self.number, document)?;
         }
 
-        let tools: Vec<Offer> = documents
+        self.tools = tools
             .iter()
-            .map(|document| Offer {
+            .map(|(document, shape)| ToolSpec {
+                name: document.tool.name.to_owned(),
+                description: document.description().to_owned(),
+                parameters: document.describe(shape.clone()),
+            })
+            .collect();
+        let tools: Vec<Offer> = tools
+            .iter()
+            .map(|(document, shape)| Offer {
                 name: document.tool.name.to_owned(),
                 hash: document.hash.clone(),
+                shape: shape.clone(),
             })
             .collect();
 
         // Held across the write, so two turns racing cannot both decide the
         // set changed and record it twice.
         let mut last = held(&self.session.offered);
-        if last.as_ref() == Some(&tools) {
-            return Ok(None);
+        match last.as_ref() {
+            Some((seq, set)) if *set == tools => {
+                self.offered = Some(*seq);
+                return Ok(None);
+            }
+            None if tools.is_empty() => {
+                self.offered = None;
+                return Ok(None);
+            }
+            _ => {}
         }
 
         let event = self.session.write(
@@ -352,7 +503,8 @@ impl<J: Journal> Turn<'_, J> {
                 layer,
             },
         )?;
-        *last = Some(tools);
+        *last = Some((event.seq, tools));
+        self.offered = Some(event.seq);
         Ok(Some(event.seq))
     }
 
@@ -438,12 +590,15 @@ impl<J: Journal> Turn<'_, J> {
             number,
             blocks,
             parameters,
+            tools,
+            offered,
         } = self;
 
         let Some(parameters) = parameters else {
             return Err(Error::Unparameterised { turn: number });
         };
         let messages = messages(session, &blocks)?;
+        let blocks: Vec<u64> = blocks.iter().map(Block::seq).collect();
 
         let event = session.write(
             number,
@@ -456,7 +611,8 @@ impl<J: Journal> Turn<'_, J> {
             Weight::NOTHING,
             Body::Assembly {
                 parameters: parameters.seq,
-                blocks: blocks.iter().map(Block::seq).collect(),
+                blocks: blocks.clone(),
+                tools: offered,
             },
         )?;
 
@@ -466,8 +622,12 @@ impl<J: Journal> Turn<'_, J> {
             request: Request {
                 model: parameters.model,
                 messages,
+                tools,
                 options: parameters.options,
             },
+            parameters: parameters.seq,
+            blocks,
+            offered,
         })
     }
 }
@@ -506,4 +666,10 @@ pub struct Sent {
     /// here is replayed from.
     pub seq: u64,
     pub request: Request,
+    /// What [`Session::step`] sends the next step with: the same parameter
+    /// set, these blocks and more, and the same offered set. Private, so a
+    /// step can only follow an assembly this session recorded.
+    parameters: u64,
+    blocks: Vec<u64>,
+    offered: Option<u64>,
 }

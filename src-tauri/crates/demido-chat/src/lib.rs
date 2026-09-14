@@ -40,13 +40,17 @@
 //! | [`presence`] | Whether there is anything to talk to, and what to say if not. |
 //! | [`update`] | What the window is told while a turn runs. |
 //! | [`chat`] | The session, the assembly, and the loop. |
+//! | [`toolbox`] | What a conversation may call, and what a person is asked. |
 //!
 //! See `AGENTS.md` beside this file for the invariants.
 
 pub mod chat;
 pub mod presence;
+pub mod toolbox;
 pub mod update;
 
 pub use chat::{Answer, Chat, Error, Model, Result, Said};
+pub use demido_trace::Decision;
 pub use presence::Presence;
+pub use toolbox::{Asking, Toolbox};
 pub use update::Update;

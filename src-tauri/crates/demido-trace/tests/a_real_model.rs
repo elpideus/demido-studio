@@ -116,6 +116,7 @@ async fn as_the_model_sees_it(port: u16, request: &Request) -> String {
                     Role::System => "system",
                     Role::User => "user",
                     Role::Assistant => "assistant",
+                    Role::Tool => "tool",
                 },
                 "content": message.content,
             })
@@ -363,7 +364,8 @@ fn finished(chunks: &[demido_inference::Result<Chunk>]) -> (String, String, Fini
         match chunk {
             Chunk::Text { text: said } => text.push_str(said),
             Chunk::Thinking { text: thought } => thinking.push_str(thought),
-            Chunk::Done { .. } => {}
+            // Nothing here is offered a tool, so no call arrives.
+            Chunk::Call { .. } | Chunk::Done { .. } => {}
         }
     }
 

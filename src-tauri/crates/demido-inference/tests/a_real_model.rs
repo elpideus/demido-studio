@@ -45,6 +45,7 @@ async fn it_answers(tier: Tier) {
             Message::system("You are terse. Answer in one short sentence."),
             Message::user("What is the capital of France?"),
         ],
+        tools: Vec::new(),
         options: Options {
             temperature: Some(0.0),
             // Enough for a model that thinks first. The reference model spends
@@ -130,6 +131,7 @@ async fn a_stopped_generation_keeps_what_was_said_and_the_model_stays_loaded() {
     let long = Request {
         model: Tier::Development.label().to_owned(),
         messages: vec![Message::user("Count slowly from one to two hundred.")],
+        tools: Vec::new(),
         options: Options {
             temperature: Some(0.0),
             max_tokens: Some(2048),

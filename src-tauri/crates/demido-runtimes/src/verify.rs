@@ -126,6 +126,7 @@ async fn generates_one_token(binary: &Path, model: &Path) -> Result<(), VerifyEr
     let request = Request {
         model: "local".into(),
         messages: vec![Message::user("hi")],
+        tools: Vec::new(),
         options: Options {
             max_tokens: Some(1),
             seed: Some(0),
@@ -150,6 +151,9 @@ async fn generates_one_token(binary: &Path, model: &Path) -> Result<(), VerifyEr
                         tokens = tokens.max(1);
                     }
                 }
+                // The probe offers no tool, and a call would still be tokens
+                // the runtime produced.
+                demido_inference::Chunk::Call { .. } => tokens = tokens.max(1),
             }
         }
         if tokens == 0 {

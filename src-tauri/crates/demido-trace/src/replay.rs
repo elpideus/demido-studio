@@ -16,13 +16,13 @@
 
 use std::collections::BTreeMap;
 
-use demido_inference::{Message, Request, Role};
+use demido_inference::{FinishReason, Message, Request, Role, ToolCall, ToolSpec};
 
-use crate::event::{Basis, Body, Event, Layer, Source, Weight};
+use crate::event::{Basis, Body, Decision, Event, Layer, Source, Weight};
 use crate::journal::{Error, Journal, Result};
 
 /// The tools on offer at some moment, in the wording they were offered in.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Offering {
     /// Where the set was recorded.
     pub seq: u64,
@@ -30,13 +30,14 @@ pub struct Offering {
     pub tools: Vec<OfferedTool>,
 }
 
-/// One tool of an [`Offering`]: its name, its hash, and the document recorded
-/// under that hash.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One tool of an [`Offering`]: its name, its hash, the document recorded
+/// under that hash, and the shape its prose goes on.
+#[derive(Debug, Clone, PartialEq)]
 pub struct OfferedTool {
     pub name: String,
     pub hash: String,
     pub text: String,
+    pub shape: serde_json::Value,
 }
 
 /// One thing said, as a transcript shows it.
@@ -121,12 +122,75 @@ impl Replay {
                 // The answer is the completion. There is no assistant message
                 // written beside it: a second event saying the same thing is
                 // the parallel table this log exists to not have.
+                //
+                // An answer that said nothing and only asked for calls is not
+                // a bubble: what it did is the calls, and the transcript draws
+                // those from their own events.
+                Body::Completion {
+                    text,
+                    reason: FinishReason::ToolCalls,
+                    ..
+                } if text.is_empty() => None,
                 Body::Completion { text, .. } => {
                     Some(self.exchange(event, Role::Assistant, text.clone()))
                 }
                 _ => None,
             })
             .collect()
+    }
+
+    /// Every block a later turn carries, in the order it happened: what the
+    /// person typed, every answer including one that only asked for calls, and
+    /// what came back for each call, whether a result or a refusal.
+    ///
+    /// Wider than [`Replay::history`] on purpose. A model that is not shown its
+    /// own calls and their results next turn is a model that calls again for
+    /// what it already has, and a request carrying an answer's calls without
+    /// what came back for them is one a server refuses.
+    pub fn conversation(&self) -> Vec<u64> {
+        self.events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event.body,
+                    Body::Message {
+                        role: Role::User | Role::Assistant,
+                        ..
+                    } | Body::Completion { .. }
+                        | Body::Result { .. }
+                        | Body::Refusal { .. }
+                )
+            })
+            .map(|event| event.seq)
+            .collect()
+    }
+
+    /// The tools the person has said *always* about in this session, by name,
+    /// in the order they said it.
+    ///
+    /// Read off the decisions rather than kept anywhere, so it is whatever the
+    /// log says it is.
+    pub fn always(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for event in &self.events {
+            let Body::Decided {
+                call,
+                decision: Decision::Always,
+            } = &event.body
+            else {
+                continue;
+            };
+            if let Ok(Event {
+                body: Body::Call { name, .. },
+                ..
+            }) = self.at(*call)
+            {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        names
     }
 
     fn exchange(&self, event: &Event, role: Role, text: String) -> Exchange {
@@ -148,11 +212,35 @@ impl Replay {
     ///
     /// A turn sent more than once, which is what a retry is, rebuilds from the
     /// last assembly it recorded.
+    ///
+    /// A turn that used a tool is sent once per step, and rebuilds here as its
+    /// last step. Each earlier one is [`Replay::request`] at its own assembly.
     pub fn assembly(&self, turn: u32) -> Result<Request> {
-        let (parameters, blocks) = self.assembled(turn)?;
+        let seq = self
+            .events
+            .iter()
+            .rev()
+            .find(|event| event.turn == turn && matches!(event.body, Body::Assembly { .. }))
+            .map(|event| event.seq)
+            .ok_or(Error::NotSent { turn })?;
+        self.request(seq)
+    }
 
-        let Body::Parameters { model, options } = &self.at(parameters)?.body else {
-            return Err(Error::NotABlock { seq: parameters });
+    /// Rebuild the request the assembly at `seq` was sent as: its parameters,
+    /// its blocks, and the tools of the offered set it names, each described
+    /// again from the shape and the wording that set recorded.
+    pub fn request(&self, seq: u64) -> Result<Request> {
+        let Body::Assembly {
+            parameters,
+            blocks,
+            tools,
+        } = &self.at(seq)?.body
+        else {
+            return Err(Error::NotABlock { seq });
+        };
+
+        let Body::Parameters { model, options } = &self.at(*parameters)?.body else {
+            return Err(Error::NotABlock { seq: *parameters });
         };
 
         let messages = blocks
@@ -160,25 +248,41 @@ impl Replay {
             .map(|seq| self.block(*seq))
             .collect::<Result<Vec<Message>>>()?;
 
+        let tools = match tools {
+            None => Vec::new(),
+            Some(offered) => self
+                .offered(*offered)?
+                .map(|offering| offering.tools)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|tool| ToolSpec {
+                    description: demido_prompts::sections(&tool.text).description.to_owned(),
+                    parameters: demido_prompts::describe(tool.shape, &tool.text),
+                    name: tool.name,
+                })
+                .collect(),
+        };
+
         Ok(Request {
             model: model.clone(),
             messages,
+            tools,
             options: options.clone(),
         })
     }
 
     /// The last assembly a turn recorded: its parameter set, and its blocks.
     ///
-    /// The **last**, because a turn sent more than once is what a retry is, and
-    /// what it was finally sent with is what happened.
+    /// The **last**, because a turn sent more than once is what a retry or a
+    /// step is, and what it was finally sent with is what happened.
     fn assembled(&self, turn: u32) -> Result<(u64, &[u64])> {
         self.events
             .iter()
             .rev()
             .find_map(|event| match &event.body {
-                Body::Assembly { parameters, blocks } if event.turn == turn => {
-                    Some((*parameters, blocks.as_slice()))
-                }
+                Body::Assembly {
+                    parameters, blocks, ..
+                } if event.turn == turn => Some((*parameters, blocks.as_slice())),
                 _ => None,
             })
             .ok_or(Error::NotSent { turn })
@@ -214,6 +318,7 @@ impl Replay {
                     name: offer.name.clone(),
                     hash: offer.hash.clone(),
                     text: self.document(&offer.hash, seq)?.to_owned(),
+                    shape: offer.shape.clone(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -327,11 +432,55 @@ impl Replay {
                 );
                 Ok(Message::new(*role, filled))
             }
-            // What the model said, going back in as its own turn. The reasoning
-            // is not carried: it was never sent back, and a rebuild that added
-            // it would produce an assembly the backend never saw.
-            Body::Completion { text, .. } => Ok(Message::new(Role::Assistant, text.clone())),
+            // What the model said, going back in as its own turn, with the
+            // calls it asked for on it. The reasoning is not carried: it was
+            // never sent back, and a rebuild that added it would produce an
+            // assembly the backend never saw.
+            Body::Completion { text, .. } => Ok(Message::calling(text.clone(), self.calls(seq))),
+            Body::Result { call, text, .. } => {
+                Ok(Message::result(self.call_id(*call)?, text.clone()))
+            }
+            Body::Refusal { call, hash, values } => {
+                let wording = self.wording(hash, seq)?;
+                let filled = demido_prompts::fill(
+                    wording,
+                    &values
+                        .iter()
+                        .map(|filling| (filling.name.as_str(), filling.value.as_str()))
+                        .collect::<Vec<_>>(),
+                );
+                Ok(Message::result(self.call_id(*call)?, filled))
+            }
             _ => Err(Error::NotABlock { seq }),
+        }
+    }
+
+    /// The calls the answer at `completion` asked for, in the order written.
+    fn calls(&self, completion: u64) -> Vec<ToolCall> {
+        self.events
+            .iter()
+            .filter_map(|event| match &event.body {
+                Body::Call {
+                    completion: of,
+                    id,
+                    name,
+                    arguments,
+                } if *of == completion => Some(ToolCall {
+                    id: id.clone(),
+                    name: name.clone(),
+                    arguments: arguments.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The id the backend gave the call at `call`, which is what a result is
+    /// tied to on the wire.
+    fn call_id(&self, call: u64) -> Result<&str> {
+        match &self.at(call)?.body {
+            Body::Call { id, .. } => Ok(id),
+            _ => Err(Error::NotABlock { seq: call }),
         }
     }
 

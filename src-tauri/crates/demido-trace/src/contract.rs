@@ -103,6 +103,10 @@ fn what_went_in_comes_back_unchanged<J: Journal>(open: &impl Fn(&str) -> J) {
             tools: vec![crate::event::Offer {
                 name: "read_file".into(),
                 hash: "sha256:1".into(),
+                shape: serde_json::json!({
+                    "type": "object",
+                    "properties": { "path": { "type": "string" } },
+                }),
             }],
             layer: crate::event::Layer::Registry,
         },
@@ -126,6 +130,27 @@ fn what_went_in_comes_back_unchanged<J: Journal>(open: &impl Fn(&str) -> J) {
         Body::Assembly {
             parameters: 4,
             blocks: vec![2, 3],
+            tools: Some(3),
+        },
+        Body::Call {
+            completion: 7,
+            id: "call-1".into(),
+            name: "read_file".into(),
+            arguments: "{\"path\": \"a b.txt\"}".into(),
+        },
+        Body::Decided {
+            call: 8,
+            decision: crate::event::Decision::Always,
+        },
+        Body::Result {
+            call: 8,
+            text: "1: line one\n2: \"two\"\n".into(),
+            failed: true,
+        },
+        Body::Refusal {
+            call: 8,
+            hash: "sha256:2".into(),
+            values: vec![crate::event::Filling::new("tool", "write_file")],
         },
         Body::Completion {
             text: "Paris.".into(),

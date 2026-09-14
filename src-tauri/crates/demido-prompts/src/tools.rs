@@ -161,6 +161,40 @@ pub fn sections(text: &str) -> Sections<'_> {
     }
 }
 
+/// A schema's shape with a document's parameter prose on it.
+///
+/// Prose is added to a property the shape already declares and to nothing
+/// else. A document that gives prose to a property the tool does not take adds
+/// no property, whoever wrote the file, because the shape is a contract with
+/// the parser and the document is not a party to it.
+///
+/// Here rather than beside the tools because two crates have to merge it the
+/// same way: the registry when it offers a tool, and the session log when it
+/// rebuilds what was offered out of the shape and the wording it recorded. Two
+/// copies of this function would be two answers to what a model was shown.
+pub fn describe(mut shape: serde_json::Value, text: &str) -> serde_json::Value {
+    let prose = sections(text).parameters;
+    let Some(properties) = shape
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return shape;
+    };
+    for (name, declared) in properties.iter_mut() {
+        let (Some((_, prose)), Some(declared)) = (
+            prose.iter().find(|(given, _)| given == name),
+            declared.as_object_mut(),
+        ) else {
+            continue;
+        };
+        declared.insert(
+            "description".to_owned(),
+            serde_json::Value::String((*prose).to_owned()),
+        );
+    }
+    shape
+}
+
 /// The parameter a line opens a section for, if it is a heading.
 fn heading(line: &str) -> Option<&str> {
     let name = line.trim_end().strip_prefix("## ")?;
@@ -203,6 +237,11 @@ impl Document {
             .into_iter()
             .find(|(given, _)| *given == name)
             .map(|(_, prose)| prose)
+    }
+
+    /// `shape` with this document's parameter prose on it. See [`describe`].
+    pub fn describe(&self, shape: serde_json::Value) -> serde_json::Value {
+        describe(shape, &self.text)
     }
 }
 

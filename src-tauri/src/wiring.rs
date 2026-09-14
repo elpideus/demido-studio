@@ -19,11 +19,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use demido_chat::{Chat, Model};
+use demido_chat::{Chat, Model, Toolbox};
 use demido_inference::{LlamaCpp, LlamaCppConfig, Supervisor};
 use demido_runtimes::Runtimes;
 use demido_settings::Settings;
 use demido_shell::{Debounced, Files};
+use demido_tools::Registry;
 
 use crate::setup::Setup;
 
@@ -271,6 +272,16 @@ impl Wiring {
                     .or_else(Rig::from_environment)
                     .map(Rig::model),
                 settings.clone(),
+                // The Files and Shell groups, over no workspace until one is
+                // set, which offers nothing: a model shown a tool that cannot
+                // succeed however it is called is worse than one never shown
+                // it. Opening the prompts directory creates nothing.
+                Toolbox::open(
+                    Registry::open(None)
+                        .with_group(demido_tools::files())
+                        .with_group(demido_tools::shell()),
+                    profile.join("prompts"),
+                ),
             ),
             settings,
             setup,

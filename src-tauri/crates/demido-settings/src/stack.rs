@@ -328,6 +328,13 @@ impl Resolved {
         u32::try_from(self.count_of(id::CONTEXT_LENGTH).unwrap_or_default()).unwrap_or(u32::MAX)
     }
 
+    /// How many rounds of tool calls one message may take.
+    #[must_use]
+    pub fn step_limit(&self) -> u32 {
+        // Never nothing, for the reason the context length is never nothing.
+        u32::try_from(self.count_of(id::STEP_LIMIT).unwrap_or_default()).unwrap_or(u32::MAX)
+    }
+
     /// Who the model is being, or the empty string where nobody has said.
     ///
     /// Empty rather than absent is the honest default: an empty system prompt

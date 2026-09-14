@@ -4,16 +4,22 @@
 //! cancellation token of whatever is generating right now. It holds no
 //! messages, and that absence is the design (see the crate docs).
 
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
 use serde::Serialize;
 
-use demido_inference::{Backend, Cancel, Chunk, FinishReason, Options, Role, Supervisor, Usage};
+use demido_inference::{
+    Backend, Cancel, Chunk, FinishReason, Options, Role, Supervisor, ToolCall, Usage,
+};
+use demido_permission::{Mode, Verdict};
+use demido_prompts::{catalog, id};
 use demido_settings::{Ladder, Resolved, Settings};
-use demido_trace::{Journal, Replay, Session, SessionId, Source};
+use demido_trace::{Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
 
 use crate::presence::Presence;
+use crate::toolbox::{Asking, Toolbox};
 use crate::update::Update;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -38,6 +44,18 @@ pub enum Error {
     #[error("the generation ended without saying how")]
     Unfinished,
 
+    /// The model asked for one more round of calls than the turn allows. Those
+    /// calls are answered as not run, so the next message can carry them, and
+    /// the turn ends here: a loop that has not answered in this many rounds is
+    /// the runaway the limit exists to end.
+    #[error("the turn used all {steps} of its tool steps without answering")]
+    StepLimit { steps: u32 },
+
+    /// A paragraph the loop tells the model something with is not in the
+    /// register. Only a build that dropped one can reach it.
+    #[error("the prompt register has no {0}")]
+    Unregistered(&'static str),
+
     #[error(transparent)]
     Journal(#[from] demido_trace::Error),
 
@@ -52,6 +70,8 @@ impl Error {
             Error::NotReady(_) => "not-ready",
             Error::Gone => "gone",
             Error::Unfinished => "unfinished",
+            Error::StepLimit { .. } => "step-limit",
+            Error::Unregistered(_) => "unregistered",
             Error::Journal(_) => "journal",
             Error::Backend(_) => "backend",
         }
@@ -197,7 +217,13 @@ pub struct Chat<B: Backend, J: Journal> {
     /// asked meant to ask, and a conversation is sequential anyway.
     turn: tokio::sync::Mutex<()>,
     /// The generation in flight, so a stop can reach it. `None` between turns.
+    ///
+    /// One token for the whole turn rather than one per generation, so a stop
+    /// reaches whatever the turn is doing: generating, waiting on a person, or
+    /// running a command.
     running: Mutex<Option<Cancel>>,
+    /// What this conversation offers, and the mode its calls are ruled under.
+    tools: Toolbox,
 }
 
 impl<B: Backend, J: Journal> Chat<B, J> {
@@ -212,6 +238,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         supervisor: Arc<Supervisor<B>>,
         model: Option<Model<B>>,
         settings: Arc<Settings>,
+        tools: Toolbox,
     ) -> Self {
         let id = id.into();
         let ladder = Ladder::for_chat(id.to_string());
@@ -226,6 +253,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             presence: Mutex::new(Presence::Absent),
             turn: tokio::sync::Mutex::new(()),
             running: Mutex::new(None),
+            tools,
         }
     }
 
@@ -354,17 +382,33 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         })
     }
 
-    /// Compose a turn, send it, and record what came back.
+    /// Compose a turn, send it, and record what came back, stepping through
+    /// every call the model asks for on the way.
     ///
     /// `sink` is handed every token as it arrives. A callback rather than a
     /// stream because the caller is a Tauri command emitting an event, and
     /// handing it a stream would mean it had to drive one.
     ///
+    /// `approve` is asked about a call the matrix will not run on its own, and
+    /// answers allow, deny or always. A callback rather than a trait: the
+    /// window is the one real implementation, and [`Asking`] is the interface a
+    /// trait would have if a second genuine one ever appears. A stop does not
+    /// wait for it.
+    ///
     /// The order is fixed and it is the reason this function exists: the
     /// assembly is recorded, then sent, then the answer is recorded against it.
     /// A caller cannot send an assembly it did not record, because the assembly
-    /// is what recording produced.
-    pub async fn ask(&self, said: &str, mut sink: impl FnMut(Update) + Send) -> Result<Answer> {
+    /// is what recording produced. A step is the same: what came back from the
+    /// calls is recorded, and the next request is what recording it produced.
+    pub async fn ask<F>(
+        &self,
+        said: &str,
+        mut sink: impl FnMut(Update) + Send,
+        mut approve: impl FnMut(Asking) -> F + Send,
+    ) -> Result<Answer>
+    where
+        F: Future<Output = Decision> + Send,
+    {
         let _turn = self.turn.lock().await;
         let model = self.answering()?;
         let backend = match self.supervisor.current().await {
@@ -382,6 +426,14 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // ladder. Two reads could straddle a change made from the settings page
         // mid turn, and the log would then describe a turn nobody sent.
         let resolved = self.resolved();
+        // The same for the register: one reading of what is on offer, so the
+        // tools the log names and the tools the request carries are one list.
+        let offered: Vec<(demido_prompts::Document, serde_json::Value)> = self
+            .tools
+            .offered()
+            .into_iter()
+            .map(|spec| (spec.document, spec.shape))
+            .collect();
 
         // Everything up to the send is recording, and it happens under the
         // session lock. Nothing is awaited while it is held.
@@ -401,19 +453,31 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             }
             // History reaches the model as positions on the log rather than as
             // copies, so a long conversation does not grow the log as the
-            // square of itself. This is the line that makes a second message a
-            // conversation rather than a second first question.
-            for exchange in earlier.history() {
-                turn.carry(exchange.seq);
+            // square of itself. It carries the calls and what came back from
+            // them too, so a model is not made to call again for what it
+            // already has.
+            for seq in earlier.conversation() {
+                turn.carry(seq);
             }
             turn.user(said)?;
+            turn.offer(Layer::Registry, &offered)?;
             turn.parameters(&model, options(&resolved))?;
             Ok(turn.send()?)
         })?;
+        let number = sent.turn;
 
         let cancel = Cancel::new();
         self.arm(Some(cancel.clone()));
-        let outcome = self.stream(&backend, &sent, cancel, &mut sink).await;
+        let outcome = self
+            .steps(
+                &backend,
+                sent,
+                &cancel,
+                &mut sink,
+                &mut approve,
+                resolved.step_limit(),
+            )
+            .await;
         self.arm(None);
 
         match outcome {
@@ -437,7 +501,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 // failed, recording that it failed fails too, and returning the
                 // second error would replace the one that says what happened.
                 if let Err(unrecorded) = self.with_session(|session| {
-                    session.failed(sent.turn, error.kind(), &detail)?;
+                    session.failed(number, error.kind(), &detail)?;
                     Ok(())
                 }) {
                     tracing::warn!(%unrecorded, "the failure was not recorded");
@@ -450,7 +514,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     self.failed(detail.clone());
                 }
                 sink(Update::Failed {
-                    turn: sent.turn,
+                    turn: number,
                     detail,
                 });
                 Err(error)
@@ -486,18 +550,227 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         self.report(Presence::Absent, &mut |_: &Presence| {});
     }
 
-    /// Read the stream, telling the window as it goes, and record the answer.
+    /// Run a turn to its end.
+    ///
+    /// Generate; if the model asked for calls, answer every one of them and
+    /// send the turn again carrying the answers; stop when it answers without
+    /// calling, when a stop lands, or when the step limit is reached.
+    ///
+    /// **The limit is the ladder's and never the mode's.** The mode is handed to
+    /// the matrix per call and read by nothing else here
+    /// (`docs/rules/tools.md`: the mode gates permissions and nothing else).
+    async fn steps<F>(
+        &self,
+        backend: &B,
+        mut sent: Sent,
+        cancel: &Cancel,
+        sink: &mut (impl FnMut(Update) + Send),
+        approve: &mut (impl FnMut(Asking) -> F + Send),
+        limit: u32,
+    ) -> Result<Answer>
+    where
+        F: Future<Output = Decision> + Send,
+    {
+        let mode = self.tools.mode();
+        // Standing answers are read off the log, so an *always* given on an
+        // earlier message still holds on this one.
+        let mut always =
+            self.with_session(|session| Ok(Replay::of(session.journal())?.always()))?;
+        let mut declined: Vec<(String, serde_json::Value)> = Vec::new();
+        let mut taken = 0u32;
+
+        loop {
+            let Generation { answer, calls } =
+                self.stream(backend, &sent, cancel.clone(), sink).await?;
+
+            // A stop while the model was still producing: what it said is kept,
+            // and a call that had already arrived is answered as stopped
+            // rather than run, so the next message can carry it.
+            if answer.reason == FinishReason::Cancelled {
+                self.refuse_all(answer.turn, &calls, id::TOOLS_STOPPED, &[])?;
+                return Ok(answer);
+            }
+            if calls.is_empty() {
+                return Ok(answer);
+            }
+            if taken == limit {
+                let steps = limit.to_string();
+                self.refuse_all(
+                    answer.turn,
+                    &calls,
+                    id::TOOLS_LIMIT,
+                    &[(catalog::STEPS, &steps)],
+                )?;
+                return Err(Error::StepLimit { steps: limit });
+            }
+
+            let mut blocks = vec![answer.seq];
+            for (at, (seq, call)) in calls.iter().enumerate() {
+                let ruling = Ruling {
+                    mode: &mode,
+                    always: &mut always,
+                    declined: &mut declined,
+                };
+                match self
+                    .dispatch(answer.turn, *seq, call, ruling, cancel, approve)
+                    .await?
+                {
+                    Some(block) => blocks.push(block),
+                    // Stopped while this call waited or ran. It and every call
+                    // after it are answered as stopped, and nothing else runs.
+                    None => {
+                        self.refuse_all(answer.turn, &calls[at..], id::TOOLS_STOPPED, &[])?;
+                        return Ok(Answer {
+                            reason: FinishReason::Cancelled,
+                            ..answer
+                        });
+                    }
+                }
+            }
+
+            taken += 1;
+            sent = self.with_session(|session| Ok(session.step(&sent, &blocks)?))?;
+        }
+    }
+
+    /// Answer one call: run it, or record why not. `None` when a stop landed
+    /// before it finished.
+    ///
+    /// The order is the matrix's to set out: a call that cannot be understood
+    /// is answered with why; one identical to a call the person just declined
+    /// is refused without asking again; the matrix rules on the rest, and the
+    /// person is asked only when it says to ask.
+    async fn dispatch<F>(
+        &self,
+        turn: u32,
+        seq: u64,
+        call: &ToolCall,
+        ruling: Ruling<'_>,
+        cancel: &Cancel,
+        approve: &mut (impl FnMut(Asking) -> F + Send),
+    ) -> Result<Option<u64>>
+    where
+        F: Future<Output = Decision> + Send,
+    {
+        let planned = match self.tools.registry().plan(&demido_tools::Call {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            arguments: call.arguments.clone(),
+        }) {
+            Ok(planned) => planned,
+            // Attempted and failed: a name that is not a tool, arguments that
+            // do not fit. The model has something to fix, and it is told what.
+            Err(failure) => return self.returned(turn, seq, &failure.message, true).map(Some),
+        };
+
+        // A planned call's arguments parsed, so this is never `Null` in
+        // practice. Compared as values, so the same call with its keys in a
+        // different order is the same call.
+        let arguments: serde_json::Value =
+            serde_json::from_str(&call.arguments).unwrap_or_default();
+        let this = (call.name.clone(), arguments);
+        let declined = [(catalog::TOOL, call.name.as_str())];
+
+        if ruling.declined.contains(&this) {
+            return self
+                .refuse(turn, seq, id::TOOLS_DENIED, &declined)
+                .map(Some);
+        }
+
+        if demido_permission::verdict(ruling.mode, planned.tool(), &planned.intent, ruling.always)
+            == Verdict::Ask
+        {
+            let asking = Asking {
+                turn,
+                call: seq,
+                id: call.id.clone(),
+                tool: call.name.clone(),
+                ability: planned.intent.ability,
+                summary: planned.intent.summary.clone(),
+                destructive: planned.intent.destructive,
+                arguments: this.1.clone(),
+            };
+            let decision = tokio::select! {
+                biased;
+                () = cancel.cancelled() => return Ok(None),
+                decision = approve(asking) => decision,
+            };
+            self.with_session(|session| Ok(session.decided(turn, seq, decision)?))?;
+
+            match decision {
+                Decision::Allow => {}
+                Decision::Always => {
+                    if !ruling.always.contains(&call.name) {
+                        ruling.always.push(call.name.clone());
+                    }
+                }
+                Decision::Deny => {
+                    ruling.declined.push(this);
+                    return self
+                        .refuse(turn, seq, id::TOOLS_DENIED, &declined)
+                        .map(Some);
+                }
+            }
+        }
+
+        // Dropping the call's future is what ends it, and for `run_command`
+        // that kills the whole process tree (`demido-tools`' `tree`).
+        let outcome = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Ok(None),
+            outcome = planned.run() => outcome,
+        };
+        match outcome {
+            Ok(text) => self.returned(turn, seq, &text, false),
+            Err(failure) => self.returned(turn, seq, &failure.message, true),
+        }
+        .map(Some)
+    }
+
+    fn returned(&self, turn: u32, call: u64, text: &str, failed: bool) -> Result<u64> {
+        self.with_session(|session| Ok(session.returned(turn, call, text, failed)?))
+    }
+
+    /// Tell the model, in a paragraph's wording, why the call at `call` did not
+    /// run.
+    fn refuse(
+        &self,
+        turn: u32,
+        call: u64,
+        id: &'static str,
+        values: &[(&str, &str)],
+    ) -> Result<u64> {
+        let prompt = self.tools.paragraph(id).ok_or(Error::Unregistered(id))?;
+        self.with_session(|session| Ok(session.refused(turn, call, &prompt, values)?))
+    }
+
+    fn refuse_all(
+        &self,
+        turn: u32,
+        calls: &[(u64, ToolCall)],
+        id: &'static str,
+        values: &[(&str, &str)],
+    ) -> Result<()> {
+        for (seq, _) in calls {
+            self.refuse(turn, *seq, id, values)?;
+        }
+        Ok(())
+    }
+
+    /// Read one generation, telling the window as it goes, and record the
+    /// answer and then each call it asked for.
     async fn stream(
         &self,
         backend: &B,
-        sent: &demido_trace::Sent,
+        sent: &Sent,
         cancel: Cancel,
         sink: &mut impl FnMut(Update),
-    ) -> Result<Answer> {
+    ) -> Result<Generation> {
         let mut stream = backend.generate(sent.request.clone(), cancel).await?;
 
         let mut text = String::new();
         let mut thinking = String::new();
+        let mut calls: Vec<ToolCall> = Vec::new();
         let mut finished: Option<(FinishReason, Usage)> = None;
 
         while let Some(chunk) = stream.next().await {
@@ -510,6 +783,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     thinking.push_str(&thought);
                     sink(Update::Thinking { text: thought });
                 }
+                Chunk::Call { call } => calls.push(call),
                 Chunk::Done { reason, usage } => finished = Some((reason, usage)),
             }
         }
@@ -518,17 +792,25 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             return Err(Error::Unfinished);
         };
 
-        let seq = self.with_session(|session| {
-            Ok(session.completed(sent, &text, &thinking, reason, usage)?)
+        let (seq, calls) = self.with_session(|session| {
+            let seq = session.completed(sent, &text, &thinking, reason, usage)?;
+            let calls = calls
+                .into_iter()
+                .map(|call| Ok((session.called(sent.turn, seq, &call)?, call)))
+                .collect::<Result<Vec<_>>>()?;
+            Ok((seq, calls))
         })?;
 
-        Ok(Answer {
-            turn: sent.turn,
-            seq,
-            text,
-            thinking,
-            reason,
-            usage,
+        Ok(Generation {
+            answer: Answer {
+                turn: sent.turn,
+                seq,
+                text,
+                thinking,
+                reason,
+                usage,
+            },
+            calls,
         })
     }
 
@@ -588,4 +870,20 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         *held = Some(session);
         outcome
     }
+}
+
+/// One generation, recorded: the answer, and each call it asked for with the
+/// call's position on the log.
+struct Generation {
+    answer: Answer,
+    calls: Vec<(u64, ToolCall)>,
+}
+
+/// What one turn rules on its calls with: the mode, and what the person has
+/// already said this turn and before it.
+struct Ruling<'a> {
+    mode: &'a Mode,
+    always: &'a mut Vec<String>,
+    /// Calls the person declined this turn, by name and arguments.
+    declined: &'a mut Vec<(String, serde_json::Value)>,
 }

@@ -37,4 +37,4 @@ pub use catalog::{
     fill, id, paragraph, placeholders_in, Dependant, Dependency, Paragraph, CATALOG,
 };
 pub use register::{Error, Origin, Paragraphs, Prompt, Result};
-pub use tools::{sections, tool, Document, Sections, ToolEntry, Tools, TOOLS};
+pub use tools::{describe, sections, tool, Document, Sections, ToolEntry, Tools, TOOLS};

@@ -94,11 +94,11 @@ touching it.
 it to, and a running program can then reach whatever the user can. That is the
 whole reason it is `Shell` and the cautious modes ask.
 
-**A command that ran failed by its exit status, never by stderr.** There is no
-tool-result record in v3 yet
-([#54](https://github.com/elpideus/demido-studio/issues/54),
-[#55](https://github.com/elpideus/demido-studio/issues/55)), so the field is the
-`Outcome` itself: a command that exits non-zero, or is killed at its deadline,
+**A command that ran failed by its exit status, never by stderr.** The field is
+the `Outcome` arm, and the turn loop
+([#54](https://github.com/elpideus/demido-studio/issues/54)) records a
+`tool/result` whose `failed` is exactly that arm and nothing else: a command
+that exits non-zero, or is killed at its deadline,
 is `Err`, and one that exits zero is `Ok` however much it wrote to stderr, per
 [`lessons.md`](../../../docs/rules/lessons.md). A call refused before anything
 ran (no command, a `cwd` outside the workspace, `cmd.exe` not starting) is

@@ -169,6 +169,29 @@ pub struct Offer {
     /// The hash of the tool's document, description and parameter prose
     /// together. Its text is the `tool/version` recorded under it.
     pub hash: String,
+    /// The tool's JSON Schema with no prose on it: the half of what was offered
+    /// that is a contract with the parser rather than wording. The rebuild puts
+    /// the document's prose back on it ([`demido_prompts::describe`]), so the
+    /// wording is still held once per session rather than once per change.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub shape: serde_json::Value,
+}
+
+/// What the person said about one call they were asked about.
+///
+/// Three, and each is its own answer rather than a flag on another: the log has
+/// to say which of the three happened, because *always* changes what the next
+/// call is asked and the other two do not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Decision {
+    /// Run this one.
+    Allow,
+    /// Do not run it. The model is told, and gets to do something else.
+    Deny,
+    /// Run this one, and do not ask again about this tool in this chat. Never
+    /// covers a destructive call (`docs/rules/tools.md`).
+    Always,
 }
 
 /// What decided the offered set, so the monitor can tell a deliberate absence
@@ -263,8 +286,18 @@ pub enum Body {
     /// dropped from the next turn's assembly is an eviction, and the two
     /// `blocks` lists are the diff `design/windows.md` renders. See
     /// `docs/decisions/0009-an-assembly-refers-to-its-blocks.md`.
+    ///
+    /// `tools` is the `tools/offered` event in force when it was sent, named
+    /// the way `parameters` names its parameter set, so the tools a request
+    /// carried are rebuilt from the set it was sent with rather than from
+    /// whichever set happens to come before it. `None` offered nothing.
     #[serde(rename = "turn/assembly")]
-    Assembly { parameters: u64, blocks: Vec<u64> },
+    Assembly {
+        parameters: u64,
+        blocks: Vec<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tools: Option<u64>,
+    },
 
     /// What came back.
     #[serde(rename = "turn/completion")]
@@ -277,6 +310,53 @@ pub enum Body {
         thinking: String,
         reason: FinishReason,
         usage: Usage,
+    },
+
+    /// One call the model asked for, as it asked.
+    ///
+    /// Its own event rather than a field on the completion, so a call and its
+    /// result are two lines each with a source and a weight. `completion` is
+    /// the answer that asked for it, which is where the rebuild puts it back:
+    /// on that assistant message, in the order the calls were written.
+    #[serde(rename = "tool/call")]
+    Call {
+        completion: u64,
+        id: String,
+        name: String,
+        /// The model's own text, whether or not it parses.
+        arguments: String,
+    },
+
+    /// The person was asked about a call, and answered. `call` is the call's
+    /// event. A call nobody was asked about has none of these.
+    #[serde(rename = "tool/decision")]
+    Decided { call: u64, decision: Decision },
+
+    /// What came back from a call that was attempted, verbatim.
+    ///
+    /// `failed` is the tool's own outcome: a command that exited non-zero, a
+    /// path that was refused, a call that named no tool. Never a non-empty
+    /// stderr (`docs/rules/lessons.md`), and never a denial, which is a
+    /// [`Body::Refusal`] because nothing was attempted.
+    #[serde(rename = "tool/result")]
+    Result {
+        call: u64,
+        text: String,
+        failed: bool,
+    },
+
+    /// Demido's own answer to a call it did not run: declined, stopped, or past
+    /// the step limit.
+    ///
+    /// Recorded like a fragment, by the hash of the paragraph and what filled
+    /// it, because it is host prompt text the model reads and the rebuild fills
+    /// it again rather than copying it.
+    #[serde(rename = "tool/refusal")]
+    Refusal {
+        call: u64,
+        hash: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        values: Vec<Filling>,
     },
 
     /// Something failed. The turn it belongs to is on the event.

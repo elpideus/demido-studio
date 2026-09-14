@@ -68,7 +68,9 @@ as the estimated one.
 | `record` | `Session` and `Turn`. A turn records itself and `Turn::send` hands back the request to send, so nothing can send an assembly it did not record. |
 | | `Turn::carry` takes a **position**, never text, and resolves it from the log. Taking the text as well would be the one call left that could put words in the log's mouth, and it would look exactly like a correct one. |
 | | `Turn::offer` records the tools on offer as `tools/offered`, a name and a hash per tool and the `Layer` that decided the set, only when the set changes. Each tool's document is a `tool/version`, once per session per hash, the rule `prompt/version` keeps ([#52](https://github.com/elpideus/demido-studio/issues/52)). |
-| `replay` | `Replay`. History, the rebuild, the per-turn occupancy and the per-source ledger, all over the same events. `Replay::offered` is the set in force at any event, in the wording it was offered in, so an edit made later cannot rewrite the record of an earlier reply. |
+| | A tool call is its own events ([#54](https://github.com/elpideus/demido-studio/issues/54)): `tool/call` names the completion that asked for it, `tool/decision` is the person's allow, deny or always, `tool/result` is what came back verbatim with `failed`, and `tool/refusal` is Demido's answer to a call it did not run, recorded by paragraph hash and values like a fragment. `Session::step` sends the same turn again carrying a step's blocks, so a turn that used a tool has one assembly per step. |
+| | The shape of each offered tool (its schema with no prose) is on `tools/offered` beside the hash, and an assembly names the offered set it was sent with, so `request.tools` rebuilds too. |
+| `replay` | `Replay`. History, the rebuild, the per-turn occupancy and the per-source ledger, all over the same events. `Replay::offered` is the set in force at any event, in the wording it was offered in, so an edit made later cannot rewrite the record of an earlier reply. `Replay::request(seq)` rebuilds any one assembly, and `Replay::assembly(turn)` is a turn's last. `Replay::conversation` is what a later turn carries: `history` plus the calls and what came back for them. |
 
 An assembly refers to its blocks **by sequence number** rather than copying
 them, which is what keeps a forty turn session from holding forty copies of its
@@ -95,10 +97,12 @@ data ahead of its screen on purpose
 derived from the log and so the log cannot wait for the window that inspects it.
 The monitor is [#57](https://github.com/elpideus/demido-studio/issues/57).
 
-**Anything a later slice will record.** Tool calls, approvals, artifacts and
-sub-agent scheduling are each a `Body` variant, a source that already exists, and
-a rebuild case. Declaring them now would be declaring a shape nothing can be
-held to, which is the same rule `demido-inference` applies to its own `Chunk`.
+**Anything a later slice will record.** Artifacts and sub-agent scheduling are
+each a `Body` variant, a source that already exists, and a rebuild case, added
+the way tool calls were on
+[#54](https://github.com/elpideus/demido-studio/issues/54). Declaring them now
+would be declaring a shape nothing can be held to, which is the same rule
+`demido-inference` applies to its own `Chunk`.
 
 ## The tests
 

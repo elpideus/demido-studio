@@ -65,11 +65,16 @@ pub struct Call {
 /// ([`0008`](../../../../docs/decisions/0008-a-tool-description-is-a-prompt.md)),
 /// and `document` is kept beside them so that what is recorded as offered is the
 /// name and the hash of exactly the wording that was merged.
+///
+/// `shape` is the same schema with no prose on it, which is the half the
+/// session log records beside the hash: the wording is already there once per
+/// session, and the rebuild merges the two exactly as `parameters` was merged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spec {
     pub name: String,
     pub description: String,
     pub parameters: Value,
+    pub shape: Value,
     pub document: Document,
 }
 
@@ -164,10 +169,12 @@ impl Registry {
             .into_iter()
             .filter_map(|tool| {
                 let document = documents.get(tool.name())?;
+                let shape = tool.parameters();
                 Some(Spec {
                     name: tool.name().to_owned(),
                     description: document.description().to_owned(),
-                    parameters: described(tool.parameters(), &document),
+                    parameters: document.describe(shape.clone()),
+                    shape,
                     document,
                 })
             })
@@ -314,26 +321,6 @@ impl std::fmt::Debug for Planned<'_> {
             .field("intent", &self.intent)
             .finish()
     }
-}
-
-/// A tool's shape with its document's parameter prose on it.
-///
-/// Prose is added to a property the shape already declares and to nothing
-/// else. A document that gives prose to a property the tool does not take adds
-/// no property, whoever wrote the file, because the shape is a contract with
-/// the parser and the document is not a party to it.
-fn described(mut shape: Value, document: &Document) -> Value {
-    let Some(properties) = shape.get_mut("properties").and_then(Value::as_object_mut) else {
-        return shape;
-    };
-    for (name, declared) in properties.iter_mut() {
-        let (Some(prose), Some(declared)) = (document.parameter(name), declared.as_object_mut())
-        else {
-            continue;
-        };
-        declared.insert("description".to_owned(), Value::String(prose.to_owned()));
-    }
-    shape
 }
 
 /// A schema, said in one line, for a model that has just got it wrong.

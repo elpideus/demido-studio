@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 
 use crate::backend::{Backend, Cancel, Result};
-use crate::model::{Chunk, FinishReason, Message, Options, Request};
+use crate::model::{Chunk, FinishReason, Message, Options, Request, ToolCall, ToolSpec};
 
 /// How long a cancelled stream may take to end.
 ///
@@ -46,9 +46,52 @@ pub fn simple_request(model: &str) -> Request {
             Message::system("You are terse."),
             Message::user("Say hello."),
         ],
+        tools: Vec::new(),
         options: Options {
             temperature: Some(0.0),
             max_tokens: Some(32),
+            seed: Some(1),
+        },
+    }
+}
+
+/// A request that offers a tool and carries a call already made and answered.
+///
+/// What a turn loop sends on its second step, and so the shape a backend has to
+/// accept: a tool on offer, an assistant message carrying a call, and a tool
+/// message answering it by id. Whether the model then calls again or answers is
+/// its business, and the case below asserts on neither.
+pub fn calling_request(model: &str) -> Request {
+    // not-a-prompt: the suite's own probe, sent by a test and never by a turn.
+    let question = "What does notes.txt say?";
+    Request {
+        model: model.to_owned(),
+        messages: vec![
+            Message::system("You are terse."),
+            Message::user(question),
+            Message::calling(
+                "",
+                vec![ToolCall {
+                    id: "call-1".into(),
+                    name: "read_file".into(),
+                    arguments: r#"{"path": "notes.txt"}"#.into(),
+                }],
+            ),
+            Message::result("call-1", "1: The meeting moved to Thursday."),
+        ],
+        tools: vec![ToolSpec {
+            name: "read_file".into(),
+            description: "Read a file.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } },
+                "required": ["path"],
+                "additionalProperties": false,
+            }),
+        }],
+        options: Options {
+            temperature: Some(0.0),
+            max_tokens: Some(256),
             seed: Some(1),
         },
     }
@@ -72,6 +115,7 @@ pub async fn run<B: Backend>(config: B::Config, model: &str) {
     the_context_length_asked_for_is_the_one_the_slot_gets::<B>(config.clone()).await;
     a_stream_ends_with_exactly_one_done::<B>(config.clone(), model).await;
     nothing_follows_done::<B>(config.clone(), model).await;
+    a_call_arrives_whole_and_before_done::<B>(config.clone(), model).await;
     a_cancel_ends_the_stream_and_keeps_what_was_generated::<B>(config.clone(), model).await;
     a_cancelled_generation_does_not_end_the_backend::<B>(config.clone(), model).await;
     an_unknown_model_is_refused::<B>(config.clone()).await;
@@ -161,6 +205,43 @@ async fn nothing_follows_done<B: Backend>(config: B::Config, model: &str) {
         chunks.len() - 1,
         "Done is the last chunk, or a caller that stops reading at it loses output"
     );
+}
+
+/// A request carrying tools and an answered call is accepted, and whatever calls
+/// come back come back whole.
+///
+/// Three things a turn loop depends on and cannot check for itself: a call has
+/// an id to answer it by and a name to dispatch it by, every call is handed
+/// over before `Done`, and `Done` says `ToolCalls` exactly when there were
+/// calls, so a loop learns whether the turn is over from one chunk.
+async fn a_call_arrives_whole_and_before_done<B: Backend>(config: B::Config, model: &str) {
+    let backend = start::<B>(config).await;
+    let chunks = collect::<B>(&backend, calling_request(model), Cancel::new()).await;
+    backend.stop().await;
+
+    assert_well_formed(&chunks);
+    let calls: Vec<&ToolCall> = chunks
+        .iter()
+        .filter_map(|chunk| match chunk {
+            Ok(Chunk::Call { call }) => Some(call),
+            _ => None,
+        })
+        .collect();
+    for call in &calls {
+        assert!(
+            !call.id.is_empty() && !call.name.is_empty(),
+            "a call with no id cannot be answered and one with no name cannot be run: {call:?}"
+        );
+    }
+    match chunks.last() {
+        Some(Ok(Chunk::Done { reason, .. })) => assert_eq!(
+            *reason == FinishReason::ToolCalls,
+            !calls.is_empty(),
+            "Done says ToolCalls exactly when calls came back, and {} did",
+            calls.len()
+        ),
+        other => panic!("a request carrying a call was not answered: {other:?}"),
+    }
 }
 
 /// Cancelling is a person pressing stop, so two things are asserted: the stream

@@ -30,6 +30,10 @@ pub mod id {
     pub const SYSTEM_PROMPT: &str = "conversation.system_prompt";
     pub const TEMPERATURE: &str = "conversation.temperature";
     pub const CONTEXT_LENGTH: &str = "conversation.context_length";
+    /// How many times one message may send the model back to its tools. Not
+    /// the mode's to decide: `docs/rules/tools.md` keeps the mode to
+    /// permissions and nothing else.
+    pub const STEP_LIMIT: &str = "tools.step_limit";
 }
 
 /// One setting: what it is called, what it means, and what it will accept.
@@ -159,6 +163,21 @@ pub static SCHEMA: &[Setting] = &[
             max: 262_144,
         },
         reloads: true,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above.
+    Setting {
+        id: id::STEP_LIMIT,
+        section: "Tools",
+        title: "Steps per message",
+        summary: "How many rounds of tool calls one message may take before the model has to stop.",
+        // v2's default, and a whole number rather than off: a loop with no
+        // ceiling is the runaway this setting exists to end.
+        kind: Kind::Count {
+            default: 8,
+            min: 1,
+            max: 100,
+        },
+        reloads: false,
     },
 ];
 
