@@ -38,6 +38,11 @@ delete them, and there is nothing to remember to filter at a call site.
   managed row either. `Outcome::Refused` is how the caller hears about it: a
   refusal is an ordinary answer, not an `Err`, and returning `Ok(())` for it
   would make "it arrived and does not work" look like "it is ready".
+- **A retry costs the rest, never all of it.** `Runtimes::fetch_row` fetches
+  every archive of a row before it unpacks any, because a finished zip on disk
+  is what `fetch` takes to mean "already here". Section 2's "a failed fetch is
+  not a reinstall" holds for the archives that arrived, not only for the one
+  that was cut off.
 - **A linked row is verified when it is pointed at**, by the same command a
   fetch runs, which is section 10 and section 2 being the same rule.
 - **Everything deleted goes through `Runtimes::inside`.** `runtimes.json` is a
