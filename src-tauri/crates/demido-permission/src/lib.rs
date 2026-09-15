@@ -148,7 +148,7 @@ impl Mode {
     /// first, so a smaller number is a stricter mode. A mode always points into
     /// `ROWS`, and a mode that somehow did not would be read as the strictest
     /// row, which is the safe direction.
-    fn strictness(&self) -> usize {
+    fn strictness(self) -> usize {
         ROWS.iter()
             .position(|row| std::ptr::eq(row, self.0))
             .unwrap_or(0)

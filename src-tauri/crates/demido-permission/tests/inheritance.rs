@@ -90,41 +90,63 @@ const REQUESTED_MODES: [&str; 8] = [
     "yolo",
 ];
 
-#[test]
-fn every_parent_set_against_every_requested_set() {
-    for parent_set in sets() {
-        let parent = Resolution::root(parent_set.clone(), Mode::named("autonomous"), 3);
-        for requested in sets() {
-            let child = inherit(
-                &parent,
-                &Request::inheriting().narrowed_to(requested.clone()),
-            );
+/// The levels of a chain the tables below are run at. The brief's own example
+/// is a chain of three, and the rule is asserted at every one of them rather
+/// than once at the top, because that is where it is called.
+const LEVELS: [u32; 3] = [1, 2, 3];
 
-            let expected: Vec<String> = parent_set
-                .iter()
-                .filter(|name| requested.contains(name))
-                .cloned()
-                .collect();
-            assert_eq!(
-                child.offered(),
-                expected,
-                "parent {parent_set:?} asked for {requested:?}"
-            );
+/// A parent that is `level` levels down a chain, holding `offered` at `mode`.
+///
+/// Every level above it asked for nothing, so the parent is the same parent at
+/// every depth and a table run over it is the same table. The root starts deep
+/// enough that each of [`LEVELS`] is a child of a parent that still had depth.
+fn at_level(level: u32, offered: Vec<String>, mode: Mode) -> Resolution {
+    let mut resolution = Resolution::root(offered, mode, LEVELS.len() as u32 + 1);
+    for _ in 0..level {
+        resolution = inherit(&resolution, &Request::inheriting());
+    }
+    resolution
+}
+
+#[test]
+fn every_parent_set_against_every_requested_set_at_every_depth() {
+    for level in LEVELS {
+        for parent_set in sets() {
+            let parent = at_level(level, parent_set.clone(), Mode::named("autonomous"));
+            for requested in sets() {
+                let child = inherit(
+                    &parent,
+                    &Request::inheriting().narrowed_to(requested.clone()),
+                );
+
+                let expected: Vec<String> = parent_set
+                    .iter()
+                    .filter(|name| requested.contains(name))
+                    .cloned()
+                    .collect();
+                assert_eq!(
+                    child.offered(),
+                    expected,
+                    "at depth {level}, parent {parent_set:?} asked for {requested:?}"
+                );
+            }
         }
     }
 }
 
 #[test]
-fn a_child_never_offers_what_its_parent_did_not() {
-    for parent_set in sets() {
-        let parent = Resolution::root(parent_set.clone(), Mode::default(), 3);
-        for requested in sets() {
-            let child = inherit(&parent, &Request::inheriting().narrowed_to(requested));
-            for name in child.offered() {
-                assert!(
-                    parent_set.contains(name),
-                    "{name} reached a child of {parent_set:?}"
-                );
+fn a_child_never_offers_what_its_parent_did_not_at_any_depth() {
+    for level in LEVELS {
+        for parent_set in sets() {
+            let parent = at_level(level, parent_set.clone(), Mode::default());
+            for requested in sets() {
+                let child = inherit(&parent, &Request::inheriting().narrowed_to(requested));
+                for name in child.offered() {
+                    assert!(
+                        parent_set.contains(name),
+                        "at depth {level}, {name} reached a child of {parent_set:?}"
+                    );
+                }
             }
         }
     }
@@ -142,8 +164,6 @@ fn a_request_naming_a_tool_the_parent_does_not_offer_is_a_child_without_it() {
     );
 
     assert_eq!(child.offered(), names(&["read_file"]));
-    assert!(!child.offers("run_command"));
-    assert!(child.offers("read_file"));
 }
 
 #[test]
@@ -170,22 +190,25 @@ fn a_child_that_asks_for_nothing_gets_its_parents_set() {
 }
 
 #[test]
-fn every_parent_mode_against_every_requested_mode() {
-    for parent_name in Mode::names() {
-        let parent = Resolution::root(names(&UNIVERSE), Mode::named(parent_name), 3);
-        for requested in REQUESTED_MODES {
-            let child = inherit(&parent, &Request::inheriting().at_mode(requested));
+fn every_parent_mode_against_every_requested_mode_at_every_depth() {
+    for level in LEVELS {
+        for parent_name in Mode::names() {
+            let parent = at_level(level, names(&UNIVERSE), Mode::named(parent_name));
+            for requested in REQUESTED_MODES {
+                let child = inherit(&parent, &Request::inheriting().at_mode(requested));
 
-            let stricter = if rank(requested) < rank(parent_name) {
-                requested
-            } else {
-                parent_name
-            };
-            assert_eq!(
-                row_of(&child),
-                row(&Mode::named(stricter)),
-                "{parent_name} delegating at {requested:?} did not run at {stricter}"
-            );
+                let stricter = if rank(requested) < rank(parent_name) {
+                    requested
+                } else {
+                    parent_name
+                };
+                assert_eq!(
+                    row_of(&child),
+                    row(&Mode::named(stricter)),
+                    "at depth {level}, {parent_name} delegating at {requested:?} \
+                     did not run at {stricter}"
+                );
+            }
         }
     }
 }

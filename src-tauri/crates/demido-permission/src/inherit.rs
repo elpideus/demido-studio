@@ -60,7 +60,13 @@ impl Resolution {
     /// The conversation's own resolution: what the ladder resolved, and the
     /// delegation depth it resolved with.
     ///
-    /// The only way to make one that is not a child of another.
+    /// The only way to make one that is not a child of another, and it is the
+    /// **main session's** alone. Minting a root for a sub-agent would hand it
+    /// an offered set and a depth nothing narrowed, which is the one route
+    /// round this module; it is reading the ladder where the parent should have
+    /// been read, and it is a review finding against whoever writes it, the
+    /// same way probing [`crate::verdict`] to learn the mode is. Below the top
+    /// there is [`inherit`] and nothing else.
     #[must_use]
     pub fn root(offered: Vec<String>, mode: Mode, depth: u32) -> Self {
         Self {
@@ -74,12 +80,6 @@ impl Resolution {
     #[must_use]
     pub fn offered(&self) -> &[String] {
         &self.offered
-    }
-
-    /// Whether a tool by this name is on offer here.
-    #[must_use]
-    pub fn offers(&self, name: &str) -> bool {
-        self.offered.iter().any(|offered| offered == name)
     }
 
     /// How many further levels of delegation may open below this one.

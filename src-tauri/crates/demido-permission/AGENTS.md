@@ -26,6 +26,8 @@ Three rules hold it up, each asserted in `tests/the_matrix.rs`:
 
 ## The second pure function: `inherit`
 
+Brief B19: "Configurable Agents & sub-agents system."
+
 `src/inherit.rs`, [#60](https://github.com/elpideus/demido-studio/issues/60). A
 parent's `Resolution` and a child's `Request` go in, the child's `Resolution`
 comes out, on three axes and no fourth:
@@ -40,7 +42,15 @@ parent does not offer produces a child without it, silently: an intersection has
 nowhere to put a name the parent did not have, so widening is unrepresentable
 rather than refused, and there is no path where it works because somebody forgot
 a check. `tests/inheritance.rs` is the table, every subset of three tools against
-every other and every mode name against every other, run down a chain of three.
+every other and every mode name against every other, run at depth 1, 2 and 3
+rather than once at the top.
+
+**The one route round it is `Resolution::root`**, which reads the ladder rather
+than a parent. It is the main session's, and minting one for a sub-agent is a
+review finding against whoever writes it, exactly as probing `verdict` to learn
+the mode is. Below the top there is `inherit` and nothing else: every field is
+private and there is no setter, so a resolution that exists was either resolved
+for the conversation or narrowed from one that was.
 
 **It carries no permission shape of its own.** `Resolution::verdict` is
 `verdict` with the child's mode in it, deciding about the same `Intent`, so a
