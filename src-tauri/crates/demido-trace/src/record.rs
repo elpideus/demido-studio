@@ -246,7 +246,7 @@ impl<J: Journal> Session<J> {
     /// the new assembly is recorded before it is handed back to send. `blocks`
     /// are positions this session already wrote, in the order the model should
     /// read them.
-    pub fn step(&self, sent: &Sent, blocks: &[u64], offering: Step) -> Result<Sent> {
+    pub fn step(&self, sent: &Sent, blocks: &[u64], offering: NextStep) -> Result<Sent> {
         let replay = Replay::of(&self.journal)?;
         let mut request = sent.request.clone();
         for seq in blocks {
@@ -256,8 +256,8 @@ impl<J: Journal> Session<J> {
         named.extend_from_slice(blocks);
 
         let offered = match offering {
-            Step::Offering => sent.offered,
-            Step::Withholding => {
+            NextStep::Offering => sent.offered,
+            NextStep::Withholding => {
                 request.tools.clear();
                 Some(self.withhold(sent.turn)?)
             }
@@ -383,16 +383,17 @@ fn held<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     lock.lock().unwrap_or_else(|held| held.into_inner())
 }
 
-/// Whether the next step of a turn still offers what the turn started with.
+/// What the next step of a turn is offered: the set the turn started with, or
+/// nothing.
 ///
-/// [`Step::Withholding`] is the turn loop's answer to a step that ran nothing:
-/// every call it made came back refused, so another step has the same options
-/// to be refused for, and the only useful thing left is an answer. Measured on
-/// [#59](https://github.com/elpideus/demido-studio/issues/59), where the
-/// development model handed a refusal made the identical call again in three
-/// runs out of ten, and in none of ten once the tools were withheld.
+/// [`NextStep::Withholding`] is the turn loop's answer to a model going round in
+/// a circle, and the turn loop is where the rule that decides it lives
+/// (`docs/rules/tools.md`). What is here is the recording: an empty set under
+/// [`Layer::Withheld`], so the rebuild of such a step is the assembly that step
+/// was really sent with and a reader can tell it from a picker with everything
+/// switched off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Step {
+pub enum NextStep {
     /// The set the turn was sent with, unchanged. Every ordinary step.
     Offering,
     /// Nothing, for this step and the rest of the turn.

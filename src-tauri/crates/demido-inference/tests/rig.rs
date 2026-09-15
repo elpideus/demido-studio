@@ -58,15 +58,6 @@ impl Tier {
     /// that has a breadth red to explain.
     pub const ALL: [Tier; 3] = [Tier::Development, Tier::Reference, Tier::Breadth];
 
-    /// Every tier there is, for a caller that has a label and wants the tier
-    /// back. Never a thing to loop a scenario over.
-    pub const EVERY: [Tier; 4] = [
-        Tier::Development,
-        Tier::Reference,
-        Tier::Breadth,
-        Tier::Secondary,
-    ];
-
     pub fn label(self) -> &'static str {
         match self {
             Tier::Development => "development",

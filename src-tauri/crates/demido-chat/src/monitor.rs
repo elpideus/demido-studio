@@ -69,8 +69,8 @@ pub enum Standing {
     /// installed will be another.
     Dropped,
     /// Demido took every tool away for the rest of this turn, because the step
-    /// before it ran nothing: every call it made came back refused
-    /// ([`demido_trace::Step::Withholding`]).
+    /// before it made a call the person had already declined and nothing else
+    /// (`docs/rules/tools.md`).
     ///
     /// The one absence with a reason that is neither the registry's nor the
     /// person's, which is exactly why it is not [`Standing::Nothing`]: somebody

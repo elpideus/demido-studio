@@ -265,21 +265,18 @@ async fn the_answer_is_one_event_rather_than_the_run_of_chunks_that_assembled_it
 /// The third road to an empty assembly, and the one a person cannot go and
 /// change.
 ///
-/// A step whose every call came back refused takes the tools away for the rest
-/// of the turn ([#59](https://github.com/elpideus/demido-studio/issues/59)), so
-/// a reader who selects the last step of such a turn finds no tools in it. That
-/// must not read as a picker with everything switched off and must not read as
-/// a registry with nowhere to act: it is Demido's own doing, and the monitor
-/// says so.
+/// A turn that only repeats a call the person already declined loses its tools
+/// ([#59](https://github.com/elpideus/demido-studio/issues/59)), so a reader who
+/// selects the last step of such a turn finds no tools in it. That must not read
+/// as a picker with everything switched off and must not read as a registry with
+/// nowhere to act: it is Demido's own doing, and the monitor says so.
 #[tokio::test]
-async fn a_group_demido_withheld_after_a_refused_step_is_drawn_as_withheld() {
+async fn a_group_demido_withheld_after_a_repeated_denial_is_drawn_as_withheld() {
+    let same = r#"{"path": "a.txt", "content": "a"}"#;
     let rig = Rig::running(
         Script::serving("scripted")
-            .then_call(
-                "call-1",
-                "write_file",
-                r#"{"path": "a.txt", "content": "a"}"#,
-            )
+            .then_call("call-1", "write_file", same)
+            .then_call("call-2", "write_file", same)
             .then_say(&["Not written, then."]),
     );
     let chat = rig.chat(true);
@@ -302,7 +299,11 @@ async fn a_group_demido_withheld_after_a_refused_step_is_drawn_as_withheld() {
         .into_iter()
         .filter(|event| matches!(event.body, Body::Assembly { .. }))
         .collect();
-    assert_eq!(assemblies.len(), 2, "one step, then the one after it");
+    assert_eq!(
+        assemblies.len(),
+        3,
+        "the denial, the repeat, and the step that lost its tools"
+    );
 
     let first = chat
         .assembly(assemblies[0].seq)
@@ -310,7 +311,7 @@ async fn a_group_demido_withheld_after_a_refused_step_is_drawn_as_withheld() {
         .expect("an assembly");
     assert_eq!(standing(&first, "files"), Standing::Offered);
 
-    let last = &assemblies[1];
+    let last = assemblies.last().expect("the turn stepped");
     let withheld = chat.assembly(last.seq).expect("read").expect("an assembly");
     assert_eq!(standing(&withheld, "files"), Standing::Withheld);
     assert_eq!(standing(&withheld, "shell"), Standing::Withheld);

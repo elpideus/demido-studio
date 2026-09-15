@@ -656,6 +656,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         let mut always = rules.always.clone();
         let mut declined: Vec<(String, serde_json::Value)> = Vec::new();
         let mut taken = 0u32;
+        let mut withheld = false;
 
         loop {
             let Generation { answer, calls } =
@@ -683,7 +684,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             }
 
             let mut blocks = vec![answer.seq];
-            let mut ran = false;
+            let mut attempts: Vec<Attempt> = Vec::new();
             for (at, (seq, call)) in calls.iter().enumerate() {
                 let ruling = Ruling {
                     registry: &rules.registry,
@@ -697,7 +698,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 {
                     Some(answered) => {
                         blocks.push(answered.block);
-                        ran |= answered.ran;
+                        attempts.push(answered.attempt);
                         // The call has an answer now, and the transcript draws
                         // one row for the pair. The window is told there is
                         // something to read, and reads the log for what.
@@ -716,25 +717,42 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             }
 
             taken += 1;
-            // **A step that ran nothing takes the tools away for the rest of
-            // the turn.** Every call it made came back refused: declined,
-            // declined again, or naming something the picker switched off.
-            // Another step with the same six tools in front of it has the same
-            // six to be refused for, and what the refusal asked for was an
-            // answer.
+            // **A step whose every call was a declined call it had already made
+            // takes the tools away for the rest of the turn.** It ran nothing,
+            // and what it ran nothing on was a question the person has now
+            // answered twice. Another step with the same tools in front of it
+            // has the same call to make a third time, and what the refusal
+            // asked for was an answer.
             //
             // It is guidance rather than a limit, and it is the first thing in
-            // this repo measured as such (#59). Told a declined call had been
-            // declined, the development model made the identical call again in
-            // three runs out of ten; with the tools withheld it did not in ten
-            // out of ten. The step limit still ends a runaway, and this is what
-            // keeps an ordinary refusal from being one.
+            // this repo put there by a measurement instead of by taste (#59).
+            // The step limit still ends a runaway; this is what keeps an
+            // ordinary refusal from becoming one.
             //
-            // Once withheld, withheld: `Sent::offered` carries the empty set
-            // forward, so a later step of the same turn does not put them back.
-            let offering = match ran {
-                true => demido_trace::Step::Offering,
-                false => demido_trace::Step::Withholding,
+            // **The first denial is deliberately left alone.** A model handed a
+            // refusal with its tools still in front of it is the whole of what
+            // `Bar: chose` claims, and a turn that stripped them at the first
+            // no would be measuring this rule rather than the model. It also
+            // has somewhere useful to go: a denied write is often followed by a
+            // read that answers the question anyway.
+            //
+            // **A tool the picker switched off is not a reason either.** That
+            // call was never among the options, so the options are not what
+            // went wrong, and taking away the groups a person left on because
+            // of a group they turned off is the opposite of what the picker is
+            // for (`docs/rules/tools.md`).
+            let withhold = !attempts.is_empty()
+                && attempts.iter().all(|attempt| *attempt != Attempt::Ran)
+                && attempts.contains(&Attempt::Repeated);
+            // Once withheld, withheld: the empty set is carried forward on
+            // `Sent::offered`, so a later step neither puts the tools back nor
+            // writes a second set saying the same thing.
+            let offering = match withhold && !withheld {
+                true => {
+                    withheld = true;
+                    demido_trace::NextStep::Withholding
+                }
+                false => demido_trace::NextStep::Offering,
             };
             sent = self.with_session(|session| Ok(session.step(&sent, &blocks, offering)?))?;
         }
@@ -773,7 +791,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     id::TOOLS_OFF,
                     &[(catalog::TOOL, call.name.as_str())],
                 )
-                .map(Answered::refused);
+                .map(Answered::declined);
         }
 
         let planned = match ruling.registry.plan(&demido_tools::Call {
@@ -801,16 +819,19 @@ impl<B: Backend, J: Journal> Chat<B, J> {
 
         // The same call a second time, which is a different situation from the
         // first and is told as one. Repeating the declined paragraph verbatim
-        // is what a model already ignoring it reads again, and #59 measured
-        // that: the development model made the identical write three times in
-        // one turn and stopped only at the step limit. This wording says the
-        // call has already been refused and names writing the reply as the next
-        // thing to do, which is the part a model in that loop has stopped
-        // having.
+        // is what a model already ignoring it reads again, and #59 saw that:
+        // the development model made the identical write three times in one
+        // turn. This wording says the call has already been refused and names
+        // writing the reply as the next thing to do.
+        //
+        // It is also the signal the step loop reads to decide that this turn
+        // has stopped getting anywhere. No measurement was taken against these
+        // words on their own, so the entry declares no dependants: what was
+        // measured is the withholding above it.
         if ruling.declined.contains(&this) {
             return self
                 .refuse(turn, seq, id::TOOLS_REPEATED, &declined)
-                .map(Answered::refused);
+                .map(Answered::repeated);
         }
 
         if demido_permission::verdict(ruling.mode, planned.tool(), &planned.intent, ruling.always)
@@ -852,7 +873,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     ruling.declined.push(this);
                     return self
                         .refuse(turn, seq, id::TOOLS_DENIED, &declined)
-                        .map(Answered::refused);
+                        .map(Answered::declined);
                 }
             }
         }
@@ -1077,30 +1098,54 @@ fn layer(origin: Origin) -> Layer {
     }
 }
 
-/// What became of one call: the block that answers it, and whether anything was
-/// actually attempted.
-///
-/// The second half is what decides whether the next step of the turn still has
-/// tools in it. A call the person declined, one they declined a moment ago, and
-/// one naming a tool they switched off all ran nothing, and none of the three is
-/// something the model can act on by calling again. A tool that failed, and a
-/// call whose arguments did not fit its schema, both ran in the sense that
-/// matters here: there is something to fix, and the next step is where it gets
-/// fixed.
+/// What became of one call: the block that answers it, and what kind of thing
+/// happened to it.
 #[derive(Debug, Clone, Copy)]
 struct Answered {
     /// Where the model's answer to this call is on the log.
     block: u64,
-    ran: bool,
+    attempt: Attempt,
+}
+
+/// The three things that can become of a call, as the turn loop needs to tell
+/// them apart.
+///
+/// They are three rather than two because the next step's tools depend on which
+/// one it was, and the three are not interchangeable: only [`Attempt::Repeated`]
+/// says the model is going round in a circle the tools are feeding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Attempt {
+    /// Something was tried. The tool ran, or it failed, or the arguments did
+    /// not fit its schema: either way there is a result, and if it is a bad one
+    /// there is something to fix by calling again.
+    Ran,
+    /// The person said no to this call, or the picker had the tool switched
+    /// off. Nothing ran, and the model has been told why, once.
+    Declined,
+    /// The same call the person declined earlier in this turn, made again.
+    Repeated,
 }
 
 impl Answered {
     fn ran(block: u64) -> Option<Self> {
-        Some(Self { block, ran: true })
+        Some(Self {
+            block,
+            attempt: Attempt::Ran,
+        })
     }
 
-    fn refused(block: u64) -> Option<Self> {
-        Some(Self { block, ran: false })
+    fn declined(block: u64) -> Option<Self> {
+        Some(Self {
+            block,
+            attempt: Attempt::Declined,
+        })
+    }
+
+    fn repeated(block: u64) -> Option<Self> {
+        Some(Self {
+            block,
+            attempt: Attempt::Repeated,
+        })
     }
 }
 

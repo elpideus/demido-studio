@@ -57,6 +57,10 @@
  * by calling a store's setter would prove the store works and nothing about the
  * desk.
  *
+ * Which is why the click on the approval row is there before the Enter: with
+ * focus in the composer, Enter is the field's and sends the message. That is the
+ * scoping rule working, not a driver quirk.
+ *
  * There are two windows now, the desk and the splash it opens ahead of
  * (`design/splash.md`), so a run says which one it means. `--window splash`
  * takes the splash; anything else is matched as a substring of the page URL;

@@ -593,21 +593,25 @@ async fn the_identical_call_after_a_denial_is_neither_run_nor_asked_again() {
         told.content, first.content,
         "a model that ignored a sentence once is handed the same sentence again"
     );
-    // And the step after the one that ran nothing has no tools in it at all.
+    // The first denial leaves the tools alone, and the repeat takes them away.
     assert!(
         !sent[0].tools.is_empty(),
         "the turn started with something to withhold"
     );
     assert!(
-        sent[1].tools.is_empty(),
-        "the first step ran nothing and the second was still offered {:?}",
-        sent[1]
+        !sent[1].tools.is_empty(),
+        "one denial took the tools away, and that is the step the model is \
+         supposed to be choosing something else in"
+    );
+    assert!(
+        sent[2].tools.is_empty(),
+        "the repeat left the tools in: {:?}",
+        sent[2]
             .tools
             .iter()
             .map(|tool| &tool.name)
             .collect::<Vec<_>>()
     );
-    assert!(sent[2].tools.is_empty(), "once withheld, withheld");
 
     let events = rig.events();
     assert_eq!(count(&events, results), 0);
@@ -667,9 +671,13 @@ async fn a_call_that_did_not_parse_keeps_the_tools_so_the_model_can_correct_it()
     );
 }
 
-/// A tool switched off is a refusal like a denial, and withholds the same way.
+/// A tool switched off is not a reason to take the others away.
+///
+/// The picker's whole point is saying "files but no shell", which no mode can
+/// express. A turn that answered a call to the switched-off group by removing
+/// the group the person left on would be undoing their choice for them.
 #[tokio::test]
-async fn a_call_to_a_switched_off_tool_withholds_the_rest_of_the_turn() {
+async fn a_call_to_a_switched_off_tool_leaves_the_groups_that_are_on() {
     let script = Script::serving("scripted")
         .then_call("call-1", "run_command", r#"{"command": "echo hi"}"#)
         .then_say(&["It is off, then."]);
@@ -687,9 +695,10 @@ async fn a_call_to_a_switched_off_tool_withholds_the_rest_of_the_turn() {
 
     let sent = rig.script.requests();
     assert_eq!(names(&sent[0]), ["read_file"]);
-    assert!(
-        sent[1].tools.is_empty(),
-        "a turn whose only call named a switched-off tool kept its tools"
+    assert_eq!(
+        names(&sent[1]),
+        ["read_file"],
+        "the group the person left on was taken away because of the one they          turned off"
     );
 }
 
