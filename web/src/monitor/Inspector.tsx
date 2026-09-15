@@ -39,10 +39,13 @@ const CHANGED: Record<Placed['change'], string> = {
 /**
  * The assembly as it stood at the selected event.
  *
- * The edit affordance `design/windows.md` puts on each block header is the
- * prompt editor's (#58), and Replay from here is what makes editing worth
- * doing; neither is in this slice, so neither is drawn. A button that could not
- * honour what it says is worse than one that is not there yet.
+ * The edit affordance `design/windows.md` puts on each block header would open
+ * the prompt editor, which is now a Settings page
+ * ([#58](https://github.com/elpideus/demido-studio/issues/58)); Replay from
+ * here is what makes editing worth doing, and it has nothing behind it yet.
+ * Neither is drawn, because a jump into a page from a block that names no
+ * paragraph is a button that cannot honour what it says, and the block that
+ * would name one is the assembly's, not this ticket's.
  */
 export function Assembled({ assembly }: { assembly: Assembly | null }) {
   if (!assembly) {

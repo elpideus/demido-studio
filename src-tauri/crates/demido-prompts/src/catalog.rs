@@ -124,7 +124,10 @@ const TREE_PLACEHOLDERS: &[&str] = &[ROOT, TREE];
 /// classifier wording, and the digest of it is recorded beside the corpus.
 // not-a-prompt: the sentence the editor renders above the field, never sent.
 const MEASURED_AGAINST_THE_LESSON_CORPUS: &[Dependant] = &[Dependant {
-    note: "A measurement in `evals/lessons/` was taken against this wording.",
+    // Plain prose, with no backticks around the path: the editor renders this
+    // sentence as text and nothing else consumes it, so markup in it reaches
+    // the one person who reads it as punctuation they have to ignore.
+    note: "A measurement in evals/lessons/ was taken against this wording.",
     kind: Dependency::Measured {
         pinned_in: "evals/lessons/AGENTS.md",
     },
@@ -378,6 +381,25 @@ mod tests {
                 "{} ends in what reads as a locale tag; a prompt is English, one text per id",
                 paragraph.id
             );
+        }
+    }
+
+    #[test]
+    fn an_entrys_dependants_do_not_repeat_a_sentence() {
+        // The sentence is a dependant's identity in the editor: it is the key
+        // the list is drawn with and what a suppressed one is matched by
+        // (`web/src/settings/Prompts.tsx`). Two dependants of one entry sharing
+        // a sentence would collapse into one row, and the person would be told
+        // one of the two things an edit costs them.
+        for paragraph in CATALOG {
+            let mut seen = std::collections::BTreeSet::new();
+            for dependant in paragraph.dependants {
+                assert!(
+                    seen.insert(dependant.note),
+                    "{} says the same thing twice",
+                    paragraph.id
+                );
+            }
         }
     }
 

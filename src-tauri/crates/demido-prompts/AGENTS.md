@@ -63,6 +63,21 @@ to what a model was shown.
 `register` decides what it says right now. Nobody else invents default text,
 builds a path into the prompts directory, or computes a version.
 
+The paragraph register's editor is those four verbs and nothing more:
+`src-tauri/src/prompts.rs` is three commands over them, and
+`web/src/settings/Prompts.tsx` is the page
+([#58](https://github.com/elpideus/demido-studio/issues/58)). It reaches the
+register through a second `Paragraphs` on the same directory rather than through
+the conversation, which is safe because the crate holds no state: the editor's
+handle and the turn loop's read the same files, and
+`an_edit_is_what_the_next_read_returns_with_no_invalidation_in_between` is the
+promise that makes that true. The tool register's editor is S3.
+
+`Error` converts into `demido_core::Error` at that boundary, so a window
+branches on a tag rather than on the wording of a sentence: an id this build
+does not have is `not-found`, and both of the things an edit can name that
+nothing would ever fill are `invalid`.
+
 `Tools::open(dir)` is the same four verbs over the tool register, keyed by tool
 name and stored under `tools/` in the same directory. `tools` holds both halves
 for it, the declaration and the handle, and shares `register`'s reading, writing
@@ -112,7 +127,10 @@ The brief says "All prompts should be editable", and `prompts.md` refused a
 read-only flag in writing. What an entry carries instead is its **dependants**,
 rendered above the field in the editor:
 
-> A measurement in `evals/lessons/` was taken against this wording.
+> A measurement in evals/lessons/ was taken against this wording.
+
+A `note` is plain prose with no markup in it, because the editor renders it as
+text and nothing else consumes it.
 
 `Dependency` has two kinds and only one of them has an entry today.
 `Measured` is the classifier's. `Shared` is the asking sentence's, which arrives

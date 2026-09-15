@@ -79,6 +79,10 @@ demido-chat.workspace = true
 demido-core.workspace = true
 demido-hardware.workspace = true
 demido-inference.workspace = true
+# The paragraph register, for the editor's three commands. The turn loop reaches
+# it through the conversation; Settings reaches it directly, over the same
+# directory (`src/wiring.rs`).
+demido-prompts.workspace = true
 demido-runtimes.workspace = true
 demido-settings.workspace = true
 demido-setup.workspace = true

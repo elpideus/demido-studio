@@ -755,6 +755,7 @@ dependencies = [
  "demido-core",
  "demido-hardware",
  "demido-inference",
+ "demido-prompts",
  "demido-runtimes",
  "demido-settings",
  "demido-setup",

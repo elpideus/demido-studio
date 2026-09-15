@@ -48,6 +48,30 @@ pub enum Error {
     Write(#[from] demido_core::Error),
 }
 
+/// What a refusal looks like once it has crossed the window boundary.
+///
+/// `demido_core`'s own note asks for exactly this: "a crate with a richer error
+/// of its own converts into one of these at the edge". The conversion lives
+/// here rather than in the command, so the editor and anything else that edits
+/// a prompt get the same tag for the same refusal.
+///
+/// Both refusals are `invalid` rather than anything softer, because that is the
+/// tag the window branches on to put a field back to what is saved: an edit
+/// naming a placeholder nothing fills was never written, and a page still
+/// showing it would claim a save that did not happen.
+impl From<Error> for demido_core::Error {
+    fn from(error: Error) -> Self {
+        match error {
+            Error::Unknown(id) => Self::not_found("prompt", id),
+            Error::Undeclared { ref id, .. } => Self::invalid(id.clone(), error.to_string()),
+            Error::UnknownParameter { ref tool, .. } => {
+                Self::invalid(tool.clone(), error.to_string())
+            }
+            Error::Write(write) => write,
+        }
+    }
+}
+
 /// Where a prompt's text came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -72,6 +96,15 @@ pub struct Prompt {
     /// is what makes "which version of this prompt produced that reply" a
     /// question with an answer.
     pub hash: String,
+    /// The same, for the wording this build ships.
+    ///
+    /// Not a second identity for this entry: `docs/rules/prompts.md` refuses
+    /// one, and this is the identity of the *other* text, the one a reset would
+    /// restore. It is here because it is half of the comparison [`Self::note`]
+    /// is written from, and an editor that had the note but not the comparison
+    /// would have to read a sentence to find out whether to draw a diff. Equal
+    /// to [`Self::hash`] whenever nobody has edited the entry.
+    pub shipped: String,
     /// For an edit, the hash of the built-in wording it was made from.
     ///
     /// Recorded because a later build improving a default is otherwise
@@ -205,6 +238,7 @@ impl Paragraphs {
             text,
             origin,
             hash,
+            shipped,
             base,
             note,
         } = stored(
@@ -219,6 +253,7 @@ impl Paragraphs {
             text,
             origin,
             hash,
+            shipped,
             base,
             note,
         }
@@ -235,6 +270,7 @@ pub(crate) struct Stored {
     pub text: String,
     pub origin: Origin,
     pub hash: String,
+    pub shipped: String,
     pub base: Option<String>,
     pub note: Option<String>,
 }
@@ -274,11 +310,13 @@ pub(crate) fn stored(path: &Path, base_path: &Path, shipped: &str) -> Stored {
             .filter(|base| !base.is_empty()),
     };
 
+    let shipped = digest(&built_in);
+
     // The built-in wording has moved on since this edit was made. Said
     // once, as a note, with the editor's diff and reset behind it.
     // not-a-prompt: shown to the person who made the edit, never sent.
     if let Some(base) = &base {
-        if base != &digest(&built_in) && note.is_none() {
+        if base != &shipped && note.is_none() {
             note = Some(
                 "This was edited from an earlier version of the built-in text, which has since changed. Reset to take the new wording, or keep this one."
                     .to_owned(),
@@ -290,6 +328,7 @@ pub(crate) fn stored(path: &Path, base_path: &Path, shipped: &str) -> Stored {
         hash: digest(&text),
         text,
         origin,
+        shipped,
         base,
         note,
     }
@@ -498,6 +537,26 @@ mod tests {
     }
 
     #[test]
+    fn an_entry_carries_the_identity_of_the_wording_a_reset_would_restore() {
+        // What the editor compares `base` against to decide whether to draw a
+        // diff. Reading that off the note instead would make the diff depend on
+        // a sentence, and the note is also where an unreadable edit is
+        // reported.
+        let (_dir, paragraphs) = open();
+        let shipped = paragraphs.get(id::CAVEMAN_FULL).unwrap();
+        assert_eq!(shipped.shipped, shipped.hash, "nobody has edited it");
+
+        let edited = paragraphs.set(id::CAVEMAN_FULL, "grunt").unwrap();
+        assert_ne!(edited.hash, edited.shipped);
+        assert_eq!(edited.shipped, shipped.hash);
+        assert_eq!(
+            edited.base.as_deref(),
+            Some(edited.shipped.as_str()),
+            "made from the wording this build still ships, so nothing has moved"
+        );
+    }
+
+    #[test]
     fn an_edit_made_from_a_wording_this_build_no_longer_ships_says_so() {
         // The user is told, and nothing is blocked: the reply they get is still
         // the wording they chose.
@@ -528,6 +587,22 @@ mod tests {
             !edited(dir.path(), id::CAVEMAN_FULL),
             "a refusal must write nothing"
         );
+    }
+
+    #[test]
+    fn a_refusal_crosses_the_boundary_as_a_tag_rather_than_a_sentence() {
+        // What the editor branches on to put a field back to what is saved.
+        let (_dir, paragraphs) = open();
+
+        let undeclared = paragraphs
+            .set(id::CAVEMAN_FULL, "about {{whoever}}")
+            .expect_err("nothing fills that");
+        assert_eq!(demido_core::Error::from(undeclared).kind(), "invalid");
+
+        let unknown = paragraphs
+            .set("../../secrets", "hello")
+            .expect_err("no such entry");
+        assert_eq!(demido_core::Error::from(unknown).kind(), "not-found");
     }
 
     #[test]

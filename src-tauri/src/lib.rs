@@ -15,6 +15,7 @@ pub mod chat;
 #[cfg(debug_assertions)]
 mod dev_server;
 pub mod monitor;
+pub mod prompts;
 pub mod settings;
 pub mod setup;
 pub mod wiring;
@@ -218,6 +219,9 @@ pub fn run() -> demido_core::Result<()> {
             chat::chat_decide,
             monitor::monitor_log,
             monitor::monitor_assembly,
+            prompts::prompts_list,
+            prompts::prompts_set,
+            prompts::prompts_reset,
             settings::settings_rows,
             settings::settings_set,
             settings::settings_clear,

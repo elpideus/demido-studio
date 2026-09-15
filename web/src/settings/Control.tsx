@@ -284,8 +284,14 @@ function Text({
  * existed: a draft to type into, the stored value winning whenever it moves
  * underneath (a revert, or the other surface writing the same setting), and a
  * commit that only fires on a real change.
+ *
+ * Exported because the prompt editor's field is the fourth thing that needs
+ * exactly this and is not a settings row: a paragraph is typed for as long as a
+ * system prompt is, a reset moves the stored text underneath the person typing,
+ * and a refused edit has to leave the saved wording on screen rather than one
+ * the register never took.
  */
-function useDraft(
+export function useDraft(
   stored: string,
   save: (draft: string) => Promise<boolean>,
 ): [string, (draft: string) => void, () => void] {
