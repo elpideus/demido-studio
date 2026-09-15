@@ -40,7 +40,7 @@ import styles from './Prompts.module.css'
  * A list that opens rather than a list beside an editor pane. Every entry is a
  * paragraph, so the thing being edited wants the window's whole width, and a
  * second column would spend a third of a page that is already at
- * `--measure-prose` on twelve short ids.
+ * `--measure-prose` on a dozen short ids.
  */
 export function PromptsPage() {
   const entries = usePrompts((prompts) => prompts.entries)

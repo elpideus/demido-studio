@@ -176,6 +176,12 @@
 .group[data-standing='dropped'] {
   --source: var(--color-sky);
 }
+/* Amber rather than ink: Demido changed the assembly mid turn, which is
+ * something happening rather than something being absent, and it reads beside
+ * `partial` for that reason. */
+.group[data-standing='withheld'] {
+  --source: var(--color-amber);
+}
 .group[data-standing='nothing'] {
   --source: var(--color-ink-3);
 }

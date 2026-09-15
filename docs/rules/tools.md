@@ -303,3 +303,33 @@ to be real the first time a tool runs. S4 adds delegation to it, not the modes.
   something else* is the path most likely to be broken and least likely to be
   exercised, because a small model handed a refusal typically retries the same
   call forever. `Bar: chose` on that scenario means it chose **something else**.
+
+## A step that ran nothing takes the tools away
+
+Added on [#59](https://github.com/elpideus/demido-studio/issues/59), which is
+where the paragraph above stopped being a prediction.
+
+A step of a turn whose calls **all came back refused** ran nothing: the person
+declined, or declined the same call a moment ago, or the picker had the tool
+switched off. The next step of that turn is sent with no tools at all, and the
+rest of the turn with none either. What the refusal asked for was an answer, and
+a model looking at the same six tools has the same six things to be refused for.
+
+It is guidance rather than a limit, and it is the first rule in this repo put
+there by a measurement instead of by taste. Told that a call it had made had been
+declined, the development model made the identical call again in **three runs out
+of ten**; with the tools withheld it did so in **none of ten**. The step limit
+still ends a runaway; this is what keeps an ordinary refusal from becoming one.
+
+Three things it is deliberately not:
+
+- **Not a mode.** Nothing here reads [`demido_permission::Mode`], and the rule is
+  the same in all three rows.
+- **Not silent.** The withheld set is recorded as a set of its own, under
+  `Layer::Withheld`, so the rebuild of a withheld step is the assembly that step
+  was really sent with and the session monitor draws the group as `withheld`
+  rather than as a picker nobody touched. The one absence a person cannot go and
+  change is the one that has to say so loudest.
+- **Not a failure.** A tool that ran and failed, and a call whose arguments did
+  not fit its schema, both keep the tools: there is something to fix, and fixing
+  it means calling again.

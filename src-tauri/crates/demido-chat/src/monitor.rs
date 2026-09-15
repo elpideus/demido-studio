@@ -68,6 +68,16 @@ pub enum Standing {
     /// reason (`demido_tools::Registry::offered`), and a skill that is not
     /// installed will be another.
     Dropped,
+    /// Demido took every tool away for the rest of this turn, because the step
+    /// before it ran nothing: every call it made came back refused
+    /// ([`demido_trace::Step::Withholding`]).
+    ///
+    /// The one absence with a reason that is neither the registry's nor the
+    /// person's, which is exactly why it is not [`Standing::Nothing`]: somebody
+    /// reading the fourth step of a turn that had six tools in its first is
+    /// owed the sentence, and the control they would go looking for does not
+    /// exist because there is nothing for them to change.
+    Withheld,
     /// The assembly offered no tools at all, and **which of the two that was
     /// cannot be told from the log**.
     ///
@@ -107,6 +117,11 @@ pub(crate) fn grouped(
     // (`demido_tools::Registry::offers`). So a set with anything in it proves
     // the registry was not the reason, and every absence in it is the ladder's.
     let absence = match named.is_empty() {
+        // Demido's own doing, and the log says so, so this one road out of the
+        // three is named rather than left among the others.
+        true if offering.is_some_and(|offering| offering.layer == Layer::Withheld) => {
+            Standing::Withheld
+        }
         // Nothing at all was offered, and the log cannot say which road that
         // came down. See [`Standing::Nothing`].
         true => Standing::Nothing,

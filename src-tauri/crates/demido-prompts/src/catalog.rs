@@ -93,6 +93,7 @@ pub mod id {
     pub const CONTEXT_TREE: &str = "context.tree";
     pub const LESSONS_CLASSIFY: &str = "lessons.classify";
     pub const TOOLS_DENIED: &str = "tools.denied";
+    pub const TOOLS_REPEATED: &str = "tools.repeated";
     pub const TOOLS_OFF: &str = "tools.off";
     pub const TOOLS_STOPPED: &str = "tools.stopped";
     pub const TOOLS_LIMIT: &str = "tools.limit";
@@ -211,6 +212,14 @@ pub static CATALOG: &[Paragraph] = &[
         placeholders: &[TOOL],
         dependants: NOTHING_DEPENDS_ON_IT,
         default: include_str!("../defaults/tools.denied.md"),
+    },
+    Paragraph {
+        id: id::TOOLS_REPEATED,
+        title: "The same declined call, again",
+        summary: "What the model is told when it makes a call you already declined this turn, which is the loop small models fall into and the one thing a repeated refusal cannot break.",
+        placeholders: &[TOOL],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/tools.repeated.md"),
     },
     Paragraph {
         id: id::TOOLS_OFF,

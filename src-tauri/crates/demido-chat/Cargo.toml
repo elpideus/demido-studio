@@ -41,6 +41,10 @@ tokio = { version = "1", features = ["macros", "sync"] }
 tracing.workspace = true
 
 [dev-dependencies]
+# The live suite wraps `LlamaCpp` in a backend that records what it was handed,
+# and `Backend` is an `async_trait`, so an implementation of it needs the same
+# attribute. Only the tests implement one.
+async-trait = "0.1"
 # A project on disk for the tools to act on.
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

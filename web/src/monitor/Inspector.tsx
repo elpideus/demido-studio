@@ -143,6 +143,10 @@ const STANDING: Record<Grouped['standing'], { icon: LucideIcon; said: string }> 
   partial: { icon: Minus, said: 'partly offered' },
   'switched-off': { icon: CircleSlash, said: 'switched off in the picker' },
   dropped: { icon: Unplug, said: 'not offered by the registry' },
+  // Not a control anybody can go and change: the step before this one ran
+  // nothing, so the turn finishes without tools. Said as what happened rather
+  // than as an absence, because the reader's next question is why.
+  withheld: { icon: CircleSlash, said: 'withheld: the step before ran nothing' },
   // The one that names no reason, because the log has none to name: an empty
   // set is what both a picker with everything off and a registry with nowhere
   // to act write down.

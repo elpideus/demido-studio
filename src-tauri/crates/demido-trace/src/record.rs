@@ -246,7 +246,7 @@ impl<J: Journal> Session<J> {
     /// the new assembly is recorded before it is handed back to send. `blocks`
     /// are positions this session already wrote, in the order the model should
     /// read them.
-    pub fn step(&self, sent: &Sent, blocks: &[u64]) -> Result<Sent> {
+    pub fn step(&self, sent: &Sent, blocks: &[u64], offering: Step) -> Result<Sent> {
         let replay = Replay::of(&self.journal)?;
         let mut request = sent.request.clone();
         for seq in blocks {
@@ -254,6 +254,14 @@ impl<J: Journal> Session<J> {
         }
         let mut named = sent.blocks.clone();
         named.extend_from_slice(blocks);
+
+        let offered = match offering {
+            Step::Offering => sent.offered,
+            Step::Withholding => {
+                request.tools.clear();
+                Some(self.withhold(sent.turn)?)
+            }
+        };
 
         let event = self.write(
             sent.turn,
@@ -263,7 +271,7 @@ impl<J: Journal> Session<J> {
             Body::Assembly {
                 parameters: sent.parameters,
                 blocks: named.clone(),
-                tools: sent.offered,
+                tools: offered,
             },
         )?;
 
@@ -273,8 +281,32 @@ impl<J: Journal> Session<J> {
             request,
             parameters: sent.parameters,
             blocks: named,
-            offered: sent.offered,
+            offered,
         })
+    }
+
+    /// Record that this turn is offering nothing from here on, and say who
+    /// decided it.
+    ///
+    /// An empty set under [`Layer::Withheld`], which is a set like any other:
+    /// the assembly names it, the rebuild reads it back, and the monitor can
+    /// tell it from an empty registry and from a picker with everything
+    /// switched off. It also replaces what [`Turn::offer`] compares against, so
+    /// the next turn's ordinary set is a change again and is written rather
+    /// than deduplicated against a set that is two events old.
+    fn withhold(&self, turn: u32) -> Result<u64> {
+        let mut last = held(&self.offered);
+        let event = self.write(
+            turn,
+            Source::System,
+            Weight::NOTHING,
+            Body::Offered {
+                tools: Vec::new(),
+                layer: Layer::Withheld,
+            },
+        )?;
+        *last = Some((event.seq, Vec::new()));
+        Ok(event.seq)
     }
 
     /// Something went wrong, in this turn or beside it.
@@ -349,6 +381,22 @@ impl<J: Journal> Session<J> {
 /// it is left half written by an insert or an assignment.
 fn held<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     lock.lock().unwrap_or_else(|held| held.into_inner())
+}
+
+/// Whether the next step of a turn still offers what the turn started with.
+///
+/// [`Step::Withholding`] is the turn loop's answer to a step that ran nothing:
+/// every call it made came back refused, so another step has the same options
+/// to be refused for, and the only useful thing left is an answer. Measured on
+/// [#59](https://github.com/elpideus/demido-studio/issues/59), where the
+/// development model handed a refusal made the identical call again in three
+/// runs out of ten, and in none of ten once the tools were withheld.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// The set the turn was sent with, unchanged. Every ordinary step.
+    Offering,
+    /// Nothing, for this step and the rest of the turn.
+    Withholding,
 }
 
 /// One exchange, being assembled.

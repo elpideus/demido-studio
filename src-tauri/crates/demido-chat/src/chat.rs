@@ -683,6 +683,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             }
 
             let mut blocks = vec![answer.seq];
+            let mut ran = false;
             for (at, (seq, call)) in calls.iter().enumerate() {
                 let ruling = Ruling {
                     registry: &rules.registry,
@@ -694,8 +695,9 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     .dispatch(answer.turn, *seq, call, ruling, cancel, approve)
                     .await?
                 {
-                    Some(block) => {
-                        blocks.push(block);
+                    Some(answered) => {
+                        blocks.push(answered.block);
+                        ran |= answered.ran;
                         // The call has an answer now, and the transcript draws
                         // one row for the pair. The window is told there is
                         // something to read, and reads the log for what.
@@ -714,7 +716,27 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             }
 
             taken += 1;
-            sent = self.with_session(|session| Ok(session.step(&sent, &blocks)?))?;
+            // **A step that ran nothing takes the tools away for the rest of
+            // the turn.** Every call it made came back refused: declined,
+            // declined again, or naming something the picker switched off.
+            // Another step with the same six tools in front of it has the same
+            // six to be refused for, and what the refusal asked for was an
+            // answer.
+            //
+            // It is guidance rather than a limit, and it is the first thing in
+            // this repo measured as such (#59). Told a declined call had been
+            // declined, the development model made the identical call again in
+            // three runs out of ten; with the tools withheld it did not in ten
+            // out of ten. The step limit still ends a runaway, and this is what
+            // keeps an ordinary refusal from being one.
+            //
+            // Once withheld, withheld: `Sent::offered` carries the empty set
+            // forward, so a later step of the same turn does not put them back.
+            let offering = match ran {
+                true => demido_trace::Step::Offering,
+                false => demido_trace::Step::Withholding,
+            };
+            sent = self.with_session(|session| Ok(session.step(&sent, &blocks, offering)?))?;
         }
     }
 
@@ -724,8 +746,9 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// The order is the matrix's to set out: a call to a tool the person
     /// switched off is refused as that; a call that cannot be understood is
     /// answered with why; one identical to a call the person just declined is
-    /// refused without asking again; the matrix rules on the rest, and the
-    /// person is asked only when it says to ask.
+    /// refused without asking again, and told so in its own words rather than
+    /// in the ones it has already ignored once; the matrix rules on the rest,
+    /// and the person is asked only when it says to ask.
     async fn dispatch<F>(
         &self,
         turn: u32,
@@ -734,7 +757,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         ruling: Ruling<'_>,
         cancel: &Cancel,
         approve: &mut (impl FnMut(Asking) -> F + Send),
-    ) -> Result<Option<u64>>
+    ) -> Result<Option<Answered>>
     where
         F: Future<Output = Decision> + Send,
     {
@@ -750,7 +773,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     id::TOOLS_OFF,
                     &[(catalog::TOOL, call.name.as_str())],
                 )
-                .map(Some);
+                .map(Answered::refused);
         }
 
         let planned = match ruling.registry.plan(&demido_tools::Call {
@@ -761,7 +784,11 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             Ok(planned) => planned,
             // Attempted and failed: a name that is not a tool, arguments that
             // do not fit. The model has something to fix, and it is told what.
-            Err(failure) => return self.returned(turn, seq, &failure.message, true).map(Some),
+            Err(failure) => {
+                return self
+                    .returned(turn, seq, &failure.message, true)
+                    .map(Answered::ran)
+            }
         };
 
         // A planned call's arguments parsed, so this is never `Null` in
@@ -772,10 +799,18 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         let this = (call.name.clone(), arguments);
         let declined = [(catalog::TOOL, call.name.as_str())];
 
+        // The same call a second time, which is a different situation from the
+        // first and is told as one. Repeating the declined paragraph verbatim
+        // is what a model already ignoring it reads again, and #59 measured
+        // that: the development model made the identical write three times in
+        // one turn and stopped only at the step limit. This wording says the
+        // call has already been refused and names writing the reply as the next
+        // thing to do, which is the part a model in that loop has stopped
+        // having.
         if ruling.declined.contains(&this) {
             return self
-                .refuse(turn, seq, id::TOOLS_DENIED, &declined)
-                .map(Some);
+                .refuse(turn, seq, id::TOOLS_REPEATED, &declined)
+                .map(Answered::refused);
         }
 
         if demido_permission::verdict(ruling.mode, planned.tool(), &planned.intent, ruling.always)
@@ -817,7 +852,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     ruling.declined.push(this);
                     return self
                         .refuse(turn, seq, id::TOOLS_DENIED, &declined)
-                        .map(Some);
+                        .map(Answered::refused);
                 }
             }
         }
@@ -833,7 +868,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             Ok(text) => self.returned(turn, seq, &text, false),
             Err(failure) => self.returned(turn, seq, &failure.message, true),
         }
-        .map(Some)
+        .map(Answered::ran)
     }
 
     /// Keep *always for this tool* where every other value in force is kept:
@@ -1039,6 +1074,33 @@ fn layer(origin: Origin) -> Layer {
         Origin::Tier(Tier::Model) => Layer::Model,
         Origin::Tier(Tier::Character) => Layer::Character,
         Origin::Tier(Tier::Chat) => Layer::Chat,
+    }
+}
+
+/// What became of one call: the block that answers it, and whether anything was
+/// actually attempted.
+///
+/// The second half is what decides whether the next step of the turn still has
+/// tools in it. A call the person declined, one they declined a moment ago, and
+/// one naming a tool they switched off all ran nothing, and none of the three is
+/// something the model can act on by calling again. A tool that failed, and a
+/// call whose arguments did not fit its schema, both ran in the sense that
+/// matters here: there is something to fix, and the next step is where it gets
+/// fixed.
+#[derive(Debug, Clone, Copy)]
+struct Answered {
+    /// Where the model's answer to this call is on the log.
+    block: u64,
+    ran: bool,
+}
+
+impl Answered {
+    fn ran(block: u64) -> Option<Self> {
+        Some(Self { block, ran: true })
+    }
+
+    fn refused(block: u64) -> Option<Self> {
+        Some(Self { block, ran: false })
     }
 }
 

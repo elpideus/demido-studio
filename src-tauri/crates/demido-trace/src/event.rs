@@ -217,6 +217,17 @@ pub enum Layer {
     Character,
     /// A set named for this conversation, from the picker. The last word.
     Chat,
+    /// Nobody named this one. Demido withheld every tool for the rest of a turn,
+    /// because the step before it ran nothing: every call it made came back
+    /// refused, and another step with the same options would come back refused
+    /// the same way.
+    ///
+    /// It is a layer rather than an empty set with somebody else's name on it
+    /// because the monitor has to be able to say so. A reader who finds no tools
+    /// in the fourth step of a turn that had six in the first has a right to
+    /// know which of the three reasons it was, and the other two are
+    /// [`Layer::Registry`] and the ladder.
+    Withheld,
 }
 
 /// What happened.
