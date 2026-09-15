@@ -43,13 +43,19 @@ impl Rig {
     /// A rig whose model answers in the pieces given, which is what a real one
     /// does: an answer arrives as a run of chunks.
     fn saying(chunks: &[&str]) -> Self {
+        Self::running(Script::serving("scripted").then_say(chunks))
+    }
+
+    /// A rig whose model follows `script`, for the turns that are not one
+    /// answer and nothing else.
+    fn running(script: Script) -> Self {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("notes.txt"), "Thursday.\n").unwrap();
         Self {
             project,
             prompts: tempfile::tempdir().unwrap(),
             log: Memory::new(),
-            script: Script::serving("scripted").then_say(chunks),
+            script,
             settings: Arc::new(Settings::open(SettingsMemory::new())),
         }
     }
@@ -254,4 +260,59 @@ async fn the_answer_is_one_event_rather_than_the_run_of_chunks_that_assembled_it
         ),
         "the one event carries the whole answer the chunks assembled"
     );
+}
+
+/// The third road to an empty assembly, and the one a person cannot go and
+/// change.
+///
+/// A turn that only repeats a call the person already declined loses its tools
+/// ([#59](https://github.com/elpideus/demido-studio/issues/59)), so a reader who
+/// selects the last step of such a turn finds no tools in it. That must not read
+/// as a picker with everything switched off and must not read as a registry with
+/// nowhere to act: it is Demido's own doing, and the monitor says so.
+#[tokio::test]
+async fn a_group_demido_withheld_after_a_repeated_denial_is_drawn_as_withheld() {
+    let same = r#"{"path": "a.txt", "content": "a"}"#;
+    let rig = Rig::running(
+        Script::serving("scripted")
+            .then_call("call-1", "write_file", same)
+            .then_call("call-2", "write_file", same)
+            .then_say(&["Not written, then."]),
+    );
+    let chat = rig.chat(true);
+    chat.load(|_| {}).await;
+
+    chat.ask(
+        "Write it.",
+        |_| {},
+        |_| async { demido_chat::Decision::Deny },
+    )
+    .await
+    .expect("a denial is not an error");
+
+    // The turn's first assembly is the ordinary one, and the step after the
+    // denial is not. Selected by their own events rather than by the answer's,
+    // because the assembly in force at the end of the turn is the last one.
+    let assemblies: Vec<Event> = chat
+        .log()
+        .expect("read")
+        .into_iter()
+        .filter(|event| matches!(event.body, Body::Assembly { .. }))
+        .collect();
+    assert_eq!(
+        assemblies.len(),
+        3,
+        "the denial, the repeat, and the step that lost its tools"
+    );
+
+    let first = chat
+        .assembly(assemblies[0].seq)
+        .expect("read")
+        .expect("an assembly");
+    assert_eq!(standing(&first, "files"), Standing::Offered);
+
+    let last = assemblies.last().expect("the turn stepped");
+    let withheld = chat.assembly(last.seq).expect("read").expect("an assembly");
+    assert_eq!(standing(&withheld, "files"), Standing::Withheld);
+    assert_eq!(standing(&withheld, "shell"), Standing::Withheld);
 }

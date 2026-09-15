@@ -303,3 +303,52 @@ to be real the first time a tool runs. S4 adds delegation to it, not the modes.
   something else* is the path most likely to be broken and least likely to be
   exercised, because a small model handed a refusal typically retries the same
   call forever. `Bar: chose` on that scenario means it chose **something else**.
+
+## A turn that only repeats a declined call loses its tools
+
+Added on [#59](https://github.com/elpideus/demido-studio/issues/59), which is
+where the paragraph above stopped being a prediction.
+
+A step of a turn **whose every call came back refused, at least one of them
+because it was a call the person had already declined this turn**, is a model
+going round in a circle. The next step of that turn is sent with no tools at all,
+and the rest of the turn with none either. What the refusal asked for was an
+answer, and a model looking at the same tools has the same call to make a third
+time.
+
+It is guidance rather than a limit, and it is the first rule in this repo put
+there by a measurement instead of by taste. Told that a call it had made had been
+declined, the development model made the identical call again in **three runs out
+of ten**; with `tools.repeated` answering the repeat in its own words, two out of
+ten. **What this rule guarantees is that there is never a third**, which before
+it there sometimes was. The step limit still ends a runaway; this is what keeps
+an ordinary refusal from becoming one.
+
+The rate is the model's and this rule does not move it, because it fires after
+the retry rather than before. Lowering it is the guidance system's job and not
+this one's.
+
+Four things it is deliberately not:
+
+- **Not the first denial.** A model handed a refusal with its tools still in
+  front of it is the whole of what `Bar: chose` claims, and it also has somewhere
+  useful to go: a denied write is often followed by a read that answers the
+  question anyway. The tools come off on the repeat, which is the first moment
+  there is a circle to break.
+- **Not a switched-off tool.** A call to something the picker turned off was
+  never among the options, so the options are not what went wrong, and taking
+  away the groups a person left on because of a group they turned off is the
+  opposite of what the picker is for. A model that keeps naming a tool it used
+  one message ago runs into the step limit instead, which is what the step limit
+  is for.
+- **Not a mode.** Nothing here reads the mode, and the rule is the same in all
+  three rows.
+- **Not silent.** The withheld set is recorded as a set of its own, under
+  `Layer::Withheld` and once per turn, so the rebuild of a withheld step is the
+  assembly that step was really sent with and the session monitor draws the group
+  as `withheld` rather than as a picker nobody touched. The one absence a person
+  cannot go and change is the one that has to say so loudest.
+
+A tool that ran and failed, and a call whose arguments did not fit its schema,
+both keep the tools: there is something to fix, and fixing it means calling
+again.

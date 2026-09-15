@@ -10,7 +10,9 @@
 
 use demido_inference::{FinishReason, Options, Role, ToolCall, Usage};
 use demido_prompts::{id, Paragraphs, Tools};
-use demido_trace::{Body, Decision, Journal, Layer, Memory, Replay, Sent, Session, Source};
+use demido_trace::{
+    Body, Decision, Journal, Layer, Memory, NextStep, Replay, Sent, Session, Source,
+};
 use serde_json::json;
 
 fn read_file_shape() -> serde_json::Value {
@@ -99,7 +101,9 @@ fn every_step_of_a_turn_rebuilds_the_request_it_sent() {
     let result = session
         .returned(first.turn, call, "1: The meeting moved to Thursday.", false)
         .unwrap();
-    let second = session.step(&first, &[answer, result]).unwrap();
+    let second = session
+        .step(&first, &[answer, result], NextStep::Offering)
+        .unwrap();
 
     assert_eq!(
         second.turn, first.turn,
@@ -146,7 +150,9 @@ fn a_refusal_is_rebuilt_from_the_wording_it_was_sent_in() {
             &[(demido_prompts::catalog::TOOL, "read_file")],
         )
         .unwrap();
-    let second = session.step(&first, &[answer, refusal]).unwrap();
+    let second = session
+        .step(&first, &[answer, refusal], NextStep::Offering)
+        .unwrap();
 
     let told = &second.request.messages[2];
     assert_eq!(told.role, Role::Tool);
@@ -244,7 +250,9 @@ fn the_conversation_carries_calls_and_results_and_the_transcript_skips_an_answer
         .unwrap();
     let call = session.called(first.turn, answer, &a_call()).unwrap();
     let result = session.returned(first.turn, call, "1: hi", false).unwrap();
-    let second = session.step(&first, &[answer, result]).unwrap();
+    let second = session
+        .step(&first, &[answer, result], NextStep::Offering)
+        .unwrap();
     let finished = session
         .completed(&second, "It says hi.", "", FinishReason::Stop, usage())
         .unwrap();

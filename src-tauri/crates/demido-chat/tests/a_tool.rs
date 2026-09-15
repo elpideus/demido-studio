@@ -554,7 +554,12 @@ async fn a_denial_is_handed_to_the_model_and_nothing_runs() {
 }
 
 /// A refusal is a decision rather than a loop: the identical call straight
-/// after a denial is not run, and the person is not asked it again.
+/// after a denial is not run, the person is not asked it again, and the second
+/// refusal does not read like the first.
+///
+/// The last of those is [#59](https://github.com/elpideus/demido-studio/issues/59)'s
+/// finding, measured rather than guessed at: told the same sentence twice, the
+/// development model made the identical write three times in one turn.
 #[tokio::test]
 async fn the_identical_call_after_a_denial_is_neither_run_nor_asked_again() {
     let same = r#"{"path": "plan.txt", "content": "x"}"#;
@@ -576,12 +581,133 @@ async fn the_identical_call_after_a_denial_is_neither_run_nor_asked_again() {
 
     let sent = rig.script.requests();
     assert_eq!(sent.len(), 3);
+    let first = sent[1].messages.last().unwrap();
     let told = sent[2].messages.last().unwrap();
     assert_eq!(told.answers.as_deref(), Some("call-2"));
-    assert!(told.content.contains("declined"), "{}", told.content);
+    assert!(
+        told.content.contains("already made this exact call"),
+        "the second refusal repeats the first: {}",
+        told.content
+    );
+    assert_ne!(
+        told.content, first.content,
+        "a model that ignored a sentence once is handed the same sentence again"
+    );
+    // The first denial leaves the tools alone, and the repeat takes them away.
+    assert!(
+        !sent[0].tools.is_empty(),
+        "the turn started with something to withhold"
+    );
+    assert!(
+        !sent[1].tools.is_empty(),
+        "one denial took the tools away, and that is the step the model is \
+         supposed to be choosing something else in"
+    );
+    assert!(
+        sent[2].tools.is_empty(),
+        "the repeat left the tools in: {:?}",
+        sent[2]
+            .tools
+            .iter()
+            .map(|tool| &tool.name)
+            .collect::<Vec<_>>()
+    );
+
     let events = rig.events();
     assert_eq!(count(&events, results), 0);
     assert_eq!(count(&events, refusals), 2);
+}
+
+/// A step that ran something keeps its tools, which is every ordinary turn.
+///
+/// The guard beside the one above: a rule that took the tools away whenever a
+/// step ended would end every turn that used one.
+#[tokio::test]
+async fn a_step_that_ran_something_keeps_the_tools_the_turn_started_with() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "read_file", r#"{"path": "notes.txt"}"#)
+        .then_call("call-2", "read_file", r#"{"path": "notes.txt"}"#)
+        .then_say(&["Thursday."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+    chat.ask("When?", |_| {}, nobody()).await.unwrap();
+
+    let sent = rig.script.requests();
+    assert_eq!(sent.len(), 3);
+    for (step, request) in sent.iter().enumerate() {
+        assert_eq!(
+            request.tools.len(),
+            6,
+            "step {step} of a turn whose calls all ran lost its tools"
+        );
+    }
+}
+
+/// A call whose arguments did not fit the schema is not a refusal: there is
+/// something to fix, and fixing it means calling again.
+#[tokio::test]
+async fn a_call_that_did_not_parse_keeps_the_tools_so_the_model_can_correct_it() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "read_file", r#"{"pathe": "notes.txt"}"#)
+        .then_call("call-2", "read_file", r#"{"path": "notes.txt"}"#)
+        .then_say(&["Thursday."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+    chat.ask("When?", |_| {}, nobody()).await.unwrap();
+
+    let sent = rig.script.requests();
+    assert!(
+        !sent[1].tools.is_empty(),
+        "a misspelt argument took the tools away, so the correction had nothing \
+         to be made with"
+    );
+    assert!(
+        rig.events()
+            .iter()
+            .any(|event| matches!(&event.body, Body::Result { failed: true, .. })),
+        "the parse failure is on the log as a failed result"
+    );
+}
+
+/// A tool switched off is not a reason to take the others away.
+///
+/// The picker's whole point is saying "files but no shell", which no mode can
+/// express. A turn that answered a call to the switched-off group by removing
+/// the group the person left on would be undoing their choice for them.
+#[tokio::test]
+async fn a_call_to_a_switched_off_tool_leaves_the_groups_that_are_on() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "run_command", r#"{"command": "echo hi"}"#)
+        .then_say(&["It is off, then."]);
+    let rig = Rig::new(script);
+    rig.settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::TOOLS_OFFERED,
+            &json!(["read_file"]),
+        )
+        .unwrap();
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+    chat.ask("Run it.", |_| {}, nobody()).await.unwrap();
+
+    let sent = rig.script.requests();
+    assert_eq!(names(&sent[0]), ["read_file"]);
+    assert_eq!(
+        names(&sent[1]),
+        ["read_file"],
+        "the group the person left on was taken away because of the one they          turned off"
+    );
+}
+
+fn names(request: &demido_inference::Request) -> Vec<&str> {
+    request
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect()
 }
 
 /// *Always for this tool* is asked once, covers the tool's later calls in this

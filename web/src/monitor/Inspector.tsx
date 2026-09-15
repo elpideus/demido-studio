@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, CircleSlash, Minus, Unplug, type LucideIcon } from 'lucide-react'
+import { Check, CircleSlash, EyeOff, Minus, Unplug, type LucideIcon } from 'lucide-react'
 
 import { useMonitor, type Assembly, type Event, type Grouped, type Placed } from './log'
 import { digest, ICONS, tokens, weighed } from './sources'
@@ -143,6 +143,10 @@ const STANDING: Record<Grouped['standing'], { icon: LucideIcon; said: string }> 
   partial: { icon: Minus, said: 'partly offered' },
   'switched-off': { icon: CircleSlash, said: 'switched off in the picker' },
   dropped: { icon: Unplug, said: 'not offered by the registry' },
+  // Not a control anybody can go and change: the step before this one ran
+  // nothing, so the turn finishes without tools. Said as what happened rather
+  // than as an absence, because the reader's next question is why.
+  withheld: { icon: EyeOff, said: 'withheld: the step before only repeated a declined call' },
   // The one that names no reason, because the log has none to name: an empty
   // set is what both a picker with everything off and a registry with nowhere
   // to act write down.

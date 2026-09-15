@@ -194,6 +194,7 @@ Then:
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test llamacpp_contract -- --ignored --test-threads=1` | The `Backend` contract, against a real server. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-trace --test a_real_model -- --ignored --test-threads=1` | The session log, against a real turn: the log rebuilds what was sent. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model -- --ignored --test-threads=1` | The turn loop, against a real model: an answer streams, a second message carries the first exchange, a stop is recorded. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model_with_tools -- --ignored --test-threads=1` | S2's: a model shown six tools reads a file somebody planted, greets without calling anything, is approved, is denied, and meets a tool the picker switched off. |
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
 
@@ -273,6 +274,25 @@ node scripts/drive.mjs --window splash --screenshot evidence/NN.png
 `DEMIDO_BOOT_FAIL` takes stage ids from `src-tauri/src/boot.rs`, comma
 separated. It is how the screenshot of a subsystem being reported and skipped is
 taken without breaking a real one.
+
+`--click`, `--type`, `--key`, `--wait`, `--eval`, `--sleep` and `--screenshot`
+are **steps**, run in the order they are written, over one connection. That is
+how a state between two keystrokes gets photographed at all, and how two answers
+to the same prompt stay one session:
+
+```bash
+node scripts/drive.mjs \
+  --click '[aria-label="Message"]' --type 'Save shipped into plan.txt.' --key Enter \
+  --wait 'document.querySelector("[aria-label^=Approve]") !== null' \
+  --screenshot evidence/59-a-call-waiting.png \
+  --click '[aria-label^="Approve"]' --key Enter
+```
+
+The input is real: `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent` and
+`Input.insertText`, so `web/src/shell/keys.ts` decides where a keystroke goes
+exactly as it does for a person. Which is why the click on the row is there
+before the Enter: with focus in the composer, Enter is the field's and sends the
+message, and that is the scoping rule rather than a driver quirk.
 
 Two switches, deliberately not one. The **debugging port** opens on any debug
 build, so the driver can always connect and say what it found. **`withGlobalTauri`**

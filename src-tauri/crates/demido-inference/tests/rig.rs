@@ -40,9 +40,22 @@ pub enum Tier {
     /// note rather than a defect, though after #19's three probes out of three
     /// it is surprising enough to look at twice.
     Breadth,
+    /// `Qwen3.5-9B` Q4_K_M. Not one of the three, and never run on its own
+    /// account.
+    ///
+    /// `done.md` gives it exactly one job: a red on breadth alone is written
+    /// off as the quant "unless it reproduces at Q4_K_M". So this is the look
+    /// the standing allowance costs, and the only thing that turns a breadth
+    /// red into a defect or into a note. It is secondary because IQ2_M on a
+    /// dense 27B is roughly 2.9 bits and the first capability that degrades
+    /// there is the one being measured.
+    Secondary,
 }
 
 impl Tier {
+    /// The three a slice is green or red on. The secondary tier is not one of
+    /// them and is never iterated: it is asked one question, by the scenario
+    /// that has a breadth red to explain.
     pub const ALL: [Tier; 3] = [Tier::Development, Tier::Reference, Tier::Breadth];
 
     pub fn label(self) -> &'static str {
@@ -50,6 +63,7 @@ impl Tier {
             Tier::Development => "development",
             Tier::Reference => "reference",
             Tier::Breadth => "breadth",
+            Tier::Secondary => "secondary",
         }
     }
 
@@ -61,6 +75,7 @@ impl Tier {
             Tier::Breadth => {
                 "JonathanColetti/Qwen3.8-27B-Uncensored-GGUF/Qwen3.8-27B-Uncensored-IQ2_M.gguf"
             }
+            Tier::Secondary => "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf",
         }
     }
 

@@ -73,8 +73,9 @@ export type OfferedTool = { name: string; hash: string; text: string }
 
 /** Why a group of the registry is or is not in an assembly. The Rust
  * `Standing`. `switched-off` and `dropped` are the pair that must never look
- * alike, and `nothing` is where the log cannot tell them apart. */
-export type Standing = 'offered' | 'partial' | 'switched-off' | 'dropped' | 'nothing'
+ * alike, `withheld` is Demido's own doing after a step that ran nothing, and
+ * `nothing` is where the log cannot tell the first two apart. */
+export type Standing = 'offered' | 'partial' | 'switched-off' | 'dropped' | 'withheld' | 'nothing'
 
 /** What one group came to in one assembly. The Rust `Grouped`. */
 export type Grouped = {
