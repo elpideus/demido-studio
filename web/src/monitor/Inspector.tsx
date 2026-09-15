@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Check, CircleSlash, Minus, Unplug, type LucideIcon } from 'lucide-react'
 
 import { useMonitor, type Assembly, type Event, type Grouped, type Placed } from './log'
-import { ICONS, tokens } from './sources'
+import { digest, ICONS, tokens, weighed } from './sources'
 import styles from './Inspector.module.css'
 
 /**
@@ -86,10 +86,7 @@ function Block({ block }: { block: Placed }) {
         <span className={styles.role}>{block.role}</span>
         <span className={styles.at}>{`#${block.seq}`}</span>
         {CHANGED[block.change] && <span className={styles.change}>{CHANGED[block.change]}</span>}
-        <span className={styles.weight}>
-          {block.weight.basis === 'estimated' ? '~' : ''}
-          {tokens(block.weight.tokens)}
-        </span>
+        <span className={styles.weight}>{weighed(block.weight)}</span>
       </header>
       <pre className={styles.text}>{block.text}</pre>
     </article>
@@ -127,7 +124,7 @@ function Offered({ assembly }: { assembly: Assembly }) {
         <details key={tool.hash} className={styles.tool}>
           <summary className={styles.summary}>
             <span className={styles.name}>{tool.name}</span>
-            <span className={styles.hash}>{tool.hash.replace(/^sha256:/, '').slice(0, 12)}</span>
+            <span className={styles.hash}>{digest(tool.hash)}</span>
           </summary>
           <pre className={styles.text}>{tool.text}</pre>
         </details>
@@ -143,6 +140,10 @@ const STANDING: Record<Grouped['standing'], { icon: LucideIcon; said: string }> 
   partial: { icon: Minus, said: 'partly offered' },
   'switched-off': { icon: CircleSlash, said: 'switched off in the picker' },
   dropped: { icon: Unplug, said: 'not offered by the registry' },
+  // The one that names no reason, because the log has none to name: an empty
+  // set is what both a picker with everything off and a registry with nowhere
+  // to act write down.
+  nothing: { icon: CircleSlash, said: 'nothing was offered this turn' },
 }
 
 function Group({ group }: { group: Grouped }) {
@@ -173,8 +174,12 @@ type Tab = (typeof TABS)[number]
  * it, which is why the line is stringified from what crossed the boundary
  * rather than reassembled from the fields above it.
  */
-export function Detail({ event }: { event: Event | null }) {
+export function Detail() {
   const [tab, setTab] = useState<Tab>('event')
+  // Read here rather than passed in. What this pane draws is the selection, and
+  // a panel that fetched it only to hand it over would be a component in the
+  // middle of two that already agree.
+  const event = useSelected()
 
   if (!event)
     return <p className={styles.empty}>Select a row to read the line it was drawn from.</p>

@@ -10,6 +10,10 @@
  * drag: a pointer that had to know the floor would be a second place the floor
  * is written down, and design/shell.md writes it once.
  *
+ * The floor is the **panel's**, and this is the panel plus its seam and its
+ * gutter, so the clamp adds them back. Clamping the dock at 210 instead would
+ * leave the panel itself at 194 and quietly break the number shell.md fixes.
+ *
  * `50%` is the ceiling, and it is a share of the desk rather than a number of
  * pixels because what it protects is the transcript: at the 1280x800 this
  * design is checked against, half the desk still leaves chat more than its
@@ -17,7 +21,7 @@
  */
 .dock {
   flex: none;
-  height: clamp(var(--floor-monitor), var(--height), 50%);
+  height: clamp(calc(var(--floor-monitor) + 2 * var(--space-gutter)), var(--height), 50%);
   display: flex;
   flex-direction: column;
   min-height: 0;

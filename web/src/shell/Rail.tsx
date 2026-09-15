@@ -32,14 +32,23 @@ import styles from './Rail.module.css'
 /** The rail's default order, top to bottom, from `design/shell.md`. There is no
  * Sub-agents entry: a sub-agent is a scope on the session log rather than a
  * window, which amended the brief's own listing on #8. */
-const NAVIGATION: { label: string; icon: LucideIcon }[] = [
+const NAVIGATION: { label: string; icon: LucideIcon; panel?: Pinned }[] = [
   { label: 'Chats', icon: MessagesSquare },
   { label: 'Files', icon: FolderTree },
   { label: 'Code graph', icon: Waypoints },
   { label: 'Market charts', icon: ChartCandlestick },
-  { label: 'Session monitor', icon: Activity },
+  // The one entry with something behind it
+  // ([#57](https://github.com/elpideus/demido-studio/issues/57)). It names the
+  // panel rather than being matched by its words, so the row and the store
+  // cannot come apart over a rename, and the second panel to arrive is another
+  // field rather than another comparison.
+  { label: 'Session monitor', icon: Activity, panel: 'monitor' },
   { label: 'Browser', icon: Globe },
 ]
+
+/** A panel the rail opens pinned. One so far, and the rail is the only place
+ * in the UI that reports what is open (`design/shell.md`). */
+type Pinned = 'monitor'
 
 /** Where a menu was raised. The rail's own coordinates, in the viewport. */
 type At = { x: number; y: number }
@@ -71,15 +80,12 @@ export function Rail() {
             key={entry.label}
             label={entry.label}
             icon={entry.icon}
-            // The session monitor is the second entry with something behind it
-            // ([#57](https://github.com/elpideus/demido-studio/issues/57)). It
-            // opens pinned rather than floating, and the rail says only that it
-            // is open: the pinned state has its own marker in
-            // `design/system.md` and drawing it is the window manager's, which
-            // is also what will make a panel able to be open without being
-            // focused.
-            open={entry.label === 'Session monitor' ? monitor : undefined}
-            onOpen={entry.label === 'Session monitor' ? toggleMonitor : undefined}
+            // The rail says only that a pinned panel is open. The pinned state
+            // has its own marker in `design/system.md` and drawing it is the
+            // window manager's, which is also what will make a panel able to be
+            // open without being focused.
+            open={entry.panel ? monitor : undefined}
+            onOpen={entry.panel ? toggleMonitor : undefined}
           />
         ))}
       </ul>

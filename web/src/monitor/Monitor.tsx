@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 
 import { useChat } from '@/chat/chat'
 import { useDesk } from '@/shell/desk'
-import { Assembled, Detail, useSelected } from './Inspector'
+import { Assembled, Detail } from './Inspector'
 import { Stream } from './Stream'
 import { useMonitor } from './log'
 import styles from './Monitor.module.css'
@@ -37,13 +37,12 @@ import styles from './Monitor.module.css'
  */
 
 export function Monitor() {
-  const height = useDesk((desk) => desk.height)
-  const resize = useDesk((desk) => desk.resize)
+  const height = useDesk((desk) => desk.monitorHeight)
+  const resize = useDesk((desk) => desk.resizeMonitor)
   const close = useDesk((desk) => desk.toggleMonitor)
   const read = useMonitor((monitor) => monitor.read)
   const assembly = useMonitor((monitor) => monitor.assembly)
   const events = useMonitor((monitor) => monitor.events)
-  const selected = useSelected()
   // The log is re-read whenever the conversation beside it changes, which is
   // every time a turn records something: `chat_transcript` is replaced on a
   // `recorded` update and again when the turn ends. Following the desk's own
@@ -56,18 +55,18 @@ export function Monitor() {
     void read()
   }, [read, transcript])
 
-  const dock = useRef<HTMLDivElement>(null)
-  const reduced = useReduced(dock)
+  const panel = useRef<HTMLElement>(null)
+  const reduced = useReduced(panel)
 
   return (
-    <div
-      ref={dock}
-      className={styles.dock}
-      style={{ '--height': `${height}px` } as CSSProperties}
-      data-reduced={reduced}
-    >
+    <div className={styles.dock} style={{ '--height': `${height}px` } as CSSProperties}>
       <Seam resize={resize} />
-      <section className={styles.panel} aria-label="Session monitor">
+      <section
+        ref={panel}
+        className={styles.panel}
+        aria-label="Session monitor"
+        data-reduced={reduced}
+      >
         <header className={styles.bar}>
           <h2 className={styles.name}>Session monitor</h2>
           {/* What the window is reading, stated rather than implied: an empty
@@ -92,7 +91,7 @@ export function Monitor() {
           {!reduced && (
             <>
               <Assembled assembly={assembly} />
-              <Detail event={selected} />
+              <Detail />
             </>
           )}
         </div>
@@ -151,15 +150,17 @@ function Seam({ resize }: { resize: (height: number) => void }) {
  *
  * Measured rather than derived from the height somebody dragged to, because
  * the two are not the same number: the desk can be shorter than the panel asked
- * for, and what decides the form is what the panel actually got. The floor is
+ * for, and what decides the form is what the panel actually got. It is the
+ * **panel** that is measured and not the dock around it, because 210px is the
+ * panel's floor and the dock is that plus a seam and a gutter. The floor is
  * read from `--floor-monitor` so that the CSS that clamps it and the JavaScript
  * that reports it are looking at one value (`design/tokens.css`).
  */
-function useReduced(dock: React.RefObject<HTMLDivElement | null>): boolean {
+function useReduced(panel: React.RefObject<HTMLElement | null>): boolean {
   const [reduced, setReduced] = useState(false)
 
   useEffect(() => {
-    const element = dock.current
+    const element = panel.current
     if (!element) return
     const floor = Number.parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue('--floor-monitor'),
@@ -171,7 +172,7 @@ function useReduced(dock: React.RefObject<HTMLDivElement | null>): boolean {
     })
     watch.observe(element)
     return () => watch.disconnect()
-  }, [dock])
+  }, [panel])
 
   return reduced
 }

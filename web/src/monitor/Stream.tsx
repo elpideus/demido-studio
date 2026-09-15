@@ -1,5 +1,5 @@
 import { useMonitor, type Event } from './log'
-import { ICONS, tokens } from './sources'
+import { digest, ICONS, weighed } from './sources'
 import styles from './Stream.module.css'
 
 /**
@@ -54,16 +54,9 @@ export function Stream() {
               <Mark event={event} />
               <span className={styles.kind}>{event.event}</span>
               <span className={styles.said}>{summary(event)}</span>
-              {/* A tilde is the whole of the distinction `demido-trace` records
-               * on every weight: an occupancy built out of guesses and one
-               * built out of the backend's own numbers look identical
-               * otherwise, and this window is the one that says which it is
-               * showing. The bar beside the number is the cost axis, which is
+              {/* The number alone. The bar beside it is the cost axis, which is
                * not in this slice. */}
-              <span className={styles.weight}>
-                {event.weight.basis === 'estimated' ? '~' : ''}
-                {tokens(event.weight.tokens)}
-              </span>
+              <span className={styles.weight}>{weighed(event.weight)}</span>
             </button>
           ))}
         </section>
@@ -130,7 +123,7 @@ function summary(event: Event): string {
       return `${count(event, 'tools')} tools, ${text(event, 'layer')}`
     case 'prompt/fragment':
     case 'tool/refusal':
-      return short(text(event, 'hash'))
+      return digest(text(event, 'hash'))
     case 'chat/message':
       return once(text(event, 'text'))
     case 'turn/parameters':
@@ -156,10 +149,4 @@ function summary(event: Event): string {
  * so the newlines are collapsed here rather than clipped by the box. */
 function once(said: string): string {
   return said.replace(/\s+/g, ' ').trim()
-}
-
-/** A digest, at the length a person tells two of them apart by. The whole of it
- * is one tab away, in the record itself. */
-function short(hash: string): string {
-  return hash.replace(/^sha256:/, '').slice(0, 12)
 }

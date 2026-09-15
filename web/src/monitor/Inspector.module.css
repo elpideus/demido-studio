@@ -57,30 +57,8 @@
   background: var(--color-raised);
 }
 
-.block[data-source='system'] {
-  --source: var(--src-system);
-}
-.block[data-source='skill'] {
-  --source: var(--src-skill);
-}
-.block[data-source='user'] {
-  --source: var(--src-user);
-}
-.block[data-source='inject'] {
-  --source: var(--src-inject);
-}
-.block[data-source='reasoning'] {
-  --source: var(--src-reasoning);
-}
-.block[data-source='tool'] {
-  --source: var(--src-tool);
-}
-.block[data-source='artifact'] {
-  --source: var(--src-artifact);
-}
-.block[data-source='error'] {
-  --source: var(--src-error);
-}
+/* `--source` is the block's own source colour, mapped from its `data-source` in
+ * web/src/styles/global.css, which is the one place the eight are listed. */
 
 /* Inserted is the thing to read, so it is the one that is lit. */
 .block[data-change='inserted'] {
@@ -148,6 +126,9 @@
   max-height: calc(8 * var(--space-section));
   overflow: auto;
   margin: 0;
+  padding: var(--space-hair) var(--space-tight);
+  border-radius: var(--radius-chip);
+  background: var(--color-well);
   color: var(--color-ink-2);
   font-family: var(--font-mono);
   font-variation-settings: 'wdth' var(--width-code);
@@ -178,6 +159,11 @@
   line-height: var(--leading-flush);
 }
 
+/* These are status colours rather than source colours, and the region carries
+ * no source: a group is a fact about the registry, not a line of the log. The
+ * icon and the words say the state as well, which is the rule that matters
+ * (design/windows.md), so a colour shared with a source elsewhere in the panel
+ * is not the only thing telling the two apart. */
 .group[data-standing='offered'] {
   --source: var(--color-signal);
 }
@@ -189,6 +175,9 @@
 }
 .group[data-standing='dropped'] {
   --source: var(--color-sky);
+}
+.group[data-standing='nothing'] {
+  --source: var(--color-ink-3);
 }
 
 .name {

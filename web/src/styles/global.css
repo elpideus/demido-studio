@@ -51,6 +51,43 @@ body {
   overflow-x: hidden;
 }
 
+/*
+ * The session log is colour-coded by source (design/windows.md), and this is
+ * the one place the eight are mapped. Anything carrying `data-source` gets
+ * `--source`, and the component decides what to paint with it: a row's icon and
+ * label in the stream, a block's accent in the rebuilt assembly.
+ *
+ * Here rather than in a module because it is a fact about the design system in
+ * the same way the tokens are, and because it is eight rules: written per
+ * component it is a second list of eight, and the day a source changes colour
+ * is the day one of the copies is missed. The tokens themselves stay in
+ * design/tokens.css; this maps them to the attribute that names them.
+ */
+[data-source='system'] {
+  --source: var(--src-system);
+}
+[data-source='skill'] {
+  --source: var(--src-skill);
+}
+[data-source='user'] {
+  --source: var(--src-user);
+}
+[data-source='inject'] {
+  --source: var(--src-inject);
+}
+[data-source='reasoning'] {
+  --source: var(--src-reasoning);
+}
+[data-source='tool'] {
+  --source: var(--src-tool);
+}
+[data-source='artifact'] {
+  --source: var(--src-artifact);
+}
+[data-source='error'] {
+  --source: var(--src-error);
+}
+
 :focus-visible {
   outline: var(--space-hair) solid var(--color-signal);
   outline-offset: var(--space-hair);

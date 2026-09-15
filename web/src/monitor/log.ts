@@ -72,8 +72,9 @@ export type Placed = {
 export type OfferedTool = { name: string; hash: string; text: string }
 
 /** Why a group of the registry is or is not in an assembly. The Rust
- * `Standing`. The last two are the pair that must never look alike. */
-export type Standing = 'offered' | 'partial' | 'switched-off' | 'dropped'
+ * `Standing`. `switched-off` and `dropped` are the pair that must never look
+ * alike, and `nothing` is where the log cannot tell them apart. */
+export type Standing = 'offered' | 'partial' | 'switched-off' | 'dropped' | 'nothing'
 
 /** What one group came to in one assembly. The Rust `Grouped`. */
 export type Grouped = {

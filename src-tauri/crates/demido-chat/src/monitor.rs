@@ -48,8 +48,9 @@ pub struct Grouped {
 
 /// Why a group is or is not in an assembly.
 ///
-/// Four, and the two that matter are the last two: a deliberate absence and a
-/// defect must not look identical.
+/// Five, and the three that matter are the last three: a deliberate absence and
+/// a defect must not look identical, and neither may be claimed where the log
+/// cannot tell them apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Standing {
@@ -58,14 +59,25 @@ pub enum Standing {
     /// Some were and some were not, which is a person switching tools rather
     /// than a group.
     Partial,
-    /// None were, and the set was named by somebody on the settings ladder. A
-    /// choice, and the control that made it is the tool picker.
+    /// None were, out of a set that had something in it and was named by
+    /// somebody on the settings ladder. A choice, and the control that made it
+    /// is the tool picker.
     SwitchedOff,
     /// None were, and nobody named a set: what was offered was everything the
     /// registry had, so the group was not in it. No workspace is the ordinary
     /// reason (`demido_tools::Registry::offered`), and a skill that is not
     /// installed will be another.
     Dropped,
+    /// The assembly offered no tools at all, and **which of the two that was
+    /// cannot be told from the log**.
+    ///
+    /// Both roads end here. A person can switch every group off in the picker,
+    /// and a registry with no workspace offers nothing whatever the picker
+    /// says; the set recorded is empty either way and the layer says who chose
+    /// the set rather than why it came out empty. So this says the one thing
+    /// that is certain, instead of naming a reason and sending somebody to a
+    /// control that may not be the one that is wrong.
+    Nothing,
 }
 
 /// Every group of the registry against the set one assembly was sent with.
@@ -87,10 +99,26 @@ pub(crate) fn grouped(
                 .collect()
         })
         .unwrap_or_default();
-    // Somebody named this set: a tier of the ladder decided it, which is the
-    // picker or a value above it. An assembly that offered nothing at all is
-    // nobody naming anything, and so is the registry's own set.
-    let chosen = offering.is_some_and(|offering| offering.layer != Layer::Registry);
+
+    // Why an absence is an absence, for every group that has one. It is one
+    // answer per assembly rather than one per group, and that is a property of
+    // the registry rather than a shortcut: a registry drops **all** of itself
+    // or none of it, because what it drops for is having nowhere to act
+    // (`demido_tools::Registry::offers`). So a set with anything in it proves
+    // the registry was not the reason, and every absence in it is the ladder's.
+    let absence = match named.is_empty() {
+        // Nothing at all was offered, and the log cannot say which road that
+        // came down. See [`Standing::Nothing`].
+        true => Standing::Nothing,
+        // Somebody named this set, which is the picker or a value above it, so
+        // what it leaves out was left out on purpose.
+        false if offering.is_some_and(|offering| offering.layer != Layer::Registry) => {
+            Standing::SwitchedOff
+        }
+        // The registry's own set: everything it had was offered, so a group not
+        // in it was not in the registry.
+        false => Standing::Dropped,
+    };
 
     groups
         .into_iter()
@@ -98,11 +126,10 @@ pub(crate) fn grouped(
             let (offered, absent): (Vec<String>, Vec<String>) = tools
                 .into_iter()
                 .partition(|name| named.contains(&name.as_str()));
-            let standing = match (offered.is_empty(), absent.is_empty(), chosen) {
-                (_, true, _) => Standing::Offered,
-                (false, _, _) => Standing::Partial,
-                (true, _, true) => Standing::SwitchedOff,
-                (true, _, false) => Standing::Dropped,
+            let standing = match (offered.is_empty(), absent.is_empty()) {
+                (_, true) => Standing::Offered,
+                (false, _) => Standing::Partial,
+                (true, _) => absence,
             };
             Grouped {
                 group: group.to_owned(),

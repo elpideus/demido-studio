@@ -196,8 +196,21 @@ rule is the layer on `tools/offered`: a set a tier of the ladder named is a
 person's choice, so an absence in it is **switched off** and the control that
 made it is the tool picker; a set nobody named is everything the registry had,
 so an absence is **dropped**, which today means no workspace. `docs/rules/tools.md`
-is explicit that this is what the event exists for, and `tests/monitored.rs`
-holds the two apart against the scripted backend.
+is explicit that this is what the event exists for.
+
+One answer per assembly rather than one per group, and that is the registry's
+property rather than a shortcut: it drops all of itself or none of it, because
+what it drops for is having nowhere to act. A set with anything in it therefore
+proves the registry was not the reason, and every absence in it is the ladder's.
+
+**An empty set claims neither.** Both roads end there: a person can switch every
+group off, and a registry with no workspace offers nothing whatever the picker
+says. The layer says who chose the set, never why it came out empty, so the
+standing is `Nothing` and the monitor says the one thing that is certain instead
+of sending somebody to a control that may not be the one that is wrong.
+`tests/monitored.rs` holds all of it apart against the scripted backend,
+including the crossed case: a set named by the chat, on a conversation with no
+workspace.
 
 ## Presence carries the fact, never the wording
 

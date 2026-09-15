@@ -73,31 +73,8 @@
   background: var(--color-edge);
 }
 
-.row[data-source='system'] {
-  --source: var(--src-system);
-}
-.row[data-source='skill'] {
-  --source: var(--src-skill);
-}
-.row[data-source='user'] {
-  --source: var(--src-user);
-}
-.row[data-source='inject'] {
-  --source: var(--src-inject);
-}
-.row[data-source='reasoning'] {
-  --source: var(--src-reasoning);
-}
-.row[data-source='tool'] {
-  --source: var(--src-tool);
-}
-.row[data-source='artifact'] {
-  --source: var(--src-artifact);
-}
-.row[data-source='error'] {
-  --source: var(--src-error);
-}
-
+/* `--source` is the row's own source colour, mapped from its `data-source` in
+ * web/src/styles/global.css, which is the one place the eight are listed. */
 .icon {
   width: var(--size-icon-small);
   height: var(--size-icon-small);

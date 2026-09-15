@@ -72,15 +72,17 @@ type Desk = Shell & {
    * about. */
   monitor: boolean
   toggleMonitor: () => void
-  /** How tall the monitor asked to be, in pixels.
+  /** How tall the monitor asked to be, in pixels. Named for the panel it
+   * belongs to, because a bare `height` on a desk-wide store reads as the
+   * desk's.
    *
    * Asked, not got: the floor and the ceiling are the seam's own CSS
    * (`web/src/monitor/Monitor.module.css`), so the number a drag produces never
    * has to know either. Kept here and **not** reported to Rust: `Shell` is what
    * a profile remembers, and panel geometry joins it when the window manager
    * that owns geometry lands, per the note above. */
-  height: number
-  resize: (height: number) => void
+  monitorHeight: number
+  resizeMonitor: (height: number) => void
 }
 
 /** The height the monitor opens at: the stream, the rebuild and the detail
@@ -119,9 +121,9 @@ export const useDesk = create<Desk>((set, get) => ({
   close: () => set({ panel: null }),
 
   monitor: false,
-  height: MONITOR_HEIGHT,
+  monitorHeight: MONITOR_HEIGHT,
   toggleMonitor: () => set({ monitor: !get().monitor }),
-  resize: (height) => set({ height }),
+  resizeMonitor: (monitorHeight) => set({ monitorHeight }),
 }))
 
 /**

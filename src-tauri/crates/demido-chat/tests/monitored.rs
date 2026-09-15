@@ -21,7 +21,7 @@ use demido_inference::scripted::{Script, Scripted};
 use demido_inference::Supervisor;
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
 use demido_tools::{files, shell, Registry, Workspace};
-use demido_trace::{Memory, Source};
+use demido_trace::{Body, Event, Memory, Source};
 use serde_json::json;
 
 const SESSION: &str = "monitored";
@@ -37,13 +37,19 @@ struct Rig {
 
 impl Rig {
     fn new() -> Self {
+        Self::saying(&["Hello."])
+    }
+
+    /// A rig whose model answers in the pieces given, which is what a real one
+    /// does: an answer arrives as a run of chunks.
+    fn saying(chunks: &[&str]) -> Self {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("notes.txt"), "Thursday.\n").unwrap();
         Self {
             project,
             prompts: tempfile::tempdir().unwrap(),
             log: Memory::new(),
-            script: Script::serving("scripted").then_say(&["Hello."]),
+            script: Script::serving("scripted").then_say(chunks),
             settings: Arc::new(Settings::open(SettingsMemory::new())),
         }
     }
@@ -170,10 +176,13 @@ async fn some_of_a_group_switched_off_is_partial_rather_than_off() {
 }
 
 #[tokio::test]
-async fn a_group_nothing_offered_is_drawn_as_dropped_rather_than_as_switched_off() {
-    // Nobody switched anything off: there is no workspace, so the registry
-    // offered nothing at all. A monitor that reported this as a person's choice
-    // would send them to a control that would not fix it.
+async fn an_assembly_that_offered_nothing_claims_neither_reason_for_it() {
+    // There is no workspace, so the registry offered nothing at all. Nobody
+    // switched anything off either, and the log cannot tell those two apart:
+    // an empty set is an empty set. A monitor that guessed *switched off* would
+    // send somebody to a control that would not fix it, and one that guessed
+    // *dropped* would tell somebody who did switch everything off that their
+    // install is broken.
     let rig = Rig::new();
     let chat = rig.chat(false);
     let assembly = assembly(&chat).await;
@@ -182,6 +191,67 @@ async fn a_group_nothing_offered_is_drawn_as_dropped_rather_than_as_switched_off
         assembly.rebuild.tools.is_none(),
         "an assembly that offered nothing names no set"
     );
-    assert_eq!(standing(&assembly, "files"), Standing::Dropped);
-    assert_eq!(standing(&assembly, "shell"), Standing::Dropped);
+    assert_eq!(standing(&assembly, "files"), Standing::Nothing);
+    assert_eq!(standing(&assembly, "shell"), Standing::Nothing);
+}
+
+#[tokio::test]
+async fn a_workspace_that_is_not_there_is_not_reported_as_the_picker() {
+    // The crossed case, and the one worth having a test for: a person has named
+    // a set, every tool in it is switched on, and there is still no workspace
+    // for any of them to act in. The set the log records is empty and its layer
+    // is the chat, so a verdict read off the layer alone would call this a
+    // deliberate absence. It is a defect, and those two must not look alike
+    // (`docs/rules/tools.md`).
+    let rig = Rig::new();
+    rig.picked(&["read_file", "run_command"]);
+    let chat = rig.chat(false);
+    let assembly = assembly(&chat).await;
+
+    assert_eq!(standing(&assembly, "files"), Standing::Nothing);
+    assert_eq!(standing(&assembly, "shell"), Standing::Nothing);
+}
+
+#[tokio::test]
+async fn the_answer_is_one_event_rather_than_the_run_of_chunks_that_assembled_it() {
+    // "The stream groups events into turns, with chunk runs folded into the
+    // message they assembled" (#57). The fold is the log's own: tokens are
+    // updates while the turn runs and never become events, so the monitor reads
+    // one `turn/completion` carrying the whole answer. Asserted here because a
+    // window cannot assert it, and because the day a chunk becomes an event is
+    // the day the stream turns into a firehose.
+    let rig = Rig::saying(&["The meeting ", "moved to ", "Thursday."]);
+    let chat = rig.chat(true);
+    chat.load(|_| {}).await;
+
+    let mut chunks = 0;
+    let answer = chat
+        .ask(
+            "when?",
+            |update| {
+                if matches!(update, demido_chat::Update::Text { .. }) {
+                    chunks += 1;
+                }
+            },
+            |_| async { unreachable!() },
+        )
+        .await
+        .expect("an answer");
+
+    assert_eq!(chunks, 3, "the backend streamed the answer in pieces");
+    assert_eq!(answer.text, "The meeting moved to Thursday.");
+
+    let log = chat.log().expect("read");
+    let completions: Vec<&Event> = log
+        .iter()
+        .filter(|event| matches!(event.body, Body::Completion { .. }))
+        .collect();
+    assert_eq!(completions.len(), 1, "one event, not one per chunk");
+    assert!(
+        matches!(
+            &completions[0].body,
+            Body::Completion { text, .. } if text == "The meeting moved to Thursday."
+        ),
+        "the one event carries the whole answer the chunks assembled"
+    );
 }
