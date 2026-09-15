@@ -51,7 +51,7 @@ pub mod tree;
 pub mod workspace;
 
 pub use command::RunCommand;
-pub use delegate::{delegating, DelegateTask, Delegated, Delegating};
+pub use delegate::{delegating, DelegateTask, Delegating};
 pub use files::{DeleteFile, ReadFile, WriteFile};
 pub use listing::ListDirectory;
 pub use registry::{delegation, files, shell, Call, Planned, Registry, Spec};

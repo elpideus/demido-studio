@@ -34,15 +34,14 @@ use serde_json::Value;
 
 use crate::tool::{Ability, Context, Failure, Intent, Outcome, Tool};
 
-/// A delegation in flight. Boxed because it outlives the call that built it.
-pub type Delegated = Pin<Box<dyn Future<Output = Outcome> + Send>>;
-
 /// How a delegated task is actually carried out: the task, and what the
 /// sub-agent answered.
 ///
 /// Shared rather than owned, because the registry a turn narrows is cloned per
-/// turn and every clone delegates to the same place.
-pub type Delegating = Arc<dyn Fn(String) -> Delegated + Send + Sync>;
+/// turn and every clone delegates to the same place. The answer is boxed
+/// because it outlives the call that built it.
+pub type Delegating =
+    Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = Outcome> + Send>> + Send + Sync>;
 
 /// Build a [`Delegating`] out of an ordinary async function.
 ///
@@ -55,10 +54,6 @@ where
 {
     Arc::new(move |task| Box::pin(run(task)))
 }
-
-/// A person approving a delegation is reading one line, so the task it names
-/// has to stop being a task description and start being a phrase.
-const SUMMARY_LIMIT: usize = 120;
 
 /// Hand a self-contained piece of work to a sub-agent.
 ///
@@ -105,10 +100,14 @@ impl Tool for DelegateTask {
     }
 
     fn intent(&self, arguments: &Value, _: &Context<'_>) -> Intent {
-        let task = arguments["task"].as_str().unwrap_or_default();
         Intent {
             ability: Ability::Shell,
-            summary: format!("Delegate: {}", phrase(task)),
+            // The task as it was written, the way `run_command` summarises a
+            // command line as it was written. How much of it a one-line row
+            // shows is the window's, because a tool decides nothing about
+            // rendering: a limit here would be this tool alone answering a
+            // question every tool's summary asks.
+            summary: format!("Delegate: {}", task(arguments)),
             // Not at this declaration. What the sub-agent itself does is ruled
             // on call by call, by the same matrix and the same person, and the
             // destructive floor is under the child as much as under the parent.
@@ -123,7 +122,7 @@ impl Tool for DelegateTask {
     }
 
     async fn run(&self, arguments: &Value, _: &Context<'_>) -> Outcome {
-        let task = arguments["task"].as_str().unwrap_or_default().trim();
+        let task = task(arguments);
         if task.is_empty() {
             // not-a-prompt: a tool result naming what was wrong with this call.
             return Err(Failure::retryable("there is no task to delegate."));
@@ -132,23 +131,12 @@ impl Tool for DelegateTask {
     }
 }
 
-/// A task description, cut to something a person can read in a row.
+/// The task a call names, read the same way wherever it is read.
 ///
-/// Cut on a character boundary and on a word where there is one nearby, because
-/// the approval row is the one place a person decides and half a word there
-/// reads as a broken window rather than as a long task.
-fn phrase(task: &str) -> String {
-    let task = task.split_whitespace().collect::<Vec<_>>().join(" ");
-    if task.chars().count() <= SUMMARY_LIMIT {
-        return task;
-    }
-
-    let kept: String = task.chars().take(SUMMARY_LIMIT).collect();
-    let cut = match kept.rsplit_once(' ') {
-        Some((head, _)) if head.chars().count() >= SUMMARY_LIMIT / 2 => head,
-        _ => kept.as_str(),
-    };
-    format!("{}...", cut.trim_end())
+/// One function rather than two readings, so what the person approves and what
+/// the sub-agent is handed cannot come apart: they are the same string.
+fn task(arguments: &Value) -> &str {
+    arguments["task"].as_str().unwrap_or_default().trim()
 }
 
 #[cfg(test)]
@@ -191,30 +179,30 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_long_task_is_one_line_by_the_time_a_person_reads_it() {
+    #[tokio::test]
+    async fn what_a_person_approves_is_what_the_sub_agent_is_handed() {
+        // Read once, by one function, so the row and the delegation cannot
+        // describe two different tasks.
         let (_dir, workspace) = rig();
-        let long = "Read every file under src and report back ".repeat(20);
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let taken = seen.clone();
+        let tool = DelegateTask::to(delegating(move |task: String| {
+            let taken = taken.clone();
+            async move {
+                taken.lock().unwrap().push(task);
+                Ok(String::new())
+            }
+        }));
+        let arguments = json!({ "task": "  Read every file under src  " });
 
-        let summary = answering("done")
-            .intent(&json!({ "task": long }), &Context::over(&workspace))
-            .summary;
+        let summary = tool.intent(&arguments, &Context::over(&workspace)).summary;
+        tool.run(&arguments, &Context::over(&workspace))
+            .await
+            .expect("an answer");
 
-        assert!(summary.chars().count() <= SUMMARY_LIMIT + 16, "{summary}");
-        assert!(summary.ends_with("..."), "{summary}");
-    }
-
-    #[test]
-    fn a_task_written_over_several_lines_still_summarises_to_a_row() {
-        let (_dir, workspace) = rig();
-        let summary = answering("done")
-            .intent(
-                &json!({ "task": "Find the bug.\n\nThen fix it." }),
-                &Context::over(&workspace),
-            )
-            .summary;
-
-        assert_eq!(summary, "Delegate: Find the bug. Then fix it.");
+        let handed = seen.lock().unwrap()[0].clone();
+        assert_eq!(handed, "Read every file under src");
+        assert_eq!(summary, format!("Delegate: {handed}"));
     }
 
     #[tokio::test]
