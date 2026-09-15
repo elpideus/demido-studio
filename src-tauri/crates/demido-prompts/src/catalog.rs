@@ -385,6 +385,25 @@ mod tests {
     }
 
     #[test]
+    fn an_entrys_dependants_do_not_repeat_a_sentence() {
+        // The sentence is a dependant's identity in the editor: it is the key
+        // the list is drawn with and what a suppressed one is matched by
+        // (`web/src/settings/Prompts.tsx`). Two dependants of one entry sharing
+        // a sentence would collapse into one row, and the person would be told
+        // one of the two things an edit costs them.
+        for paragraph in CATALOG {
+            let mut seen = std::collections::BTreeSet::new();
+            for dependant in paragraph.dependants {
+                assert!(
+                    seen.insert(dependant.note),
+                    "{} says the same thing twice",
+                    paragraph.id
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_measured_claim_names_a_file_that_holds_the_pin() {
         // A dependant nobody can follow is a warning with no evidence behind
         // it. The gate in `scripts/check-rules.mjs` reads the same file.

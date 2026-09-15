@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 
-import { sentence, type Failure } from '@/shell/failure'
+import { refused, sentence } from '@/shell/failure'
 import { useToasts } from '@/shell/toasts'
 
 /**
@@ -53,6 +53,9 @@ export type Prompt = {
   text: string
   origin: Origin
   hash: string
+  /** The same, for the wording this build ships: the identity of what a reset
+   * would restore. Equal to `hash` while nobody has edited the entry. */
+  shipped: string
   /** For an edit, the hash of the built-in wording it was made from. */
   base: string | null
   /** The measured claims this text no longer supports. Empty until it is
@@ -63,15 +66,17 @@ export type Prompt = {
   note: string | null
 }
 
-/** Whether this build's shipped wording has moved since the edit was made.
+/**
+ * Whether this build's shipped wording has moved since the edit was made.
  *
- * The condition the diff is drawn for, and it is read off the two hashes rather
- * than off the note's wording: `base` is what the edit was made from, `hash` is
- * what is in force, and neither is the digest of the default when the default
- * has moved underneath an edit. Rust already says so in a sentence; this is the
- * same fact as something to branch on. */
+ * The condition the diff is drawn for, and it is the same comparison Rust makes
+ * to decide whether to write the note: the wording this edit was made from
+ * against the wording this build ships. Not read off the note, which is a
+ * shared channel that also carries an edit that could not be read, and a diff
+ * drawn from a sentence is a diff that changes when somebody rewords one.
+ */
 export function outdated(prompt: Prompt): boolean {
-  return prompt.origin === 'edited' && prompt.base !== null && prompt.note !== null
+  return prompt.base !== null && prompt.base !== prompt.shipped
 }
 
 type Prompts = {
@@ -153,13 +158,6 @@ async function write(call: () => Promise<unknown>, get: () => Prompts): Promise<
  * Rust wrote is the only one that says what happened.
  */
 function refusal(error: unknown): string {
-  if (!isRefusal(error)) return sentence(error)
+  if (!refused(error)) return sentence(error)
   return 'That names something nothing will fill in. Only the placeholders listed under the field are replaced.'
-}
-
-/** Whether the failure is the edit being wrong rather than the saving of it.
- * The tag is `demido_core::Error::kind`, which exists so a frontend branches on
- * a tag instead of on the wording of a sentence. */
-function isRefusal(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as Failure).kind === 'invalid'
 }

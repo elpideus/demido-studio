@@ -189,6 +189,12 @@ function Entry({ prompt, open, toggle }: { prompt: Prompt; open: boolean; toggle
  * being made. A **shared** wording is used in more than one place, so an edit
  * changes all of them at once and there is nothing to suppress; it reads the
  * same before and after.
+ *
+ * The sentence is a dependant's identity here, both as the key and as what a
+ * suppressed one is matched by, and the catalog's own
+ * `an_entrys_dependants_do_not_repeat_a_sentence` is what makes that safe: two
+ * of one entry's dependants saying the same thing would collapse into one row,
+ * and the person would be told one of the two things an edit costs them.
  */
 function Depends({ dependant, suppressed }: { dependant: Dependant; suppressed: boolean }) {
   const Glyph = suppressed ? CircleSlash : dependant.kind === 'shared' ? Info : TriangleAlert
@@ -210,6 +216,11 @@ function Depends({ dependant, suppressed }: { dependant: Dependant; suppressed: 
  * is the half a sentence cannot carry, which is what the two wordings actually
  * differ by, and the one gesture that acts on it.
  *
+ * Whether to draw any of this is decided by the two hashes and not by the note,
+ * so the note is rendered only if there is one rather than assumed: the section
+ * is about a wording that moved, and the diff is the part of it that is true
+ * whether or not a sentence came with it.
+ *
  * It stays a note. It blocks nothing, the text in force is still the one the
  * person chose, and the next turn sends it either way.
  */
@@ -218,10 +229,12 @@ function Moved({ prompt, reset }: { prompt: Prompt; reset: () => void }) {
 
   return (
     <section className={styles.moved}>
-      <p className={styles.depends}>
-        <TriangleAlert className={styles.icon} strokeWidth={1.8} aria-hidden />
-        <span className={styles.note}>{prompt.note}</span>
-      </p>
+      {prompt.note && (
+        <p className={styles.depends}>
+          <TriangleAlert className={styles.icon} strokeWidth={1.8} aria-hidden />
+          <span className={styles.note}>{prompt.note}</span>
+        </p>
+      )}
       <pre className={styles.diff}>
         {lines.map((line, at) => (
           // Position is the only identity a line of a diff has: two identical

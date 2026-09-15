@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 
 import { useChat } from '@/chat/chat'
-import { sentence, type Failure } from '@/shell/failure'
+import { refused, sentence } from '@/shell/failure'
 import { useToasts } from '@/shell/toasts'
 
 /**
@@ -165,7 +165,7 @@ async function change(
  * happened.
  */
 function refusal(setting: Setting, error: unknown): string {
-  if (!isRefusal(error)) return sentence(error)
+  if (!refused(error)) return sentence(error)
 
   switch (setting.kind.control) {
     case 'count':
@@ -177,11 +177,4 @@ function refusal(setting: Setting, error: unknown): string {
     case 'set':
       return `${setting.title} was not saved.`
   }
-}
-
-/** Whether the failure is the value being wrong rather than the saving of it.
- * The tag is `demido_core::Error::kind`, which exists so a frontend branches on
- * a tag instead of on the wording of a sentence. */
-function isRefusal(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as Failure).kind === 'invalid'
 }

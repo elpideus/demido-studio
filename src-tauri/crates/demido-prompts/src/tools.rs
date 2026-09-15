@@ -212,6 +212,10 @@ pub struct Document {
     /// `sha256:` and the digest of the whole document, description and
     /// parameter prose together. What `tools/offered` records beside the name.
     pub hash: String,
+    /// The same, for the document this build ships. See [`crate::Prompt`]: it
+    /// is half of the comparison `note` is written from, and it is on both
+    /// registers because the two never disagree about what an entry carries.
+    pub shipped: String,
     /// For an edit, the hash of the built-in document it was made from.
     pub base: Option<String>,
     /// The measured claims this text no longer supports.
@@ -326,6 +330,7 @@ impl Tools {
             text,
             origin,
             hash,
+            shipped,
             base,
             note,
         } = register::stored(&self.path(entry), &self.base_path(entry), entry.default);
@@ -336,6 +341,7 @@ impl Tools {
             text,
             origin,
             hash,
+            shipped,
             base,
             note,
         }

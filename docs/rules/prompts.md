@@ -100,7 +100,11 @@ above the field in the editor:
 
 > Every slash command in every skill uses this wording.
 
-> A measurement in `evals/lessons/` was taken against this wording.
+> A measurement in evals/lessons/ was taken against this wording.
+
+A dependant's sentence is plain prose with no markup in it, because the editor
+renders it as text and nothing else consumes it
+([#58](https://github.com/elpideus/demido-studio/issues/58)).
 
 An edited entry **suppresses the claim rather than being refused**. A user may
 degrade their own classifier, `Origin::Edited` records that they did, and

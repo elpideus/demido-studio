@@ -96,6 +96,15 @@ pub struct Prompt {
     /// is what makes "which version of this prompt produced that reply" a
     /// question with an answer.
     pub hash: String,
+    /// The same, for the wording this build ships.
+    ///
+    /// Not a second identity for this entry: `docs/rules/prompts.md` refuses
+    /// one, and this is the identity of the *other* text, the one a reset would
+    /// restore. It is here because it is half of the comparison [`Self::note`]
+    /// is written from, and an editor that had the note but not the comparison
+    /// would have to read a sentence to find out whether to draw a diff. Equal
+    /// to [`Self::hash`] whenever nobody has edited the entry.
+    pub shipped: String,
     /// For an edit, the hash of the built-in wording it was made from.
     ///
     /// Recorded because a later build improving a default is otherwise
@@ -229,6 +238,7 @@ impl Paragraphs {
             text,
             origin,
             hash,
+            shipped,
             base,
             note,
         } = stored(
@@ -243,6 +253,7 @@ impl Paragraphs {
             text,
             origin,
             hash,
+            shipped,
             base,
             note,
         }
@@ -259,6 +270,7 @@ pub(crate) struct Stored {
     pub text: String,
     pub origin: Origin,
     pub hash: String,
+    pub shipped: String,
     pub base: Option<String>,
     pub note: Option<String>,
 }
@@ -298,11 +310,13 @@ pub(crate) fn stored(path: &Path, base_path: &Path, shipped: &str) -> Stored {
             .filter(|base| !base.is_empty()),
     };
 
+    let shipped = digest(&built_in);
+
     // The built-in wording has moved on since this edit was made. Said
     // once, as a note, with the editor's diff and reset behind it.
     // not-a-prompt: shown to the person who made the edit, never sent.
     if let Some(base) = &base {
-        if base != &digest(&built_in) && note.is_none() {
+        if base != &shipped && note.is_none() {
             note = Some(
                 "This was edited from an earlier version of the built-in text, which has since changed. Reset to take the new wording, or keep this one."
                     .to_owned(),
@@ -314,6 +328,7 @@ pub(crate) fn stored(path: &Path, base_path: &Path, shipped: &str) -> Stored {
         hash: digest(&text),
         text,
         origin,
+        shipped,
         base,
         note,
     }
@@ -519,6 +534,26 @@ mod tests {
 
         assert_eq!(edited.base.as_deref(), Some(shipped.hash.as_str()));
         assert!(edited.note.is_none(), "the default has not moved");
+    }
+
+    #[test]
+    fn an_entry_carries_the_identity_of_the_wording_a_reset_would_restore() {
+        // What the editor compares `base` against to decide whether to draw a
+        // diff. Reading that off the note instead would make the diff depend on
+        // a sentence, and the note is also where an unreadable edit is
+        // reported.
+        let (_dir, paragraphs) = open();
+        let shipped = paragraphs.get(id::CAVEMAN_FULL).unwrap();
+        assert_eq!(shipped.shipped, shipped.hash, "nobody has edited it");
+
+        let edited = paragraphs.set(id::CAVEMAN_FULL, "grunt").unwrap();
+        assert_ne!(edited.hash, edited.shipped);
+        assert_eq!(edited.shipped, shipped.hash);
+        assert_eq!(
+            edited.base.as_deref(),
+            Some(edited.shipped.as_str()),
+            "made from the wording this build still ships, so nothing has moved"
+        );
     }
 
     #[test]

@@ -41,13 +41,21 @@ pub fn prompts_list(wiring: tauri::State<'_, Wiring>) -> Vec<Prompt> {
 /// its dependants and an edit suppresses the measured claim rather than being
 /// turned down. What can still fail is an id this build does not have, a
 /// placeholder nothing would ever fill, and the disk.
+///
+/// Nothing comes back, the way `settings_set` hands nothing back: the page
+/// reads the register again after a change, and an entry returned here would be
+/// a second answer to a question the read already asks. The register makes that
+/// difference real rather than cosmetic, because text equal to the built-in
+/// default resets instead of writing a file, so the entry that would come back
+/// is not always the one that was asked for.
 #[tauri::command]
 pub fn prompts_set(
     wiring: tauri::State<'_, Wiring>,
     id: String,
     text: String,
-) -> demido_core::Result<Prompt> {
-    Ok(wiring.prompts.set(&id, &text)?)
+) -> demido_core::Result<()> {
+    wiring.prompts.set(&id, &text)?;
+    Ok(())
 }
 
 /// Forget the edit, so the text this build ships is what the next turn sends.
@@ -56,6 +64,7 @@ pub fn prompts_set(
 /// the note and the diff say it has, and this is the one gesture that acts on
 /// them.
 #[tauri::command]
-pub fn prompts_reset(wiring: tauri::State<'_, Wiring>, id: String) -> demido_core::Result<Prompt> {
-    Ok(wiring.prompts.reset(&id)?)
+pub fn prompts_reset(wiring: tauri::State<'_, Wiring>, id: String) -> demido_core::Result<()> {
+    wiring.prompts.reset(&id)?;
+    Ok(())
 }
