@@ -18,13 +18,14 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use demido_inference::{FinishReason, Message, Request, Role, ToolCall, ToolSpec};
+use demido_inference::{FinishReason, Message, Options, Request, Role, ToolCall, ToolSpec};
 
 use crate::event::{Basis, Body, Event, Layer, Source, Weight};
 use crate::journal::{Error, Journal, Result};
 
 /// The tools on offer at some moment, in the wording they were offered in.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Offering {
     /// Where the set was recorded.
     pub seq: u64,
@@ -34,12 +35,73 @@ pub struct Offering {
 
 /// One tool of an [`Offering`]: its name, its hash, the document recorded
 /// under that hash, and the shape its prose goes on.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OfferedTool {
     pub name: String,
     pub hash: String,
     pub text: String,
     pub shape: serde_json::Value,
+}
+
+/// How one block of an assembly stands against the assembly before it.
+///
+/// `design/windows.md`: "an injection appears as an inserted block you can
+/// read, an evicted one as a struck-out block with its cost". Three, and they
+/// are the three states `design/system.md` gives the prompt assembly. Nothing
+/// else about a block can change between two assemblies, because a block's text
+/// is fixed the moment it is recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Change {
+    /// The assembly before this one put the same thing in front of the model.
+    Unchanged,
+    /// This assembly put it there and the one before it did not.
+    Inserted,
+    /// The assembly before this one carried it and this one does not.
+    Evicted,
+}
+
+/// One block of a rebuilt assembly: what it put in front of the model, where
+/// it came from, what it cost, and whether it is new.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Placed {
+    /// The event this block is, which is also its raw record.
+    pub seq: u64,
+    pub turn: u32,
+    pub role: Role,
+    /// The colour and the icon the row carries (`design/windows.md`).
+    pub source: Source,
+    pub weight: Weight,
+    /// The text as it was sent: a paragraph refilled from the wording the log
+    /// stored, never a copy of what it produced.
+    pub text: String,
+    pub change: Change,
+}
+
+/// One assembly as it stood at one moment, block by block.
+///
+/// What `design/windows.md` asks the monitor for: "Selecting an event rebuilds
+/// the prompt **as it stood at that moment**, block by block, **diffed against
+/// the previous assembly**."
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rebuild {
+    /// The event that was selected.
+    pub at: u64,
+    /// The assembly in force there, which is the last one sent at or before it.
+    pub seq: u64,
+    pub turn: u32,
+    /// The assembly this one is diffed against, or nothing when it is the
+    /// first.
+    pub previous: Option<u64>,
+    pub model: String,
+    pub options: Options,
+    pub blocks: Vec<Placed>,
+    /// The set this assembly was sent with, in the wording it was sent in, or
+    /// nothing when it offered no tools at all.
+    pub tools: Option<Offering>,
 }
 
 /// One thing said, as a transcript shows it.
@@ -375,6 +437,145 @@ impl Replay {
             messages,
             tools,
             options: options.clone(),
+        })
+    }
+
+    /// The assembly as it stood at event `at`, block by block, diffed against
+    /// the assembly before it. `None` when nothing had been sent by then.
+    ///
+    /// The assembly in force at a moment is the last one recorded at or before
+    /// it, which is what makes any event selectable: a completion, a call, a
+    /// result and the assembly itself all answer with the assembly that
+    /// produced them. The one it is diffed against is the previous assembly
+    /// **event**, so a step of a turn is diffed against the step before it
+    /// rather than against the turn before it: a step is an assembly, and what
+    /// a step added is exactly what a reader wants to see.
+    ///
+    /// **The diff is over what each block put in front of the model, not over
+    /// the events.** Two blocks are the same block when they contribute the
+    /// same role and the same text. Diffing by position on the log instead
+    /// would report the system paragraph as evicted and inserted again on every
+    /// single turn, because the composer records a fresh one each time, and an
+    /// injection signal that fires every turn is one nobody reads. What was
+    /// sent is the text; the event is on the block either way, for the raw
+    /// record.
+    pub fn rebuild(&self, at: u64) -> Result<Option<Rebuild>> {
+        let Some(seq) = self.sent_by(at) else {
+            return Ok(None);
+        };
+        let previous = self.sent_by(seq.saturating_sub(1));
+
+        let Body::Assembly {
+            parameters, blocks, ..
+        } = &self.at(seq)?.body
+        else {
+            return Err(Error::NotABlock { seq });
+        };
+        let Body::Parameters { model, options } = &self.at(*parameters)?.body else {
+            return Err(Error::NotABlock { seq: *parameters });
+        };
+
+        let earlier = match previous {
+            Some(previous) => self.blocks_of(previous)?.to_vec(),
+            None => Vec::new(),
+        };
+        let blocks = self.diffed(blocks, &earlier, previous.is_some())?;
+
+        Ok(Some(Rebuild {
+            at,
+            seq,
+            turn: self.at(seq)?.turn,
+            previous,
+            model: model.clone(),
+            options: options.clone(),
+            blocks,
+            tools: self.offered_by(seq)?,
+        }))
+    }
+
+    /// The last assembly recorded at or before `at`.
+    fn sent_by(&self, at: u64) -> Option<u64> {
+        self.events
+            .iter()
+            .rev()
+            .find(|event| event.seq <= at && matches!(event.body, Body::Assembly { .. }))
+            .map(|event| event.seq)
+    }
+
+    /// The set the assembly at `seq` was sent with, which is the one it names
+    /// rather than whichever happens to come before it.
+    fn offered_by(&self, seq: u64) -> Result<Option<Offering>> {
+        match &self.at(seq)?.body {
+            Body::Assembly { tools, .. } => match tools {
+                Some(offered) => self.offered(*offered),
+                None => Ok(None),
+            },
+            _ => Err(Error::NotABlock { seq }),
+        }
+    }
+
+    /// The blocks the assembly at `seq` names.
+    fn blocks_of(&self, seq: u64) -> Result<&[u64]> {
+        match &self.at(seq)?.body {
+            Body::Assembly { blocks, .. } => Ok(blocks),
+            _ => Err(Error::NotABlock { seq }),
+        }
+    }
+
+    /// One assembly's blocks against another's, in the order they were sent,
+    /// with what the earlier one carried and this one does not put back where
+    /// it was dropped.
+    ///
+    /// `diffable` is false for the first assembly of a session, where there is
+    /// no earlier one: every block is [`Change::Unchanged`], because drawing
+    /// them as inserted would be reporting a change against an assembly that
+    /// never existed.
+    fn diffed(&self, blocks: &[u64], earlier: &[u64], diffable: bool) -> Result<Vec<Placed>> {
+        let mut placed: Vec<Placed> = Vec::with_capacity(blocks.len());
+        let mut carried: Vec<(u64, Message)> = earlier
+            .iter()
+            .map(|seq| Ok((*seq, self.block(*seq)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let mut from = 0usize;
+
+        for seq in blocks {
+            let block = self.block(*seq)?;
+            let same = carried[from..]
+                .iter()
+                .position(|(_, was)| was.role == block.role && was.content == block.content);
+
+            match same {
+                // Everything skipped on the way to it is what this assembly
+                // stopped carrying.
+                Some(found) => {
+                    for (gone, was) in carried[from..from + found].iter().cloned() {
+                        placed.push(self.placed(gone, was, Change::Evicted)?);
+                    }
+                    from += found + 1;
+                    placed.push(self.placed(*seq, block, Change::Unchanged)?);
+                }
+                None if diffable => placed.push(self.placed(*seq, block, Change::Inserted)?),
+                None => placed.push(self.placed(*seq, block, Change::Unchanged)?),
+            }
+        }
+
+        for (gone, was) in carried.split_off(from) {
+            placed.push(self.placed(gone, was, Change::Evicted)?);
+        }
+        Ok(placed)
+    }
+
+    /// One block of an assembly, with the event's own source and weight on it.
+    fn placed(&self, seq: u64, block: Message, change: Change) -> Result<Placed> {
+        let event = self.at(seq)?;
+        Ok(Placed {
+            seq,
+            turn: event.turn,
+            role: block.role,
+            source: event.source,
+            weight: event.weight,
+            text: block.content,
+            change,
         })
     }
 

@@ -70,7 +70,8 @@ as the estimated one.
 | | `Turn::offer` records the tools on offer as `tools/offered`, a name and a hash per tool and the `Layer` that decided the set, only when the set changes. Each tool's document is a `tool/version`, once per session per hash, the rule `prompt/version` keeps ([#52](https://github.com/elpideus/demido-studio/issues/52)). |
 | | A tool call is its own events ([#54](https://github.com/elpideus/demido-studio/issues/54)): `tool/call` names the completion that asked for it, `tool/decision` is the person's allow, deny or always, `tool/result` is what came back verbatim with `failed`, and `tool/refusal` is Demido's answer to a call it did not run, recorded by paragraph hash and values like a fragment. `Session::step` sends the same turn again carrying a step's blocks, so a turn that used a tool has one assembly per step. |
 | | The shape of each offered tool (its schema with no prose) is on `tools/offered` beside the hash, and an assembly names the offered set it was sent with, so `request.tools` rebuilds too. |
-| `replay` | `Replay`. History, the rebuild, the per-turn occupancy and the per-source ledger, all over the same events. `Replay::offered` is the set in force at any event, in the wording it was offered in, so an edit made later cannot rewrite the record of an earlier reply. `Replay::request(seq)` rebuilds any one assembly, and `Replay::assembly(turn)` is a turn's last. `Replay::conversation` is what a later turn carries: `history` plus the calls and what came back for them. |
+| `replay` | `Replay`. History, the rebuild, the per-turn occupancy and the per-source ledger, all over the same events.
+| | `Replay::rebuild` is what the monitor draws ([#57](https://github.com/elpideus/demido-studio/issues/57)): the assembly in force at **any** event, block by block, diffed against the assembly before it, with each block's own source and weight on it and the offered set in the wording it was sent in. The diff is over what each block put in front of the model rather than over positions on the log, because the composer records a fresh system paragraph every turn and a diff by position would report an injection every single turn, which is an injection signal nobody reads. `Replay::offered` is the set in force at any event, in the wording it was offered in, so an edit made later cannot rewrite the record of an earlier reply. `Replay::request(seq)` rebuilds any one assembly, and `Replay::assembly(turn)` is a turn's last. `Replay::conversation` is what a later turn carries: `history` plus the calls and what came back for them. |
 | | `Replay::transcript` is what the chat draws ([#55](https://github.com/elpideus/demido-studio/issues/55)): **literally** `history`, with each call put back in at its own position and paired with the decision and the result or refusal that answered it. The messages are `history`'s own answer rather than the same filter written twice, so the two cannot come to disagree about what is a bubble. The pairing is the transcript's alone: on the log a call and its result stay two events, each with its own source and weight, which is what the monitor reads. |
 
 An assembly refers to its blocks **by sequence number** rather than copying
@@ -92,11 +93,15 @@ and nothing here re-implements it.
 
 ## What is deliberately not here
 
-**The Session Monitor's UI.** This is the one place in v0.1 where a slice ships
-data ahead of its screen on purpose
+**The Session Monitor's UI.** The window is `web/src/monitor/`, and it computes
+none of what it draws: the stream is `Chat::log`, the rebuild is
+`Replay::rebuild`, and which group a tool name belongs to is the registry's
+because only a registry knows that
+([#57](https://github.com/elpideus/demido-studio/issues/57)). This crate shipped
+its data one slice ahead of that screen on purpose
 ([#41](https://github.com/elpideus/demido-studio/issues/41)), because history is
-derived from the log and so the log cannot wait for the window that inspects it.
-The monitor is [#57](https://github.com/elpideus/demido-studio/issues/57).
+derived from the log and so the log could not wait for the window that inspects
+it.
 
 **Anything a later slice will record.** Artifacts and sub-agent scheduling are
 each a `Body` variant, a source that already exists, and a rebuild case, added
@@ -106,6 +111,15 @@ would be declaring a shape nothing can be held to, which is the same rule
 `demido-inference` applies to its own `Chunk`.
 
 ## The tests
+
+`tests/rebuilt.rs` is the rebuild the monitor draws, asserted on the log rather
+than on a screen: #57 gives it no seam of its own, because it is a projection.
+The case worth knowing is
+`a_rebuild_carries_the_tool_wording_that_was_actually_sent`, which edits a tool
+document after a reply was produced and asserts the earlier assembly still
+rebuilds in the wording it was sent in. That is the per-tool hash of
+`docs/rules/tools.md` earning its keep, and the failure it prevents is silent:
+today's wording rendered against yesterday's answer.
 
 `cargo test -p demido-trace` runs everything that needs no card, including
 `tests/a_session.rs`, which replays the committed trace of a real live run out

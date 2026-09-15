@@ -35,7 +35,7 @@ export type Shell = {
  * still being read, so the first frame is never blank. */
 const DEFAULT: Shell = { rail: 'left' }
 
-/** A panel that can be over the desk. One so far, and the rail is the only
+/** A panel that floats over the desk. One so far, and the rail is the only
  * place in the UI that reports what is open (`design/shell.md`). */
 export type Panel = 'settings'
 
@@ -61,7 +61,34 @@ type Desk = Shell & {
    * icons are toggles, the way a taskbar's are. */
   toggle: (panel: Panel) => void
   close: () => void
+
+  /** Whether the session monitor is pinned to the bottom of the desk.
+   *
+   * Its own field rather than a second value of [`Panel`], because pinned and
+   * floating are not two looks of one thing: a floating panel covers the desk
+   * and a pinned one takes a share of it (`design/shell.md`), so they are in
+   * the layout at different levels and both can be open at once. The monitor
+   * opens pinned, which is what its 210px floor and its draggable seam are
+   * about. */
+  monitor: boolean
+  toggleMonitor: () => void
+  /** How tall the monitor asked to be, in pixels. Named for the panel it
+   * belongs to, because a bare `height` on a desk-wide store reads as the
+   * desk's.
+   *
+   * Asked, not got: the floor and the ceiling are the seam's own CSS
+   * (`web/src/monitor/Monitor.module.css`), so the number a drag produces never
+   * has to know either. Kept here and **not** reported to Rust: `Shell` is what
+   * a profile remembers, and panel geometry joins it when the window manager
+   * that owns geometry lands, per the note above. */
+  monitorHeight: number
+  resizeMonitor: (height: number) => void
 }
+
+/** The height the monitor opens at: the stream, the rebuild and the detail
+ * pane all readable at once on the smallest window Demido claims to support
+ * (`design/shell.md`: 1280x800). */
+const MONITOR_HEIGHT = 320
 
 export const useDesk = create<Desk>((set, get) => ({
   ...DEFAULT,
@@ -92,6 +119,11 @@ export const useDesk = create<Desk>((set, get) => ({
   toggle: (panel) => set({ panel: get().panel === panel ? null : panel }),
 
   close: () => set({ panel: null }),
+
+  monitor: false,
+  monitorHeight: MONITOR_HEIGHT,
+  toggleMonitor: () => set({ monitor: !get().monitor }),
+  resizeMonitor: (monitorHeight) => set({ monitorHeight }),
 }))
 
 /**

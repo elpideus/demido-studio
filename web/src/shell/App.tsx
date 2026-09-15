@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 
 import { Transcript } from '@/chat/Transcript'
 import { useChat } from '@/chat/chat'
+import { Monitor } from '@/monitor/Monitor'
 import { Settings } from '@/settings/Settings'
 import { SetupRow, Wizard, useSetupOnce } from '@/setup/Wizard'
 import { Composer } from './Composer'
@@ -55,6 +56,7 @@ export function App() {
   const hydrated = useDesk((desk) => desk.hydrated)
   const hydrate = useDesk((desk) => desk.hydrate)
   const panel = useDesk((desk) => desk.panel)
+  const monitor = useDesk((desk) => desk.monitor)
   const open = useChat((chat) => chat.open)
   useSetupOnce()
 
@@ -79,6 +81,12 @@ export function App() {
             <Composer />
           </div>
         </div>
+        {/* Pinned rather than floating, so it is in the column with the
+         * transcript and the composer rather than over them: the chat island
+         * gives up exactly its height and nothing is covered
+         * (`design/shell.md`). Below the bay, because what it explains is the
+         * conversation above it. */}
+        {monitor && <Monitor />}
         {panel === 'settings' && <Settings />}
         <Wizard />
         {/* Over everything on the desk, including the settings window, because

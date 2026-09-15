@@ -121,6 +121,13 @@
   --size-control: 32px;    /* the hit target of an icon-only control */
   --measure-prose: 760px;  /* the widest a column of text is set, whatever the window does */
 
+  /* The floor of a pinned panel: below it the panel collapses to its stated
+   * reduced form rather than squeezing its columns (`design/shell.md`). One
+   * per panel, because a floor is a fact about what that panel needs to stay
+   * useful. The session monitor's is the one `shell.md` fixes in writing, and
+   * the seam that resizes it reads this rather than carrying its own copy. */
+  --floor-monitor: 210px;
+
   /* -------------------------------------------------------------------
    * Structure. Islands float on the rack with gaps.
    * ----------------------------------------------------------------- */

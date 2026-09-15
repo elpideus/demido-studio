@@ -41,16 +41,19 @@
 //! | [`update`] | What the window is told while a turn runs. |
 //! | [`chat`] | The session, the assembly, and the loop. |
 //! | [`toolbox`] | What a conversation may call, and what a person is asked. |
+//! | [`monitor`] | What the session monitor draws over one assembly. |
 //!
 //! See `AGENTS.md` beside this file for the invariants.
 
 pub mod chat;
+pub mod monitor;
 pub mod presence;
 pub mod toolbox;
 pub mod update;
 
 pub use chat::{Answer, Chat, Error, Model, Moment, Result, Said};
 pub use demido_trace::{Called, Decision, Outcome};
+pub use monitor::{Assembly, Grouped, Standing};
 pub use presence::Presence;
 pub use toolbox::{Asking, Offering, Toolbox};
 pub use update::Update;

@@ -1,0 +1,106 @@
+/*
+ * The stream: turns, and one row per event. Roles are docs/rules/surfaces.md,
+ * the shapes are design/system.md, and every number is a token from
+ * design/tokens.css.
+ */
+
+.stream {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+  padding: var(--space-room);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-room);
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* A turn is a group, and the gap is the border. */
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+/* Equipment label: the silkscreen voice, which is what it is for. */
+.number {
+  margin: 0 0 var(--space-tight);
+  color: var(--color-ink-4);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+/*
+ * One event. The accent is its source's token and the icon says the same thing
+ * a second way, because colour is never the only signal (design/windows.md).
+ */
+.row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-tight);
+  width: 100%;
+  padding: var(--space-hair) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.row:hover {
+  background: var(--color-hover);
+}
+
+/* Selected is `edge`, which means state and not elevation. */
+.row[aria-current='true'] {
+  background: var(--color-edge);
+}
+
+/* `--source` is the row's own source colour, mapped from its `data-source` in
+ * web/src/styles/global.css, which is the one place the eight are listed. */
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  color: var(--source);
+}
+
+/* The record's own name for the line, in the voice equipment labels take. */
+.kind {
+  color: var(--source);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+}
+
+.said {
+  overflow: hidden;
+  color: var(--color-ink-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.weight {
+  color: var(--color-ink-4);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+}
