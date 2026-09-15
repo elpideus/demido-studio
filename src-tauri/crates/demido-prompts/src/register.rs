@@ -48,6 +48,30 @@ pub enum Error {
     Write(#[from] demido_core::Error),
 }
 
+/// What a refusal looks like once it has crossed the window boundary.
+///
+/// `demido_core`'s own note asks for exactly this: "a crate with a richer error
+/// of its own converts into one of these at the edge". The conversion lives
+/// here rather than in the command, so the editor and anything else that edits
+/// a prompt get the same tag for the same refusal.
+///
+/// Both refusals are `invalid` rather than anything softer, because that is the
+/// tag the window branches on to put a field back to what is saved: an edit
+/// naming a placeholder nothing fills was never written, and a page still
+/// showing it would claim a save that did not happen.
+impl From<Error> for demido_core::Error {
+    fn from(error: Error) -> Self {
+        match error {
+            Error::Unknown(id) => Self::not_found("prompt", id),
+            Error::Undeclared { ref id, .. } => Self::invalid(id.clone(), error.to_string()),
+            Error::UnknownParameter { ref tool, .. } => {
+                Self::invalid(tool.clone(), error.to_string())
+            }
+            Error::Write(write) => write,
+        }
+    }
+}
+
 /// Where a prompt's text came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -528,6 +552,22 @@ mod tests {
             !edited(dir.path(), id::CAVEMAN_FULL),
             "a refusal must write nothing"
         );
+    }
+
+    #[test]
+    fn a_refusal_crosses_the_boundary_as_a_tag_rather_than_a_sentence() {
+        // What the editor branches on to put a field back to what is saved.
+        let (_dir, paragraphs) = open();
+
+        let undeclared = paragraphs
+            .set(id::CAVEMAN_FULL, "about {{whoever}}")
+            .expect_err("nothing fills that");
+        assert_eq!(demido_core::Error::from(undeclared).kind(), "invalid");
+
+        let unknown = paragraphs
+            .set("../../secrets", "hello")
+            .expect_err("no such entry");
+        assert_eq!(demido_core::Error::from(unknown).kind(), "not-found");
     }
 
     #[test]

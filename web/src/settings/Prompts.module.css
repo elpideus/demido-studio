@@ -1,0 +1,279 @@
+/*
+ * The prompt editor's page. Roles are docs/rules/surfaces.md, the shapes are
+ * design/system.md's Prompts page row, and every number is a token from
+ * design/tokens.css.
+ *
+ * The ramp here is two steps and no card: the page is the island, the field and
+ * the diff are recessed into it, and the chip beside them is raised on it. An
+ * entry is not a card, because the open one is already marked `edge` and a card
+ * under that would be elevation standing in for state (surfaces.md rule 4). A
+ * well inside a well is still a well (rule 3), which is why the diff and the
+ * textarea share one surface rather than each getting a darker one.
+ */
+
+/* Entries are separated by a gap, which is the border. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+}
+
+/* The heading is the whole closed row, so the disclosure is one target rather
+ * than a label beside an arrow. */
+.heading {
+  margin: 0;
+}
+
+.summaryLine {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.summaryLine:hover {
+  background: var(--color-hover);
+}
+
+.summaryLine:active {
+  background: var(--color-active);
+}
+
+/* Open is `edge`, which means state and not elevation, and it is the same token
+ * the section nav beside this page is selected on. */
+.summaryLine[aria-expanded='true'] {
+  background: var(--color-edge);
+  color: var(--color-ink-2);
+}
+
+.summaryLine[aria-expanded='true']:hover {
+  background: var(--color-edge-strong);
+}
+
+/* The id first and in mono, because it is what the session log names a version
+ * by and what the file on disk is called: it is the thing an entry is found by,
+ * and the title is how it is read. */
+.id {
+  flex: none;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An edited entry is saying something of its own rather than shipping what this
+ * build ships, which is the state design/system.md gives a setting row that is
+ * overriding. The accent is on the id, so the name of the thing carries the
+ * state rather than a coloured circle beside it (design/shell.md). */
+.entry[data-edited='true'] .id {
+  color: var(--color-signal);
+}
+
+/* Colour is never the only signal. */
+.state {
+  flex: none;
+  color: var(--color-ink-3);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+.entry[data-edited='true'] .state {
+  color: var(--color-signal);
+}
+
+/* Indented to the depth of the chevron above it, so an open entry reads as one
+ * thing without a card drawn around it. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+  padding: 0 var(--space-room) var(--space-room)
+    calc(var(--space-room) + var(--size-icon-small) + var(--space-tight));
+}
+
+.why {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* What this wording is load-bearing for, rendered above the field. The sentence
+ * is ink-3 and not ink-4: it is the one thing on screen somebody has to read
+ * before they type (docs/rules/surfaces.md). */
+.depends {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-tight);
+  margin: 0;
+  color: var(--color-amber);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.note {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A claim the edit no longer supports. Struck out rather than hidden: what
+ * changed is whether the claim is still being made, and the sentence is how
+ * somebody knows what came back if they restore the default. */
+.depends[data-suppressed='true'] {
+  color: var(--color-ink-4);
+}
+
+.depends[data-suppressed='true'] .note {
+  text-decoration: line-through;
+}
+
+.depends[data-suppressed='true'] .state {
+  color: var(--color-ink-4);
+}
+
+/* The built-in wording has moved since this edit was made. A section rather
+ * than a sentence, because the useful half of it is the diff. */
+.moved {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-control);
+}
+
+/* A recess in the entry: this is a payload dump, the same thing the monitor's
+ * raw tab is. */
+.diff {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(12 * var(--size-control));
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-control);
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  line-height: var(--leading-ui);
+}
+
+.line {
+  padding: 0 var(--space-tight);
+  border-radius: var(--radius-chip);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* What this build ships and this edit does not have. Lit, because it is the
+ * thing to read: it is the improvement the reset would take. The monitor's
+ * inserted block is the same state and the same token. */
+.line[data-change='shipped'] {
+  background: var(--color-edge);
+  color: var(--color-ink);
+}
+
+/* What the edit has and the shipped wording does not. Struck with what it would
+ * cost, which is the monitor's evicted block. */
+.line[data-change='edited'] {
+  color: var(--color-ink-4);
+  text-decoration: line-through;
+}
+
+.text {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  line-height: var(--leading-prose);
+}
+
+.text:focus {
+  outline: var(--space-hair) solid var(--color-signal);
+  outline-offset: 0;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  min-height: var(--size-control);
+}
+
+.fills {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.placeholder {
+  margin-right: var(--space-tight);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--color-ink-2);
+}
+
+/* The way back to what this build ships. A chip on the page, which is the same
+ * shape and the same token the settings row's way back to global is. */
+.revert {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.revert:hover {
+  background: var(--color-hover);
+}
+
+.revert:active {
+  background: var(--color-active);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

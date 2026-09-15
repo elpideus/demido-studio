@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use demido_chat::{Chat, Model, Toolbox};
 use demido_inference::{LlamaCpp, LlamaCppConfig, Supervisor};
+use demido_prompts::Paragraphs;
 use demido_runtimes::Runtimes;
 use demido_settings::Settings;
 use demido_shell::{Debounced, Files};
@@ -44,6 +45,20 @@ pub struct Wiring {
     pub desk: Desk,
     /// The conversation: the log, the turn loop, and whatever is generating.
     pub chat: Talk,
+    /// The paragraph register, over the same directory a turn reads.
+    ///
+    /// A second handle rather than a route through the conversation, and that
+    /// is the register's own design: it holds no loaded state, every call reads
+    /// the directory again, and its suite asserts that two independent handles
+    /// on one directory agree. So a paragraph edited from Settings is what the
+    /// next turn sends, with nothing to invalidate in between, and the editor
+    /// does not have to reach through a chat to save a string that is not the
+    /// chat's.
+    ///
+    /// The tool register's editor is S3 and is deliberately absent here
+    /// (`docs/rules/prompts.md`): its documents are edited in this same
+    /// directory, so adding it later is a second handle beside this one.
+    pub prompts: Paragraphs,
     /// What is in force, and where a settings page sets it.
     ///
     /// Shared with the chat rather than held beside it: the ladder the window
@@ -263,6 +278,10 @@ impl Wiring {
     /// window worth opening at all.
     pub fn assemble(profile: &Path) -> demido_core::Result<Self> {
         let sessions = profile.join("sessions").join(format!("{SESSION}.jsonl"));
+        // One path, read by the turn loop and written by the editor. Named once
+        // rather than joined twice, because two spellings of it is an editor
+        // that saves somewhere a turn never looks.
+        let prompts = profile.join("prompts");
         let inference = Arc::new(Inference::new());
 
         // The answers first, because the runtimes verification reads them: the
@@ -314,9 +333,10 @@ impl Wiring {
                     Registry::open(workspace())
                         .with_group(demido_tools::files())
                         .with_group(demido_tools::shell()),
-                    profile.join("prompts"),
+                    prompts.clone(),
                 ),
             ),
+            prompts: Paragraphs::open(prompts),
             settings,
             setup,
             session: SESSION,
@@ -376,6 +396,36 @@ mod tests {
         }
         let reopened = Wiring::assemble(&dir).expect("assembled again");
         assert_eq!(reopened.desk.read(), Some(arranged));
+    }
+
+    /// The editor writes where a turn reads.
+    ///
+    /// The one thing the second handle has to be right about. The register holds
+    /// no state, so an edit needs nothing invalidated, but it does need both
+    /// halves pointed at one directory: a prompts folder named twice would be an
+    /// editor that saves a paragraph nothing ever sends. Asserted at the path,
+    /// because that is the only thing the two share.
+    #[test]
+    fn a_paragraph_edited_from_settings_is_the_one_a_turn_sends() {
+        use demido_prompts::{id, Origin};
+
+        let dir = profile("prompts");
+        let wiring = Wiring::assemble(&dir).expect("assembled");
+
+        let edited = wiring
+            .prompts
+            .set(id::CAVEMAN_ULTRA, "one word")
+            .expect("an edit is never refused for what depends on it");
+        assert_eq!(edited.origin, Origin::Edited);
+        assert!(
+            dir.join("prompts")
+                .join(format!("{}.md", id::CAVEMAN_ULTRA))
+                .is_file(),
+            "the edit lands in the directory the toolbox was opened on"
+        );
+
+        let reset = wiring.prompts.reset(id::CAVEMAN_ULTRA).expect("reset");
+        assert_eq!(reset.origin, Origin::BuiltIn);
     }
 
     /// Two profiles, two set-ups, two runtimes folders.

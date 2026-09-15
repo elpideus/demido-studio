@@ -5,6 +5,7 @@ import { AcceleratorControl, ModelFolderControl } from '@/setup/Controls'
 import { useDesk } from '@/shell/desk'
 import { Field } from './Control'
 import { ALWAYS, MODE, OFFERED, useSettings, type Row, type Tier } from './ladder'
+import { PromptsPage } from './Prompts'
 import styles from './Settings.module.css'
 
 /**
@@ -71,10 +72,10 @@ export function Settings() {
           </button>
         </header>
         <div className={styles.body}>
-          {/* The nav `design/system.md` gives Settings, with the one section
-           * this slice has on it. It is a column rather than a heading because
-           * the second section is what a page becomes, and a nav that appeared
-           * when the second one landed would move every row on screen. */}
+          {/* The nav `design/system.md` gives Settings. It was a column from
+           * the first section rather than a heading, because the sections after
+           * it are what a page becomes, and a nav that appeared when the second
+           * one landed would have moved every row on screen. */}
           <nav className={styles.nav} aria-label="Sections">
             {SECTIONS.map((name) => (
               <button
@@ -84,12 +85,14 @@ export function Settings() {
                 aria-current={name === section ? 'page' : undefined}
                 onClick={() => setSection(name)}
               >
-                {name === 'conversation' ? 'Conversation' : 'Set-up'}
+                {NAMED[name]}
               </button>
             ))}
           </nav>
           <div className={styles.page}>
-            {section === 'conversation' ? <Page tier="global" /> : <SetupPage />}
+            {section === 'conversation' && <Page tier="global" />}
+            {section === 'prompts' && <PromptsPage />}
+            {section === 'setup' && <SetupPage />}
           </div>
         </div>
       </section>
@@ -97,11 +100,25 @@ export function Settings() {
   )
 }
 
-/** The sections the main window has. Two, and the second is where set-up is
- * changed after the wizard is gone. */
-const SECTIONS = ['conversation', 'setup'] as const
+/**
+ * The sections the main window has.
+ *
+ * Prompts is where "All prompts should be editable" lands as a page: the
+ * paragraph register, by id, each entry opening into its text
+ * (`docs/rules/prompts.md`). Set-up is where set-up is changed after the wizard
+ * is gone.
+ */
+const SECTIONS = ['conversation', 'prompts', 'setup'] as const
 
 type Section = (typeof SECTIONS)[number]
+
+/** What each section is called on the nav. Here rather than in a ternary at the
+ * button, because a third section is what made the ternary a lie. */
+const NAMED: Record<Section, string> = {
+  conversation: 'Conversation',
+  prompts: 'Prompts',
+  setup: 'Set-up',
+}
 
 /**
  * The set-up section: the same controls the wizard drew.

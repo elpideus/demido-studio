@@ -124,7 +124,10 @@ const TREE_PLACEHOLDERS: &[&str] = &[ROOT, TREE];
 /// classifier wording, and the digest of it is recorded beside the corpus.
 // not-a-prompt: the sentence the editor renders above the field, never sent.
 const MEASURED_AGAINST_THE_LESSON_CORPUS: &[Dependant] = &[Dependant {
-    note: "A measurement in `evals/lessons/` was taken against this wording.",
+    // Plain prose, with no backticks around the path: the editor renders this
+    // sentence as text and nothing else consumes it, so markup in it reaches
+    // the one person who reads it as punctuation they have to ignore.
+    note: "A measurement in evals/lessons/ was taken against this wording.",
     kind: Dependency::Measured {
         pinned_in: "evals/lessons/AGENTS.md",
     },
