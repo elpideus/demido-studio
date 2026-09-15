@@ -49,6 +49,10 @@
 //! The mode is also **never prose**: nothing here produces text, and
 //! `tests/the_matrix.rs` holds every prompt Demido ships to naming no mode.
 
+pub mod inherit;
+
+pub use inherit::{inherit, Request, Resolution};
+
 use demido_tools::{Ability, Intent};
 
 /// One mode: its stored name, and what it does with each ability.
@@ -102,6 +106,12 @@ static ROWS: &[Row] = &[
 ];
 
 /// Which row of the matrix is in force. Opaque on purpose: see the crate docs.
+///
+/// `Copy` because a resolution and its children each hold one
+/// ([`inherit`](inherit::inherit)), and a copy of a mode tells a caller nothing
+/// a mode does not: there is still no way to read it but to hand it to
+/// [`verdict`].
+#[derive(Clone, Copy)]
 pub struct Mode(&'static Row);
 
 impl Mode {
@@ -120,6 +130,28 @@ impl Mode {
     /// offers, and what a setting holding the mode may be.
     pub fn names() -> impl Iterator<Item = &'static str> {
         ROWS.iter().map(|row| row.name)
+    }
+
+    /// The stricter of two modes. Crate-private, and the inheritance rule
+    /// ([`inherit`](inherit::inherit)) is its only caller: *which of these two
+    /// is stricter* is a question about the table, so it is answered inside the
+    /// table rather than by anybody holding a mode.
+    fn stricter(self, other: Self) -> Self {
+        if other.strictness() < self.strictness() {
+            other
+        } else {
+            self
+        }
+    }
+
+    /// Where this mode's row sits in [`ROWS`], which is ordered strictest
+    /// first, so a smaller number is a stricter mode. A mode always points into
+    /// `ROWS`, and a mode that somehow did not would be read as the strictest
+    /// row, which is the safe direction.
+    fn strictness(&self) -> usize {
+        ROWS.iter()
+            .position(|row| std::ptr::eq(row, self.0))
+            .unwrap_or(0)
     }
 }
 
