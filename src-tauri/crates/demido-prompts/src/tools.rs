@@ -105,6 +105,18 @@ pub static TOOLS: &[ToolEntry] = &[
         dependants: NOTHING_DEPENDS_ON_IT,
         default: include_str!("../defaults/tools/run_command.md"),
     },
+    // An entry from the first commit that ships the tool
+    // ([#61](https://github.com/elpideus/demido-studio/issues/61)), and
+    // deliberately so: of everything Demido says to a model this is the wording
+    // most likely to be rewritten, because whether a small model elects to
+    // delegate at all is the open question of S4. The one that will need
+    // rewording is never the one to retrofit.
+    ToolEntry {
+        name: "delegate_task",
+        parameters: &["task"],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/tools/delegate_task.md"),
+    },
 ];
 
 /// The declaration for one tool, if there is one.

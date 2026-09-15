@@ -15,7 +15,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use demido_tools::contract::{holds_for, Rig};
-use demido_tools::{files, shell, Call, Registry, Tool, Workspace};
+use demido_tools::{delegating, delegation, files, shell, Call, Registry, Tool, Workspace};
 use serde_json::{json, Value};
 
 /// A project, a secret outside it, and both directories kept alive.
@@ -76,6 +76,25 @@ async fn every_tool_in_the_shell_group_keeps_the_contract() {
     // `cwd` outside the project is refused as confinement, before anything
     // runs, and nothing outside is touched.
     for tool in shell() {
+        let (_project, outside, workspace) = rig();
+        holds_for(
+            tool.as_ref(),
+            Rig {
+                workspace: &workspace,
+                outside: outside.path(),
+            },
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn every_tool_in_the_delegation_group_keeps_the_contract() {
+    // `delegate_task` takes no path, so what the contract proves about it is
+    // the shape half: a closed schema, a declared type on every property, and
+    // no prose the tool register should own. The suite says so out loud rather
+    // than passing in silence.
+    for tool in delegation(delegating(|_| async { Ok(String::new()) })) {
         let (_project, outside, workspace) = rig();
         holds_for(
             tool.as_ref(),

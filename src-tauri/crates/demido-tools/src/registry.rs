@@ -37,6 +37,7 @@ use serde_json::Value;
 
 use crate::arguments;
 use crate::command::RunCommand;
+use crate::delegate::{DelegateTask, Delegating};
 use crate::files::{DeleteFile, ReadFile, WriteFile};
 use crate::listing::ListDirectory;
 use crate::search::SearchFiles;
@@ -126,6 +127,23 @@ pub fn shell() -> Group {
     Group {
         name: "shell",
         tools: vec![Box::new(RunCommand)],
+    }
+}
+
+/// The Delegation group: `delegate_task`.
+///
+/// One row in the picker and one entry in the registry, switchable like any
+/// other ([#61](https://github.com/elpideus/demido-studio/issues/61)), so that
+/// delegating is a thing a person turns off in the place they turn the shell
+/// off rather than a capability that arrives beside the machinery.
+///
+/// It takes what carries a task out, because a tool may not know about a
+/// session, a backend or a ladder, and all three are what a sub-agent is made
+/// of. See [`crate::delegate`].
+pub fn delegation(delegating: Delegating) -> Group {
+    Group {
+        name: "delegation",
+        tools: vec![Box::new(DelegateTask::to(delegating))],
     }
 }
 
@@ -606,7 +624,9 @@ mod tests {
     /// is a choice a person can make before there is anywhere for it to act.
     #[test]
     fn the_groups_are_named_and_listed_whether_or_not_there_is_a_workspace() {
-        let registry = Registry::of_files(None).with_group(shell());
+        let registry = Registry::of_files(None)
+            .with_group(shell())
+            .with_group(delegation(nothing()));
 
         assert_eq!(
             registry.groups(),
@@ -622,8 +642,48 @@ mod tests {
                     ]
                 ),
                 ("shell", vec!["run_command".to_owned()]),
+                ("delegation", vec!["delegate_task".to_owned()]),
             ]
         );
+    }
+
+    /// Delegation is one row and one entry, ruled on like any other call: the
+    /// registry hands back an intent declaring the shell, and stops there.
+    #[tokio::test]
+    async fn delegate_task_is_one_registry_entry_declaring_the_shell() {
+        let (_dir, workspace) = workspace();
+        let registry =
+            Registry::of_files(Some(workspace)).with_group(delegation(crate::delegating(
+                |task: String| async move { Ok(format!("the sub-agent read {task}")) },
+            )));
+
+        let planned = registry
+            .plan(&call("delegate_task", r#"{"task": "the changelog"}"#))
+            .expect("a plan");
+        assert_eq!(planned.intent.ability, Ability::Shell);
+        assert!(!planned.intent.destructive);
+
+        let answer = planned.run().await.expect("it ran");
+        assert!(answer.contains("the changelog"), "{answer}");
+    }
+
+    /// The same absence the picker produces for every other tool: switched off
+    /// is not offered and not planned either.
+    #[test]
+    fn a_narrowed_registry_leaves_delegation_out_the_way_it_leaves_any_group_out() {
+        let (_dir, workspace) = workspace();
+        let registry = Registry::of_files(Some(workspace)).with_group(delegation(nothing()));
+        let narrowed = registry.only(&["read_file".to_owned()]);
+
+        assert!(registry.offers("delegate_task"));
+        assert!(!narrowed.offers("delegate_task"));
+        assert!(narrowed
+            .plan(&call("delegate_task", r#"{"task": "anything"}"#))
+            .is_err());
+    }
+
+    fn nothing() -> crate::Delegating {
+        crate::delegating(|_| async { Ok(String::new()) })
     }
 
     /// Narrowed is absent: not offered, and not planned either, so a call

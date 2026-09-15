@@ -20,11 +20,23 @@
 use std::collections::BTreeSet;
 
 use demido_prompts::{Tools, TOOLS};
-use demido_tools::{files, shell, Call, Registry, Tool, Workspace};
+use demido_tools::{delegating, delegation, files, shell, Call, Registry, Tool, Workspace};
 use serde_json::{json, Value};
 
 fn host() -> Vec<Box<dyn Tool>> {
-    files().into_iter().chain(shell()).collect()
+    files()
+        .into_iter()
+        .chain(shell())
+        .chain(delegation(answering()))
+        .collect()
+}
+
+/// A delegation that answers without opening anything. What a sub-agent really
+/// is belongs to the turn loop
+/// ([#63](https://github.com/elpideus/demido-studio/issues/63)); what this file
+/// is about is the document the tool is offered in.
+fn answering() -> demido_tools::Delegating {
+    delegating(|_| async { Ok("the sub-agent answered".to_owned()) })
 }
 
 /// A workspace, a prompts directory, and a registry of every host tool.
@@ -36,7 +48,8 @@ fn rig() -> (tempfile::TempDir, Tools, Registry) {
 
     let tools = Tools::open(dir.path().join("prompts"));
     let registry = Registry::of_files(Some(Workspace::open(&project).expect("a workspace")))
-        .with_group(shell());
+        .with_group(shell())
+        .with_group(delegation(answering()));
     (dir, tools, registry)
 }
 

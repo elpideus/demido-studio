@@ -855,7 +855,20 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             self.with_session(|session| Ok(session.decided(turn, seq, decision)?))?;
 
             match decision {
-                Decision::Allow => {}
+                // One prompt per turn for a delegation, not one per sub-agent
+                // (`docs/rules/tools.md`). The grant is pushed onto this turn's
+                // own copy of *always* and never written to the ladder, so the
+                // second delegation of this turn runs and the first of the next
+                // one asks again. Which tools that covers is
+                // `demido_permission`'s to say: a tool decides nothing about
+                // permission, and the loop decides nothing about which tool.
+                Decision::Allow => {
+                    if demido_permission::answers_for_the_turn(&call.name)
+                        && !ruling.always.contains(&call.name)
+                    {
+                        ruling.always.push(call.name.clone());
+                    }
+                }
                 // Never on a destructive call, whatever the window sent. The
                 // matrix's floor is that such a call asks every time and that
                 // *always* cannot waive it (`docs/rules/tools.md`), and a floor

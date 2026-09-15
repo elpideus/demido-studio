@@ -188,3 +188,27 @@ pub fn verdict(mode: &Mode, tool: &str, intent: &Intent, always: &[String]) -> V
     }
     mode.0.verdict(intent.ability)
 }
+
+/// Whether allowing one call to `tool` answers for the rest of the turn.
+///
+/// True for `delegate_task` and nothing else.
+/// [`docs/rules/tools.md`](../../../../docs/rules/tools.md): declaring `Shell`
+/// answers *may the model delegate at all* through the matrix rather than
+/// through a new axis, and *"it costs one prompt per turn rather than one per
+/// sub-agent"*. A model that splits a job across three helpers is doing the
+/// legitimate thing the whole slice exists for, and three prompts for it is how
+/// a feature becomes one nobody uses.
+///
+/// It is not an ability, not a mode and not a field on an [`Intent`]: a tool
+/// decides nothing about permission, so this is answered here, where the rest of
+/// *may this run without asking* is answered. It is also not
+/// *always for this tool*, which outlives the turn and is the person's to grant:
+/// this is the same grant read once, and it is gone with the turn that made it.
+///
+/// A denial is not covered either. Nothing is remembered about a call that was
+/// refused, so the next delegation asks again, which is what a person who said
+/// no is entitled to.
+#[must_use]
+pub fn answers_for_the_turn(tool: &str) -> bool {
+    tool == demido_tools::DelegateTask::NAME
+}

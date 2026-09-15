@@ -81,7 +81,37 @@ handed instead of `Context::resolve`, both fail it, each naming the tool.
 | `listing` | `list_directory`. |
 | `search` | `search_files`, first-party rather than whatever `grep` is on the machine. |
 | `command` | `run_command`, the Shell group. |
+| `delegate` | `delegate_task`, the Delegation group, and the callback that carries a task out. |
 | `tree` | A job object: killing a call kills everything the call started. |
+
+## delegate_task
+
+The Delegation group, one tool,
+[#61](https://github.com/elpideus/demido-studio/issues/61). It is here rather
+than in `demido-chat` for the reason every other tool is: what a person switches
+off in the picker, what the matrix rules on and what the log records is a
+registry entry, and a delegation that arrived beside that machinery would be a
+second answer to all three questions.
+
+It declares `Ability::Shell` and adds nothing to the matrix, per
+[`tools.md`](../../../docs/rules/tools.md). Two things follow from that and only
+that: Cautious and Balanced ask, Autonomous does not. **One prompt per turn
+rather than one per sub-agent** is `demido_permission::answers_for_the_turn`, not
+here: a tool decides nothing about permission, and this one is not allowed to be
+the exception.
+
+**What a sub-agent actually is, is not here.** A child session, its log, the
+depth limit and the pool need a session, a backend and a settings ladder, and a
+tool may know about none of the three. So the tool holds a `Delegating`: a
+callback taking the task and answering with an `Outcome`. A callback rather than
+a trait, for the reason the approval is one
+([`tiles.md`](../../../docs/rules/tiles.md)): there is one real implementation,
+and a trait would buy a second that exists only in tests. The real one arrives
+with the child session
+([#63](https://github.com/elpideus/demido-studio/issues/63)), which is also when
+`src-tauri/src/wiring.rs` registers the group: until a delegation can succeed,
+offering it would be the one thing `registry.rs` is explicit about, a tool a
+model will call and a call that cannot succeed however it is written.
 
 ## run_command
 
