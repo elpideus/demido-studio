@@ -22,7 +22,7 @@ use demido_chat::{Asking, Called, Chat, Decision, Model, Moment, Outcome, Toolbo
 use demido_inference::scripted::{Script, Scripted, Step};
 use demido_inference::{FinishReason, Role, Supervisor, ToolCall};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
-use demido_tools::{files, shell, Ability, Registry, Workspace};
+use demido_tools::{delegating, delegation, files, shell, Ability, Registry, Workspace};
 use demido_trace::{Body, Event, Journal, Memory, Replay, Source};
 use serde_json::json;
 
@@ -36,6 +36,14 @@ struct Rig {
     log: Memory,
     script: Script,
     settings: Arc<Settings>,
+    /// Every task `delegate_task` was actually asked to carry out.
+    ///
+    /// What a sub-agent really is (a child session, its own log, the depth
+    /// limit) is the rest of S4's, from
+    /// [#63](https://github.com/elpideus/demido-studio/issues/63) on. What this
+    /// file is about is the tool as a registry entry: offered, switched off,
+    /// ruled on by the matrix and asked about once per turn.
+    delegated: Arc<Mutex<Vec<String>>>,
 }
 
 impl Rig {
@@ -52,11 +60,12 @@ impl Rig {
             log: Memory::new(),
             script,
             settings: Arc::new(Settings::open(SettingsMemory::new())),
+            delegated: Arc::default(),
         }
     }
 
-    /// A chat over the Files and Shell groups, in the mode named on its own
-    /// tier of the ladder.
+    /// A chat over the Files, Shell and Delegation groups, in the mode named on
+    /// its own tier of the ladder.
     fn chat(&self, mode: &str) -> Chat<Scripted, Memory> {
         self.settings
             .set(
@@ -66,9 +75,17 @@ impl Rig {
             )
             .unwrap();
         let workspace = Workspace::open(self.project.path()).unwrap();
+        let taken = self.delegated.clone();
         let registry = Registry::open(Some(workspace))
             .with_group(files())
-            .with_group(shell());
+            .with_group(shell())
+            .with_group(delegation(delegating(move |task: String| {
+                let taken = taken.clone();
+                async move {
+                    taken.lock().unwrap().push(task.clone());
+                    Ok(format!("the sub-agent finished: {task}"))
+                }
+            })));
         let log = self.log.clone();
         Chat::new(
             SESSION,
@@ -638,7 +655,7 @@ async fn a_step_that_ran_something_keeps_the_tools_the_turn_started_with() {
     for (step, request) in sent.iter().enumerate() {
         assert_eq!(
             request.tools.len(),
-            6,
+            7,
             "step {step} of a turn whose calls all ran lost its tools"
         );
     }
@@ -1052,4 +1069,172 @@ async fn the_next_message_carries_the_calls_and_their_results() {
 
     let replay = Replay::of(&rig.log).unwrap();
     assert_eq!(replay.assembly(2).unwrap(), sent[2]);
+}
+
+// --- delegation --------------------------------------------------------------
+//
+// `delegate_task` is a registry entry like any other
+// ([#61](https://github.com/elpideus/demido-studio/issues/61)), so what is
+// asserted here is that it really goes through S2's machinery rather than
+// beside it: the matrix rules on it as a `Shell` call, the picker's absence is
+// the same absence, and the one thing that is its own is that a person is asked
+// once per turn instead of once per sub-agent.
+
+/// `docs/rules/tools.md`: declaring `Shell` *"costs one prompt per turn rather
+/// than one per sub-agent"*. A model that splits a job across two helpers is
+/// doing the legitimate thing the slice exists for, and asking twice for it is
+/// how a feature becomes one nobody uses.
+#[tokio::test]
+async fn two_delegations_in_one_turn_are_one_approval() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "delegate_task", r#"{"task": "read the tests"}"#)
+        .then_call("call-2", "delegate_task", r#"{"task": "read the docs"}"#)
+        .then_say(&["Both are done."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    let person = Person::answering(&[Decision::Allow]);
+    chat.ask("Look into both.", |_| {}, person.approve())
+        .await
+        .unwrap();
+
+    assert_eq!(person.asked().len(), 1, "one prompt, not one per sub-agent");
+    assert_eq!(person.asked()[0].tool, "delegate_task");
+    assert_eq!(person.asked()[0].ability, Ability::Shell);
+    assert_eq!(
+        rig.delegated.lock().unwrap().as_slice(),
+        ["read the tests", "read the docs"],
+        "both delegations ran"
+    );
+}
+
+/// The grant is this turn's and is never written to the ladder. *Always for
+/// this tool* is the person's to give and outlives the turn; this is one
+/// answer read once, and the next message asks again.
+#[tokio::test]
+async fn the_one_approval_is_the_turns_and_the_next_message_asks_again() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "delegate_task", r#"{"task": "read the tests"}"#)
+        .then_say(&["Done."])
+        .then_call("call-2", "delegate_task", r#"{"task": "read the docs"}"#)
+        .then_say(&["Done again."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    let person = Person::answering(&[Decision::Allow, Decision::Allow]);
+    chat.ask("The tests.", |_| {}, person.approve())
+        .await
+        .unwrap();
+    chat.ask("Now the docs.", |_| {}, person.approve())
+        .await
+        .unwrap();
+
+    assert_eq!(person.asked().len(), 2);
+    assert_eq!(
+        rig.settings
+            .resolve(&demido_settings::Ladder::for_chat(SESSION))
+            .always(),
+        Vec::<String>::new(),
+        "one prompt per turn is not always for this tool, and does not persist as one"
+    );
+}
+
+/// A denial is not a grant. The person said no to this delegation, so the next
+/// one in the same turn is their decision too.
+#[tokio::test]
+async fn a_denied_delegation_does_not_answer_for_the_next_one() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "delegate_task", r#"{"task": "read the tests"}"#)
+        .then_call("call-2", "delegate_task", r#"{"task": "read the docs"}"#)
+        .then_say(&["I will do it here."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    let person = Person::answering(&[Decision::Deny, Decision::Deny]);
+    chat.ask("Look into both.", |_| {}, person.approve())
+        .await
+        .unwrap();
+
+    assert_eq!(person.asked().len(), 2);
+    assert!(
+        rig.delegated.lock().unwrap().is_empty(),
+        "nothing was delegated"
+    );
+}
+
+/// The mode's whole involvement in delegating: one column the matrix already
+/// has. Autonomous allows the shell, so nobody is at the window.
+#[tokio::test]
+async fn a_delegation_in_autonomous_does_not_prompt() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "delegate_task", r#"{"task": "read the tests"}"#)
+        .then_say(&["Done."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+    chat.ask("Look into it.", |_| {}, nobody()).await.unwrap();
+
+    assert_eq!(rig.delegated.lock().unwrap().as_slice(), ["read the tests"]);
+}
+
+/// Off is the same absence every other group's is: not in the payload, and a
+/// call naming it told the user turned it off rather than told it is not a
+/// tool, which would send the model looking for another way to delegate.
+#[tokio::test]
+async fn a_delegation_switched_off_is_absent_and_the_model_is_told_who_turned_it_off() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "delegate_task", r#"{"task": "read the tests"}"#)
+        .then_say(&["I will do it here, then."]);
+    let rig = Rig::new(script);
+    rig.settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::TOOLS_OFFERED,
+            &json!(["read_file"]),
+        )
+        .unwrap();
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+    chat.ask("Delegate it.", |_| {}, nobody()).await.unwrap();
+
+    let sent = rig.script.requests();
+    assert_eq!(names(&sent[0]), ["read_file"]);
+    assert!(rig.delegated.lock().unwrap().is_empty());
+
+    // What the model was actually sent, rather than the log's hash of the
+    // paragraph: the wording is the point, and the request is where it landed.
+    let told: Vec<&str> = sent
+        .iter()
+        .flat_map(|request| &request.messages)
+        .filter(|message| message.role == Role::Tool)
+        .map(|message| message.content.as_str())
+        .collect();
+    assert_eq!(told.len(), 1);
+    assert!(told[0].contains("turned"), "{told:?}");
+    assert!(told[0].contains("delegate_task"), "{told:?}");
+}
+
+/// The picker row, as the composer draws it: one group, one tool, beside the
+/// two S2 shipped.
+#[tokio::test]
+async fn delegation_is_one_group_with_one_tool_in_the_picker() {
+    let rig = Rig::new(Script::serving("scripted"));
+    let groups: Vec<(String, usize)> = rig
+        .chat("cautious")
+        .groups()
+        .into_iter()
+        .map(|group| (group.group, group.tools.len()))
+        .collect();
+
+    assert_eq!(
+        groups,
+        vec![
+            ("files".to_owned(), 5),
+            ("shell".to_owned(), 1),
+            ("delegation".to_owned(), 1),
+        ]
+    );
 }

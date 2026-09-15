@@ -16,9 +16,12 @@
 //! of the matrix honest: *outside the project* is not a state that can be
 //! approved or refused, because it never reaches the point of asking.
 //!
-//! Two groups live here. Files is five tools that never leave the workspace;
+//! Three groups live here. Files is five tools that never leave the workspace;
 //! Shell is [`command::RunCommand`], which starts in the workspace and whose
-//! process tree dies with the call ([`tree`]).
+//! process tree dies with the call ([`tree`]); Delegation is
+//! [`delegate::DelegateTask`], which declares the shell and hands its task to a
+//! callback, because what a sub-agent is made of is a session, a backend and a
+//! ladder, and a tool may know about none of them.
 //!
 //! The registry ([`registry::Registry`]) is what turns a call into an outcome,
 //! and it stops one step short of running: [`registry::Registry::plan`] hands
@@ -38,6 +41,7 @@
 pub mod arguments;
 pub mod command;
 pub mod contract;
+pub mod delegate;
 pub mod files;
 pub mod listing;
 pub mod registry;
@@ -47,9 +51,10 @@ pub mod tree;
 pub mod workspace;
 
 pub use command::RunCommand;
+pub use delegate::{delegating, DelegateTask, Delegating};
 pub use files::{DeleteFile, ReadFile, WriteFile};
 pub use listing::ListDirectory;
-pub use registry::{files, shell, Call, Planned, Registry, Spec};
+pub use registry::{delegation, files, shell, Call, Planned, Registry, Spec};
 pub use search::SearchFiles;
 pub use tool::{Ability, Context, Failure, Intent, Outcome, Tool};
 pub use workspace::{Resolved, Workspace};

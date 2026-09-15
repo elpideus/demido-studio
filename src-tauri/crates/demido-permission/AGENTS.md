@@ -24,6 +24,25 @@ Three rules hold it up, each asserted in `tests/the_matrix.rs`:
   fallback, which is why it has to stay the strictest.
 - **`always` covers the tool it names**, and only its ordinary calls.
 
+## The third answer: `answers_for_the_turn`
+
+One line, and it names `delegate_task` and nothing else
+([#61](https://github.com/elpideus/demido-studio/issues/61)).
+[`tools.md`](../../../docs/rules/tools.md): declaring `Shell` answers *may the
+model delegate at all* through the matrix rather than through a new axis, and
+*"it costs one prompt per turn rather than one per sub-agent"*.
+
+It is here for the same reason `verdict` is: a tool decides nothing about
+permission, so *which allowance outlives one call* is answered where the rest of
+*may this run without asking* is answered, and not on an `Intent` field a tool
+could set about itself. The turn loop reads it and pushes the name onto the
+turn's own copy of `always`, which is never written to the ladder: the grant is
+gone with the turn, and *always for this tool* stays the thing a person grants
+deliberately and keeps.
+
+A denial is not a grant, and nothing here says otherwise: only an allowed call
+reaches that line, so a refused delegation leaves the next one to the person.
+
 ## The second pure function: `inherit`
 
 Brief B19: "Configurable Agents & sub-agents system."

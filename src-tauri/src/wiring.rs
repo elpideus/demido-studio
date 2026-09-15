@@ -329,6 +329,15 @@ impl Wiring {
                 // model shown a tool that cannot succeed however it is called
                 // is worse than one never shown it. Opening the prompts
                 // directory creates nothing.
+                //
+                // **The Delegation group joins this list on
+                // [#63](https://github.com/elpideus/demido-studio/issues/63)**,
+                // and is deliberately absent until then. `delegate_task` exists
+                // and is a registry entry
+                // ([#61](https://github.com/elpideus/demido-studio/issues/61)),
+                // but what carries a task out is the child session, so until
+                // that lands a delegation offered here would be exactly the
+                // call the sentence above refuses to offer.
                 Toolbox::open(
                     Registry::open(workspace())
                         .with_group(demido_tools::files())

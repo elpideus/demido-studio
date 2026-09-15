@@ -117,6 +117,12 @@ Adding a tool is a `ToolEntry` in `TOOLS` and a file in `defaults/tools/`, in
 the commit that adds the tool. `scripts/check-rules.mjs` fails a host tool with
 no document.
 
+`delegate_task` is the seventh and the reason that sentence says *in the commit*
+([#61](https://github.com/elpideus/demido-studio/issues/61)). Whether a small
+model elects to delegate without being told to is the open question of S4, so of
+every wording Demido ships this is the one most likely to be rewritten, and the
+one that will need rewording is never the one to retrofit an id onto.
+
 It holds no loaded state. Every call reads the directory again, which is what
 makes hot reload a property of the design rather than a feature somebody has to
 remember to wire up.

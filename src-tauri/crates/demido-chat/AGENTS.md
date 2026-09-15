@@ -146,6 +146,17 @@ what they answered, because that is what happened; what is in force next turn is
 resolved with the mode and the step limit, once per message, like every other
 value.
 
+**A delegation is asked about once per turn, not once per sub-agent.**
+[#61](https://github.com/elpideus/demido-studio/issues/61) and
+`docs/rules/tools.md`. An allowed call to a tool
+`demido_permission::answers_for_the_turn` names, which is `delegate_task` and
+nothing else, pushes that name onto the turn's **own copy** of `always`, so the
+second delegation of the turn runs and the first of the next message asks again.
+It is never written to the ladder, which is the whole difference from *always
+for this tool*: one is an answer read twice in one turn, the other is a standing
+grant a person made deliberately. A denial pushes nothing, so a person who said
+no is asked about the next one. `tests/a_tool.rs` has all three.
+
 The **floor is held here rather than in the window**: an *always* about a
 destructive call runs that call and is not remembered, whatever a frontend sent.
 `docs/rules/tools.md` says such a call asks every time and that *always* cannot
