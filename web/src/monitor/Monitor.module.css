@@ -1,0 +1,128 @@
+/*
+ * The session monitor, pinned to the bottom of the desk. Roles are
+ * docs/rules/surfaces.md, the shapes are design/system.md, and every number is
+ * a token from design/tokens.css.
+ */
+
+/*
+ * What the chat island gives up. The height is the one the seam dragged to,
+ * held between the panel's floor and half the desk **here** rather than in the
+ * drag: a pointer that had to know the floor would be a second place the floor
+ * is written down, and design/shell.md writes it once.
+ *
+ * `50%` is the ceiling, and it is a share of the desk rather than a number of
+ * pixels because what it protects is the transcript: at the 1280x800 this
+ * design is checked against, half the desk still leaves chat more than its
+ * composer.
+ */
+.dock {
+  flex: none;
+  height: clamp(var(--floor-monitor), var(--height), 50%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/*
+ * The seam: a gutter of rack, with the one hairline this system allows for a
+ * draggable edge (docs/rules/gaps-and-hairlines.md, case 2).
+ */
+.seam {
+  flex: none;
+  height: var(--space-gutter);
+  background: var(--color-rack);
+  border-top: 1px solid var(--color-seam);
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.seam:hover {
+  background: var(--color-hover);
+}
+
+/* A panel frame: an island face at island radius. Pinned, so it drops the one
+ * shadow in the system: it is part of the layout rather than something over
+ * it. */
+.panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 0 var(--space-gutter) var(--space-gutter);
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+}
+
+/* A bar rather than a surface, carrying close and, when the gesture that can
+ * honour it exists, maximise. */
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-room);
+  padding: var(--space-hair) var(--space-hair) var(--space-hair) var(--space-room);
+  background: var(--color-chrome);
+}
+
+.name {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+.count {
+  flex: 1;
+  margin: 0;
+  color: var(--color-ink-4);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  line-height: var(--leading-flush);
+}
+
+.close {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.close:hover {
+  background: var(--color-hover);
+}
+
+.close:active {
+  background: var(--color-active);
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+/*
+ * The three columns: the stream, the assembly rebuilt at the selected event,
+ * and the detail pane. Separated by gaps, which are the border.
+ *
+ * At the floor the panel draws one of them instead of three, and the rule is in
+ * the component rather than here: a column that was merely hidden would still
+ * be a column somebody could scroll to, and what shell.md asks for is a
+ * different form rather than a narrower one.
+ */
+.columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--space-gutter);
+}

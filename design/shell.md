@@ -78,6 +78,14 @@ floor and simply stops there.
 At 1280×800, the smallest window Demido claims to support, two pins and a float leave chat roughly
 670×375 of transcript. That is the worst realistic case and it was checked, not assumed.
 
+**Amended on [#57](https://github.com/elpideus/demido-studio/issues/57)**, which built the monitor
+and found the reduced form above describes a panel this slice does not have. There is no scope
+column to drop to icons, because sub-agents are S4's, and nothing to detach the inspector into,
+because there is no float layer yet. **The monitor's reduced form is the stream alone, at full
+width**: the column that is a list of what happened keeps the panel, and the two that inspect one
+moment of it are not drawn rather than squeezed. The rule the floor exists for is unchanged, and so
+is the number. When the scope column and the float layer land, the form above is what this becomes.
+
 ### The gesture
 
 There is no pin button. Pinning is a gesture with two forms that end in the same place:

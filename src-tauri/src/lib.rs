@@ -14,6 +14,7 @@ pub mod chat;
 /// left in to warn about itself is a warning every release build prints.
 #[cfg(debug_assertions)]
 mod dev_server;
+pub mod monitor;
 pub mod settings;
 pub mod setup;
 pub mod wiring;
@@ -215,6 +216,8 @@ pub fn run() -> demido_core::Result<()> {
             chat::chat_send,
             chat::chat_stop,
             chat::chat_decide,
+            monitor::monitor_log,
+            monitor::monitor_assembly,
             settings::settings_rows,
             settings::settings_set,
             settings::settings_clear,

@@ -63,5 +63,8 @@ pub use journal::{Error, Journal, Result};
 pub use jsonl::JsonLines;
 pub use memory::Memory;
 pub use record::{Sent, Session, Turn};
-pub use replay::{Called, Exchange, Moment, OfferedTool, Offering, Outcome, Replay, Tally};
+pub use replay::{
+    Called, Change, Exchange, Moment, OfferedTool, Offering, Outcome, Placed, Rebuild, Replay,
+    Tally,
+};
 pub use weight::{estimate, Counting, Estimate, Weigher};

@@ -49,6 +49,8 @@ export function Rail() {
   const dock = useDesk((desk) => desk.dock)
   const panel = useDesk((desk) => desk.panel)
   const toggle = useDesk((desk) => desk.toggle)
+  const monitor = useDesk((desk) => desk.monitor)
+  const toggleMonitor = useDesk((desk) => desk.toggleMonitor)
   const [menu, setMenu] = useState<At | null>(null)
 
   return (
@@ -65,7 +67,20 @@ export function Rail() {
     >
       <ul className={styles.group}>
         {NAVIGATION.map((entry) => (
-          <Item key={entry.label} label={entry.label} icon={entry.icon} />
+          <Item
+            key={entry.label}
+            label={entry.label}
+            icon={entry.icon}
+            // The session monitor is the second entry with something behind it
+            // ([#57](https://github.com/elpideus/demido-studio/issues/57)). It
+            // opens pinned rather than floating, and the rail says only that it
+            // is open: the pinned state has its own marker in
+            // `design/system.md` and drawing it is the window manager's, which
+            // is also what will make a panel able to be open without being
+            // focused.
+            open={entry.label === 'Session monitor' ? monitor : undefined}
+            onOpen={entry.label === 'Session monitor' ? toggleMonitor : undefined}
+          />
         ))}
       </ul>
 

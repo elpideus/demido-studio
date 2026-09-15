@@ -20,6 +20,7 @@ use demido_settings::{Ladder, Origin, Resolved, Settings, Tier};
 use demido_tools::Registry;
 use demido_trace::{Called, Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
 
+use crate::monitor::Assembly;
 use crate::presence::Presence;
 use crate::toolbox::{Asking, Offering, Toolbox};
 use crate::update::Update;
@@ -386,6 +387,36 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// its own store.
     pub fn replay(&self) -> Result<Replay> {
         self.with_session(|session| Ok(Replay::of(session.journal())?))
+    }
+
+    /// The log, whole, as the session monitor reads it.
+    ///
+    /// Every event, in order, with nothing folded and nothing left out: the
+    /// monitor's stream is the log rather than a summary of it, and its last
+    /// tab is the raw JSON of the selected line because the record is the
+    /// record (`design/windows.md`). A projection narrower than this would be a
+    /// second answer to "what happened", which is the thing this crate does not
+    /// have.
+    pub fn log(&self) -> Result<Vec<demido_trace::Event>> {
+        self.with_session(|session| Ok(session.journal().events()?))
+    }
+
+    /// The assembly as it stood at one event, with what became of each tool
+    /// group in it.
+    ///
+    /// Two halves from two places, and they belong apart. The rebuild is the
+    /// log's ([`Replay::rebuild`]), because it is a projection of events. The
+    /// groups are the registry's, because a log records tool **names** and only
+    /// a registry knows which group a name is in.
+    pub fn assembly(&self, at: u64) -> Result<Option<Assembly>> {
+        self.with_session(|session| {
+            let Some(rebuild) = Replay::of(session.journal())?.rebuild(at)? else {
+                return Ok(None);
+            };
+            let groups =
+                crate::monitor::grouped(self.tools.registry().groups(), rebuild.tools.as_ref());
+            Ok(Some(Assembly { rebuild, groups }))
+        })
     }
 
     /// The transcript, out of the log and nowhere else.

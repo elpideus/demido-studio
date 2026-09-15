@@ -1,0 +1,294 @@
+/*
+ * The rebuilt assembly and the detail pane. Roles are docs/rules/surfaces.md,
+ * the shapes are design/system.md, and every number is a token from
+ * design/tokens.css.
+ */
+
+.column {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  padding: var(--space-room);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-room);
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  padding-bottom: var(--space-tight);
+}
+
+.title {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+.meta {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-micro);
+  line-height: var(--leading-ui);
+}
+
+/*
+ * One block of the assembly: a raised element inside the panel, accented in
+ * its source's colour.
+ */
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  padding: var(--space-control);
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+}
+
+.block[data-source='system'] {
+  --source: var(--src-system);
+}
+.block[data-source='skill'] {
+  --source: var(--src-skill);
+}
+.block[data-source='user'] {
+  --source: var(--src-user);
+}
+.block[data-source='inject'] {
+  --source: var(--src-inject);
+}
+.block[data-source='reasoning'] {
+  --source: var(--src-reasoning);
+}
+.block[data-source='tool'] {
+  --source: var(--src-tool);
+}
+.block[data-source='artifact'] {
+  --source: var(--src-artifact);
+}
+.block[data-source='error'] {
+  --source: var(--src-error);
+}
+
+/* Inserted is the thing to read, so it is the one that is lit. */
+.block[data-change='inserted'] {
+  background: var(--color-edge);
+}
+
+/* Evicted is struck out with its cost, which is the state's whole job: what
+ * the model stopped being shown, and what that had been costing. */
+.block[data-change='evicted'] .text {
+  color: var(--color-ink-4);
+  text-decoration: line-through;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  color: var(--source);
+}
+
+.role {
+  color: var(--source);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+.at,
+.weight,
+.hash,
+.count {
+  color: var(--color-ink-4);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+}
+
+.weight,
+.count {
+  justify-self: end;
+}
+
+/* The word for what changed, in the ink a person reads rather than the ink for
+ * decoration. */
+.change {
+  color: var(--color-ink-3);
+  font-size: var(--text-micro);
+}
+
+/*
+ * The text as it was sent. A recess, because a payload is content further into
+ * the page, and it scrolls rather than pushing the next block off the column:
+ * a system paragraph is longer than anything else in this window.
+ */
+.text {
+  max-height: calc(8 * var(--space-section));
+  overflow: auto;
+  margin: 0;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  line-height: var(--leading-ui);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  padding-top: var(--space-room);
+}
+
+/* One group, and what became of it. The word says which state it is in and the
+ * icon says it a second way; the colour is the third. */
+.group {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-hair) var(--space-control);
+  border-radius: var(--radius-chip);
+  background: var(--color-raised);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+.group[data-standing='offered'] {
+  --source: var(--color-signal);
+}
+.group[data-standing='partial'] {
+  --source: var(--color-amber);
+}
+.group[data-standing='switched-off'] {
+  --source: var(--color-ink-3);
+}
+.group[data-standing='dropped'] {
+  --source: var(--color-sky);
+}
+
+.name {
+  color: var(--color-ink-2);
+}
+
+.said {
+  overflow: hidden;
+  color: var(--color-ink-3);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* One tool's document, folded. What it opens to is the wording that was sent,
+ * which is the thing the per-tool hash exists to keep true. */
+.tool {
+  padding: var(--space-control);
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  color: var(--color-ink-2);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-tight);
+  padding-bottom: var(--space-tight);
+}
+
+.tab {
+  padding: var(--space-hair) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.tab:hover {
+  background: var(--color-hover);
+}
+
+.tab[aria-current='page'] {
+  background: var(--color-edge);
+  color: var(--color-ink-2);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  margin: 0;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: calc(4 * var(--space-section)) minmax(0, 1fr);
+  gap: var(--space-tight);
+}
+
+.label {
+  color: var(--color-ink-4);
+  font-size: var(--text-micro);
+  line-height: var(--leading-ui);
+}
+
+.value {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  word-break: break-word;
+}
+
+/* The record itself, on the surface a payload dump gets. */
+.json {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-control);
+  border-radius: var(--radius-control);
+  background: var(--color-well);
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  line-height: var(--leading-ui);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

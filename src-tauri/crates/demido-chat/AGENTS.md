@@ -182,6 +182,23 @@ next message can be sent.
 a `turn/failure` with kind `step-limit` is written, and `ask` returns
 `Error::StepLimit`.
 
+## What the monitor reads
+
+[#57](https://github.com/elpideus/demido-studio/issues/57). Two questions, and
+neither of them assembles anything: `Chat::log` is the events, whole and in
+order, and `Chat::assembly` is `Replay::rebuild` with one thing added that the
+log cannot answer on its own.
+
+**A tool group missing from an assembly says whether it was switched off or
+dropped.** The log records tool *names*; only a registry knows which group a
+name is in, which is why `src/monitor.rs` is here and not in `demido-trace`. The
+rule is the layer on `tools/offered`: a set a tier of the ladder named is a
+person's choice, so an absence in it is **switched off** and the control that
+made it is the tool picker; a set nobody named is everything the registry had,
+so an absence is **dropped**, which today means no workspace. `docs/rules/tools.md`
+is explicit that this is what the event exists for, and `tests/monitored.rs`
+holds the two apart against the scripted backend.
+
 ## Presence carries the fact, never the wording
 
 `Presence` says whether there is anything to talk to. The sentence the composer
@@ -197,6 +214,7 @@ and a fix, and it is not something a frontend can derive from a tag.
 | `tests/a_turn.rs` | The ordering rules, against a scripted backend. |
 | `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, what a stop leaves, what the transcript draws for a call, and which tier an *always* is written to. Against the same scripted backend. |
 | `tests/offered.rs` | What reaches the payload: the offered set and the mode off the ladder, a switched-off tool absent and refused as off, and one chat's set reaching no other. |
+| `tests/monitored.rs` | What the session monitor reads: the assembly at an event, and a group switched off in the picker told apart from one nothing ever offered. |
 
 The scripted backend is `demido_inference::scripted`, which passes the
 `Backend` contract suite, rather than a fake written here: a loop proved against
