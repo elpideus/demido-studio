@@ -65,7 +65,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 
-use demido_chat::{Asking, Chat, Decision, Model, Moment, Outcome, Presence, Toolbox};
+use demido_chat::{Asking, Chat, Decision, Delegations, Model, Moment, Outcome, Presence, Toolbox};
 use demido_inference::{
     Backend, Cancel, ChunkStream, LlamaCpp, LlamaCppConfig, Loaded, Request, Role, Supervisor,
 };
@@ -227,6 +227,7 @@ impl Rig {
             }),
             self.settings.clone(),
             Toolbox::open(registry, self.dir.join("prompts")),
+            Delegations::none(),
         )
     }
 

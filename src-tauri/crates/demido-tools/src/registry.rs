@@ -267,6 +267,20 @@ impl Registry {
             .collect()
     }
 
+    /// Everything on offer, by name, in the registry's own order.
+    ///
+    /// What a sub-agent's set is intersected against (`demido_permission`'s
+    /// `inherit`): the parent's offered set, as the thing that decides what a
+    /// child may be shown. On offer rather than registered,
+    /// so a conversation with no workspace passes an empty ceiling down rather
+    /// than a list of names nothing could have called anyway.
+    pub fn offered_names(&self) -> Vec<String> {
+        self.on_offer()
+            .into_iter()
+            .map(|tool| tool.name().to_owned())
+            .collect()
+    }
+
     /// Is anything on offer? Answers "should this turn carry tools at all".
     pub fn is_empty(&self) -> bool {
         self.on_offer().is_empty()

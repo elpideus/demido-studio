@@ -76,6 +76,13 @@ for the conversation or narrowed from one that was.
 child cannot drift from the matrix. The two settings the mode does not gate stay
 out of it: `may_delegate` asks the depth, never the mode.
 
+**Its caller is one function.** `demido_chat`'s `Agent::carry_out`, on the way
+into every child at every depth
+([#63](https://github.com/elpideus/demido-studio/issues/63)), and
+`Resolution::root` is built once per message in `Chat::ask` and nowhere else.
+`demido-chat/tests/delegated.rs` drives a chain two deep against the real turn
+loop, so the table here and the ceiling in practice are the same rule.
+
 ### Why it lives here and not in `demido-tools`
 
 [#37](https://github.com/elpideus/demido-studio/issues/37)'s table put the

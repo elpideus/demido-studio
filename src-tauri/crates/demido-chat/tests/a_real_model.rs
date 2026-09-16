@@ -43,7 +43,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use demido_chat::{Asking, Chat, Decision, Model, Presence, Toolbox, Update};
+use demido_chat::{Asking, Chat, Decision, Delegations, Model, Presence, Toolbox, Update};
 use demido_inference::{Backend, FinishReason, LlamaCpp, Role, Supervisor};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
 use demido_tools::Registry;
@@ -121,6 +121,7 @@ fn over(
         // Nothing offered. These scenarios are S1's, a model answering; what a
         // model does with tools on offer is S2's live suite (#59).
         Toolbox::open(Registry::default(), dir.join("prompts")),
+        Delegations::none(),
     );
     (chat, supervisor)
 }

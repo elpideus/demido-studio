@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use demido_chat::{Assembly, Chat, Model, Standing, Toolbox};
+use demido_chat::{Assembly, Chat, Delegations, Model, Standing, Toolbox};
 use demido_inference::scripted::{Script, Scripted};
 use demido_inference::Supervisor;
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
@@ -79,6 +79,7 @@ impl Rig {
             }),
             self.settings.clone(),
             Toolbox::open(registry, self.prompts.path()),
+            Delegations::none(),
         )
     }
 
