@@ -94,10 +94,10 @@ function text(event: Event, field: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** A field of a line, when it is there and is a number. */
-function number(event: Event, field: string): number | string {
+/** A field of a line said as text, when it is there and is a number. */
+function numeric(event: Event, field: string): string {
   const value = event[field]
-  return typeof value === 'number' ? value : ''
+  return typeof value === 'number' ? String(value) : ''
 }
 
 /** How many things are in a field that is a list. */
@@ -143,7 +143,7 @@ function summary(event: Event): string {
     case 'tool/decision':
       return once(text(event, 'decision'))
     case 'agent/delegated':
-      return `${text(event, 'agent')}, depth ${number(event, 'depth')}`
+      return `${text(event, 'agent')}, depth ${numeric(event, 'depth')}`
     case 'agent/returned':
       return once(text(event, 'agent'))
     case 'tool/result':

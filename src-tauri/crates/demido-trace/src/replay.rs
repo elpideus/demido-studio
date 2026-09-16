@@ -261,6 +261,20 @@ impl Replay {
         &self.events
     }
 
+    /// Whose event sits at `seq`, or this replay's agent where nothing does.
+    ///
+    /// The scoping rule, in one place: a search anchored at a position belongs
+    /// to the agent that wrote that position, whichever scope the reader came
+    /// from, so an assembly's own set and a fragment's own wording are found
+    /// without the reader having to scope first. A moment that is not an event
+    /// (`u64::MAX`, which is how a caller asks for what is in force now) has no
+    /// agent of its own, and there the scope is this replay's.
+    fn agent_at(&self, seq: u64) -> AgentId {
+        self.at(seq)
+            .map(|event| event.agent.clone())
+            .unwrap_or_else(|_| self.agent.clone())
+    }
+
     /// This agent's own events, which is what every projection here reads.
     fn mine(&self) -> impl DoubleEndedIterator<Item = &Event> {
         self.events.iter().filter(|event| event.agent == self.agent)
@@ -549,7 +563,7 @@ impl Replay {
         // whichever scope the reader came from. A monitor that had to be
         // scoped before it could rebuild would be one where selecting a row
         // and reading it are two steps.
-        let agent = self.at(at)?.agent.clone();
+        let agent = self.agent_at(at);
         let Some(seq) = self.sent_by(at, &agent) else {
             return Ok(None);
         };
@@ -698,14 +712,7 @@ impl Replay {
     /// document edited after the fact from rewriting the record of a reply
     /// from before it.
     pub fn offered(&self, at: u64) -> Result<Option<Offering>> {
-        // Whoever wrote the event asked about, so the set an assembly names is
-        // that assembly's however the reader got here. A moment that is not an
-        // event (`u64::MAX`, which is how a caller asks for the set in force
-        // now) has no agent of its own, and there the scope is this replay's.
-        let agent = self
-            .at(at)
-            .map(|event| event.agent.clone())
-            .unwrap_or_else(|_| self.agent.clone());
+        let agent = self.agent_at(at);
         let Some((seq, layer, tools)) =
             self.events
                 .iter()
@@ -764,7 +771,7 @@ impl Replay {
         before: u64,
         version: fn(&'a Body) -> Option<(&'a str, &'a str)>,
     ) -> Result<&'a str> {
-        let agent = self.at(before)?.agent.clone();
+        let agent = self.agent_at(before);
         self.events
             .iter()
             .rev()

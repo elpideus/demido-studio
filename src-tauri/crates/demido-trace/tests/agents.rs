@@ -326,14 +326,16 @@ fn a_childs_assembly_rebuilds_from_its_own_events() {
     exchange(&session, "and while you are at it", "");
 
     let replay = Replay::of(&journal).unwrap();
+    let rebuilt = replay
+        .request(childs_own_assembly(&replay, child.agent()))
+        .unwrap();
+    // Serialised rather than compared as values, so this is the bytes that go
+    // on the wire rather than two Rust values a `PartialEq` found equal. What
+    // the offline suite cannot do is render both through a real chat template,
+    // which is `a_real_model.rs`'s job and the same claim one layer out.
     assert_eq!(
-        serde_json::to_value(
-            replay
-                .request(childs_own_assembly(&replay, child.agent()))
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::to_value(&childs_own).unwrap(),
+        serde_json::to_string(&rebuilt).unwrap(),
+        serde_json::to_string(&childs_own).unwrap(),
         "the child's assembly rebuilds byte for byte out of the child's own events"
     );
 }

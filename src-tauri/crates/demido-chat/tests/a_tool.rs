@@ -1276,7 +1276,7 @@ async fn a_delegation_approval_is_on_the_log_whichever_answer_it_got() {
             ("delegate_task".to_owned(), Decision::Deny),
             ("delegate_task".to_owned(), Decision::Always),
         ],
-        "one decision per answer, and the second delegation of the first turn          runs on the grant the first one is: {decided:?}"
+        "one decision per answer, and the second delegation of the first turn runs on the grant the first one is: {decided:?}"
     );
     assert_eq!(
         rig.settings

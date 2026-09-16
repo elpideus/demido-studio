@@ -79,10 +79,6 @@ impl AgentId {
     pub fn delegated(call: u64) -> Self {
         Self(format!("agent-{call}"))
     }
-
-    pub fn is_main(&self) -> bool {
-        self.0 == Self::MAIN
-    }
 }
 
 impl std::fmt::Display for AgentId {
