@@ -14,12 +14,13 @@ use serde_json::json;
 use demido_inference::{
     Backend, Cancel, Chunk, FinishReason, Options, Role, Supervisor, ToolCall, Usage,
 };
-use demido_permission::{Mode, Verdict};
+use demido_permission::{inherit, Mode, Request, Resolution, Verdict};
 use demido_prompts::{catalog, id};
 use demido_settings::{Ladder, Origin, Resolved, Settings, Tier};
-use demido_tools::Registry;
+use demido_tools::{Failure, Outcome, Registry};
 use demido_trace::{Called, Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
 
+use crate::delegation::Delegations;
 use crate::monitor::Assembly;
 use crate::presence::Presence;
 use crate::toolbox::{Asking, Offering, Toolbox};
@@ -205,7 +206,17 @@ pub struct Chat<B: Backend, J: Journal> {
     /// still gets an empty log file. That is a real session for a real profile
     /// and it is left alone.
     open: Box<dyn Fn() -> demido_trace::Result<J> + Send + Sync>,
-    session: Mutex<Option<Session<J>>>,
+    /// The conversation's own recorder, over a **shared** handle on the log.
+    ///
+    /// `Arc<J>` rather than `J` because a sub-agent records into its parent's
+    /// journal rather than one of its own
+    /// (`docs/decisions/0013-a-sub-agent-is-a-scope-on-one-log.md`), and the
+    /// sequence number lives on the handle: two handles over one file each
+    /// number from where they opened it, and the second line claiming position
+    /// nine is a log that cannot be replayed at all. `demido_trace` makes
+    /// `Arc<J>` a `Journal` for exactly this, so sharing is the type rather
+    /// than a rule somebody keeps.
+    session: Mutex<Option<Session<Arc<J>>>>,
     /// Shared rather than owned. The rule the supervisor enforces is that one
     /// model is resident on the card, and a chat that made its own would make
     /// that one model *per conversation*: the second chat would load a second
@@ -246,7 +257,24 @@ pub struct Chat<B: Backend, J: Journal> {
     running: Mutex<Option<Cancel>>,
     /// What this conversation offers, and the mode its calls are ruled under.
     tools: Toolbox,
+    /// The turn loop's end of the delegation pair, the other end of which is
+    /// the `delegate_task` in this conversation's registry.
+    ///
+    /// Behind an async lock and taken for the length of a turn, beside the turn
+    /// lock and for the same reason: a delegation is carried out by the turn
+    /// that asked for it, so there is one reader and it is whoever is running.
+    delegations: tokio::sync::Mutex<Delegations>,
 }
+
+/// How many levels of delegation may open under one conversation.
+///
+/// A constant here and a row on the settings ladder at
+/// [#64](https://github.com/elpideus/demido-studio/issues/64), which is the
+/// ticket that owns the depth control: what this ticket owes is that the number
+/// exists, that [`inherit`] is the only thing that decrements it, and that a
+/// chain two deep really runs. The value is #64's stated default, so the
+/// setting that replaces this line changes no behaviour by arriving.
+const DEPTH: u32 = 2;
 
 impl<B: Backend, J: Journal> Chat<B, J> {
     /// A chat over a log that opens when there is something to put in it,
@@ -254,6 +282,14 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     ///
     /// `None` is the ordinary first launch: no set-up has run, so there is
     /// nothing to answer with and the composer says so rather than pretending.
+    ///
+    /// `delegations` is the turn loop's half of [`crate::delegations`], whose
+    /// other half belongs in `tools`' registry as the Delegation group. They
+    /// are made together and split here because a `delegate_task` wired to one
+    /// conversation's loop and registered on another's is a delegation that
+    /// answers in the wrong session. A conversation that offers no Delegation
+    /// group still takes one: nothing ever asks on it, and a parameter that is
+    /// sometimes absent is a second shape of conversation.
     pub fn new(
         id: impl Into<SessionId>,
         open: impl Fn() -> demido_trace::Result<J> + Send + Sync + 'static,
@@ -261,6 +297,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         model: Option<Model<B>>,
         settings: Arc<Settings>,
         tools: Toolbox,
+        delegations: Delegations,
     ) -> Self {
         let id = id.into();
         let ladder = Ladder::for_chat(id.to_string());
@@ -276,6 +313,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             turn: tokio::sync::Mutex::new(()),
             running: Mutex::new(None),
             tools,
+            delegations: tokio::sync::Mutex::new(delegations),
         }
     }
 
@@ -500,60 +538,50 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // call is planned against are one list. The set is the ladder's, so a
         // tool switched off is not in any of the three (`docs/rules/tools.md`:
         // disabled means absent).
-        let rules = Rules {
-            registry: self.tools.narrowed(resolved.offered().as_deref()),
-            mode: Mode::named(resolved.mode()),
-            limit: resolved.step_limit(),
-            // Off the ladder's chat tier rather than off the log (#55). The log
-            // still says which of the three the person answered, because that
-            // is what happened; what is in force next turn is a setting, so it
-            // is where every other value in force is, and a person who wants it
-            // back has a row rather than an un-appendable log to edit.
-            always: resolved.always(),
+        let registry = self.tools.narrowed(resolved.offered().as_deref());
+        let agent = Agent {
+            chat: self,
+            child: None,
+            rules: Rules {
+                // The conversation's own resolution, and the only one in this
+                // crate that is minted rather than inherited
+                // (`demido_permission::Resolution::root`). Every child's comes
+                // from this one through `inherit`, which is what makes the two
+                // controls of S2 ceilings rather than suggestions.
+                resolution: Resolution::root(registry.names(), Mode::named(resolved.mode()), DEPTH),
+                registry,
+                limit: resolved.step_limit(),
+                // Off the ladder's chat tier rather than off the log (#55). The
+                // log still says which of the three the person answered,
+                // because that is what happened; what is in force next turn is
+                // a setting, so it is where every other value in force is, and
+                // a person who wants it back has a row rather than an
+                // un-appendable log to edit.
+                always: resolved.always(),
+            },
         };
-        let layer = layer(resolved.origin(demido_settings::id::TOOLS_OFFERED));
-        let offered: Vec<(demido_prompts::Document, serde_json::Value)> = self
-            .tools
-            .offered(&rules.registry)
-            .into_iter()
-            .map(|spec| (spec.document, spec.shape))
-            .collect();
+        // One reader of the delegation queue, and it is whoever is running a
+        // turn. Taken beside the turn lock rather than inside the loop because
+        // a sub-agent carried out by a turn other than the one that asked for
+        // it would record into a session it is not in.
+        let mut delegations = self.delegations.lock().await;
 
-        // Everything up to the send is recording, and it happens under the
-        // session lock. Nothing is awaited while it is held.
-        let sent = self.with_session(|session| {
-            let earlier = Replay::of(session.journal())?;
-            let mut turn = session.begin();
-            // Who the model is being goes first, before anything anybody said,
-            // which is the only position a system message has.
-            //
-            // `Source::Inject` rather than `Source::System`: the taxonomy is
-            // about who put the text in the window, and Demido put it there
-            // without being asked this turn. `System` is text Demido *wrote*,
-            // and this is the user's own, resolved off the ladder. An empty one
-            // is left out entirely rather than sent as a blank message.
-            if !resolved.system_prompt().is_empty() {
-                turn.message(Source::Inject, Role::System, resolved.system_prompt())?;
-            }
-            // History reaches the model as positions on the log rather than as
-            // copies, so a long conversation does not grow the log as the
-            // square of itself. It carries the calls and what came back from
-            // them too, so a model is not made to call again for what it
-            // already has.
-            for seq in earlier.conversation() {
-                turn.carry(seq);
-            }
-            turn.user(said)?;
-            turn.offer(layer, &offered)?;
-            turn.parameters(&model, options(&resolved))?;
-            Ok(turn.send()?)
-        })?;
+        let sent = agent.compose(said, Carrying::Everything, &model, &resolved)?;
         let number = sent.turn;
 
         let cancel = Cancel::new();
         self.arm(Some(cancel.clone()));
-        let outcome = self
-            .steps(&backend, sent, &cancel, &mut sink, &mut approve, &rules)
+        let outcome = agent
+            .steps(
+                &backend,
+                sent,
+                &mut Driving {
+                    cancel: &cancel,
+                    sink: &mut sink,
+                    approve: &mut approve,
+                    delegations: &mut delegations,
+                },
+            )
             .await;
         self.arm(None);
 
@@ -627,6 +655,325 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         self.report(Presence::Absent, &mut |_: &Presence| {});
     }
 
+    /// Keep *always for this tool* where every other value in force is kept:
+    /// the ladder's **chat** tier, and never the global one.
+    ///
+    /// #55's own line, and the reason is the size of the promise. The person
+    /// answered about a call in this conversation; writing that globally would
+    /// turn one answer into consent for every conversation they ever open,
+    /// which is not what was said and is not something a row in a transcript
+    /// should be able to do. `Scope::chat` is the only scope this writes, and
+    /// the tier is named here rather than passed in so there is nowhere to pass
+    /// a different one from.
+    ///
+    /// Best effort, and deliberately not `?`: a ladder that would not take the
+    /// write means the next turn asks again, which is the safe direction, and
+    /// failing the turn over it would throw away a call the person just allowed.
+    fn remember_always(&self, names: &[String]) {
+        let scope = demido_settings::Scope::chat(self.id.to_string());
+        if let Err(error) =
+            self.settings
+                .set(&scope, demido_settings::id::TOOLS_ALWAYS, &json!(names))
+        {
+            tracing::warn!(%error, "always for this tool was not saved; it holds for this turn only");
+        }
+    }
+
+    /// The model to send a turn as, or a refusal naming what is loaded instead.
+    fn answering(&self) -> Result<String> {
+        let presence = self.presence();
+        match presence.model() {
+            Some(model) if presence.is_ready() => Ok(model.to_owned()),
+            _ => Err(Error::NotReady(presence)),
+        }
+    }
+
+    /// Record a presence and tell whoever asked to be told.
+    fn report(&self, presence: Presence, report: &mut impl FnMut(&Presence)) -> Presence {
+        {
+            let mut held = self
+                .presence
+                .lock()
+                .unwrap_or_else(|held| held.into_inner());
+            held.clone_from(&presence);
+        }
+        report(&presence);
+        presence
+    }
+
+    /// The model is gone, and nobody asked to be told.
+    fn failed(&self, detail: String) {
+        self.report(Presence::Failed { detail }, &mut |_: &Presence| {});
+    }
+
+    fn arm(&self, cancel: Option<Cancel>) {
+        *self.running.lock().unwrap_or_else(|held| held.into_inner()) = cancel;
+    }
+
+    /// Do something with the session, opening the log if this is the first
+    /// thing that needed it.
+    ///
+    /// The session is taken out of the lock for the duration and put back
+    /// after, so there is no second branch where the log is open and unusable
+    /// and nothing to reason about if `act` unwinds.
+    fn with_session<T>(&self, act: impl FnOnce(&Session<Arc<J>>) -> Result<T>) -> Result<T> {
+        let mut held = self.session.lock().unwrap_or_else(|held| held.into_inner());
+
+        let session = match held.take() {
+            Some(session) => session,
+            None => {
+                let session = Session::new(self.id.clone(), Arc::new((self.open)()?));
+                // A log that already has turns in it numbers the next one after
+                // them, derived from the events rather than remembered: what is
+                // remembered elsewhere can disagree with the log.
+                session.resume()?;
+                session
+            }
+        };
+
+        let outcome = act(&session);
+        *held = Some(session);
+        outcome
+    }
+}
+
+/// One generation, recorded: the answer, and each call it asked for with the
+/// call's position on the log.
+struct Generation {
+    answer: Answer,
+    calls: Vec<(u64, ToolCall)>,
+}
+
+/// What one agent's run is ruled by: the tools on offer, what the matrix
+/// decides about a call under them, how many steps it may take, and what has
+/// already been answered *always for this tool*.
+///
+/// The conversation's is resolved off the ladder once per message. A
+/// sub-agent's is its parent's, through [`inherit`] and through nothing else,
+/// which is where the offered set and the mode become ceilings rather than
+/// suggestions (`docs/rules/tools.md`).
+struct Rules {
+    registry: Registry,
+    /// What this agent may be shown, the mode it is ruled under, and how many
+    /// further levels of delegation may open below it.
+    ///
+    /// It carries no verdicts of its own: [`Resolution::verdict`] is the same
+    /// matrix the conversation's calls go through, with this agent's mode in
+    /// it, so a child has no permission shape to drift from its parent's.
+    resolution: Resolution,
+    limit: u32,
+    always: Vec<String>,
+}
+
+/// Which layer decided the offered set: a tier of the ladder, or nobody, which
+/// is everything the registry has.
+fn layer(origin: Origin) -> Layer {
+    match origin {
+        Origin::Default => Layer::Registry,
+        Origin::Tier(Tier::Global) => Layer::Global,
+        Origin::Tier(Tier::Model) => Layer::Model,
+        Origin::Tier(Tier::Character) => Layer::Character,
+        Origin::Tier(Tier::Chat) => Layer::Chat,
+    }
+}
+
+/// What became of one call: the block that answers it, and what kind of thing
+/// happened to it.
+#[derive(Debug, Clone, Copy)]
+struct Answered {
+    /// Where the model's answer to this call is on the log.
+    block: u64,
+    attempt: Attempt,
+}
+
+/// The three things that can become of a call, as the turn loop needs to tell
+/// them apart.
+///
+/// They are three rather than two because the next step's tools depend on which
+/// one it was, and the three are not interchangeable: only [`Attempt::Repeated`]
+/// says the model is going round in a circle the tools are feeding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Attempt {
+    /// Something was tried. The tool ran, or it failed, or the arguments did
+    /// not fit its schema: either way there is a result, and if it is a bad one
+    /// there is something to fix by calling again.
+    Ran,
+    /// The person said no to this call, or the picker had the tool switched
+    /// off. Nothing ran, and the model has been told why, once.
+    Declined,
+    /// The same call the person declined earlier in this turn, made again.
+    Repeated,
+}
+
+impl Answered {
+    fn ran(block: u64) -> Option<Self> {
+        Some(Self {
+            block,
+            attempt: Attempt::Ran,
+        })
+    }
+
+    fn declined(block: u64) -> Option<Self> {
+        Some(Self {
+            block,
+            attempt: Attempt::Declined,
+        })
+    }
+
+    fn repeated(block: u64) -> Option<Self> {
+        Some(Self {
+            block,
+            attempt: Attempt::Repeated,
+        })
+    }
+}
+
+/// What one call is ruled on with: the tools on offer, what the matrix decides
+/// under this agent's resolution, and what the person has already said this
+/// turn and before it.
+struct Ruling<'a> {
+    registry: &'a Registry,
+    resolution: &'a Resolution,
+    always: &'a mut Vec<String>,
+    /// Calls the person declined this turn, by name and arguments.
+    declined: &'a mut Vec<(String, serde_json::Value)>,
+}
+
+/// What a turn puts in front of the model before the message it is answering.
+///
+/// Two values rather than a `bool`, because the second of them is the whole
+/// reason a delegation exists. The brief:
+///
+/// > Models should be able to delegate an agent to do a specific task in a
+/// > separate clean context
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Carrying {
+    /// Everything this agent has said and been told, by position on the log.
+    Everything,
+    /// Nothing at all, which is what a sub-agent starts with. Clean is not the
+    /// same as hidden: the child's own half of the log is written in full, it
+    /// is simply not carried into anybody's next request.
+    Nothing,
+}
+
+/// What a turn is driven by, for the length of one.
+///
+/// Four things that always travel together, because every one of them is the
+/// turn's rather than the agent's: what the window is told, who is asked about
+/// a call, what a stop reaches, and where a delegation is answered. A sub-agent
+/// runs on all four of the turn that asked for it, which is what makes a child
+/// a run of the same loop rather than a second one with a narrower idea of who
+/// is watching.
+struct Driving<'a, S, A> {
+    cancel: &'a Cancel,
+    sink: &'a mut S,
+    approve: &'a mut A,
+    delegations: &'a mut Delegations,
+}
+
+/// One agent running the loop: the conversation itself, or one sub-agent of it.
+///
+/// It exists because a delegation runs **the whole agent loop again**
+/// ([#63](https://github.com/elpideus/demido-studio/issues/63)) rather than
+/// interleaving a second kind of step into the first one's. There is one loop
+/// in this crate and a child is another run of it, so there is no second path
+/// through the matrix, no second way to answer a call, and no event kind that
+/// means two things depending on whose turn it was.
+///
+/// What it is not is a second [`Chat`]. The backend, the ladder, the register
+/// and the log are the conversation's, and this borrows them: a sub-agent with
+/// a supervisor of its own would be a second model resident on a card the whole
+/// design is sized against, and one with a log of its own would be the second
+/// store `docs/decisions/0013-a-sub-agent-is-a-scope-on-one-log.md` refuses.
+struct Agent<'a, B: Backend, J: Journal> {
+    chat: &'a Chat<B, J>,
+    /// A sub-agent's recorder, held for the length of its run.
+    ///
+    /// `None` is the conversation's own, which lives in the chat's lock because
+    /// the window reads the transcript while a turn is running, and a session
+    /// held out of that lock for a whole turn would be a second session opened
+    /// over the same log to answer it.
+    child: Option<Session<Arc<J>>>,
+    rules: Rules,
+}
+
+impl<B: Backend, J: Journal> Agent<'_, B, J> {
+    /// Do something with this agent's recorder.
+    ///
+    /// A child's is held right here and a conversation's is in the chat's lock,
+    /// and every recording site in the loop goes through this one function, so
+    /// there is nowhere for an event to be written against the wrong agent.
+    fn with_session<T>(&self, act: impl FnOnce(&Session<Arc<J>>) -> Result<T>) -> Result<T> {
+        match self.child.as_ref() {
+            Some(session) => act(session),
+            None => self.chat.with_session(act),
+        }
+    }
+
+    /// Record what this agent is about to send, and hand back the request that
+    /// recording produced.
+    ///
+    /// The order is the crate's one invariant: recorded, then sent. A caller
+    /// cannot send an assembly it did not record, because the assembly **is**
+    /// what recording produced, and a crash between the two leaves a log that
+    /// says what was about to happen.
+    fn compose(
+        &self,
+        said: &str,
+        carrying: Carrying,
+        model: &str,
+        resolved: &Resolved,
+    ) -> Result<Sent> {
+        // One reading of what is on offer, so the tools the log names, the
+        // tools the request carries and the tools a call is planned against are
+        // one list.
+        let offered: Vec<(demido_prompts::Document, serde_json::Value)> = self
+            .chat
+            .tools
+            .offered(&self.rules.registry)
+            .into_iter()
+            .map(|spec| (spec.document, spec.shape))
+            .collect();
+        let layer = layer(resolved.origin(demido_settings::id::TOOLS_OFFERED));
+
+        // Everything up to the send is recording, and it happens under the
+        // session lock. Nothing is awaited while it is held.
+        self.with_session(|session| {
+            let carry = match carrying {
+                // History reaches the model as positions on the log rather than
+                // as copies, so a long conversation does not grow the log as
+                // the square of itself. It carries the calls and what came back
+                // from them too, so a model is not made to call again for what
+                // it already has. `Replay` scopes it to this agent, so a
+                // conversation does not carry its sub-agents' messages.
+                Carrying::Everything => Replay::of(session.journal())?.conversation(),
+                Carrying::Nothing => Vec::new(),
+            };
+            let mut turn = session.begin();
+            // Who the model is being goes first, before anything anybody said,
+            // which is the only position a system message has.
+            //
+            // `Source::Inject` rather than `Source::System`: the taxonomy is
+            // about who put the text in the window, and Demido put it there
+            // without being asked this turn. `System` is text Demido *wrote*,
+            // and this is the user's own, resolved off the ladder. An empty one
+            // is left out entirely rather than sent as a blank message.
+            //
+            // A sub-agent gets it too. The clean context is the conversation it
+            // is not carrying; who the model is being is not conversation.
+            if !resolved.system_prompt().is_empty() {
+                turn.message(Source::Inject, Role::System, resolved.system_prompt())?;
+            }
+            for seq in carry {
+                turn.carry(seq);
+            }
+            turn.user(said)?;
+            turn.offer(layer, &offered)?;
+            turn.parameters(model, options(resolved))?;
+            Ok(turn.send()?)
+        })
+    }
+
     /// Run a turn to its end.
     ///
     /// Generate; if the model asked for calls, answer every one of them and
@@ -637,30 +984,31 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// off the ladder once per message, and the mode is handed to the matrix per
     /// call and read by nothing else here (`docs/rules/tools.md`: the mode gates
     /// permissions and nothing else).
-    async fn steps<F>(
+    async fn steps<S, A, F>(
         &self,
         backend: &B,
         mut sent: Sent,
-        cancel: &Cancel,
-        sink: &mut (impl FnMut(Update) + Send),
-        approve: &mut (impl FnMut(Asking) -> F + Send),
-        rules: &Rules,
+        driving: &mut Driving<'_, S, A>,
     ) -> Result<Answer>
     where
+        S: FnMut(Update) + Send,
+        A: FnMut(Asking) -> F + Send,
         F: Future<Output = Decision> + Send,
     {
-        let limit = rules.limit;
+        let cancel = driving.cancel;
+        let limit = self.rules.limit;
         // Standing answers come off the ladder, resolved once with everything
         // else this message is ruled by, so an *always* given on an earlier
         // message still holds on this one.
-        let mut always = rules.always.clone();
+        let mut always = self.rules.always.clone();
         let mut declined: Vec<(String, serde_json::Value)> = Vec::new();
         let mut taken = 0u32;
         let mut withheld = false;
 
         loop {
-            let Generation { answer, calls } =
-                self.stream(backend, &sent, cancel.clone(), sink).await?;
+            let Generation { answer, calls } = self
+                .stream(backend, &sent, cancel.clone(), driving.sink)
+                .await?;
 
             // A stop while the model was still producing: what it said is kept,
             // and a call that had already arrived is answered as stopped
@@ -687,13 +1035,13 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             let mut attempts: Vec<Attempt> = Vec::new();
             for (at, (seq, call)) in calls.iter().enumerate() {
                 let ruling = Ruling {
-                    registry: &rules.registry,
-                    mode: &rules.mode,
+                    registry: &self.rules.registry,
+                    resolution: &self.rules.resolution,
                     always: &mut always,
                     declined: &mut declined,
                 };
                 match self
-                    .dispatch(answer.turn, *seq, call, ruling, cancel, approve)
+                    .dispatch(answer.turn, *seq, call, ruling, driving)
                     .await?
                 {
                     Some(answered) => {
@@ -702,7 +1050,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                         // The call has an answer now, and the transcript draws
                         // one row for the pair. The window is told there is
                         // something to read, and reads the log for what.
-                        sink(Update::Recorded);
+                        (driving.sink)(Update::Recorded);
                     }
                     // Stopped while this call waited or ran. It and every call
                     // after it are answered as stopped, and nothing else runs.
@@ -767,23 +1115,25 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// refused without asking again, and told so in its own words rather than
     /// in the ones it has already ignored once; the matrix rules on the rest,
     /// and the person is asked only when it says to ask.
-    async fn dispatch<F>(
+    async fn dispatch<S, A, F>(
         &self,
         turn: u32,
         seq: u64,
         call: &ToolCall,
         ruling: Ruling<'_>,
-        cancel: &Cancel,
-        approve: &mut (impl FnMut(Asking) -> F + Send),
+        driving: &mut Driving<'_, S, A>,
     ) -> Result<Option<Answered>>
     where
+        S: FnMut(Update) + Send,
+        A: FnMut(Asking) -> F + Send,
         F: Future<Output = Decision> + Send,
     {
+        let cancel = driving.cancel;
         // Registered, and not in the set: somebody closed it. Told as that
         // rather than as a name that is not a tool, which would send the model
         // looking for another way to do what a person deliberately turned off
         // (`docs/rules/tools.md`).
-        if !ruling.registry.offers(&call.name) && self.tools.registry().offers(&call.name) {
+        if !ruling.registry.offers(&call.name) && self.chat.tools.registry().offers(&call.name) {
             return self
                 .refuse(
                     turn,
@@ -834,7 +1184,9 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 .map(Answered::repeated);
         }
 
-        if demido_permission::verdict(ruling.mode, planned.tool(), &planned.intent, ruling.always)
+        if ruling
+            .resolution
+            .verdict(planned.tool(), &planned.intent, ruling.always)
             == Verdict::Ask
         {
             let asking = Asking {
@@ -850,7 +1202,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             let decision = tokio::select! {
                 biased;
                 () = cancel.cancelled() => return Ok(None),
-                decision = approve(asking) => decision,
+                decision = (driving.approve)(asking) => decision,
             };
             self.with_session(|session| Ok(session.decided(turn, seq, decision)?))?;
 
@@ -880,7 +1232,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     if !ruling.always.contains(&call.name) {
                         ruling.always.push(call.name.clone());
                     }
-                    self.remember_always(ruling.always);
+                    self.chat.remember_always(ruling.always);
                 }
                 Decision::Deny => {
                     ruling.declined.push(this);
@@ -891,12 +1243,16 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             }
         }
 
-        // Dropping the call's future is what ends it, and for `run_command`
-        // that kills the whole process tree (`demido-tools`' `tree`).
-        let outcome = tokio::select! {
-            biased;
-            () = cancel.cancelled() => return Ok(None),
-            outcome = planned.run() => outcome,
+        // What the person has answered *always for this tool* about as it
+        // stands now, rather than as the ladder resolved it: a sub-agent opened
+        // under this call inherits the answers already given this turn, the
+        // delegation's own grant among them.
+        let standing = ruling.always.clone();
+        let Some(outcome) = self
+            .running(&planned, turn, seq, &standing, driving)
+            .await?
+        else {
+            return Ok(None);
         };
         match outcome {
             Ok(text) => self.returned(turn, seq, &text, false),
@@ -905,27 +1261,158 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         .map(Answered::ran)
     }
 
-    /// Keep *always for this tool* where every other value in force is kept:
-    /// the ladder's **chat** tier, and never the global one.
+    /// Run one call, carrying out any delegation it asks for on the way.
     ///
-    /// #55's own line, and the reason is the size of the promise. The person
-    /// answered about a call in this conversation; writing that globally would
-    /// turn one answer into consent for every conversation they ever open,
-    /// which is not what was said and is not something a row in a transcript
-    /// should be able to do. `Scope::chat` is the only scope this writes, and
-    /// the tier is named here rather than passed in so there is nowhere to pass
-    /// a different one from.
+    /// `None` when a stop landed before the call finished.
     ///
-    /// Best effort, and deliberately not `?`: a ladder that would not take the
-    /// write means the next turn asks again, which is the safe direction, and
-    /// failing the turn over it would throw away a call the person just allowed.
-    fn remember_always(&self, names: &[String]) {
-        let scope = demido_settings::Scope::chat(self.id.to_string());
-        if let Err(error) =
-            self.settings
-                .set(&scope, demido_settings::id::TOOLS_ALWAYS, &json!(names))
-        {
-            tracing::warn!(%error, "always for this tool was not saved; it holds for this turn only");
+    /// The middle arm is why this is a loop rather than the one `select!` it
+    /// used to be. `delegate_task` holds the sending end of a
+    /// [`crate::delegations`] pair, because a registry entry outlives every
+    /// turn it is offered in and so cannot hold the turn's sink, the turn's
+    /// person or the turn's cancellation. The tool asks and **this** answers,
+    /// which puts the child's run on the stack of the turn that asked for it,
+    /// with everything that turn has. That is also the whole of "at parallelism
+    /// 1 the call blocks and the answer is the tool's result": the call is
+    /// still awaiting its own future while the child runs, and what the child
+    /// said is what that future resolves to.
+    ///
+    /// **The cancel arm is not raced against a child.** A delegation is carried
+    /// out inside an arm, so nothing else is polled while it is, and a stop
+    /// reaches the child the way it reaches this agent: through the token they
+    /// share, ending its generation with a `Done` it records like any other.
+    /// Dropping the child instead would be a second path to a stop, and this
+    /// crate does not have one.
+    async fn running<S, A, F>(
+        &self,
+        planned: &demido_tools::Planned<'_>,
+        turn: u32,
+        call: u64,
+        standing: &[String],
+        driving: &mut Driving<'_, S, A>,
+    ) -> Result<Option<Outcome>>
+    where
+        S: FnMut(Update) + Send,
+        A: FnMut(Asking) -> F + Send,
+        F: Future<Output = Decision> + Send,
+    {
+        // Out of the struct before the loop, because the `select!` below takes
+        // the queue by unique reference and the token is read beside it.
+        let cancel = driving.cancel;
+        // Dropping the call's future is what ends it, and for `run_command`
+        // that kills the whole process tree (`demido-tools`' `tree`).
+        let mut running = std::pin::pin!(planned.run());
+        loop {
+            let asked = tokio::select! {
+                biased;
+                () = cancel.cancelled() => return Ok(None),
+                asked = driving.delegations.next() => asked,
+                outcome = &mut running => return Ok(Some(outcome)),
+            };
+            // Outside the `select!`, so the child has the whole of what is
+            // driving this turn while nothing else is being polled.
+            let answer = self
+                .carry_out(asked.task(), turn, call, standing, driving)
+                .await?;
+            asked.answer(answer);
+        }
+    }
+
+    /// Carry one delegation out: open a child session, run the whole loop in
+    /// it, and answer with what the sub-agent said.
+    ///
+    /// **A tool failure inside a child is a result, not an error.** The child
+    /// answers its own calls with what came back from them, exactly as this
+    /// agent does, and a turn that ended badly comes back here as a failed tool
+    /// result the parent can act on. Only [`Error::Journal`] is returned, and
+    /// it is the one thing that stops a run at any depth: a child whose events
+    /// cannot be written is a child nothing can say happened.
+    async fn carry_out<S, A, F>(
+        &self,
+        task: &str,
+        turn: u32,
+        call: u64,
+        standing: &[String],
+        driving: &mut Driving<'_, S, A>,
+    ) -> Result<Outcome>
+    where
+        S: FnMut(Update) + Send,
+        A: FnMut(Asking) -> F + Send,
+        F: Future<Output = Decision> + Send,
+    {
+        // The floor under the chain, asked of the number and never of the mode.
+        // [#64](https://github.com/elpideus/demido-studio/issues/64) is what
+        // turns this into the tool being **absent** at the limit, with a
+        // paragraph of its own and a monitor row; what is owed here is only
+        // that a chain cannot run forever.
+        if !self.rules.resolution.may_delegate() {
+            // not-a-prompt: a tool result naming what was wrong with this call,
+            // as the registry's own objections are. #64 replaces it with a
+            // catalog entry, which is the ticket that owns the wording.
+            return Ok(Err(Failure::final_(
+                "the chain of delegations has reached its limit.",
+            )));
+        }
+
+        let model = self.chat.answering()?;
+        let Some(backend) = self.chat.supervisor.current().await else {
+            // not-a-prompt: as above, for a backend that was there when the
+            // turn started and is not now.
+            return Ok(Err(Failure::final_("there is no model to delegate to.")));
+        };
+
+        // The child and the event that opened it come out together, so there is
+        // no child that is not on the log. It shares this agent's journal
+        // handle, and it is named after the call that asked for it.
+        let session = self.with_session(|session| Ok(session.delegate(turn, call)?))?;
+        // Resolved again rather than carried down, because the ladder is what
+        // is in force: a value changed while the parent was generating rules
+        // this child as it rules the next message.
+        let resolved = self.chat.resolved();
+        // The inheritance rule, on the way into this child as into every child
+        // at every depth: the offered set intersected, the mode at its
+        // stricter, the depth one lower, and no fourth axis.
+        let resolution = inherit(&self.rules.resolution, &Request::inheriting());
+        let child = Agent {
+            chat: self.chat,
+            // What the child may call, narrowed to what it inherited. The
+            // `delegate_task` in it asks on the same pair this agent is
+            // reading, and what answers is the child's own `running` below, so
+            // no sub-agent holds a handle on a conversation it is not in.
+            rules: Rules {
+                registry: self.chat.tools.narrowed(Some(resolution.offered())),
+                resolution,
+                limit: self.rules.limit,
+                always: standing.to_vec(),
+            },
+            child: Some(session),
+        };
+
+        let sent = child.compose(task, Carrying::Nothing, &model, &resolved)?;
+        let number = sent.turn;
+        // The same token, so the parent's Stop is the child's, at every depth.
+        // A cancel that leaves a sub-agent generating against a model nobody is
+        // waiting for is the next question's VRAM.
+        //
+        // Boxed because this is the recursion: a child's loop dispatches a
+        // call, which carries out a delegation, which runs a loop. An async
+        // function that awaits itself has no size without one.
+        match Box::pin(child.steps(&backend, sent, driving)).await {
+            Ok(answer) => Ok(Ok(answer.text)),
+            Err(Error::Journal(journal)) => Err(Error::Journal(journal)),
+            Err(error) => {
+                // On the child's own half of the log, because it is the child's
+                // turn that ended. Best effort for the reason `ask`'s is: when
+                // the log is what failed, recording that it failed fails too.
+                let detail = error.to_string();
+                if let Err(unrecorded) = child
+                    .with_session(|session| Ok(session.failed(number, error.kind(), &detail)?))
+                {
+                    tracing::warn!(%unrecorded, "the sub-agent's failure was not recorded");
+                }
+                // not-a-prompt: what the sub-agent's turn said went wrong,
+                // handed to the model that asked for it as the call's result.
+                Ok(Err(Failure::final_(detail)))
+            }
         }
     }
 
@@ -942,7 +1429,11 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         id: &'static str,
         values: &[(&str, &str)],
     ) -> Result<u64> {
-        let prompt = self.tools.paragraph(id).ok_or(Error::Unregistered(id))?;
+        let prompt = self
+            .chat
+            .tools
+            .paragraph(id)
+            .ok_or(Error::Unregistered(id))?;
         self.with_session(|session| Ok(session.refused(turn, call, &prompt, values)?))
     }
 
@@ -1023,151 +1514,4 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             calls,
         })
     }
-
-    /// The model to send a turn as, or a refusal naming what is loaded instead.
-    fn answering(&self) -> Result<String> {
-        let presence = self.presence();
-        match presence.model() {
-            Some(model) if presence.is_ready() => Ok(model.to_owned()),
-            _ => Err(Error::NotReady(presence)),
-        }
-    }
-
-    /// Record a presence and tell whoever asked to be told.
-    fn report(&self, presence: Presence, report: &mut impl FnMut(&Presence)) -> Presence {
-        {
-            let mut held = self
-                .presence
-                .lock()
-                .unwrap_or_else(|held| held.into_inner());
-            held.clone_from(&presence);
-        }
-        report(&presence);
-        presence
-    }
-
-    /// The model is gone, and nobody asked to be told.
-    fn failed(&self, detail: String) {
-        self.report(Presence::Failed { detail }, &mut |_: &Presence| {});
-    }
-
-    fn arm(&self, cancel: Option<Cancel>) {
-        *self.running.lock().unwrap_or_else(|held| held.into_inner()) = cancel;
-    }
-
-    /// Do something with the session, opening the log if this is the first
-    /// thing that needed it.
-    ///
-    /// The session is taken out of the lock for the duration and put back
-    /// after, so there is no second branch where the log is open and unusable
-    /// and nothing to reason about if `act` unwinds.
-    fn with_session<T>(&self, act: impl FnOnce(&Session<J>) -> Result<T>) -> Result<T> {
-        let mut held = self.session.lock().unwrap_or_else(|held| held.into_inner());
-
-        let session = match held.take() {
-            Some(session) => session,
-            None => {
-                let session = Session::new(self.id.clone(), (self.open)()?);
-                // A log that already has turns in it numbers the next one after
-                // them, derived from the events rather than remembered: what is
-                // remembered elsewhere can disagree with the log.
-                session.resume()?;
-                session
-            }
-        };
-
-        let outcome = act(&session);
-        *held = Some(session);
-        outcome
-    }
-}
-
-/// One generation, recorded: the answer, and each call it asked for with the
-/// call's position on the log.
-struct Generation {
-    answer: Answer,
-    calls: Vec<(u64, ToolCall)>,
-}
-
-/// What one message is ruled by, resolved off the ladder once: the tools on
-/// offer, the mode, how many steps it may take, and what has already been
-/// answered *always for this tool*.
-struct Rules {
-    registry: Registry,
-    mode: Mode,
-    limit: u32,
-    always: Vec<String>,
-}
-
-/// Which layer decided the offered set: a tier of the ladder, or nobody, which
-/// is everything the registry has.
-fn layer(origin: Origin) -> Layer {
-    match origin {
-        Origin::Default => Layer::Registry,
-        Origin::Tier(Tier::Global) => Layer::Global,
-        Origin::Tier(Tier::Model) => Layer::Model,
-        Origin::Tier(Tier::Character) => Layer::Character,
-        Origin::Tier(Tier::Chat) => Layer::Chat,
-    }
-}
-
-/// What became of one call: the block that answers it, and what kind of thing
-/// happened to it.
-#[derive(Debug, Clone, Copy)]
-struct Answered {
-    /// Where the model's answer to this call is on the log.
-    block: u64,
-    attempt: Attempt,
-}
-
-/// The three things that can become of a call, as the turn loop needs to tell
-/// them apart.
-///
-/// They are three rather than two because the next step's tools depend on which
-/// one it was, and the three are not interchangeable: only [`Attempt::Repeated`]
-/// says the model is going round in a circle the tools are feeding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Attempt {
-    /// Something was tried. The tool ran, or it failed, or the arguments did
-    /// not fit its schema: either way there is a result, and if it is a bad one
-    /// there is something to fix by calling again.
-    Ran,
-    /// The person said no to this call, or the picker had the tool switched
-    /// off. Nothing ran, and the model has been told why, once.
-    Declined,
-    /// The same call the person declined earlier in this turn, made again.
-    Repeated,
-}
-
-impl Answered {
-    fn ran(block: u64) -> Option<Self> {
-        Some(Self {
-            block,
-            attempt: Attempt::Ran,
-        })
-    }
-
-    fn declined(block: u64) -> Option<Self> {
-        Some(Self {
-            block,
-            attempt: Attempt::Declined,
-        })
-    }
-
-    fn repeated(block: u64) -> Option<Self> {
-        Some(Self {
-            block,
-            attempt: Attempt::Repeated,
-        })
-    }
-}
-
-/// What one call is ruled on with: the tools on offer, the mode, and what the
-/// person has already said this turn and before it.
-struct Ruling<'a> {
-    registry: &'a Registry,
-    mode: &'a Mode,
-    always: &'a mut Vec<String>,
-    /// Calls the person declined this turn, by name and arguments.
-    declined: &'a mut Vec<(String, serde_json::Value)>,
 }

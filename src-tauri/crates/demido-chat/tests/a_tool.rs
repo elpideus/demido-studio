@@ -38,11 +38,12 @@ struct Rig {
     settings: Arc<Settings>,
     /// Every task `delegate_task` was actually asked to carry out.
     ///
-    /// What a sub-agent really is (a child session, its own log, the depth
-    /// limit) is the rest of S4's, from
-    /// [#63](https://github.com/elpideus/demido-studio/issues/63) on. What this
+    /// What a sub-agent really is (a child session, its own half of the log,
+    /// the depth limit) is `tests/delegated.rs`, against the real pair
+    /// ([#63](https://github.com/elpideus/demido-studio/issues/63)). What this
     /// file is about is the tool as a registry entry: offered, switched off,
-    /// ruled on by the matrix and asked about once per turn.
+    /// ruled on by the matrix and asked about once per turn, so what carries a
+    /// task out here is a stand-in that answers at once.
     delegated: Arc<Mutex<Vec<String>>>,
 }
 
@@ -97,6 +98,7 @@ impl Rig {
             }),
             self.settings.clone(),
             Toolbox::open(registry, self.prompts.path()),
+            demido_chat::delegations().1,
         )
     }
 

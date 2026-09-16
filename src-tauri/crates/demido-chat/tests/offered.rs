@@ -58,6 +58,7 @@ impl Rig {
             }),
             self.settings.clone(),
             Toolbox::open(registry, self.prompts.path()),
+            demido_chat::delegations().1,
         );
         chat.load(|_| {}).await;
         chat

@@ -121,6 +121,7 @@ fn over(
         // Nothing offered. These scenarios are S1's, a model answering; what a
         // model does with tools on offer is S2's live suite (#59).
         Toolbox::open(Registry::default(), dir.join("prompts")),
+        demido_chat::delegations().1,
     );
     (chat, supervisor)
 }

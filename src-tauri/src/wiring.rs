@@ -302,6 +302,9 @@ impl Wiring {
         // reported and the defaults are used, which is a subsystem reported and
         // skipped rather than a window that does not open (`AGENTS.md`).
         let settings = Arc::new(Settings::open(SettingsStore::in_profile(profile)));
+        // Both ends of a delegation, made together and split between the
+        // registry and the conversation below.
+        let (delegating, delegations) = demido_chat::delegations();
         Ok(Self {
             desk: Desk::new(Files::in_profile(profile)),
             // The log is opened by the first thing that needs it, not here. A
@@ -324,26 +327,24 @@ impl Wiring {
                     .or_else(Rig::from_environment)
                     .map(Rig::model),
                 settings.clone(),
-                // The Files and Shell groups, over whatever folder this window
-                // was pointed at. With none, the registry offers nothing: a
-                // model shown a tool that cannot succeed however it is called
-                // is worse than one never shown it. Opening the prompts
-                // directory creates nothing.
-                //
-                // **The Delegation group joins this list on
-                // [#63](https://github.com/elpideus/demido-studio/issues/63)**,
-                // and is deliberately absent until then. `delegate_task` exists
-                // and is a registry entry
-                // ([#61](https://github.com/elpideus/demido-studio/issues/61)),
-                // but what carries a task out is the child session, so until
-                // that lands a delegation offered here would be exactly the
-                // call the sentence above refuses to offer.
+                // The Files, Shell and Delegation groups, over whatever folder
+                // this window was pointed at. With none, the registry offers
+                // nothing: a model shown a tool that cannot succeed however it
+                // is called is worse than one never shown it. Opening the
+                // prompts directory creates nothing.
                 Toolbox::open(
                     Registry::open(workspace())
                         .with_group(demido_tools::files())
-                        .with_group(demido_tools::shell()),
+                        .with_group(demido_tools::shell())
+                        .with_group(demido_tools::delegation(delegating)),
                     prompts.clone(),
                 ),
+                // The other end of the same pair. What carries a delegated task
+                // out is the turn that asked for it
+                // ([#63](https://github.com/elpideus/demido-studio/issues/63)),
+                // so the tool's end goes in the registry and the loop's end
+                // goes to the chat, in these two lines and nowhere else.
+                delegations,
             ),
             prompts: Paragraphs::open(prompts),
             settings,

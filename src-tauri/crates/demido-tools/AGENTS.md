@@ -106,12 +106,18 @@ tool may know about none of the three. So the tool holds a `Delegating`: a
 callback taking the task and answering with an `Outcome`. A callback rather than
 a trait, for the reason the approval is one
 ([`tiles.md`](../../../docs/rules/tiles.md)): there is one real implementation,
-and a trait would buy a second that exists only in tests. The real one arrives
-with the child session
-([#63](https://github.com/elpideus/demido-studio/issues/63)), which is also when
-`src-tauri/src/wiring.rs` registers the group: until a delegation can succeed,
-offering it would be the one thing `registry.rs` is explicit about, a tool a
-model will call and a call that cannot succeed however it is written.
+and a trait would buy a second that exists only in tests.
+
+The real one landed with the child session
+([#63](https://github.com/elpideus/demido-studio/issues/63)), and it is
+`demido_chat::delegations`: one end of a pair, whose other end the turn loop
+reads beside the call it is running. It is a pair rather than a plain closure
+because a registry entry outlives every turn it is offered in, and a sub-agent
+needs the turn's sink, the turn's person and the turn's cancellation. That is
+also when `src-tauri/src/wiring.rs` began registering the group: until a
+delegation could succeed, offering it would have been the one thing `registry.rs`
+is explicit about, a tool a model will call and a call that cannot succeed
+however it is written.
 
 ## run_command
 

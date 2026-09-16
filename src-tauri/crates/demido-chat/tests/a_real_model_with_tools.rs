@@ -227,6 +227,7 @@ impl Rig {
             }),
             self.settings.clone(),
             Toolbox::open(registry, self.dir.join("prompts")),
+            demido_chat::delegations().1,
         )
     }
 

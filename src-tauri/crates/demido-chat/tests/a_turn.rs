@@ -123,6 +123,7 @@ fn over(
         }),
         settings.clone(),
         toolbox(),
+        demido_chat::delegations().1,
     );
     (chat, supervisor)
 }
@@ -384,6 +385,7 @@ async fn a_chat_with_nothing_configured_says_so_and_refuses() {
         None,
         Arc::new(Settings::open(SettingsMemory::new())),
         toolbox(),
+        demido_chat::delegations().1,
     );
 
     let (seen, report) = watch();
@@ -492,6 +494,7 @@ async fn a_refused_turn_is_an_event_on_the_same_log() {
             }),
             Arc::new(Settings::open(SettingsMemory::new())),
             toolbox(),
+            demido_chat::delegations().1,
         )
     };
     chat.load(|_| {}).await;
@@ -554,6 +557,7 @@ async fn the_log_is_not_opened_until_there_is_something_to_put_in_it() {
             }),
             Arc::new(Settings::open(SettingsMemory::new())),
             toolbox(),
+            demido_chat::delegations().1,
         )
     };
 
