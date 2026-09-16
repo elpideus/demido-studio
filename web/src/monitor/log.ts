@@ -44,6 +44,11 @@ export type Event = {
   seq: number
   at: number
   session: string
+  /** Who produced it: `main` for the conversation, or one sub-agent of it. On
+   * every line from the first commit that wrote one, which is what makes the
+   * monitor's agent scope a filter over this stream rather than a retrofit
+   * (the Rust `AgentId`). */
+  agent: string
   turn: number
   source: Source
   weight: Weight

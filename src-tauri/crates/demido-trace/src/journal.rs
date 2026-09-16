@@ -108,6 +108,24 @@ pub trait Journal: Send + Sync {
     fn events(&self) -> Result<Vec<Event>>;
 }
 
+/// A shared handle on a journal is a journal.
+///
+/// What a sub-agent records through. A child session shares its parent's log
+/// rather than opening a second handle on the same file, because the sequence
+/// number lives on the handle: two handles over one file each number from where
+/// they opened it, and the second line claiming position nine is a log that
+/// cannot be replayed at all. Sharing the handle makes that unrepresentable
+/// rather than a rule somebody keeps.
+impl<J: Journal + ?Sized> Journal for std::sync::Arc<J> {
+    fn append(&self, entry: Entry) -> Result<Event> {
+        (**self).append(entry)
+    }
+
+    fn events(&self) -> Result<Vec<Event>> {
+        (**self).events()
+    }
+}
+
 /// Milliseconds since the Unix epoch, for a journal stamping an event.
 ///
 /// A clock before the epoch reads as zero rather than as a panic. A desk with a

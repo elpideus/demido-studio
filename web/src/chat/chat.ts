@@ -36,9 +36,11 @@ export type Outcome =
   /** The tool was attempted. `failed` is its own outcome, so a broken tool and
    * a model paraphrasing one are drawn differently. */
   | { outcome: 'returned'; text: string; failed: boolean }
-  /** Demido's own answer to a call it did not run: declined, stopped, or past
-   * the step limit. */
-  | { outcome: 'refused'; text: string }
+  /** Demido's own answer to a call it did not run: declined, stopped, past the
+   * step limit, or a chain that reached its delegation depth. `id` is the
+   * catalog id of the paragraph that stated the reason, so which refusal it was
+   * is read rather than recognised from the words. */
+  | { outcome: 'refused'; id: string; text: string }
 
 /** One call, as the transcript draws it. The Rust `Called`. */
 export type Called = {

@@ -628,7 +628,7 @@ async fn a_denied_call_is_not_retried_and_the_turn_ends_in_an_answer() {
             "note: the {} model made the declined call once more before it gave              up, and was told: {}",
             tier.label(),
             match &repeat.outcome {
-                Some(Outcome::Refused { text }) => text.trim(),
+                Some(Outcome::Refused { text, .. }) => text.trim(),
                 other => panic!("a repeat that was not refused: {other:?}"),
             }
         );
