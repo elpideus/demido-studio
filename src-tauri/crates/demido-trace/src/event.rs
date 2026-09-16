@@ -42,6 +42,61 @@ impl From<&str> for SessionId {
     }
 }
 
+/// Which agent produced a line: the conversation itself, or one of its
+/// sub-agents.
+///
+/// On **every** event from the first line of code that records one, for the
+/// same reason [`Source`] and [`Weight`] are: the monitor's agent scope is a
+/// filter over one stream, and a field the older half of a log does not carry
+/// is a filter that has to apologise. A sub-agent is a scope on this log rather
+/// than a log of its own
+/// (`docs/decisions/0013-a-sub-agent-is-a-scope-on-one-log.md`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AgentId(String);
+
+impl AgentId {
+    /// What the conversation's own agent is called, which the monitor's way
+    /// back out of a scope is named after.
+    pub const MAIN: &'static str = "main";
+
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// The conversation itself: what every event of the main session carries.
+    pub fn main() -> Self {
+        Self::new(Self::MAIN)
+    }
+
+    /// The agent a delegation opens, named after the call that opened it.
+    ///
+    /// Derived rather than minted, because a call is one event and two
+    /// delegations are two calls: there is no counter to get wrong and no way
+    /// for two children of one session to answer to the same name. A reader who
+    /// has an agent has the call without a projection, and the projection
+    /// ([`crate::Replay::agents`]) exists for the other direction.
+    pub fn delegated(call: u64) -> Self {
+        Self(format!("agent-{call}"))
+    }
+
+    pub fn is_main(&self) -> bool {
+        self.0 == Self::MAIN
+    }
+}
+
+impl std::fmt::Display for AgentId {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.write_str(&self.0)
+    }
+}
+
+impl From<&str> for AgentId {
+    fn from(id: &str) -> Self {
+        Self::new(id)
+    }
+}
+
 /// Who put this in front of the model.
 ///
 /// Exactly the eight `--src-*` tokens `design/tokens.css` declares, with the
@@ -379,6 +434,47 @@ pub enum Body {
         values: Vec<Filling>,
     },
 
+    /// A sub-agent was opened, by the call at `call`.
+    ///
+    /// Written by the **parent**, because what happened in the parent's stream
+    /// is that it delegated; everything the child then does carries the child's
+    /// own agent and is read by scoping to it. The parent is therefore implicit
+    /// and is not a field: it is the agent of this event.
+    ///
+    /// `depth` counts **up** from the main session at zero, because it is the
+    /// indent `design/windows.md` renders the chain as. The number
+    /// `demido_permission::Resolution` carries is the other one: how many
+    /// levels remain below, counting down to the limit. Two directions, two
+    /// jobs, and neither is derivable from the other without the setting that
+    /// was in force at dispatch.
+    #[serde(rename = "agent/delegated")]
+    Delegated {
+        call: u64,
+        agent: AgentId,
+        depth: u32,
+    },
+
+    /// A background delegation's answer was folded into the turn that asked for
+    /// it, at a step boundary.
+    ///
+    /// **Only** where a background answer is folded in. At the default
+    /// parallelism the call blocks and the answer is the tool's own result, and
+    /// a second record of one answer is a log that can disagree with itself
+    /// about what came back.
+    ///
+    /// `answer` is the child's completion, by position. The text is the
+    /// child's event and this names it, for the reason an assembly names its
+    /// blocks rather than copying them
+    /// (`docs/decisions/0009-an-assembly-refers-to-its-blocks.md`). What the
+    /// parent's model is then shown is a framed message, which is a fragment
+    /// like any other ([#66](https://github.com/elpideus/demido-studio/issues/66)).
+    #[serde(rename = "agent/returned")]
+    Returned {
+        call: u64,
+        agent: AgentId,
+        answer: u64,
+    },
+
     /// Something failed. The turn it belongs to is on the event.
     #[serde(rename = "turn/failure")]
     Failure {
@@ -393,8 +489,14 @@ pub enum Body {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub session: SessionId,
+    /// Who produced it: the conversation, or one of its sub-agents.
+    pub agent: AgentId,
     /// Which exchange this belongs to, counting from one. Zero is for what
     /// belongs to the session rather than to a turn.
+    ///
+    /// **An agent's own count.** A sub-agent runs the agent loop again, so its
+    /// exchanges are its own and start at one; two events with the same turn
+    /// number and different agents are two different exchanges.
     pub turn: u32,
     pub source: Source,
     pub weight: Weight,
@@ -402,9 +504,17 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub fn new(session: SessionId, turn: u32, source: Source, weight: Weight, body: Body) -> Self {
+    pub fn new(
+        session: SessionId,
+        agent: AgentId,
+        turn: u32,
+        source: Source,
+        weight: Weight,
+        body: Body,
+    ) -> Self {
         Self {
             session,
+            agent,
             turn,
             source,
             weight,
@@ -425,6 +535,7 @@ pub struct Event {
     /// Milliseconds since the Unix epoch.
     pub at: u64,
     pub session: SessionId,
+    pub agent: AgentId,
     pub turn: u32,
     pub source: Source,
     pub weight: Weight,
@@ -445,6 +556,7 @@ mod tests {
             seq: 1,
             at: 0,
             session: SessionId::new("s"),
+            agent: AgentId::main(),
             turn: 1,
             source: Source::User,
             weight: Weight::estimated(3),
@@ -465,6 +577,7 @@ mod tests {
 
         assert_eq!(line["event"], serde_json::json!("chat/message"));
         assert_eq!(line["source"], serde_json::json!("user"));
+        assert_eq!(line["agent"], serde_json::json!("main"));
         assert_eq!(line["weight"]["tokens"], serde_json::json!(3));
         assert_eq!(line["weight"]["basis"], serde_json::json!("estimated"));
     }

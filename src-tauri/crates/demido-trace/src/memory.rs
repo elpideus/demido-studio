@@ -36,6 +36,7 @@ impl Journal for Memory {
             seq: events.len() as u64 + 1,
             at: now(),
             session: entry.session,
+            agent: entry.agent,
             turn: entry.turn,
             source: entry.source,
             weight: entry.weight,

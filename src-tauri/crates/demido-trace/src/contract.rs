@@ -23,7 +23,7 @@
 
 use demido_inference::Role;
 
-use crate::event::{Body, Entry, SessionId, Source, Weight};
+use crate::event::{AgentId, Body, Entry, SessionId, Source, Weight};
 use crate::journal::Journal;
 
 /// Exercise the whole trait. Call it from an implementation's test file.
@@ -41,8 +41,14 @@ pub fn assert_journal<J: Journal + 'static>(open: impl Fn(&str) -> J) {
 }
 
 fn said(turn: u32, what: &str) -> Entry {
+    said_by(AgentId::main(), turn, what)
+}
+
+/// The same, from one agent of a session rather than from the conversation.
+fn said_by(agent: AgentId, turn: u32, what: &str) -> Entry {
     Entry::new(
         SessionId::new("contract"),
+        agent,
         turn,
         Source::User,
         Weight::estimated(1),
@@ -173,6 +179,7 @@ fn what_went_in_comes_back_unchanged<J: Journal>(open: &impl Fn(&str) -> J) {
             journal
                 .append(Entry::new(
                     SessionId::new("contract"),
+                    AgentId::delegated(7),
                     2,
                     Source::System,
                     Weight::counted(7),
@@ -226,12 +233,14 @@ fn concurrent_appends_get_distinct_positions<J: Journal + 'static>(open: &impl F
     // Two turns can be recording at once as soon as there are sub-agents, and
     // a log with two lines claiming position 9 cannot be replayed at all.
     let journal = std::sync::Arc::new(open("threads"));
-    let writers: Vec<_> = (0..4)
+    let writers: Vec<_> = (0u64..4)
         .map(|writer| {
             let journal = journal.clone();
             std::thread::spawn(move || {
                 for _ in 0..25 {
-                    journal.append(said(writer, "x")).expect("appended");
+                    journal
+                        .append(said_by(AgentId::delegated(writer), 1, "x"))
+                        .expect("appended");
                 }
             })
         })

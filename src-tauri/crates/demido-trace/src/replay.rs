@@ -20,7 +20,7 @@ use serde::Serialize;
 
 use demido_inference::{FinishReason, Message, Options, Request, Role, ToolCall, ToolSpec};
 
-use crate::event::{Basis, Body, Event, Layer, Source, Weight};
+use crate::event::{AgentId, Basis, Body, Event, Layer, Source, Weight};
 use crate::journal::{Error, Journal, Result};
 
 /// The tools on offer at some moment, in the wording they were offered in.
@@ -167,10 +167,19 @@ pub enum Outcome {
     /// The tool was attempted. `failed` is its own outcome, so a broken tool
     /// and a model paraphrasing one do not read alike.
     Returned { text: String, failed: bool },
-    /// Demido's own answer to a call it did not run: declined, stopped, or past
-    /// the step limit. Filled from the paragraph the log recorded, like any
-    /// other refusal, rather than written again here.
-    Refused { text: String },
+    /// Demido's own answer to a call it did not run: declined, stopped, past
+    /// the step limit, or a chain that reached its depth
+    /// ([#64](https://github.com/elpideus/demido-studio/issues/64)). Filled
+    /// from the paragraph the log recorded, like any other refusal, rather than
+    /// written again here.
+    ///
+    /// `id` is that paragraph's catalog id, so **which** refusal it was is a
+    /// projection of the log rather than a reader matching prose. A row that
+    /// told a depth limit from a switched-off tool by looking at the words
+    /// would be a rendering decision, and it would break the first time
+    /// somebody edited either wording, which is a thing the prompt editor
+    /// exists to let them do.
+    Refused { id: String, text: String },
 }
 
 /// What one source cost over a session: the ledger in the monitor's left
@@ -183,6 +192,23 @@ pub struct Tally {
     pub basis: Option<Basis>,
 }
 
+/// One agent of a session: the main one, or a sub-agent and where it came from.
+///
+/// What the monitor's left column is drawn from
+/// ([#68](https://github.com/elpideus/demido-studio/issues/68)): the agents on
+/// top, `depth` as the indent, and `Main session` at zero as the way back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Agent {
+    pub agent: AgentId,
+    /// Zero for the conversation, and the indent for everything below it.
+    pub depth: u32,
+    /// The agent that delegated to it, and the call it delegated with. Both
+    /// absent on the main session, which nothing opened.
+    pub parent: Option<AgentId>,
+    pub call: Option<u64>,
+}
+
 /// A log, read.
 ///
 /// Built once and asked many questions. Every projection is a scan of the same
@@ -190,21 +216,80 @@ pub struct Tally {
 #[derive(Debug, Clone)]
 pub struct Replay {
     events: Vec<Event>,
+    /// Whose run the projections answer for. See [`Replay::scoped_to`].
+    agent: AgentId,
 }
 
 impl Replay {
-    /// Read a journal.
+    /// Read a journal, scoped to the conversation itself.
     pub fn of(journal: &impl Journal) -> Result<Self> {
         Ok(Self::over(journal.events()?))
     }
 
     /// Replay events somebody already has, such as a fixture read off disk.
     pub fn over(events: Vec<Event>) -> Self {
-        Self { events }
+        Self {
+            events,
+            agent: AgentId::main(),
+        }
     }
 
+    /// The same log, read as one of its sub-agents.
+    ///
+    /// **A scope, not a second log.** Every projection that enumerates events
+    /// (what was said, what a turn was sent, what each source cost) answers for
+    /// one agent, because a turn number and a transcript are an agent's own:
+    /// a conversation whose history carried its sub-agents' messages would be a
+    /// clean context with a transcript nobody could read, which is the opposite
+    /// of what delegating is for. Resolving an event **by position** is not
+    /// scoped, because a position names exactly one event whoever wrote it, and
+    /// a search anchored at one (a wording, a document) is scoped to that
+    /// event's own agent rather than to this one's.
+    #[must_use]
+    pub fn scoped_to(mut self, agent: AgentId) -> Self {
+        self.agent = agent;
+        self
+    }
+
+    /// Whose run these projections answer for.
+    pub fn agent(&self) -> &AgentId {
+        &self.agent
+    }
+
+    /// Every event, whoever wrote it. The monitor's stream is the whole log.
     pub fn events(&self) -> &[Event] {
         &self.events
+    }
+
+    /// This agent's own events, which is what every projection here reads.
+    fn mine(&self) -> impl DoubleEndedIterator<Item = &Event> {
+        self.events.iter().filter(|event| event.agent == self.agent)
+    }
+
+    /// The agents this log holds: the conversation first, then every sub-agent
+    /// in the order it was opened.
+    ///
+    /// Read off the `agent/delegated` events, so the chain is the log's own
+    /// record of it rather than a shape kept beside it. The parent is the agent
+    /// that wrote the event, which is why a delegation carries no parent field.
+    pub fn agents(&self) -> Vec<Agent> {
+        let mut agents = vec![Agent {
+            agent: AgentId::main(),
+            depth: 0,
+            parent: None,
+            call: None,
+        }];
+        for event in &self.events {
+            if let Body::Delegated { call, agent, depth } = &event.body {
+                agents.push(Agent {
+                    agent: agent.clone(),
+                    depth: *depth,
+                    parent: Some(event.agent.clone()),
+                    call: Some(*call),
+                });
+            }
+        }
+        agents
     }
 
     pub fn is_empty(&self) -> bool {
@@ -214,8 +299,7 @@ impl Replay {
     /// The turns that were sent, in order.
     pub fn turns(&self) -> Vec<u32> {
         let mut turns: Vec<u32> = self
-            .events
-            .iter()
+            .mine()
             .filter(|event| matches!(event.body, Body::Assembly { .. }))
             .map(|event| event.turn)
             .collect();
@@ -230,8 +314,7 @@ impl Replay {
     /// the assembly, and it is not part of the conversation; the monitor shows
     /// it and the chat bubble does not. Both read the same events.
     pub fn history(&self) -> Vec<Exchange> {
-        self.events
-            .iter()
+        self.mine()
             .filter_map(|event| match &event.body {
                 Body::Message {
                     role: role @ (Role::User | Role::Assistant),
@@ -285,7 +368,7 @@ impl Replay {
         }
 
         let mut moments: Vec<Moment> = self.history().into_iter().map(Moment::Said).collect();
-        for event in &self.events {
+        for event in self.mine() {
             let Body::Call {
                 name, arguments, ..
             } = &event.body
@@ -320,8 +403,11 @@ impl Replay {
             }),
             // Filled rather than copied, which is the whole shape of a refusal
             // on this log: the paragraph is held once per session and this puts
-            // the values back into it.
-            Body::Refusal { .. } => Ok(Outcome::Refused {
+            // the values back into it. The id comes off the version event under
+            // the same hash, so which refusal it was is read rather than
+            // recognised.
+            Body::Refusal { hash, .. } => Ok(Outcome::Refused {
+                id: self.stated(hash, seq)?.to_owned(),
                 text: self.block(seq)?.content,
             }),
             _ => Err(Error::NotABlock { seq }),
@@ -337,8 +423,7 @@ impl Replay {
     /// what it already has, and a request carrying an answer's calls without
     /// what came back for them is one a server refuses.
     pub fn conversation(&self) -> Vec<u64> {
-        self.events
-            .iter()
+        self.mine()
             .filter(|event| {
                 matches!(
                     event.body,
@@ -386,8 +471,7 @@ impl Replay {
     /// last step. Each earlier one is [`Replay::request`] at its own assembly.
     pub fn assembly(&self, turn: u32) -> Result<Request> {
         let seq = self
-            .events
-            .iter()
+            .mine()
             .rev()
             .find(|event| event.turn == turn && matches!(event.body, Body::Assembly { .. }))
             .map(|event| event.seq)
@@ -460,10 +544,16 @@ impl Replay {
     /// sent is the text; the event is on the block either way, for the raw
     /// record.
     pub fn rebuild(&self, at: u64) -> Result<Option<Rebuild>> {
-        let Some(seq) = self.sent_by(at) else {
+        // The agent of the event selected rather than this replay's, so
+        // selecting a sub-agent's event answers with the sub-agent's assembly
+        // whichever scope the reader came from. A monitor that had to be
+        // scoped before it could rebuild would be one where selecting a row
+        // and reading it are two steps.
+        let agent = self.at(at)?.agent.clone();
+        let Some(seq) = self.sent_by(at, &agent) else {
             return Ok(None);
         };
-        let previous = self.sent_by(seq.saturating_sub(1));
+        let previous = self.sent_by(seq.saturating_sub(1), &agent);
 
         let Body::Assembly {
             parameters, blocks, ..
@@ -493,12 +583,16 @@ impl Replay {
         }))
     }
 
-    /// The last assembly recorded at or before `at`.
-    fn sent_by(&self, at: u64) -> Option<u64> {
+    /// The last assembly `agent` recorded at or before `at`.
+    fn sent_by(&self, at: u64, agent: &AgentId) -> Option<u64> {
         self.events
             .iter()
             .rev()
-            .find(|event| event.seq <= at && matches!(event.body, Body::Assembly { .. }))
+            .find(|event| {
+                event.seq <= at
+                    && event.agent == *agent
+                    && matches!(event.body, Body::Assembly { .. })
+            })
             .map(|event| event.seq)
     }
 
@@ -584,8 +678,7 @@ impl Replay {
     /// The **last**, because a turn sent more than once is what a retry or a
     /// step is, and what it was finally sent with is what happened.
     fn assembled(&self, turn: u32) -> Result<(u64, &[u64])> {
-        self.events
-            .iter()
+        self.mine()
             .rev()
             .find_map(|event| match &event.body {
                 Body::Assembly {
@@ -605,12 +698,20 @@ impl Replay {
     /// document edited after the fact from rewriting the record of a reply
     /// from before it.
     pub fn offered(&self, at: u64) -> Result<Option<Offering>> {
+        // Whoever wrote the event asked about, so the set an assembly names is
+        // that assembly's however the reader got here. A moment that is not an
+        // event (`u64::MAX`, which is how a caller asks for the set in force
+        // now) has no agent of its own, and there the scope is this replay's.
+        let agent = self
+            .at(at)
+            .map(|event| event.agent.clone())
+            .unwrap_or_else(|_| self.agent.clone());
         let Some((seq, layer, tools)) =
             self.events
                 .iter()
                 .rev()
                 .find_map(|event| match &event.body {
-                    Body::Offered { tools, layer } if event.seq <= at => {
+                    Body::Offered { tools, layer } if event.seq <= at && event.agent == agent => {
                         Some((event.seq, *layer, tools))
                     }
                     _ => None,
@@ -650,16 +751,25 @@ impl Replay {
     /// found by exactly the same rule. Backwards, because an edit mid session
     /// writes a second version under a new hash and a session can hold both.
     /// Two versions never share a hash, so this is exact rather than nearest.
+    ///
+    /// **Among the events of the agent that wrote `before`**, never this
+    /// replay's agent and never the whole log. A sub-agent writes out every
+    /// wording its own assemblies name, so its rebuild is its own events and
+    /// nothing else; a search across the log would find whichever copy happened
+    /// to sit nearest and would still pass every test, right up to an export
+    /// that carried one agent.
     fn recorded<'a>(
         &'a self,
         hash: &str,
         before: u64,
         version: fn(&'a Body) -> Option<(&'a str, &'a str)>,
     ) -> Result<&'a str> {
+        let agent = self.at(before)?.agent.clone();
         self.events
             .iter()
             .rev()
             .skip_while(|event| event.seq >= before)
+            .filter(|event| event.agent == agent)
             .find_map(|event| match version(&event.body) {
                 Some((recorded, text)) if recorded == hash => Some(text),
                 _ => None,
@@ -689,7 +799,7 @@ impl Replay {
     /// lists what a session actually contains.
     pub fn ledger(&self) -> BTreeMap<Source, Tally> {
         let mut ledger: BTreeMap<Source, Tally> = BTreeMap::new();
-        for event in &self.events {
+        for event in self.mine() {
             let tally = ledger.entry(event.source).or_default();
             tally.events = tally.events.saturating_add(1);
             tally.tokens = tally.tokens.saturating_add(event.weight.tokens);
@@ -790,6 +900,15 @@ impl Replay {
             Body::Call { id, .. } => Ok(id),
             _ => Err(Error::NotABlock { seq: call }),
         }
+    }
+
+    /// The catalog id of the paragraph recorded under a hash, found the way its
+    /// wording is.
+    fn stated(&self, hash: &str, before: u64) -> Result<&str> {
+        self.recorded(hash, before, |body| match body {
+            Body::Version { id, hash, .. } => Some((hash.as_str(), id.as_str())),
+            _ => None,
+        })
     }
 
     /// The wording recorded under a hash, as it stood when the fragment was

@@ -90,6 +90,7 @@ impl Journal for JsonLines {
             seq: writing.next,
             at: now(),
             session: entry.session,
+            agent: entry.agent,
             turn: entry.turn,
             source: entry.source,
             weight: entry.weight,
@@ -192,7 +193,7 @@ mod tests {
     // code, where a panic is a window that vanishes.
 
     use super::*;
-    use crate::event::{Body, Entry, SessionId, Source, Weight};
+    use crate::event::{AgentId, Body, Entry, SessionId, Source, Weight};
     use demido_inference::Role;
 
     fn scratch(name: &str) -> PathBuf {
@@ -206,6 +207,7 @@ mod tests {
     fn said(what: &str) -> Entry {
         Entry::new(
             SessionId::new("s"),
+            AgentId::main(),
             1,
             Source::User,
             Weight::estimated(1),

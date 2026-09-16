@@ -14,13 +14,13 @@
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use demido_inference::{FinishReason, Message, Options, Request, Role, ToolCall, ToolSpec, Usage};
 use demido_prompts::{Document, Prompt};
 
 use crate::event::{
-    Body, Decision, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight,
+    AgentId, Body, Decision, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight,
 };
 use crate::journal::{Error, Journal, Result};
 use crate::replay::Replay;
@@ -32,10 +32,31 @@ use crate::weight::{Estimate, Weigher};
 /// cheap: which turn is next, which paragraph and tool wordings have already
 /// been written out in full this session, and the tool set last recorded as
 /// offered.
+///
+/// **All of that bookkeeping is per agent**, and a sub-agent starts with none
+/// of it. A child that skipped a wording because its parent had already written
+/// it would be a child whose assembly rebuilds only while the parent's half of
+/// the log is there beside it, and the promise is that a child's assembly
+/// rebuilds out of the child's own events.
 pub struct Session<J: Journal> {
     id: SessionId,
+    /// Whose events these are: the conversation, or one sub-agent of it.
+    ///
+    /// Every recording site goes through [`Session::write`], so this is stamped
+    /// in one place and there is nowhere else to stamp it from. A sub-agent is a
+    /// second `Session` over the same journal rather than a second journal,
+    /// which is what makes the monitor's scope a filter over one stream
+    /// (`docs/decisions/0013-a-sub-agent-is-a-scope-on-one-log.md`).
+    agent: AgentId,
+    /// How far down the chain this agent is: zero for the conversation, and the
+    /// indent for everything below it.
+    depth: u32,
     journal: J,
-    weigher: Box<dyn Weigher>,
+    /// Shared rather than owned, because a child weighs its events the way its
+    /// parent does: a sub-agent whose weights were estimates while its parent's
+    /// were counted would put two bases in one ledger for no reason anybody
+    /// could see.
+    weigher: Arc<dyn Weigher>,
     versioned: Mutex<BTreeSet<String>>,
     /// Kept apart from `versioned` because a `tool/version` and a
     /// `prompt/version` are different events, and one register's hash being
@@ -65,13 +86,26 @@ impl<J: Journal> Session<J> {
     ) -> Self {
         Self {
             id: id.into(),
+            agent: AgentId::main(),
+            depth: 0,
             journal,
-            weigher: Box::new(weigher),
+            weigher: Arc::new(weigher),
             versioned: Mutex::new(BTreeSet::new()),
             documented: Mutex::new(BTreeSet::new()),
             offered: Mutex::new(None),
             turns: AtomicU32::new(0),
         }
+    }
+
+    /// Whose events this records.
+    pub fn agent(&self) -> &AgentId {
+        &self.agent
+    }
+
+    /// How far down the chain of delegations this agent is, counting up from
+    /// the conversation at zero.
+    pub fn depth(&self) -> u32 {
+        self.depth
     }
 
     /// The log underneath, for replaying it.
@@ -106,8 +140,18 @@ impl<J: Journal> Session<J> {
     ///   session. Tool documents the same way;
     /// - the tool set last offered, so an unchanged set after a restart is not
     ///   recorded as a change nobody made.
+    ///
+    /// **Its own events, and no other agent's.** A conversation that took its
+    /// turn number from a sub-agent's log would number its next exchange after
+    /// somebody else's, and one that took a sub-agent's written wordings for
+    /// its own would stop writing paragraphs its own assemblies name.
     pub fn resume(&self) -> Result<()> {
-        let events = self.journal.events()?;
+        let events: Vec<Event> = self
+            .journal
+            .events()?
+            .into_iter()
+            .filter(|event| event.agent == self.agent)
+            .collect();
 
         self.turns.store(
             events.iter().map(|event| event.turn).max().unwrap_or(0),
@@ -327,14 +371,96 @@ impl<J: Journal> Session<J> {
         Ok(event.seq)
     }
 
+    /// Open a sub-agent, and record that this one opened it.
+    ///
+    /// The event and the recorder come out together, so there is no way to get
+    /// a child that is not in the log and no way to write a delegation that
+    /// opened nothing. `call` is the `tool/call` that asked for it, which is
+    /// also what the child is named after.
+    ///
+    /// The child is the same conversation, the same journal and the same
+    /// weigher, with its own agent, its own depth and its own bookkeeping. What
+    /// it may offer and the mode it runs under are not here: that is the
+    /// inheritance rule (`demido_permission::inherit`), a pure function over
+    /// what the parent resolved with no log in it.
+    pub fn delegate(&self, turn: u32, call: u64) -> Result<Self>
+    where
+        J: Clone,
+    {
+        let agent = AgentId::delegated(call);
+        let depth = self.depth.saturating_add(1);
+        self.write(
+            turn,
+            // A delegation is what a tool call did. It is not a ninth source,
+            // and the colour delegated work is drawn in comes from the agent on
+            // the event rather than from a source of its own (`design/surfaces.md`:
+            // state is not elevation).
+            Source::Tool,
+            // The task went to the model in the call's own arguments and the
+            // answer comes back as its result, both already weighed. This
+            // occupies nothing.
+            Weight::NOTHING,
+            Body::Delegated {
+                call,
+                agent: agent.clone(),
+                depth,
+            },
+        )?;
+
+        Ok(Self {
+            id: self.id.clone(),
+            agent,
+            depth,
+            journal: self.journal.clone(),
+            weigher: Arc::clone(&self.weigher),
+            versioned: Mutex::new(BTreeSet::new()),
+            documented: Mutex::new(BTreeSet::new()),
+            offered: Mutex::new(None),
+            turns: AtomicU32::new(0),
+        })
+    }
+
+    /// A background delegation's answer, folded into the turn that asked for
+    /// it.
+    ///
+    /// Written at a step boundary and nowhere else, and only above the default
+    /// parallelism ([#66](https://github.com/elpideus/demido-studio/issues/66)):
+    /// a delegation that blocked was answered as its call's own result, and a
+    /// second record of one answer is a log that can disagree with itself about
+    /// what came back.
+    ///
+    /// `answer` is the child's completion by position rather than its text,
+    /// which is the rule every reference on this log keeps. It weighs nothing
+    /// here: what the parent's model is shown is a framed message, and that is
+    /// a block with a weight of its own.
+    pub fn folded_in(&self, turn: u32, call: u64, agent: &AgentId, answer: u64) -> Result<u64> {
+        let event = self.write(
+            turn,
+            Source::Tool,
+            Weight::NOTHING,
+            Body::Returned {
+                call,
+                agent: agent.clone(),
+                answer,
+            },
+        )?;
+        Ok(event.seq)
+    }
+
     /// Put one event on the log, stamped with this session.
     ///
     /// Every recording site goes through here, so the session id and the
     /// journal are named once. A `Turn` reaching for `session.journal.append`
     /// itself is how a second one gets stamped with something else.
     fn write(&self, turn: u32, source: Source, weight: Weight, body: Body) -> Result<Event> {
-        self.journal
-            .append(Entry::new(self.id.clone(), turn, source, weight, body))
+        self.journal.append(Entry::new(
+            self.id.clone(),
+            self.agent.clone(),
+            turn,
+            source,
+            weight,
+            body,
+        ))
     }
 
     /// Write a tool document's full wording, at most once per session per hash.

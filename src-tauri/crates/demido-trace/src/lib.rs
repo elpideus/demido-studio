@@ -9,12 +9,15 @@
 //! > system prompts, reasoning, tool calls and results, subagent scheduling,
 //! > and every context injection.
 //!
-//! Two fields are on every event from the first line of code rather than added
-//! when a screen needs them, because `design/windows.md` says a log without
-//! them cannot serve the product's own thesis and because adding either later
-//! means rewriting the slice that wrote them: its **source**, so what Demido
-//! wrote can be told from what the user typed and from what the model produced,
-//! and its **token weight**, because the monitor's second axis is cost.
+//! Three fields are on every event from the first line of code that writes one
+//! rather than added when a screen needs them, because `design/windows.md` says
+//! a log without them cannot serve the product's own thesis and because adding
+//! any of them later means rewriting the slice that wrote them: its **source**,
+//! so what Demido wrote can be told from what the user typed and from what the
+//! model produced, its **token weight**, because the monitor's second axis is
+//! cost, and its **agent**, so a sub-agent's run is a scope on this log rather
+//! than a log of its own
+//! (`docs/decisions/0013-a-sub-agent-is-a-scope-on-one-log.md`).
 //!
 //! ## The log is the source of truth
 //!
@@ -57,14 +60,14 @@ pub mod replay;
 pub mod weight;
 
 pub use event::{
-    Basis, Body, Decision, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight,
+    AgentId, Basis, Body, Decision, Entry, Event, Filling, Layer, Offer, SessionId, Source, Weight,
 };
 pub use journal::{Error, Journal, Result};
 pub use jsonl::JsonLines;
 pub use memory::Memory;
 pub use record::{NextStep, Sent, Session, Turn};
 pub use replay::{
-    Called, Change, Exchange, Moment, OfferedTool, Offering, Outcome, Placed, Rebuild, Replay,
-    Tally,
+    Agent, Called, Change, Exchange, Moment, OfferedTool, Offering, Outcome, Placed, Rebuild,
+    Replay, Tally,
 };
 pub use weight::{estimate, Counting, Estimate, Weigher};

@@ -294,8 +294,15 @@ async fn a_declined_call_reads_as_declined_rather_than_as_a_failure() {
 
     let transcript = chat.transcript().unwrap();
     let called = only_call(&transcript);
+    // Named as well as read: which refusal it was is the paragraph's id off the
+    // log, so a row can tell a denial from a tool that was switched off or a
+    // chain that reached its depth without matching prose (#62).
     assert!(
-        matches!(&called.outcome, Some(Outcome::Refused { text }) if text.contains("declined")),
+        matches!(
+            &called.outcome,
+            Some(Outcome::Refused { id, text })
+                if id == demido_prompts::id::TOOLS_DENIED && text.contains("declined")
+        ),
         "{:?}",
         called.outcome
     );
@@ -1215,6 +1222,79 @@ async fn a_delegation_switched_off_is_absent_and_the_model_is_told_who_turned_it
     assert_eq!(told.len(), 1);
     assert!(told[0].contains("turned"), "{told:?}");
     assert!(told[0].contains("delegate_task"), "{told:?}");
+}
+
+/// Every path the delegation approval can take leaves the person's answer on
+/// the log, and every event of the turn names the agent that produced it.
+///
+/// S4's spec asks for both, and they are one test because they are one claim:
+/// the monitor's delegation row is a projection of the stream, so the answer
+/// has to be on the stream and the stream has to say whose it was. The path
+/// with no decision event is the second delegation of a turn, and it is not a
+/// gap: the grant it runs on is the first one's, which is on the log.
+#[tokio::test]
+async fn a_delegation_approval_is_on_the_log_whichever_answer_it_got() {
+    let script = Script::serving("scripted")
+        .then_call("call-1", "delegate_task", r#"{"task": "read the tests"}"#)
+        .then_call("call-2", "delegate_task", r#"{"task": "read the docs"}"#)
+        .then_say(&["Both are done."])
+        .then_call(
+            "call-3",
+            "delegate_task",
+            r#"{"task": "read the changelog"}"#,
+        )
+        .then_say(&["I will do it here."])
+        .then_call("call-4", "delegate_task", r#"{"task": "read the issues"}"#)
+        .then_say(&["Done."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    let person = Person::answering(&[Decision::Allow, Decision::Deny, Decision::Always]);
+    for said in ["Look into both.", "And the changelog.", "And the issues."] {
+        chat.ask(said, |_| {}, person.approve()).await.unwrap();
+    }
+
+    let events = rig.events();
+    let decided: Vec<(String, Decision)> = events
+        .iter()
+        .filter_map(|event| match &event.body {
+            Body::Decided { call, decision } => Some((
+                match &events[usize::try_from(*call).unwrap() - 1].body {
+                    Body::Call { name, .. } => name.clone(),
+                    other => panic!("a decision about something that is not a call: {other:?}"),
+                },
+                *decision,
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        decided,
+        vec![
+            ("delegate_task".to_owned(), Decision::Allow),
+            ("delegate_task".to_owned(), Decision::Deny),
+            ("delegate_task".to_owned(), Decision::Always),
+        ],
+        "one decision per answer, and the second delegation of the first turn          runs on the grant the first one is: {decided:?}"
+    );
+    assert_eq!(
+        rig.settings
+            .resolve(&demido_settings::Ladder::for_chat(SESSION))
+            .always(),
+        vec!["delegate_task".to_owned()],
+        "and *always for this tool* is where the ladder keeps it"
+    );
+
+    for event in &events {
+        assert_eq!(
+            event.agent,
+            demido_trace::AgentId::main(),
+            "event {} ({:?}) does not name the agent that produced it",
+            event.seq,
+            event.body
+        );
+    }
 }
 
 /// The picker row, as the composer draws it: one group, one tool, beside the
