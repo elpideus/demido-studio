@@ -82,6 +82,18 @@ pub struct Delegations {
 }
 
 impl Delegations {
+    /// The loop's end of a pair whose tool end nothing holds: a conversation
+    /// with no Delegation group in its registry.
+    ///
+    /// Named rather than reached by taking one half of [`delegations`] and
+    /// dropping the other, because "this conversation delegates nowhere" is
+    /// what a reader needs to see. Nothing ever asks on it, and waiting on it
+    /// waits forever, which is what a turn's `select!` arm needs.
+    #[must_use]
+    pub fn none() -> Self {
+        delegations().1
+    }
+
     /// The next delegation asked for. Pends forever when nothing will ask.
     pub(crate) async fn next(&mut self) -> Asked {
         match self.asked.recv().await {

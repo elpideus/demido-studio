@@ -225,6 +225,13 @@ and the chat in the two that follow, because a tool wired to one conversation's
 loop and registered on another's is a delegation that answers in the wrong
 session.
 
+**Nothing is rebound to a child, because nothing was bound.** The ticket asks
+that "a tool bound to a session is rebound to the child before the child runs,
+so no sub-agent holds a handle on a conversation it is not in", and a pair gets
+there by a shorter road: `delegate_task` holds a channel rather than a session,
+and what answers on it is whichever loop is running, which from a child down is
+the child's. There is no handle to hold wrongly.
+
 **The inheritance rule is called on the way into every child, at every depth.**
 `demido_permission::inherit`, over the parent's `Resolution` and a `Request`, and
 nothing else below the root mints one. `Rules` holds that resolution rather than
@@ -296,7 +303,7 @@ and a fix, and it is not something a frontend can derive from a tag.
 | `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, what a stop leaves, what the transcript draws for a call, and which tier an *always* is written to. Against the same scripted backend. |
 | `tests/offered.rs` | What reaches the payload: the offered set and the mode off the ladder, a switched-off tool absent and refused as off, and one chat's set reaching no other. |
 | `tests/monitored.rs` | What the session monitor reads: the assembly at an event, and a group switched off in the picker told apart from one nothing ever offered. |
-| `tests/delegated.rs` | The child session: the store it shares, the clean context and the durable record, the call that blocks, the ceiling at every depth, a failed call inside a child, and a Stop asserted at depth 2. |
+| `tests/delegated.rs` | The child session: the store it shares, the clean context and the durable record, the call that blocks, the ceiling at every depth, a failed call inside a child against a log that will not take one, and a Stop asserted at depth 2. |
 
 The scripted backend is `demido_inference::scripted`, which passes the
 `Backend` contract suite, rather than a fake written here: a loop proved against

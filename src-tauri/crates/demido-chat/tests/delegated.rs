@@ -89,8 +89,64 @@ impl Rig {
         )
     }
 
+    /// The same chat, recording into `log` rather than straight into the rig's.
+    ///
+    /// One journal underneath either way: `Refusing` is the rig's own log with
+    /// a sub-agent's writes turned away, so what a refused run did manage to
+    /// record is still readable through `events`.
+    fn chat_over<J: Journal + Clone + 'static>(&self, mode: &str, log: J) -> Chat<Scripted, J> {
+        self.settings
+            .set(
+                &Scope::chat(SESSION),
+                demido_settings::id::TOOLS_MODE,
+                &json!(mode),
+            )
+            .unwrap();
+        let (delegating, delegations) = demido_chat::delegations();
+        let registry = Registry::open(Some(Workspace::open(self.project.path()).unwrap()))
+            .with_group(files())
+            .with_group(delegation(delegating));
+        Chat::new(
+            SESSION,
+            move || Ok(log.clone()),
+            Arc::new(Supervisor::new()),
+            Some(Model {
+                config: self.script.clone(),
+                id: "scripted".into(),
+            }),
+            self.settings.clone(),
+            Toolbox::open(registry, self.prompts.path()),
+            delegations,
+        )
+    }
+
     fn events(&self) -> Vec<Event> {
         self.log.events().unwrap()
+    }
+}
+
+/// A log that takes the conversation's events and refuses its sub-agents'.
+///
+/// A full disk arriving exactly when a child starts writing. Written here rather
+/// than beside `Memory` because it is a fault this one test stages, and a
+/// journal that fails on purpose is not a second implementation anybody would
+/// wire (`docs/rules/tiles.md`).
+#[derive(Clone)]
+struct Refusing(Memory);
+
+impl Journal for Refusing {
+    fn append(&self, entry: demido_trace::Entry) -> demido_trace::Result<Event> {
+        if entry.agent != AgentId::main() {
+            return Err(demido_trace::Error::io(
+                "writing a sub-agent's event",
+                std::io::Error::other("there is no space left on the device"),
+            ));
+        }
+        self.0.append(entry)
+    }
+
+    fn events(&self) -> demido_trace::Result<Vec<Event>> {
+        self.0.events()
     }
 }
 
@@ -395,8 +451,9 @@ async fn what_the_parent_offers_is_the_ceiling_at_every_depth() {
     assert_eq!(depths, [1, 2], "a chain two deep, each link one lower");
 
     // The second delegation was opened **by the child**, not by the
-    // conversation: a tool bound to a session is rebound to the child before the
-    // child runs, so no sub-agent holds a handle on a conversation it is not in.
+    // conversation. This is the shape of "no sub-agent holds a handle on a
+    // conversation it is not in": the tool holds no session at all, and what
+    // answers it is whichever loop is running, which here is the child's.
     let deeper = events
         .iter()
         .find(|event| matches!(&event.body, Body::Delegated { depth: 2, .. }))
@@ -485,6 +542,46 @@ async fn a_tool_failure_inside_a_child_is_a_result_it_answers_with() {
         result(&events, delegation),
         Some(("There are no minutes.".to_owned(), false)),
         "the child answered with what it had"
+    );
+}
+
+/// Only the log failing stops a run.
+///
+/// The other half of the rule above it, and the one thing that is not a result:
+/// a child whose events cannot be written is a child nothing can say happened,
+/// so the turn that asked for it ends rather than carrying on over a record
+/// that is not there.
+#[tokio::test]
+async fn a_log_that_will_not_take_the_childs_events_stops_the_run() {
+    let script = Script::serving("scripted")
+        .then(delegates("call-1", "Read the notes"))
+        .then_say(&["Thursday."])
+        .then_say(&["Never reached."]);
+    let rig = Rig::new(script);
+    let log = Refusing(rig.log.clone());
+    let chat = rig.chat_over("autonomous", log);
+    chat.load(|_| {}).await;
+
+    let error = chat
+        .ask("When is the meeting?", |_| {}, nobody())
+        .await
+        .expect_err("a log that will not take a child's events ends the turn");
+
+    assert!(
+        matches!(error, demido_chat::Error::Journal(_)),
+        "the failure is the log's, and it is not dressed up as a tool result: {error:?}"
+    );
+    let events = rig.events();
+    assert_eq!(
+        opened(&events).len(),
+        1,
+        "the child was opened, and then could not write"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event.body, Body::Result { .. })),
+        "nothing was answered as if the sub-agent had run"
     );
 }
 

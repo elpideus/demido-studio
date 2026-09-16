@@ -18,7 +18,7 @@ use std::future::{ready, Ready};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Asking, Called, Chat, Decision, Model, Moment, Outcome, Toolbox};
+use demido_chat::{Asking, Called, Chat, Decision, Delegations, Model, Moment, Outcome, Toolbox};
 use demido_inference::scripted::{Script, Scripted, Step};
 use demido_inference::{FinishReason, Role, Supervisor, ToolCall};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
@@ -98,7 +98,7 @@ impl Rig {
             }),
             self.settings.clone(),
             Toolbox::open(registry, self.prompts.path()),
-            demido_chat::delegations().1,
+            Delegations::none(),
         )
     }
 

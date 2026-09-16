@@ -548,7 +548,11 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 // (`demido_permission::Resolution::root`). Every child's comes
                 // from this one through `inherit`, which is what makes the two
                 // controls of S2 ceilings rather than suggestions.
-                resolution: Resolution::root(registry.names(), Mode::named(resolved.mode()), DEPTH),
+                resolution: Resolution::root(
+                    registry.offered_names(),
+                    Mode::named(resolved.mode()),
+                    DEPTH,
+                ),
                 registry,
                 limit: resolved.step_limit(),
                 // Off the ladder's chat tier rather than off the log (#55). The
@@ -984,6 +988,12 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
     /// off the ladder once per message, and the mode is handed to the matrix per
     /// call and read by nothing else here (`docs/rules/tools.md`: the mode gates
     /// permissions and nothing else).
+    ///
+    /// **A sub-agent gets its own budget of that many steps**, rather than a
+    /// share of its parent's. A step limit is about one agent going round in a
+    /// circle, which is what it is asked to end, and a child spending a parent's
+    /// steps would make the limit mean something different depending on how far
+    /// down the chain it was read. The chain's own bound is the depth.
     async fn steps<S, A, F>(
         &self,
         backend: &B,
@@ -1133,6 +1143,12 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         // rather than as a name that is not a tool, which would send the model
         // looking for another way to do what a person deliberately turned off
         // (`docs/rules/tools.md`).
+        //
+        // The set is the ladder's at every depth, because a child's is its
+        // parent's and nothing narrows further yet (`Request::inheriting`). The
+        // day a child asks for less, this branch needs the child's own ceiling
+        // beside the chat's registry: `tools.md` is explicit that an absence a
+        // sub-agent chose is not one the user is told they chose.
         if !ruling.registry.offers(&call.name) && self.chat.tools.registry().offers(&call.name) {
             return self
                 .refuse(
@@ -1353,10 +1369,18 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
             )));
         }
 
-        let model = self.chat.answering()?;
-        let Some(backend) = self.chat.supervisor.current().await else {
-            // not-a-prompt: as above, for a backend that was there when the
-            // turn started and is not now.
+        // Both halves of "is there anything to talk to" answer the same way,
+        // and it is a **result** rather than an error: a model that went away
+        // under a delegation ends the delegation, not the turn that asked for
+        // it. Only the log failing stops a run, at any depth.
+        let answering = self
+            .chat
+            .answering()
+            .ok()
+            .zip(self.chat.supervisor.current().await);
+        let Some((model, backend)) = answering else {
+            // not-a-prompt: a tool result naming what was wrong with this call,
+            // as the registry's own objections are.
             return Ok(Err(Failure::final_("there is no model to delegate to.")));
         };
 
@@ -1374,10 +1398,15 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         let resolution = inherit(&self.rules.resolution, &Request::inheriting());
         let child = Agent {
             chat: self.chat,
-            // What the child may call, narrowed to what it inherited. The
-            // `delegate_task` in it asks on the same pair this agent is
-            // reading, and what answers is the child's own `running` below, so
-            // no sub-agent holds a handle on a conversation it is not in.
+            // What the child may call, narrowed to what it inherited.
+            //
+            // **Nothing is rebound to the child, because nothing was bound.**
+            // The `delegate_task` in a child's registry is the same tool the
+            // conversation's holds, and it holds a channel rather than a
+            // session; what answers on it is whichever loop is running, and
+            // from here down that is the child's `running`. A sub-agent
+            // therefore cannot hold a handle on a conversation it is not in,
+            // which is stronger than rebinding one correctly.
             rules: Rules {
                 registry: self.chat.tools.narrowed(Some(resolution.offered())),
                 resolution,

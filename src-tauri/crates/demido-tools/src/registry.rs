@@ -274,7 +274,7 @@ impl Registry {
     /// child may be shown. On offer rather than registered,
     /// so a conversation with no workspace passes an empty ceiling down rather
     /// than a list of names nothing could have called anyway.
-    pub fn names(&self) -> Vec<String> {
+    pub fn offered_names(&self) -> Vec<String> {
         self.on_offer()
             .into_iter()
             .map(|tool| tool.name().to_owned())

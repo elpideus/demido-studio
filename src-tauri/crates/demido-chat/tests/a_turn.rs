@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Asking, Chat, Decision, Model, Presence, Toolbox, Update};
+use demido_chat::{Asking, Chat, Decision, Delegations, Model, Presence, Toolbox, Update};
 use demido_inference::scripted::{Script, Scripted};
 use demido_inference::{Backend, FinishReason, Role, Supervisor};
 use demido_tools::Registry;
@@ -123,7 +123,7 @@ fn over(
         }),
         settings.clone(),
         toolbox(),
-        demido_chat::delegations().1,
+        Delegations::none(),
     );
     (chat, supervisor)
 }
@@ -385,7 +385,7 @@ async fn a_chat_with_nothing_configured_says_so_and_refuses() {
         None,
         Arc::new(Settings::open(SettingsMemory::new())),
         toolbox(),
-        demido_chat::delegations().1,
+        Delegations::none(),
     );
 
     let (seen, report) = watch();
@@ -494,7 +494,7 @@ async fn a_refused_turn_is_an_event_on_the_same_log() {
             }),
             Arc::new(Settings::open(SettingsMemory::new())),
             toolbox(),
-            demido_chat::delegations().1,
+            Delegations::none(),
         )
     };
     chat.load(|_| {}).await;
@@ -557,7 +557,7 @@ async fn the_log_is_not_opened_until_there_is_something_to_put_in_it() {
             }),
             Arc::new(Settings::open(SettingsMemory::new())),
             toolbox(),
-            demido_chat::delegations().1,
+            Delegations::none(),
         )
     };
 
