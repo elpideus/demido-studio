@@ -55,6 +55,16 @@ the contract rather than trusted, so a loop proved against it is proved against
 the promises `llama.cpp` keeps. It ships in the library, like the contract, for
 the tests of the crates above this one.
 
+A reply can also be **addressed** rather than positional, with `Script::when`
+([#66](https://github.com/elpideus/demido-studio/issues/66)). The key is the
+first user message of the request, which for a sub-agent is the task it was
+handed and never changes as its turn takes steps. That is what makes a
+concurrent run assertable: above the default parallelism a sub-agent generates
+beside the turn that asked for it, so the order two of them reach a positional
+script is the scheduler's rather than the test's. Addressing a reply to who is
+asking is the alternative to holding a clock still, and it is why nothing above
+this crate has to.
+
 The second implementation the suite was written for is an OpenAI-compatible
 endpoint. It does not ship in S1. For such a backend `start` connects and `stop`
 is a no-op, which the contract already allows: it never asks that stopping kill

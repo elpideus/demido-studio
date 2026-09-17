@@ -225,12 +225,19 @@ and the chat in the two that follow, because a tool wired to one conversation's
 loop and registered on another's is a delegation that answers in the wrong
 session.
 
-**Nothing is rebound to a child, because nothing was bound.** The ticket asks
-that "a tool bound to a session is rebound to the child before the child runs,
-so no sub-agent holds a handle on a conversation it is not in", and a pair gets
-there by a shorter road: `delegate_task` holds a channel rather than a session,
-and what answers on it is whichever loop is running, which from a child down is
-the child's. There is no handle to hold wrongly.
+**What a child is given is a channel, never a session.** The ticket asks that
+"a tool bound to a session is rebound to the child before the child runs, so no
+sub-agent holds a handle on a conversation it is not in", and a pair gets there
+by a shorter road: `delegate_task` holds a channel, and whichever loop answers
+on it records into its own session. There is no handle to hold wrongly.
+
+#63 could leave that channel alone, because one loop awaited a delegation at a
+time and *whichever loop is running* was never ambiguous. #66 could not: above
+the default two loops run at once, so `open` mints a rendezvous per child and
+rebinds the child's registry to it (`Registry::delegating_to`). What is rebound
+is still a channel and still not a session, and the reason for rebinding it is
+that an ask answered by whichever loop polled first is a grandchild carried out
+correctly and **recorded under the wrong parent**.
 
 **The inheritance rule is called on the way into every child, at every depth.**
 `demido_permission::inherit`, over the parent's `Resolution` and a `Request`, and
@@ -309,6 +316,62 @@ of sending somebody to a control that may not be the one that is wrong.
 including the crossed case: a set named by the chat, on a conversation with no
 workspace.
 
+## Above the default, an answer arrives at a step boundary
+
+[#66](https://github.com/elpideus/demido-studio/issues/66), and `src/flight.rs`.
+At one slot everything above is untouched: the call blocks and the answer is the
+tool's own result. Above one, the same opening is followed by a different
+ending.
+
+**The call is answered at once.** A request whose assistant message asks for a
+call nothing answered is one no compatible server accepts, so the delegation
+still has a `tool/result` and it is the `agent.delegated` paragraph: the work has
+gone out. What the sub-agent said is never that result.
+
+**The answer arrives as a message, not a second result.** Two events, and they
+are two on purpose. `agent/returned` is the fact, naming the child's own
+completion by position rather than copying it. The `prompt/fragment` beside it is
+what the parent's model is shown, in the `agent.returned` frame, with the task
+quoted back so a model with two sub-agents out can tell them apart. It is written
+with `Source::Tool`, and that decides more than a colour: `Replay::conversation`
+carries a fragment a tool put there and leaves the ones Demido re-derives every
+turn, so the answer is still in front of the model on the next message.
+
+**A step boundary is the only place it may arrive.** `Flight` buffers a child the
+moment it finishes and writes nothing; `Agent::fold_in` is the only writer and
+the loop calls it only after every call of a step has been answered. The
+determinism is therefore an **ordering** rather than a timing: `tests/harvested.rs`
+asserts all of it on the log, with no clock held still, no pause anybody tunes
+and no scheduler seam. Two answers at one boundary are ordered by the call that
+asked, never by which child finished first.
+
+**A run may not end with a delegation in flight.** Every ending goes through
+`Agent::settle`: a model that stops asking for tools waits, folds in, and takes
+the step it needs to use the answer; a run that has spent its last step waits,
+writes the answer down, and then ends as the failure the ceiling makes it; a stop
+waits for the endings the shared token already caused. A delegation nobody
+mentions again is a silent loss, and a ceiling that ate an answer would be worse
+than the runaway the ceiling exists to end.
+
+**A sub-agent advances while the conversation is talking to the model**, and is
+set down while the conversation is running a tool of its own. `Flight::beside` is
+the one place a child is polled at all, and it wraps the generation and nothing
+else.
+
+**One rendezvous per agent.** `Registry::delegating_to` rebinds a child's
+`delegate_task` to a pair minted for that child, and `Chat`'s own is the
+conversation's. While a delegation blocked there was one loop awaiting one at a
+time and a single channel could not be ambiguous; above the default two loops run
+at once, and an ask answered by whichever polled first is a grandchild carried
+out correctly and **recorded under the wrong parent**. That is the one line of
+#63's "nothing is rebound to a child" this slice had to change, and the reason is
+the ambiguity rather than a handle.
+
+**What travels with a turn is shared rather than borrowed uniquely.** `Driving`
+holds the sink behind a plain lock, never held across an await, and the person
+behind an async one, held across their answer so two sub-agents cannot raise two
+modal prompts at once.
+
 ## The pool is a module, not a trait
 
 `src/pool.rs`, and the same rule as the section above: a `Scheduler` trait would
@@ -353,6 +416,7 @@ and a fix, and it is not something a frontend can derive from a tag.
 | `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, what a stop leaves, what the transcript draws for a call, and which tier an *always* is written to. Against the same scripted backend. |
 | `tests/offered.rs` | What reaches the payload: the offered set and the mode off the ladder, a switched-off tool absent and refused as off, and one chat's set reaching no other. |
 | `tests/monitored.rs` | What the session monitor reads: the assembly at an event, and a group switched off in the picker told apart from one nothing ever offered. |
+| `tests/harvested.rs` | The asynchronous path: the call answered at once, the answer as a framed message rather than a second result, a background answer at a boundary in the **middle** of a turn and after every call of that step, two sub-agents at two boundaries with a generation between them, a run that stopped asking for tools waiting and folding in, a step ceiling that does not eat an answer, a stop that does not either, a full pool falling back to blocking, the frame carried into the next message, and the default still blocking. Every assertion is on the log; the only sleep in the file is the one that presses Stop. |
 | `tests/delegated.rs` | The child session: the store it shares, the clean context and the durable record, the call that blocks, the ceiling at every depth, a failed call inside a child against a log that will not take one, and a Stop asserted at depth 2. Then the depth control: the tool absent from every child at depth 1, the brief's chain of three at depth 3, a depth raised from the approval callback reaching the next delegation of the same turn, and a child at the limit told why in its own words. |
 
 The scripted backend is `demido_inference::scripted`, which passes the

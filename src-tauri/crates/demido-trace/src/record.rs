@@ -447,6 +447,33 @@ impl<J: Journal> Session<J> {
         Ok(event.seq)
     }
 
+    /// A host paragraph placed in this agent's context between two steps.
+    ///
+    /// The step-boundary sibling of [`Turn::fragment`], and it exists for the
+    /// same reason [`Session::refused`] does: a background delegation's answer
+    /// arrives when no `Turn` is open, and the block it becomes has to be an
+    /// event before [`Session::step`] can name it.
+    ///
+    /// Recorded the way every host wording is, as the hash and what filled it,
+    /// so the rebuild fills the paragraph again rather than reading a copy.
+    pub fn framed(
+        &self,
+        turn: u32,
+        source: Source,
+        role: Role,
+        prompt: &Prompt,
+        values: &[(&str, &str)],
+    ) -> Result<u64> {
+        self.version(turn, prompt)?;
+        let event = self.write(
+            turn,
+            source,
+            self.weigher.weigh(&prompt.fill(values)),
+            fragment(role, prompt, values),
+        )?;
+        Ok(event.seq)
+    }
+
     /// Put one event on the log, stamped with this session.
     ///
     /// Every recording site goes through here, so the session id and the
@@ -500,6 +527,24 @@ impl<J: Journal> Session<J> {
             },
         )?;
         Ok(())
+    }
+}
+
+/// One paragraph placed in an assembly, as the log holds it: the hash of the
+/// wording and the values that filled it, never the text it produced.
+///
+/// Written once because it is written from two places, [`Turn::fragment`] and
+/// [`Session::framed`], which differ only in whether a `Turn` is open. A second
+/// spelling of this is a fragment that one of the two records slightly
+/// differently, which is a rebuild that disagrees with itself.
+fn fragment(role: Role, prompt: &Prompt, values: &[(&str, &str)]) -> Body {
+    Body::Fragment {
+        role,
+        hash: prompt.hash.clone(),
+        values: values
+            .iter()
+            .map(|(name, value)| Filling::new(*name, *value))
+            .collect(),
     }
 }
 
@@ -593,14 +638,7 @@ impl<J: Journal> Turn<'_, J> {
         self.wrote(
             source,
             Message::new(role, text),
-            Body::Fragment {
-                role,
-                hash: prompt.hash.clone(),
-                values: values
-                    .iter()
-                    .map(|(name, value)| Filling::new(*name, *value))
-                    .collect(),
-            },
+            fragment(role, prompt, values),
         )
     }
 

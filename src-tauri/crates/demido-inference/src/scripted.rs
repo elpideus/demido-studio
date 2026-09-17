@@ -15,6 +15,7 @@
 //! It ships in the library rather than under `cfg(test)` for the reason the
 //! contract suite does: more than one crate's tests are written against it.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -41,6 +42,18 @@ pub struct Script {
     /// The reply to each generation in turn. The last one is repeated once they
     /// run out, so a script that says one thing says it every time.
     replies: Vec<Vec<Step>>,
+    /// Replies addressed to whoever was asked a particular question, keyed by
+    /// the first thing the user says in the request.
+    ///
+    /// **What makes a concurrent run assertable.** A positional script hands
+    /// out its replies in the order generations start, and above the default
+    /// parallelism a sub-agent generates beside the turn that asked for it, so
+    /// the order two of them reach the backend is the scheduler's rather than
+    /// the test's. An addressed reply is keyed by the task the agent was given,
+    /// which is a fact about who is asking rather than about when. It is the
+    /// alternative to holding the clock still, and it is why nothing in this
+    /// crate has to.
+    addressed: HashMap<String, Vec<Vec<Step>>>,
     pause: Duration,
     context: u32,
     slots: u32,
@@ -59,6 +72,7 @@ impl Script {
         Self {
             model: model.into(),
             replies: Vec::new(),
+            addressed: HashMap::new(),
             pause: Duration::from_millis(1),
             context: 4096,
             slots: 1,
@@ -95,6 +109,34 @@ impl Script {
             name: name.to_owned(),
             arguments: arguments.to_owned(),
         })])
+    }
+
+    /// The next generation of whoever was asked `said` replies with these
+    /// steps.
+    ///
+    /// Addressed by the **first** user message of the request, which for a
+    /// sub-agent is the task it was handed and never changes as its turn takes
+    /// steps. A conversation is addressed the same way, by the question the
+    /// person typed. Anything the script was not addressed to falls through to
+    /// the positional replies, so a script may use both.
+    #[must_use]
+    pub fn when(mut self, said: &str, steps: Vec<Step>) -> Self {
+        self.addressed
+            .entry(said.to_owned())
+            .or_default()
+            .push(steps);
+        self
+    }
+
+    /// The next generation of whoever was asked `said` answers with these
+    /// tokens, one chunk each.
+    #[must_use]
+    pub fn when_say(self, said: &str, tokens: &[&str]) -> Self {
+        let steps = tokens
+            .iter()
+            .map(|token| Step::Say((*token).to_owned()))
+            .collect();
+        self.when(said, steps)
     }
 
     /// How long each step takes. Long enough, and a stop is a generation in
@@ -146,6 +188,7 @@ impl PartialEq for Script {
     fn eq(&self, other: &Self) -> bool {
         self.model == other.model
             && self.replies == other.replies
+            && self.addressed.len() == other.addressed.len()
             && self.pause == other.pause
             && self.context == other.context
             && self.refusal == other.refusal
@@ -172,7 +215,13 @@ pub struct Scripted {
     running: AtomicBool,
     /// How many generations this backend has started, which is which reply the
     /// next one gets.
+    ///
+    /// Advanced only by a generation no addressed reply answered, so a
+    /// sub-agent running beside a conversation cannot move the conversation's
+    /// place in the script.
     generated: AtomicUsize,
+    /// How many addressed replies each key has already served.
+    served: Mutex<HashMap<String, usize>>,
 }
 
 #[async_trait::async_trait]
@@ -204,6 +253,7 @@ impl Backend for Scripted {
             script: config,
             running: AtomicBool::new(true),
             generated: AtomicUsize::new(0),
+            served: Mutex::new(HashMap::new()),
         })
     }
 
@@ -243,9 +293,12 @@ impl Backend for Scripted {
             });
         }
 
-        let steps = self
-            .script
-            .reply(self.generated.fetch_add(1, Ordering::SeqCst));
+        let steps = match self.addressed(&request) {
+            Some(steps) => steps,
+            None => self
+                .script
+                .reply(self.generated.fetch_add(1, Ordering::SeqCst)),
+        };
         let pause = self.script.pause;
 
         Ok(Box::pin(async_stream::stream! {
@@ -288,6 +341,29 @@ impl Backend for Scripted {
 
     async fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
+    }
+}
+
+impl Scripted {
+    /// The reply this script was addressed to whoever asked this request, if it
+    /// was addressed to them at all.
+    ///
+    /// The last one addressed to a key is repeated once they run out, exactly
+    /// as the positional ones are, so an agent that takes an extra step is
+    /// answered rather than silenced.
+    fn addressed(&self, request: &Request) -> Option<Vec<Step>> {
+        let asked = request
+            .messages
+            .iter()
+            .find(|message| message.role == crate::model::Role::User)?
+            .content
+            .clone();
+        let replies = self.script.addressed.get(&asked)?;
+        let mut served = self.served.lock().unwrap_or_else(|held| held.into_inner());
+        let taken = served.entry(asked).or_insert(0);
+        let steps = replies.get(*taken).or(replies.last())?.clone();
+        *taken += 1;
+        Some(steps)
     }
 }
 

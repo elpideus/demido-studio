@@ -230,6 +230,35 @@ impl Registry {
         }
     }
 
+    /// The same registry, with `delegate_task` answering on `delegating`
+    /// instead of wherever it answered before.
+    ///
+    /// **One rendezvous per agent**, which is what the asynchronous path needs
+    /// and the synchronous one never did
+    /// ([#66](https://github.com/elpideus/demido-studio/issues/66)). While a
+    /// delegation blocked there was one loop awaiting a delegation at a time,
+    /// so one channel could not be ambiguous about whose delegation it was
+    /// carrying. Above the default a sub-agent runs beside the turn that asked
+    /// for it, and two agents sharing a channel is an ask answered by whichever
+    /// one happened to poll first: the task would be carried out correctly and
+    /// recorded under the wrong parent.
+    ///
+    /// It replaces in place rather than registering the name again, so the
+    /// order the set is offered in is the order it was registered in. A
+    /// registry with no `delegate_task` in it is returned unchanged, which is
+    /// the case that matters: a sub-agent at the depth limit has no delegation
+    /// tool, and giving it a rendezvous would be giving it one back.
+    #[must_use]
+    pub fn delegating_to(&self, delegating: Delegating) -> Self {
+        let mut rebound = self.clone();
+        for entry in &mut rebound.tools {
+            if entry.tool.name() == DelegateTask::NAME {
+                entry.tool = Arc::new(DelegateTask::to(delegating.clone()));
+            }
+        }
+        rebound
+    }
+
     /// Whether a tool by this name is on offer.
     ///
     /// Asked of the whole registry and of a narrowed one, it is how the turn
