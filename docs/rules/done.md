@@ -214,6 +214,32 @@ with the fraction set by a parallelism setting that has nothing to do with
 context. `llama.cpp`'s own `--kv-unified-per-slot` flag exists precisely because
 `-c` is not per slot.
 
+**And a second slot was weighed on the card**, on
+[#65](https://github.com/elpideus/demido-studio/issues/65), by reading NVML
+around three states of the same pinned build: nothing loaded, the development
+model at 32k on one slot, and the same model at 32k on two.
+
+| State | Free | What it cost |
+|---|---|---|
+| Nothing loaded | 7984 MiB | |
+| `-c 32768 --parallel 1` | 2235 MiB | 5749 MiB |
+| `-c 65536 --parallel 2` | 1615 MiB | 6369 MiB |
+
+So **a second slot at 32k costs 620 MiB** on the development model, weighed
+rather than derived. The table above implies 563 for the same slot, arrived at
+by subtracting the weights and an idle desktop out of a total, and the two are
+not a disagreement to settle: they are one slot read two ways, and neither is
+the number anything is held to. What both say is the thing worth keeping, which
+is that a slot is a few hundred MiB while the weights are several thousand, so
+parallelism is affordable on the development model and is not on the reference
+one. `demido-vram`'s table asserts both figures for that reason: a rule that
+decided differently depending on which reading of one slot it was handed would
+be a rule about the readings.
+
+`docs/rules/tools.md` is where that becomes a rule. `demido_vram::admit` is the
+arithmetic, and it is pure, so the numbers in this table are asserted on
+machines that have no card at all.
+
 **Demido multiplies**, in `demido-inference::llamacpp::arguments`, and sends
 both flags always, because `--parallel` defaults to auto and an unstated divisor
 is a number nobody chose. The rule the correction does not change is the one

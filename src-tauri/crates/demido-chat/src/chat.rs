@@ -22,6 +22,7 @@ use demido_trace::{Called, Decision, Journal, Layer, Replay, Sent, Session, Sess
 
 use crate::delegation::Delegations;
 use crate::monitor::Assembly;
+use crate::pool::Pool;
 use crate::presence::Presence;
 use crate::toolbox::{Asking, Offering, Toolbox};
 use crate::update::Update;
@@ -257,6 +258,16 @@ pub struct Chat<B: Backend, J: Journal> {
     running: Mutex<Option<Cancel>>,
     /// What this conversation offers, and the mode its calls are ruled under.
     tools: Toolbox,
+    /// What the card can hold, asked at every load.
+    ///
+    /// A sub-agent is a second slot on the conversation's own weights, so the
+    /// parallelism the ladder asks for is a VRAM budget rather than a
+    /// preference and this is what turns one into the other
+    /// ([#65](https://github.com/elpideus/demido-studio/issues/65)). Held
+    /// rather than passed in per load, because the card it asks is the machine
+    /// and does not change; what changes is the answer, which is why it is
+    /// asked again every time.
+    pool: Pool,
     /// The turn loop's end of the delegation pair, the other end of which is
     /// the `delegate_task` in this conversation's registry.
     ///
@@ -303,8 +314,22 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             turn: tokio::sync::Mutex::new(()),
             running: Mutex::new(None),
             tools,
+            pool: Pool::on_the_card(),
             delegations: tokio::sync::Mutex::new(delegations),
         }
+    }
+
+    /// The same conversation, deciding its slots against a different card.
+    ///
+    /// A builder rather than an eighth parameter, because there is one pool on
+    /// a machine and every caller but a test wants it: `Pool::on_the_card` is
+    /// what [`Chat::new`] takes, and this is how a test that has no card, or a
+    /// card it wants to choose the numbers of, gets a deterministic answer out
+    /// of the same code the window runs.
+    #[must_use]
+    pub fn against(mut self, pool: Pool) -> Self {
+        self.pool = pool;
+        self
     }
 
     /// What is in force for this conversation, right now.
@@ -385,12 +410,36 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // What the user set is what is reserved, not that number divided by the
         // slot count (`demido_inference::llamacpp::arguments`), which is the
         // defect `docs/rules/done.md` records and the contract suite measures.
-        let config = B::with_context_length(model.config.clone(), self.resolved().context_length());
+        let resolved = self.resolved();
+        let config = B::with_context_length(model.config.clone(), resolved.context_length());
+
+        // And the slots, which is the same shape of decision one layer along:
+        // the ladder asks for a parallelism and `crate::pool` decides what the
+        // card can hold. Its module doc is where that reasoning lives; the one
+        // thing that has to be read here is the 1, which is the conversation's
+        // own slot going in as already open. It is the model being loaded
+        // rather than a sub-agent, and a budget that could refuse it would be a
+        // card with no room answering the question by unloading the chat.
+        let admission = self.pool.admit(1, resolved.parallel_agents());
+        if let Some(reason) = admission.reason {
+            tracing::info!(
+                opened = admission.open,
+                queued = admission.queued,
+                ?reason,
+                "the card could not hold every slot asked for, so the rest queue"
+            );
+        }
+        let config = B::with_slots(config, admission.open);
 
         match self.supervisor.ensure(config).await {
-            Ok(_) => self.report(
+            Ok(backend) => self.report(
                 Presence::Ready {
                     model: model.id.clone(),
+                    // Asked of the backend, never repeated from the admission:
+                    // the number shown to the user is the number actually
+                    // opened, and a server that opened a different one is a
+                    // defect this is the only place that could notice.
+                    slots: backend.slots().await.unwrap_or(admission.open),
                 },
                 &mut report,
             ),

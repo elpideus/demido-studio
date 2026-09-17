@@ -1,0 +1,24 @@
+[package]
+name = "demido-vram"
+description = "What the card has free, and whether one more slot fits in it."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Loaded at runtime, never linked: NVML ships with the NVIDIA driver, so it is
+# present on exactly the machines whose free memory this can read and absent on
+# every other one. The same rule `demido-hardware` loads the CUDA driver
+# library under, and the reason this crate does not depend on that one: they
+# ask two different libraries two different questions and neither keeps a
+# handle for the other.
+libloading = "0.9"
+serde.workspace = true
+tracing.workspace = true

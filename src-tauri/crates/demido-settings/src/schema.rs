@@ -38,6 +38,11 @@ pub mod id {
     /// mode's to decide either: `docs/rules/tools.md` keeps the mode to
     /// permissions, and names the depth among the things it does not gate.
     pub const DELEGATION_DEPTH: &str = "tools.delegation_depth";
+    /// How many agents may be generating at once, the conversation itself
+    /// included: a count of `llama.cpp` slots. Not the mode's either, and not a
+    /// preference: it is a VRAM budget, and a value the card cannot honour
+    /// degrades to a queue rather than to a failed load (`demido_vram::admit`).
+    pub const PARALLEL_AGENTS: &str = "tools.parallel_agents";
     /// Which row of the permission matrix is in force. **Permitted**, in
     /// `docs/rules/tools.md`'s two axes: what runs without asking, and read by
     /// the matrix and nothing else.
@@ -263,6 +268,35 @@ pub static SCHEMA: &[Setting] = &[
             unit: "levels",
         },
         reloads: false,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above.
+    Setting {
+        id: id::PARALLEL_AGENTS,
+        section: "Tools",
+        title: "Parallel agents",
+        summary: "How many agents may generate at once, this conversation included. Each is a slot on the card, and a slot the card cannot hold waits its turn.",
+        // **It counts slots, and the conversation is the first of them.** At 1
+        // there is one generation at a time, which is the synchronous path: the
+        // call blocks and the answer is the tool's own result. At 4 there are
+        // three sub-agents beside the conversation. Counting sub-agents instead
+        // would make 1 mean two slots, and two slots is a number the reference
+        // model cannot honour on the rig: a default the reference gate cannot
+        // run at is not a default
+        // ([#65](https://github.com/elpideus/demido-studio/issues/65)).
+        //
+        // The ceiling is the delegation depth's, and for a different reason: a
+        // slot is a KV reservation, so the real ceiling is the card's and it is
+        // enforced by `demido_vram::admit` rather than here. Eight is what a
+        // settings page is willing to draw, not what a card is willing to hold.
+        kind: Kind::Count {
+            default: 1,
+            min: 1,
+            max: 8,
+            unit: "agents",
+        },
+        // A slot count is a flag on the process, the way the context length is:
+        // `llama.cpp` is started with the slots it will ever have.
+        reloads: true,
     },
     // not-a-prompt: a settings page's own label and caption, as above. The mode
     // is never prose to a model (`docs/rules/tools.md`), and neither is this.
@@ -522,15 +556,30 @@ mod tests {
         );
     }
 
-    /// Only the context length is a flag on the process. Every other setting
-    /// is read per turn and takes effect on the next one.
+    /// Two settings are flags on the process, and they are the two that decide
+    /// the KV reservation: the window one generation gets, and how many
+    /// generations there are windows for. Every other setting is read per turn
+    /// and takes effect on the next one.
     #[test]
-    fn the_only_setting_that_costs_a_reload_is_the_one_the_server_starts_with() {
+    fn the_settings_that_cost_a_reload_are_the_ones_the_server_starts_with() {
         let reloading: Vec<&str> = SCHEMA
             .iter()
             .filter(|setting| setting.reloads)
             .map(|setting| setting.id)
             .collect();
-        assert_eq!(reloading, vec![id::CONTEXT_LENGTH]);
+        assert_eq!(reloading, vec![id::CONTEXT_LENGTH, id::PARALLEL_AGENTS]);
+    }
+
+    /// One, and it is the whole synchronous path: a conversation with the one
+    /// slot it is already using asks the card for nothing
+    /// ([#65](https://github.com/elpideus/demido-studio/issues/65)).
+    #[test]
+    fn parallel_agents_defaults_to_one() {
+        let declared = setting(id::PARALLEL_AGENTS).expect("declared");
+        assert_eq!(declared.default_value(), json!(1));
+        assert!(matches!(
+            declared.accept(&json!(0)),
+            Err(Invalid::OutOfRange { .. })
+        ));
     }
 }

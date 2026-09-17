@@ -43,6 +43,7 @@ pub struct Script {
     replies: Vec<Vec<Step>>,
     pause: Duration,
     context: u32,
+    slots: u32,
     /// Why it will not start, the way a model too large for the card will not.
     refusal: Option<String>,
     seen: Arc<Mutex<Vec<Request>>>,
@@ -60,6 +61,7 @@ impl Script {
             replies: Vec::new(),
             pause: Duration::from_millis(1),
             context: 4096,
+            slots: 1,
             refusal: None,
             seen: Arc::new(Mutex::new(Vec::new())),
             alive: Arc::new(AtomicBool::new(true)),
@@ -186,6 +188,11 @@ impl Backend for Scripted {
         config
     }
 
+    fn with_slots(mut config: Script, slots: u32) -> Script {
+        config.slots = slots.max(1);
+        config
+    }
+
     async fn start(config: Script) -> Result<Self> {
         if let Some(detail) = &config.refusal {
             return Err(Error::DidNotStart {
@@ -213,6 +220,13 @@ impl Backend for Scripted {
 
     async fn context_length(&self) -> Result<u32> {
         Ok(self.script.context)
+    }
+
+    /// What it was told to open, which for a script is the same thing as what
+    /// it opened: there is no pool to run out of. The cases that matter are
+    /// the caller's, and they are about which number was asked for.
+    async fn slots(&self) -> Result<u32> {
+        Ok(self.script.slots)
     }
 
     async fn generate(&self, request: Request, cancel: Cancel) -> Result<ChunkStream> {

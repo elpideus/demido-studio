@@ -201,6 +201,11 @@ mod tests {
             config
         }
 
+        fn with_slots(config: FakeConfig, _slots: u32) -> FakeConfig {
+            // As above: this fake has no slots to open either.
+            config
+        }
+
         async fn start(config: FakeConfig) -> Result<Self> {
             // Long enough that a second caller arriving during a start really
             // is racing it rather than finding it already finished.
@@ -233,6 +238,10 @@ mod tests {
 
         async fn context_length(&self) -> Result<u32> {
             Ok(0)
+        }
+
+        async fn slots(&self) -> Result<u32> {
+            Ok(1)
         }
 
         async fn generate(&self, _request: Request, _cancel: Cancel) -> Result<ChunkStream> {

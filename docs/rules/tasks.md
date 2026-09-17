@@ -67,9 +67,13 @@ be conditional on resources.
 the breadth model at 32k leaves **271 MiB** on a 12 GB card, so a permanent
 allocation is a model that fails to load rather than a job that waits.
 
-It also gives `demido-vram`'s `Ledger` its first consumer. That crate is built,
-tested, and dormant precisely because nothing ever asked it a question. This
-asks it one, per dispatch.
+It asks `demido-vram` a question per dispatch, which is what that crate is for:
+free bytes in, a decision out. What it does **not** ask is v2's `Ledger`, which
+did not come across. v2's crate was built, tested and dormant precisely because
+nothing ever asked it anything, so it was reviewed rather than ported on
+[#65](https://github.com/elpideus/demido-studio/issues/65), and a
+resident-model ledger is an addition the day something wants one rather than
+the thing that was missing.
 
 ### Never during generation
 

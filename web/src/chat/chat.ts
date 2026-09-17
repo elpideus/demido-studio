@@ -67,7 +67,11 @@ export type Moment = ({ moment: 'said' } & Said) | ({ moment: 'called' } & Calle
 export type Presence =
   | { state: 'absent' }
   | { state: 'loading'; model: string }
-  | { state: 'ready'; model: string }
+  /** `slots` is what the backend actually opened, never what
+   * `tools.parallel_agents` asked for: a parallelism the card cannot hold
+   * degrades to a queue, and drawing the preference would promise a sub-agent
+   * that is never going to start. */
+  | { state: 'ready'; model: string; slots: number }
   | { state: 'failed'; detail: string }
 
 /** What a model that is still on its way says, in the one wording.

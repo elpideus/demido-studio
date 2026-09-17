@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Asking, Chat, Decision, Delegations, Model, Presence, Toolbox, Update};
+use demido_chat::{Asking, Chat, Decision, Delegations, Model, Pool, Presence, Toolbox, Update};
 use demido_inference::scripted::{Script, Scripted};
 use demido_inference::{Backend, FinishReason, Role, Supervisor};
 use demido_tools::Registry;
@@ -34,6 +34,9 @@ use demido_trace::{Body, Journal, Memory, Replay, Source};
 /// against it, and a ladder that names a different chat resolves to the global
 /// value, which would pass for the wrong reason.
 const SESSION: &str = "a-turn";
+
+/// One mebibyte, so the cases below read like `docs/rules/done.md`'s own table.
+const MIB: u64 = demido_vram::MIB;
 
 /// A script that answers with these tokens, one chunk each.
 ///
@@ -752,6 +755,114 @@ async fn the_context_length_the_chat_asked_for_is_what_the_backend_is_started_wi
             .await
             .expect("the slot's context"),
         16384
+    );
+}
+
+/// The same chat, over a chosen card.
+///
+/// A conversation's slot count is a VRAM decision, and a suite that asked the
+/// machine it happens to be running on would pass or fail by what else has a
+/// browser open.
+fn on_a_card(
+    script: &Script,
+    log: &Memory,
+    settings: &Arc<Settings>,
+    free: u64,
+    per_slot: u64,
+) -> (Chat<Scripted, Memory>, Arc<Supervisor<Scripted>>) {
+    let (chat, supervisor) = over(script, log, settings);
+    (
+        chat.against(Pool::on_a_card_with(free, per_slot)),
+        supervisor,
+    )
+}
+
+/// The rig's own numbers, from `docs/rules/done.md`: the development model at
+/// 32k leaves 5583 MiB on the 12 GB card and one more of its slots reserves
+/// 563, so the card can hold what the setting asks for.
+#[tokio::test]
+async fn the_slots_the_card_can_hold_are_the_ones_the_backend_opens() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::PARALLEL_AGENTS,
+            &json!(4),
+        )
+        .expect("set on this chat");
+
+    let script = saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, supervisor) = on_a_card(&script, &log, &settings, 5583 * MIB, 563 * MIB);
+    chat.load(|_| {}).await;
+
+    let backend = supervisor.current().await.expect("a running backend");
+    assert_eq!(
+        backend.slots().await.expect("the slots it opened"),
+        4,
+        "the setting counts slots, so four is three sub-agents beside the          conversation's own, and every one of them is paid for"
+    );
+    assert_eq!(
+        chat.presence(),
+        Presence::Ready {
+            model: "scripted".into(),
+            slots: 4,
+        }
+    );
+}
+
+/// The reference model at 32k leaves 423 MiB and a slot reserves 1129, so the
+/// same setting on the same card cannot be honoured. It degrades to a queue:
+/// the conversation keeps its own slot, nothing is evicted, and the number
+/// shown is the number opened rather than the number asked for.
+#[tokio::test]
+async fn a_parallelism_the_card_cannot_honour_opens_one_slot_and_says_so() {
+    let settings = ladder();
+    settings
+        .set(
+            &Scope::chat(SESSION),
+            demido_settings::id::PARALLEL_AGENTS,
+            &json!(4),
+        )
+        .expect("set on this chat");
+
+    let script = saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, supervisor) = on_a_card(&script, &log, &settings, 423 * MIB, 1129 * MIB);
+    chat.load(|_| {}).await;
+
+    let backend = supervisor.current().await.expect("a running backend");
+    assert_eq!(backend.slots().await.expect("the slots it opened"), 1);
+    assert_eq!(
+        chat.presence(),
+        Presence::Ready {
+            model: "scripted".into(),
+            slots: 1,
+        },
+        "the window is told what opened, never what was preferred"
+    );
+}
+
+/// The default, which is every conversation until somebody changes a setting:
+/// one slot, on a card with nothing free at all. The conversation's own slot is
+/// the model rather than a sub-agent, so no budget may refuse it.
+#[tokio::test]
+async fn the_default_loads_on_a_card_with_nothing_to_spare() {
+    let script = saying(&["ok"]);
+    let log = Memory::new();
+    let (chat, supervisor) = on_a_card(&script, &log, &ladder(), 0, 1129 * MIB);
+    chat.load(|_| {}).await;
+
+    assert!(chat.presence().is_ready());
+    assert_eq!(
+        supervisor
+            .current()
+            .await
+            .expect("a running backend")
+            .slots()
+            .await
+            .expect("the slots it opened"),
+        1
     );
 }
 

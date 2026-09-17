@@ -28,8 +28,15 @@ pub enum Presence {
     /// A backend is starting. Several gigabytes off a cold disk is genuinely
     /// slow, and a person who is not told that reads it as a broken app.
     Loading { model: String },
-    /// It is answering.
-    Ready { model: String },
+    /// It is answering, on this many generation slots.
+    ///
+    /// **The slots are the ones actually opened**, read back off the running
+    /// backend rather than repeated from the setting that asked for them
+    /// ([#65](https://github.com/elpideus/demido-studio/issues/65)). A
+    /// parallelism the card could not honour degrades to a queue, and a window
+    /// that drew the preference would be promising a sub-agent that is never
+    /// going to start.
+    Ready { model: String, slots: u32 },
     /// It did not start, or it died. The desk stays usable: startup never
     /// blocks and a subsystem that fails is reported and skipped (`AGENTS.md`).
     Failed { detail: String },
@@ -48,7 +55,7 @@ impl Presence {
     /// The model that is loaded or loading, where there is one.
     pub fn model(&self) -> Option<&str> {
         match self {
-            Presence::Loading { model } | Presence::Ready { model } => Some(model),
+            Presence::Loading { model } | Presence::Ready { model, .. } => Some(model),
             Presence::Absent | Presence::Failed { .. } => None,
         }
     }
@@ -65,7 +72,8 @@ mod tests {
     #[test]
     fn only_a_loaded_model_is_ready() {
         assert!(Presence::Ready {
-            model: "tiny".into()
+            model: "tiny".into(),
+            slots: 1,
         }
         .is_ready());
         assert!(!Presence::Loading {
@@ -94,6 +102,20 @@ mod tests {
         let absent = serde_json::to_value(Presence::Absent).expect("a value");
         assert_eq!(absent["state"], serde_json::json!("absent"));
         assert!(absent.get("model").is_none());
+    }
+
+    /// The window is told how many slots opened, never how many were asked
+    /// for. It is what the monitor's slot strip is drawn from
+    /// ([#68](https://github.com/elpideus/demido-studio/issues/68)).
+    #[test]
+    fn a_ready_model_says_how_many_slots_it_opened() {
+        let value = serde_json::to_value(Presence::Ready {
+            model: "gemma".into(),
+            slots: 2,
+        })
+        .expect("a value");
+        assert_eq!(value["state"], serde_json::json!("ready"));
+        assert_eq!(value["slots"], serde_json::json!(2));
     }
 
     /// A failure keeps the backend's own sentence. It is the difference between

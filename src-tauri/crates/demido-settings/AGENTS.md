@@ -40,11 +40,24 @@ nothing uses would fail rather than be discovered later.
 
 `schema.rs` holds `conversation.system_prompt`, `conversation.temperature`,
 `conversation.context_length`, `tools.step_limit`,
-`tools.delegation_depth`, `tools.mode`, `tools.offered` and `tools.always`, and
-nothing else. v2 declared twenty four
+`tools.delegation_depth`, `tools.parallel_agents`, `tools.mode`,
+`tools.offered` and `tools.always`, and nothing else. v2 declared twenty four
 samplers before anything sent one. A setting added later is one entry in
 `SCHEMA`; a setting declared before something resolves and sends it is a
 contract nothing can be held to.
+
+Two of them reload, and they are the two that decide the KV reservation:
+`conversation.context_length` is the window one generation gets and
+`tools.parallel_agents` is how many generations there are windows for.
+`llama.cpp` is started with both, so changing either is a restart, which the
+declaration says rather than a caller working out.
+
+`tools.parallel_agents` resolves here and is **decided elsewhere**: what this
+crate answers is what the user asked for, and `demido_vram::admit` is what turns
+it into the slots a card can actually hold
+([#65](https://github.com/elpideus/demido-studio/issues/65)). A value the card
+cannot honour is a queue with a stated reason, not a number this crate is wrong
+about.
 
 The prefix is the **section**, not the tier. Any of them can be set on any
 tier, and `conversation` is the page they are drawn on.

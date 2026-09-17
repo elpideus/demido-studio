@@ -346,6 +346,21 @@ impl Resolved {
         u32::try_from(self.count_of(id::DELEGATION_DEPTH).unwrap_or_default()).unwrap_or(u32::MAX)
     }
 
+    /// How many agents may be generating at once, this conversation included.
+    ///
+    /// A count of slots rather than of sub-agents, so 1 is one generation at a
+    /// time and 4 is three sub-agents beside the conversation.
+    ///
+    /// The ladder's half of the answer and never the whole of it: what the user
+    /// asked for, which `demido_vram::admit` turns into the number of slots the
+    /// card can actually hold. A preference the card cannot honour is a queue,
+    /// not a number this crate is wrong about.
+    #[must_use]
+    pub fn parallel_agents(&self) -> u32 {
+        // Never nothing, for the reason the context length is never nothing.
+        u32::try_from(self.count_of(id::PARALLEL_AGENTS).unwrap_or_default()).unwrap_or(u32::MAX)
+    }
+
     /// The stored name of the mode in force. A name and never a mode: only the
     /// permission matrix turns one into a verdict (`demido_permission::Mode`).
     #[must_use]

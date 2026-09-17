@@ -57,12 +57,14 @@
 //! | [`delegation`] | The two ends of a delegation: the tool's, and the loop's. |
 //! | [`toolbox`] | What a conversation may call, and what a person is asked. |
 //! | [`monitor`] | What the session monitor draws over one assembly. |
+//! | [`pool`] | How many slots the card can hold, asked at every load. |
 //!
 //! See `AGENTS.md` beside this file for the invariants.
 
 pub mod chat;
 pub mod delegation;
 pub mod monitor;
+pub mod pool;
 pub mod presence;
 pub mod toolbox;
 pub mod update;
@@ -71,6 +73,7 @@ pub use chat::{Answer, Chat, Error, Model, Moment, Result, Said};
 pub use delegation::{delegations, Asked, Delegations};
 pub use demido_trace::{Called, Decision, Outcome};
 pub use monitor::{Assembly, Grouped, Standing};
+pub use pool::Pool;
 pub use presence::Presence;
 pub use toolbox::{Asking, Offering, Toolbox};
 pub use update::Update;
