@@ -469,14 +469,7 @@ impl<J: Journal> Session<J> {
             turn,
             source,
             self.weigher.weigh(&prompt.fill(values)),
-            Body::Fragment {
-                role,
-                hash: prompt.hash.clone(),
-                values: values
-                    .iter()
-                    .map(|(name, value)| Filling::new(*name, *value))
-                    .collect(),
-            },
+            fragment(role, prompt, values),
         )?;
         Ok(event.seq)
     }
@@ -534,6 +527,24 @@ impl<J: Journal> Session<J> {
             },
         )?;
         Ok(())
+    }
+}
+
+/// One paragraph placed in an assembly, as the log holds it: the hash of the
+/// wording and the values that filled it, never the text it produced.
+///
+/// Written once because it is written from two places, [`Turn::fragment`] and
+/// [`Session::framed`], which differ only in whether a `Turn` is open. A second
+/// spelling of this is a fragment that one of the two records slightly
+/// differently, which is a rebuild that disagrees with itself.
+fn fragment(role: Role, prompt: &Prompt, values: &[(&str, &str)]) -> Body {
+    Body::Fragment {
+        role,
+        hash: prompt.hash.clone(),
+        values: values
+            .iter()
+            .map(|(name, value)| Filling::new(*name, *value))
+            .collect(),
     }
 }
 
@@ -627,14 +638,7 @@ impl<J: Journal> Turn<'_, J> {
         self.wrote(
             source,
             Message::new(role, text),
-            Body::Fragment {
-                role,
-                hash: prompt.hash.clone(),
-                values: values
-                    .iter()
-                    .map(|(name, value)| Filling::new(*name, *value))
-                    .collect(),
-            },
+            fragment(role, prompt, values),
         )
     }
 

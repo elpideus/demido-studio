@@ -651,7 +651,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     cancel: &cancel,
                     sink: &sink,
                     approve: &approve,
-                    slots: &Slots::beside(slots),
+                    slots: &Slots::under(slots),
                 },
             )
             .await;
@@ -985,10 +985,14 @@ impl<S: FnMut(Update), A> Driving<'_, S, A> {
 
 /// One sub-agent's run: where its answer ended up on the log, and what it said.
 ///
+/// The position is an `Option` because a child whose log refused its own events
+/// has nowhere for its answer to be, and an event that named a position nothing
+/// is at would be worse than the absence.
+///
 /// Spelled once because it is written twice, and it is boxed for a reason the
 /// declaration of [`Agent::run`] gives: this is the point in the recursion
 /// where `Send` is named rather than inferred.
-type Ran<'r> = Pin<Box<dyn Future<Output = Result<(u64, Outcome)>> + Send + 'r>>;
+type Ran<'r> = Pin<Box<dyn Future<Output = Result<(Option<u64>, Outcome)>> + Send + 'r>>;
 
 /// A delegation, opened: the sub-agent that will carry it out, or the reason
 /// nothing will.
@@ -1007,6 +1011,11 @@ enum Opened<'a, B: Backend, J: Journal> {
 /// A sub-agent that has been opened and has not generated yet.
 struct Opening<'a, B: Backend, J: Journal> {
     child: Agent<'a, B, J>,
+    /// Who the child is, carried out of the session that named it rather than
+    /// read back off the agent: it is what `agent/returned` says came back, and
+    /// reaching into the child for it would be asking a question the opening
+    /// already answered.
+    agent: demido_trace::AgentId,
     sent: Sent,
     backend: Arc<B>,
 }
@@ -1551,6 +1560,7 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
             };
             let Opening {
                 child,
+                agent,
                 sent,
                 backend,
             } = opening;
@@ -1568,20 +1578,17 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
             match driving.slots.take() {
                 Some(permit) => {
                     let task = asked.task().to_owned();
-                    let agent = child
-                        .child
-                        .as_ref()
-                        .map(|session| session.agent().clone())
-                        .unwrap_or_else(demido_trace::AgentId::main);
-                    let quoted = task.clone();
                     flight.start(async move {
-                        let permit = permit;
                         let (answer, outcome) = child.run(&backend, sent, driving).await?;
+                        // The slot goes back before the answer is even built,
+                        // so a delegation waiting for one gets it as soon as
+                        // this sub-agent has stopped generating rather than
+                        // when its answer is folded in.
                         drop(permit);
                         Ok(Harvest {
                             call,
                             agent,
-                            task: quoted,
+                            task,
                             answer,
                             outcome,
                         })
@@ -1620,17 +1627,12 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
     /// person stopped: a delegation nobody mentions again is a silent loss, and
     /// a ceiling that ate an answer would be worse than the runaway it exists
     /// to end.
-    async fn settle<S, A, F>(
+    async fn settle<S: FnMut(Update), A>(
         &self,
         flight: &mut Flight<'_>,
         turn: u32,
         driving: &Driving<'_, S, A>,
-    ) -> Result<Vec<u64>>
-    where
-        S: FnMut(Update) + Send,
-        A: FnMut(Asking) -> F + Send,
-        F: Future<Output = Decision> + Send,
-    {
+    ) -> Result<Vec<u64>> {
         flight.settle().await;
         self.fold_in(flight, turn, driving)
     }
@@ -1645,17 +1647,12 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
     /// is shown. A tool result would be the wrong shape twice over, because the
     /// call it would answer already has a result and a second one is a log that
     /// can disagree with itself about what came back.
-    fn fold_in<S, A, F>(
+    fn fold_in<S: FnMut(Update), A>(
         &self,
         flight: &mut Flight<'_>,
         turn: u32,
         driving: &Driving<'_, S, A>,
-    ) -> Result<Vec<u64>>
-    where
-        S: FnMut(Update) + Send,
-        A: FnMut(Asking) -> F + Send,
-        F: Future<Output = Decision> + Send,
-    {
+    ) -> Result<Vec<u64>> {
         let harvested = flight.take()?;
         if harvested.is_empty() {
             return Ok(Vec::new());
@@ -1669,7 +1666,9 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
         let mut blocks = Vec::with_capacity(harvested.len());
         for one in &harvested {
             blocks.push(self.with_session(|session| {
-                session.folded_in(turn, one.call, &one.agent, one.answer)?;
+                if let Some(answer) = one.answer {
+                    session.folded_in(turn, one.call, &one.agent, answer)?;
+                }
                 // `Source::Tool` rather than `Inject`, and it decides more than
                 // a colour: `Replay::conversation` carries a fragment a tool put
                 // there and leaves the ones Demido re-derives every turn, so the
@@ -1761,18 +1760,21 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
             .tools
             .narrowed(Some(resolution.offered()))
             .delegating_to(delegating);
+        let agent = session.agent().clone();
         let child = Agent {
             chat: self.chat,
             delegations: Arc::new(delegations),
-            // What the child may call, narrowed to what it inherited.
+            // What the child may call, narrowed to what it inherited, with its
+            // `delegate_task` rebound to the rendezvous above.
             //
-            // **Nothing is rebound to the child, because nothing was bound.**
-            // The `delegate_task` in a child's registry is the same tool the
-            // conversation's holds, and it holds a channel rather than a
-            // session; what answers on it is whichever loop is running, and
-            // from here down that is the child's `running`. A sub-agent
-            // therefore cannot hold a handle on a conversation it is not in,
-            // which is stronger than rebinding one correctly.
+            // **What is rebound is a channel, never a session.** #63 got to
+            // "no sub-agent holds a handle on a conversation it is not in" by
+            // there being no handle to hold: the tool holds a channel, and
+            // whichever loop answers on it records into its own session. That
+            // is still true, and it is why the rebinding here is cheap. What
+            // changed on #66 is that *which* loop answers stopped being
+            // obvious: two of them run at once, so the channel has to name the
+            // agent rather than the moment.
             rules: Rules {
                 registry,
                 resolution,
@@ -1790,6 +1792,7 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
         let sent = child.compose(task, Carrying::Nothing, &model, &resolved)?;
         Ok(Opened::Child(Box::new(Opening {
             child,
+            agent,
             sent,
             backend,
         })))
@@ -1835,26 +1838,24 @@ impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
             // waiting for is the next question's VRAM.
             //
             match self.steps(backend, sent, driving).await {
-                Ok(answer) => Ok((answer.seq, Ok(answer.text))),
+                Ok(answer) => Ok((Some(answer.seq), Ok(answer.text))),
                 Err(Error::Journal(journal)) => Err(Error::Journal(journal)),
                 Err(error) => {
                     // On the child's own half of the log, because it is the child's
                     // turn that ended. Best effort for the reason `ask`'s is: when
                     // the log is what failed, recording that it failed fails too.
                     let detail = error.to_string();
-                    let at = match self.with_session(|session| {
-                        Ok(session.failed(number, error.kind(), &detail)?)
-                    }) {
-                        Ok(seq) => seq,
-                        Err(unrecorded) => {
+                    // Nothing on the log to point at when the write itself is
+                    // what failed, and `None` says so rather than a position
+                    // nothing is at.
+                    let at = self
+                        .with_session(|session| {
+                            Ok(session.failed(number, error.kind(), &detail)?)
+                        })
+                        .inspect_err(|unrecorded| {
                             tracing::warn!(%unrecorded, "the sub-agent's failure was not recorded");
-                            // Nothing on the log to point at. Zero is not an event,
-                            // and the blocking path never reads this: it is the
-                            // background one that would, and a log that refused the
-                            // failure is a log that will refuse the fold-in too.
-                            0
-                        }
-                    };
+                        })
+                        .ok();
                     // not-a-prompt: what the sub-agent's turn said went wrong,
                     // handed to the model that asked for it as the call's result.
                     Ok((at, Err(Failure::final_(detail))))

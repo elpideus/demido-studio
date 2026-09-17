@@ -225,12 +225,19 @@ and the chat in the two that follow, because a tool wired to one conversation's
 loop and registered on another's is a delegation that answers in the wrong
 session.
 
-**Nothing is rebound to a child, because nothing was bound.** The ticket asks
-that "a tool bound to a session is rebound to the child before the child runs,
-so no sub-agent holds a handle on a conversation it is not in", and a pair gets
-there by a shorter road: `delegate_task` holds a channel rather than a session,
-and what answers on it is whichever loop is running, which from a child down is
-the child's. There is no handle to hold wrongly.
+**What a child is given is a channel, never a session.** The ticket asks that
+"a tool bound to a session is rebound to the child before the child runs, so no
+sub-agent holds a handle on a conversation it is not in", and a pair gets there
+by a shorter road: `delegate_task` holds a channel, and whichever loop answers
+on it records into its own session. There is no handle to hold wrongly.
+
+#63 could leave that channel alone, because one loop awaited a delegation at a
+time and *whichever loop is running* was never ambiguous. #66 could not: above
+the default two loops run at once, so `open` mints a rendezvous per child and
+rebinds the child's registry to it (`Registry::delegating_to`). What is rebound
+is still a channel and still not a session, and the reason for rebinding it is
+that an ask answered by whichever loop polled first is a grandchild carried out
+correctly and **recorded under the wrong parent**.
 
 **The inheritance rule is called on the way into every child, at every depth.**
 `demido_permission::inherit`, over the parent's `Resolution` and a `Request`, and
@@ -409,7 +416,7 @@ and a fix, and it is not something a frontend can derive from a tag.
 | `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, what a stop leaves, what the transcript draws for a call, and which tier an *always* is written to. Against the same scripted backend. |
 | `tests/offered.rs` | What reaches the payload: the offered set and the mode off the ladder, a switched-off tool absent and refused as off, and one chat's set reaching no other. |
 | `tests/monitored.rs` | What the session monitor reads: the assembly at an event, and a group switched off in the picker told apart from one nothing ever offered. |
-| `tests/harvested.rs` | The asynchronous path: the call answered at once, the answer as a framed message rather than a second result, a background answer after every call of its step, a run that stopped asking for tools waiting and folding in, a step ceiling that does not eat an answer, two sub-agents in log order, the frame carried into the next message, and the default still blocking. |
+| `tests/harvested.rs` | The asynchronous path: the call answered at once, the answer as a framed message rather than a second result, a background answer at a boundary in the **middle** of a turn and after every call of that step, two sub-agents at two boundaries with a generation between them, a run that stopped asking for tools waiting and folding in, a step ceiling that does not eat an answer, a stop that does not either, a full pool falling back to blocking, the frame carried into the next message, and the default still blocking. Every assertion is on the log; the only sleep in the file is the one that presses Stop. |
 | `tests/delegated.rs` | The child session: the store it shares, the clean context and the durable record, the call that blocks, the ceiling at every depth, a failed call inside a child against a log that will not take one, and a Stop asserted at depth 2. Then the depth control: the tool absent from every child at depth 1, the brief's chain of three at depth 3, a depth raised from the approval callback reaching the next delegation of the same turn, and a child at the limit told why in its own words. |
 
 The scripted backend is `demido_inference::scripted`, which passes the

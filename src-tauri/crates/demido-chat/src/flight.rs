@@ -58,7 +58,7 @@ pub(crate) struct Slots {
 
 impl Slots {
     /// The sub-agent slots under a backend that opened `slots` of them.
-    pub(crate) fn beside(slots: u32) -> Self {
+    pub(crate) fn under(slots: u32) -> Self {
         let spare = slots.saturating_sub(1) as usize;
         Self {
             free: (spare > 0).then(|| Arc::new(Semaphore::new(spare))),
@@ -92,7 +92,14 @@ pub(crate) struct Harvest {
     pub(crate) task: String,
     /// The child's own answer, by position on its half of the log. What
     /// `agent/returned` names rather than copies.
-    pub(crate) answer: u64,
+    ///
+    /// `None` only where the child's log refused the event that would have been
+    /// its answer, which is the staged full disk of `tests/delegated.rs`. There
+    /// is then nothing on the log to name, so nothing claims there is: the
+    /// answer is still framed for the model, and the fact that it came back is
+    /// the one thing that goes unrecorded, because recording it would mean
+    /// pointing at an event that is not there.
+    pub(crate) answer: Option<u64>,
     /// What it said, or what went wrong with it.
     pub(crate) outcome: Outcome,
 }
@@ -199,15 +206,15 @@ mod tests {
     /// nothing and every delegation blocks.
     #[test]
     fn the_default_is_not_a_pool_at_all() {
-        assert!(Slots::beside(1).take().is_none());
-        assert!(Slots::beside(0).take().is_none());
+        assert!(Slots::under(1).take().is_none());
+        assert!(Slots::under(0).take().is_none());
     }
 
     /// Two slots is one sub-agent beside the conversation, and a second
     /// delegation while it is out blocks rather than being refused.
     #[test]
     fn a_pool_that_is_full_sends_the_next_delegation_down_the_blocking_path() {
-        let slots = Slots::beside(2);
+        let slots = Slots::under(2);
         let held = slots.take().expect("one sub-agent beside the conversation");
         assert!(slots.take().is_none(), "the second waits its turn");
         drop(held);
@@ -256,7 +263,7 @@ mod tests {
             call,
             agent: AgentId::delegated(call),
             task: "look something up".to_owned(),
-            answer: call + 1,
+            answer: Some(call + 1),
             outcome: Ok("done".to_owned()),
         }
     }

@@ -23,10 +23,11 @@
 
 use std::future::{ready, Ready};
 use std::sync::Arc;
+use std::time::Duration;
 
 use demido_chat::{Asking, Chat, Decision, Model, Pool, Toolbox};
 use demido_inference::scripted::{Script, Scripted, Step};
-use demido_inference::{Request, Role, Supervisor, ToolCall};
+use demido_inference::{FinishReason, Request, Role, Supervisor, ToolCall};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
 use demido_tools::{delegation, files, Registry, Workspace};
 use demido_trace::{Body, Event, Journal, Memory, Replay};
@@ -203,6 +204,44 @@ fn answers(events: &[Event]) -> Vec<u64> {
         .collect()
 }
 
+/// Where every generation of the **conversation** ended, in order.
+///
+/// What tells a fold-in at a boundary in the middle of a turn from one at the
+/// end of it: a `turn/completion` after an `agent/returned` means the turn went
+/// on to talk to the model again, so the answer was folded into a step rather
+/// than into the ending.
+///
+/// Scoped to the main agent, because the sub-agents are generating on this same
+/// log at the same time and their completions are their own steps rather than
+/// the conversation's. Counting theirs would make this read the concurrency it
+/// is supposed to be blind to.
+fn completions(events: &[Event]) -> Vec<u64> {
+    events
+        .iter()
+        .filter(|event| {
+            event.agent == demido_trace::AgentId::main()
+                && matches!(event.body, Body::Completion { .. })
+        })
+        .map(|event| event.seq)
+        .collect()
+}
+
+/// A generation long enough for a sub-agent started before it to finish inside
+/// it, ending in the call named.
+///
+/// **Not a clock.** Nothing here waits for a duration or reads one: the
+/// conversation simply has more to say than the sub-agent does, which is the
+/// ordinary case and the one where a boundary in the middle of a turn exists at
+/// all. The assertions are on the log either way, and a run where the child had
+/// not finished would fold it in at a later boundary rather than fail.
+fn talks_then_calls(id: &str, name: &str, arguments: serde_json::Value) -> Vec<Step> {
+    let mut steps: Vec<Step> = (0..12)
+        .map(|at| Step::Say(format!("thinking about it, {at}. ")))
+        .collect();
+    steps.push(Step::Call(call(id, name, arguments)));
+    steps
+}
+
 fn user_messages(request: &Request) -> Vec<&str> {
     request
         .messages
@@ -306,17 +345,22 @@ async fn the_answer_arrives_as_a_framed_message() {
 
 /// A background answer appears after every call of its step is answered, and
 /// nowhere else.
+///
+/// The turn is shaped so the fold-in lands at a boundary **in the middle** of
+/// it rather than at its ending: the sub-agent is asked for in the first step,
+/// finishes while the conversation is talking in the second, and is written
+/// after the second step's own call has been answered. A run that only ever
+/// folded in at the end would pass a weaker version of this without ever
+/// reaching the boundary the ticket is about.
 #[tokio::test]
 async fn a_background_answer_waits_for_the_rest_of_its_step() {
     let script = Script::serving("scripted")
-        .then(vec![
-            Step::Call(call(
-                "call-1",
-                "delegate_task",
-                json!({ "task": "Find when the meeting is" }),
-            )),
-            Step::Call(call("call-2", "read_file", json!({ "path": "notes.txt" }))),
-        ])
+        .then(delegates("call-1", "Find when the meeting is"))
+        .then(talks_then_calls(
+            "call-2",
+            "read_file",
+            json!({ "path": "notes.txt" }),
+        ))
         .then_say(&["The meeting is Thursday."])
         .when_say("Find when the meeting is", &["Thursday."]);
     let rig = Rig::new(script);
@@ -331,11 +375,24 @@ async fn a_background_answer_waits_for_the_rest_of_its_step() {
     let folded = folded(&events);
     assert_eq!(folded.len(), 1);
     let (at, _, _) = folded[0];
+
     let answers = answers(&events);
-    assert_eq!(answers.len(), 2, "both calls of the step were answered");
+    assert_eq!(answers.len(), 2, "the delegation and the read: {answers:?}");
     assert!(
         answers.iter().all(|answer| *answer < at),
         "the fold-in is after every answer of its step: {answers:?} then {at}"
+    );
+    // The half the ordering above cannot see on its own: this was a boundary
+    // the turn carried on from, not the end of the turn.
+    let completions = completions(&events);
+    assert!(
+        completions.iter().any(|completion| *completion > at),
+        "the turn took another step with the answer in it: {completions:?} around {at}"
+    );
+    assert_eq!(
+        completions.iter().filter(|at_| **at_ < at).count(),
+        2,
+        "and it is the second step's boundary rather than the first: {completions:?}"
     );
 }
 
@@ -410,11 +467,26 @@ async fn the_step_ceiling_does_not_eat_an_answer() {
 
 /// Two sub-agents in flight fold in at their own step boundaries, in the order
 /// their delegations are on the log.
+///
+/// The first is asked for in step one and finishes while the conversation talks
+/// in step two; the second is asked for at the end of step two and finishes
+/// while it talks in step three. So the two fold-ins are separated by a
+/// generation, which is what *their own* boundaries means and what a pair
+/// harvested together at the ending would not show.
 #[tokio::test]
-async fn two_sub_agents_fold_in_in_log_order() {
+async fn two_sub_agents_fold_in_at_their_own_boundaries() {
     let script = Script::serving("scripted")
         .then(delegates("call-1", "Find when the meeting is"))
-        .then(delegates("call-2", "Find who is coming"))
+        .then(talks_then_calls(
+            "call-2",
+            "delegate_task",
+            json!({ "task": "Find who is coming" }),
+        ))
+        .then(talks_then_calls(
+            "call-3",
+            "read_file",
+            json!({ "path": "notes.txt" }),
+        ))
         .then_say(&["Thursday, and everyone is coming."])
         .when_say("Find when the meeting is", &["Thursday."])
         .when_say("Find who is coming", &["Everyone."]);
@@ -422,7 +494,7 @@ async fn two_sub_agents_fold_in_in_log_order() {
     let chat = rig.chat(3);
     chat.load(|_| {}).await;
 
-    chat.ask("When is the meeting, and who?", |_| {}, nobody())
+    chat.ask("When is the meeting, and who?", |_| {}, allowing())
         .await
         .unwrap();
 
@@ -442,20 +514,141 @@ async fn two_sub_agents_fold_in_in_log_order() {
         "in the order they were asked for, whatever order they finished in"
     );
 
-    // Each is at a boundary of its own: after the call that asked for it had
-    // been answered, which is the step it belongs to.
-    let answers = answers(&events);
-    assert_eq!(answers.len(), 2, "one result per delegation: {answers:?}");
-    for (at, _, _) in &folded {
-        assert!(
-            answers.iter().any(|answer| answer < at),
-            "a fold-in with no answered call before it: {at}"
-        );
-    }
-    assert!(
-        folded[0].0 < folded[1].0,
-        "and the log reads them in that order too"
+    // Two boundaries rather than one: a generation stands between them, so
+    // neither was harvested at the other's step.
+    let between: Vec<u64> = completions(&events)
+        .into_iter()
+        .filter(|completion| *completion > folded[0].0 && *completion < folded[1].0)
+        .collect();
+    assert_eq!(
+        between.len(),
+        1,
+        "one generation between the two fold-ins: {between:?} between {} and {}",
+        folded[0].0,
+        folded[1].0
     );
+
+    // And each is after the call that asked for it was answered.
+    for (at, call, _) in &folded {
+        let answered = answers(&events)
+            .into_iter()
+            .find(|answer| answer > call)
+            .expect("the call was answered");
+        assert!(answered < *at, "a fold-in before its own step was answered");
+    }
+}
+
+/// A delegation that finds no free slot blocks, and its answer is its own
+/// result. The pool is a size rather than a switch.
+///
+/// Two delegations in one step at one spare slot: the first takes it and is
+/// answered with the acknowledgement, and the second has nowhere to go and so
+/// takes the path the default takes. The model is never told there is no room.
+#[tokio::test]
+async fn a_full_pool_sends_the_next_delegation_down_the_blocking_path() {
+    let script = Script::serving("scripted")
+        .then(vec![
+            Step::Call(call(
+                "call-1",
+                "delegate_task",
+                json!({ "task": "Find when the meeting is" }),
+            )),
+            Step::Call(call(
+                "call-2",
+                "delegate_task",
+                json!({ "task": "Find who is coming" }),
+            )),
+        ])
+        .then_say(&["Thursday, and everyone is coming."])
+        .when_say("Find when the meeting is", &["Thursday."])
+        .when_say("Find who is coming", &["Everyone."]);
+    let rig = Rig::new(script);
+    // Two slots is one sub-agent beside the conversation, and this step asks
+    // for two.
+    let chat = rig.chat(2);
+    chat.load(|_| {}).await;
+
+    chat.ask("When is the meeting, and who?", |_| {}, nobody())
+        .await
+        .unwrap();
+
+    let events = rig.events();
+    let asked: Vec<u64> = calls(&events)
+        .into_iter()
+        .filter(|(_, name)| name == "delegate_task")
+        .map(|(seq, _)| seq)
+        .collect();
+    assert_eq!(asked.len(), 2);
+
+    assert_eq!(
+        result(&events, asked[0]),
+        Some((rig.paragraph(demido_prompts::id::AGENT_DELEGATED), false)),
+        "the first took the slot and did not wait"
+    );
+    assert_eq!(
+        result(&events, asked[1]),
+        Some(("Everyone.".to_owned(), false)),
+        "the second found none free and blocked, so its answer is its result"
+    );
+    assert_eq!(
+        folded(&events)
+            .iter()
+            .map(|(_, call, _)| *call)
+            .collect::<Vec<_>>(),
+        vec![asked[0]],
+        "and only the one that went to the pool is folded in"
+    );
+}
+
+/// A stop does not lose the answer either. Every ending goes through the same
+/// wait, and a person who stopped the turn is the likeliest of all to wonder
+/// what the sub-agent had got to.
+///
+/// **The one test here that touches the clock, and it touches it to press the
+/// button rather than to decide an order.** Pressing Stop is a moment in time,
+/// so there is a sleep before it; what is asserted afterwards is still only the
+/// log.
+#[tokio::test]
+async fn a_stop_still_writes_down_what_the_sub_agent_had_got_to() {
+    let script = Script::serving("scripted")
+        .then(delegates("call-1", "Find when the meeting is"))
+        .then(vec![
+            Step::Say("Still".into()),
+            Step::Say(" going".into()),
+            Step::Say(" and going".into()),
+            Step::Say(" and going".into()),
+            Step::Say(" and going".into()),
+            Step::Say(" and going".into()),
+        ])
+        .when_say("Find when the meeting is", &["Thursday", ", probably."])
+        .pausing(Duration::from_millis(100));
+    let rig = Rig::new(script);
+    let chat = Arc::new(rig.chat(2));
+    chat.load(|_| {}).await;
+
+    let asking = {
+        let chat = chat.clone();
+        tokio::spawn(async move { chat.ask("When is the meeting?", |_| {}, nobody()).await })
+    };
+    // Long enough for the delegation to be out and the conversation to be
+    // talking, which is where a background sub-agent is actually running.
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert!(chat.stop());
+
+    let answer = tokio::time::timeout(Duration::from_secs(5), asking)
+        .await
+        .expect("a stop does not wait for work, only for endings")
+        .unwrap()
+        .expect("a stop is not an error");
+
+    assert_eq!(answer.reason, FinishReason::Cancelled);
+    let events = rig.events();
+    assert_eq!(
+        folded(&events).len(),
+        1,
+        "the sub-agent's ending was folded in rather than dropped"
+    );
+    assert!(!chat.stop(), "and nothing is left running");
 }
 
 /// The frame is part of what this conversation was told, so the next message
