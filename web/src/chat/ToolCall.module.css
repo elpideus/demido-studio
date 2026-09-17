@@ -32,43 +32,25 @@
  * the colour of a thing that waited on a person, and a refusal is what that
  * waiting came to. */
 
+/* The header line, its icon, the label voice and the subject beside it are the
+ * shape every row of this kind has (./Row.module.css). */
 .head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-tight);
-  min-width: 0;
+  composes: head from './Row.module.css';
 }
 
 .icon {
-  flex: none;
-  width: var(--size-icon-small);
-  height: var(--size-icon-small);
+  composes: icon from './Row.module.css';
 }
 
-/* The equipment label voice: this is a name a machine has, not a word somebody
- * wrote. */
 .tool {
-  flex: none;
-  font-family: var(--font-mono);
-  font-variation-settings: 'wdth' var(--width-silkscreen);
-  font-size: var(--text-silkscreen);
-  letter-spacing: var(--tracking-silkscreen);
-  text-transform: uppercase;
+  composes: label from './Row.module.css';
 }
 
-/* The model's own text for the arguments, on one line. It is truncated rather
- * than wrapped, because the row is a header: what the call did at a glance,
- * with the detail underneath it. */
+/* The model's own text for the arguments, on one line: what the call did at a
+ * glance, with the detail underneath it. */
 .arguments {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  composes: subject from './Row.module.css';
   color: var(--color-ink-4);
-  font-family: var(--font-mono);
-  font-variation-settings: 'wdth' var(--width-code);
-  font-size: var(--text-meta);
 }
 
 /* What came back, in the reading ink rather than in the row's state colour: it
@@ -92,30 +74,9 @@
 }
 
 .more {
-  display: flex;
-  align-items: center;
-  gap: var(--space-hair);
-  margin-top: var(--space-tight);
-  padding: var(--space-hair) var(--space-tight);
-  border: none;
-  border-radius: var(--radius-control);
-  background: none;
-  color: var(--color-ink-3);
-  font: inherit;
-  font-size: var(--text-meta);
-  cursor: pointer;
-}
-
-.more:hover {
-  background: var(--color-hover);
+  composes: more from './Row.module.css';
 }
 
 .chevron {
-  width: var(--size-icon-small);
-  height: var(--size-icon-small);
-  transition: transform var(--duration-tap) var(--ease-mech);
-}
-
-.more[aria-expanded='true'] .chevron {
-  transform: rotate(180deg);
+  composes: chevron from './Row.module.css';
 }

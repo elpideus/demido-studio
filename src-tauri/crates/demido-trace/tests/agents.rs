@@ -595,7 +595,7 @@ fn a_refusal_names_the_paragraph_that_stated_the_reason() {
         .iter()
         .find_map(|moment| match moment {
             demido_trace::Moment::Called(called) => Some(called),
-            _ => None,
+            demido_trace::Moment::Said(_) | demido_trace::Moment::Delegated(_) => None,
         })
         .expect("the call is a row");
     match called.outcome.as_ref().expect("it was answered") {
@@ -667,7 +667,6 @@ fn a_delegation_is_one_moment_carrying_the_task_and_the_answer() {
         .expect("a delegation is a moment of its own");
     assert_eq!(delegation.seq, call, "the row is the call that asked");
     assert_eq!(delegation.agent, *child.agent());
-    assert_eq!(delegation.depth, 1);
     assert_eq!(
         delegation.task, "Read notes.txt and say when the meeting is",
         "the task as the child was given it, off the child's own log"

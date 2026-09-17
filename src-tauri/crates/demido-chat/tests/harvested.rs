@@ -721,7 +721,7 @@ async fn the_transcript_draws_the_answer_and_not_the_acknowledgement() {
         .iter()
         .find_map(|moment| match moment {
             demido_chat::Moment::Delegated(delegation) => Some(delegation),
-            _ => None,
+            demido_chat::Moment::Said(_) | demido_chat::Moment::Called(_) => None,
         })
         .expect("a delegation is one exchange on this path too");
     assert_eq!(delegation.task, "Find when the meeting is");

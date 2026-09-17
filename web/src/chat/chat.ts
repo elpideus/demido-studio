@@ -70,8 +70,6 @@ export type Delegation = {
   /** The sub-agent that carried it out, named as the monitor's agent column
    * names it. */
   agent: string
-  /** Counting up from the conversation at zero. */
-  depth: number
   /** The task, as the sub-agent was given it. */
   task: string
   /** Nothing while the sub-agent is still working. */

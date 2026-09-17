@@ -1,0 +1,80 @@
+/*
+ * What a row in the transcript that is not a message is made of: the header
+ * line, its icon, and the control that unfolds what it carries.
+ *
+ * The tool call row (#55) and the delegation row (#67) are two rows with one
+ * shape: an icon and a label in the equipment voice, a payload under it, and a
+ * fold when the payload is long. They were the same declarations twice before
+ * this file existed, which is a restyle that has to be made in two places and
+ * eventually is not.
+ *
+ * Composed into, never used directly: each row keeps its own surface, its own
+ * accent and its own states, because those are what tell the two apart. The
+ * surfaces are docs/rules/surfaces.md and the numbers are design/tokens.css.
+ */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  min-width: 0;
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+/* The equipment label voice: a name a machine has, not a word somebody wrote. */
+.label {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+/* What the row is about, on one line beside its label: the arguments a call
+ * was made with, or the sub-agent an exchange was with. Truncated rather than
+ * wrapped, because the line is a header. */
+.subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-meta);
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  gap: var(--space-hair);
+  margin-top: var(--space-tight);
+  padding: var(--space-hair) var(--space-tight);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  font: inherit;
+  font-size: var(--text-meta);
+  cursor: pointer;
+}
+
+.more:hover {
+  background: var(--color-hover);
+}
+
+.chevron {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  transition: transform var(--duration-tap) var(--ease-mech);
+}
+
+.more[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}

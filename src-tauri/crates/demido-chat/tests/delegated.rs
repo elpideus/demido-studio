@@ -252,6 +252,28 @@ fn result(events: &[Event], call: u64) -> Option<(String, bool)> {
     })
 }
 
+/// The one delegation the conversation's transcript draws, which is what every
+/// scenario here asks about and is exactly one in all of them.
+///
+/// A helper rather than the same `find_map` six times, and it asserts the count
+/// on the way past: a second delegation nobody expected would otherwise be
+/// read as the first (`a_tool.rs`'s `only_call` is the same idea one row over).
+fn only_delegation(transcript: &[Moment]) -> &demido_chat::Delegation {
+    let drawn: Vec<&demido_chat::Delegation> = transcript
+        .iter()
+        .filter_map(|moment| match moment {
+            Moment::Delegated(delegation) => Some(delegation),
+            Moment::Said(_) | Moment::Called(_) => None,
+        })
+        .collect();
+    assert_eq!(
+        drawn.len(),
+        1,
+        "one delegation is drawn, once: {transcript:?}"
+    );
+    drawn[0]
+}
+
 fn user_messages(request: &Request) -> Vec<&str> {
     request
         .messages
@@ -1002,13 +1024,7 @@ async fn a_delegation_is_one_exchange_in_the_transcript() {
         .unwrap();
 
     let transcript = chat.transcript().unwrap();
-    let delegation = transcript
-        .iter()
-        .find_map(|moment| match moment {
-            Moment::Delegated(delegation) => Some(delegation),
-            _ => None,
-        })
-        .expect("the delegation is a moment of its own");
+    let delegation = only_delegation(&transcript);
     assert_eq!(
         delegation.task, "Read notes.txt and say when the meeting is",
         "the task as it went out"
@@ -1031,14 +1047,6 @@ async fn a_delegation_is_one_exchange_in_the_transcript() {
             .count(),
         0,
         "the conversation called nothing itself: {transcript:?}"
-    );
-    assert_eq!(
-        transcript
-            .iter()
-            .filter(|moment| matches!(moment, Moment::Delegated(_)))
-            .count(),
-        1,
-        "and the delegation is drawn once"
     );
 }
 
@@ -1067,16 +1075,11 @@ async fn a_sub_agent_that_ended_badly_reads_as_a_failure_on_the_row() {
         .await
         .unwrap();
 
-    let delegation = chat
-        .transcript()
-        .unwrap()
-        .into_iter()
-        .find_map(|moment| match moment {
-            Moment::Delegated(delegation) => Some(delegation),
-            _ => None,
-        })
-        .expect("a delegation that failed is still a delegation");
-    let answer = delegation.answer.expect("it ended, badly");
+    let transcript = chat.transcript().unwrap();
+    let answer = only_delegation(&transcript)
+        .answer
+        .as_ref()
+        .expect("a delegation that failed is still a delegation, and it ended");
     assert!(
         answer.failed,
         "the sub-agent's run ended in a failure, and the row says so: {answer:?}"
@@ -1153,9 +1156,77 @@ async fn a_denied_delegation_is_reported_and_the_model_does_something_else() {
             &event.body,
             Body::Call { name, .. } if name == "read_file"
         )),
-        "and the model then did the work itself rather than asking again"
+        "and the model then did the work itself"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(
+                |event| matches!(&event.body, Body::Call { name, .. } if name == "delegate_task")
+            )
+            .count(),
+        1,
+        "rather than asking for the same sub-agent again"
     );
     assert_eq!(answer.text, "The meeting is Thursday.");
+
+    // The information itself: the declined paragraph, filled, in the request
+    // the next step was sent with. Handing a denial to the model is the whole
+    // criterion, and a run where the loop carried on without telling it would
+    // look identical from the log's tool rows alone.
+    let told = rig
+        .paragraph(demido_prompts::id::TOOLS_DENIED)
+        .fill(&[("tool", "delegate_task")]);
+    let next = &rig.script.requests()[1];
+    assert!(
+        next.messages
+            .iter()
+            .any(|message| message.content.contains(told.trim())),
+        "the model is handed the refusal it is meant to act on: {:?}",
+        next.messages
+    );
+}
+
+/// The floor holds in the mode that never asks about the delegation at all.
+///
+/// Autonomous is the case the criterion is really about: the delegation itself
+/// runs unasked, so the only prompt in the whole turn is the destructive call
+/// the sub-agent made, and a floor that lived in the parent's answer rather
+/// than under every call would have nothing to hold here.
+#[tokio::test]
+async fn a_destructive_call_inside_a_child_asks_even_in_autonomous() {
+    let script = Script::serving("scripted")
+        .when("Tidy up.", delegates("call-1", "Delete the draft"))
+        .when(
+            "Delete the draft",
+            vec![Step::Call(call(
+                "call-2",
+                "delete_file",
+                json!({ "path": "draft.txt" }),
+            ))],
+        )
+        .when_say("Delete the draft", &["Deleted."])
+        .when_say("Tidy up.", &["The draft is gone."]);
+    let rig = Rig::new(script);
+    std::fs::write(
+        rig.project.path().join("draft.txt"),
+        "a draft
+",
+    )
+    .unwrap();
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    chat.ask("Tidy up.", |_| {}, allowing(&asked))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        asked.lock().unwrap().as_slice(),
+        ["delete_file"],
+        "autonomous asks about nothing else, and about this one every time"
+    );
 }
 
 /// *Always for this tool* on the delegation does not reach a destructive call
@@ -1246,12 +1317,23 @@ async fn nothing_any_agent_is_sent_names_the_mode_or_the_depth() {
     // the standing prose, which is where a rule the loop keeps would leak into
     // something the model could argue with.
     for request in rig.script.requests() {
-        for message in request
+        let prose = request
             .messages
             .iter()
             .filter(|message| message.answers.is_none())
-        {
-            let said = message.content.to_lowercase();
+            .map(|message| message.content.clone())
+            // The tool documents as well as the messages: a tool's description
+            // and its parameter prose are host prompt text the model reads
+            // (`docs/rules/prompts.md`), and the depth is exactly the thing that
+            // would be explained there if it were explained anywhere.
+            .chain(
+                request
+                    .tools
+                    .iter()
+                    .map(|tool| format!("{} {}", tool.description, tool.parameters)),
+            );
+        for said in prose {
+            let said = said.to_lowercase();
             for word in ["cautious", "balanced", "autonomous", "depth"] {
                 assert!(
                     !said.contains(word),

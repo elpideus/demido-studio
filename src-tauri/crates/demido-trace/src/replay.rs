@@ -171,14 +171,23 @@ pub struct Delegation {
     /// The sub-agent that carried it out, so a transcript and the monitor's
     /// agent column name the same thing.
     pub agent: AgentId,
-    /// Counting up from the conversation at zero, as `design/windows.md`
-    /// renders the chain.
-    pub depth: u32,
     /// The task, as the child was given it: the child's own first message,
     /// rather than the call's arguments parsed a second time here.
     pub task: String,
     /// What came back, or nothing while the sub-agent is still working.
     pub answer: Option<Delivered>,
+}
+
+/// One sub-agent's half of the log, as the pass over it collects it: what it
+/// was given, and what it came to.
+///
+/// Scratch for [`Replay::transcript`] and nothing anybody hands out: the two
+/// fields become a [`Delegation`]'s, and reading them per delegation instead
+/// would be a scan of the whole log per delegation.
+#[derive(Default)]
+struct Child {
+    task: Option<String>,
+    ending: Option<Delivered>,
 }
 
 /// What a sub-agent's run came to, named by position on the child's own half of
@@ -446,22 +455,58 @@ impl Replay {
         // recorded, so a scan per call is a scan per call per call, and a long
         // session is where somebody would notice.
         let mut answers: BTreeMap<u64, u64> = BTreeMap::new();
+        // The delegations this agent opened, so that a call which is one is
+        // known without this projection knowing the name of a tool, and what
+        // each sub-agent was given and came to, which are the two things the
+        // row is made of. All three in the one pass, for the reason above.
+        let mut delegated: BTreeMap<u64, &AgentId> = BTreeMap::new();
+        let mut children: BTreeMap<&AgentId, Child> = BTreeMap::new();
         for event in &self.events {
-            if let Body::Result { call, .. } | Body::Refusal { call, .. } = &event.body {
-                answers.entry(*call).or_insert(event.seq);
+            match &event.body {
+                Body::Result { call, .. } | Body::Refusal { call, .. } => {
+                    answers.entry(*call).or_insert(event.seq);
+                }
+                Body::Delegated { call, agent, .. } if event.agent == self.agent => {
+                    delegated.insert(*call, agent);
+                }
+                // The task is the first thing said in the child's own session,
+                // read off the child rather than parsed out of the call's
+                // arguments: the arguments are the model's own text and may not
+                // even parse ([`Called::arguments`] keeps them as written),
+                // while what the sub-agent was actually asked is what its
+                // session opened with.
+                Body::Message {
+                    role: Role::User,
+                    text,
+                } => {
+                    let child = children.entry(&event.agent).or_default();
+                    if child.task.is_none() {
+                        child.task = Some(text.clone());
+                    }
+                }
+                // How the child's run ended, which is a completion it stopped
+                // on or the failure it ended with, whichever came last. A
+                // completion that only asked for calls is a step of the child's
+                // own rather than an answer to its parent, and a row that took
+                // one would report the first thing the sub-agent happened to
+                // say as what it came back with.
+                Body::Completion { text, reason, .. } if *reason != FinishReason::ToolCalls => {
+                    children.entry(&event.agent).or_default().ending = Some(Delivered {
+                        seq: event.seq,
+                        text: text.clone(),
+                        failed: false,
+                    });
+                }
+                Body::Failure { detail, .. } => {
+                    children.entry(&event.agent).or_default().ending = Some(Delivered {
+                        seq: event.seq,
+                        text: detail.clone(),
+                        failed: true,
+                    });
+                }
+                _ => {}
             }
         }
-
-        // And one for the delegations this agent opened, so a call that is one
-        // is known without a second scan per call and without this projection
-        // knowing the name of a tool.
-        let delegated: BTreeMap<u64, (&AgentId, u32)> = self
-            .mine()
-            .filter_map(|event| match &event.body {
-                Body::Delegated { call, agent, depth } => Some((*call, (agent, *depth))),
-                _ => None,
-            })
-            .collect();
 
         let mut moments: Vec<Moment> = self.history().into_iter().map(Moment::Said).collect();
         for event in self.mine() {
@@ -476,14 +521,16 @@ impl Replay {
             // a tool name written down here: `delegate_task` is the registry's
             // word for it, and a transcript that matched on it would be a
             // rendering decision about a name somebody else owns.
-            if let Some((agent, depth)) = delegated.get(&event.seq) {
+            if let Some(agent) = delegated.get(&event.seq) {
+                let child = children.get(agent);
                 moments.push(Moment::Delegated(Delegation {
                     seq: event.seq,
                     turn: event.turn,
                     agent: (*agent).clone(),
-                    depth: *depth,
-                    task: self.task(agent),
-                    answer: self.delivered(agent),
+                    task: child
+                        .and_then(|child| child.task.clone())
+                        .unwrap_or_default(),
+                    answer: child.and_then(|child| child.ending.clone()),
                 }));
                 continue;
             }
@@ -505,57 +552,6 @@ impl Replay {
             Moment::Delegated(delegation) => delegation.seq,
         });
         Ok(moments)
-    }
-
-    /// The task one sub-agent was given, which is the first thing said in its
-    /// own session.
-    ///
-    /// Read off the child rather than parsed out of the call's arguments. The
-    /// arguments are the model's own text and may not even parse
-    /// ([`Called::arguments`] keeps them as written); what the sub-agent was
-    /// actually asked is what its session opened with, and that is a value the
-    /// log already holds.
-    fn task(&self, agent: &AgentId) -> String {
-        self.events
-            .iter()
-            .filter(|event| &event.agent == agent)
-            .find_map(|event| match &event.body {
-                Body::Message {
-                    role: Role::User,
-                    text,
-                } => Some(text.clone()),
-                _ => None,
-            })
-            .unwrap_or_default()
-    }
-
-    /// How one sub-agent's run ended, or nothing while it is still going.
-    ///
-    /// The ending is a completion the model stopped on or the failure the run
-    /// ended with, whichever came last. A completion that only asked for calls
-    /// is a step of the child's own rather than an answer to its parent, and a
-    /// row that took one would report the first thing the sub-agent happened to
-    /// say as what it came back with.
-    fn delivered(&self, agent: &AgentId) -> Option<Delivered> {
-        self.events
-            .iter()
-            .rev()
-            .filter(|event| &event.agent == agent)
-            .find_map(|event| match &event.body {
-                Body::Completion { text, reason, .. } if *reason != FinishReason::ToolCalls => {
-                    Some(Delivered {
-                        seq: event.seq,
-                        text: text.clone(),
-                        failed: false,
-                    })
-                }
-                Body::Failure { detail, .. } => Some(Delivered {
-                    seq: event.seq,
-                    text: detail.clone(),
-                    failed: true,
-                }),
-                _ => None,
-            })
     }
 
     /// The answer at `seq`, read as what a row shows.

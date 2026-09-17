@@ -298,7 +298,7 @@ fn calls(chat: &Chat<Watching, JsonLines>) -> Vec<demido_chat::Called> {
         .into_iter()
         .filter_map(|moment| match moment {
             Moment::Called(called) => Some(called),
-            _ => None,
+            Moment::Said(_) | Moment::Delegated(_) => None,
         })
         .collect()
 }
