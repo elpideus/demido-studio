@@ -222,7 +222,7 @@ async fn a_call_is_dispatched_run_and_its_result_is_in_the_next_request() {
         .iter()
         .filter_map(|moment| match moment {
             Moment::Said(said) => Some(said.text.clone()),
-            Moment::Called(_) => None,
+            _ => None,
         })
         .collect();
     assert_eq!(
@@ -393,7 +393,7 @@ fn only_call(transcript: &[Moment]) -> &Called {
         .iter()
         .filter_map(|moment| match moment {
             Moment::Called(called) => Some(called),
-            Moment::Said(_) => None,
+            _ => None,
         })
         .collect();
     match calls.as_slice() {

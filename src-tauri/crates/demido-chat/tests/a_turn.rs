@@ -56,7 +56,7 @@ fn said<B: Backend, J: demido_trace::Journal>(chat: &Chat<B, J>) -> Vec<demido_c
         .into_iter()
         .filter_map(|moment| match moment {
             demido_chat::Moment::Said(said) => Some(said),
-            demido_chat::Moment::Called(_) => None,
+            _ => None,
         })
         .collect()
 }

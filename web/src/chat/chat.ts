@@ -53,15 +53,49 @@ export type Called = {
   outcome: Outcome | null
 }
 
+/** What a sub-agent's run came to. The Rust `Delivered`. */
+export type Delivered = {
+  /** The child's own completion, or the failure it ended on, by position. */
+  seq: number
+  text: string
+  /** The run ended badly rather than answering. */
+  failed: boolean
+}
+
+/** One delegation, as the transcript draws it. The Rust `Delegation`. */
+export type Delegation = {
+  /** The call that asked for it, which is where the row sits in the order. */
+  seq: number
+  turn: number
+  /** The sub-agent that carried it out, named as the monitor's agent column
+   * names it. */
+  agent: string
+  /** Counting up from the conversation at zero. */
+  depth: number
+  /** The task, as the sub-agent was given it. */
+  task: string
+  /** Nothing while the sub-agent is still working. */
+  answer: Delivered | null
+}
+
 /**
  * One moment in the transcript. The Rust `Moment`, tagged.
  *
  * A transcript is not only what was said: a call and its result are drawn **in
  * the transcript at the point in the turn where they happened**
  * ([#55](https://github.com/elpideus/demido-studio/issues/55)), so the order is
- * part of what is being drawn and the two kinds arrive in one list.
+ * part of what is being drawn and the kinds arrive in one list.
+ *
+ * A delegation is the third, and it is not a call row
+ * ([#67](https://github.com/elpideus/demido-studio/issues/67)): what the
+ * conversation did was send a task out and get an answer back, and that is one
+ * exchange. The window takes no decision about which of the two a delegation
+ * is; the projection hands it one or the other.
  */
-export type Moment = ({ moment: 'said' } & Said) | ({ moment: 'called' } & Called)
+export type Moment =
+  | ({ moment: 'said' } & Said)
+  | ({ moment: 'called' } & Called)
+  | ({ moment: 'delegated' } & Delegation)
 
 /** Whether there is anything to talk to. The Rust `Presence`, tagged. */
 export type Presence =

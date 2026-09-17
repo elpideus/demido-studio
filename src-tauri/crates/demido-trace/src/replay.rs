@@ -132,10 +132,75 @@ pub struct Exchange {
 /// [#55](https://github.com/elpideus/demido-studio/issues/55) puts it where the
 /// call happened rather than in a window somebody has to go and open. So the
 /// projection a bubble list is drawn from carries both.
+///
+/// A delegation is the third, and it is not a call row
+/// ([#67](https://github.com/elpideus/demido-studio/issues/67)). The call and
+/// its result are what a delegation is made of on the log, and what a reader
+/// wants from the parent's chat is the exchange those two events stand for:
+/// the task going out and the sub-agent's answer coming back. Drawn as an
+/// ordinary call it would be a row whose result is a paragraph of somebody
+/// else's prose with nothing saying whose.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Moment {
     Said(Exchange),
     Called(Called),
+    Delegated(Delegation),
+}
+
+/// One delegation, as the parent's transcript draws it: the task that went
+/// out, and what the sub-agent answered.
+///
+/// **A projection of two halves of one log.** The call, the `agent/delegated`
+/// event and the ending are the parent's; the task and the answer are read off
+/// the child's own events, which is where they were written. Nothing is copied
+/// into a second place to make this row, and that is what keeps the row from
+/// being able to disagree with the record it is drawn from.
+///
+/// A delegation that opened no child is **not** one of these. A call the person
+/// declined, one a stop landed on and one past the depth limit are ordinary
+/// [`Called`] rows with a stated reason, because nothing was delegated and an
+/// exchange with nobody is not an exchange (`design/windows.md`: "a delegation
+/// refused at the depth limit is a row with a stated reason").
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Delegation {
+    /// The `tool/call` that asked for it, which is where the row sits in the
+    /// order and what `agent/delegated` and `agent/returned` both name.
+    pub seq: u64,
+    pub turn: u32,
+    /// The sub-agent that carried it out, so a transcript and the monitor's
+    /// agent column name the same thing.
+    pub agent: AgentId,
+    /// Counting up from the conversation at zero, as `design/windows.md`
+    /// renders the chain.
+    pub depth: u32,
+    /// The task, as the child was given it: the child's own first message,
+    /// rather than the call's arguments parsed a second time here.
+    pub task: String,
+    /// What came back, or nothing while the sub-agent is still working.
+    pub answer: Option<Delivered>,
+}
+
+/// What a sub-agent's run came to, named by position on the child's own half of
+/// the log.
+///
+/// **Read off the child's ending rather than off the parent's result.** The two
+/// paths a delegation can take answer the parent's call differently: at the
+/// default the result *is* the child's answer, and above it the result is the
+/// paragraph saying the work has gone out, with the answer arriving later as a
+/// message. The child's own ending is the same event in both, so there is one
+/// rule here instead of two, and the row cannot show an acknowledgement in the
+/// place of an answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Delivered {
+    /// The child's completion, or the failure it ended on instead.
+    pub seq: u64,
+    pub text: String,
+    /// The run ended badly: a turn that failed rather than an answer. Drawn as
+    /// a failure, for the reason a failed tool result is
+    /// ([`Outcome::Returned`]).
+    pub failed: bool,
 }
 
 /// One call, with what came back from it.
@@ -387,6 +452,17 @@ impl Replay {
             }
         }
 
+        // And one for the delegations this agent opened, so a call that is one
+        // is known without a second scan per call and without this projection
+        // knowing the name of a tool.
+        let delegated: BTreeMap<u64, (&AgentId, u32)> = self
+            .mine()
+            .filter_map(|event| match &event.body {
+                Body::Delegated { call, agent, depth } => Some((*call, (agent, *depth))),
+                _ => None,
+            })
+            .collect();
+
         let mut moments: Vec<Moment> = self.history().into_iter().map(Moment::Said).collect();
         for event in self.mine() {
             let Body::Call {
@@ -395,6 +471,22 @@ impl Replay {
             else {
                 continue;
             };
+            // A call that opened a sub-agent is drawn as the exchange it
+            // became. Which calls those are is the log's own answer rather than
+            // a tool name written down here: `delegate_task` is the registry's
+            // word for it, and a transcript that matched on it would be a
+            // rendering decision about a name somebody else owns.
+            if let Some((agent, depth)) = delegated.get(&event.seq) {
+                moments.push(Moment::Delegated(Delegation {
+                    seq: event.seq,
+                    turn: event.turn,
+                    agent: (*agent).clone(),
+                    depth: *depth,
+                    task: self.task(agent),
+                    answer: self.delivered(agent),
+                }));
+                continue;
+            }
             moments.push(Moment::Called(Called {
                 seq: event.seq,
                 turn: event.turn,
@@ -410,8 +502,60 @@ impl Replay {
         moments.sort_by_key(|moment| match moment {
             Moment::Said(exchange) => exchange.seq,
             Moment::Called(called) => called.seq,
+            Moment::Delegated(delegation) => delegation.seq,
         });
         Ok(moments)
+    }
+
+    /// The task one sub-agent was given, which is the first thing said in its
+    /// own session.
+    ///
+    /// Read off the child rather than parsed out of the call's arguments. The
+    /// arguments are the model's own text and may not even parse
+    /// ([`Called::arguments`] keeps them as written); what the sub-agent was
+    /// actually asked is what its session opened with, and that is a value the
+    /// log already holds.
+    fn task(&self, agent: &AgentId) -> String {
+        self.events
+            .iter()
+            .filter(|event| &event.agent == agent)
+            .find_map(|event| match &event.body {
+                Body::Message {
+                    role: Role::User,
+                    text,
+                } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// How one sub-agent's run ended, or nothing while it is still going.
+    ///
+    /// The ending is a completion the model stopped on or the failure the run
+    /// ended with, whichever came last. A completion that only asked for calls
+    /// is a step of the child's own rather than an answer to its parent, and a
+    /// row that took one would report the first thing the sub-agent happened to
+    /// say as what it came back with.
+    fn delivered(&self, agent: &AgentId) -> Option<Delivered> {
+        self.events
+            .iter()
+            .rev()
+            .filter(|event| &event.agent == agent)
+            .find_map(|event| match &event.body {
+                Body::Completion { text, reason, .. } if *reason != FinishReason::ToolCalls => {
+                    Some(Delivered {
+                        seq: event.seq,
+                        text: text.clone(),
+                        failed: false,
+                    })
+                }
+                Body::Failure { detail, .. } => Some(Delivered {
+                    seq: event.seq,
+                    text: detail.clone(),
+                    failed: true,
+                }),
+                _ => None,
+            })
     }
 
     /// The answer at `seq`, read as what a row shows.

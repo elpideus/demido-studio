@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 import { Approval } from './Approval'
+import { Delegation } from './Delegation'
 import { Markdown } from './Markdown'
 import { ToolCall } from './ToolCall'
 import { useApprovals } from './approvals'
@@ -63,13 +64,16 @@ export function Transcript() {
          * states, neither of them the true one. `design/system.md` gives the
          * call row "awaiting approval" as a state, and the approval prompt is
          * what that state looks like. */}
-        {transcript.map((moment) =>
-          moment.moment === 'said' ? (
-            <Bubble key={moment.seq} role={moment.role} text={moment.text} />
-          ) : moment.seq === asking?.call ? null : (
-            <ToolCall key={moment.seq} called={moment} />
-          ),
-        )}
+        {transcript.map((moment) => {
+          if (moment.moment === 'said')
+            return <Bubble key={moment.seq} role={moment.role} text={moment.text} />
+          // A delegation is one exchange, the task out and the answer back,
+          // rather than a call row whose result is prose nothing names the
+          // author of (#67).
+          if (moment.moment === 'delegated')
+            return <Delegation key={moment.seq} delegation={moment} />
+          return moment.seq === asking?.call ? null : <ToolCall key={moment.seq} called={moment} />
+        })}
 
         {/* The message that was just sent. It is on the log already; it is drawn
          * from here because the log is read back at the end of the turn and

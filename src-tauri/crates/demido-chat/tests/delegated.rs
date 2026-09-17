@@ -400,11 +400,10 @@ async fn the_childs_context_is_clean_and_its_transcript_is_durable() {
         "the child's call is not drawn in the conversation's transcript"
     );
     assert!(
-        transcript.iter().any(|moment| matches!(
-            moment,
-            Moment::Called(called) if called.name == "delegate_task"
-        )),
-        "the delegation itself is"
+        transcript
+            .iter()
+            .any(|moment| matches!(moment, Moment::Delegated(_))),
+        "the delegation itself is, as the one exchange it was (#67)"
     );
 }
 
@@ -971,4 +970,370 @@ async fn a_child_at_the_limit_that_names_the_tool_is_told_why_in_its_own_context
     // under a second id: the picker's says the user turned it off, and at the
     // limit nobody did.
     assert_ne!(depth.text, off.text);
+}
+
+/// A delegation reads as one exchange in the conversation's transcript: the
+/// task going out, and the sub-agent's answer coming back.
+///
+/// [#67](https://github.com/elpideus/demido-studio/issues/67). The child read a
+/// file and answered from it; what the parent's chat shows is the task and the
+/// answer, not the file read. A clean context should also be a clean
+/// transcript.
+#[tokio::test]
+async fn a_delegation_is_one_exchange_in_the_transcript() {
+    let script = Script::serving("scripted")
+        .then(delegates(
+            "call-1",
+            "Read notes.txt and say when the meeting is",
+        ))
+        .then(vec![Step::Call(call(
+            "call-2",
+            "read_file",
+            json!({ "path": "notes.txt" }),
+        ))])
+        .then_say(&["Thursday."])
+        .then_say(&["The meeting is Thursday."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+
+    chat.ask("When is the meeting?", |_| {}, nobody())
+        .await
+        .unwrap();
+
+    let transcript = chat.transcript().unwrap();
+    let delegation = transcript
+        .iter()
+        .find_map(|moment| match moment {
+            Moment::Delegated(delegation) => Some(delegation),
+            _ => None,
+        })
+        .expect("the delegation is a moment of its own");
+    assert_eq!(
+        delegation.task, "Read notes.txt and say when the meeting is",
+        "the task as it went out"
+    );
+    let answer = delegation.answer.as_ref().expect("and the answer back");
+    assert_eq!(answer.text, "Thursday.");
+    assert!(!answer.failed);
+    assert_eq!(
+        delegation.agent,
+        opened(&rig.events())[0].0,
+        "the row names the sub-agent that answered, as the monitor's column does"
+    );
+
+    // One exchange, and nothing of the machinery under it: no call row for the
+    // delegation itself, and none of the child's own calls.
+    assert_eq!(
+        transcript
+            .iter()
+            .filter(|moment| matches!(moment, Moment::Called(_)))
+            .count(),
+        0,
+        "the conversation called nothing itself: {transcript:?}"
+    );
+    assert_eq!(
+        transcript
+            .iter()
+            .filter(|moment| matches!(moment, Moment::Delegated(_)))
+            .count(),
+        1,
+        "and the delegation is drawn once"
+    );
+}
+
+/// A sub-agent whose own turn ended badly is drawn as a failed answer rather
+/// than as an answer, on the row the person is already reading.
+#[tokio::test]
+async fn a_sub_agent_that_ended_badly_reads_as_a_failure_on_the_row() {
+    // A child that never stops asking for tools, so its run ends at the step
+    // limit: the one ending that is a `turn/failure` rather than a completion.
+    let mut script = Script::serving("scripted").then(delegates("call-1", "Read everything"));
+    for index in 0..12 {
+        script = script.when(
+            "Read everything",
+            vec![Step::Call(call(
+                &format!("child-{index}"),
+                "read_file",
+                json!({ "path": "notes.txt" }),
+            ))],
+        );
+    }
+    let rig = Rig::new(script.then_say(&["The sub-agent gave up."]));
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+
+    chat.ask("Read everything.", |_| {}, nobody())
+        .await
+        .unwrap();
+
+    let delegation = chat
+        .transcript()
+        .unwrap()
+        .into_iter()
+        .find_map(|moment| match moment {
+            Moment::Delegated(delegation) => Some(delegation),
+            _ => None,
+        })
+        .expect("a delegation that failed is still a delegation");
+    let answer = delegation.answer.expect("it ended, badly");
+    assert!(
+        answer.failed,
+        "the sub-agent's run ended in a failure, and the row says so: {answer:?}"
+    );
+    assert!(!answer.text.is_empty(), "and what it was");
+}
+
+/// A denied delegation is handed to the model as information, and it does the
+/// work itself rather than stalling or asking for the same sub-agent again.
+#[tokio::test]
+async fn a_denied_delegation_is_reported_and_the_model_does_something_else() {
+    let script = Script::serving("scripted")
+        .then(delegates("call-1", "Read the notes"))
+        .then(vec![Step::Call(call(
+            "call-2",
+            "read_file",
+            json!({ "path": "notes.txt" }),
+        ))])
+        .then_say(&["The meeting is Thursday."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let seen = asked.clone();
+    let answer = chat
+        .ask(
+            "When is the meeting?",
+            |_| {},
+            move |asking: Asking| {
+                seen.lock().unwrap().push(asking.tool.clone());
+                ready(if asking.tool == "delegate_task" {
+                    Decision::Deny
+                } else {
+                    Decision::Allow
+                })
+            },
+        )
+        .await
+        .unwrap();
+
+    let events = rig.events();
+    assert!(
+        opened(&events).is_empty(),
+        "a delegation nobody allowed opens no sub-agent"
+    );
+    let refused = events
+        .iter()
+        .find_map(|event| match &event.body {
+            Body::Refusal { call, .. } => Some(*call),
+            _ => None,
+        })
+        .expect("the model is told, in a paragraph's wording");
+    let outcome = chat
+        .transcript()
+        .unwrap()
+        .into_iter()
+        .find_map(|moment| match moment {
+            Moment::Called(called) if called.seq == refused => called.outcome,
+            _ => None,
+        })
+        .expect("and the row it is drawn on is an ordinary call row");
+    assert!(
+        matches!(outcome, demido_chat::Outcome::Refused { .. }),
+        "declined, rather than a failure: {outcome:?}"
+    );
+    assert_eq!(
+        asked.lock().unwrap().as_slice(),
+        ["delegate_task"],
+        "the one call the matrix asked about is the one the person answered"
+    );
+    assert!(
+        events.iter().any(|event| matches!(
+            &event.body,
+            Body::Call { name, .. } if name == "read_file"
+        )),
+        "and the model then did the work itself rather than asking again"
+    );
+    assert_eq!(answer.text, "The meeting is Thursday.");
+}
+
+/// *Always for this tool* on the delegation does not reach a destructive call
+/// inside the child.
+///
+/// The floor under every mode survives a level of indirection: a person who
+/// said *always* to delegating did not thereby consent to whatever a sub-agent
+/// deletes, and `docs/rules/tools.md` puts that floor in the loop rather than
+/// in the window for exactly this reason.
+#[tokio::test]
+async fn always_on_a_delegation_leaves_a_destructive_call_inside_the_child_asking() {
+    let script = Script::serving("scripted")
+        .when("Tidy up.", delegates("call-1", "Delete the draft"))
+        .when(
+            "Delete the draft",
+            vec![Step::Call(call(
+                "call-2",
+                "delete_file",
+                json!({ "path": "draft.txt" }),
+            ))],
+        )
+        .when_say("Delete the draft", &["Deleted."])
+        .when_say("Tidy up.", &["The draft is gone."]);
+    let rig = Rig::new(script);
+    std::fs::write(rig.project.path().join("draft.txt"), "a draft\n").unwrap();
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let seen = asked.clone();
+    chat.ask(
+        "Tidy up.",
+        |_| {},
+        move |asking: Asking| {
+            seen.lock().unwrap().push(asking.tool.clone());
+            ready(if asking.tool == "delegate_task" {
+                Decision::Always
+            } else {
+                Decision::Allow
+            })
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        asked.lock().unwrap().as_slice(),
+        ["delegate_task", "delete_file"],
+        "the grant was about delegating, and the sub-agent's delete still asks"
+    );
+    assert!(
+        !rig.project.path().join("draft.txt").exists(),
+        "the person allowed it, so it ran"
+    );
+}
+
+/// Nothing Demido puts in front of any agent in the chain describes the agent
+/// mode or the delegation depth.
+///
+/// `docs/rules/tools.md`: the mode is a rule the loop keeps rather than a
+/// paragraph the model is asked to respect, and the depth is a number read at
+/// dispatch. A model told about either would negotiate with it, and the one at
+/// the limit is told what is missing rather than how deep it is.
+#[tokio::test]
+async fn nothing_any_agent_is_sent_names_the_mode_or_the_depth() {
+    let script = Script::serving("scripted")
+        .then(delegates("call-1", "Ask somebody else"))
+        .then(delegates("call-2", "Read the notes"))
+        .then_say(&["Thursday."])
+        .then_say(&["The sub-agent said Thursday."])
+        .then_say(&["The meeting is Thursday."]);
+    let rig = Rig::new(script);
+    // One level, so the grandchild's own delegation is refused at the limit and
+    // the wording of that refusal is in the sweep below.
+    rig.set_depth(1);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    chat.ask("When is the meeting?", |_| {}, allowing(&asked))
+        .await
+        .unwrap();
+
+    // Everything every agent was told **except** what answers one of its own
+    // calls. A refusal is the other half of the ticket and is meant to say what
+    // happened: a sub-agent at the limit is told the chain reached it, so that
+    // it does the work itself rather than stalling. What is under test here is
+    // the standing prose, which is where a rule the loop keeps would leak into
+    // something the model could argue with.
+    for request in rig.script.requests() {
+        for message in request
+            .messages
+            .iter()
+            .filter(|message| message.answers.is_none())
+        {
+            let said = message.content.to_lowercase();
+            for word in ["cautious", "balanced", "autonomous", "depth"] {
+                assert!(
+                    !said.contains(word),
+                    "what the model may do it learns from what it is offered, never from prose: {said:?}"
+                );
+            }
+        }
+    }
+}
+
+/// The conversation's own context never carries its sub-agent's calls or their
+/// results, and the next message does not either.
+///
+/// Asserted from the log, which is the criterion's own wording: the blocks the
+/// conversation carries forward, and the requests the backend was handed.
+#[tokio::test]
+async fn the_childs_calls_are_in_no_request_the_conversation_sent() {
+    let script = Script::serving("scripted")
+        .when(
+            "When is the meeting?",
+            delegates("call-1", "Read notes.txt"),
+        )
+        .when(
+            "Read notes.txt",
+            vec![Step::Call(call(
+                "call-2",
+                "read_file",
+                json!({ "path": "notes.txt" }),
+            ))],
+        )
+        .when_say("Read notes.txt", &["Thursday."])
+        .when_say("When is the meeting?", &["The meeting is Thursday."])
+        .when_say("Thanks.", &["You are welcome."]);
+    let rig = Rig::new(script);
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+
+    chat.ask("When is the meeting?", |_| {}, nobody())
+        .await
+        .unwrap();
+    // A second message, so what the conversation carries **forward** is
+    // asserted and not only what it sent while the child was running.
+    chat.ask("Thanks.", |_| {}, nobody()).await.unwrap();
+
+    let events = rig.events();
+    let (agent, _, _) = opened(&events)[0].clone();
+    let childs: Vec<u64> = wrote(&events, &agent)
+        .iter()
+        .filter(|event| matches!(event.body, Body::Call { .. } | Body::Result { .. }))
+        .map(|event| event.seq)
+        .collect();
+    assert!(!childs.is_empty(), "the child did call something");
+
+    let carried = Replay::of(&rig.log).unwrap().conversation();
+    for seq in &childs {
+        assert!(
+            !carried.contains(seq),
+            "the conversation carries none of its sub-agent's calls: {seq}"
+        );
+    }
+
+    // And at the seam: every request the conversation itself sent, which is
+    // every request that carries the question the person typed.
+    let conversations: Vec<Request> = rig
+        .script
+        .requests()
+        .into_iter()
+        .filter(|request| user_messages(request).contains(&"When is the meeting?"))
+        .collect();
+    assert!(
+        conversations.len() >= 3,
+        "two turns, one of them two steps: {}",
+        conversations.len()
+    );
+    for request in conversations {
+        assert!(
+            !request
+                .messages
+                .iter()
+                .any(|message| message.content.contains("The meeting moved to Thursday.")),
+            "what the child read is in nobody's context but the child's: {:?}",
+            request.messages
+        );
+    }
 }

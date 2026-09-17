@@ -67,7 +67,7 @@ pub use jsonl::JsonLines;
 pub use memory::Memory;
 pub use record::{NextStep, Sent, Session, Turn};
 pub use replay::{
-    Agent, Called, Change, Exchange, Moment, OfferedTool, Offering, Outcome, Placed, Rebuild,
-    Replay, Tally,
+    Agent, Called, Change, Delegation, Delivered, Exchange, Moment, OfferedTool, Offering, Outcome,
+    Placed, Rebuild, Replay, Tally,
 };
 pub use weight::{estimate, Counting, Estimate, Weigher};
