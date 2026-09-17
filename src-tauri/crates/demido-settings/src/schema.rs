@@ -38,10 +38,10 @@ pub mod id {
     /// mode's to decide either: `docs/rules/tools.md` keeps the mode to
     /// permissions, and names the depth among the things it does not gate.
     pub const DELEGATION_DEPTH: &str = "tools.delegation_depth";
-    /// How many sub-agents may be generating at once. Not the mode's either,
-    /// and not a preference: it is a VRAM budget, and a value the card cannot
-    /// honour degrades to a queue rather than to a failed load
-    /// (`demido_vram::admit`).
+    /// How many agents may be generating at once, the conversation itself
+    /// included: a count of `llama.cpp` slots. Not the mode's either, and not a
+    /// preference: it is a VRAM budget, and a value the card cannot honour
+    /// degrades to a queue rather than to a failed load (`demido_vram::admit`).
     pub const PARALLEL_AGENTS: &str = "tools.parallel_agents";
     /// Which row of the permission matrix is in force. **Permitted**, in
     /// `docs/rules/tools.md`'s two axes: what runs without asking, and read by
@@ -274,10 +274,13 @@ pub static SCHEMA: &[Setting] = &[
         id: id::PARALLEL_AGENTS,
         section: "Tools",
         title: "Parallel agents",
-        summary: "How many sub-agents may run at once. Each one is a slot on the card, and a slot the card cannot hold waits its turn.",
-        // One, which is the synchronous path: the call blocks and the answer
-        // is the tool's own result. It is also the only value the reference
-        // model can honour on the rig, and a default the reference gate cannot
+        summary: "How many agents may generate at once, this conversation included. Each is a slot on the card, and a slot the card cannot hold waits its turn.",
+        // **It counts slots, and the conversation is the first of them.** At 1
+        // there is one generation at a time, which is the synchronous path: the
+        // call blocks and the answer is the tool's own result. At 4 there are
+        // three sub-agents beside the conversation. Counting sub-agents instead
+        // would make 1 mean two slots, and two slots is a number the reference
+        // model cannot honour on the rig: a default the reference gate cannot
         // run at is not a default
         // ([#65](https://github.com/elpideus/demido-studio/issues/65)).
         //

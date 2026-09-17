@@ -318,8 +318,14 @@ conversation's **own weights on a second `llama.cpp` slot**, never a second
 model, so S1's process-wide single-model permit still holds and what parallelism
 costs is a KV reservation. `--ctx-size` is per slot
 ([#19](https://github.com/elpideus/demido-studio/issues/19)), so a slot is that
-reservation and parallelism multiplies it: on the rig, 563 MiB on the
-development model at 32k and 1129 on the reference model.
+reservation and parallelism multiplies it: on the rig, a few hundred MiB on the
+development model at 32k (563 derived, 620 weighed, both in
+[`done.md`](done.md)) and 1129 on the reference model.
+
+**The number counts slots, and the conversation is the first of them.** At 1
+there is one generation at a time; at 4 there are three sub-agents beside the
+conversation. Counting sub-agents instead would make 1 mean two slots, and two
+slots is what the reference model cannot hold.
 
 **Either the slot's KV is shown in the context arithmetic, or the slot is not
 opened.** The number the user sees is the number they get, which is the same

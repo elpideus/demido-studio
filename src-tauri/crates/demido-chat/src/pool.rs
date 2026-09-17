@@ -12,12 +12,34 @@
 //! decision rather than a default. What the tests actually need is a card that
 //! answers a chosen number, and that is a closure.
 //!
+//! ## What the number means
+//!
+//! `tools.parallel_agents` counts **slots**, and the conversation is the first
+//! of them: at 1 there is one generation at a time, and at 4 there are three
+//! sub-agents beside the conversation. So the conversation's own slot goes into
+//! `admit` as already open and is never the pool's to refuse. It is the model,
+//! and a budget that could refuse it would be a card with no room answering the
+//! question by unloading the chat.
+//!
+//! `--ctx-size` is per slot and `demido_inference::llamacpp::arguments`
+//! multiplies by exactly the number that opens, so the KV of every slot that
+//! opens is in the reservation the server is started with: **either the slot's
+//! KV is shown in the context arithmetic, or the slot is not opened.**
+//!
 //! ## The reading is taken at the load, never before it
 //!
 //! [`Pool::admit`] calls the card every time. The card's free memory is not
 //! what a settings page saw when it was drawn: a browser window opened in
 //! between moves it by more than a slot costs, and a decision made against the
 //! stale figure is an allocation failure inside the driver rather than a queue.
+//!
+//! It is taken **before the weights land**, so it is the card as it stands
+//! rather than as it will stand. Answering that needs the load priced whole,
+//! which is the fit verdict's
+//! ([#74](https://github.com/elpideus/demido-studio/issues/74)) and is also
+//! what will first measure a slot at all. Until it does, `per_slot` is
+//! unmeasured and the only admission reachable from a window is the one that
+//! needs no room: the default.
 
 use std::sync::Arc;
 
@@ -55,10 +77,13 @@ impl Pool {
         }
     }
 
-    /// A card that always says this, for a caller that has one number and no
-    /// driver to ask: the tests here, and a machine whose card cannot be read.
+    /// A card that always reports `free`, on which a slot reserves `per_slot`.
+    ///
+    /// What a suite runs against: a conversation's slot count is a decision
+    /// about a card, and a test that asked the machine it happens to be running
+    /// on would pass or fail by what else has a browser open.
     #[must_use]
-    pub fn of(free: u64, per_slot: u64) -> Self {
+    pub fn on_a_card_with(free: u64, per_slot: u64) -> Self {
         let card = Card { free, total: free };
         Self {
             reading: Arc::new(move || Some(card)),
@@ -106,7 +131,7 @@ mod tests {
     /// card with no room at all.
     #[test]
     fn the_default_opens_the_one_slot_the_conversation_already_has() {
-        let pool = Pool::of(423 * MIB, 1129 * MIB);
+        let pool = Pool::on_a_card_with(423 * MIB, 1129 * MIB);
         let admission = pool.admit(1, 1);
 
         assert_eq!(admission.open, 1);
@@ -118,7 +143,7 @@ mod tests {
     /// stated, rather than to a load that fails.
     #[test]
     fn a_parallelism_the_card_cannot_honour_queues() {
-        let pool = Pool::of(423 * MIB, 1129 * MIB);
+        let pool = Pool::on_a_card_with(423 * MIB, 1129 * MIB);
         let admission = pool.admit(1, 2);
 
         assert_eq!(admission.open, 1, "the slot that is open stays open");
@@ -137,7 +162,7 @@ mod tests {
     /// preference: the answer depends on what is loaded.
     #[test]
     fn a_card_with_room_opens_what_was_asked_for() {
-        let pool = Pool::of(5583 * MIB, 563 * MIB);
+        let pool = Pool::on_a_card_with(5583 * MIB, 563 * MIB);
         assert_eq!(pool.admit(1, 4).open, 4);
     }
 
@@ -145,7 +170,7 @@ mod tests {
     /// much is free.
     #[test]
     fn an_unmeasured_slot_queues_on_the_emptiest_card() {
-        let pool = Pool::of(12288 * MIB, 0);
+        let pool = Pool::on_a_card_with(12288 * MIB, 0);
         let admission = pool.admit(1, 4);
 
         assert_eq!(admission.open, 1);

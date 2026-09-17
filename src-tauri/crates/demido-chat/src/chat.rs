@@ -414,31 +414,12 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         let config = B::with_context_length(model.config.clone(), resolved.context_length());
 
         // And the slots, which is the same shape of decision one layer along:
-        // the ladder asks for a parallelism, the card is read at this moment
-        // rather than when a settings page was drawn, and what opens is what
-        // `demido_vram::admit` says fits. A slot that does not fit queues; it
-        // is never opened anyway and nothing is ever evicted to make room
-        // ([#65](https://github.com/elpideus/demido-studio/issues/65)).
-        //
-        // `--ctx-size` is per slot and `arguments` multiplies by exactly this
-        // number, so the KV of every slot that opens is in the reservation the
-        // server is started with. That is the rule in one line: either the
-        // slot's KV is shown in the context arithmetic, or the slot is not
-        // opened.
-        //
-        // **The conversation's own slot is not admitted**, which is what the 1
-        // is: it is the model being loaded rather than a sub-agent, and a
-        // budget that could refuse it would be a card with no room answering
-        // the question by unloading the chat. Only the slots above it are the
-        // pool's to grant.
-        //
-        // The reading is taken before the weights land, so it is the card as
-        // it stands rather than as it will stand. That is answerable only by
-        // pricing the load whole, which is the fit verdict's
-        // ([#74](https://github.com/elpideus/demido-studio/issues/74)) and is
-        // also what will first measure a slot at all. Until it does, `per_slot`
-        // is unmeasured and the only admission reachable here is the one that
-        // needs no room: the default.
+        // the ladder asks for a parallelism and `crate::pool` decides what the
+        // card can hold. Its module doc is where that reasoning lives; the one
+        // thing that has to be read here is the 1, which is the conversation's
+        // own slot going in as already open. It is the model being loaded
+        // rather than a sub-agent, and a budget that could refuse it would be a
+        // card with no room answering the question by unloading the chat.
         let admission = self.pool.admit(1, resolved.parallel_agents());
         if let Some(reason) = admission.reason {
             tracing::info!(

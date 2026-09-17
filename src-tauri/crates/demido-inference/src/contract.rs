@@ -202,7 +202,7 @@ async fn the_slots_asked_for_are_the_ones_that_open<B: Backend>(config: B::Confi
 
     assert_eq!(
         got, SLOTS,
-        "a backend that opens a different number of slots than it was told to          has made the slot strip a drawing of a preference, and one of those          slots is a sub-agent that is never going to start"
+        "a backend that opens a different number of slots than it was told to          has made the slot strip a drawing of a preference, and one of those          slots is an agent that is never going to generate"
     );
 }
 

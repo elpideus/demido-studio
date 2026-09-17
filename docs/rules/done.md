@@ -225,14 +225,16 @@ model at 32k on one slot, and the same model at 32k on two.
 | `-c 32768 --parallel 1` | 2235 MiB | 5749 MiB |
 | `-c 65536 --parallel 2` | 1615 MiB | 6369 MiB |
 
-So **a second slot at 32k costs 620 MiB** on the development model, measured
-directly. The table above implies 563, which is the same figure arrived at by
-subtracting the weights and an idle desktop from a total rather than by weighing
-the difference, and 620 is the one to trust: it is a subtraction of two readings
-taken minutes apart rather than of a reading and two assumptions. Both are in
-the same region, which is the point worth keeping: a slot is a few hundred MiB
-and the weights are several thousand, so parallelism is affordable on the
-development model and is not on the reference one.
+So **a second slot at 32k costs 620 MiB** on the development model, weighed
+rather than derived. The table above implies 563 for the same slot, arrived at
+by subtracting the weights and an idle desktop out of a total, and the two are
+not a disagreement to settle: they are one slot read two ways, and neither is
+the number anything is held to. What both say is the thing worth keeping, which
+is that a slot is a few hundred MiB while the weights are several thousand, so
+parallelism is affordable on the development model and is not on the reference
+one. `demido-vram`'s table asserts both figures for that reason: a rule that
+decided differently depending on which reading of one slot it was handed would
+be a rule about the readings.
 
 `docs/rules/tools.md` is where that becomes a rule. `demido_vram::admit` is the
 arithmetic, and it is pure, so the numbers in this table are asserted on

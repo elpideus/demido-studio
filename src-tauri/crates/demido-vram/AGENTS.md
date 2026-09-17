@@ -99,7 +99,10 @@ before the weights land, so it is the card as it stands rather than as it will
 stand, and pricing the load whole is what makes a pre-load reading answerable.
 
 The rig's figures are `docs/rules/done.md`'s, and the tests here use them
-verbatim.
+verbatim. That includes both readings of the development model's slot, 563
+derived out of a total and 620 weighed directly: asserting both is how the table
+says the rule is about the arithmetic rather than about which reading of one
+slot it was handed.
 
 ## Tests
 

@@ -146,12 +146,13 @@ pub fn admit(budget: Budget) -> Admission {
     } = budget;
 
     // Never fewer than are already open. Admission opens slots; it does not
-    // close them, and a smaller preference than the running server has is a
-    // reload rather than an eviction.
+    // close them, and a preference smaller than the running server has is a
+    // reload rather than an eviction, so the answer here is the slots that are
+    // open rather than the smaller number that was asked for.
     let asked = wanted.saturating_sub(open);
     if asked == 0 {
         return Admission {
-            open: open.max(wanted),
+            open,
             queued: 0,
             reason: None,
             reserved: 0,
@@ -204,6 +205,14 @@ mod tests {
     const DEVELOPMENT_AT_32K: u64 = 6705 * MIB;
     const DEVELOPMENT_PER_SLOT: u64 = 563 * MIB;
 
+    /// The same slot, weighed rather than derived: `done.md` also records a
+    /// second slot on the development model at 32k costing this, read off NVML
+    /// around three states of the pinned build instead of subtracted out of a
+    /// total. The table below asserts both, because a rule that answered
+    /// differently depending on which of two readings of one slot it was handed
+    /// would be a rule about the readings.
+    const DEVELOPMENT_WEIGHED: u64 = 620 * MIB;
+
     /// The same two for the reference model, which is the one that decides what
     /// may ship as a default: a value the reference gate cannot run at is not a
     /// default.
@@ -253,6 +262,14 @@ mod tests {
                 wanted: 20,
                 open: 10,
                 queued: 10,
+            },
+            Case {
+                what: "and the weighed figure decides the same, which is the point",
+                free: CARD - DEVELOPMENT_AT_32K,
+                per_slot: DEVELOPMENT_WEIGHED,
+                wanted: 2,
+                open: 2,
+                queued: 0,
             },
             Case {
                 what: "the reference model has room for none: 423 against 1129",

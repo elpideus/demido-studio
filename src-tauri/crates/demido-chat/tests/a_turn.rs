@@ -762,7 +762,7 @@ async fn the_context_length_the_chat_asked_for_is_what_the_backend_is_started_wi
 ///
 /// A conversation's slot count is a VRAM decision, and a suite that asked the
 /// machine it happens to be running on would pass or fail by what else has a
-/// browser open. `Pool::of` is the card these cases run against.
+/// browser open.
 fn on_a_card(
     script: &Script,
     log: &Memory,
@@ -771,7 +771,10 @@ fn on_a_card(
     per_slot: u64,
 ) -> (Chat<Scripted, Memory>, Arc<Supervisor<Scripted>>) {
     let (chat, supervisor) = over(script, log, settings);
-    (chat.against(Pool::of(free, per_slot)), supervisor)
+    (
+        chat.against(Pool::on_a_card_with(free, per_slot)),
+        supervisor,
+    )
 }
 
 /// The rig's own numbers, from `docs/rules/done.md`: the development model at
@@ -797,7 +800,7 @@ async fn the_slots_the_card_can_hold_are_the_ones_the_backend_opens() {
     assert_eq!(
         backend.slots().await.expect("the slots it opened"),
         4,
-        "three sub-agents beside the conversation's own slot, all of them paid for"
+        "the setting counts slots, so four is three sub-agents beside the          conversation's own, and every one of them is paid for"
     );
     assert_eq!(
         chat.presence(),
