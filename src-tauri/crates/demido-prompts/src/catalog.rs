@@ -98,6 +98,8 @@ pub mod id {
     pub const TOOLS_DEPTH: &str = "tools.depth";
     pub const TOOLS_STOPPED: &str = "tools.stopped";
     pub const TOOLS_LIMIT: &str = "tools.limit";
+    pub const AGENT_DELEGATED: &str = "agent.delegated";
+    pub const AGENT_RETURNED: &str = "agent.returned";
 }
 
 /// The tool a declined call named, so the model is told which of its calls did
@@ -105,6 +107,12 @@ pub mod id {
 pub const TOOL: &str = "tool";
 /// How many tool steps a turn may take, as the step limit resolved it.
 pub const STEPS: &str = "steps";
+
+/// The task a delegation was given, quoted back beside what came of it, so the
+/// model reading the answer knows which of its sub-agents is talking.
+pub const TASK: &str = "task";
+/// What a sub-agent answered, placed in its frame.
+pub const ANSWER: &str = "answer";
 
 /// The name of the one placeholder the caveman paragraphs take: what the rule
 /// is being applied to, which is either the reply or the reasoning that
@@ -253,6 +261,22 @@ pub static CATALOG: &[Paragraph] = &[
         placeholders: &[STEPS],
         dependants: NOTHING_DEPENDS_ON_IT,
         default: include_str!("../defaults/tools.limit.md"),
+    },
+    Paragraph {
+        id: id::AGENT_DELEGATED,
+        title: "A delegation that did not wait",
+        summary: "What the model is told in place of a sub-agent's answer when there is room to run it beside the conversation, so it carries on instead of reading the acknowledgement as the answer.",
+        placeholders: &[],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/agent.delegated.md"),
+    },
+    Paragraph {
+        id: id::AGENT_RETURNED,
+        title: "A sub-agent's answer",
+        summary: "The frame a background sub-agent's answer arrives in at a step boundary, naming the task it was given so the model can tell two of them apart.",
+        placeholders: &[TASK, ANSWER],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/agent.returned.md"),
     },
 ];
 

@@ -5,6 +5,7 @@
 //! messages, and that absence is the design (see the crate docs).
 
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
@@ -21,6 +22,7 @@ use demido_tools::{Failure, Outcome, Registry};
 use demido_trace::{Called, Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
 
 use crate::delegation::Delegations;
+use crate::flight::{Flight, Harvest, Slots};
 use crate::monitor::Assembly;
 use crate::pool::Pool;
 use crate::presence::Presence;
@@ -271,10 +273,13 @@ pub struct Chat<B: Backend, J: Journal> {
     /// The turn loop's end of the delegation pair, the other end of which is
     /// the `delegate_task` in this conversation's registry.
     ///
-    /// Behind an async lock and taken for the length of a turn, beside the turn
-    /// lock and for the same reason: a delegation is carried out by the turn
-    /// that asked for it, so there is one reader and it is whoever is running.
-    delegations: tokio::sync::Mutex<Delegations>,
+    /// Shared rather than locked here, because the queue has a lock of its own
+    /// and a background sub-agent's run is a future the turn holds beside its
+    /// own work rather than a borrow it can hand out. The turn lock is still
+    /// what makes this conversation's rendezvous single-reader: one turn runs
+    /// at a time, and a sub-agent has a rendezvous of its own
+    /// ([#66](https://github.com/elpideus/demido-studio/issues/66)).
+    delegations: Arc<Delegations>,
 }
 
 impl<B: Backend, J: Journal> Chat<B, J> {
@@ -315,7 +320,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             running: Mutex::new(None),
             tools,
             pool: Pool::on_the_card(),
-            delegations: tokio::sync::Mutex::new(delegations),
+            delegations: Arc::new(delegations),
         }
     }
 
@@ -552,8 +557,8 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     pub async fn ask<F>(
         &self,
         said: &str,
-        mut sink: impl FnMut(Update) + Send,
-        mut approve: impl FnMut(Asking) -> F + Send,
+        sink: impl FnMut(Update) + Send,
+        approve: impl FnMut(Asking) -> F + Send,
     ) -> Result<Answer>
     where
         F: Future<Output = Decision> + Send,
@@ -581,9 +586,22 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // tool switched off is not in any of the three (`docs/rules/tools.md`:
         // disabled means absent).
         let registry = self.tools.narrowed(resolved.offered().as_deref());
+        // What the pool may hold beside this conversation, read off the
+        // presence rather than off the ladder: `Presence::Ready` carries the
+        // slots the running backend said it opened, and a parallelism the card
+        // could not honour is already a queue by the time it gets here
+        // ([#65](https://github.com/elpideus/demido-studio/issues/65)).
+        let slots = match self.presence() {
+            Presence::Ready { slots, .. } => slots,
+            _ => 1,
+        };
         let agent = Agent {
             chat: self,
             child: None,
+            // The conversation's own rendezvous. Every sub-agent mints one of
+            // its own on the way in, so an ask is never ambiguous about whose
+            // delegation it is.
+            delegations: Arc::clone(&self.delegations),
             rules: Rules {
                 // The conversation's own resolution, and the only one in this
                 // crate that is minted rather than inherited
@@ -612,30 +630,33 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 always: resolved.always(),
             },
         };
-        // One reader of the delegation queue, and it is whoever is running a
-        // turn. Taken beside the turn lock rather than inside the loop because
-        // a sub-agent carried out by a turn other than the one that asked for
-        // it would record into a session it is not in.
-        let mut delegations = self.delegations.lock().await;
-
         let sent = agent.compose(said, Carrying::Everything, &model, &resolved)?;
         let number = sent.turn;
 
         let cancel = Cancel::new();
         self.arm(Some(cancel.clone()));
+        // Behind locks for the length of the turn, because above the default
+        // parallelism a sub-agent runs beside the turn that asked for it and
+        // both of them talk to the same window and the same person. The sink's
+        // is a plain lock and is never held across an await; the approval's is
+        // an async one and is held across the person's answer, which is the
+        // right shape for a modal prompt: two sub-agents cannot ask at once.
+        let sink = Mutex::new(sink);
+        let approve = tokio::sync::Mutex::new(approve);
         let outcome = agent
             .steps(
                 &backend,
                 sent,
-                &mut Driving {
+                &Driving {
                     cancel: &cancel,
-                    sink: &mut sink,
-                    approve: &mut approve,
-                    delegations: &mut delegations,
+                    sink: &sink,
+                    approve: &approve,
+                    slots: &Slots::beside(slots),
                 },
             )
             .await;
         self.arm(None);
+        let mut sink = sink.into_inner().unwrap_or_else(|held| held.into_inner());
 
         match outcome {
             Ok(answer) => {
@@ -923,15 +944,71 @@ enum Carrying {
 ///
 /// Four things that always travel together, because every one of them is the
 /// turn's rather than the agent's: what the window is told, who is asked about
-/// a call, what a stop reaches, and where a delegation is answered. A sub-agent
-/// runs on all four of the turn that asked for it, which is what makes a child
-/// a run of the same loop rather than a second one with a narrower idea of who
-/// is watching.
+/// a call, what a stop reaches, and how many sub-agents the card can hold
+/// beside the conversation. A sub-agent runs on all four of the turn that asked
+/// for it, which is what makes a child a run of the same loop rather than a
+/// second one with a narrower idea of who is watching.
+///
+/// **Shared rather than borrowed uniquely**
+/// ([#66](https://github.com/elpideus/demido-studio/issues/66)). Above the
+/// default parallelism a sub-agent's run is a future the turn holds beside its
+/// own, so two runs are driven by all of this at once and a `&mut` is a borrow
+/// nothing can hand out twice. What each one needs exclusively it takes for as
+/// long as it needs it: the sink for the length of one update, the person for
+/// the length of one question.
+///
+/// Where a delegation is answered is **not** here any more, and that is the
+/// change this shape is for. A rendezvous is the agent's, because an ask
+/// answered by whichever of two concurrent loops polled first is a sub-agent
+/// carried out correctly and recorded under the wrong parent.
 struct Driving<'a, S, A> {
     cancel: &'a Cancel,
-    sink: &'a mut S,
-    approve: &'a mut A,
-    delegations: &'a mut Delegations,
+    /// Never held across an await, so a plain lock is the right one and a
+    /// sub-agent cannot park the window behind it.
+    sink: &'a Mutex<S>,
+    /// Held across the person's answer, which is what makes one modal prompt at
+    /// a time rather than two.
+    approve: &'a tokio::sync::Mutex<A>,
+    slots: &'a Slots,
+}
+
+impl<S: FnMut(Update), A> Driving<'_, S, A> {
+    /// Tell the window something.
+    ///
+    /// One function rather than a lock taken at each of the call sites, so
+    /// there is nowhere for a guard to be held across an await by accident.
+    fn tell(&self, update: Update) {
+        let mut sink = self.sink.lock().unwrap_or_else(|held| held.into_inner());
+        sink(update);
+    }
+}
+
+/// One sub-agent's run: where its answer ended up on the log, and what it said.
+///
+/// Spelled once because it is written twice, and it is boxed for a reason the
+/// declaration of [`Agent::run`] gives: this is the point in the recursion
+/// where `Send` is named rather than inferred.
+type Ran<'r> = Pin<Box<dyn Future<Output = Result<(u64, Outcome)>> + Send + 'r>>;
+
+/// A delegation, opened: the sub-agent that will carry it out, or the reason
+/// nothing will.
+///
+/// Two variants rather than an `Option`, because the absence is a **result**
+/// the model is told about rather than a failure of the turn: a model that went
+/// away under a delegation ends the delegation and nothing else.
+enum Opened<'a, B: Backend, J: Journal> {
+    Nowhere(Failure),
+    /// Boxed because the two sides of this answer are nothing like the same
+    /// size: one is a sentence, and the other is a whole agent and the request
+    /// it opens with.
+    Child(Box<Opening<'a, B, J>>),
+}
+
+/// A sub-agent that has been opened and has not generated yet.
+struct Opening<'a, B: Backend, J: Journal> {
+    child: Agent<'a, B, J>,
+    sent: Sent,
+    backend: Arc<B>,
 }
 
 /// One agent running the loop: the conversation itself, or one sub-agent of it.
@@ -950,6 +1027,14 @@ struct Driving<'a, S, A> {
 /// store `docs/decisions/0013-a-sub-agent-is-a-scope-on-one-log.md` refuses.
 struct Agent<'a, B: Backend, J: Journal> {
     chat: &'a Chat<B, J>,
+    /// Where this agent's own `delegate_task` calls are answered.
+    ///
+    /// The conversation's is the chat's; a sub-agent mints one and has its
+    /// registry rebound to it on the way in
+    /// (`demido_tools::Registry::delegating_to`). One rendezvous per agent is
+    /// what keeps an ask unambiguous once two of them can be running at once
+    /// ([#66](https://github.com/elpideus/demido-studio/issues/66)).
+    delegations: Arc<Delegations>,
     /// A sub-agent's recorder, held for the length of its run.
     ///
     /// `None` is the conversation's own, which lives in the chat's lock because
@@ -960,7 +1045,7 @@ struct Agent<'a, B: Backend, J: Journal> {
     rules: Rules,
 }
 
-impl<B: Backend, J: Journal> Agent<'_, B, J> {
+impl<'a, B: Backend, J: Journal> Agent<'a, B, J> {
     /// Do something with this agent's recorder.
     ///
     /// A child's is held right here and a conversation's is in the chat's lock,
@@ -1053,18 +1138,24 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
     /// circle, which is what it is asked to end, and a child spending a parent's
     /// steps would make the limit mean something different depending on how far
     /// down the chain it was read. The chain's own bound is the depth.
-    async fn steps<S, A, F>(
-        &self,
-        backend: &B,
+    async fn steps<'s, S, A, F>(
+        &'s self,
+        backend: &'s B,
         mut sent: Sent,
-        driving: &mut Driving<'_, S, A>,
+        driving: &'s Driving<'_, S, A>,
     ) -> Result<Answer>
     where
-        S: FnMut(Update) + Send,
-        A: FnMut(Asking) -> F + Send,
+        S: FnMut(Update) + Send + 's,
+        A: FnMut(Asking) -> F + Send + 's,
         F: Future<Output = Decision> + Send,
+        B: 's,
+        J: 's,
     {
         let cancel = driving.cancel;
+        // This agent's own delegations in flight. A sub-agent's run has one of
+        // these too, because it runs the whole loop again and a background
+        // delegation of its own is its to harvest.
+        let mut flight = Flight::empty();
         let limit = self.rules.limit;
         // Standing answers come off the ladder, resolved once with everything
         // else this message is ruled by, so an *always* given on an earlier
@@ -1075,8 +1166,12 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         let mut withheld = false;
 
         loop {
-            let Generation { answer, calls } = self
-                .stream(backend, &sent, cancel.clone(), driving.sink)
+            // The generation, with whatever is in flight advancing beside it.
+            // This is the only place a sub-agent is polled while the
+            // conversation is working, and nothing is written here: a child
+            // that finishes waits in the buffer for the boundary below.
+            let Generation { answer, calls } = flight
+                .beside(self.stream(backend, &sent, cancel.clone(), driving))
                 .await?;
 
             // A stop while the model was still producing: what it said is kept,
@@ -1084,10 +1179,37 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
             // rather than run, so the next message can carry it.
             if answer.reason == FinishReason::Cancelled {
                 self.refuse_all(answer.turn, &calls, id::TOOLS_STOPPED, &[])?;
+                // The stop is the sub-agents' too, through the token they
+                // share, so this waits for endings rather than for work. What
+                // they managed to say is still written down: a run that dropped
+                // it would lose it exactly where somebody is most likely to
+                // wonder what happened.
+                self.settle(&mut flight, answer.turn, driving).await?;
                 return Ok(answer);
             }
             if calls.is_empty() {
-                return Ok(answer);
+                // **A run may not end with a delegation in flight.** The model
+                // has stopped asking for tools, so nothing else is going to
+                // mention the sub-agent again, and a delegation nobody mentions
+                // again is a silent loss.
+                if !flight.is_busy() {
+                    return Ok(answer);
+                }
+                let folded = self.settle(&mut flight, answer.turn, driving).await?;
+                // Written down either way. Handed back to the model only if the
+                // turn has a step left to hand it back in: past the ceiling the
+                // answer is on the log and the turn is over, which is the
+                // honest end rather than a step the limit says may not happen.
+                if taken == limit || folded.is_empty() {
+                    return Ok(answer);
+                }
+                taken += 1;
+                let mut blocks = vec![answer.seq];
+                blocks.extend(folded);
+                sent = self.with_session(|session| {
+                    Ok(session.step(&sent, &blocks, demido_trace::NextStep::Offering)?)
+                })?;
+                continue;
             }
             if taken == limit {
                 let steps = limit.to_string();
@@ -1097,6 +1219,11 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                     id::TOOLS_LIMIT,
                     &[(catalog::STEPS, &steps)],
                 )?;
+                // **Out of steps it is still waited for and written down.** The
+                // turn ends as a failure whatever the sub-agent says, and a
+                // ceiling that ate an answer would be the one loss worse than
+                // the one it exists to prevent.
+                self.settle(&mut flight, answer.turn, driving).await?;
                 return Err(Error::StepLimit { steps: limit });
             }
 
@@ -1111,7 +1238,7 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                     declined: &mut declined,
                 };
                 match self
-                    .dispatch(answer.turn, *seq, call, ruling, driving)
+                    .dispatch(answer.turn, *seq, call, ruling, driving, &mut flight)
                     .await?
                 {
                     Some(answered) => {
@@ -1120,12 +1247,13 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                         // The call has an answer now, and the transcript draws
                         // one row for the pair. The window is told there is
                         // something to read, and reads the log for what.
-                        (driving.sink)(Update::Recorded);
+                        driving.tell(Update::Recorded);
                     }
                     // Stopped while this call waited or ran. It and every call
                     // after it are answered as stopped, and nothing else runs.
                     None => {
                         self.refuse_all(answer.turn, &calls[at..], id::TOOLS_STOPPED, &[])?;
+                        self.settle(&mut flight, answer.turn, driving).await?;
                         return Ok(Answer {
                             reason: FinishReason::Cancelled,
                             ..answer
@@ -1133,6 +1261,11 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                     }
                 }
             }
+
+            // **The boundary.** Every call of this step has been answered, so
+            // this is the one place a background answer may arrive, and it
+            // arrives in the order the model asked for it.
+            blocks.extend(self.fold_in(&mut flight, answer.turn, driving)?);
 
             taken += 1;
             // **A step whose every call was a declined call it had already made
@@ -1185,18 +1318,22 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
     /// refused without asking again, and told so in its own words rather than
     /// in the ones it has already ignored once; the matrix rules on the rest,
     /// and the person is asked only when it says to ask.
-    async fn dispatch<S, A, F>(
-        &self,
+    async fn dispatch<'s, S, A, F>(
+        &'s self,
         turn: u32,
         seq: u64,
         call: &ToolCall,
         ruling: Ruling<'_>,
-        driving: &mut Driving<'_, S, A>,
+        driving: &'s Driving<'_, S, A>,
+        flight: &mut Flight<'s>,
     ) -> Result<Option<Answered>>
     where
-        S: FnMut(Update) + Send,
-        A: FnMut(Asking) -> F + Send,
+        S: FnMut(Update) + Send + 's,
+        A: FnMut(Asking) -> F + Send + 's,
         F: Future<Output = Decision> + Send,
+        'a: 's,
+        B: 's,
+        J: 's,
     {
         let cancel = driving.cancel;
         // Registered, and not in the set: something closed it. Told as that
@@ -1287,10 +1424,17 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                 destructive: planned.intent.destructive,
                 arguments: this.1.clone(),
             };
+            // The person, one question at a time. The lock is held across
+            // their answer on purpose: above the default parallelism a
+            // sub-agent runs beside the turn that asked for it, and two modal
+            // prompts at once is a window nobody can answer.
             let decision = tokio::select! {
                 biased;
                 () = cancel.cancelled() => return Ok(None),
-                decision = (driving.approve)(asking) => decision,
+                decision = async {
+                    let mut approve = driving.approve.lock().await;
+                    approve(asking).await
+                } => decision,
             };
             self.with_session(|session| Ok(session.decided(turn, seq, decision)?))?;
 
@@ -1337,7 +1481,7 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         // delegation's own grant among them.
         let standing = ruling.always.clone();
         let Some(outcome) = self
-            .running(&planned, turn, seq, &standing, driving)
+            .running(&planned, turn, seq, &standing, driving, flight)
             .await?
         else {
             return Ok(None);
@@ -1370,21 +1514,23 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
     /// share, ending its generation with a `Done` it records like any other.
     /// Dropping the child instead would be a second path to a stop, and this
     /// crate does not have one.
-    async fn running<S, A, F>(
-        &self,
+    async fn running<'s, S, A, F>(
+        &'s self,
         planned: &demido_tools::Planned<'_>,
         turn: u32,
         call: u64,
         standing: &[String],
-        driving: &mut Driving<'_, S, A>,
+        driving: &'s Driving<'_, S, A>,
+        flight: &mut Flight<'s>,
     ) -> Result<Option<Outcome>>
     where
-        S: FnMut(Update) + Send,
-        A: FnMut(Asking) -> F + Send,
+        S: FnMut(Update) + Send + 's,
+        A: FnMut(Asking) -> F + Send + 's,
         F: Future<Output = Decision> + Send,
+        'a: 's,
+        B: 's,
+        J: 's,
     {
-        // Out of the struct before the loop, because the `select!` below takes
-        // the queue by unique reference and the token is read beside it.
         let cancel = driving.cancel;
         // Dropping the call's future is what ends it, and for `run_command`
         // that kills the whole process tree (`demido-tools`' `tree`).
@@ -1393,40 +1539,176 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
             let asked = tokio::select! {
                 biased;
                 () = cancel.cancelled() => return Ok(None),
-                asked = driving.delegations.next() => asked,
+                asked = self.delegations.next() => asked,
                 outcome = &mut running => return Ok(Some(outcome)),
             };
-            // Outside the `select!`, so the child has the whole of what is
-            // driving this turn while nothing else is being polled.
-            let answer = self
-                .carry_out(asked.task(), turn, call, standing, driving)
-                .await?;
-            asked.answer(answer);
+            let opening = match self.open(asked.task(), turn, call, standing).await? {
+                Opened::Child(opening) => *opening,
+                Opened::Nowhere(failure) => {
+                    asked.answer(Err(failure));
+                    continue;
+                }
+            };
+            let Opening {
+                child,
+                sent,
+                backend,
+            } = opening;
+
+            // **Above the default the call is answered at once.** A request
+            // whose assistant message asks for a call nothing answered is one
+            // no compatible server accepts, so the result cannot wait for the
+            // sub-agent: it says the work has gone out, and what came back
+            // arrives later as a message of its own.
+            //
+            // A slot is what decides, and taking one is also how the pool holds
+            // its own size. Nothing here is a scheduler: at the default there
+            // are no spare slots at all, and a full pool sends this delegation
+            // down the blocking path rather than telling a model to try again.
+            match driving.slots.take() {
+                Some(permit) => {
+                    let task = asked.task().to_owned();
+                    let agent = child
+                        .child
+                        .as_ref()
+                        .map(|session| session.agent().clone())
+                        .unwrap_or_else(demido_trace::AgentId::main);
+                    let quoted = task.clone();
+                    flight.start(async move {
+                        let permit = permit;
+                        let (answer, outcome) = child.run(&backend, sent, driving).await?;
+                        drop(permit);
+                        Ok(Harvest {
+                            call,
+                            agent,
+                            task: quoted,
+                            answer,
+                            outcome,
+                        })
+                    });
+                    asked.answer(Ok(self.acknowledged()?));
+                }
+                // The blocking path, which is the default and is also what a
+                // full pool falls back to: the child runs on the stack of the
+                // turn that asked for it, and what it said is this call's own
+                // result. Nothing is folded in, because nothing was deferred.
+                None => {
+                    let (_, outcome) = child.run(&backend, sent, driving).await?;
+                    asked.answer(outcome);
+                }
+            }
         }
     }
 
-    /// Carry one delegation out: open a child session, run the whole loop in
-    /// it, and answer with what the sub-agent said.
+    /// What a delegation that did not wait answers its call with.
     ///
-    /// **A tool failure inside a child is a result, not an error.** The child
-    /// answers its own calls with what came back from them, exactly as this
-    /// agent does, and a turn that ended badly comes back here as a failed tool
-    /// result the parent can act on. Only [`Error::Journal`] is returned, and
-    /// it is the one thing that stops a run at any depth: a child whose events
-    /// cannot be written is a child nothing can say happened.
-    async fn carry_out<S, A, F>(
+    /// Host prompt text, so a catalog entry (hard rule 10), and read the way
+    /// every refusal in this loop is read.
+    fn acknowledged(&self) -> Result<String> {
+        let prompt = self
+            .chat
+            .tools
+            .paragraph(id::AGENT_DELEGATED)
+            .ok_or(Error::Unregistered(id::AGENT_DELEGATED))?;
+        Ok(prompt.fill(&[]))
+    }
+
+    /// Wait for every delegation still in flight, then fold in what they said.
+    ///
+    /// The one path to an ending. A run whose model stopped asking for tools
+    /// goes through it, and so does one that has used its last step and one a
+    /// person stopped: a delegation nobody mentions again is a silent loss, and
+    /// a ceiling that ate an answer would be worse than the runaway it exists
+    /// to end.
+    async fn settle<S, A, F>(
         &self,
-        task: &str,
+        flight: &mut Flight<'_>,
         turn: u32,
-        call: u64,
-        standing: &[String],
-        driving: &mut Driving<'_, S, A>,
-    ) -> Result<Outcome>
+        driving: &Driving<'_, S, A>,
+    ) -> Result<Vec<u64>>
     where
         S: FnMut(Update) + Send,
         A: FnMut(Asking) -> F + Send,
         F: Future<Output = Decision> + Send,
     {
+        flight.settle().await;
+        self.fold_in(flight, turn, driving)
+    }
+
+    /// Write down every background answer that has arrived, and hand back the
+    /// blocks they became.
+    ///
+    /// **Called at a step boundary and nowhere else.** Two events per answer,
+    /// and they are two on purpose: `agent/returned` is the fact that a
+    /// delegation came back, naming the child's own answer by position rather
+    /// than copying it, and the fragment beside it is what the parent's model
+    /// is shown. A tool result would be the wrong shape twice over, because the
+    /// call it would answer already has a result and a second one is a log that
+    /// can disagree with itself about what came back.
+    fn fold_in<S, A, F>(
+        &self,
+        flight: &mut Flight<'_>,
+        turn: u32,
+        driving: &Driving<'_, S, A>,
+    ) -> Result<Vec<u64>>
+    where
+        S: FnMut(Update) + Send,
+        A: FnMut(Asking) -> F + Send,
+        F: Future<Output = Decision> + Send,
+    {
+        let harvested = flight.take()?;
+        if harvested.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let frame = self
+            .chat
+            .tools
+            .paragraph(id::AGENT_RETURNED)
+            .ok_or(Error::Unregistered(id::AGENT_RETURNED))?;
+        let mut blocks = Vec::with_capacity(harvested.len());
+        for one in &harvested {
+            blocks.push(self.with_session(|session| {
+                session.folded_in(turn, one.call, &one.agent, one.answer)?;
+                // `Source::Tool` rather than `Inject`, and it decides more than
+                // a colour: `Replay::conversation` carries a fragment a tool put
+                // there and leaves the ones Demido re-derives every turn, so the
+                // sub-agent's answer is still in front of the model on the next
+                // message rather than only for the rest of this turn.
+                Ok(session.framed(
+                    turn,
+                    Source::Tool,
+                    Role::User,
+                    &frame,
+                    &[
+                        (catalog::TASK, one.task.as_str()),
+                        (catalog::ANSWER, one.text()),
+                    ],
+                )?)
+            })?);
+        }
+
+        driving.tell(Update::Recorded);
+        Ok(blocks)
+    }
+
+    /// Open one delegation: a child session, its rules, and the request it
+    /// starts with. Nothing is generated here.
+    ///
+    /// Split from running it because the two paths need the same opening and
+    /// diverge after it ([#66](https://github.com/elpideus/demido-studio/issues/66)):
+    /// at the default the child runs on the stack of the call that asked for
+    /// it, and above it the child is put in the air and the call is answered at
+    /// once. The `agent/delegated` event is written here either way, so a
+    /// delegation is on the log where it was asked for rather than where it
+    /// happened to finish.
+    async fn open(
+        &self,
+        task: &str,
+        turn: u32,
+        call: u64,
+        standing: &[String],
+    ) -> Result<Opened<'a, B, J>> {
         // Both halves of "is there anything to talk to" answer the same way,
         // and it is a **result** rather than an error: a model that went away
         // under a delegation ends the delegation, not the turn that asked for
@@ -1439,7 +1721,9 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         let Some((model, backend)) = answering else {
             // not-a-prompt: a tool result naming what was wrong with this call,
             // as the registry's own objections are.
-            return Ok(Err(Failure::final_("there is no model to delegate to.")));
+            return Ok(Opened::Nowhere(Failure::final_(
+                "there is no model to delegate to.",
+            )));
         };
 
         // The child and the event that opened it come out together, so there is
@@ -1463,8 +1747,23 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         // is shown at all.
         let depth = resolved.delegation_depth();
         let resolution = inherit(&self.rules.resolution, &Request::inheriting(), depth);
+        // This child's own rendezvous, and the registry it was handed rebound
+        // to it. While a delegation blocked there was one loop awaiting one at
+        // a time and one channel could not be ambiguous; above the default a
+        // sub-agent runs beside the turn that asked for it, and an ask answered
+        // by whichever of two loops polled first is a grandchild carried out
+        // correctly and recorded under the wrong parent. A registry with no
+        // `delegate_task` in it, which is what a child at the depth limit
+        // inherits, is left exactly as it is.
+        let (delegating, delegations) = crate::delegations();
+        let registry = self
+            .chat
+            .tools
+            .narrowed(Some(resolution.offered()))
+            .delegating_to(delegating);
         let child = Agent {
             chat: self.chat,
+            delegations: Arc::new(delegations),
             // What the child may call, narrowed to what it inherited.
             //
             // **Nothing is rebound to the child, because nothing was bound.**
@@ -1475,7 +1774,7 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
             // therefore cannot hold a handle on a conversation it is not in,
             // which is stronger than rebinding one correctly.
             rules: Rules {
-                registry: self.chat.tools.narrowed(Some(resolution.offered())),
+                registry,
                 resolution,
                 limit: self.rules.limit,
                 always: standing.to_vec(),
@@ -1489,32 +1788,79 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         };
 
         let sent = child.compose(task, Carrying::Nothing, &model, &resolved)?;
-        let number = sent.turn;
-        // The same token, so the parent's Stop is the child's, at every depth.
-        // A cancel that leaves a sub-agent generating against a model nobody is
-        // waiting for is the next question's VRAM.
-        //
-        // Boxed because this is the recursion: a child's loop dispatches a
-        // call, which carries out a delegation, which runs a loop. An async
-        // function that awaits itself has no size without one.
-        match Box::pin(child.steps(&backend, sent, driving)).await {
-            Ok(answer) => Ok(Ok(answer.text)),
-            Err(Error::Journal(journal)) => Err(Error::Journal(journal)),
-            Err(error) => {
-                // On the child's own half of the log, because it is the child's
-                // turn that ended. Best effort for the reason `ask`'s is: when
-                // the log is what failed, recording that it failed fails too.
-                let detail = error.to_string();
-                if let Err(unrecorded) = child
-                    .with_session(|session| Ok(session.failed(number, error.kind(), &detail)?))
-                {
-                    tracing::warn!(%unrecorded, "the sub-agent's failure was not recorded");
+        Ok(Opened::Child(Box::new(Opening {
+            child,
+            sent,
+            backend,
+        })))
+    }
+
+    /// Run this sub-agent's turn to its end, and say what it answered and where
+    /// that answer is.
+    ///
+    /// **A tool failure inside a child is a result, not an error.** The child
+    /// answers its own calls with what came back from them, exactly as its
+    /// parent does, and a turn that ended badly comes back as a failed result
+    /// the parent can act on. Only [`Error::Journal`] is returned, and it is the
+    /// one thing that stops a run at any depth: a child whose events cannot be
+    /// written is a child nothing can say happened.
+    ///
+    /// The position it hands back is what `agent/returned` names: the
+    /// completion the child ended on, or the failure it ended on instead. Both
+    /// are events on the child's own half of the log, which is the point of
+    /// naming rather than copying.
+    ///
+    /// **It hands back a boxed future rather than being an `async fn`**, and
+    /// that is load-bearing rather than style. This is the recursion: a child's
+    /// loop dispatches a call, which opens a delegation, which runs a loop, and
+    /// a background delegation is a future the turn holds, so the whole chain
+    /// has to be `Send`. A compiler asked to decide `Send` for a future that
+    /// awaits itself reports a cycle rather than an answer. Naming the bound at
+    /// one point in the ring turns the cycle into a check, and this is the
+    /// natural place for it because it is also where the recursion is already
+    /// boxed for its size.
+    fn run<'r, S, A, F>(self, backend: &'r B, sent: Sent, driving: &'r Driving<'_, S, A>) -> Ran<'r>
+    where
+        S: FnMut(Update) + Send + 'r,
+        A: FnMut(Asking) -> F + Send + 'r,
+        F: Future<Output = Decision> + Send,
+        'a: 'r,
+        B: 'r,
+        J: 'r,
+    {
+        Box::pin(async move {
+            let number = sent.turn;
+            // The same token, so the parent's Stop is the child's, at every depth.
+            // A cancel that leaves a sub-agent generating against a model nobody is
+            // waiting for is the next question's VRAM.
+            //
+            match self.steps(backend, sent, driving).await {
+                Ok(answer) => Ok((answer.seq, Ok(answer.text))),
+                Err(Error::Journal(journal)) => Err(Error::Journal(journal)),
+                Err(error) => {
+                    // On the child's own half of the log, because it is the child's
+                    // turn that ended. Best effort for the reason `ask`'s is: when
+                    // the log is what failed, recording that it failed fails too.
+                    let detail = error.to_string();
+                    let at = match self.with_session(|session| {
+                        Ok(session.failed(number, error.kind(), &detail)?)
+                    }) {
+                        Ok(seq) => seq,
+                        Err(unrecorded) => {
+                            tracing::warn!(%unrecorded, "the sub-agent's failure was not recorded");
+                            // Nothing on the log to point at. Zero is not an event,
+                            // and the blocking path never reads this: it is the
+                            // background one that would, and a log that refused the
+                            // failure is a log that will refuse the fold-in too.
+                            0
+                        }
+                    };
+                    // not-a-prompt: what the sub-agent's turn said went wrong,
+                    // handed to the model that asked for it as the call's result.
+                    Ok((at, Err(Failure::final_(detail))))
                 }
-                // not-a-prompt: what the sub-agent's turn said went wrong,
-                // handed to the model that asked for it as the call's result.
-                Ok(Err(Failure::final_(detail)))
             }
-        }
+        })
     }
 
     fn returned(&self, turn: u32, call: u64, text: &str, failed: bool) -> Result<u64> {
@@ -1553,13 +1899,18 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
 
     /// Read one generation, telling the window as it goes, and record the
     /// answer and then each call it asked for.
-    async fn stream(
+    async fn stream<S, A, F>(
         &self,
         backend: &B,
         sent: &Sent,
         cancel: Cancel,
-        sink: &mut impl FnMut(Update),
-    ) -> Result<Generation> {
+        driving: &Driving<'_, S, A>,
+    ) -> Result<Generation>
+    where
+        S: FnMut(Update) + Send,
+        A: FnMut(Asking) -> F + Send,
+        F: Future<Output = Decision> + Send,
+    {
         let mut stream = backend.generate(sent.request.clone(), cancel).await?;
 
         let mut text = String::new();
@@ -1571,11 +1922,11 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
             match chunk? {
                 Chunk::Text { text: said } => {
                     text.push_str(&said);
-                    sink(Update::Text { text: said });
+                    driving.tell(Update::Text { text: said });
                 }
                 Chunk::Thinking { text: thought } => {
                     thinking.push_str(&thought);
-                    sink(Update::Thinking { text: thought });
+                    driving.tell(Update::Thinking { text: thought });
                 }
                 Chunk::Call { call } => calls.push(call),
                 Chunk::Done { reason, usage } => finished = Some((reason, usage)),
@@ -1600,7 +1951,7 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         // streaming is now on the record, which is what lets it stop drawing a
         // draft and draw the log instead.
         if !calls.is_empty() {
-            sink(Update::Recorded);
+            driving.tell(Update::Recorded);
         }
 
         Ok(Generation {

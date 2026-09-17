@@ -61,10 +61,19 @@ impl Asked {
 /// The turn loop's end: the delegations `delegate_task` has asked for, in
 /// order.
 ///
-/// Held by the [`crate::Chat`] and borrowed for the length of a turn, which is
-/// what makes it a queue of one in practice: the loop dispatches calls one at a
-/// time, so there is never a second task waiting while the first is carried
-/// out.
+/// **One of these per agent**, not one per conversation
+/// ([#66](https://github.com/elpideus/demido-studio/issues/66)). The
+/// conversation's is the [`crate::Chat`]'s, and every sub-agent mints its own
+/// and has its registry rebound to it (`demido_tools::Registry::delegating_to`)
+/// on the way in. While a delegation blocked, one loop awaited a delegation at
+/// a time and one channel could not be ambiguous; above the default a
+/// sub-agent runs beside the turn that asked for it, and two agents sharing a
+/// channel is an ask answered by whichever polled first, carried out correctly
+/// and recorded under the wrong parent.
+///
+/// It is a queue of one in practice either way: an agent dispatches its calls
+/// one at a time, so there is never a second task of its own waiting while the
+/// first is carried out.
 pub struct Delegations {
     /// A sender of its own, so the queue never closes.
     ///
@@ -78,7 +87,13 @@ pub struct Delegations {
     /// Underscored because it is held for its effect on the channel and never
     /// read: nothing is ever sent on it, and that is the point.
     _never: mpsc::Sender<Asked>,
-    asked: mpsc::Receiver<Asked>,
+    /// Behind a lock so the queue is read through a shared reference.
+    ///
+    /// An agent is a `&self` all the way down and a background sub-agent's run
+    /// is a future the turn holds beside its own work, so a `&mut` to the
+    /// receiver is a borrow nothing can hand out. The lock is never contended:
+    /// one agent owns one of these, and it dispatches one call at a time.
+    asked: tokio::sync::Mutex<mpsc::Receiver<Asked>>,
 }
 
 impl Delegations {
@@ -95,8 +110,9 @@ impl Delegations {
     }
 
     /// The next delegation asked for. Pends forever when nothing will ask.
-    pub(crate) async fn next(&mut self) -> Asked {
-        match self.asked.recv().await {
+    pub(crate) async fn next(&self) -> Asked {
+        let mut asked = self.asked.lock().await;
+        match asked.recv().await {
             Some(asked) => asked,
             // Unreachable while `_never` is held, and a pend rather than a
             // panic if it ever is not: a turn that waits is recoverable by the
@@ -149,7 +165,7 @@ pub fn delegations() -> (Delegating, Delegations) {
         delegating,
         Delegations {
             _never: never,
-            asked,
+            asked: tokio::sync::Mutex::new(asked),
         },
     )
 }

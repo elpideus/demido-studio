@@ -442,6 +442,17 @@ impl Replay {
     /// own calls and their results next turn is a model that calls again for
     /// what it already has, and a request carrying an answer's calls without
     /// what came back for them is one a server refuses.
+    ///
+    /// **A host paragraph is carried only when a tool put it there.** The
+    /// system prompt is a fragment too and is resolved off the ladder at the
+    /// head of every turn, so carrying it would send it twice and would send
+    /// yesterday's wording beside today's. The one fragment that is nobody's to
+    /// re-derive is a background sub-agent's answer, folded into the parent at
+    /// a step boundary ([#66](https://github.com/elpideus/demido-studio/issues/66)):
+    /// it was written once, it is part of what this agent was told, and a turn
+    /// that dropped it would be a delegation the next message cannot see. The
+    /// source is what tells the two apart, which is what the source taxonomy is
+    /// for.
     pub fn conversation(&self) -> Vec<u64> {
         self.mine()
             .filter(|event| {
@@ -453,6 +464,9 @@ impl Replay {
                     } | Body::Completion { .. }
                         | Body::Result { .. }
                         | Body::Refusal { .. }
+                ) || matches!(
+                    (&event.body, event.source),
+                    (Body::Fragment { .. }, Source::Tool)
                 )
             })
             .map(|event| event.seq)

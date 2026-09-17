@@ -119,6 +119,16 @@ delegation could succeed, offering it would have been the one thing `registry.rs
 is explicit about, a tool a model will call and a call that cannot succeed
 however it is written.
 
+**A registry can be rebound to a different one.** `Registry::delegating_to`
+replaces `delegate_task` in place, keeping the order the set is offered in, and
+leaves a registry that has no `delegate_task` exactly as it is. The turn loop
+gives every sub-agent a rendezvous of its own on the way in
+([#66](https://github.com/elpideus/demido-studio/issues/66)): while a delegation
+blocked there was one loop awaiting one at a time and a single channel could not
+be ambiguous, and above the default two loops run at once, where an ask answered
+by whichever polled first is a grandchild carried out correctly and recorded
+under the wrong parent.
+
 ## run_command
 
 The Shell group, one tool, [#51](https://github.com/elpideus/demido-studio/issues/51).

@@ -350,6 +350,38 @@ default.
 **The conversation's own slot is never refused.** It is the model, not a
 sub-agent. Only the slots above it are the budget's to grant.
 
+### Above the default, an answer arrives at a step boundary
+
+Decided on [#66](https://github.com/elpideus/demido-studio/issues/66).
+
+**The call is answered at once.** A request whose assistant message asks for a
+call nothing answered is one no compatible server accepts, so a delegation that
+did not wait still has a `tool/result`: it says the work has gone out. The
+sub-agent's answer is not that result and never becomes one.
+
+**The answer arrives as a message.** `agent/returned` records that a delegation
+came back, naming the child's own answer by position rather than copying it, and
+the block the parent's model is shown is a framed paragraph beside it. A second
+`tool/result` would be a log that can disagree with itself about what came back.
+
+**A step boundary is the only place it may arrive.** Not mid-generation, and not
+between two calls of one step: a background answer is written after every call
+of its step has been answered, and two of them are written in the order their
+delegations are on the log. That is an ordering rather than a timing, which is
+why it is asserted on the log with no clock held still and no scheduler seam.
+
+**A run may not end with a delegation in flight.** A model that stops asking for
+tools waits for it, folds it in, and gets the step it needs to use it. A run
+that has spent its last step waits for it and writes it down anyway, and then
+ends as the failure the ceiling makes it: a delegation nobody mentions again is
+a silent loss, and a ceiling that ate an answer would be worse than the runaway
+it exists to end. A stop is the same, through the token every agent shares.
+
+**A full pool blocks rather than refusing.** The slots bound how many sub-agents
+run at once, and a delegation that finds none free takes the synchronous path.
+The model is never told to try again later, because that is not something a
+small model does anything sensible with.
+
 ## Where the settings resolve
 
 The ordinary ladder from

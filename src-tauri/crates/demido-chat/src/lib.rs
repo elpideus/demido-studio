@@ -55,6 +55,7 @@
 //! | [`update`] | What the window is told while a turn runs. |
 //! | [`chat`] | The session, the assembly, and the loop. |
 //! | [`delegation`] | The two ends of a delegation: the tool's, and the loop's. |
+//! | `flight` | The delegations a turn started and has not folded in yet. |
 //! | [`toolbox`] | What a conversation may call, and what a person is asked. |
 //! | [`monitor`] | What the session monitor draws over one assembly. |
 //! | [`pool`] | How many slots the card can hold, asked at every load. |
@@ -63,6 +64,7 @@
 
 pub mod chat;
 pub mod delegation;
+mod flight;
 pub mod monitor;
 pub mod pool;
 pub mod presence;
