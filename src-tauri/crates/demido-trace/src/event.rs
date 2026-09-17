@@ -446,6 +446,15 @@ pub enum Body {
     #[serde(rename = "agent/delegated")]
     Delegated {
         call: u64,
+        /// The child. **`child` on the wire**, because a body is flattened onto
+        /// the line and the line already has an `agent`, which is the parent
+        /// that wrote it. Two fields of one name is a line that writes and will
+        /// not read back, which is what a session log that had ever carried a
+        /// delegation did before
+        /// [#67](https://github.com/elpideus/demido-studio/issues/67) drove one
+        /// through a window. The in-memory name stays `agent` because that is
+        /// what it is, and the rename is where the collision is.
+        #[serde(rename = "child")]
         agent: AgentId,
         depth: u32,
     },
@@ -467,6 +476,9 @@ pub enum Body {
     #[serde(rename = "agent/returned")]
     Returned {
         call: u64,
+        /// The child whose answer this is, `child` on the wire for the reason
+        /// [`Body::Delegated`]'s is.
+        #[serde(rename = "child")]
         agent: AgentId,
         answer: u64,
     },
@@ -576,6 +588,43 @@ mod tests {
         assert_eq!(line["agent"], serde_json::json!("main"));
         assert_eq!(line["weight"]["tokens"], serde_json::json!(3));
         assert_eq!(line["weight"]["basis"], serde_json::json!("estimated"));
+    }
+
+    #[test]
+    fn a_delegation_names_the_parent_and_the_child_without_colliding() {
+        // The line carries two agents: the one that wrote it, which is the
+        // parent, and the one it opened. They are one field name apart, and
+        // before they were, a log that had ever carried a delegation wrote
+        // `agent` twice and refused to read itself back, with the whole desk
+        // reporting an invalid session log (#67).
+        let original = event(Body::Delegated {
+            call: 42,
+            agent: AgentId::delegated(42),
+            depth: 1,
+        });
+        let line = serde_json::to_string(&original).expect("a line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("a value");
+        assert_eq!(value["agent"], serde_json::json!("main"), "who wrote it");
+        assert_eq!(
+            value["child"],
+            serde_json::json!("agent-42"),
+            "and who it opened"
+        );
+
+        let back: Event = serde_json::from_str(&line).expect("an event");
+        assert_eq!(back, original, "a delegation reads back off the line");
+    }
+
+    #[test]
+    fn an_answer_folded_in_reads_back_off_the_line_too() {
+        let original = event(Body::Returned {
+            call: 42,
+            agent: AgentId::delegated(42),
+            answer: 51,
+        });
+        let line = serde_json::to_string(&original).expect("a line");
+        let back: Event = serde_json::from_str(&line).expect("an event");
+        assert_eq!(back, original);
     }
 
     #[test]

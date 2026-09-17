@@ -142,6 +142,7 @@ lets it be read later.
 | Message | user, assistant, streaming | user on `raised` at `--radius-island`; assistant unfilled on `rack`. Inline code spans `well`. |
 | Thinking block | collapsed, streaming, done | `well` ground, `src-reasoning` accent, elapsed count in the silkscreen voice. Visible by default, collapsible, carries its own Caveman level. |
 | Tool call row | pending, awaiting approval, running, done, failed, **refused** | `raised`; `src-tool` accent, `signal` running, `ink-3` done, `rose` failed, `src-tool` refused. Awaiting approval is drawn by the approval prompt below rather than by a second row for the same call. |
+| Delegation row | working, done, failed | `raised` with a violet accent (`surfaces.md` rule 4) and a bot icon; failed is `rose` and takes the warning icon the tool call row's failure takes, because the sub-agent's run ended rather than answered. Carries the task that went out and the answer that came back, the answer in a `well` under the sub-agent's own name. A long answer folds by height at `--fold-answer`, not by line count, because it is Markdown. |
 | Approval prompt | waiting, approved, denied | `raised` with an `amber` accent and a raised-hand icon. Enter and Escape caps always visible. Carries "always for this tool". |
 | Artifact card | rest, hover, lit | `raised`, `hover`; lit to `edge` for as long as its panel is open. |
 | Composer | rest, focused, disabled, model running | `well` at `--radius-island` (a field is a recess); focused ring `signal`; disabled states the reason in `ink-3`, never `ink-4`; send becomes stop while the model runs. |
@@ -277,6 +278,24 @@ row. The approval prompt already carries the tool, the ability and the
 arguments, so a row above it saying the call is running would be one call on
 screen twice in two states, neither of them true. The prompt is what that state
 looks like.
+
+**A delegation is not a tool call row.**
+[#67](https://github.com/elpideus/demido-studio/issues/67) added the delegation
+row above. On the log a delegation *is* a call, and the first draft of the
+transcript drew it as one: a row reading `delegate_task`, with the sub-agent's
+answer in the place a directory listing goes. That is wrong twice. The result of
+that call is prose a **different model** wrote, and a row that framed it as a
+tool's output would be the one place in this application where the record does
+not say who produced what. And on the background path the call's result is not
+the answer at all, it is the paragraph saying the work has gone out, so the row
+would have shown a person a sentence Demido wrote where the sub-agent's answer
+belongs.
+
+So a delegation is its own component with its own surface, and which of the two
+the transcript draws is decided by the projection rather than by the window: a
+delegation that opened no sub-agent, because the person declined it or the chain
+was at its depth, is still an ordinary call row with a stated reason, because
+nothing was delegated.
 
 **`splash.md` names a token that no longer exists.** Its inner top edge is
 specified as `inset 0 1px 0 0 --color-panel-raised`, which was v2's name for the

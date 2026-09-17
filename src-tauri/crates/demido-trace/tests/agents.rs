@@ -595,7 +595,7 @@ fn a_refusal_names_the_paragraph_that_stated_the_reason() {
         .iter()
         .find_map(|moment| match moment {
             demido_trace::Moment::Called(called) => Some(called),
-            demido_trace::Moment::Said(_) => None,
+            demido_trace::Moment::Said(_) | demido_trace::Moment::Delegated(_) => None,
         })
         .expect("the call is a row");
     match called.outcome.as_ref().expect("it was answered") {
@@ -608,4 +608,266 @@ fn a_refusal_names_the_paragraph_that_stated_the_reason() {
         }
         other => panic!("a refusal, not {other:?}"),
     }
+}
+
+/// A delegation is one moment in the parent's transcript: the task out, and
+/// the sub-agent's answer back.
+///
+/// [#67](https://github.com/elpideus/demido-studio/issues/67). "A clean context
+/// should also be a clean transcript": what the parent's chat shows is the task
+/// going out and the answer coming back, and the child's own calls are not in
+/// it. They are on the log, under the child's agent, which is the whole
+/// difference between clean and hidden.
+#[test]
+fn a_delegation_is_one_moment_carrying_the_task_and_the_answer() {
+    let journal = Memory::new();
+    let session = Session::new("one-moment", journal.clone());
+    let seq = exchange(&session, "When is the meeting?", "");
+    let call = session
+        .called(
+            1,
+            seq,
+            &ToolCall {
+                id: "call-1".into(),
+                name: "delegate_task".into(),
+                arguments: r#"{"task":"Read notes.txt and say when the meeting is"}"#.into(),
+            },
+        )
+        .unwrap();
+
+    // The child runs the whole loop again: it is given the task, it reads a
+    // file, and it answers.
+    let child = session.delegate(1, call).unwrap();
+    let asked = exchange(&child, "Read notes.txt and say when the meeting is", "");
+    let childs_call = child
+        .called(
+            1,
+            asked,
+            &ToolCall {
+                id: "call-2".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"notes.txt"}"#.into(),
+            },
+        )
+        .unwrap();
+    child
+        .returned(1, childs_call, "The meeting moved to Thursday.", false)
+        .unwrap();
+    exchange(&child, "and now?", "Thursday.");
+    // The blocking path: what the child said is the call's own result.
+    session.returned(1, call, "Thursday.", false).unwrap();
+
+    let moments = Replay::of(&journal).unwrap().transcript().unwrap();
+    let delegation = moments
+        .iter()
+        .find_map(|moment| match moment {
+            demido_trace::Moment::Delegated(delegation) => Some(delegation),
+            _ => None,
+        })
+        .expect("a delegation is a moment of its own");
+    assert_eq!(delegation.seq, call, "the row is the call that asked");
+    assert_eq!(delegation.agent, *child.agent());
+    assert_eq!(
+        delegation.task, "Read notes.txt and say when the meeting is",
+        "the task as the child was given it, off the child's own log"
+    );
+    let answer = delegation.answer.as_ref().expect("the sub-agent answered");
+    assert_eq!(answer.text, "Thursday.");
+    assert!(!answer.failed);
+
+    assert!(
+        !moments.iter().any(|moment| matches!(
+            moment,
+            demido_trace::Moment::Called(called) if called.name == "delegate_task"
+        )),
+        "and it is not also an ordinary call row: one exchange, not two"
+    );
+    assert!(
+        !moments.iter().any(|moment| matches!(
+            moment,
+            demido_trace::Moment::Called(called) if called.name == "read_file"
+        )),
+        "the child's own calls are not in the parent's transcript"
+    );
+}
+
+/// A background delegation reads the same way, and the acknowledgement that
+/// answered its call is not mistaken for the answer.
+#[test]
+fn a_folded_in_answer_is_the_one_the_sub_agent_gave() {
+    let journal = Memory::new();
+    let session = Session::new("folded", journal.clone());
+    let seq = exchange(&session, "Summarise the tree.", "");
+    let call = session
+        .called(
+            1,
+            seq,
+            &ToolCall {
+                id: "call-1".into(),
+                name: "delegate_task".into(),
+                arguments: r#"{"task":"Summarise the tree"}"#.into(),
+            },
+        )
+        .unwrap();
+    let child = session.delegate(1, call).unwrap();
+    // Above the default the call is answered at once, with the paragraph that
+    // says the work has gone out.
+    session
+        .returned(1, call, "The task has gone to a sub-agent.", false)
+        .unwrap();
+    exchange(&child, "Summarise the tree", "Three files, one plan.");
+    let completion = journal
+        .events()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|event| {
+            event.agent == *child.agent() && matches!(event.body, Body::Completion { .. })
+        })
+        .expect("the child answered")
+        .seq;
+    session
+        .folded_in(1, call, child.agent(), completion)
+        .unwrap();
+
+    let moments = Replay::of(&journal).unwrap().transcript().unwrap();
+    let delegation = moments
+        .iter()
+        .find_map(|moment| match moment {
+            demido_trace::Moment::Delegated(delegation) => Some(delegation),
+            _ => None,
+        })
+        .expect("a delegation is a moment of its own whichever path it took");
+    let answer = delegation.answer.as_ref().expect("it came back");
+    assert_eq!(
+        answer.text, "Three files, one plan.",
+        "the answer is the sub-agent's own, never the acknowledgement that stood in for it"
+    );
+    assert_eq!(
+        answer.seq, completion,
+        "named by position, as the log names it"
+    );
+}
+
+/// A delegation whose sub-agent is still working has no answer yet, and a row
+/// that claimed one would be claiming the first thing the child happened to
+/// say.
+#[test]
+fn a_delegation_still_running_has_no_answer_yet() {
+    let journal = Memory::new();
+    let session = Session::new("running", journal.clone());
+    let seq = exchange(&session, "Summarise the tree.", "");
+    let call = session
+        .called(
+            1,
+            seq,
+            &ToolCall {
+                id: "call-1".into(),
+                name: "delegate_task".into(),
+                arguments: r#"{"task":"Summarise the tree"}"#.into(),
+            },
+        )
+        .unwrap();
+    let child = session.delegate(1, call).unwrap();
+    // A step of the child's own: it asked for a tool and has not answered.
+    exchange(&child, "Summarise the tree", "");
+
+    let moments = Replay::of(&journal).unwrap().transcript().unwrap();
+    let delegation = moments
+        .iter()
+        .find_map(|moment| match moment {
+            demido_trace::Moment::Delegated(delegation) => Some(delegation),
+            _ => None,
+        })
+        .expect("the delegation is drawn from the moment it is opened");
+    assert!(
+        delegation.answer.is_none(),
+        "a step of the child's own is not an answer to the parent"
+    );
+}
+
+/// A sub-agent whose run ended badly answers with what went wrong, drawn as a
+/// failure rather than as an answer.
+#[test]
+fn a_sub_agent_that_ended_badly_is_a_failed_answer() {
+    let journal = Memory::new();
+    let session = Session::new("ended-badly", journal.clone());
+    let seq = exchange(&session, "Summarise the tree.", "");
+    let call = session
+        .called(
+            1,
+            seq,
+            &ToolCall {
+                id: "call-1".into(),
+                name: "delegate_task".into(),
+                arguments: r#"{"task":"Summarise the tree"}"#.into(),
+            },
+        )
+        .unwrap();
+    let child = session.delegate(1, call).unwrap();
+    exchange(&child, "Summarise the tree", "");
+    child
+        .failed(1, "step-limit", "the turn used every step it was allowed")
+        .unwrap();
+    session
+        .returned(1, call, "the turn used every step it was allowed", true)
+        .unwrap();
+
+    let moments = Replay::of(&journal).unwrap().transcript().unwrap();
+    let delegation = moments
+        .iter()
+        .find_map(|moment| match moment {
+            demido_trace::Moment::Delegated(delegation) => Some(delegation),
+            _ => None,
+        })
+        .expect("a delegation that failed is still a delegation");
+    let answer = delegation.answer.as_ref().expect("it ended");
+    assert!(
+        answer.failed,
+        "the ending is the failure the child recorded"
+    );
+    assert!(answer.text.contains("every step"));
+}
+
+/// A delegation nobody allowed is an ordinary call row with a stated reason:
+/// no child was opened, so there is no exchange to draw.
+#[test]
+fn a_delegation_that_opened_no_child_is_an_ordinary_call_row() {
+    let prompts = tempfile::tempdir().unwrap();
+    let paragraph = demido_prompts::Paragraphs::open(prompts.path())
+        .get(demido_prompts::id::TOOLS_DENIED)
+        .unwrap();
+
+    let journal = Memory::new();
+    let session = Session::new("denied", journal.clone());
+    let seq = exchange(&session, "Summarise the tree.", "");
+    let call = session
+        .called(
+            1,
+            seq,
+            &ToolCall {
+                id: "call-1".into(),
+                name: "delegate_task".into(),
+                arguments: r#"{"task":"Summarise the tree"}"#.into(),
+            },
+        )
+        .unwrap();
+    session
+        .refused(1, call, &paragraph, &[("tool", "delegate_task")])
+        .unwrap();
+
+    let moments = Replay::of(&journal).unwrap().transcript().unwrap();
+    assert!(
+        !moments
+            .iter()
+            .any(|moment| matches!(moment, demido_trace::Moment::Delegated(_))),
+        "nothing was delegated, so there is no delegation to draw"
+    );
+    assert!(
+        moments.iter().any(|moment| matches!(
+            moment,
+            demido_trace::Moment::Called(called) if called.name == "delegate_task"
+        )),
+        "the call is a row with the reason it did not run"
+    );
 }

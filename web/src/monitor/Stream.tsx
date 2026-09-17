@@ -142,10 +142,12 @@ function summary(event: Event): string {
       return once(`${text(event, 'name')} ${text(event, 'arguments')}`)
     case 'tool/decision':
       return once(text(event, 'decision'))
+    // `child` rather than `agent`: the line's own `agent` is the parent that
+    // wrote it, and the child it opened is a field of the body (#67).
     case 'agent/delegated':
-      return `${text(event, 'agent')}, depth ${numeric(event, 'depth')}`
+      return `${text(event, 'child')}, depth ${numeric(event, 'depth')}`
     case 'agent/returned':
-      return once(text(event, 'agent'))
+      return once(text(event, 'child'))
     case 'tool/result':
       return once(text(event, 'text'))
     case 'turn/failure':

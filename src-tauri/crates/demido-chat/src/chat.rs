@@ -19,7 +19,9 @@ use demido_permission::{inherit, Mode, Request, Resolution, Verdict};
 use demido_prompts::{catalog, id};
 use demido_settings::{Ladder, Origin, Resolved, Settings, Tier};
 use demido_tools::{Failure, Outcome, Registry};
-use demido_trace::{Called, Decision, Journal, Layer, Replay, Sent, Session, SessionId, Source};
+use demido_trace::{
+    Called, Decision, Delegation, Journal, Layer, Replay, Sent, Session, SessionId, Source,
+};
 
 use crate::delegation::Delegations;
 use crate::flight::{Flight, Harvest, Slots};
@@ -138,23 +140,30 @@ pub struct Said {
     pub text: String,
 }
 
-/// One moment in the transcript: something said, or a call and what came back.
+/// One moment in the transcript: something said, a call and what came back, or
+/// a delegation and what the sub-agent answered.
 ///
 /// The window draws a bubble for the first and a **tool call row**
 /// (`design/system.md`) for the second, at the point in the turn where each
 /// happened. Tagged rather than two lists, because the order is the thing being
 /// drawn: a call that arrived between two sentences belongs between them.
 ///
+/// The third is [#67](https://github.com/elpideus/demido-studio/issues/67): a
+/// delegation is **one exchange**, the task out and the answer back, rather
+/// than a call row whose result is prose nothing says the author of. A clean
+/// context should also be a clean transcript.
+///
 /// [`Said`] is this crate's own because it is [`demido_trace::Exchange`] with
-/// the monitor's two axes taken off it. [`Called`] is the log's own type
-/// unchanged, because there is nothing on it to take off: a copy here would be
-/// a rename and two `From` impls, which is a second declaration that can drift
-/// rather than a narrowing that means something.
+/// the monitor's two axes taken off it. [`Called`] and [`Delegation`] are the
+/// log's own types unchanged, because there is nothing on either to take off: a
+/// copy here would be a rename and two `From` impls, which is a second
+/// declaration that can drift rather than a narrowing that means something.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "moment", rename_all = "camelCase")]
 pub enum Moment {
     Said(Said),
     Called(Called),
+    Delegated(Delegation),
 }
 
 /// A finished turn.
@@ -531,6 +540,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                         text: exchange.text,
                     }),
                     demido_trace::Moment::Called(called) => Moment::Called(called),
+                    demido_trace::Moment::Delegated(delegation) => Moment::Delegated(delegation),
                 })
                 .collect())
         })

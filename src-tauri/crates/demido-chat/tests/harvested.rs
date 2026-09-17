@@ -696,3 +696,54 @@ async fn the_default_is_still_the_blocking_path() {
     );
     assert!(folded(&events).is_empty(), "and nothing was folded in");
 }
+
+/// The row the person reads carries the sub-agent's own answer, never the
+/// acknowledgement that answered the call while the work was out.
+///
+/// [#67](https://github.com/elpideus/demido-studio/issues/67) over this
+/// ticket's path. At the default the call's result *is* what the child said, so
+/// a transcript could take it and be right by accident; here the result is the
+/// `agent.delegated` paragraph and the answer arrives later as a message, and a
+/// row that took the result would show a person a paragraph Demido wrote where
+/// the sub-agent's answer belongs.
+#[tokio::test]
+async fn the_transcript_draws_the_answer_and_not_the_acknowledgement() {
+    let rig = Rig::new(one_delegation());
+    let chat = rig.chat(2);
+    chat.load(|_| {}).await;
+
+    chat.ask("When is the meeting?", |_| {}, nobody())
+        .await
+        .unwrap();
+
+    let transcript = chat.transcript().unwrap();
+    let delegation = transcript
+        .iter()
+        .find_map(|moment| match moment {
+            demido_chat::Moment::Delegated(delegation) => Some(delegation),
+            demido_chat::Moment::Said(_) | demido_chat::Moment::Called(_) => None,
+        })
+        .expect("a delegation is one exchange on this path too");
+    assert_eq!(delegation.task, "Find when the meeting is");
+    let answer = delegation.answer.as_ref().expect("it came back");
+    assert_eq!(answer.text, "Thursday.", "what the sub-agent said");
+    assert_ne!(
+        answer.text,
+        rig.paragraph(demido_prompts::id::AGENT_DELEGATED),
+        "and not the paragraph that stood in for it while the work was out"
+    );
+
+    let events = rig.events();
+    let (_, call, answered) = folded(&events)[0];
+    assert_eq!(call, delegation.seq, "the row is the call that asked");
+    assert_eq!(
+        answer.seq, answered,
+        "named by position, which is the same position `agent/returned` names"
+    );
+    assert!(
+        !transcript
+            .iter()
+            .any(|moment| matches!(moment, demido_chat::Moment::Called(_))),
+        "and the delegation is not also drawn as an ordinary call row"
+    );
+}

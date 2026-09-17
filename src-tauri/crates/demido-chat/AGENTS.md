@@ -277,6 +277,29 @@ off, and `tools.depth` says the chain reached its limit, because at the limit
 nobody turned anything off and sending a sub-agent to look for the picker would
 point it at the wrong control.
 
+## A delegation is one exchange in the transcript
+
+[#67](https://github.com/elpideus/demido-studio/issues/67). `Chat::transcript`
+hands the window a **delegation** where the log holds a call that opened a
+sub-agent: the task that went out, the agent that carried it, and what that
+agent answered. A clean context should also be a clean transcript, and the
+child's fifteen file reads are on the log under the child's own agent, which is
+where the monitor's scope reads them.
+
+**The window takes no decision about which row to draw.** The projection is
+`demido_trace::Replay::transcript`'s, which reads the `agent/delegated` events
+rather than a tool name, so a delegation that opened no sub-agent, one the
+person declined or one past the depth, is still an ordinary call row with the
+paragraph that stated the reason on it. Nothing was delegated, so there is no
+exchange.
+
+**The answer drawn is the child's ending, never the call's result.** The two
+paths answer the parent's call differently: at the default the result *is* what
+the child said, and above it the result is the `agent.delegated` paragraph
+saying the work has gone out. The child's own ending is the same event on both,
+so there is one rule instead of two and the row cannot show a person a paragraph
+Demido wrote where the sub-agent's answer belongs.
+
 ## What the monitor reads
 
 [#57](https://github.com/elpideus/demido-studio/issues/57). Two questions, and

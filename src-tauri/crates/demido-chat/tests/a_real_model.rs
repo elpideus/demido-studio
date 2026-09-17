@@ -77,7 +77,7 @@ fn messages(chat: &Chat<LlamaCpp, JsonLines>) -> Vec<demido_chat::Said> {
         .into_iter()
         .filter_map(|moment| match moment {
             demido_chat::Moment::Said(said) => Some(said),
-            demido_chat::Moment::Called(_) => None,
+            demido_chat::Moment::Called(_) | demido_chat::Moment::Delegated(_) => None,
         })
         .collect()
 }

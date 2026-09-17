@@ -73,7 +73,7 @@ pub mod update;
 
 pub use chat::{Answer, Chat, Error, Model, Moment, Result, Said};
 pub use delegation::{delegations, Asked, Delegations};
-pub use demido_trace::{Called, Decision, Outcome};
+pub use demido_trace::{Called, Decision, Delegation, Delivered, Outcome};
 pub use monitor::{Assembly, Grouped, Standing};
 pub use pool::Pool;
 pub use presence::Presence;

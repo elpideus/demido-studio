@@ -1,0 +1,93 @@
+/*
+ * The delegation row: one exchange with a sub-agent, where it happened (#67).
+ * The surfaces are docs/rules/surfaces.md and the numbers are design/tokens.css.
+ */
+
+.delegation {
+  align-self: stretch;
+  padding: var(--space-control) var(--space-room);
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  /* surfaces.md rule 4: delegated is violet. The accent is the ink rather than
+   * a rule down the side, because a hairline is allowed in two cases and this
+   * is neither (docs/rules/gaps-and-hairlines.md). */
+  color: var(--color-violet);
+}
+
+/* A sub-agent whose run ended badly, drawn the way a failed result is: what
+ * came back is what went wrong, and the row should not need reading to say so. */
+.delegation[data-state='failed'] {
+  color: var(--color-rose);
+}
+
+/* The header line, its icon, the label voice and the subject beside it are the
+ * shape every row of this kind has (./Row.module.css). */
+.head {
+  composes: head from './Row.module.css';
+}
+
+.icon {
+  composes: icon from './Row.module.css';
+}
+
+.agent {
+  composes: label from './Row.module.css';
+}
+
+/* The agent's own name, which is what the session monitor's agent column calls
+ * it, so a row here and a scope there are visibly the same run. In ink-3
+ * rather than ink-4, because it is the one thing on the row that ties it to
+ * another surface and ink-4 is decorative and disabled only
+ * (docs/rules/surfaces.md). */
+.name {
+  composes: subject from './Row.module.css';
+  color: var(--color-ink-3);
+}
+
+/* The task, as the sub-agent was given it. In the reading ink rather than in
+ * the row's state colour: it is a sentence somebody reads, and the colour
+ * belongs to the row's state. */
+.task {
+  margin: var(--space-tight) 0 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-meta);
+  line-height: var(--leading-prose);
+}
+
+/* What came back. A recess, because it is a payload the row carries rather than
+ * prose on the rack, and that is also what says it is somebody else's answer
+ * rather than the model's own (docs/rules/surfaces.md). */
+.answer {
+  margin-top: var(--space-control);
+  padding: var(--space-control) var(--space-room);
+  border-radius: var(--radius-chip);
+  background: var(--color-well);
+  color: var(--color-ink-2);
+  font-size: var(--text-meta);
+  line-height: var(--leading-prose);
+  /* Folded by height rather than by line count: this is Markdown, and a fold
+   * that sliced the text could cut a fence in half. */
+  max-height: var(--fold-answer);
+  overflow: hidden;
+}
+
+.answer[data-open='true'] {
+  max-height: none;
+}
+
+.more {
+  composes: more from './Row.module.css';
+}
+
+.chevron {
+  composes: chevron from './Row.module.css';
+}
+
+/* A sub-agent that is still working. ink-3 rather than ink-4: it is the only
+ * sentence on this row while it is true (docs/rules/surfaces.md). */
+.working {
+  margin: var(--space-control) 0 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
