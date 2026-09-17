@@ -18,7 +18,7 @@ use std::future::{ready, Ready};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Asking, Chat, Decision, Model, Moment, Toolbox};
+use demido_chat::{Asking, Chat, Decision, Model, Moment, Standing, Toolbox};
 use demido_inference::scripted::{Script, Scripted, Step};
 use demido_inference::{FinishReason, Request, Role, Supervisor, ToolCall};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
@@ -123,6 +123,29 @@ impl Rig {
     fn events(&self) -> Vec<Event> {
         self.log.events().unwrap()
     }
+
+    /// How deep this conversation may delegate, on its own tier of the ladder.
+    ///
+    /// A setter rather than a value handed to [`Rig::chat`], because the whole
+    /// of #64 is that the number is read where a delegation is dispatched: a
+    /// test that could only set it before a chat existed could not tell that
+    /// apart from a number baked in at construction.
+    fn set_depth(&self, depth: u64) {
+        self.settings
+            .set(
+                &Scope::chat(SESSION),
+                demido_settings::id::DELEGATION_DEPTH,
+                &json!(depth),
+            )
+            .unwrap();
+    }
+
+    /// The wording one paragraph has here, as the chat reads it.
+    fn paragraph(&self, id: &str) -> demido_prompts::Prompt {
+        demido_prompts::Paragraphs::open(self.prompts.path())
+            .get(id)
+            .expect("a paragraph this build ships")
+    }
 }
 
 /// A log that takes the conversation's events and refuses its sub-agents'.
@@ -200,6 +223,21 @@ fn opened(events: &[Event]) -> Vec<(AgentId, u64, u32)> {
             _ => None,
         })
         .collect()
+}
+
+/// What one group of the registry came to in one assembly.
+fn standing(assembly: &demido_chat::Assembly, group: &str) -> Standing {
+    assembly
+        .groups
+        .iter()
+        .find(|grouped| grouped.group == group)
+        .unwrap_or_else(|| panic!("no {group} group: {:?}", assembly.groups))
+        .standing
+}
+
+/// The depth of each agent a delegation opened, in the order they were opened.
+fn depths(events: &[Event]) -> Vec<u32> {
+    opened(events).iter().map(|(_, _, depth)| *depth).collect()
 }
 
 /// What came back from the call at `call`, if anything did.
@@ -436,19 +474,36 @@ async fn what_the_parent_offers_is_the_ceiling_at_every_depth() {
         .await
         .unwrap();
 
-    for (at, request) in rig.script.requests().iter().enumerate() {
+    // The conversation and its child are offered the whole set. The grandchild
+    // is at the default depth's limit, so it is offered the same set less the
+    // one tool it has no depth left for, which is #64's rule rather than a
+    // second narrowing (`demido_permission::inherit`).
+    //
+    // The order is the chain's: the conversation asks, its child asks, the
+    // grandchild answers, and then each of them takes its second step on the
+    // way back up. Only the third generation is the grandchild's.
+    let requests = rig.script.requests();
+    assert_eq!(requests.len(), 5, "one generation per step of the chain");
+    for (at, request) in requests.iter().enumerate() {
+        let expected: &[&str] = match at {
+            2 => &["read_file"],
+            _ => &set,
+        };
         assert_eq!(
             names(request),
-            set,
-            "generation {at} was offered the conversation's set and nothing else"
+            expected,
+            "generation {at} was not offered what its agent's depth allows"
         );
     }
-    // Three agents, each one level below the last, and the depth is decremented
+    // Three agents, each one level below the last, and the level is counted up
     // by the inheritance rule and by nothing else.
     let events = rig.events();
     let children = opened(&events);
-    let depths: Vec<u32> = children.iter().map(|(_, _, depth)| *depth).collect();
-    assert_eq!(depths, [1, 2], "a chain two deep, each link one lower");
+    assert_eq!(
+        depths(&events),
+        [1, 2],
+        "a chain two deep, each link one lower"
+    );
 
     // The second delegation was opened **by the child**, not by the
     // conversation. This is the shape of "no sub-agent holds a handle on a
@@ -678,23 +733,21 @@ async fn a_stop_on_the_parent_leaves_nothing_generating_at_depth_two() {
     );
 }
 
-/// A chain cannot run past the depth it was given: the delegation at the limit
-/// is a failed result the sub-agent answers from what it has.
+/// At depth 1, `delegate_task` is absent from every child's payload.
 ///
-/// The **absence** of the tool at the limit, with its own wording and its own
-/// monitor row, is
-/// [#64](https://github.com/elpideus/demido-studio/issues/64). What is owed here
-/// is only that the chain ends.
+/// v2 reached this by cloning a sub-agent's registry before `delegate_task` was
+/// added to it, so the tool was never on offer at any setting. The same
+/// behaviour, now the default value of a number being read
+/// ([#64](https://github.com/elpideus/demido-studio/issues/64)): nothing about
+/// the construction says it, and changing the setting changes it.
 #[tokio::test]
-async fn the_chain_ends_at_the_depth_it_was_given() {
+async fn at_depth_one_the_tool_is_absent_from_every_childs_payload() {
     let script = Script::serving("scripted")
         .then(delegates("call-1", "Ask somebody else"))
-        .then(delegates("call-2", "Ask somebody else again"))
-        .then(delegates("call-3", "And again"))
-        .then_say(&["I could not delegate further."])
-        .then_say(&["The sub-agent could not delegate further."])
-        .then_say(&["Done."]);
+        .then_say(&["I did it myself."])
+        .then_say(&["The sub-agent did it."]);
     let rig = Rig::new(script);
+    rig.set_depth(1);
     let chat = rig.chat("autonomous");
     chat.load(|_| {}).await;
 
@@ -702,18 +755,220 @@ async fn the_chain_ends_at_the_depth_it_was_given() {
         .await
         .unwrap();
 
+    // The conversation was offered it, because the conversation is the one
+    // agent with depth above it. Its child was not, which is the whole of the
+    // rule at this setting.
+    let requests = rig.script.requests();
+    let [conversation, child, back_up] = requests.as_slice() else {
+        panic!(
+            "one delegation and the step after it: {} sent",
+            requests.len()
+        );
+    };
+    assert!(names(conversation).contains(&"delegate_task"));
+    assert!(names(back_up).contains(&"delegate_task"));
+    assert!(
+        !names(child).contains(&"delegate_task"),
+        "the child was shown a tool it has no depth for: {:?}",
+        names(child)
+    );
+    let events = rig.events();
+    assert_eq!(opened(&events).len(), 1, "one link, and no second");
+
+    // And the monitor says which absence it is. A reader who finds no
+    // Delegation group in a sub-agent's assembly must not be told the registry
+    // dropped it or that they switched it off, because the control in the way
+    // is the depth and neither of those would send them to it
+    // (`docs/rules/tools.md`).
+    let (child, _, _) = opened(&events)[0].clone();
+    let theirs = wrote(&events, &child);
+    let at = theirs[theirs.len() - 1].seq;
+    let child = chat.assembly(at).unwrap().expect("the child's assembly");
+    assert_eq!(standing(&child, "delegation"), Standing::PastTheDepth);
+
+    let mine = wrote(&events, &AgentId::main());
+    let ours = chat
+        .assembly(mine[mine.len() - 1].seq)
+        .unwrap()
+        .expect("the conversation's assembly");
+    assert_eq!(
+        standing(&ours, "delegation"),
+        Standing::Offered,
+        "the conversation is above the limit and was offered the tool"
+    );
+}
+
+/// At depth 3, the brief's own chain of three runs.
+///
+/// Brief B19: "depth 3 would mean Main chat/context delegates an agent we will
+/// call Agent 1. Agent 1 needs another info so it delegates Agent 2. Agent 2
+/// needs something else so it delegates Agent 3."
+#[tokio::test]
+async fn at_depth_three_a_three_link_chain_runs() {
+    let script = Script::serving("scripted")
+        .then(delegates("call-1", "Agent 1, find out"))
+        .then(delegates("call-2", "Agent 2, find out"))
+        .then(delegates("call-3", "Agent 3, find out"))
+        .then_say(&["Thursday."])
+        .then_say(&["Agent 3 said Thursday."])
+        .then_say(&["Agent 2 said Thursday."])
+        .then_say(&["The meeting is Thursday."]);
+    let rig = Rig::new(script);
+    rig.set_depth(3);
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+
+    let answer = chat
+        .ask("When is the meeting?", |_| {}, nobody())
+        .await
+        .unwrap();
+
+    assert_eq!(answer.text, "The meeting is Thursday.");
+    let events = rig.events();
+    assert_eq!(depths(&events), [1, 2, 3], "three links, each one lower");
+
+    // Agent 3 is the last link and knows it by what it was shown rather than by
+    // a refusal it read: the fourth generation is the one with nothing to
+    // delegate with.
+    let requests = rig.script.requests();
+    assert!(
+        !names(&requests[3]).contains(&"delegate_task"),
+        "agent 3 was shown a fourth link: {:?}",
+        names(&requests[3])
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event.body, Body::Refusal { .. })),
+        "a chain that fits inside the depth refuses nothing"
+    );
+}
+
+/// The depth is read where a delegation is dispatched, so a number changed
+/// while a turn is running rules the next delegation of that same turn.
+///
+/// A ladder read at the top of a turn and carried down could not do this: the
+/// child's set would be a reading taken before the change. The change is made
+/// from the approval callback, which is the one place a test can stand between
+/// a delegation being allowed and the child it opens being built.
+#[tokio::test]
+async fn the_depth_is_read_at_dispatch_and_not_carried_down() {
+    let script = Script::serving("scripted")
+        .then(delegates("call-1", "Ask somebody else"))
+        .then(delegates("call-2", "Ask somebody else again"))
+        .then_say(&["Thursday."])
+        .then_say(&["The sub-agent said Thursday."])
+        .then_say(&["The meeting is Thursday."]);
+    let rig = Rig::new(script);
+    // One link is all this turn may open when it starts.
+    rig.set_depth(1);
+    let chat = rig.chat("cautious");
+    chat.load(|_| {}).await;
+
+    // Cautious, so `delegate_task` asks, and the answer is where the person
+    // changes the setting: after the first delegation was allowed, and before
+    // the child it opens is built.
+    let raised = Arc::new(Mutex::new(false));
+    let approve = {
+        let raised = raised.clone();
+        let settings = rig.settings.clone();
+        move |_: Asking| {
+            let mut raised = raised.lock().unwrap();
+            if !*raised {
+                settings
+                    .set(
+                        &Scope::chat(SESSION),
+                        demido_settings::id::DELEGATION_DEPTH,
+                        &json!(2),
+                    )
+                    .unwrap();
+                *raised = true;
+            }
+            ready(Decision::Allow)
+        }
+    };
+
+    chat.ask("When is the meeting?", |_| {}, approve)
+        .await
+        .unwrap();
+
+    assert!(*raised.lock().unwrap(), "the delegation was asked about");
     let events = rig.events();
     assert_eq!(
-        opened(&events).len(),
-        2,
-        "two children, and no third: {:?}",
-        opened(&events)
+        depths(&events),
+        [1, 2],
+        "the depth raised mid turn did not reach the next delegation"
     );
-    let refused = events
-        .iter()
-        .filter(|event| matches!(&event.body, Body::Call { name, .. } if name == "delegate_task"))
-        .filter_map(|event| result(&events, event.seq))
-        .filter(|(_, failed)| *failed)
-        .count();
-    assert_eq!(refused, 1, "the delegation at the limit is a failed result");
+    assert!(
+        names(&rig.script.requests()[1]).contains(&"delegate_task"),
+        "the child was built without the tool the raised depth gave it"
+    );
+}
+
+/// A child at the limit that names the tool anyway is told why, in its own
+/// context, and answers from what it has.
+///
+/// The words are not the picker's, because the reason is not the picker's: the
+/// user did not turn this off, the chain reached its limit. And the refusal is
+/// an event carrying its stated reason, which is what draws the monitor row.
+#[tokio::test]
+async fn a_child_at_the_limit_that_names_the_tool_is_told_why_in_its_own_context() {
+    let script = Script::serving("scripted")
+        .then(delegates("call-1", "Ask somebody else"))
+        // The child has no `delegate_task` and names it regardless. A small
+        // model that has seen the tool once does exactly this.
+        .then(delegates("call-2", "Ask somebody else again"))
+        .then_say(&["Nobody else to ask, so: Thursday."])
+        .then_say(&["The meeting is Thursday."]);
+    let rig = Rig::new(script);
+    rig.set_depth(1);
+    let chat = rig.chat("autonomous");
+    chat.load(|_| {}).await;
+
+    let answer = chat
+        .ask("When is the meeting?", |_| {}, nobody())
+        .await
+        .unwrap();
+
+    // It answered rather than stalling, and the conversation got the answer.
+    assert_eq!(answer.text, "The meeting is Thursday.");
+    let events = rig.events();
+    let children = opened(&events);
+    let [(child, _, _)] = children.as_slice() else {
+        panic!("the call at the limit opened something: {children:?}");
+    };
+
+    // In its own context: the refusal is on the child's half of the log rather
+    // than the conversation's, so what reads it is the child's next request.
+    let refusals: Vec<Event> = wrote(&events, child)
+        .into_iter()
+        .filter(|event| matches!(event.body, Body::Refusal { .. }))
+        .collect();
+    let [refusal] = refusals.as_slice() else {
+        panic!("one refusal, on the child's own half of the log: {refusals:?}");
+    };
+
+    // Carrying its stated reason, by the hash of the paragraph that stated it,
+    // the way every refusal does: that is the row the monitor draws.
+    let depth = rig.paragraph(demido_prompts::id::TOOLS_DEPTH);
+    let off = rig.paragraph(demido_prompts::id::TOOLS_OFF);
+    let Body::Refusal { hash, values, .. } = &refusal.body else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(hash, &depth.hash, "the refusal names its own wording");
+    assert_ne!(
+        depth.hash, off.hash,
+        "the wording at the limit is the picker's switched-off wording"
+    );
+    assert!(
+        values
+            .iter()
+            .any(|filling| filling.value == "delegate_task"),
+        "the refusal names the call that did not run: {values:?}"
+    );
+
+    // And it really is a different paragraph rather than the same sentence
+    // under a second id: the picker's says the user turned it off, and at the
+    // limit nobody did.
+    assert_ne!(depth.text, off.text);
 }

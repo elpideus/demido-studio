@@ -266,16 +266,6 @@ pub struct Chat<B: Backend, J: Journal> {
     delegations: tokio::sync::Mutex<Delegations>,
 }
 
-/// How many levels of delegation may open under one conversation.
-///
-/// A constant here and a row on the settings ladder at
-/// [#64](https://github.com/elpideus/demido-studio/issues/64), which is the
-/// ticket that owns the depth control: what this ticket owes is that the number
-/// exists, that [`inherit`] is the only thing that decrements it, and that a
-/// chain two deep really runs. The value is #64's stated default, so the
-/// setting that replaces this line changes no behaviour by arriving.
-const DEPTH: u32 = 2;
-
 impl<B: Backend, J: Journal> Chat<B, J> {
     /// A chat over a log that opens when there is something to put in it,
     /// talking to the model given, or to nothing.
@@ -451,8 +441,11 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             let Some(rebuild) = Replay::of(session.journal())?.rebuild(at)? else {
                 return Ok(None);
             };
-            let groups =
-                crate::monitor::grouped(self.tools.registry().groups(), rebuild.tools.as_ref());
+            let groups = crate::monitor::grouped(
+                self.tools.registry().groups(),
+                rebuild.tools.as_ref(),
+                &rebuild.agent,
+            );
             Ok(Some(Assembly { rebuild, groups }))
         })
     }
@@ -551,10 +544,16 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 resolution: Resolution::root(
                     registry.offered_names(),
                     Mode::named(resolved.mode()),
-                    DEPTH,
                 ),
                 registry,
                 limit: resolved.step_limit(),
+                // The conversation is level zero and the depth is at least
+                // one, so this always answers that it may delegate: what it is
+                // offered on that axis is the picker's, and `delegate_task`
+                // switched off there is told as switched off. The number earns
+                // its place in a child, where the same absence has the other
+                // reason.
+                depth: resolved.delegation_depth(),
                 // Off the ladder's chat tier rather than off the log (#55). The
                 // log still says which of the three the person answered,
                 // because that is what happened; what is in force next turn is
@@ -767,6 +766,14 @@ struct Rules {
     resolution: Resolution,
     limit: u32,
     always: Vec<String>,
+    /// The delegation depth this agent's registry was derived under.
+    ///
+    /// Held rather than re-read, so `resolution.may_delegate(depth)` answers
+    /// here the way it answered where the offered set was built: what the
+    /// payload lacks and what a refusal says about the absence cannot disagree.
+    /// A second reading of the ladder could land either side of a change made
+    /// mid-turn and answer for a payload built under the other one.
+    depth: u32,
 }
 
 /// Which layer decided the offered set: a tier of the ladder, or nobody, which
@@ -838,6 +845,9 @@ impl Answered {
 struct Ruling<'a> {
     registry: &'a Registry,
     resolution: &'a Resolution,
+    /// [`Rules::depth`], which is what tells the two reasons `delegate_task`
+    /// can be missing apart.
+    depth: u32,
     always: &'a mut Vec<String>,
     /// Calls the person declined this turn, by name and arguments.
     declined: &'a mut Vec<(String, serde_json::Value)>,
@@ -1047,6 +1057,7 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                 let ruling = Ruling {
                     registry: &self.rules.registry,
                     resolution: &self.rules.resolution,
+                    depth: self.rules.depth,
                     always: &mut always,
                     declined: &mut declined,
                 };
@@ -1139,10 +1150,20 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         F: Future<Output = Decision> + Send,
     {
         let cancel = driving.cancel;
-        // Registered, and not in the set: somebody closed it. Told as that
+        // Registered, and not in the set: something closed it. Told as that
         // rather than as a name that is not a tool, which would send the model
-        // looking for another way to do what a person deliberately turned off
+        // looking for another way to do what was deliberately taken away
         // (`docs/rules/tools.md`).
+        //
+        // **Two absences, two wordings.** Nearly always somebody switched the
+        // tool off in the picker, and that is what the model is told. The one
+        // exception is `delegate_task` under an agent that has run out of
+        // depth: the user did not turn this off, the chain reached its limit,
+        // and a paragraph saying *the user turned it off* would send a
+        // sub-agent to ask a person for a setting that is not the one in the
+        // way. The absence is the same absence either way, which is the whole
+        // point of #64 doing this with the offered set rather than with a
+        // second mechanism.
         //
         // The set is the ladder's at every depth, because a child's is its
         // parent's and nothing narrows further yet (`Request::inheriting`). The
@@ -1150,13 +1171,15 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         // beside the chat's registry: `tools.md` is explicit that an absence a
         // sub-agent chose is not one the user is told they chose.
         if !ruling.registry.offers(&call.name) && self.chat.tools.registry().offers(&call.name) {
+            let at_the_limit = call.name == demido_tools::DelegateTask::NAME
+                && !ruling.resolution.may_delegate(ruling.depth);
+            let reason = if at_the_limit {
+                id::TOOLS_DEPTH
+            } else {
+                id::TOOLS_OFF
+            };
             return self
-                .refuse(
-                    turn,
-                    seq,
-                    id::TOOLS_OFF,
-                    &[(catalog::TOOL, call.name.as_str())],
-                )
+                .refuse(turn, seq, reason, &[(catalog::TOOL, call.name.as_str())])
                 .map(Answered::declined);
         }
 
@@ -1355,20 +1378,6 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         A: FnMut(Asking) -> F + Send,
         F: Future<Output = Decision> + Send,
     {
-        // The floor under the chain, asked of the number and never of the mode.
-        // [#64](https://github.com/elpideus/demido-studio/issues/64) is what
-        // turns this into the tool being **absent** at the limit, with a
-        // paragraph of its own and a monitor row; what is owed here is only
-        // that a chain cannot run forever.
-        if !self.rules.resolution.may_delegate() {
-            // not-a-prompt: a tool result naming what was wrong with this call,
-            // as the registry's own objections are. #64 replaces it with a
-            // catalog entry, which is the ticket that owns the wording.
-            return Ok(Err(Failure::final_(
-                "the chain of delegations has reached its limit.",
-            )));
-        }
-
         // Both halves of "is there anything to talk to" answer the same way,
         // and it is a **result** rather than an error: a model that went away
         // under a delegation ends the delegation, not the turn that asked for
@@ -1394,8 +1403,17 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         let resolved = self.chat.resolved();
         // The inheritance rule, on the way into this child as into every child
         // at every depth: the offered set intersected, the mode at its
-        // stricter, the depth one lower, and no fourth axis.
-        let resolution = inherit(&self.rules.resolution, &Request::inheriting());
+        // stricter, the level one lower, and no fourth axis.
+        //
+        // **The depth is read here**, off the `resolved` above, which is the
+        // ladder as it stands at this dispatch rather than as it stood when the
+        // turn began. That is what makes a depth changed mid-conversation rule
+        // the next delegation
+        // ([#64](https://github.com/elpideus/demido-studio/issues/64)), and it
+        // is also what decides whether `delegate_task` is in the set this child
+        // is shown at all.
+        let depth = resolved.delegation_depth();
+        let resolution = inherit(&self.rules.resolution, &Request::inheriting(), depth);
         let child = Agent {
             chat: self.chat,
             // What the child may call, narrowed to what it inherited.
@@ -1412,6 +1430,11 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                 resolution,
                 limit: self.rules.limit,
                 always: standing.to_vec(),
+                // The one reading of the depth this child was built under, kept
+                // so both questions are answered the same way: whether the tool
+                // is in the registry a line above, and what this child is told
+                // if it names the tool anyway.
+                depth,
             },
             child: Some(session),
         };

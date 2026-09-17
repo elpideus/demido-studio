@@ -48,13 +48,30 @@ reaches that line, so a refused delegation leaves the next one to the person.
 Brief B19: "Configurable Agents & sub-agents system."
 
 `src/inherit.rs`, [#60](https://github.com/elpideus/demido-studio/issues/60). A
-parent's `Resolution` and a child's `Request` go in, the child's `Resolution`
-comes out, on three axes and no fourth:
+parent's `Resolution`, a child's `Request` and the delegation depth in force go
+in, the child's `Resolution` comes out, on three axes and no fourth:
 
-- **Offered**: `child = parent ∩ requested`, in the parent's order.
+- **Offered**: `child = parent ∩ requested`, in the parent's order, less
+  `delegate_task` where the child has no depth left.
 - **Mode**: `child = stricter_of(parent, requested)`, with an unknown name
   resolving to Cautious and therefore only ever narrowing.
-- **Depth**: one `u32`, decremented here and nowhere else, saturating at zero.
+- **Level**: one `u32`, counted up here and nowhere else.
+
+**The depth is a limit, not a budget carried down**
+([#64](https://github.com/elpideus/demido-studio/issues/64)). A resolution holds
+its *level*, how far down the chain it is with the conversation at zero, which is
+the number `demido-trace` already records as a child's indent. The limit is the
+ladder's `tools.delegation_depth`, handed in by the caller at the moment it
+dispatches a delegation and never stored, so a depth changed while a conversation
+is running rules the next delegation. A remaining count decremented on the way
+down could not do that: it would be a reading taken before the change and spent
+after it.
+
+**At the limit the tool is absent**, which is the same absence the picker
+produces (`tools.md`: *disabled means absent*), so no second vocabulary is
+invented and a child at the limit is not a child holding a tool that refuses. The
+wording a child gets if it names it anyway is `tools.depth`, and the turn loop
+owns that branch: this crate takes the name out of the set and says nothing.
 
 **There is no error arm, and that is the point.** A request naming a tool the
 parent does not offer produces a child without it, silently: an intersection has
@@ -80,8 +97,8 @@ out of it: `may_delegate` asks the depth, never the mode.
 into every child at every depth
 ([#63](https://github.com/elpideus/demido-studio/issues/63)), and
 `Resolution::root` is built once per message in `Chat::ask` and nowhere else.
-`demido-chat/tests/delegated.rs` drives a chain two deep against the real turn
-loop, so the table here and the ceiling in practice are the same rule.
+`demido-chat/tests/delegated.rs` drives chains of one, two and three against the
+real turn loop, so the table here and the ceiling in practice are the same rule.
 
 ### Why it lives here and not in `demido-tools`
 

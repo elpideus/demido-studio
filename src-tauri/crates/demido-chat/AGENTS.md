@@ -252,10 +252,23 @@ a sub-agent generating against a model nobody is waiting for is the next
 question's VRAM, which is why the cancel ships here rather than in a ticket of
 its own.
 
-The **depth** is a constant in `src/chat.rs` until
-[#64](https://github.com/elpideus/demido-studio/issues/64) puts it on the ladder;
-what is here is that `inherit` is the only thing that decrements it and that a
-chain ends when it runs out.
+**The depth is read where a delegation is dispatched**
+([#64](https://github.com/elpideus/demido-studio/issues/64)). `Agent::carry_out`
+resolves the ladder again for the child it is about to open and hands that number
+to `inherit`, so a depth changed while a turn is running rules the next
+delegation of that turn rather than the next conversation. Nothing carries a
+remaining count down, and `Rules::may_delegate` is the one reading of it, taken
+in the same breath as the child's registry: what the payload lacks and what a
+refusal says about the absence cannot disagree.
+
+**At the limit `delegate_task` is absent, not refusing.** It is simply not in the
+child's derived set, which is the same absence the picker produces (`tools.md`:
+*disabled means absent*). A child that names it anyway lands in the one branch of
+`dispatch` that tells a model about a tool that is registered and not on offer,
+and there the two absences have two wordings: `tools.off` says the user turned it
+off, and `tools.depth` says the chain reached its limit, because at the limit
+nobody turned anything off and sending a sub-agent to look for the picker would
+point it at the wrong control.
 
 ## What the monitor reads
 
@@ -277,6 +290,15 @@ One answer per assembly rather than one per group, and that is the registry's
 property rather than a shortcut: it drops all of itself or none of it, because
 what it drops for is having nowhere to act. A set with anything in it therefore
 proves the registry was not the reason, and every absence in it is the ladder's.
+
+**The one exception is a sub-agent at the bottom of its chain.** Its Delegation
+group is absent because the depth ran out, not because anybody switched
+anything off, so the standing is `PastTheDepth` and it is the second absence
+whose control is not the picker
+([#64](https://github.com/elpideus/demido-studio/issues/64)). It is decided from
+whose assembly it is, which is why `Rebuild` carries the agent: a child loses
+`delegate_task` for no other reason, because the set it inherited is its
+parent's and a parent without the tool opens no children at all.
 
 **An empty set claims neither.** Both roads end there: a person can switch every
 group off, and a registry with no workspace offers nothing whatever the picker
@@ -303,7 +325,7 @@ and a fix, and it is not something a frontend can derive from a tag.
 | `tests/a_tool.rs` | The loop with tools in it: dispatch, the matrix, the approval, the step limit, what a stop leaves, what the transcript draws for a call, and which tier an *always* is written to. Against the same scripted backend. |
 | `tests/offered.rs` | What reaches the payload: the offered set and the mode off the ladder, a switched-off tool absent and refused as off, and one chat's set reaching no other. |
 | `tests/monitored.rs` | What the session monitor reads: the assembly at an event, and a group switched off in the picker told apart from one nothing ever offered. |
-| `tests/delegated.rs` | The child session: the store it shares, the clean context and the durable record, the call that blocks, the ceiling at every depth, a failed call inside a child against a log that will not take one, and a Stop asserted at depth 2. |
+| `tests/delegated.rs` | The child session: the store it shares, the clean context and the durable record, the call that blocks, the ceiling at every depth, a failed call inside a child against a log that will not take one, and a Stop asserted at depth 2. Then the depth control: the tool absent from every child at depth 1, the brief's chain of three at depth 3, a depth raised from the approval callback reaching the next delegation of the same turn, and a child at the limit told why in its own words. |
 
 The scripted backend is `demido_inference::scripted`, which passes the
 `Backend` contract suite, rather than a fake written here: a loop proved against

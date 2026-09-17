@@ -250,6 +250,59 @@ v2's `delegate.rs` already reasons this way about the matrix, in a doc comment
 rather than a rule: a tool *"offered to a sub-agent's model is simply never on
 offer"*. This makes it the rule.
 
+### The depth is a tool that is absent at the limit
+
+Decided on [#64](https://github.com/elpideus/demido-studio/issues/64).
+
+Brief B19:
+
+> how deep agents can delegate one another (E.g: depth 3 would mean Main
+> chat/context delegates an agent we will call Agent 1. Agent 1 needs another
+> info so it delegates Agent 2. Agent 2 needs something else so it delegates
+> Agent 3.)
+
+The depth is one number on the ladder, `tools.delegation_depth`, and the whole
+mechanism is one rule with that number in it: **`delegate_task` is in a child's
+derived set while depth remains, and absent when it does not.** Absent is the
+same absence the picker produces, per *disabled means absent* above, so there is
+one vocabulary for a tool that is not on offer and not a second one for a tool
+that is on offer and refuses.
+
+Three consequences follow, and they are the rule rather than additions to it.
+
+**The depth is read at dispatch**, off the ladder, at the moment a delegation
+opens a child. Nothing carries a remaining count down a chain: what a sub-agent
+holds is its *level*, the number the log already records as its indent, and the
+limit is compared against it where the child is built. So a depth changed while a
+conversation is running rules the next delegation, including the next delegation
+of the turn that is already running.
+
+**A child at the limit that names the tool anyway is told why, in its own
+context**, so it answers from what it has rather than stalling. The words are
+`tools.depth` and they are deliberately not `tools.off`'s, because the reason is
+not the picker's: the user did not turn this off, the chain reached its limit,
+and a paragraph saying otherwise would send a sub-agent looking for a control
+that is not in the way. Like every refusal it is an event carrying the hash of
+the paragraph that stated it, so the session monitor draws it as a row. The
+**absence** says the same thing on the other surface: a sub-agent's missing
+Delegation group stands as *past the depth* rather than as switched off or
+dropped, because sending that reader to the picker would send them to a control
+that is not in the way.
+
+**v2's construction survives as the default of a setting.** v2 made a sub-agent
+unable to delegate by cloning its registry before `delegate_task` was added to
+it, so the tool was never on offer at any setting: the right answer to the wrong
+question, since the brief's own example is a chain of three and the inheritance
+rule above holds *at any depth*. At depth 1 the behaviour is identical, reached
+by reading a number instead of by an ordering trick.
+
+**The default is 2**, and that is a scoping call. One would ship the depth
+machinery untested; two is the smallest number that makes a chain exist, so the
+mechanism is driven live at its default rather than only when somebody changes a
+setting. It forecloses nothing, because the value is read at dispatch. The floor
+is 1 rather than 0: turning delegation off altogether is the picker's, which is
+the control that owns *this model is not shown that tool*.
+
 ## Where both settings resolve
 
 The ordinary ladder from

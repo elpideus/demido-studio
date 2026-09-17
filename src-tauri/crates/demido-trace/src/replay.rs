@@ -90,6 +90,12 @@ pub struct Placed {
 pub struct Rebuild {
     /// The event that was selected.
     pub at: u64,
+    /// Whose assembly this is: the conversation's, or one sub-agent's.
+    ///
+    /// Carried because an absence from a sub-agent's set can have a reason the
+    /// conversation's cannot (`demido_chat::monitor`), and because a reader who
+    /// selected a row deep in a chain is owed the name of who sent it.
+    pub agent: AgentId,
     /// The assembly in force there, which is the last one sent at or before it.
     pub seq: u64,
     pub turn: u32,
@@ -587,6 +593,7 @@ impl Replay {
 
         Ok(Some(Rebuild {
             at,
+            agent,
             seq,
             turn: self.at(seq)?.turn,
             previous,

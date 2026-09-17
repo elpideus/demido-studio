@@ -95,6 +95,7 @@ pub mod id {
     pub const TOOLS_DENIED: &str = "tools.denied";
     pub const TOOLS_REPEATED: &str = "tools.repeated";
     pub const TOOLS_OFF: &str = "tools.off";
+    pub const TOOLS_DEPTH: &str = "tools.depth";
     pub const TOOLS_STOPPED: &str = "tools.stopped";
     pub const TOOLS_LIMIT: &str = "tools.limit";
 }
@@ -228,6 +229,14 @@ pub static CATALOG: &[Paragraph] = &[
         placeholders: &[TOOL],
         dependants: NOTHING_DEPENDS_ON_IT,
         default: include_str!("../defaults/tools.off.md"),
+    },
+    Paragraph {
+        id: id::TOOLS_DEPTH,
+        title: "A delegation past the depth",
+        summary: "What a sub-agent is told when it asks for a sub-agent of its own and the chain has reached the depth you allow, so it answers from what it has rather than stalling.",
+        placeholders: &[TOOL],
+        dependants: NOTHING_DEPENDS_ON_IT,
+        default: include_str!("../defaults/tools.depth.md"),
     },
     Paragraph {
         id: id::TOOLS_STOPPED,
