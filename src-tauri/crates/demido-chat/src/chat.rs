@@ -22,6 +22,7 @@ use demido_trace::{Called, Decision, Journal, Layer, Replay, Sent, Session, Sess
 
 use crate::delegation::Delegations;
 use crate::monitor::Assembly;
+use crate::pool::Pool;
 use crate::presence::Presence;
 use crate::toolbox::{Asking, Offering, Toolbox};
 use crate::update::Update;
@@ -257,6 +258,16 @@ pub struct Chat<B: Backend, J: Journal> {
     running: Mutex<Option<Cancel>>,
     /// What this conversation offers, and the mode its calls are ruled under.
     tools: Toolbox,
+    /// What the card can hold, asked at every load.
+    ///
+    /// A sub-agent is a second slot on the conversation's own weights, so the
+    /// parallelism the ladder asks for is a VRAM budget rather than a
+    /// preference and this is what turns one into the other
+    /// ([#65](https://github.com/elpideus/demido-studio/issues/65)). Held
+    /// rather than passed in per load, because the card it asks is the machine
+    /// and does not change; what changes is the answer, which is why it is
+    /// asked again every time.
+    pool: Pool,
     /// The turn loop's end of the delegation pair, the other end of which is
     /// the `delegate_task` in this conversation's registry.
     ///
@@ -303,8 +314,22 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             turn: tokio::sync::Mutex::new(()),
             running: Mutex::new(None),
             tools,
+            pool: Pool::on_the_card(),
             delegations: tokio::sync::Mutex::new(delegations),
         }
+    }
+
+    /// The same conversation, deciding its slots against a different card.
+    ///
+    /// A builder rather than an eighth parameter, because there is one pool on
+    /// a machine and every caller but a test wants it: `Pool::on_the_card` is
+    /// what [`Chat::new`] takes, and this is how a test that has no card, or a
+    /// card it wants to choose the numbers of, gets a deterministic answer out
+    /// of the same code the window runs.
+    #[must_use]
+    pub fn against(mut self, pool: Pool) -> Self {
+        self.pool = pool;
+        self
     }
 
     /// What is in force for this conversation, right now.
@@ -385,12 +410,55 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // What the user set is what is reserved, not that number divided by the
         // slot count (`demido_inference::llamacpp::arguments`), which is the
         // defect `docs/rules/done.md` records and the contract suite measures.
-        let config = B::with_context_length(model.config.clone(), self.resolved().context_length());
+        let resolved = self.resolved();
+        let config = B::with_context_length(model.config.clone(), resolved.context_length());
+
+        // And the slots, which is the same shape of decision one layer along:
+        // the ladder asks for a parallelism, the card is read at this moment
+        // rather than when a settings page was drawn, and what opens is what
+        // `demido_vram::admit` says fits. A slot that does not fit queues; it
+        // is never opened anyway and nothing is ever evicted to make room
+        // ([#65](https://github.com/elpideus/demido-studio/issues/65)).
+        //
+        // `--ctx-size` is per slot and `arguments` multiplies by exactly this
+        // number, so the KV of every slot that opens is in the reservation the
+        // server is started with. That is the rule in one line: either the
+        // slot's KV is shown in the context arithmetic, or the slot is not
+        // opened.
+        //
+        // **The conversation's own slot is not admitted**, which is what the 1
+        // is: it is the model being loaded rather than a sub-agent, and a
+        // budget that could refuse it would be a card with no room answering
+        // the question by unloading the chat. Only the slots above it are the
+        // pool's to grant.
+        //
+        // The reading is taken before the weights land, so it is the card as
+        // it stands rather than as it will stand. That is answerable only by
+        // pricing the load whole, which is the fit verdict's
+        // ([#74](https://github.com/elpideus/demido-studio/issues/74)) and is
+        // also what will first measure a slot at all. Until it does, `per_slot`
+        // is unmeasured and the only admission reachable here is the one that
+        // needs no room: the default.
+        let admission = self.pool.admit(1, resolved.parallel_agents());
+        if let Some(reason) = admission.reason {
+            tracing::info!(
+                opened = admission.open,
+                queued = admission.queued,
+                ?reason,
+                "the card could not hold every slot asked for, so the rest queue"
+            );
+        }
+        let config = B::with_slots(config, admission.open);
 
         match self.supervisor.ensure(config).await {
-            Ok(_) => self.report(
+            Ok(backend) => self.report(
                 Presence::Ready {
                     model: model.id.clone(),
+                    // Asked of the backend, never repeated from the admission:
+                    // the number shown to the user is the number actually
+                    // opened, and a server that opened a different one is a
+                    // defect this is the only place that could notice.
+                    slots: backend.slots().await.unwrap_or(admission.open),
                 },
                 &mut report,
             ),

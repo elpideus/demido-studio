@@ -303,7 +303,48 @@ setting. It forecloses nothing, because the value is read at dispatch. The floor
 is 1 rather than 0: turning delegation off altogether is the picker's, which is
 the control that owns *this model is not shown that tool*.
 
-## Where both settings resolve
+### Parallelism is a VRAM budget, not a preference
+
+Decided on [#65](https://github.com/elpideus/demido-studio/issues/65).
+
+Brief B19:
+
+> so that it can be parallelized (by people whose systems can afford the
+> parallelization)
+
+*Whose systems can afford it* is the whole rule, and it is the one number on
+this page that is not the user's to settle alone. A sub-agent runs the
+conversation's **own weights on a second `llama.cpp` slot**, never a second
+model, so S1's process-wide single-model permit still holds and what parallelism
+costs is a KV reservation. `--ctx-size` is per slot
+([#19](https://github.com/elpideus/demido-studio/issues/19)), so a slot is that
+reservation and parallelism multiplies it: on the rig, 563 MiB on the
+development model at 32k and 1129 on the reference model.
+
+**Either the slot's KV is shown in the context arithmetic, or the slot is not
+opened.** The number the user sees is the number they get, which is the same
+rule the context length already keeps, and `Presence` carries the slots the
+backend reports rather than the slots the ladder asked for.
+
+**A parallelism the card cannot honour degrades to a queue with the reason
+stated.** Never to an eviction, and never to a failed load: a driver asked for
+memory it does not have often obliges by paging tensors through host memory, and
+the result is not an error but an app twenty times slower for a reason no log
+explains. `demido_vram::admit` is that decision, and it is a **pure function**
+over free bytes, the cost of a slot and the slots already open, so a machine
+dependent number is testable without a machine. The real reading of free memory
+is a plain function beside it, because the card's free memory is not what a
+settings page saw when it was drawn.
+
+**The default is 1**, which is the synchronous path: the call blocks and the
+answer is the tool's own result. It is also the only value the reference model
+can honour on the rig, and a default the reference gate cannot run at is not a
+default.
+
+**The conversation's own slot is never refused.** It is the model, not a
+sub-agent. Only the slots above it are the budget's to grant.
+
+## Where the settings resolve
 
 The ordinary ladder from
 [#8](https://github.com/elpideus/demido-studio/issues/8): global, then model,

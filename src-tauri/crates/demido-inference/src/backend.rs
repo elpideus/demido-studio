@@ -107,6 +107,23 @@ pub trait Backend: Send + Sync + Sized + 'static {
     /// is comparing two whole values ([`crate::Supervisor::ensure`]).
     fn with_context_length(config: Self::Config, tokens: u32) -> Self::Config;
 
+    /// The same configuration, asking for a different number of generation
+    /// slots.
+    ///
+    /// The pair to [`Backend::slots`], for the reason the context pair exists:
+    /// a slot is a KV reservation, so the slot count is what the VRAM budget
+    /// decides (`demido_vram::admit`) and this is how that decision reaches a
+    /// process. It takes and returns the configuration so a supervisor compares
+    /// two whole values.
+    ///
+    /// **Either the slot's KV is shown in the context arithmetic, or the slot
+    /// is not opened**
+    /// ([#65](https://github.com/elpideus/demido-studio/issues/65)): an
+    /// implementation that opened more slots than it was told to, or that
+    /// opened them out of a pool sized for fewer, would hand the caller a
+    /// window smaller than the one it asked for.
+    fn with_slots(config: Self::Config, slots: u32) -> Self::Config;
+
     /// Whether it is answering. Asked on every request rather than assumed from
     /// the fact that it started once, because a process that exited leaves a
     /// handle that looks fine from the outside.
@@ -125,6 +142,16 @@ pub trait Backend: Send + Sync + Sized + 'static {
     /// asks the backend what the slot got, so the claim is checked rather than
     /// commented.
     async fn context_length(&self) -> Result<u32>;
+
+    /// How many generation slots the backend actually opened.
+    ///
+    /// Asked of the backend rather than repeated back from the configuration,
+    /// for the same reason the context length is: **the number of slots shown
+    /// to the user has to be the number actually opened**. A parallelism the
+    /// card could not honour is a queue with a reason
+    /// (`demido_vram::Queued`), and a UI that drew the preference instead
+    /// would be reporting a sub-agent that is never going to start.
+    async fn slots(&self) -> Result<u32>;
 
     /// Run one generation, ending early if `cancel` fires.
     async fn generate(&self, request: Request, cancel: Cancel) -> Result<ChunkStream>;

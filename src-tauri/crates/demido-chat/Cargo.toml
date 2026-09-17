@@ -31,6 +31,10 @@ demido-permission.workspace = true
 demido-prompts.workspace = true
 # The registry a call is dispatched through.
 demido-tools.workspace = true
+# What the card has free, and whether one more slot fits in it. A sub-agent is
+# a second slot on the conversation's own weights, so parallelism is this
+# crate's arithmetic rather than a preference the loop keeps.
+demido-vram.workspace = true
 futures-util = "0.3"
 serde.workspace = true
 # A call's arguments, parsed, for the person deciding about them.

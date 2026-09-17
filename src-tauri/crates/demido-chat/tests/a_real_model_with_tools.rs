@@ -131,6 +131,10 @@ impl Backend for Watching {
         LlamaCpp::with_context_length(config, tokens)
     }
 
+    fn with_slots(config: Self::Config, slots: u32) -> Self::Config {
+        LlamaCpp::with_slots(config, slots)
+    }
+
     async fn ready(&self) -> bool {
         self.0.ready().await
     }
@@ -141,6 +145,10 @@ impl Backend for Watching {
 
     async fn context_length(&self) -> demido_inference::Result<u32> {
         self.0.context_length().await
+    }
+
+    async fn slots(&self) -> demido_inference::Result<u32> {
+        self.0.slots().await
     }
 
     async fn generate(

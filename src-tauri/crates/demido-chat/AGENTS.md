@@ -309,6 +309,34 @@ of sending somebody to a control that may not be the one that is wrong.
 including the crossed case: a set named by the chat, on a conversation with no
 workspace.
 
+## The pool is a module, not a trait
+
+`src/pool.rs`, and the same rule as the section above: a `Scheduler` trait would
+buy a second implementation that exists only in tests, and what those tests
+actually need is a card that answers a chosen number, which is a closure.
+
+A sub-agent runs the conversation's **own weights on a second `llama.cpp`
+slot**, never a second model, so the process-wide rule that one model is
+resident still holds and parallelism costs a KV reservation rather than a load.
+`demido-vram` owns the arithmetic and the reading; this module is the one place
+that puts them together, and `Chat::load` is its one caller
+([#65](https://github.com/elpideus/demido-studio/issues/65)).
+
+**The card is read at the load, never before it.** The card's free memory is not
+what a settings page saw when it was drawn: a browser window opened in between
+moves it by more than a slot costs.
+
+**The conversation's own slot is not admitted.** It is the model being loaded
+rather than a sub-agent, so it is handed to `admit` as already open. A budget
+that could refuse it would be a card with no room answering the question by
+unloading the chat.
+
+**What opens is what is reported.** `Presence::Ready` carries the slots read
+back off the running backend, not the number `tools.parallel_agents` asked for.
+A parallelism the card cannot honour degrades to a queue with a stated reason,
+and a window drawing the preference would be promising a sub-agent that is never
+going to start.
+
 ## Presence carries the fact, never the wording
 
 `Presence` says whether there is anything to talk to. The sentence the composer

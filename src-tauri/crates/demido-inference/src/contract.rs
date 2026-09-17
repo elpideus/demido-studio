@@ -108,11 +108,16 @@ pub async fn run<B: Backend>(config: B::Config, model: &str) {
     // resolved from the ladder, handed to `with_context_length`, and read back
     // off the running server.
     let config = B::with_context_length(config, CONTEXT);
+    // And through the slot writer, for the same reason: the number the VRAM
+    // budget admitted is what reaches a process, and the case below reads back
+    // what the server opened rather than what it was handed.
+    let config = B::with_slots(config, SLOTS);
 
     it_names_itself::<B>();
     starting_gives_a_backend_that_is_ready::<B>(config.clone()).await;
     it_serves_the_model_it_was_started_with::<B>(config.clone(), model).await;
     the_context_length_asked_for_is_the_one_the_slot_gets::<B>(config.clone()).await;
+    the_slots_asked_for_are_the_ones_that_open::<B>(config.clone()).await;
     a_stream_ends_with_exactly_one_done::<B>(config.clone(), model).await;
     nothing_follows_done::<B>(config.clone(), model).await;
     a_call_arrives_whole_and_before_done::<B>(config.clone(), model).await;
@@ -127,6 +132,15 @@ pub async fn run<B: Backend>(config: B::Config, model: &str) {
 /// Not a round 4096: a backend that quietly substitutes its own default would
 /// pass against a number that happens to be the default.
 pub const CONTEXT: u32 = 3072;
+
+/// The slot count every case asks for.
+///
+/// Two rather than one, because one is the number a backend that ignored
+/// [`Backend::with_slots`](crate::Backend::with_slots) would report anyway, and
+/// two is also what makes the context case above mean something: `--ctx-size`
+/// is per slot, so a backend that divided its pool instead of multiplying it
+/// hands back half the window at this number and all of it at one.
+pub const SLOTS: u32 = 2;
 
 fn it_names_itself<B: Backend>() {
     assert!(
@@ -172,6 +186,23 @@ async fn the_context_length_asked_for_is_the_one_the_slot_gets<B: Backend>(confi
         "the number the user was shown has to be the number they get. \
          llama.cpp's --ctx-size is per slot, so a backend that divides it by \
          its slot count silently hands back a quarter of the window"
+    );
+}
+
+/// The slot half of the same idea, and the reason both slot methods are on the
+/// trait. A sub-agent runs on a second slot of the conversation's own weights,
+/// so the slot count is a VRAM decision (`demido_vram::admit`) and this is
+/// where it is checked against what the server says it opened. **The number of
+/// slots shown to the user is the number actually opened**, which is only true
+/// if somebody asks.
+async fn the_slots_asked_for_are_the_ones_that_open<B: Backend>(config: B::Config) {
+    let backend = start::<B>(config).await;
+    let got = backend.slots().await.expect("the slots it opened");
+    backend.stop().await;
+
+    assert_eq!(
+        got, SLOTS,
+        "a backend that opens a different number of slots than it was told to          has made the slot strip a drawing of a preference, and one of those          slots is a sub-agent that is never going to start"
     );
 }
 

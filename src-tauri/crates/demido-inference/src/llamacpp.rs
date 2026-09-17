@@ -211,6 +211,15 @@ impl Backend for LlamaCpp {
         config
     }
 
+    /// One slot at the least, because `--parallel 0` is a server with nothing
+    /// to generate on and `--parallel -1` is llama.cpp's own auto, which is a
+    /// divisor of `--ctx-size` that nobody chose. [`arguments`] floors it the
+    /// same way, so the flag and the field cannot come apart.
+    fn with_slots(mut config: Config, slots: u32) -> Config {
+        config.parallel = slots.max(1);
+        config
+    }
+
     async fn start(config: Config) -> Result<Self> {
         if !config.binary.exists() {
             return Err(did_not_start(format!(
@@ -338,6 +347,28 @@ impl Backend for LlamaCpp {
             .await
             .map_err(|error| Error::Malformed(format!("/props: {error}")))?;
         Ok(props.default_generation_settings.n_ctx)
+    }
+
+    /// Read from `/props`'s `total_slots`, which is the server's own count,
+    /// for the reason the context length is read rather than remembered: a
+    /// caller drawing the slot strip is drawing what is running, not what was
+    /// asked for.
+    async fn slots(&self) -> Result<u32> {
+        #[derive(serde::Deserialize)]
+        struct Props {
+            total_slots: u32,
+        }
+
+        let props: Props = self
+            .http
+            .get(self.url("/props"))
+            .send()
+            .await
+            .map_err(|error| unreachable(error.to_string()))?
+            .json()
+            .await
+            .map_err(|error| Error::Malformed(format!("/props: {error}")))?;
+        Ok(props.total_slots)
     }
 
     async fn generate(&self, request: Request, cancel: Cancel) -> Result<ChunkStream> {

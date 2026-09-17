@@ -24,12 +24,23 @@ either. The suite applies its own context length through
 how that number reaches a process whose `Config` the ladder cannot know the
 shape of, and the reader is how the case checks it arrived.
 
-What the contract cannot ask is what happens across **more than one slot**: a
-slot is `llama.cpp`'s idea and the trait has no word for one. That half lives in
-`tests/llamacpp_contract.rs`, at `--parallel 2`, and it is the half
-[`docs/rules/done.md`](../../../docs/rules/done.md) measured: `--ctx-size` is
-the whole KV pool, so a build that passed the user's number through raw would
-hand back a fraction of it and every one-slot test would still be green.
+A slot now has a word on the trait too. `Backend::with_slots` and
+`Backend::slots` are the same writer-and-reader pair one layer along: a
+sub-agent runs the conversation's own weights on a second slot, so the slot
+count is a VRAM decision (`demido_vram::admit`) rather than a preference, and
+the reader is what makes **the number of slots shown to the user the number
+actually opened** ([#65](https://github.com/elpideus/demido-studio/issues/65)).
+The suite runs every case at two slots for the reason it asks for 3072 rather
+than 4096: one is the number a backend that ignored the writer would report
+anyway, and at two the context case measures something. `LlamaCpp` reads both
+off `/props`, which is the server's own account.
+
+What the contract still cannot ask is what a second slot **costs**: that is a
+number on a card, not a promise of the trait. The measurement lives in
+[`docs/rules/done.md`](../../../docs/rules/done.md), which is also where
+`--ctx-size` being the whole KV pool was measured: a build that passed the
+user's number through raw would hand back a fraction of it and every one-slot
+test would still be green.
 
 | Implementation | Where | Runs the suite in |
 |---|---|---|
