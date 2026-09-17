@@ -95,15 +95,20 @@ const REQUESTED_MODES: [&str; 8] = [
 /// than once at the top, because that is where it is called.
 const LEVELS: [u32; 3] = [1, 2, 3];
 
+/// A depth no table below is testing: deeper than any chain they build, so the
+/// offered and mode axes are measured with the depth axis out of the way. What
+/// the depth does is its own three tests at the bottom of this file.
+const DEEP: u32 = LEVELS.len() as u32 + 1;
+
 /// A parent that is `level` levels down a chain, holding `offered` at `mode`.
 ///
 /// Every level above it asked for nothing, so the parent is the same parent at
 /// every depth and a table run over it is the same table. The root starts deep
 /// enough that each of [`LEVELS`] is a child of a parent that still had depth.
 fn at_level(level: u32, offered: Vec<String>, mode: Mode) -> Resolution {
-    let mut resolution = Resolution::root(offered, mode, LEVELS.len() as u32 + 1);
+    let mut resolution = Resolution::root(offered, mode);
     for _ in 0..level {
-        resolution = inherit(&resolution, &Request::inheriting());
+        resolution = inherit(&resolution, &Request::inheriting(), DEEP);
     }
     resolution
 }
@@ -117,6 +122,7 @@ fn every_parent_set_against_every_requested_set_at_every_depth() {
                 let child = inherit(
                     &parent,
                     &Request::inheriting().narrowed_to(requested.clone()),
+                    DEEP,
                 );
 
                 let expected: Vec<String> = parent_set
@@ -140,7 +146,7 @@ fn a_child_never_offers_what_its_parent_did_not_at_any_depth() {
         for parent_set in sets() {
             let parent = at_level(level, parent_set.clone(), Mode::default());
             for requested in sets() {
-                let child = inherit(&parent, &Request::inheriting().narrowed_to(requested));
+                let child = inherit(&parent, &Request::inheriting().narrowed_to(requested), DEEP);
                 for name in child.offered() {
                     assert!(
                         parent_set.contains(name),
@@ -157,10 +163,11 @@ fn a_request_naming_a_tool_the_parent_does_not_offer_is_a_child_without_it() {
     // Silently and by construction. There is no error to return: `inherit`
     // answers with a resolution, so a widening request is not refused, it is
     // unrepresentable.
-    let parent = Resolution::root(names(&["read_file"]), Mode::named("autonomous"), 2);
+    let parent = Resolution::root(names(&["read_file"]), Mode::named("autonomous"));
     let child = inherit(
         &parent,
         &Request::inheriting().narrowed_to(names(&["read_file", "run_command"])),
+        DEEP,
     );
 
     assert_eq!(child.offered(), names(&["read_file"]));
@@ -171,11 +178,11 @@ fn narrowing_further_is_allowed() {
     let parent = Resolution::root(
         names(&["read_file", "write_file", "run_command"]),
         Mode::named("autonomous"),
-        2,
     );
     let child = inherit(
         &parent,
         &Request::inheriting().narrowed_to(names(&["read_file"])),
+        DEEP,
     );
 
     assert_eq!(child.offered(), names(&["read_file"]));
@@ -183,8 +190,8 @@ fn narrowing_further_is_allowed() {
 
 #[test]
 fn a_child_that_asks_for_nothing_gets_its_parents_set() {
-    let parent = Resolution::root(names(&["read_file", "run_command"]), Mode::default(), 2);
-    let child = inherit(&parent, &Request::inheriting());
+    let parent = Resolution::root(names(&["read_file", "run_command"]), Mode::default());
+    let child = inherit(&parent, &Request::inheriting(), DEEP);
 
     assert_eq!(child.offered(), parent.offered());
 }
@@ -195,7 +202,7 @@ fn every_parent_mode_against_every_requested_mode_at_every_depth() {
         for parent_name in Mode::names() {
             let parent = at_level(level, names(&UNIVERSE), Mode::named(parent_name));
             for requested in REQUESTED_MODES {
-                let child = inherit(&parent, &Request::inheriting().at_mode(requested));
+                let child = inherit(&parent, &Request::inheriting().at_mode(requested), DEEP);
 
                 let stricter = if rank(requested) < rank(parent_name) {
                     requested
@@ -219,8 +226,12 @@ fn a_mode_name_this_build_has_never_heard_of_cannot_widen() {
     // narrow. A profile written by a newer build is never read as permission to
     // do more, at any depth.
     for parent_name in Mode::names() {
-        let parent = Resolution::root(names(&UNIVERSE), Mode::named(parent_name), 3);
-        let child = inherit(&parent, &Request::inheriting().at_mode("unsupervised"));
+        let parent = Resolution::root(names(&UNIVERSE), Mode::named(parent_name));
+        let child = inherit(
+            &parent,
+            &Request::inheriting().at_mode("unsupervised"),
+            DEEP,
+        );
 
         assert_eq!(row_of(&child), row(&Mode::named("cautious")));
     }
@@ -229,8 +240,8 @@ fn a_mode_name_this_build_has_never_heard_of_cannot_widen() {
 #[test]
 fn a_child_that_asks_for_no_mode_runs_at_its_parents() {
     for name in Mode::names() {
-        let parent = Resolution::root(names(&UNIVERSE), Mode::named(name), 3);
-        let child = inherit(&parent, &Request::inheriting());
+        let parent = Resolution::root(names(&UNIVERSE), Mode::named(name));
+        let child = inherit(&parent, &Request::inheriting(), DEEP);
 
         assert_eq!(row_of(&child), row(&Mode::named(name)));
     }
@@ -239,21 +250,17 @@ fn a_child_that_asks_for_no_mode_runs_at_its_parents() {
 #[test]
 fn the_narrowing_holds_identically_at_depth_one_two_and_three() {
     // One chain, three levels, and every level asking for everything back.
-    let root = Resolution::root(
-        names(&["read_file", "write_file"]),
-        Mode::named("balanced"),
-        3,
-    );
+    let root = Resolution::root(names(&["read_file", "write_file"]), Mode::named("balanced"));
     let everything = || {
         Request::inheriting()
             .narrowed_to(names(&UNIVERSE))
             .at_mode("autonomous")
     };
 
-    let first = inherit(&root, &everything());
+    let first = inherit(&root, &everything(), DEEP);
     assert_eq!(first.offered(), names(&["read_file", "write_file"]));
     assert_eq!(row_of(&first), row(&Mode::named("balanced")));
-    assert_eq!(first.depth(), 2);
+    assert_eq!(first.level(), 1);
 
     // The middle of the chain sheds a tool and a mode. Both are ceilings from
     // here down, and neither can be taken back below.
@@ -262,44 +269,118 @@ fn the_narrowing_holds_identically_at_depth_one_two_and_three() {
         &Request::inheriting()
             .narrowed_to(names(&["read_file"]))
             .at_mode("cautious"),
+        DEEP,
     );
     assert_eq!(second.offered(), names(&["read_file"]));
     assert_eq!(row_of(&second), row(&Mode::named("cautious")));
-    assert_eq!(second.depth(), 1);
+    assert_eq!(second.level(), 2);
 
-    let third = inherit(&second, &everything());
+    let third = inherit(&second, &everything(), DEEP);
     assert_eq!(third.offered(), names(&["read_file"]));
     assert_eq!(row_of(&third), row(&Mode::named("cautious")));
-    assert_eq!(third.depth(), 0);
+    assert_eq!(third.level(), 3);
 }
 
 #[test]
-fn depth_is_one_integer_decremented_on_the_way_down() {
-    let root = Resolution::root(names(&UNIVERSE), Mode::default(), 2);
-    assert_eq!(root.depth(), 2);
-    assert!(root.may_delegate());
+fn the_level_is_one_integer_counted_up_on_the_way_down() {
+    // The conversation is zero, which is the number the log already records as
+    // a child's indent, and every link adds one. Under a depth of two the
+    // second child is the one with nothing left.
+    let root = Resolution::root(names(&UNIVERSE), Mode::default());
+    assert_eq!(root.level(), 0);
+    assert!(root.may_delegate(2));
 
-    let first = inherit(&root, &Request::inheriting());
-    assert_eq!(first.depth(), 1);
-    assert!(first.may_delegate());
+    let first = inherit(&root, &Request::inheriting(), 2);
+    assert_eq!(first.level(), 1);
+    assert!(first.may_delegate(2));
 
-    let second = inherit(&first, &Request::inheriting());
-    assert_eq!(second.depth(), 0);
-    assert!(!second.may_delegate());
+    let second = inherit(&first, &Request::inheriting(), 2);
+    assert_eq!(second.level(), 2);
+    assert!(!second.may_delegate(2));
 
-    // Nothing else moves it, and it does not wrap: a chain that kept going
-    // past the limit stays at the limit rather than becoming unlimited.
-    let third = inherit(&second, &Request::inheriting());
-    assert_eq!(third.depth(), 0);
-    assert!(!third.may_delegate());
+    // The same resolution under a depth that moved. Nothing is remembered, so
+    // the answer is the ladder's now rather than the ladder's then, which is
+    // what makes a change mid-conversation reach the next delegation.
+    assert!(second.may_delegate(3));
+    assert!(!second.may_delegate(1));
+}
+
+#[test]
+fn delegate_task_is_absent_from_a_child_at_the_limit() {
+    // The rule with the number in it, and the whole of #64's mechanism: the
+    // tool is in the derived set while depth remains and gone when it does not.
+    // Absent is the same absence the picker produces, so nothing else changes.
+    let offered = names(&["read_file", "delegate_task"]);
+    let root = Resolution::root(offered.clone(), Mode::named("autonomous"));
+
+    let first = inherit(&root, &Request::inheriting(), 2);
+    assert_eq!(
+        first.offered(),
+        offered,
+        "depth remains, so the tool is there"
+    );
+
+    let second = inherit(&first, &Request::inheriting(), 2);
+    assert_eq!(
+        second.offered(),
+        names(&["read_file"]),
+        "no depth left, so the tool is not in the set at all"
+    );
+
+    // Everything else it inherited is untouched: this takes one name away and
+    // is not a fourth axis.
+    assert_eq!(row_of(&second), row(&Mode::named("autonomous")));
+}
+
+#[test]
+fn a_depth_of_one_is_v2s_construction_reached_by_reading_a_number() {
+    // v2 made a sub-agent unable to delegate by cloning the registry before
+    // `delegate_task` was added to it. The same behaviour, now a setting.
+    let root = Resolution::root(
+        names(&["read_file", "delegate_task"]),
+        Mode::named("autonomous"),
+    );
+
+    let mut resolution = inherit(&root, &Request::inheriting(), 1);
+    for level in 1..4 {
+        assert_eq!(
+            resolution.offered(),
+            names(&["read_file"]),
+            "at depth 1, level {level} was offered the tool"
+        );
+        resolution = inherit(&resolution, &Request::inheriting(), 1);
+    }
+}
+
+#[test]
+fn the_brief_s_chain_of_three_runs_at_depth_three() {
+    // Brief B19: "depth 3 would mean Main chat/context delegates an agent we
+    // will call Agent 1. Agent 1 needs another info so it delegates Agent 2.
+    // Agent 2 needs something else so it delegates Agent 3."
+    let offered = names(&["read_file", "delegate_task"]);
+    let mut resolution = Resolution::root(offered.clone(), Mode::named("autonomous"));
+
+    for agent in 1..=3 {
+        assert!(
+            resolution.may_delegate(3),
+            "agent {} could not open agent {agent}",
+            agent - 1
+        );
+        resolution = inherit(&resolution, &Request::inheriting(), 3);
+    }
+
+    // Agent 3 is the last link: it holds no tool to open a fourth with.
+    assert_eq!(resolution.level(), 3);
+    assert!(!resolution.may_delegate(3));
+    assert_eq!(resolution.offered(), names(&["read_file"]));
 }
 
 #[test]
 fn a_child_rules_a_call_the_way_the_matrix_does() {
     // The composition with S2: a resolution answers about an `Intent`, through
     // `verdict`, rather than carrying a second permission shape of its own.
-    let parent = Resolution::root(names(&UNIVERSE), Mode::named("balanced"), 3);
-    let child = inherit(&parent, &Request::inheriting());
+    let parent = Resolution::root(names(&UNIVERSE), Mode::named("balanced"));
+    let child = inherit(&parent, &Request::inheriting(), DEEP);
     let balanced = Mode::named("balanced");
 
     for ability in ABILITIES {
@@ -319,7 +400,7 @@ fn the_destructive_floor_survives_every_level_of_a_chain() {
     // Story 15: *always for this tool* granted on the delegation does not reach
     // the sub-agent's own destructive calls.
     let always = names(&["delete_file"]);
-    let mut resolution = Resolution::root(names(&UNIVERSE), Mode::named("autonomous"), 3);
+    let mut resolution = Resolution::root(names(&UNIVERSE), Mode::named("autonomous"));
 
     for depth in 0..4 {
         assert_eq!(
@@ -327,6 +408,6 @@ fn the_destructive_floor_survives_every_level_of_a_chain() {
             Verdict::Ask,
             "a destructive call ran without asking {depth} levels down"
         );
-        resolution = inherit(&resolution, &Request::inheriting());
+        resolution = inherit(&resolution, &Request::inheriting(), DEEP);
     }
 }

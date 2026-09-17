@@ -39,7 +39,7 @@ export type Origin = 'default' | 'global' | 'model' | 'character' | 'chat'
  * Rust `Kind`, tagged by its control. */
 export type Kind =
   | { control: 'amount'; default: number; min: number; max: number; on: boolean }
-  | { control: 'count'; default: number; min: number; max: number }
+  | { control: 'count'; default: number; min: number; max: number; unit: string }
   | { control: 'text'; default: string; multiline: boolean }
   | { control: 'choice'; default: string; options: string[] }
   /** A set of names, stored as a list or as `null` for every name there is.

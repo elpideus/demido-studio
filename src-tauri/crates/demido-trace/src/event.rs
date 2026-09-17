@@ -416,8 +416,8 @@ pub enum Body {
         failed: bool,
     },
 
-    /// Demido's own answer to a call it did not run: declined, stopped, or past
-    /// the step limit.
+    /// Demido's own answer to a call it did not run: declined, stopped, past
+    /// the step limit, or past the delegation depth.
     ///
     /// Recorded like a fragment, by the hash of the paragraph and what filled
     /// it, because it is host prompt text the model reads and the rebuild fills

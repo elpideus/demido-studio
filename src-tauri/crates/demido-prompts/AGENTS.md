@@ -42,7 +42,15 @@ fire. S2's turn loop ([#54](https://github.com/elpideus/demido-studio/issues/54)
 added the three things it tells a model in place of a result: `tools.denied`,
 `tools.stopped` and `tools.limit`.
 [#56](https://github.com/elpideus/demido-studio/issues/56) added a fourth,
-`tools.off`, for a call naming a tool the user switched off in the picker.
+`tools.off`, for a call naming a tool the user switched off in the picker, and
+[#59](https://github.com/elpideus/demido-studio/issues/59) a fifth,
+`tools.repeated`, for a call the person had already declined this turn.
+[#64](https://github.com/elpideus/demido-studio/issues/64) added the sixth,
+`tools.depth`, and it is the one that exists because an absence can have two
+reasons: a sub-agent at the limit of the delegation depth is shown no
+`delegate_task`, exactly as a switched-off tool is shown to nobody, and if it
+names the tool regardless it is told the chain ran out rather than told the user
+turned something off, which would point it at the wrong control.
 
 `describe` lives here too: a tool's shape with its document's prose merged on.
 Both the registry and the session log's rebuild call it, so there is one answer

@@ -10,7 +10,7 @@
 //! control without registering it three times. None of that prose is ever sent
 //! to a model, which is why every entry is accounted for against hard rule 10.
 //!
-//! **Six settings, not thirty.** v2 declared twenty four samplers before
+//! **A handful of settings, not thirty.** v2 declared twenty four samplers before
 //! anything sent one. What is here is what this slice actually resolves, sends
 //! and can be held to; the rest is additive, and a setting added later is an
 //! entry in [`SCHEMA`] and nothing else.
@@ -34,6 +34,10 @@ pub mod id {
     /// the mode's to decide: `docs/rules/tools.md` keeps the mode to
     /// permissions and nothing else.
     pub const STEP_LIMIT: &str = "tools.step_limit";
+    /// How many levels of delegation may open under one conversation. Not the
+    /// mode's to decide either: `docs/rules/tools.md` keeps the mode to
+    /// permissions, and names the depth among the things it does not gate.
+    pub const DELEGATION_DEPTH: &str = "tools.delegation_depth";
     /// Which row of the permission matrix is in force. **Permitted**, in
     /// `docs/rules/tools.md`'s two axes: what runs without asking, and read by
     /// the matrix and nothing else.
@@ -110,7 +114,19 @@ pub enum Kind {
     },
     /// A whole number that is always a number. Absence is not an answer here:
     /// something has to reach the process on its command line.
-    Count { default: u64, min: u64, max: u64 },
+    Count {
+        default: u64,
+        min: u64,
+        max: u64,
+        /// What the number counts, drawn beside the field.
+        ///
+        /// Declared per setting because it is not the same word twice: a
+        /// context length is tokens, a step limit is steps, a delegation depth
+        /// is levels. The control used to write *tokens* for all of them, which
+        /// was true of exactly one and is the kind of thing a declaration
+        /// carrying its own prose exists to stop.
+        unit: &'static str,
+    },
     Text {
         /// Always empty in this build. A default with words in it would be host
         /// prompt text, which is a catalog entry and not a schema literal (hard
@@ -201,6 +217,7 @@ pub static SCHEMA: &[Setting] = &[
             default: 4096,
             min: 512,
             max: 262_144,
+            unit: "tokens",
         },
         reloads: true,
     },
@@ -216,6 +233,28 @@ pub static SCHEMA: &[Setting] = &[
             default: 8,
             min: 1,
             max: 100,
+            unit: "steps",
+        },
+        reloads: false,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above.
+    Setting {
+        id: id::DELEGATION_DEPTH,
+        section: "Tools",
+        title: "Delegation depth",
+        summary: "How far a chain of sub-agents may reach. At 1 a sub-agent cannot delegate further.",
+        // The brief's own example is a chain of three, and two is the smallest
+        // number that makes a chain exist at all, so the mechanism is driven at
+        // its default rather than only when somebody changes a setting
+        // ([#64](https://github.com/elpideus/demido-studio/issues/64)). One is
+        // the floor because the conversation itself always delegates: turning
+        // delegation off is the picker's, which is the control that owns
+        // *this model is not shown that tool*.
+        kind: Kind::Count {
+            default: 2,
+            min: 1,
+            max: 8,
+            unit: "levels",
         },
         reloads: false,
     },

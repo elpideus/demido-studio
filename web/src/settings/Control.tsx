@@ -229,7 +229,10 @@ function Count({
         disabled={false}
         onCommit={onChange}
       />
-      <span className={styles.aside}>tokens</span>
+      {/* What the number counts, off the declaration rather than written here:
+       * one control draws a context length, a step limit and a delegation
+       * depth, and only the first of the three is tokens. */}
+      <span className={styles.aside}>{kind.unit}</span>
     </div>
   )
 }

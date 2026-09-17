@@ -335,6 +335,17 @@ impl Resolved {
         u32::try_from(self.count_of(id::STEP_LIMIT).unwrap_or_default()).unwrap_or(u32::MAX)
     }
 
+    /// How many levels of delegation may open under this conversation.
+    ///
+    /// Read where a delegation is dispatched rather than carried down a chain,
+    /// so a number changed while a conversation is running rules the next
+    /// delegation (`demido_permission::inherit`).
+    #[must_use]
+    pub fn delegation_depth(&self) -> u32 {
+        // Never nothing, for the reason the context length is never nothing.
+        u32::try_from(self.count_of(id::DELEGATION_DEPTH).unwrap_or_default()).unwrap_or(u32::MAX)
+    }
+
     /// The stored name of the mode in force. A name and never a mode: only the
     /// permission matrix turns one into a verdict (`demido_permission::Mode`).
     #[must_use]

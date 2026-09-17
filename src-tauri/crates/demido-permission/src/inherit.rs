@@ -4,29 +4,46 @@
 //! narrow it further; it can never add to it, at any depth. The same applies to
 //! the mode: a sub-agent runs at its parent's mode or stricter."
 //!
-//! [`inherit`] is that rule and the whole of it: a parent's [`Resolution`] and a
-//! child's [`Request`] go in, the child's [`Resolution`] comes out. It is called
-//! on the way into every child at every depth rather than asserted once at the
-//! top, which is what makes the two controls of S2 ceilings rather than
-//! suggestions.
+//! [`inherit`] is that rule and the whole of it: a parent's [`Resolution`], a
+//! child's [`Request`] and the delegation depth in force go in, the child's
+//! [`Resolution`] comes out. It is called on the way into every child at every
+//! depth rather than asserted once at the top, which is what makes the two
+//! controls of S2 ceilings rather than suggestions.
 //!
 //! ## Three axes and no fourth
 //!
-//! - **Offered**: `child = parent ∩ requested`. A request naming something the
-//!   parent does not offer yields a child without it, silently and by
-//!   construction. There is no error arm, because widening is not refused here,
-//!   it is unrepresentable: an intersection has nowhere to put a name the parent
-//!   did not have, so there is no path where it works because somebody forgot a
-//!   check.
+//! - **Offered**: `child = parent ∩ requested`, less `delegate_task` where the
+//!   chain has reached its limit. A request naming something the parent does not
+//!   offer yields a child without it, silently and by construction. There is no
+//!   error arm, because widening is not refused here, it is unrepresentable: an
+//!   intersection has nowhere to put a name the parent did not have, so there is
+//!   no path where it works because somebody forgot a check.
 //! - **Mode**: `child = stricter_of(parent, requested)`, and an unknown mode
 //!   name still resolves to Cautious, so a name this build has never heard of
 //!   can only narrow.
-//! - **Depth**: one integer, decremented here and nowhere else.
+//! - **Level**: one integer, incremented here and nowhere else.
 //!
 //! **Nothing else is inherited or gated.** The mode gates permissions and
 //! nothing else, so parallelism and depth stay independent settings and no
 //! fourth ability joins the matrix. `delegate_task` declares `Shell`, and that
 //! is the whole of the mode's involvement in delegating.
+//!
+//! ## The depth is a limit, not a budget carried down
+//!
+//! What a resolution holds is its **level**: how far down the chain this agent
+//! is, counting the conversation as zero, which is the number
+//! `demido_trace`'s `agent/delegated` already records as a child's indent. The
+//! limit is the ladder's, handed to [`inherit`] by the caller at the moment it
+//! dispatches a delegation and never stored, so a depth changed while a
+//! conversation is running rules the next delegation
+//! ([#64](https://github.com/elpideus/demido-studio/issues/64)). A remaining
+//! count decremented on the way down could not do that: it would be a reading
+//! of the ladder taken before the change and spent after it.
+//!
+//! **At the limit the tool is absent**, which is the same absence the picker
+//! produces (`tools.md`: *disabled means absent*). No second vocabulary is
+//! invented, and a child at the limit is not a child holding a tool that
+//! refuses: it is a child that was never shown one.
 //!
 //! ## It composes with the matrix rather than repeating it
 //!
@@ -39,40 +56,40 @@ use demido_tools::Intent;
 
 use crate::{verdict, Mode, Verdict};
 
-/// What one session may do: the tools on offer, the mode in force, and how many
-/// further levels of delegation are left below it.
+/// What one session may do: the tools on offer, the mode in force, and how far
+/// down the chain of delegations it is.
 ///
 /// Every field is private and there is no setter. A resolution is built once
 /// for the conversation ([`Resolution::root`]) and thereafter only by
-/// [`inherit`], which is what makes "decremented by this function and by
+/// [`inherit`], which is what makes "incremented by this function and by
 /// nothing else" a property of the type rather than a convention.
 pub struct Resolution {
     /// The tool names on offer, in the order the registry holds them.
     offered: Vec<String>,
     mode: Mode,
-    /// How many more levels of delegation may open below this one. Zero is the
-    /// limit: `delegate_task` is absent there, the same absence the picker
-    /// produces.
-    depth: u32,
+    /// How many delegations deep this agent is. The conversation is zero, its
+    /// sub-agent is one, and the number is the one the log records as a child's
+    /// indent.
+    level: u32,
 }
 
 impl Resolution {
-    /// The conversation's own resolution: what the ladder resolved, and the
-    /// delegation depth it resolved with.
+    /// The conversation's own resolution: what the ladder resolved, at level
+    /// zero.
     ///
     /// The only way to make one that is not a child of another, and it is the
     /// **main session's** alone. Minting a root for a sub-agent would hand it
-    /// an offered set and a depth nothing narrowed, which is the one route
+    /// an offered set and a level nothing narrowed, which is the one route
     /// round this module; it is reading the ladder where the parent should have
     /// been read, and it is a review finding against whoever writes it, the
     /// same way probing [`crate::verdict`] to learn the mode is. Below the top
     /// there is [`inherit`] and nothing else.
     #[must_use]
-    pub fn root(offered: Vec<String>, mode: Mode, depth: u32) -> Self {
+    pub fn root(offered: Vec<String>, mode: Mode) -> Self {
         Self {
             offered,
             mode,
-            depth,
+            level: 0,
         }
     }
 
@@ -82,21 +99,26 @@ impl Resolution {
         &self.offered
     }
 
-    /// How many further levels of delegation may open below this one.
+    /// How many delegations deep this agent is. Zero is the conversation.
     #[must_use]
-    pub fn depth(&self) -> u32 {
-        self.depth
+    pub fn level(&self) -> u32 {
+        self.level
     }
 
-    /// Whether this session may delegate at all: whether depth remains.
+    /// Whether this session may delegate under a depth of `depth`.
     ///
     /// What decides that `delegate_task` is in the offered set or absent from
     /// it ([#64](https://github.com/elpideus/demido-studio/issues/64)). A
     /// question asked of the number rather than of the mode: the mode gates
     /// permissions and nothing else.
+    ///
+    /// `depth` is the ladder's, read where the delegation is dispatched. It is
+    /// a parameter rather than a field for that reason: a resolution that
+    /// remembered a depth would answer with the reading taken when it was
+    /// built.
     #[must_use]
-    pub fn may_delegate(&self) -> bool {
-        self.depth > 0
+    pub fn may_delegate(&self, depth: u32) -> bool {
+        self.level < depth
     }
 
     /// What the matrix decides about one call under this resolution.
@@ -116,6 +138,10 @@ impl Resolution {
 /// parent's. Neither field can widen anything: the offered names are
 /// intersected and the mode is taken at its stricter, so a request is only ever
 /// read as *less*.
+///
+/// The depth is not here, and deliberately: it is not a thing a child asks for,
+/// it is the limit the chain is under, and so it is [`inherit`]'s third
+/// argument.
 #[derive(Default)]
 pub struct Request {
     offered: Option<Vec<String>>,
@@ -126,7 +152,7 @@ pub struct Request {
 
 impl Request {
     /// A request that asks for nothing: the child runs with exactly what its
-    /// parent had, one level shallower.
+    /// parent had, one level lower.
     #[must_use]
     pub fn inheriting() -> Self {
         Self::default()
@@ -148,14 +174,15 @@ impl Request {
     }
 }
 
-/// The inheritance rule: a parent's resolution and a child's request in, the
-/// child's resolution out.
+/// The inheritance rule: a parent's resolution, a child's request and the depth
+/// in force in, the child's resolution out.
 ///
-/// Pure, total, and the only producer of a resolution below the root. See the
-/// module docs for the three axes and why there is no error arm.
+/// Pure, total, and the only producer of a resolution below the root. `depth`
+/// is the ladder's as it stands at this dispatch, and it is read rather than
+/// remembered: see the module docs for that and for the three axes.
 #[must_use]
-pub fn inherit(parent: &Resolution, request: &Request) -> Resolution {
-    let offered = match request.offered.as_ref() {
+pub fn inherit(parent: &Resolution, request: &Request, depth: u32) -> Resolution {
+    let mut offered = match request.offered.as_ref() {
         // An intersection in the parent's order. A name the parent does not
         // offer has nowhere to land, which is the whole of the widening
         // defence.
@@ -173,12 +200,22 @@ pub fn inherit(parent: &Resolution, request: &Request) -> Resolution {
         None => parent.mode,
     };
 
-    Resolution {
-        offered,
+    let child = Resolution {
+        offered: Vec::new(),
         mode,
-        // Saturating rather than wrapping: a chain that kept going past the
-        // limit stays at the limit. Going round to `u32::MAX` would turn the
-        // one place depth is enforced into the one place it is lost.
-        depth: parent.depth.saturating_sub(1),
+        // Saturating rather than wrapping: a chain long enough to overflow a
+        // `u32` stays at the bottom rather than arriving back at the top. It
+        // would take four billion nested turns to reach, and the one place the
+        // depth is enforced is not where a wrap may happen.
+        level: parent.level.saturating_add(1),
+    };
+
+    // The rule with the number in it. A child with no depth left is a child the
+    // tool is **absent** from, exactly as a tool the picker switched off is
+    // absent, rather than a child holding one that answers with a refusal.
+    if !child.may_delegate(depth) {
+        offered.retain(|name| name != demido_tools::DelegateTask::NAME);
     }
+
+    Resolution { offered, ..child }
 }

@@ -39,8 +39,9 @@ nothing uses would fail rather than be discovered later.
 ## The schema is what a turn sends
 
 `schema.rs` holds `conversation.system_prompt`, `conversation.temperature`,
-`conversation.context_length`, `tools.step_limit`, `tools.mode`,
-`tools.offered` and `tools.always`, and nothing else. v2 declared twenty four
+`conversation.context_length`, `tools.step_limit`,
+`tools.delegation_depth`, `tools.mode`, `tools.offered` and `tools.always`, and
+nothing else. v2 declared twenty four
 samplers before anything sent one. A setting added later is one entry in
 `SCHEMA`; a setting declared before something resolves and sends it is a
 contract nothing can be held to.
