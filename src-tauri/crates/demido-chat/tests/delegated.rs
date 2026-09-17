@@ -18,7 +18,7 @@ use std::future::{ready, Ready};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use demido_chat::{Asking, Chat, Decision, Model, Moment, Toolbox};
+use demido_chat::{Asking, Chat, Decision, Model, Moment, Standing, Toolbox};
 use demido_inference::scripted::{Script, Scripted, Step};
 use demido_inference::{FinishReason, Request, Role, Supervisor, ToolCall};
 use demido_settings::{Memory as SettingsMemory, Scope, Settings};
@@ -130,7 +130,7 @@ impl Rig {
     /// of #64 is that the number is read where a delegation is dispatched: a
     /// test that could only set it before a chat existed could not tell that
     /// apart from a number baked in at construction.
-    fn depth(&self, depth: u64) {
+    fn set_depth(&self, depth: u64) {
         self.settings
             .set(
                 &Scope::chat(SESSION),
@@ -223,6 +223,21 @@ fn opened(events: &[Event]) -> Vec<(AgentId, u64, u32)> {
             _ => None,
         })
         .collect()
+}
+
+/// What one group of the registry came to in one assembly.
+fn standing(assembly: &demido_chat::Assembly, group: &str) -> Standing {
+    assembly
+        .groups
+        .iter()
+        .find(|grouped| grouped.group == group)
+        .unwrap_or_else(|| panic!("no {group} group: {:?}", assembly.groups))
+        .standing
+}
+
+/// The depth of each agent a delegation opened, in the order they were opened.
+fn depths(events: &[Event]) -> Vec<u32> {
+    opened(events).iter().map(|(_, _, depth)| *depth).collect()
 }
 
 /// What came back from the call at `call`, if anything did.
@@ -480,12 +495,15 @@ async fn what_the_parent_offers_is_the_ceiling_at_every_depth() {
             "generation {at} was not offered what its agent's depth allows"
         );
     }
-    // Three agents, each one level below the last, and the depth is decremented
+    // Three agents, each one level below the last, and the level is counted up
     // by the inheritance rule and by nothing else.
     let events = rig.events();
     let children = opened(&events);
-    let depths: Vec<u32> = children.iter().map(|(_, _, depth)| *depth).collect();
-    assert_eq!(depths, [1, 2], "a chain two deep, each link one lower");
+    assert_eq!(
+        depths(&events),
+        [1, 2],
+        "a chain two deep, each link one lower"
+    );
 
     // The second delegation was opened **by the child**, not by the
     // conversation. This is the shape of "no sub-agent holds a handle on a
@@ -729,7 +747,7 @@ async fn at_depth_one_the_tool_is_absent_from_every_childs_payload() {
         .then_say(&["I did it myself."])
         .then_say(&["The sub-agent did it."]);
     let rig = Rig::new(script);
-    rig.depth(1);
+    rig.set_depth(1);
     let chat = rig.chat("autonomous");
     chat.load(|_| {}).await;
 
@@ -754,7 +772,30 @@ async fn at_depth_one_the_tool_is_absent_from_every_childs_payload() {
         "the child was shown a tool it has no depth for: {:?}",
         names(child)
     );
-    assert_eq!(opened(&rig.events()).len(), 1, "one link, and no second");
+    let events = rig.events();
+    assert_eq!(opened(&events).len(), 1, "one link, and no second");
+
+    // And the monitor says which absence it is. A reader who finds no
+    // Delegation group in a sub-agent's assembly must not be told the registry
+    // dropped it or that they switched it off, because the control in the way
+    // is the depth and neither of those would send them to it
+    // (`docs/rules/tools.md`).
+    let (child, _, _) = opened(&events)[0].clone();
+    let theirs = wrote(&events, &child);
+    let at = theirs[theirs.len() - 1].seq;
+    let child = chat.assembly(at).unwrap().expect("the child's assembly");
+    assert_eq!(standing(&child, "delegation"), Standing::PastTheDepth);
+
+    let mine = wrote(&events, &AgentId::main());
+    let ours = chat
+        .assembly(mine[mine.len() - 1].seq)
+        .unwrap()
+        .expect("the conversation's assembly");
+    assert_eq!(
+        standing(&ours, "delegation"),
+        Standing::Offered,
+        "the conversation is above the limit and was offered the tool"
+    );
 }
 
 /// At depth 3, the brief's own chain of three runs.
@@ -773,7 +814,7 @@ async fn at_depth_three_a_three_link_chain_runs() {
         .then_say(&["Agent 2 said Thursday."])
         .then_say(&["The meeting is Thursday."]);
     let rig = Rig::new(script);
-    rig.depth(3);
+    rig.set_depth(3);
     let chat = rig.chat("autonomous");
     chat.load(|_| {}).await;
 
@@ -784,8 +825,7 @@ async fn at_depth_three_a_three_link_chain_runs() {
 
     assert_eq!(answer.text, "The meeting is Thursday.");
     let events = rig.events();
-    let depths: Vec<u32> = opened(&events).iter().map(|(_, _, depth)| *depth).collect();
-    assert_eq!(depths, [1, 2, 3], "three links, each one lower");
+    assert_eq!(depths(&events), [1, 2, 3], "three links, each one lower");
 
     // Agent 3 is the last link and knows it by what it was shown rather than by
     // a refusal it read: the fourth generation is the one with nothing to
@@ -821,7 +861,7 @@ async fn the_depth_is_read_at_dispatch_and_not_carried_down() {
         .then_say(&["The meeting is Thursday."]);
     let rig = Rig::new(script);
     // One link is all this turn may open when it starts.
-    rig.depth(1);
+    rig.set_depth(1);
     let chat = rig.chat("cautious");
     chat.load(|_| {}).await;
 
@@ -854,15 +894,14 @@ async fn the_depth_is_read_at_dispatch_and_not_carried_down() {
 
     assert!(*raised.lock().unwrap(), "the delegation was asked about");
     let events = rig.events();
-    let depths: Vec<u32> = opened(&events).iter().map(|(_, _, depth)| *depth).collect();
     assert_eq!(
-        depths,
+        depths(&events),
         [1, 2],
         "the depth raised mid turn did not reach the next delegation"
     );
     assert!(
         names(&rig.script.requests()[1]).contains(&"delegate_task"),
-        "the child was built under the reading the turn started with"
+        "the child was built without the tool the raised depth gave it"
     );
 }
 
@@ -882,7 +921,7 @@ async fn a_child_at_the_limit_that_names_the_tool_is_told_why_in_its_own_context
         .then_say(&["Nobody else to ask, so: Thursday."])
         .then_say(&["The meeting is Thursday."]);
     let rig = Rig::new(script);
-    rig.depth(1);
+    rig.set_depth(1);
     let chat = rig.chat("autonomous");
     chat.load(|_| {}).await;
 

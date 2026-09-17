@@ -291,6 +291,15 @@ property rather than a shortcut: it drops all of itself or none of it, because
 what it drops for is having nowhere to act. A set with anything in it therefore
 proves the registry was not the reason, and every absence in it is the ladder's.
 
+**The one exception is a sub-agent at the bottom of its chain.** Its Delegation
+group is absent because the depth ran out, not because anybody switched
+anything off, so the standing is `PastTheDepth` and it is the second absence
+whose control is not the picker
+([#64](https://github.com/elpideus/demido-studio/issues/64)). It is decided from
+whose assembly it is, which is why `Rebuild` carries the agent: a child loses
+`delegate_task` for no other reason, because the set it inherited is its
+parent's and a parent without the tool opens no children at all.
+
 **An empty set claims neither.** Both roads end there: a person can switch every
 group off, and a registry with no workspace offers nothing whatever the picker
 says. The layer says who chose the set, never why it came out empty, so the

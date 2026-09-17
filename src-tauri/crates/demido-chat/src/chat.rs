@@ -441,8 +441,11 @@ impl<B: Backend, J: Journal> Chat<B, J> {
             let Some(rebuild) = Replay::of(session.journal())?.rebuild(at)? else {
                 return Ok(None);
             };
-            let groups =
-                crate::monitor::grouped(self.tools.registry().groups(), rebuild.tools.as_ref());
+            let groups = crate::monitor::grouped(
+                self.tools.registry().groups(),
+                rebuild.tools.as_ref(),
+                &rebuild.agent,
+            );
             Ok(Some(Assembly { rebuild, groups }))
         })
     }
@@ -544,12 +547,13 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 ),
                 registry,
                 limit: resolved.step_limit(),
-                // The conversation is level zero and the depth is at least one,
-                // so it always may: what it is offered on this axis is the
-                // picker's, and `delegate_task` switched off there is told as
-                // switched off. The flag exists for a child, where the same
-                // absence has the other reason.
-                may_delegate: true,
+                // The conversation is level zero and the depth is at least
+                // one, so this always answers that it may delegate: what it is
+                // offered on that axis is the picker's, and `delegate_task`
+                // switched off there is told as switched off. The number earns
+                // its place in a child, where the same absence has the other
+                // reason.
+                depth: resolved.delegation_depth(),
                 // Off the ladder's chat tier rather than off the log (#55). The
                 // log still says which of the three the person answered,
                 // because that is what happened; what is in force next turn is
@@ -762,14 +766,14 @@ struct Rules {
     resolution: Resolution,
     limit: u32,
     always: Vec<String>,
-    /// Whether this agent had depth left when its registry was derived.
+    /// The delegation depth this agent's registry was derived under.
     ///
-    /// Decided in the same breath as the offered set above, off one reading of
-    /// the ladder, so what the payload lacks and what a refusal says about the
-    /// absence cannot disagree. It is **not** re-asked per call: a second
-    /// reading could land either side of a change made mid-turn and answer for
-    /// a payload that was built under the other one.
-    may_delegate: bool,
+    /// Held rather than re-read, so `resolution.may_delegate(depth)` answers
+    /// here the way it answered where the offered set was built: what the
+    /// payload lacks and what a refusal says about the absence cannot disagree.
+    /// A second reading of the ladder could land either side of a change made
+    /// mid-turn and answer for a payload built under the other one.
+    depth: u32,
 }
 
 /// Which layer decided the offered set: a tier of the ladder, or nobody, which
@@ -841,9 +845,9 @@ impl Answered {
 struct Ruling<'a> {
     registry: &'a Registry,
     resolution: &'a Resolution,
-    /// [`Rules::may_delegate`], which is what tells the two reasons
-    /// `delegate_task` can be missing apart.
-    may_delegate: bool,
+    /// [`Rules::depth`], which is what tells the two reasons `delegate_task`
+    /// can be missing apart.
+    depth: u32,
     always: &'a mut Vec<String>,
     /// Calls the person declined this turn, by name and arguments.
     declined: &'a mut Vec<(String, serde_json::Value)>,
@@ -1053,7 +1057,7 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                 let ruling = Ruling {
                     registry: &self.rules.registry,
                     resolution: &self.rules.resolution,
-                    may_delegate: self.rules.may_delegate,
+                    depth: self.rules.depth,
                     always: &mut always,
                     declined: &mut declined,
                 };
@@ -1167,10 +1171,12 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         // beside the chat's registry: `tools.md` is explicit that an absence a
         // sub-agent chose is not one the user is told they chose.
         if !ruling.registry.offers(&call.name) && self.chat.tools.registry().offers(&call.name) {
-            let reason = match call.name == demido_tools::DelegateTask::NAME && !ruling.may_delegate
-            {
-                true => id::TOOLS_DEPTH,
-                false => id::TOOLS_OFF,
+            let at_the_limit = call.name == demido_tools::DelegateTask::NAME
+                && !ruling.resolution.may_delegate(ruling.depth);
+            let reason = if at_the_limit {
+                id::TOOLS_DEPTH
+            } else {
+                id::TOOLS_OFF
             };
             return self
                 .refuse(turn, seq, reason, &[(catalog::TOOL, call.name.as_str())])
@@ -1408,7 +1414,6 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
         // is shown at all.
         let depth = resolved.delegation_depth();
         let resolution = inherit(&self.rules.resolution, &Request::inheriting(), depth);
-        let may_delegate = resolution.may_delegate(depth);
         let child = Agent {
             chat: self.chat,
             // What the child may call, narrowed to what it inherited.
@@ -1425,10 +1430,11 @@ impl<B: Backend, J: Journal> Agent<'_, B, J> {
                 resolution,
                 limit: self.rules.limit,
                 always: standing.to_vec(),
-                // One reading of the depth, answering both questions: whether
-                // the tool is in the registry a line above, and what this child
-                // is told if it names the tool anyway.
-                may_delegate,
+                // The one reading of the depth this child was built under, kept
+                // so both questions are answered the same way: whether the tool
+                // is in the registry a line above, and what this child is told
+                // if it names the tool anyway.
+                depth,
             },
             child: Some(session),
         };

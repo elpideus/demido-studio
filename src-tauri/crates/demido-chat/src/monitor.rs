@@ -18,7 +18,7 @@
 
 use serde::Serialize;
 
-use demido_trace::{Layer, Offering, Rebuild};
+use demido_trace::{AgentId, Layer, Offering, Rebuild};
 
 /// One assembly as the monitor draws it: what was sent, and what became of
 /// each group of the registry in it.
@@ -48,8 +48,8 @@ pub struct Grouped {
 
 /// Why a group is or is not in an assembly.
 ///
-/// Five, and the three that matter are the last three: a deliberate absence and
-/// a defect must not look identical, and neither may be claimed where the log
+/// Six, and the four that matter are the last four: a deliberate absence and a
+/// defect must not look identical, and neither may be claimed where the log
 /// cannot tell them apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -78,6 +78,20 @@ pub enum Standing {
     /// owed the sentence, and the control they would go looking for does not
     /// exist because there is nothing for them to change.
     Withheld,
+    /// A sub-agent at the bottom of the chain, so `delegate_task` was not in
+    /// its set ([#64](https://github.com/elpideus/demido-studio/issues/64)).
+    ///
+    /// The second absence whose control is not the picker, and it is here for
+    /// the reason [`Standing::Withheld`] is: a reader who finds no Delegation
+    /// group in a sub-agent's assembly would otherwise be told the registry
+    /// dropped it or that they switched it off, and would go looking for the
+    /// picker, which is not the control in the way. The one that is, is the
+    /// delegation depth.
+    ///
+    /// It is the one standing that is a property of **whose** assembly this is
+    /// rather than of the set alone: a conversation's own Delegation group is
+    /// never absent for this reason, because the depth is at least one.
+    PastTheDepth,
     /// The assembly offered no tools at all, and **which of the two that was
     /// cannot be told from the log**.
     ///
@@ -95,10 +109,12 @@ pub enum Standing {
 /// A free function over the two, rather than a method on either, because it is
 /// the whole of the reasoning and reading it should not mean reading a chat.
 /// `groups` is what the registry holds now; `offering` is what the log recorded
-/// then, in the wording it was recorded in.
+/// then, in the wording it was recorded in; `agent` is whose assembly it was,
+/// which only the depth's absence asks about.
 pub(crate) fn grouped(
     groups: Vec<(&'static str, Vec<String>)>,
     offering: Option<&Offering>,
+    agent: &AgentId,
 ) -> Vec<Grouped> {
     let named: Vec<&str> = offering
         .map(|offering| {
@@ -144,6 +160,18 @@ pub(crate) fn grouped(
             let standing = match (offered.is_empty(), absent.is_empty()) {
                 (_, true) => Standing::Offered,
                 (false, _) => Standing::Partial,
+                // A sub-agent whose whole missing group is `delegate_task` is
+                // one the chain ran out under, and it is the only way a child
+                // loses that tool: the set it inherited is its parent's, and a
+                // parent without the tool opens no children at all. The
+                // conversation's own absence is the picker's, which `absence`
+                // answers correctly.
+                (true, _)
+                    if agent != &AgentId::main()
+                        && absent == [demido_tools::DelegateTask::NAME] =>
+                {
+                    Standing::PastTheDepth
+                }
                 (true, _) => absence,
             };
             Grouped {

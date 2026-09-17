@@ -283,7 +283,11 @@ context**, so it answers from what it has rather than stalling. The words are
 not the picker's: the user did not turn this off, the chain reached its limit,
 and a paragraph saying otherwise would send a sub-agent looking for a control
 that is not in the way. Like every refusal it is an event carrying the hash of
-the paragraph that stated it, so the session monitor draws it as a row.
+the paragraph that stated it, so the session monitor draws it as a row. The
+**absence** says the same thing on the other surface: a sub-agent's missing
+Delegation group stands as *past the depth* rather than as switched off or
+dropped, because sending that reader to the picker would send them to a control
+that is not in the way.
 
 **v2's construction survives as the default of a setting.** v2 made a sub-agent
 unable to delegate by cloning its registry before `delegate_task` was added to

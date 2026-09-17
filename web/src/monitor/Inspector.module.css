@@ -182,6 +182,11 @@
 .group[data-standing='withheld'] {
   --source: var(--color-amber);
 }
+/* Violet, which is delegated agent work everywhere else in this window
+ * (design/tokens.css), because that is what this absence is about. */
+.group[data-standing='past-the-depth'] {
+  --source: var(--color-violet);
+}
 .group[data-standing='nothing'] {
   --source: var(--color-ink-3);
 }

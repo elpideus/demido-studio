@@ -200,22 +200,23 @@ pub fn inherit(parent: &Resolution, request: &Request, depth: u32) -> Resolution
         None => parent.mode,
     };
 
-    let child = Resolution {
-        offered: Vec::new(),
-        mode,
-        // Saturating rather than wrapping: a chain long enough to overflow a
-        // `u32` stays at the bottom rather than arriving back at the top. It
-        // would take four billion nested turns to reach, and the one place the
-        // depth is enforced is not where a wrap may happen.
-        level: parent.level.saturating_add(1),
-    };
+    // Saturating rather than wrapping: a chain long enough to overflow a `u32`
+    // stays at the bottom rather than arriving back at the top. It would take
+    // four billion nested turns to reach, and the one place the depth is
+    // enforced is not where a wrap may happen.
+    let level = parent.level.saturating_add(1);
 
-    // The rule with the number in it. A child with no depth left is a child the
-    // tool is **absent** from, exactly as a tool the picker switched off is
+    // The rule with the number in it, and the same comparison
+    // [`Resolution::may_delegate`] makes. A child with no depth left is a child
+    // the tool is **absent** from, exactly as a tool the picker switched off is
     // absent, rather than a child holding one that answers with a refusal.
-    if !child.may_delegate(depth) {
+    if level >= depth {
         offered.retain(|name| name != demido_tools::DelegateTask::NAME);
     }
 
-    Resolution { offered, ..child }
+    Resolution {
+        offered,
+        mode,
+        level,
+    }
 }

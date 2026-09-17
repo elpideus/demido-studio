@@ -147,6 +147,10 @@ const STANDING: Record<Grouped['standing'], { icon: LucideIcon; said: string }> 
   // nothing, so the turn finishes without tools. Said as what happened rather
   // than as an absence, because the reader's next question is why.
   withheld: { icon: EyeOff, said: 'withheld: the step before only repeated a declined call' },
+  // Not the picker either, and saying so matters more here than anywhere: a
+  // reader sent to the tool picker would find the tool switched on and no
+  // explanation. The control is the delegation depth.
+  'past-the-depth': { icon: Unplug, said: 'this sub-agent is at the delegation depth' },
   // The one that names no reason, because the log has none to name: an empty
   // set is what both a picker with everything off and a registry with nowhere
   // to act write down.

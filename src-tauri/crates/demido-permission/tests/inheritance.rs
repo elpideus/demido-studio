@@ -402,11 +402,11 @@ fn the_destructive_floor_survives_every_level_of_a_chain() {
     let always = names(&["delete_file"]);
     let mut resolution = Resolution::root(names(&UNIVERSE), Mode::named("autonomous"));
 
-    for depth in 0..4 {
+    for level in 0..4 {
         assert_eq!(
             resolution.verdict("delete_file", &intent(Ability::Write, true), &always),
             Verdict::Ask,
-            "a destructive call ran without asking {depth} levels down"
+            "a destructive call ran without asking {level} levels down"
         );
         resolution = inherit(&resolution, &Request::inheriting(), DEEP);
     }

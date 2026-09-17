@@ -250,6 +250,12 @@ pub static SCHEMA: &[Setting] = &[
         // the floor because the conversation itself always delegates: turning
         // delegation off is the picker's, which is the control that owns
         // *this model is not shown that tool*.
+        //
+        // Eight is the ceiling because a delegation blocks the turn that asked
+        // for it, so a chain is a stack of turns each holding a model: the
+        // number is bounded by how long a person will wait rather than by
+        // anything the mechanism needs, and the brief's own example is three.
+        // Raising it is one edit here.
         kind: Kind::Count {
             default: 2,
             min: 1,
