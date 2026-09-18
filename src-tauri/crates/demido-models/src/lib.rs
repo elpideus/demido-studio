@@ -9,15 +9,18 @@
 //! | [`library`] | The directory as the registry: scan, remove, and where a download lands. |
 //! | [`parts`] | Which `.gguf` is weights, a projector, a draft or a piece of a split. |
 //! | [`gguf`] | The header: the facts a file states, and whether it is whole. |
+//! | [`index`] | What Hugging Face publishes, keyless, parsed from bytes. |
 //!
-//! **Nothing here downloads and nothing here talks to a server.** The index
-//! (#70) and the queue (#73) are what fetch; this crate is what is already on
-//! disk, which is the part a network failure must never take away.
+//! **Only the index talks to a server, and nothing here downloads.** The queue
+//! (#73) is what fetches weights. The index answers with a value rather than an
+//! error, so a network failure is a stated condition beside the library rather
+//! than something that takes it away.
 //!
 //! See `AGENTS.md` beside this file for the invariants.
 
 pub mod folders;
 pub mod gguf;
+pub mod index;
 pub mod library;
 pub mod parts;
 pub mod sources;

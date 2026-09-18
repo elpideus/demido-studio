@@ -190,6 +190,7 @@ Then:
 | `pnpm check:release` | The rules that only fire at a tag. Run again with `--bundle <installer>` after `pnpm build` to inspect the artifact. |
 | `pnpm drive` / `node scripts/drive.mjs` | Drive the running window over CDP. See below. |
 | `cargo test --manifest-path src-tauri/Cargo.toml --workspace` | The Rust tests that need no card. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-models --test against_hugging_face -- --ignored` | The model index against the real host. Needs the network, not a card. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test a_real_model -- --ignored --test-threads=1` | The live-model suite. See below. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-inference --test llamacpp_contract -- --ignored --test-threads=1` | The `Backend` contract, against a real server. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-trace --test a_real_model -- --ignored --test-threads=1` | The session log, against a real turn: the log rebuilds what was sent. |

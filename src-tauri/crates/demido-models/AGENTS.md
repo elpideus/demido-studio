@@ -22,6 +22,7 @@ not listed, because it is not there yet.
 | `library.rs` | The scan, the removal that refuses, where a download lands, and the disk Demido spent. |
 | `parts.rs` | Weights, projector, draft, and the pieces of a split model, by filename. |
 | `gguf.rs` | The header: the facts a file states and whether the file is as long as it says. |
+| `index.rs` | What Hugging Face publishes, keyless: the search, a repository's files, and the two pure parsers under them. |
 
 ## Invariants
 
@@ -48,14 +49,42 @@ not listed, because it is not there yet.
   audio encoder; tools and reasoning are what the GGUF's own chat template
   renders. No template is `Unknown`, which the window draws differently from
   `No`. The filename is never read for a capability.
-- **Nothing here downloads and nothing here touches the network.** The index
-  (#70) and the queue (#73) fetch. This is the part of the models surface a
-  network failure must never take away.
+- **Only `index.rs` touches the network, and nothing here downloads.** The
+  queue (#73) fetches weights. The library is the part of the models surface a
+  network failure must never take away, and the index is built so it cannot:
+  every call answers with an `Answer`, `Read` or `Unreadable` with a `Cause`,
+  never an `Err`, so a dead connection is a state the browser renders beside
+  the installed models.
+- **The index parses bytes, and only bytes** (#70). `parse_listing` and
+  `parse_files` are pure; `Index` is the one place a request is made, and it
+  hands them the body. A payload that confuses the browser becomes a fixture
+  in `tests/fixtures/index/`, captured with `curl` and never edited.
+- **Publisher fields are passed through verbatim.** `pipeline`, `library` and
+  every tag in the order sent. `Repo` has no field a capability could be
+  inferred into, and a test pins its keys.
+- **Keyless, and it says who is asking.** No `Authorization`, no cookie, and a
+  `User-Agent` naming the app, its version and this repository.
+- **Gating is read at listing time.** The search asks for `gated` by name
+  (without `expand` the listing leaves it out), and anything but `false` is a
+  gate. A gated repository's tree still lists, with its digests masked, which
+  reads as no digest rather than as sixty-four asterisks to verify against.
+- **Capped and ordered at the parser**, not only in the query string: most
+  downloaded first, at most `LISTING`, whatever the server honoured.
 - **A scan never fails.** A missing or unreadable folder contributes nothing;
   startup never blocks, and a drive that is not plugged in is not a broken
   library. Bounded at four folders deep and 500 models.
 
 ## Judgement calls, recorded rather than asked
+
+- **A private repository and an absent one read the same.** Keyless, Hugging
+  Face answers both with `401`, so both are `Cause::Missing`; telling them
+  apart would need the account this index refuses to ask for.
+- **A repository id is checked before it becomes a URL.** Anything that is not
+  `owner/name` in Hugging Face's characters is `Missing` without a request, so
+  an id can never become some other path.
+- **Non-GGUF files are dropped by the file parser**, importance matrices
+  included even though they sit in LFS. A file llama.cpp cannot load is not a
+  choice.
 
 - **Moving the download folder makes the old one borrowed.** Nothing moves,
   the old folder becomes a scan folder so every model in it is still offered,
@@ -88,6 +117,15 @@ not listed, because it is not there yet.
 
 ```text
 cargo test --manifest-path src-tauri/Cargo.toml -p demido-models
+```
+
+`tests/index.rs` parses the committed payloads and asks a server on
+`127.0.0.1` that answers the way Hugging Face can, including the `401` it sends
+for a repository that is not there. `tests/against_hugging_face.rs` asks the
+real host and is `--ignored`:
+
+```text
+cargo test --manifest-path src-tauri/Cargo.toml -p demido-models --test against_hugging_face -- --ignored
 ```
 
 `tests/library.rs` writes real GGUF bytes into real temporary folders

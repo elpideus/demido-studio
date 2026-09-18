@@ -14,9 +14,15 @@ workspace = true
 
 [dependencies]
 demido-core.workspace = true
+# The index (#70). Keyless JSON over HTTPS, with the same TLS the runtimes
+# fetcher and the backend already build, so it is not a second stack.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+# The index's tests answer from a real socket on `127.0.0.1`.
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt"] }
