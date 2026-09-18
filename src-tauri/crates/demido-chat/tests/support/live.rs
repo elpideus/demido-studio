@@ -8,6 +8,7 @@
 //! different things.
 
 #![allow(dead_code)]
+// Each suite that includes this file uses some of it and none uses all of it.
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 // A test asserts by panicking. The workspace denies these in application code,
 // where a panic is a window that vanishes; here a panic is the report.

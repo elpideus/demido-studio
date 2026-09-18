@@ -75,10 +75,14 @@ use live::{keep, rebuilds, Watching};
 use rig::Tier;
 
 /// What is planted, and the part of it nothing else can have supplied. New
-/// words rather than S2's, so a model that met S2's code in some cache of a
+/// words rather than S2's, so a model that met S2's code in some cache of an
 /// earlier run has nothing to remember.
 const PLANTED: &str = "The ferry manifest seal for pier nine is 5082-CORMORANT-BASALT.\n";
 const UNGUESSABLE: &str = "5082-CORMORANT-BASALT";
+
+/// The question: it names the file and never a tool.
+const ASKED: &str = "The ferry manifest seal for pier nine is written in manifest.txt. \
+                     What is it? Answer with the seal alone.";
 
 /// Asked of a model with nothing on offer. Arithmetic, so the answer is
 /// checkable and short, and a model that loads and says nothing, or says
@@ -390,21 +394,24 @@ async fn a_fetched_model_calls_a_tool_with_nothing_naming_one() {
 
     match red.as_slice() {
         [] => {}
-        // Examined before it is written off: the same question to the
-        // secondary model at Q4_K_M. Green there says the quant; red there
-        // says Demido.
+        // Examined before it is written off, the way the rig gives the
+        // secondary tier the job of doing it: the same question to the
+        // secondary model at Q4_K_M. It is a different model, not the breadth
+        // weights at a kinder quant (those do not fit the card), so green
+        // there says the red belongs to the breadth weights at this
+        // quantisation rather than to Demido, and red there says Demido.
         [Tier::Breadth] => {
             let rig = Rig::new("calls", Tier::Secondary, rig::require(Tier::Secondary));
             assert!(
                 called(&rig, false).await,
                 "the fetched breadth model did not answer out of the file, and \
-                 neither did the secondary model at Q4_K_M, so the quant is not \
-                 the explanation"
+                 neither did the secondary model at Q4_K_M, so the red is \
+                 Demido's rather than the breadth weights'"
             );
             println!(
                 "note: the fetched breadth model did not answer out of the file \
-                 and the secondary model at Q4_K_M did, so it is recorded as the \
-                 quant (docs/rules/done.md)"
+                 and the secondary model at Q4_K_M did, so it is recorded as a \
+                 model note rather than a defect (docs/rules/done.md)"
             );
         }
         other => panic!(
@@ -438,12 +445,7 @@ async fn called(rig: &Rig, keep_the_fixture: bool) -> bool {
     loaded(&chat, tier).await;
 
     let answer = chat
-        .ask(
-            "The ferry manifest seal for pier nine is written in manifest.txt. \
-             What is it? Answer with the seal alone.",
-            |_| {},
-            refusing(),
-        )
+        .ask(ASKED, |_| {}, refusing())
         .await
         .unwrap_or_else(|error| panic!("the {} model did not answer: {error}", tier.label()));
 
@@ -469,7 +471,7 @@ async fn called(rig: &Rig, keep_the_fixture: bool) -> bool {
     );
 
     let made = calls(&chat);
-    let fetched: Vec<&str> = made
+    let brought_it_back: Vec<&str> = made
         .iter()
         .filter(|call| {
             matches!(
@@ -479,7 +481,7 @@ async fn called(rig: &Rig, keep_the_fixture: bool) -> bool {
         })
         .map(|call| call.name.as_str())
         .collect();
-    let green = answer.text.contains(UNGUESSABLE) && !fetched.is_empty();
+    let green = answer.text.contains(UNGUESSABLE) && !brought_it_back.is_empty();
     println!(
         "the {} model chose {:?} out of six and answered: {}",
         tier.label(),
@@ -625,7 +627,9 @@ async fn a_borrowed_model_loads_and_nothing_in_its_folder_is_written() {
     );
 }
 
-/// Every file under `root`: its length and when it was last written.
+/// Every entry under `root`, directories included: its length and when it was
+/// last written. A directory is in it so an empty one made inside the folder
+/// is a change too.
 fn snapshot(root: &Path) -> BTreeMap<PathBuf, (u64, Option<SystemTime>)> {
     let mut found = BTreeMap::new();
     let mut waiting = vec![root.to_path_buf()];
@@ -636,10 +640,9 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, (u64, Option<SystemTime>)> {
         for entry in entries.flatten() {
             let path = entry.path();
             let Ok(meta) = entry.metadata() else { continue };
+            found.insert(path.clone(), (meta.len(), meta.modified().ok()));
             if meta.is_dir() {
                 waiting.push(path);
-            } else {
-                found.insert(path, (meta.len(), meta.modified().ok()));
             }
         }
     }
@@ -663,14 +666,9 @@ async fn a_tool_edited_mid_session_rebuilds_each_reply_against_its_own_wording()
     let chat = rig.chat(true);
     loaded(&chat, tier).await;
 
-    chat.ask(
-        "The ferry manifest seal for pier nine is written in manifest.txt. \
-         What is it? Answer with the seal alone.",
-        |_| {},
-        refusing(),
-    )
-    .await
-    .expect("the first answer");
+    chat.ask(ASKED, |_| {}, refusing())
+        .await
+        .expect("the first answer");
     let before = Watching::sent().len();
 
     let documents = Tools::open(rig.dir.join("prompts"));

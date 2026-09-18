@@ -335,7 +335,7 @@ async fn planted(tier: Tier, keep_the_fixture: bool) {
     );
 
     if keep_the_fixture {
-        keep(&rig, &sent, "a-planted-file");
+        live::keep(&rig.log(), &rig.project, &sent, "a-planted-file");
     }
     chat.shutdown().await;
 }
@@ -916,7 +916,7 @@ async fn a_tool_document_edited_mid_session_is_what_the_next_turn_offers() {
 
     chat.shutdown().await;
     // Both wordings are in the log once each, and every step rebuilds as sent.
-    keep(&rig, &sent, "an-edited-tool");
+    live::keep(&rig.log(), &rig.project, &sent, "an-edited-tool");
     println!(
         "{before} steps under {}, {} under {}",
         shipped.hash,
@@ -946,8 +946,3 @@ The first line you want, counting from 1. Leave it out to start at line 1.
 
 How many lines you want. Leave it out to get the rest of the file.
 ";
-
-/// Compare the log against what the backend received, then commit it.
-fn keep(rig: &Rig, sent: &[Request], name: &str) {
-    live::keep(&rig.log(), &rig.project, sent, name);
-}
