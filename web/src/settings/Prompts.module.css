@@ -300,6 +300,8 @@
   gap: var(--space-tight);
   margin-bottom: var(--space-hair);
   color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
   font-size: var(--text-silkscreen);
   letter-spacing: var(--tracking-silkscreen);
   text-transform: uppercase;
@@ -316,7 +318,7 @@
 .paramName {
   color: var(--color-ink-2);
   font-family: var(--font-mono);
-  font-size: var(--text-micro);
+  font-size: var(--text-meta);
 }
 
 .paramType {

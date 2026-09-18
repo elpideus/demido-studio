@@ -12,6 +12,9 @@
 //! register's on [#77](https://github.com/elpideus/demido-studio/issues/77),
 //! once every document could declare what it is load-bearing for.
 //!
+//! A [`ToolDocument`] is the tool register's answer, a `Document` joined to
+//! its tool's shape; otherwise the same holds for it as for a paragraph.
+//!
 //! What a [`Prompt`] carries is what the editor draws, and it is deliberately
 //! the whole truth about one entry rather than a projection of it: the
 //! declaration with its dependants and its shipped default, the text in force,

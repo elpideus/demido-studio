@@ -122,7 +122,7 @@ export function ToolDocumentControl({
             />
           )}
 
-          <Fixed shape={document.shape} parameters={tool.parameters} />
+          <ShapeList shape={document.shape} parameters={tool.parameters} />
 
           <textarea
             className={styles.text}
@@ -163,7 +163,7 @@ export function ToolDocumentControl({
  * A name the shape does not carry falls back to the declaration alone rather
  * than vanishing, because a document can still give it prose.
  */
-function Fixed({ shape, parameters }: { shape: Shape | null; parameters: string[] }) {
+function ShapeList({ shape, parameters }: { shape: Shape | null; parameters: string[] }) {
   const required = new Set(shape?.required ?? [])
 
   return (

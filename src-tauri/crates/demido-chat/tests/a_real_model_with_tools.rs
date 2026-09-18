@@ -863,7 +863,7 @@ async fn a_tool_document_edited_mid_session_is_what_the_next_turn_offers() {
     loaded(&chat, tier).await;
 
     chat.ask(
-        "The winch code for bay four is written in winch.txt. What is it?          Answer with the code alone.",
+        "The winch code for bay four is written in winch.txt. What is it? Answer with the code alone.",
         |_| {},
         nobody(),
     )
@@ -880,7 +880,7 @@ async fn a_tool_document_edited_mid_session_is_what_the_next_turn_offers() {
 
     let answer = chat
         .ask(
-            "The gate code is written in gate.txt. What is it? Answer with the              code alone.",
+            "The gate code is written in gate.txt. What is it? Answer with the code alone.",
             |_| {},
             nobody(),
         )
@@ -909,7 +909,7 @@ async fn a_tool_document_edited_mid_session_is_what_the_next_turn_offers() {
 
     assert!(
         answer.text.contains(GATE_CODE),
-        "under the edited wording the {} model was asked for a code only          gate.txt holds, and said: {}",
+        "under the edited wording the {} model was asked for a code only gate.txt holds, and said: {}",
         tier.label(),
         answer.text
     );
