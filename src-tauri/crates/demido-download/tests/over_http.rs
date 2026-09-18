@@ -403,6 +403,11 @@ async fn a_finished_item_is_verified_renamed_into_place_and_offered_by_the_libra
     .scan();
     assert_eq!(scan.models.len(), 1, "damaged: {:?}", scan.damaged);
     assert_eq!(scan.models[0].path, piece.destination);
+    assert_eq!(
+        queue.row(id).expect("the finished row stays").path,
+        scan.models[0].path,
+        "the row names the model it arrived as, so the window can offer it"
+    );
     assert!(
         Files::in_profile(&dir).read().is_empty(),
         "a finished item leaves the queue file: the library is its record"

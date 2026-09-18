@@ -8,6 +8,7 @@ import { SetupRow, Wizard, useSetupOnce } from '@/setup/Wizard'
 import { Composer } from './Composer'
 import { Toasts } from './Toast'
 import { Rail } from './Rail'
+import { TitleBar } from './TitleBar'
 import { useDesk } from './desk'
 import styles from './App.module.css'
 
@@ -38,6 +39,11 @@ import styles from './App.module.css'
  * it is drawn inside the desk rather than over the rail so that the rail stays
  * reachable while it is open.
  *
+ * The application title bar sits above all of it, across the rail as well as
+ * the desk, because it is the window's rather than the desk's: it is where
+ * the download indicator lives (`design/shell.md`), so a download is visible
+ * whatever is open.
+ *
  * The set-up wizard is drawn over all of it, and it is the first thing on
  * screen on a profile that has not finished set-up
  * (`docs/rules/setup.md` section 1). It is read beside the layout and the
@@ -65,34 +71,46 @@ export function App() {
     void open()
   }, [hydrate, open])
 
-  if (!hydrated) return <div className={styles.shell} />
+  // The title bar is drawn before the layout is known, because it is the
+  // window's own: without it the held frame is a window nobody can move or
+  // close.
+  if (!hydrated)
+    return (
+      <div className={styles.frame}>
+        <TitleBar />
+        <div className={styles.shell} />
+      </div>
+    )
 
   return (
-    <div className={styles.shell} data-rail={rail}>
-      <Rail />
-      <main className={styles.desk}>
-        <Transcript />
-        <div className={styles.bay}>
-          <div className={styles.column}>
-            {/* Above the composer rather than in a corner: what it offers is
-             * the rest of the set-up, and the composer beside it is the thing
-             * that cannot answer until that is done. */}
-            <SetupRow />
-            <Composer />
+    <div className={styles.frame}>
+      <TitleBar />
+      <div className={styles.shell} data-rail={rail}>
+        <Rail />
+        <main className={styles.desk}>
+          <Transcript />
+          <div className={styles.bay}>
+            <div className={styles.column}>
+              {/* Above the composer rather than in a corner: what it offers is
+               * the rest of the set-up, and the composer beside it is the thing
+               * that cannot answer until that is done. */}
+              <SetupRow />
+              <Composer />
+            </div>
           </div>
-        </div>
-        {/* Pinned rather than floating, so it is in the column with the
-         * transcript and the composer rather than over them: the chat island
-         * gives up exactly its height and nothing is covered
-         * (`design/shell.md`). Below the bay, because what it explains is the
-         * conversation above it. */}
-        {monitor && <Monitor />}
-        {panel === 'settings' && <Settings />}
-        <Wizard />
-        {/* Over everything on the desk, including the settings window, because
-         * what it reports is usually a value that window just refused. */}
-        <Toasts />
-      </main>
+          {/* Pinned rather than floating, so it is in the column with the
+           * transcript and the composer rather than over them: the chat island
+           * gives up exactly its height and nothing is covered
+           * (`design/shell.md`). Below the bay, because what it explains is the
+           * conversation above it. */}
+          {monitor && <Monitor />}
+          {panel === 'settings' && <Settings />}
+          <Wizard />
+          {/* Over everything on the desk, including the settings window, because
+           * what it reports is usually a value that window just refused. */}
+          <Toasts />
+        </main>
+      </div>
     </div>
   )
 }

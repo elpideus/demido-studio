@@ -1,0 +1,236 @@
+/*
+ * The download queue. A panel face with the one shadow, opened from the title
+ * bar (design/system.md, "Download indicator"). Roles are
+ * docs/rules/surfaces.md and every number is a token from design/tokens.css.
+ */
+
+.queue {
+  width: calc(14 * var(--size-control));
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+  padding: var(--space-room);
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+  box-shadow: var(--shadow-float);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  min-height: var(--size-control);
+}
+
+.title {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-strong);
+  font-weight: inherit;
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* Rows are separated by a gap, which is the border. */
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-control);
+}
+
+/* An element raised on the panel's island: `raised`, one step at a time. */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  padding: var(--space-control) var(--space-control) var(--space-control) var(--space-room);
+  background: var(--color-raised);
+  border-radius: var(--radius-control);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+}
+
+.names {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+.name,
+.repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name {
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-flush);
+}
+
+.repo {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+.action {
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background-color var(--duration-tap) var(--ease-mech);
+}
+
+.action:hover {
+  background: var(--color-hover);
+}
+
+.action:active {
+  background: var(--color-active);
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+/* A worded action: Pause all, Retry, Use. On the panel it is raised. On a
+ * raised row it is a ghost, unfilled until the pointer is over it, because
+ * there is no role above `raised` at rest and `hover` is never one
+ * (docs/rules/surfaces.md rule 2). */
+.chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-tight) var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  cursor: pointer;
+  transition: background-color var(--duration-tap) var(--ease-mech);
+}
+
+.row .chip {
+  background: none;
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.chip:active:not(:disabled) {
+  background: var(--color-active);
+}
+
+/* Disabled states the reason elsewhere and greys to ink-3, never ink-4. */
+.chip:disabled {
+  color: var(--color-ink-3);
+  cursor: default;
+}
+
+.chip_icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+/* The bar is coloured by its own state: that is how the state is carried, and
+ * why there is no coloured circle anywhere on the row (design/shell.md). */
+.bar {
+  height: var(--space-tight);
+  border-radius: var(--radius-pill);
+  background: var(--color-well);
+  overflow: hidden;
+}
+
+.filled {
+  height: 100%;
+  background: var(--color-signal);
+  transition: width var(--duration-tap) var(--ease-mech);
+}
+
+.row[data-state='queued'] .filled,
+.row[data-state='done'] .filled {
+  background: var(--color-signal-dim);
+}
+
+.row[data-state='paused'] .filled {
+  background: var(--color-amber);
+}
+
+.row[data-state='failed'] .filled {
+  background: var(--color-rose);
+}
+
+.figures {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-hair) var(--space-room);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* Bytes in the silkscreen voice at ink-3, which is how the system sets a
+ * model's size (design/system.md, "Model metadata"). */
+.bytes {
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+.said {
+  color: var(--color-ink-3);
+}
+
+/* A failure is said in the words, coloured: the words are the state. */
+.row[data-state='failed'] .said {
+  color: var(--color-rose);
+}
+
+.row[data-state='paused'] .said {
+  color: var(--color-amber);
+}
