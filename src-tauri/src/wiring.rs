@@ -73,6 +73,10 @@ pub struct Wiring {
     /// points the conversation at a model and the settings page edits the same
     /// answers ([#48](https://github.com/elpideus/demido-studio/issues/48)).
     pub setup: Arc<Setup>,
+    /// The profile's download queue, read back from where it was left and
+    /// started once the runtime is up (`src/downloads.rs`). Opening it reads
+    /// `downloads.json` and writes nothing.
+    pub downloads: demido_download::Queue,
     /// The conversation the chat tier belongs to.
     ///
     /// The window names a tier and Rust names the subject, because there is one
@@ -311,6 +315,7 @@ impl Wiring {
         // registry and the conversation below.
         let (delegating, delegations) = demido_chat::delegations();
         Ok(Self {
+            downloads: demido_download::Queue::open(demido_download::Files::in_profile(profile)),
             desk: Desk::new(Files::in_profile(profile)),
             // The log is opened by the first thing that needs it, not here. A
             // root that opened one would make opening a window a thing that can
