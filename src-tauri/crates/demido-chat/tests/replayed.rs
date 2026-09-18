@@ -23,7 +23,7 @@
 use std::path::PathBuf;
 
 use demido_inference::{Request, Role};
-use demido_trace::{Body, JsonLines, Replay};
+use demido_trace::{AgentId, Body, JsonLines, Replay};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -116,23 +116,120 @@ fn the_committed_trace_of_a_planted_file_still_rebuilds_every_request_that_was_s
 /// carrying a scratch path or a wall-clock reading is one that cannot be diffed
 /// against the next run of the same scenario.
 #[test]
-fn the_committed_trace_carries_nothing_from_the_machine_that_wrote_it() {
-    let raw = std::fs::read_to_string(fixture("a-planted-file.jsonl")).expect("read the fixture");
-    for (line, text) in raw.lines().enumerate() {
-        let event: serde_json::Value = serde_json::from_str(text).expect("an event");
-        assert_eq!(
-            event["at"],
-            0,
-            "line {} carries a wall-clock reading",
-            line + 1
+fn the_committed_traces_carry_nothing_from_the_machine_that_wrote_them() {
+    for name in [
+        "a-planted-file.jsonl",
+        "a-planted-file.sent.json",
+        "a-delegation.jsonl",
+        "a-delegation.sent.json",
+    ] {
+        let raw = std::fs::read_to_string(fixture(name)).expect("read the fixture");
+        if name.ends_with(".jsonl") {
+            for (line, text) in raw.lines().enumerate() {
+                let event: serde_json::Value = serde_json::from_str(text).expect("an event");
+                assert_eq!(
+                    event["at"],
+                    0,
+                    "line {} of {name} carries a wall-clock reading",
+                    line + 1
+                );
+            }
+        }
+        assert!(
+            drive_letter(&raw).is_none(),
+            "{name} carries an absolute path from the machine that wrote it, \
+             around {:?}",
+            drive_letter(&raw)
         );
     }
-    assert!(
-        drive_letter(&raw).is_none(),
-        "the fixture carries an absolute path from the machine that wrote it, \
-         around {:?}",
-        drive_letter(&raw)
-    );
+}
+
+/// S4's fixture: a conversation that handed a planted file to a sub-agent, from
+/// `a_real_model_delegating::the_log_rebuilds_the_exact_assembly_a_sub_agent_was_sent`.
+///
+/// Every request on it is rebuilt, the parent's and the child's alike, and the
+/// child's is the one this exists for: the assembly a sub-agent was sent is its
+/// task and nothing of the conversation, with the offered set it inherited.
+#[test]
+fn the_committed_trace_of_a_delegation_rebuilds_what_the_sub_agent_was_sent() {
+    let replay =
+        Replay::over(JsonLines::read(fixture("a-delegation.jsonl")).expect("read the fixture"));
+    let sent: Vec<Request> = serde_json::from_str(
+        &std::fs::read_to_string(fixture("a-delegation.sent.json"))
+            .expect("the requests beside it"),
+    )
+    .expect("the requests");
+
+    let assemblies: Vec<(AgentId, u64)> = replay
+        .events()
+        .iter()
+        .filter(|event| matches!(event.body, Body::Assembly { .. }))
+        .map(|event| (event.agent.clone(), event.seq))
+        .collect();
+    assert_eq!(assemblies.len(), sent.len());
+
+    // What the person said to the conversation, off the committed log rather
+    // than spelled here, so a reworded scenario does not quietly pass this.
+    let question = replay
+        .history()
+        .into_iter()
+        .find(|exchange| exchange.role == Role::User)
+        .map(|exchange| exchange.text)
+        .expect("the conversation's question");
+
+    let mut children = 0;
+    for ((agent, seq), request) in assemblies.iter().zip(&sent) {
+        let rebuilt = replay.request(*seq).expect("rebuilt");
+        assert_eq!(
+            serde_json::to_string(&rebuilt).expect("a request"),
+            serde_json::to_string(request).expect("a request"),
+            "the committed log no longer rebuilds what {agent:?} was sent at {seq}"
+        );
+        if *agent != AgentId::main() {
+            children += 1;
+            // Clean: the task is what the child starts with, and the question
+            // the person asked the conversation is nowhere in it.
+            assert!(
+                request
+                    .messages
+                    .iter()
+                    .all(|message| !message.content.contains(&question)),
+                "the sub-agent was sent the conversation: {request:?}"
+            );
+            assert!(
+                request.tools.iter().any(|tool| tool.name == "read_file"),
+                "the sub-agent was not offered the set it inherited"
+            );
+        }
+    }
+    assert!(children > 0, "the committed run opened no sub-agent");
+
+    // And the conversation never carried a block a sub-agent wrote. Asked of
+    // the assembly's blocks rather than of text, for the reason the live suite
+    // gives: a parent that reads the same file itself matches the child's
+    // output line for line without anything having leaked.
+    for event in replay.events() {
+        let Body::Assembly { blocks, .. } = &event.body else {
+            continue;
+        };
+        if event.agent != AgentId::main() {
+            continue;
+        }
+        for block in blocks {
+            let by = replay
+                .events()
+                .iter()
+                .find(|written| written.seq == *block)
+                .map(|written| &written.agent)
+                .expect("a block the log holds");
+            assert_eq!(
+                *by,
+                AgentId::main(),
+                "the conversation's assembly at {} carries a sub-agent's block {block}",
+                event.seq
+            );
+        }
+    }
 }
 
 /// Where a Windows absolute path starts in `text`, if one does.

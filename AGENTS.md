@@ -195,6 +195,7 @@ Then:
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-trace --test a_real_model -- --ignored --test-threads=1` | The session log, against a real turn: the log rebuilds what was sent. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model -- --ignored --test-threads=1` | The turn loop, against a real model: an answer streams, a second message carries the first exchange, a stop is recorded. |
 | `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model_with_tools -- --ignored --test-threads=1` | S2's: a model shown six tools reads a file somebody planted, greets without calling anything, is approved, is denied, and meets a tool the picker switched off. |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p demido-chat --test a_real_model_delegating -- --ignored --test-threads=1` | S4's: a model hands a task to a sub-agent and answers from it on all three tiers, is measured electing to with nothing naming it, keeps its context clean, is narrowed, runs strict, meets the depth, is asked once, is denied, runs two sub-agents at once or is refused a second slot, and is stopped at depth 2. |
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets` | The lints, which are denied rather than warned. |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all` | Format the Rust. |
 
