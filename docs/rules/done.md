@@ -305,8 +305,10 @@ conversation into a real window, with a screenshot and the trace as ever.
 configured profile: the desk, the turn loop and the streamed answer were driven,
 and the wizard from zero, the real fetch and the per-row retry were not. Those
 three moved to [#79](https://github.com/elpideus/demido-studio/issues/79) rather
-than being dropped, so the paragraph above still describes what S1 owes and #79
-is where the debt is carried.
+than being dropped, and on 2026-09-18 Stefan dropped them: "I dont care about
+multi user anymore. You can close 79". #79 closed as not planned, so the
+paragraph above describes a fixture S1 no longer owes, and the wizard from zero,
+the real runtime fetch and its per-row retry remain undriven.
 
 This is the first time this file has been read and then not followed, and it is
 recorded here rather than only on the ticket, because a rule that quietly went
