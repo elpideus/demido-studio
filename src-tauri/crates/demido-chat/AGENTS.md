@@ -456,12 +456,13 @@ a fake that keeps its own promises is proved against the wrong ones.
 | `tests/a_real_model.rs` | The model gate of `docs/rules/done.md`: a real model, on all three tiers. |
 | `tests/a_real_model_with_tools.rs` | S2's model gate: six tools on offer and nothing in the message naming one. |
 | `tests/a_real_model_delegating.rs` | S4's model gate ([#69](https://github.com/elpideus/demido-studio/issues/69)): the twelve delegation scenarios, the returning one and the election on all three tiers. |
-| `tests/replayed.rs` | The committed traces of the S2 and S4 closing runs, rebuilt with no card: every request the live run sent, the sub-agent's included, byte for byte. |
+| `tests/a_fetched_model.rs` | S3's model gate ([#78](https://github.com/elpideus/demido-studio/issues/78)): each tier's smallest quantisation fetched through the real queue off the real index in the same run, then loaded from what the library offers. It answers and calls a tool on all three tiers; the projector arriving as a companion, a borrowed model loading with its folder untouched, and the rebuild across a tool edit on the development tier. |
+| `tests/replayed.rs` | The committed traces of the S2, S3 and S4 closing runs, rebuilt with no card: every request the live run sent, the sub-agent's included, byte for byte. |
 
 The live ones are `#[ignore]`d and run one at a time under the rig's process-wide
-permit. See the live commands in the root `AGENTS.md`. The two tool suites share
+permit. See the live commands in the root `AGENTS.md`. The tool suites share
 `tests/support/live.rs`: the backend that records what `llama.cpp` was actually
-handed, and the prune that turns a run's log into a fixture.
+handed, the rebuild check, and the prune that turns a run's log into a fixture.
 
 **`tools.parallel_agents` counts the conversation's slot.** Two sub-agents at
 once is three, not two: at two, one runs in the pool and the second falls back to

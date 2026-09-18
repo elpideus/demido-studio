@@ -74,9 +74,9 @@ use demido_inference::{Request, Role, Supervisor};
 use demido_prompts::Tools;
 use demido_settings::{id, Memory as SettingsMemory, Scope, Settings};
 use demido_tools::{files, shell, Registry, Workspace};
-use demido_trace::{Body, Event, JsonLines, Replay};
+use demido_trace::{Body, Event, JsonLines};
 
-use live::{prune, scrub, Watching};
+use live::Watching;
 use rig::Tier;
 
 /// What was planted, and the part of it that cannot have come from anywhere
@@ -949,56 +949,5 @@ How many lines you want. Leave it out to get the rest of the file.
 
 /// Compare the log against what the backend received, then commit it.
 fn keep(rig: &Rig, sent: &[Request], name: &str) {
-    // Everything holding the log is closed. What is left is the file, which is
-    // the only thing a later process has.
-    let replay = Replay::over(JsonLines::read(rig.log()).expect("read the log"));
-    let assemblies: Vec<u64> = replay
-        .events()
-        .iter()
-        .filter(|event| matches!(event.body, Body::Assembly { .. }))
-        .map(|event| event.seq)
-        .collect();
-    assert_eq!(
-        assemblies.len(),
-        sent.len(),
-        "the log records {} assemblies against {} requests the backend was \
-         handed",
-        assemblies.len(),
-        sent.len()
-    );
-    assert!(
-        sent.len() > 1,
-        "a rebuild over a turn that called nothing proves nothing about tools"
-    );
-
-    for (seq, request) in assemblies.iter().zip(sent) {
-        let rebuilt = replay.request(*seq).expect("rebuilt");
-        assert!(
-            !rebuilt.tools.is_empty(),
-            "the rebuild of step {seq} carries no tools, so the descriptions \
-             the model actually read are not in the log"
-        );
-        assert_eq!(
-            serde_json::to_string(&rebuilt).expect("a request"),
-            serde_json::to_string(request).expect("a request"),
-            "the log rebuilt a different request from the one the backend was \
-             handed at step {seq}"
-        );
-    }
-
-    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    std::fs::create_dir_all(&fixtures).expect("made the fixtures directory");
-    let log = fixtures.join(format!("{name}.jsonl"));
-    prune(&rig.log(), &log, &rig.project);
-    // Pruned the same way, or the pair would disagree the moment the offline
-    // suite compared one against the other.
-    std::fs::write(
-        fixtures.join(format!("{name}.sent.json")),
-        scrub(
-            &serde_json::to_string_pretty(sent).expect("the requests"),
-            &rig.project,
-        ),
-    )
-    .expect("kept the requests");
-    println!("trace fixture: {}", log.display());
+    live::keep(&rig.log(), &rig.project, sent, name);
 }

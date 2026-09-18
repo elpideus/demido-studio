@@ -618,7 +618,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "demido-core",
+ "demido-download",
  "demido-inference",
+ "demido-models",
  "demido-permission",
  "demido-prompts",
  "demido-settings",

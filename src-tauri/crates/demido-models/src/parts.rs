@@ -58,6 +58,12 @@ pub fn part_of(filename: &str) -> Part {
     if lower.starts_with("mtp-") || lower.contains(".mtp-") {
         return Part::Draft;
     }
+    // `Model-draft-Q4_0`: the word on its own, between separators, never a
+    // part of a longer one (#78 found this layout on a real repository, where
+    // it was being offered as the smallest quantisation of the model).
+    if lower.split(['-', '_', '.']).any(|word| word == "draft") {
+        return Part::Draft;
+    }
     Part::Weights
 }
 
@@ -203,11 +209,21 @@ mod tests {
         ] {
             assert_eq!(part_of(name), Part::Projector, "{name}");
         }
-        assert_eq!(part_of("mtp-gemma-4-E4B-it-Q8_0.gguf"), Part::Draft);
+        for name in [
+            "mtp-gemma-4-E4B-it-Q8_0.gguf",
+            "Qwen3.8-27B-Uncensored-draft-Q4_0.gguf",
+            "Model.draft.Q8_0.gguf",
+            "draft-Model-Q4_0.gguf",
+            "Model_draft_Q4_0.gguf",
+        ] {
+            assert_eq!(part_of(name), Part::Draft, "{name}");
+        }
         for name in [
             "gemma-4-E4B-it-Q8_0.gguf",
             "Huihui-Qwen3.5-9B-abliterated.Q4_K_S.gguf",
             "smtp-helper-Q8_0.gguf",
+            "Qwen3.8-27B-Uncensored-noMTP-IQ2_M.gguf",
+            "Drafter-7B-Q4_K_M.gguf",
         ] {
             assert_eq!(part_of(name), Part::Weights, "{name}");
         }

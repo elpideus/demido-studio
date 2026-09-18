@@ -49,6 +49,11 @@ tracing.workspace = true
 # and `Backend` is an `async_trait`, so an implementation of it needs the same
 # attribute. Only the tests implement one.
 async-trait = "0.1"
+# S3's live suite fetches the model it runs through the real queue, off the real
+# index, and loads what the library then offers. Only that suite reaches for
+# either: the turn loop is handed a model and never asks where it came from.
+demido-download.workspace = true
+demido-models.workspace = true
 # A project on disk for the tools to act on.
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

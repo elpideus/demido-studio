@@ -1,4 +1,4 @@
-//! What the two live suites of this crate share: a backend that records what it
+//! What the live suites of this crate share: a backend that records what it
 //! was handed, and the prune that turns a run's log into a committed fixture.
 //!
 //! Included by path rather than made a crate, like `demido-inference`'s rig and
@@ -7,16 +7,18 @@
 //! would be two places for "what the backend was actually handed" to mean
 //! different things.
 
+#![allow(dead_code)]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 // A test asserts by panicking. The workspace denies these in application code,
 // where a panic is a window that vanishes; here a panic is the report.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde_json::json;
 
 use demido_inference::{Backend, Cancel, ChunkStream, LlamaCpp, LlamaCppConfig, Loaded, Request};
+use demido_trace::{Body, JsonLines, Replay};
 
 /// Every request the backend was handed, this process wide.
 ///
@@ -144,4 +146,71 @@ pub fn scrub(text: &str, project: &Path) -> String {
         "a path from this machine survived the prune: {scrubbed}"
     );
     scrubbed
+}
+
+/// Compare the log against what the backend received, then commit both as the
+/// fixture `name`.
+///
+/// Every assembly in the log is rebuilt and compared byte for byte with the
+/// request `llama.cpp` was handed at that step, so a fixture is only written
+/// once it has been shown to rebuild what it claims to.
+pub fn keep(log: &Path, project: &Path, sent: &[Request], name: &str) {
+    rebuilds(log, sent);
+
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    std::fs::create_dir_all(&fixtures).expect("made the fixtures directory");
+    let kept = fixtures.join(format!("{name}.jsonl"));
+    prune(log, &kept, project);
+    // Pruned the same way, or the pair would disagree the moment the offline
+    // suite compared one against the other.
+    std::fs::write(
+        fixtures.join(format!("{name}.sent.json")),
+        scrub(
+            &serde_json::to_string_pretty(sent).expect("the requests"),
+            project,
+        ),
+    )
+    .expect("kept the requests");
+    println!("trace fixture: {}", kept.display());
+}
+
+/// The log at `log` rebuilds every request in `sent`, byte for byte, and every
+/// one of them carried tools.
+pub fn rebuilds(log: &Path, sent: &[Request]) {
+    // Everything holding the log is closed. What is left is the file, which is
+    // the only thing a later process has.
+    let replay = Replay::over(JsonLines::read(log).expect("read the log"));
+    let assemblies: Vec<u64> = replay
+        .events()
+        .iter()
+        .filter(|event| matches!(event.body, Body::Assembly { .. }))
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(
+        assemblies.len(),
+        sent.len(),
+        "the log records {} assemblies against {} requests the backend was \
+         handed",
+        assemblies.len(),
+        sent.len()
+    );
+    assert!(
+        sent.len() > 1,
+        "a rebuild over a turn that called nothing proves nothing about tools"
+    );
+
+    for (seq, request) in assemblies.iter().zip(sent) {
+        let rebuilt = replay.request(*seq).expect("rebuilt");
+        assert!(
+            !rebuilt.tools.is_empty(),
+            "the rebuild of step {seq} carries no tools, so the descriptions \
+             the model actually read are not in the log"
+        );
+        assert_eq!(
+            serde_json::to_string(&rebuilt).expect("a request"),
+            serde_json::to_string(request).expect("a request"),
+            "the log rebuilt a different request from the one the backend was \
+             handed at step {seq}"
+        );
+    }
 }
