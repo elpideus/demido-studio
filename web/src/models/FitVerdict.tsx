@@ -1,7 +1,7 @@
 import { Gpu } from 'lucide-react'
 
 import { useFit, words } from './fit'
-import styles from './Verdict.module.css'
+import styles from './FitVerdict.module.css'
 
 /**
  * Whether this card can hold this file, beside the action that downloads it
@@ -15,13 +15,13 @@ import styles from './Verdict.module.css'
  * `weights` is the choice's weights alone (`Choice.weights`), which is what
  * loading costs; the projector is resident only while an image is read.
  */
-export function Verdict({ weights }: { weights: number }) {
+export function FitVerdict({ weights }: { weights: number }) {
   const verdict = useFit(weights)
   if (!verdict) return null
   const { label, sentence } = words(verdict)
 
   return (
-    <p className={styles.verdict} data-fit={verdict.fit}>
+    <p className={styles.verdict}>
       <Gpu className={styles.icon} aria-hidden />
       <span className={styles.label}>{label}</span>
       <span className={styles.sentence}>{sentence}</span>

@@ -135,18 +135,20 @@ produce it from the attention geometry, and did not: it prices a file before it
 exists on disk, where there is no header to read the geometry from. So the
 producer is still open, and it is a header reading of the model in force, which
 `demido-models`' `gguf` already parses
-([#105](https://github.com/elpideus/demido-studio/issues/105)). Until it lands, parallelism above the
-default queues with `Unmeasured`, which is the honest answer rather than a
-guess.
+([#105](https://github.com/elpideus/demido-studio/issues/105)). Until it
+lands, parallelism above the default queues with `Unmeasured`, which is the
+honest answer rather than a guess.
 
 What #74 did settle is the ordering question this crate left open: `free_now`
 is read before the weights land, so it is the card as it stands rather than as
-it will stand. Pricing the load whole against that reading, with the resident
-model's own bytes given back, is what makes a pre-load reading answerable.
+it will stand. Pricing the load whole against that reading, with what the
+resident model was weighed at holding given back, is what makes a pre-load
+reading answerable.
 
 The rig's figures are `docs/rules/done.md`'s, and the tests here use them
-verbatim, in both tables: the slot's in `lib.rs` and the fit's in `fit.rs`. That includes both readings of the development model's slot, 563
-derived out of a total and 620 weighed directly: asserting both is how the table
+verbatim, in both tables: the slot's in `lib.rs` and the fit's in `fit.rs`.
+That includes both readings of the development model's slot, 563 derived out
+of a total and 620 weighed directly: asserting both is how the table
 says the rule is about the arithmetic rather than about which reading of one
 slot it was handed.
 

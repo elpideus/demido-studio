@@ -38,6 +38,12 @@ pub struct Load {
     /// The weights, as the server states their size: every piece of a split
     /// model added up, and nothing that is not weights. A projector is only
     /// resident when an image is being read, which this build does not do.
+    ///
+    /// A file is not always what lands on the card: the rig's development
+    /// model keeps its per-layer embeddings in system memory, so its 7813 MiB
+    /// file is 4942 MiB of weights on the card. Before a download the file is
+    /// all there is to price, and it errs towards *partial offload*, which a
+    /// person can act on, never towards a *fits* the load disproves.
     pub weights: u64,
     /// What a context of the length in force reserves on top of the weights,
     /// its KV and the compute buffers beside it.
@@ -356,8 +362,11 @@ mod tests {
             verdict(with_reference_loaded, 0, development),
             Verdict::Partial { .. }
         ));
+        // What it was weighed at holding: its total, less the desktop that was
+        // on the card before it loaded.
+        let weighed_at = REFERENCE_AT_32K.total - DESKTOP;
         assert!(matches!(
-            verdict(with_reference_loaded, REFERENCE_AT_32K.weights, development),
+            verdict(with_reference_loaded, weighed_at, development),
             Verdict::Fits { .. }
         ));
     }
@@ -369,7 +378,7 @@ mod tests {
             free: CARD,
             total: CARD,
         });
-        let verdict = verdict(
+        let everything_back = verdict(
             card,
             u64::MAX,
             Load {
@@ -377,7 +386,7 @@ mod tests {
                 context: None,
             },
         );
-        assert!(matches!(verdict, Verdict::Fits { room: CARD, .. }));
+        assert!(matches!(everything_back, Verdict::Fits { room: CARD, .. }));
     }
 
     /// A machine whose card cannot be read gets no verdict about the card,

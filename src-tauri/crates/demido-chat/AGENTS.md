@@ -423,6 +423,14 @@ A parallelism the card cannot honour degrades to a queue with a stated reason,
 and a window drawing the preference would be promising a sub-agent that is never
 going to start.
 
+**Every load that starts a server is weighed.** `Chat::load` reads the card
+before `ensure` and `Pool::weigh` reads it again after, the way `done.md`
+weighed a second slot, giving back what a replaced server was weighed at.
+`Chat::held` is the figure, and zero when nothing is resident. It is what the
+fit verdict counts as room for a model chosen next
+([#74](https://github.com/elpideus/demido-studio/issues/74)), because a file's
+size is not what lands on the card.
+
 ## Presence carries the fact, never the wording
 
 `Presence` says whether there is anything to talk to. The sentence the composer

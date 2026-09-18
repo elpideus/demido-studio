@@ -118,9 +118,7 @@ impl Pool {
             wanted,
         })
     }
-}
 
-impl Pool {
     /// The card, read now.
     #[must_use]
     pub fn card(&self) -> Option<Card> {

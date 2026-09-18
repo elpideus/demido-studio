@@ -485,10 +485,13 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     }
 
     /// What the resident model was weighed at holding on the card when it
-    /// loaded, in bytes, and zero before anything has. What a model chosen
+    /// loaded, in bytes, and zero when nothing is resident. What a model chosen
     /// next gets back, which the fit verdict counts as room
     /// ([#74](https://github.com/elpideus/demido-studio/issues/74)).
-    pub fn held(&self) -> u64 {
+    pub async fn held(&self) -> u64 {
+        if self.supervisor.current().await.is_none() {
+            return 0;
+        }
         self.pool.held()
     }
 

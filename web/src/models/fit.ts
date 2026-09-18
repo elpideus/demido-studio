@@ -25,14 +25,15 @@ export type Verdict =
 const AGAIN_EVERY_MS = 5000
 
 /** Whether this card can hold weights of `weights` bytes, read now. */
-export function readFit(weights: number): Promise<Verdict> {
+function readFit(weights: number): Promise<Verdict> {
   return invoke<Verdict>('models_fit', { weights })
 }
 
 /**
  * The verdict for weights of `weights` bytes, read now, again every few
  * seconds while mounted, and again when the window comes back into focus.
- * `undefined` until the first reading answers, or when it could not be asked.
+ * `undefined` until the first reading answers. A reading that fails keeps the
+ * last one on screen rather than making the line blink out until the next.
  */
 export function useFit(weights: number): Verdict | undefined {
   const [verdict, setVerdict] = useState<Verdict>()
@@ -41,8 +42,8 @@ export function useFit(weights: number): Verdict | undefined {
     let live = true
     const read = () => {
       readFit(weights).then(
-        (read) => live && setVerdict(read),
-        () => live && setVerdict(undefined),
+        (answer) => live && setVerdict(answer),
+        (error: unknown) => console.warn('the card could not be asked', error),
       )
     }
     setVerdict(undefined)
@@ -59,8 +60,10 @@ export function useFit(weights: number): Verdict | undefined {
   return verdict
 }
 
-/** The verdict in two parts: a label a person scans, and the sentence behind
- * it. Each of the four is something different to do. */
+/**
+ * The verdict in two parts: a label a person scans, and the sentence behind
+ * it. Each of the four is something different to do.
+ */
 export function words(verdict: Verdict): { label: string; sentence: string } {
   switch (verdict.fit) {
     case 'fits':
