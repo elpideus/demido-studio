@@ -844,7 +844,7 @@ async fn a_parallelism_the_card_cannot_honour_opens_one_slot_and_says_so() {
                 needed: 1129 * MIB,
             }),
         },
-        "the window is told what opened, never what was preferred, and why the          rest did not: a limit that is the card's rather than the person's"
+        "the window is told what opened, and why the rest did not"
     );
 }
 

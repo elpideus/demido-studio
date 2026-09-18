@@ -132,7 +132,7 @@
    * govern them and the source ledger ([#68](https://github.com/elpideus/demido-studio/issues/68)).
    * Wide enough for the settings page's own number field with its unit and
    * the way back to global on one line, which is the widest thing it holds. */
-  --width-scope: 304px;
+  --size-scope: 304px;
 
   /* How much of a sub-agent's answer stands unfolded in the transcript
    * ([#67](https://github.com/elpideus/demido-studio/issues/67)). The fold is

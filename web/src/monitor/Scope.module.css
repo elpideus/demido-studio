@@ -10,7 +10,7 @@
 
 .column {
   flex: none;
-  width: var(--width-scope);
+  width: var(--size-scope);
   min-height: 0;
   overflow-y: auto;
   display: flex;
@@ -82,7 +82,10 @@
   padding: 0;
   border: none;
   border-radius: var(--radius-control);
-  background: var(--color-raised);
+  /* Nothing at rest, like the close button on the panel's own bar: a control
+   * on a chrome column is not raised on an island, and raised is darker than
+   * chrome, so it would read as a hole. */
+  background: none;
   color: var(--color-ink-3);
   cursor: pointer;
   transition: background var(--duration-tap) var(--ease-mech);

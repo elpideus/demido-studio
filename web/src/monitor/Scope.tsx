@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import { Bot, MessagesSquare, RotateCcw } from 'lucide-react'
 
-import { useChat, type Limit, type Presence } from '@/chat/chat'
+import { useChat, type Limit } from '@/chat/chat'
 import { Control } from '@/settings/Control'
 import { useSettings, type Row } from '@/settings/ladder'
-import { MAIN, scoped, useMonitor, type Agent, type Event, type Source, type Weight } from './log'
-import { ICONS, weighed } from './sources'
+import { isMain, MAIN, scopeOf, scoped, useMonitor, type Agent, type Event } from './log'
+import { ICONS, tallied, weighed } from './sources'
 import styles from './Scope.module.css'
 
 /**
@@ -52,13 +52,13 @@ export function Scope({ reduced }: { reduced: boolean }) {
             key={agent.agent}
             type="button"
             className={styles.icon}
-            data-delegated={agent.depth > 0}
+            data-delegated={!isMain(agent.agent)}
             aria-label={
-              agent.depth === 0 ? 'Main session' : `${agent.agent}: ${task(events, agent)}`
+              isMain(agent.agent) ? 'Main session' : `${agent.agent}: ${task(events, agent)}`
             }
             aria-current={selected(agent, scope) ? 'true' : undefined}
-            title={agent.depth === 0 ? 'Main session' : task(events, agent)}
-            onClick={() => void scopeTo(agent.depth === 0 ? null : agent.agent)}
+            title={isMain(agent.agent) ? 'Main session' : task(events, agent)}
+            onClick={() => void scopeTo(scopeOf(agent.agent))}
           >
             <Glyph agent={agent} />
           </button>
@@ -69,22 +69,22 @@ export function Scope({ reduced }: { reduced: boolean }) {
 
   return (
     <div className={styles.column}>
-      <Governs />
+      <Header />
       <nav className={styles.agents} aria-label="Agents">
         {listed.map((agent) => (
           <button
             key={agent.agent}
             type="button"
             className={styles.agent}
-            data-delegated={agent.depth > 0}
+            data-delegated={!isMain(agent.agent)}
             // Depth is the indent (`design/windows.md`), so the shape of the
             // chain is the shape of the list.
             style={{ '--depth': agent.depth } as React.CSSProperties}
             aria-current={selected(agent, scope) ? 'true' : undefined}
-            onClick={() => void scopeTo(agent.depth === 0 ? null : agent.agent)}
+            onClick={() => void scopeTo(scopeOf(agent.agent))}
           >
             <Glyph agent={agent} />
-            {agent.depth === 0 ? (
+            {isMain(agent.agent) ? (
               <span className={styles.name}>Main session</span>
             ) : (
               <>
@@ -105,13 +105,13 @@ const MAIN_ONLY: Agent = { agent: MAIN, depth: 0, parent: null, call: null, gene
 
 /** `Main session` is the unscoped run, so it is selected when nothing is. */
 function selected(agent: Agent, scope: string | null): boolean {
-  return agent.depth === 0 ? scope === null : agent.agent === scope
+  return isMain(agent.agent) ? scope === null : agent.agent === scope
 }
 
 /** The conversation's icon, or the bot the transcript's delegation row carries
  * (`design/system.md`), so a sub-agent looks like itself in both places. */
 function Glyph({ agent }: { agent: Agent }) {
-  const Icon = agent.depth === 0 ? MessagesSquare : Bot
+  const Icon = isMain(agent.agent) ? MessagesSquare : Bot
   return <Icon className={styles.glyph} strokeWidth={1.8} aria-hidden />
 }
 
@@ -146,11 +146,9 @@ function task(events: Event[], agent: Agent): string {
  * the person set, rather than by changing that number: a field that silently
  * showed 1 after somebody typed 2 would be a setting that did not save.
  */
-function Governs() {
+function Header() {
   const rows = useSettings((settings) => settings.rows.chat)
   const presence = useChat((chat) => chat.presence)
-  const running = useChat((chat) => chat.running)
-  const agents = useMonitor((monitor) => monitor.agents)
 
   const parallel = rows?.find((row) => row.setting.id === PARALLEL)
   const depth = rows?.find((row) => row.setting.id === DEPTH)
@@ -167,7 +165,7 @@ function Governs() {
         </p>
       )}
       {depth && <Knob row={depth} label="Depth" />}
-      <Slots presence={presence} asked={asked} running={running} agents={agents} />
+      <Slots asked={asked} />
     </header>
   )
 }
@@ -239,17 +237,11 @@ function mib(bytes: number): string {
  * past, and a line left mid-request by a run that never finished is not a slot
  * anybody is using now.
  */
-function Slots({
-  presence,
-  asked,
-  running,
-  agents,
-}: {
-  presence: Presence
-  asked: number
-  running: boolean
-  agents: Agent[]
-}) {
+function Slots({ asked }: { asked: number }) {
+  const presence = useChat((chat) => chat.presence)
+  const running = useChat((chat) => chat.running)
+  const agents = useMonitor((monitor) => monitor.agents)
+
   if (presence.state !== 'ready') {
     return <p className={styles.caption}>No model is loaded, so there are no slots.</p>
   }
@@ -283,41 +275,24 @@ function Slots({
  * `design/windows.md` makes the source column "a ledger, count and tokens per
  * source, not a legend beside a search box", and scoping filters it with the
  * stream. It is summed from the rows the stream draws, so the two cannot
- * disagree about what the scope holds.
+ * disagree about what the scope holds (`tallied`).
  */
 function Ledger({ events }: { events: Event[] }) {
-  // A tally is estimated if any event in it was, the rule the Rust `Tally`
-  // keeps, so a total built partly out of guesses carries the tilde.
-  const tallies = new Map<Source, { events: number; weight: Weight }>()
-  for (const event of events) {
-    const tally = tallies.get(event.source) ?? {
-      events: 0,
-      weight: { tokens: 0, basis: 'counted' },
-    }
-    tally.events += 1
-    tally.weight.tokens += event.weight.tokens
-    if (event.weight.basis === 'estimated') tally.weight.basis = 'estimated'
-    tallies.set(event.source, tally)
-  }
-
   return (
     <dl className={styles.ledger} aria-label="Source ledger">
-      {(Object.keys(ICONS) as Source[])
-        .filter((source) => tallies.has(source))
-        .map((source) => {
-          const Icon = ICONS[source]
-          const tally = tallies.get(source)!
-          return (
-            <div key={source} className={styles.source} data-source={source}>
-              <dt className={styles.sourceName}>
-                <Icon className={styles.glyph} strokeWidth={1.8} aria-hidden />
-                {source}
-              </dt>
-              <dd className={styles.tally}>{tally.events}</dd>
-              <dd className={styles.tally}>{weighed(tally.weight)}</dd>
-            </div>
-          )
-        })}
+      {tallied(events).map(([source, tally]) => {
+        const Icon = ICONS[source]
+        return (
+          <div key={source} className={styles.source} data-source={source}>
+            <dt className={styles.sourceName}>
+              <Icon className={styles.glyph} strokeWidth={1.8} aria-hidden />
+              {source}
+            </dt>
+            <dd className={styles.tally}>{tally.events}</dd>
+            <dd className={styles.tally}>{weighed(tally.weight)}</dd>
+          </div>
+        )
+      })}
     </dl>
   )
 }

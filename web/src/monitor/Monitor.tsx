@@ -98,9 +98,10 @@ export function Monitor() {
           {/* The reduced form, stated as `design/shell.md` requires a panel
            * with a floor to state one: at 210px the scope column is icons, the
            * stream keeps the rest of the panel and the inspector is not drawn,
-           * because there is no float layer yet to detach it into. Three columns squeezed into
-           * the height of two rows is the failure that rule exists to prevent,
-           * and it keeps every element by making all of them unreadable. */}
+           * because there is no float layer yet to detach it into. Three
+           * columns squeezed into the height of two rows is the failure that
+           * rule exists to prevent, and it keeps every element by making all
+           * of them unreadable. */}
           {!reduced && (
             <>
               <Assembled assembly={assembly} />

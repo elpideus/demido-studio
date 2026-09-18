@@ -125,6 +125,18 @@ export type Agent = {
  * `AgentId::MAIN`. */
 export const MAIN = 'main'
 
+/** Whether an agent is the conversation itself rather than one of its
+ * sub-agents. */
+export function isMain(agent: string): boolean {
+  return agent === MAIN
+}
+
+/** The scope selecting an agent sets: the unscoped run for the conversation,
+ * which is what `Main session` returns to, and the agent's own for the rest. */
+export function scopeOf(agent: string): string | null {
+  return isMain(agent) ? null : agent
+}
+
 type Monitor = {
   events: Event[]
   /** The session's agents, the conversation first. */
@@ -154,8 +166,10 @@ export const useMonitor = create<Monitor>((set, get) => ({
   assembly: null,
 
   read: async () => {
-    // The two questions are asked together so the column and the stream are
-    // drawn from one reading of the log rather than from two moments of it.
+    // Asked together and set together, so the column and the stream are never
+    // drawn from two different reads. They are still two reads of the log, so
+    // a line written between them can be in one and not yet in the other,
+    // which the next read settles.
     const [events, agents] = await Promise.all([
       invoke<Event[]>('monitor_log').catch((error: unknown) => {
         // The panel opens either way and says it has nothing, which is also
@@ -170,12 +184,12 @@ export const useMonitor = create<Monitor>((set, get) => ({
       }),
     ])
     set({ events, agents })
-    await follow(get)
+    await keepInScope(get)
   },
 
   scopeTo: async (agent) => {
     set({ scope: agent })
-    await follow(get)
+    await keepInScope(get)
   },
 
   select: async (seq) => {
@@ -215,7 +229,7 @@ export function scoped(events: Event[], scope: string | null): Event[] {
  * reading. A selection the scope has just hidden moves to the scope's latest
  * event, so the inspector never explains a row that is not on screen.
  */
-async function follow(get: () => Monitor) {
+async function keepInScope(get: () => Monitor) {
   const { events, scope, selected, select } = get()
   const shown = scoped(events, scope)
   const last = shown.at(-1)

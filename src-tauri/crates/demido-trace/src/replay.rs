@@ -383,7 +383,7 @@ impl Replay {
             depth: 0,
             parent: None,
             call: None,
-            generating: false,
+            generating: self.generating(&AgentId::main()),
         }];
         for event in &self.events {
             if let Body::Delegated { call, agent, depth } = &event.body {
@@ -392,12 +392,9 @@ impl Replay {
                     depth: *depth,
                     parent: Some(event.agent.clone()),
                     call: Some(*call),
-                    generating: false,
+                    generating: self.generating(agent),
                 });
             }
-        }
-        for agent in &mut agents {
-            agent.generating = self.generating(&agent.agent);
         }
         agents
     }
