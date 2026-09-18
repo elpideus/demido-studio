@@ -11,6 +11,7 @@
 //! | [`quant`] | A quantisation label, read into a value ordered by fidelity. |
 //! | [`choices`] | A repository's files, read into what a person can choose. |
 //! | [`gguf`] | The header: the facts a file states, and whether it is whole. |
+//! | [`slot`] | What one generation slot reserves, priced from the header. |
 //! | [`index`] | What Hugging Face publishes, keyless, parsed from bytes. |
 //!
 //! **Only the index talks to a server, and nothing here downloads.** The queue
@@ -27,6 +28,7 @@ pub mod index;
 pub mod library;
 pub mod parts;
 pub mod quant;
+pub mod slot;
 pub mod sources;
 
 use std::path::PathBuf;
@@ -37,6 +39,7 @@ pub use gguf::Damage;
 pub use library::{Capabilities, Damaged, Fact, Library, Local, Scan, LIMIT};
 pub use parts::{Companion, Part, Shard};
 pub use quant::Quant;
+pub use slot::{price, Geometry, Price};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

@@ -412,6 +412,19 @@ that puts them together, and `Chat::load` is its one caller
 what a settings page saw when it was drawn: a browser window opened in between
 moves it by more than a slot costs.
 
+**The load is priced whole, and a slot is priced from the header.** The reading
+is taken before the weights land, so the model's files, the conversation's own
+slot and what the build holds beside them (compute buffers and the CUDA context,
+weighed at 265 MiB on the rig, `BESIDE_THE_KV`) come out of it first, with what
+a replaced resident model was weighed at given back, and the slots above the
+first are admitted from what is left.
+What a slot costs is `demido_models::price`, one slot's KV at the context length
+in force, read from the header of the file `Backend::model_file` names
+([#105](https://github.com/elpideus/demido-studio/issues/105)). An architecture
+that reading does not know, or a backend with no file, is `Unmeasured`, never a
+guess. A suite's card (`Pool::on_a_card_with`) pins both the room and the price
+instead, because a scripted backend has no load to price.
+
 **The conversation's own slot is not admitted.** It is the model being loaded
 rather than a sub-agent, so it is handed to `admit` as already open. A budget
 that could refuse it would be a card with no room answering the question by

@@ -24,24 +24,29 @@ export type Verdict =
 /** How often an open pane reads the card again. */
 const AGAIN_EVERY_MS = 5000
 
-/** Whether this card can hold weights of `weights` bytes, read now. */
-function readFit(weights: number): Promise<Verdict> {
-  return invoke<Verdict>('models_fit', { weights })
+/**
+ * Whether this card can hold weights of `weights` bytes, read now. `path` is
+ * the file when it is already on disk, and then the context is priced from its
+ * header too ([issue 105](https://github.com/elpideus/demido-studio/issues/105)).
+ */
+function readFit(weights: number, path?: string): Promise<Verdict> {
+  return invoke<Verdict>('models_fit', { weights, path: path ?? null })
 }
 
 /**
- * The verdict for weights of `weights` bytes, read now, again every few
+ * The verdict for weights of `weights` bytes, and the file at `path` when there
+ * is one on disk, read now, again every few
  * seconds while mounted, and again when the window comes back into focus.
  * `undefined` until the first reading answers. A reading that fails keeps the
  * last one on screen rather than making the line blink out until the next.
  */
-export function useFit(weights: number): Verdict | undefined {
+export function useFit(weights: number, path?: string): Verdict | undefined {
   const [verdict, setVerdict] = useState<Verdict>()
 
   useEffect(() => {
     let live = true
     const read = () => {
-      readFit(weights).then(
+      readFit(weights, path).then(
         (answer) => live && setVerdict(answer),
         (error: unknown) => console.warn('the card could not be asked', error),
       )
@@ -55,7 +60,7 @@ export function useFit(weights: number): Verdict | undefined {
       window.clearInterval(every)
       window.removeEventListener('focus', read)
     }
-  }, [weights])
+  }, [weights, path])
 
   return verdict
 }

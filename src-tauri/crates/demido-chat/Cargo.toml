@@ -35,13 +35,18 @@ demido-tools.workspace = true
 # a second slot on the conversation's own weights, so parallelism is this
 # crate's arithmetic rather than a preference the loop keeps.
 demido-vram.workspace = true
+# What a slot costs: the model in force's header, read at the load for the
+# attention geometry a KV cache is sized from (#105).
+demido-models.workspace = true
 futures-util = "0.3"
 serde.workspace = true
 # A call's arguments, parsed, for the person deciding about them.
 serde_json.workspace = true
 thiserror.workspace = true
-# `select!`, so a stop reaches a call waiting on a person or on a command.
-tokio = { version = "1", features = ["macros", "sync"] }
+# `select!`, so a stop reaches a call waiting on a person or on a command, and
+# `rt` for the header read at a load, which is file I/O and goes to a blocking
+# thread rather than stalling the runtime.
+tokio = { version = "1", features = ["macros", "rt", "sync"] }
 tracing.workspace = true
 
 [dev-dependencies]

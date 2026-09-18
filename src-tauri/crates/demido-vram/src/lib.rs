@@ -60,15 +60,35 @@ use serde::Serialize;
 /// the table they came from.
 pub const MIB: u64 = 1024 * 1024;
 
+/// What the pinned build holds on the card beside a model's weights and its
+/// KV: the compute buffers and the CUDA context. Neither is in any header, so
+/// it is weighed rather than priced, and this is the larger of the two
+/// weighings taken on #105 with NVML around a load of the pinned
+/// `llama-server`: 213 MiB for the development model at 32k (5707 held, less
+/// 4942 of weights and 552 of KV) and 265 for the reference model at 4k (10181
+/// held, less 9536 and 380).
+///
+/// Without it the reference model at the default 4k, on a card reading 10511
+/// MiB free before the load, is admitted a second slot and overruns the card by
+/// 50 MiB: a slot priced exactly, on a load priced short.
+///
+/// Both consumers count it: the pool before it admits a slot
+/// (`demido_chat::Pool::admit`), and the fit verdict inside a priced context,
+/// so the two cannot disagree about one load. Weighed on `gemma4`, the only
+/// architecture `demido_models::slot` prices; one it learns to price is weighed
+/// again, and this is the larger.
+pub const BESIDE_THE_KV: u64 = 265 * MIB;
+
 /// What there is to pay with, what a slot costs, and how many are asked for.
 ///
 /// Four numbers and no card, which is what makes [`admit`] testable without
 /// one. Where each comes from:
 ///
 /// - `free` is [`free_now`], read at the moment a slot is about to open.
-/// - `per_slot` is what one slot's KV reserves at the context length in force.
-///   Measured, never assumed: zero means nothing has measured one yet, and that
-///   is a stated reason rather than a free slot (see [`Queued::Unmeasured`]).
+/// - `per_slot` is what one slot's KV reserves at the context length in force,
+///   read from the model's header (`demido_models::slot`). Never assumed: zero
+///   means nothing could price one, and that is a stated reason rather than a
+///   free slot (see [`Queued::Unmeasured`]).
 /// - `open` is the slots already open, whose KV is already out of `free`.
 /// - `wanted` is the ladder's `tools.parallel_agents`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,16 +148,16 @@ pub enum Queued {
         /// What one slot needed.
         needed: u64,
     },
-    /// Nothing has measured what a slot costs on this model at this context
+    /// Nothing could price what a slot costs on this model at this context
     /// length, so there is no arithmetic to admit one on.
     ///
     /// Refusing rather than guessing, for the reason at the top of this file: a
     /// slot admitted on a number nobody measured is an allocation failure
     /// inside the driver, halfway through a load, with a message written for a
-    /// CUDA programmer. A header reading of the model in force is what will
-    /// produce the number ([#105](https://github.com/elpideus/demido-studio/issues/105));
-    /// until it does, parallelism above the slots already open queues and says
-    /// so.
+    /// CUDA programmer. The price is a header reading of the model in force
+    /// ([#105](https://github.com/elpideus/demido-studio/issues/105)), so this
+    /// is a model whose architecture that reading does not know, or a backend
+    /// with no file to read.
     Unmeasured,
 }
 
@@ -223,6 +243,12 @@ mod tests {
     /// would be a rule about the readings.
     const DEVELOPMENT_WEIGHED: u64 = 620 * MIB;
 
+    /// And priced, from the model's header, which is the figure the build now
+    /// runs on (`demido_models::slot`,
+    /// [#105](https://github.com/elpideus/demido-studio/issues/105)): the KV
+    /// the pinned build allocates for that slot, to the MiB.
+    const DEVELOPMENT_PRICED: u64 = 552 * MIB;
+
     /// The same two for the reference model, which is the one that decides what
     /// may ship as a default: a value the reference gate cannot run at is not a
     /// default.
@@ -277,6 +303,14 @@ mod tests {
                 what: "and the weighed figure decides the same, which is the point",
                 free: CARD - DEVELOPMENT_AT_32K,
                 per_slot: DEVELOPMENT_WEIGHED,
+                wanted: 2,
+                open: 2,
+                queued: 0,
+            },
+            Case {
+                what: "and so does the price read from the header",
+                free: CARD - DEVELOPMENT_AT_32K,
+                per_slot: DEVELOPMENT_PRICED,
                 wanted: 2,
                 open: 2,
                 queued: 0,

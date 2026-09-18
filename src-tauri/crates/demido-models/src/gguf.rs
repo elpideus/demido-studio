@@ -41,8 +41,17 @@ const MAX_KEYS: u64 = 1 << 20;
 const MAX_STRING: u64 = 64 << 20;
 const MAX_ARRAY: u64 = 1 << 28;
 
-/// One metadata value this reader keeps. Arrays are skipped, because the ones
-/// a GGUF carries are the tokenizer's and nothing here needs them.
+/// The longest array of scalars kept. A per-layer array is one entry per
+/// block, which is a few hundred at most; the tokenizer's are one per token,
+/// hundreds of thousands, and are stepped over.
+const MAX_KEPT: u64 = 4096;
+
+/// One metadata value this reader keeps.
+///
+/// An array is kept when it is short and of scalars, which is what a per-layer
+/// value is: which layers attend over a sliding window, and how many KV heads
+/// each has (`crate::slot`). Arrays of strings and long arrays are the
+/// tokenizer's, and are skipped.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Uint(u64),
@@ -50,6 +59,7 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Text(String),
+    List(Vec<Value>),
 }
 
 /// One tensor, as far as the length of the file is concerned.
@@ -99,6 +109,18 @@ pub enum Damage {
     Unreadable { reason: String },
 }
 
+impl Value {
+    /// A count, from either integer type: a header writes `u32` and `i32`
+    /// interchangeably for the same key.
+    pub fn as_uint(&self) -> Option<u64> {
+        match self {
+            Value::Uint(number) => Some(*number),
+            Value::Int(number) => u64::try_from(*number).ok(),
+            _ => None,
+        }
+    }
+}
+
 impl Header {
     /// Read the header of the file at `path`.
     pub fn read(path: &Path) -> Result<Header, Damage> {
@@ -139,16 +161,19 @@ impl Header {
     }
 
     pub fn uint(&self, key: &str) -> Option<u64> {
-        match self.metadata.get(key) {
-            Some(Value::Uint(number)) => Some(*number),
-            Some(Value::Int(number)) => u64::try_from(*number).ok(),
-            _ => None,
-        }
+        self.metadata.get(key)?.as_uint()
     }
 
     pub fn flag(&self, key: &str) -> Option<bool> {
         match self.metadata.get(key) {
             Some(Value::Bool(flag)) => Some(*flag),
+            _ => None,
+        }
+    }
+
+    pub fn list(&self, key: &str) -> Option<&[Value]> {
+        match self.metadata.get(key) {
+            Some(Value::List(values)) => Some(values),
             _ => None,
         }
     }
@@ -260,10 +285,7 @@ impl<R: Read + Seek> Reader<R> {
             6 => Value::Float(f64::from(f32::from_le_bytes(self.bytes()?))),
             7 => Value::Bool(self.bytes::<1>()?[0] != 0),
             8 => Value::Text(self.string()?),
-            9 => {
-                self.skip_array()?;
-                return Ok(None);
-            }
+            9 => return self.array(),
             10 => Value::Uint(self.u64()?),
             11 => Value::Int(i64::from_le_bytes(self.bytes()?)),
             12 => Value::Float(f64::from_le_bytes(self.bytes()?)),
@@ -271,9 +293,30 @@ impl<R: Read + Seek> Reader<R> {
         }))
     }
 
+    /// An array, kept when it is a short one of scalars and skipped otherwise.
+    fn array(&mut self) -> Result<Option<Value>, Stop> {
+        let kind = self.u32()?;
+        let count = self.length(MAX_ARRAY, "an array past any header")?;
+        if matches!(kind, 8 | 9) || count > MAX_KEPT {
+            self.skip_elements(kind, count)?;
+            return Ok(None);
+        }
+        let mut values = Vec::new();
+        for _ in 0..count {
+            if let Some(value) = self.value(kind)? {
+                values.push(value);
+            }
+        }
+        Ok(Some(Value::List(values)))
+    }
+
     fn skip_array(&mut self) -> Result<(), Stop> {
         let kind = self.u32()?;
         let count = self.length(MAX_ARRAY, "an array past any header")?;
+        self.skip_elements(kind, count)
+    }
+
+    fn skip_elements(&mut self, kind: u32, count: u64) -> Result<(), Stop> {
         match kind {
             8 => {
                 for _ in 0..count {

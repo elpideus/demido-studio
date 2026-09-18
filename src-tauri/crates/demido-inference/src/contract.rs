@@ -114,6 +114,7 @@ pub async fn run<B: Backend>(config: B::Config, model: &str) {
     let config = B::with_slots(config, SLOTS);
 
     it_names_itself::<B>();
+    the_file_it_names_is_the_one_it_loads::<B>(&config);
     starting_gives_a_backend_that_is_ready::<B>(config.clone()).await;
     it_serves_the_model_it_was_started_with::<B>(config.clone(), model).await;
     the_context_length_asked_for_is_the_one_the_slot_gets::<B>(config.clone()).await;
@@ -125,6 +126,32 @@ pub async fn run<B: Backend>(config: B::Config, model: &str) {
     a_cancelled_generation_does_not_end_the_backend::<B>(config.clone(), model).await;
     an_unknown_model_is_refused::<B>(config.clone()).await;
     stopping_makes_it_not_ready::<B>(config).await;
+}
+
+/// A configuration that names a model file names one that is on disk, and
+/// neither writer changes which: a slot is priced from that file's header
+/// (`demido_models::slot`, [#105](https://github.com/elpideus/demido-studio/issues/105)),
+/// so a name that drifted from what the server loads would price another
+/// model's slot. A backend with no file names none, which is allowed and leaves
+/// its slots unmeasured.
+fn the_file_it_names_is_the_one_it_loads<B: Backend>(config: &B::Config) {
+    let Some(file) = B::model_file(config) else {
+        return;
+    };
+    assert!(
+        file.is_file(),
+        "the model file {} is not on disk",
+        file.display()
+    );
+    let rewritten = B::with_slots(
+        B::with_context_length(config.clone(), CONTEXT * 2),
+        SLOTS + 1,
+    );
+    assert_eq!(
+        B::model_file(&rewritten),
+        Some(file),
+        "a context or slot change moved the model file"
+    );
 }
 
 /// The context length every case that is not about context asks for.

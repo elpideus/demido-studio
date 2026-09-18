@@ -18,10 +18,12 @@
 //! weights, then the total once a context is on top of them, with the idle
 //! desktop inside the total. Here the desktop is already out of the card's
 //! free reading, the weights are the number the server states, and the context
-//! goes on top when something has priced it. Nothing prices it before a
-//! download yet: the attention geometry a KV cache is sized from lives in the
-//! file's header, which is not fetched to draw a pane. So the verdict says
-//! which it is, rather than adding a figure nobody measured
+//! goes on top when something has priced it. The attention geometry a KV cache
+//! is sized from lives in the file's header, so a model on disk has its context
+//! priced by the same reading that prices a slot for the pool
+//! ([#105](https://github.com/elpideus/demido-studio/issues/105)), and a file
+//! not yet downloaded does not: its header is not fetched to draw a pane. The
+//! verdict says which it is, rather than adding a figure nobody measured
 //! ([`Load::context`]).
 //!
 //! **It informs, it never decides.** A verdict is a value the window writes a
@@ -45,10 +47,13 @@ pub struct Load {
     /// all there is to price, and it errs towards *partial offload*, which a
     /// person can act on, never towards a *fits* the load disproves.
     pub weights: u64,
-    /// What a context of the length in force reserves on top of the weights,
-    /// its KV and the compute buffers beside it.
+    /// What a context of the length in force reserves on top of the weights:
+    /// one slot's KV, read from the model's header (`demido_models::slot`),
+    /// and the compute buffers and CUDA context beside it, which no header
+    /// states and which are weighed instead ([`crate::BESIDE_THE_KV`]).
     ///
-    /// `None` is **not priced**, which is not the same as free. The verdict
+    /// `None` is **not priced**: a file not on disk yet, or an architecture
+    /// the reading does not know. Which is not the same as free. The verdict
     /// carries the difference to the window, so a model whose weights fit
     /// with a sliver to spare is not shown as fitting without saying the
     /// context is still to come.

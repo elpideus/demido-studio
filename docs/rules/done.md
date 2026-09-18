@@ -236,6 +236,35 @@ one. `demido-vram`'s table asserts both figures for that reason: a rule that
 decided differently depending on which reading of one slot it was handed would
 be a rule about the readings.
 
+**And a slot is now priced rather than weighed**, on
+[#105](https://github.com/elpideus/demido-studio/issues/105), from the model's
+own header: the layers that keep a cache, which of them attend over a sliding
+window, and the width of their K and V heads (`demido_models::slot`). The price
+is the KV the pinned build allocates, and it was checked against the build's
+own `llama_kv_cache: size` lines to the MiB:
+
+| Model | Context | Whole-context KV | Sliding-window KV | One slot |
+|---|---|---|---|---|
+| Development | 32k | 512 MiB, 4 layers | 40 MiB, 20 layers | 552 MiB |
+| Development | 10000, allocated as 10240 | 160 | 40 | 200 |
+| Development | 700, allocated as 768 | 12 | 30 | 42 |
+| Reference | 32k | 640, 5 layers | 300, 25 layers | 940 |
+
+The same day, NVML read around one and two slots of the development model at
+32k took **552 MiB** for the second, which is the header's figure exactly and
+under both of #65's readings: the compute buffer (134 MiB) does not grow with a
+slot, so nothing the build allocates for one accounts for the 68 MiB more that
+#65 read. 563 and 620 stay recorded as what they were, and 552 is the number the
+pool runs on.
+
+What no header states is what the build holds **beside** the weights and the KV:
+compute buffers and the CUDA context. Weighed the same way, it was 213 MiB for
+the development model at 32k (5707 held, less 4942 of weights and 552 of KV) and
+265 for the reference model at 4k (10181 held, less 9536 and 380), and the pool
+counts the larger before it admits a slot. Without it the reference model at the
+default 4k, on a card reading 10511 MiB free, is admitted a second slot and
+overruns the card by 50.
+
 `docs/rules/tools.md` is where that becomes a rule. `demido_vram::admit` is the
 arithmetic, and it is pure, so the numbers in this table are asserted on
 machines that have no card at all.

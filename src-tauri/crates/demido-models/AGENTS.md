@@ -22,6 +22,7 @@ not listed, because it is not there yet.
 | `library.rs` | The scan, the removal that refuses, where a download lands, and the disk Demido spent. |
 | `parts.rs` | Weights, projector, draft, and the pieces of a split model, by filename. |
 | `gguf.rs` | The header: the facts a file states and whether the file is as long as it says. |
+| `slot.rs` | What one generation slot reserves, priced from the header's attention geometry at a context length, and what the model's files weigh. |
 | `index.rs` | What Hugging Face publishes, keyless: the search, a repository's files, and the two pure parsers under them. |
 | `quant.rs` | A quantisation label, read off a filename into a value ordered by fidelity, with llama.cpp's published bits per weight. |
 | `choices.rs` | A repository's files, read into what a person can choose: one choice per model, its shards as pieces, its projector beside it. |
@@ -51,6 +52,15 @@ not listed, because it is not there yet.
   audio encoder; tools and reasoning are what the GGUF's own chat template
   renders. No template is `Unknown`, which the window draws differently from
   `No`. The filename is never read for a capability.
+- **A slot is priced only for an architecture the reading knows** (#105).
+  `slot::KNOWN` is the list, and an architecture is on it once its price was
+  checked, to the MiB, against the `llama_kv_cache: size` lines the pinned
+  `llama-server` logs for it; `gemma4` is, at 552 MiB for the development
+  model's slot at 32k and 940 for the reference model's. Any other answers
+  `None`, which the pool states as `Unmeasured`, because a hybrid with a
+  recurrent state (`qwen35`) carries the same attention keys and a price read
+  off them would be a guess. Per-layer arrays are why `gguf.rs` keeps short
+  arrays of scalars and still skips the tokenizer's.
 - **Only `index.rs` touches the network, and nothing here downloads.** The
   queue (#73) fetches weights. The library is the part of the models surface a
   network failure must never take away, and the index is built so it cannot:
@@ -181,3 +191,8 @@ projector, and the sizes the server sent.
 (`tests/support/mod.rs`) and reads them back through the calls the window makes,
 because borrowing, part classification and the directory-as-registry rule are
 only interesting against real paths.
+
+`src/slot.rs`'s own table prices the rig's two gemma headers at the contexts the
+pinned build was read at, and asserts what it logged. `tests/slot.rs` writes a
+header with its per-layer arrays and a vocabulary long enough to be skipped,
+reads the price back off the file, and weighs a split model piece by piece.

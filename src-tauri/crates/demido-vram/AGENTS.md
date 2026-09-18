@@ -60,11 +60,14 @@ breadth at 32k, 423 for the reference).
   model is a 7813 MiB file holding about 5 GiB of the card. The pool does the
   weighing (`demido_chat::Pool::weigh`), because it already reads the card at
   every load.
-- **An unpriced context is said, not counted as zero.** Before a download the
-  context is not priced: the geometry a KV cache is sized from is in the file's
-  header, and the pane does not fetch one. `Load::context` is `None`, and the
-  verdict carries `context_priced: false` to the window, which says *before the
-  context*.
+- **An unpriced context is said, not counted as zero.** A model on disk has its
+  context priced from its header, one slot at the context length in force, by
+  the same reading that prices the pool's slots (`demido_models::slot`,
+  [#105](https://github.com/elpideus/demido-studio/issues/105)). Before a
+  download there is no header to read, and the pane does not fetch one; an
+  architecture the reading does not know is not priced either. Both are
+  `Load::context` of `None`, and the verdict carries `context_priced: false` to
+  the window, which says *before the context*.
 - **Weights of no stated size are `Unpriced`, an unread card is `Unread`.**
   Neither is a card that is full.
 
@@ -127,30 +130,32 @@ something does, it is an addition rather than the thing that was missing.
 
 ## Where the numbers come from
 
-`per_slot` is measured, and nothing in this build measures one yet, so the only
-admission the window can reach today is the default: one slot, which is the
-conversation's own and is never the pool's to refuse. The fit verdict
+`per_slot` is read from the header of the model in force, at the context length
+in force, by `demido_models::slot`
+([#105](https://github.com/elpideus/demido-studio/issues/105)). The fit verdict
 ([#74](https://github.com/elpideus/demido-studio/issues/74)) was expected to
-produce it from the attention geometry, and did not: it prices a file before it
-exists on disk, where there is no header to read the geometry from. So the
-producer is still open, and it is a header reading of the model in force, which
-`demido-models`' `gguf` already parses
-([#105](https://github.com/elpideus/demido-studio/issues/105)). Until it
-lands, parallelism above the default queues with `Unmeasured`, which is the
-honest answer rather than a guess.
+produce it and could not: it prices a file before it exists on disk, where there
+is no header to read the geometry from. The reading prices only an architecture
+it knows, and known means its price was checked, to the MiB, against the KV
+cache the pinned `llama-server` logs for it. Any other is `Unmeasured`, which is
+the honest answer rather than a guess.
 
 What #74 did settle is the ordering question this crate left open: `free_now`
 is read before the weights land, so it is the card as it stands rather than as
 it will stand. Pricing the load whole against that reading, with what the
 resident model was weighed at holding given back, is what makes a pre-load
-reading answerable.
+reading answerable, and since #105 the pool does exactly that
+(`demido_chat::Pool::admit`): the weights, the conversation's own slot and what
+the build holds beside them (`BESIDE_THE_KV`, weighed at 265 MiB, and counted by
+the fit verdict inside a priced context too) come out of the reading first, and
+the slots above it are admitted from the rest.
 
 The rig's figures are `docs/rules/done.md`'s, and the tests here use them
 verbatim, in both tables: the slot's in `lib.rs` and the fit's in `fit.rs`.
-That includes both readings of the development model's slot, 563 derived out
-of a total and 620 weighed directly: asserting both is how the table
-says the rule is about the arithmetic rather than about which reading of one
-slot it was handed.
+That includes every reading of the development model's slot, 563 derived out
+of a total, 620 weighed directly on #65, and 552 priced from its header on
+#105: asserting all three is how the table says the rule is about the
+arithmetic rather than about which reading of one slot it was handed.
 
 ## Tests
 

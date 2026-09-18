@@ -65,7 +65,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use demido_chat::{Asking, Chat, Decision, Model, Moment, Outcome, Pool, Presence, Toolbox};
+use demido_chat::{Asking, Chat, Decision, Model, Moment, Outcome, Presence, Toolbox};
 use demido_inference::{FinishReason, Request, Role, Supervisor};
 use demido_settings::{id, Memory as SettingsMemory, Scope, Settings};
 use demido_tools::{delegation, files, shell, Registry, Workspace};
@@ -94,14 +94,9 @@ struct Planted {
     code: &'static str,
 }
 
-/// The weighed cost of one more slot for the development model at 32k, from
-/// `docs/rules/done.md`'s NVML reading on #65. What the pool is handed in the
-/// afforded scenario, because the build's own pool has no producer for a slot's
-/// cost yet (#74) and queues every slot above the first as unmeasured.
-const DEVELOPMENT_PER_SLOT: u64 = 620 * MIB;
-
-/// The same for the reference model, derived on #65 (`demido-vram`'s table).
-const REFERENCE_PER_SLOT: u64 = 1129 * MIB;
+/// What a slot of the reference model at 32k is priced at from its header
+/// (`demido_models::slot`): the KV the pinned build logs for it, to the MiB.
+const REFERENCE_AT_32K: u64 = 940 * MIB;
 
 // --- the rig ----------------------------------------------------------------
 
@@ -1106,12 +1101,10 @@ async fn a_denied_delegation_opens_nothing_and_the_model_does_something_else() {
 /// both folded in at step boundaries: three slots, the conversation's and two
 /// in the pool.
 ///
-/// The pool is the build's own arithmetic over the card as it reads right now,
-/// with a slot priced at what #65 weighed on this card rather than at zero: the
-/// build has no producer of a slot's cost yet (#74), so its own pool queues
-/// every slot above the first as unmeasured, and that is what
-/// [`parallelism_the_card_cannot_afford_queues_and_says_so`] shows. Here the
-/// question is what happens once a second slot is admitted.
+/// Through the build's own pool, `Pool::on_the_card`, which is what a window
+/// runs: the card read before the load, the load priced whole, and a slot
+/// priced from the development model's header at the rig's 8k (#105), so the
+/// two slots beside the conversation's are admitted rather than pinned.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a card and a model; see the live command in AGENTS.md"]
 async fn two_sub_agents_run_at_once_on_the_development_model_and_both_fold_in() {
@@ -1127,9 +1120,7 @@ async fn two_sub_agents_run_at_once_on_the_development_model_and_both_fold_in() 
     // run of this scenario found.
     rig.set(id::PARALLEL_AGENTS, json!(3));
     let free = demido_vram::free_now().expect("the card reads").free;
-    let chat = rig
-        .chat("autonomous")
-        .against(Pool::on_a_card_with(free, DEVELOPMENT_PER_SLOT));
+    let chat = rig.chat("autonomous");
     let presence = loaded(&chat, tier).await;
     assert_eq!(
         presence,
@@ -1226,13 +1217,15 @@ async fn two_sub_agents_run_at_once_on_the_development_model_and_both_fold_in() 
     chat.shutdown().await;
 }
 
-/// **Parallelism, refused.** The reference model at parallelism 2 opens one
-/// slot, queues the second, and the number shown is the number given.
+/// **Parallelism, refused.** The reference model at parallelism 2 and 32k
+/// opens one slot, queues the second for want of room, and the number shown is
+/// the number given.
 ///
 /// Through the build's own pool, `Pool::on_the_card`, which is what a window
-/// runs. It queues for the reason it states. Then the arithmetic the reason
-/// will become once #74 measures a slot is taken on the card as it stands with
-/// the reference model resident, to show that it refuses on room as well.
+/// runs. A slot is priced from the model's header (#105) at 940 MiB, and the
+/// card read before the load has less than that beside the weights, the
+/// conversation's own slot and what the build holds beside them. At the rig's
+/// 8k a slot is 460 MiB and does fit, which is why this scenario asks for 32k.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a card and a model; see the live command in AGENTS.md"]
 async fn parallelism_the_card_cannot_afford_queues_and_says_so() {
@@ -1242,19 +1235,26 @@ async fn parallelism_the_card_cannot_afford_queues_and_says_so() {
     let rig = Rig::new("refused", tier);
     rig.plant("bay4.txt", WINCH.sentence);
     rig.set(id::PARALLEL_AGENTS, json!(2));
+    rig.set(id::CONTEXT_LENGTH, json!(32768));
+    let free = demido_vram::free_now().expect("the card reads").free;
     let chat = rig.chat("autonomous");
     let presence = loaded(&chat, tier).await;
 
     let Presence::Ready { slots, limit, .. } = &presence else {
         unreachable!("loaded is Ready")
     };
+    println!(
+        "refused: {slots} slot, limit {limit:?}, with {} MiB free before the load",
+        free / MIB
+    );
     assert_eq!(*slots, 1, "the reference model opened {slots} slots");
-    // The reason the build states today is that nothing has measured a slot
-    // (#74), and it is asserted as that rather than as any reason at all: the
-    // day it becomes room, this line changes on purpose.
-    assert_eq!(
-        *limit,
-        Some(Queued::Unmeasured),
+    // Refused on room, at the price the header states: the day this reads
+    // unmeasured again, the reading lost the architecture.
+    assert!(
+        matches!(
+            limit,
+            Some(Queued::NoRoom { needed, .. }) if *needed == REFERENCE_AT_32K
+        ),
         "one slot opened out of two asked for, for the wrong stated reason"
     );
 
@@ -1267,26 +1267,6 @@ async fn parallelism_the_card_cannot_afford_queues_and_says_so() {
         *slots,
         "the presence shows a slot count the server does not have"
     );
-
-    // And on room, with the model resident, it would refuse too.
-    let free = demido_vram::free_now().expect("the card reads").free;
-    let admission = demido_vram::admit(demido_vram::Budget {
-        free,
-        per_slot: REFERENCE_PER_SLOT,
-        open: 1,
-        wanted: 2,
-    });
-    println!(
-        "refused: {slots} slot, limit {limit:?}; with the reference model \
-         resident the card has {} MiB free against {} MiB a slot costs, so on \
-         room it would open {} and give {:?}",
-        free / MIB,
-        REFERENCE_PER_SLOT / MIB,
-        admission.open,
-        admission.reason
-    );
-    assert_eq!(admission.open, 1);
-    assert!(matches!(admission.reason, Some(Queued::NoRoom { .. })));
 
     // A delegation on one slot is the blocking path: its answer is the call's
     // own result, and nothing is folded in afterwards.

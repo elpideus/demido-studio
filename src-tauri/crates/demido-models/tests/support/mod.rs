@@ -22,6 +22,19 @@ pub struct Spec {
     pub hears: Option<bool>,
     /// How many F32 values of tensor data the file carries.
     pub weights: u64,
+    /// Any other metadata, written after the architecture: what an attention
+    /// geometry is read from.
+    pub keys: Vec<(String, Key)>,
+}
+
+/// A metadata value beyond the ones `Spec` names.
+#[derive(Clone)]
+pub enum Key {
+    Uint(u32),
+    /// An array of `u32`, one per layer.
+    Uints(Vec<u32>),
+    /// An array of booleans, one per layer.
+    Flags(Vec<bool>),
 }
 
 impl Spec {
@@ -65,6 +78,29 @@ pub fn write(path: &Path, spec: &Spec) -> u64 {
             keys.extend_from_slice(&context.to_le_bytes());
             count += 1;
         }
+    }
+    for (name, value) in &spec.keys {
+        match value {
+            Key::Uint(number) => {
+                key(&mut keys, name, 4);
+                keys.extend_from_slice(&number.to_le_bytes());
+            }
+            Key::Uints(numbers) => {
+                key(&mut keys, name, 9);
+                keys.extend_from_slice(&4u32.to_le_bytes());
+                keys.extend_from_slice(&(numbers.len() as u64).to_le_bytes());
+                for number in numbers {
+                    keys.extend_from_slice(&number.to_le_bytes());
+                }
+            }
+            Key::Flags(flags) => {
+                key(&mut keys, name, 9);
+                keys.extend_from_slice(&7u32.to_le_bytes());
+                keys.extend_from_slice(&(flags.len() as u64).to_le_bytes());
+                keys.extend(flags.iter().map(|flag| u8::from(*flag)));
+            }
+        }
+        count += 1;
     }
     // A tokenizer vocabulary, which is what a real header spends its bytes on
     // and what the reader has to step over.
