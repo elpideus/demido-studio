@@ -42,7 +42,19 @@ pub fn settings_set(
     id: String,
     value: Value,
 ) -> demido_core::Result<()> {
-    wiring.settings.set(&scope(&wiring, tier)?, &id, &value)?;
+    let scope = scope(&wiring, tier)?;
+    // The download folder moves with the scan folders or not at all: the old
+    // folder has to stay read, or the models in it vanish from the library
+    // (#72). Checked by the ladder first, so a refusal is the ladder's.
+    if id == demido_settings::id::DOWNLOAD_FOLDER && scope == Scope::Global {
+        let folder = demido_settings::setting(&id)
+            .map(|setting| setting.accept(&value))
+            .transpose()
+            .map_err(|reason| demido_core::Error::invalid("a setting", format!("{id}: {reason}")))?
+            .and_then(|accepted| accepted.as_str().map(std::path::PathBuf::from));
+        return wiring.setup.models.set_download(folder);
+    }
+    wiring.settings.set(&scope, &id, &value)?;
     Ok(())
 }
 
@@ -53,7 +65,12 @@ pub fn settings_clear(
     tier: Tier,
     id: String,
 ) -> demido_core::Result<()> {
-    wiring.settings.clear(&scope(&wiring, tier)?, &id)?;
+    let scope = scope(&wiring, tier)?;
+    // Back to the profile's own folder, by the same rule as any other move.
+    if id == demido_settings::id::DOWNLOAD_FOLDER && scope == Scope::Global {
+        return wiring.setup.models.set_download(None);
+    }
+    wiring.settings.clear(&scope, &id)?;
     Ok(())
 }
 

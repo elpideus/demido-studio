@@ -25,11 +25,13 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use demido_catalog::{Archive, Availability, Group, Kind, Selector};
 use demido_hardware::{Ecosystem, Machine, Preselection};
+use demido_models::{Damaged, Local};
 use demido_runtimes::{
     FetchError, Installed, Ledger, Outcome, Progress, RowState, Runtimes, Verification, LLAMA_CPP,
 };
-use demido_setup::{Answers, Model, Plan, Store as _};
+use demido_setup::{Answers, Plan, Store as _};
 
+use crate::models::Models;
 use crate::wiring::{AnswersStore, RuntimesStore, Wiring};
 
 /// Bytes arriving, while they arrive.
@@ -45,6 +47,10 @@ pub struct Setup {
     answers: Arc<AnswersStore>,
     runtimes: Arc<Runtimes<RuntimesStore>>,
     runtimes_dir: PathBuf,
+    /// The library and its two folders, which are settings on the ladder
+    /// rather than answers (#72): the models step and the settings page draw
+    /// one control over one pair of values.
+    pub models: Arc<Models>,
     /// This machine, probed once.
     ///
     /// Once rather than per call, because DXGI and the CUDA driver are asked
@@ -75,11 +81,13 @@ impl Setup {
         answers: Arc<AnswersStore>,
         runtimes: Arc<Runtimes<RuntimesStore>>,
         runtimes_dir: PathBuf,
+        models: Arc<Models>,
     ) -> Self {
         Self {
             answers,
             runtimes,
             runtimes_dir,
+            models,
             machine: OnceLock::new(),
             writing: Mutex::new(()),
             fetching: Mutex::new(None),
@@ -253,15 +261,31 @@ pub struct ArchiveView {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelsView {
-    /// The folders the person has confirmed.
-    pub folders: Vec<PathBuf>,
-    /// Folders already readable on this machine that are not confirmed yet.
-    /// The pre-fill, offered rather than adopted.
+    /// Demido's own folder: where downloads land, and the only folder
+    /// anything is deleted from.
+    pub download: PathBuf,
+    /// The disk Demido has spent in it. Borrowed folders are never counted.
+    pub spent: u64,
+    /// The folders read and never written, each with what to call it.
+    pub folders: Vec<FolderView>,
+    /// Folders already readable on this machine that are not being read.
+    /// Offered rather than adopted: detection seeded the list once, and a
+    /// folder somebody removed is not put back behind their back.
     pub suggested: Vec<PathBuf>,
-    /// Every GGUF under the confirmed folders.
-    pub models: Vec<Model>,
+    /// Every model under all of them, verified.
+    pub models: Vec<Local>,
+    /// Weights on disk that are not offered, and why.
+    pub damaged: Vec<Damaged>,
     /// The one that answers, if it is still on disk.
     pub chosen: Option<PathBuf>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderView {
+    pub path: PathBuf,
+    /// A tool's name where the folder is one, the path where it is not.
+    pub library: String,
 }
 
 /// Assemble the view. One place, so every command returns the same shape.
@@ -274,10 +298,17 @@ fn view(setup: &Setup) -> demido_core::Result<View> {
     );
     let selector = setup.selector(&answers);
 
-    let confirmed = folders(&answers);
-    let suggested = demido_setup::discover::folders()
+    let folders = setup.models.folders();
+    let scan = demido_models::Library::open(&folders).scan();
+    let suggested = demido_models::sources::detected()
         .into_iter()
-        .filter(|folder| !confirmed.contains(folder))
+        .filter(|found| {
+            !demido_models::folders::same(found, &folders.download)
+                && !folders
+                    .scan
+                    .iter()
+                    .any(|read| demido_models::folders::same(read, found))
+        })
         .collect();
 
     Ok(View {
@@ -295,30 +326,22 @@ fn view(setup: &Setup) -> demido_core::Result<View> {
         },
         manifest: manifest(&selector, &answers, &ledger),
         models: ModelsView {
-            models: demido_setup::discover::models(&confirmed),
-            folders: confirmed,
+            download: folders.download.clone(),
+            spent: scan.spent,
+            folders: folders
+                .scan
+                .iter()
+                .map(|path| FolderView {
+                    library: demido_models::sources::name_of(path),
+                    path: path.clone(),
+                })
+                .collect(),
             suggested,
+            models: scan.models,
+            damaged: scan.damaged,
             chosen: answers.model.filter(|model| model.is_file()),
         },
     })
-}
-
-/// The folders models are read from: the confirmed ones, or the pre-fill when
-/// nobody has confirmed anything yet.
-///
-/// The pre-fill is what makes "a person with models from LM Studio moves no
-/// files and makes no symlinks" true before they have clicked anything, and it
-/// is also what a fetch verifies against: `docs/rules/runtimes.md` declares the
-/// required group's check as loading a model, and on a fresh profile the only
-/// model on the machine is in somebody else's folder.
-fn folders(answers: &Answers) -> Vec<PathBuf> {
-    if answers.folders.is_empty() {
-        demido_setup::discover::preselected_folder()
-            .into_iter()
-            .collect()
-    } else {
-        answers.folders.clone()
-    }
 }
 
 /// The manifest as the step draws it: one row per runtime, grouped.
@@ -453,7 +476,7 @@ pub fn setup_tick(
     view(&wiring.setup)
 }
 
-/// Confirm a folder models are read from.
+/// Read models from one more folder. The folder is read, never written.
 #[tauri::command]
 pub fn setup_add_folder(
     wiring: tauri::State<'_, Wiring>,
@@ -466,7 +489,7 @@ pub fn setup_add_folder(
             folder.display().to_string(),
         ));
     }
-    wiring.setup.amend(|answers| answers.add_folder(folder))?;
+    wiring.setup.models.add_scan(folder)?;
     view(&wiring.setup)
 }
 
@@ -476,42 +499,52 @@ pub fn setup_remove_folder(
     wiring: tauri::State<'_, Wiring>,
     path: String,
 ) -> demido_core::Result<View> {
-    let folder = PathBuf::from(path);
-    wiring
-        .setup
-        .amend(|answers| answers.remove_folder(&folder))?;
+    wiring.setup.models.remove_scan(&PathBuf::from(path))?;
+    view(&wiring.setup)
+}
+
+/// Move the download folder, or put it back inside the profile with nothing.
+///
+/// Nothing moves and nothing is made: the folder downloads used to land in is
+/// still read, and the new one is created by the first download into it.
+#[tauri::command]
+pub fn setup_download_folder(
+    wiring: tauri::State<'_, Wiring>,
+    path: Option<String>,
+) -> demido_core::Result<View> {
+    let to = path
+        .map(|path| path.trim().to_owned())
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from);
+    wiring.setup.models.set_download(to)?;
     view(&wiring.setup)
 }
 
 /// Choose the model that answers.
 ///
-/// Choosing one also confirms the folder it came out of, which is what turns a
-/// pre-filled row into an answer: until then the folders being read are
-/// whatever `discover` found, and after it they are what the person picked
-/// from. Nothing is moved and no symlink is made either way
-/// (`docs/rules/setup.md` section 7).
+/// Only a model the library offers, which means one whose header was read and
+/// whose file is as long as it says: a truncated download is refused here
+/// rather than handed to a backend to discover.
 #[tauri::command]
 pub fn setup_choose_model(
     wiring: tauri::State<'_, Wiring>,
     path: String,
 ) -> demido_core::Result<View> {
     let model = PathBuf::from(path);
-    if !model.is_file() {
+    let offered = wiring
+        .setup
+        .models
+        .scan()
+        .models
+        .into_iter()
+        .any(|found| found.path == model);
+    if !offered {
         return Err(demido_core::Error::not_found(
             "a model",
             model.display().to_string(),
         ));
     }
-    let from = demido_setup::discover::models(&folders(&wiring.setup.answers()?))
-        .into_iter()
-        .find(|found| found.path == model)
-        .map(|found| found.folder);
-    wiring.setup.amend(|answers| {
-        answers.model = Some(model);
-        if let Some(folder) = from {
-            answers.add_folder(folder);
-        }
-    })?;
+    wiring.setup.amend(|answers| answers.model = Some(model))?;
     view(&wiring.setup)
 }
 
@@ -700,19 +733,21 @@ struct FetchProgress {
 /// as the model it is rather than as a broken download.
 pub fn verification(
     answers: Arc<AnswersStore>,
+    models: Arc<Models>,
 ) -> impl Fn(Installed) -> Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
        + Send
        + Sync
        + 'static {
     move |installed: Installed| {
         let answers = answers.clone();
+        let models = models.clone();
         Box::pin(async move {
-            let chosen = answers.read().ok();
-            let model = chosen.as_ref().and_then(|read| {
-                read.model
-                    .clone()
-                    .filter(|model| model.is_file())
-                    .or_else(|| demido_setup::discover::smallest(&folders(read)))
+            let chosen = answers.read().ok().and_then(|read| read.model);
+            let model = chosen.filter(|model| model.is_file()).or_else(|| {
+                models
+                    .scan()
+                    .smallest()
+                    .map(|smallest| smallest.path.clone())
             });
             let Some(model) = model else {
                 // not-a-prompt: the reason a row is absent, recorded in the

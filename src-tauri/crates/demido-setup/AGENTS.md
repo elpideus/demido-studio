@@ -28,10 +28,9 @@ and without it leaving the wizard would reopen the wizard.
 
 | Part | What |
 |---|---|
-| `answers.rs` | The accelerator, the model folders, the model, which manifest rows are ticked, and whether the wizard was left. |
+| `answers.rs` | The accelerator, the model, which manifest rows are ticked, and whether the wizard was left. The model folders an earlier build confirmed are read from here and never written back. |
 | `plan.rs` | `Situation` observed from the ledger and the disk, and the `Plan` derived from it with the answers. |
 | `target.rs` | The binary and the model a turn needs, checked against the disk rather than trusted from the ledger. |
-| `discover.rs` | The model folders already on the machine, and the GGUFs under them. |
 | `store.rs`, `file.rs`, `contract.rs` | The seam for where the answers live, `setup.json` per profile, and that seam's contract suite. |
 
 ## Invariants
@@ -52,21 +51,16 @@ and without it leaving the wizard would reopen the wizard.
 - **The accelerator is not stored until it is chosen.** `None` means nobody
   overrode detection, not CPU. Storing the detected answer would make a machine
   that grew a card keep answering with the machine it used to be.
-- **Detection reports, it does not decide.** `discover` returns folders and
-  files for a person to confirm. Nothing here starts reading from a folder
-  because it found one, and nothing here writes, creates or moves anything.
-- **A scan is bounded.** Four levels, five hundred files. Unbounded recursion
-  under a folder somebody pointed at a drive root is a wizard step that hangs.
+- **The model folders are not answers.** Since
+  [#72](https://github.com/elpideus/demido-studio/issues/72) they are two
+  settings on the ladder, the download folder and the scan folders, and the
+  library read from them is `demido-models`'. The wizard's models step renders
+  the same control the settings page renders, so a second copy of the folders
+  here would be the copy that goes stale. `Answers::folders` survives only as
+  what an earlier build confirmed, read once to seed the setting.
 - **This crate has no words in it.** Every step, standing and reason is a
   variant; the window writes the sentence, for the reason
   [`demido-hardware`](../demido-hardware/AGENTS.md) gives.
-
-## Why Ollama is not a candidate folder
-
-It keeps its weights as content-addressed blobs with no extension and a
-manifest beside them, so a `.gguf` scan finds nothing there. A row pre-filled
-with it would read as an empty folder rather than as the unsupported layout it
-is. LM Studio, which the brief names, is the first candidate.
 
 ## What is out of this pass
 
@@ -80,6 +74,8 @@ these facts into sentences.
 cargo test --manifest-path src-tauri/Cargo.toml -p demido-setup
 ```
 
-Everything touches only a scratch directory under the OS temp folder.
+Everything touches only a scratch directory under the OS temp folder. The
+library's own tests, against real folders and real GGUF bytes, are
+`demido-models`'.
 `contract.rs` is the seam's suite and `file.rs` runs it, so a second store
 implementation has one function to pass.

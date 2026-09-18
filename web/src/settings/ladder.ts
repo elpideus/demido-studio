@@ -45,6 +45,11 @@ export type Kind =
   /** A set of names, stored as a list or as `null` for every name there is.
    * Drawn by the composer's tool picker and nowhere else. */
   | { control: 'set' }
+  /** One folder, or `null` for the profile's own. Drawn by the Set-up page's
+   * folder control, which moves the scan folders with it. */
+  | { control: 'folder' }
+  /** A list of folders, or `null` for what detection found. */
+  | { control: 'folders' }
 
 /** One setting's declaration. The Rust `Setting`. */
 export type Setting = {
@@ -55,6 +60,8 @@ export type Setting = {
   kind: Kind
   /** True when changing it means the model has to be started again. */
   reloads: boolean
+  /** One answer for the whole profile, which only the global tier holds. */
+  profile: boolean
 }
 
 /** One line of a settings page. The Rust `Row`. */
@@ -175,6 +182,8 @@ function refusal(setting: Setting, error: unknown): string {
     case 'text':
     case 'choice':
     case 'set':
+    case 'folder':
+    case 'folders':
       return `${setting.title} was not saved.`
   }
 }

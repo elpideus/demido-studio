@@ -27,6 +27,7 @@ use demido_settings::Settings;
 use demido_shell::{Debounced, Files};
 use demido_tools::Registry;
 
+use crate::models::Models;
 use crate::setup::Setup;
 
 /// Every subsystem, wired once.
@@ -288,20 +289,24 @@ impl Wiring {
         // declared check is "load a model already on disk", and which models
         // are on disk is the models step's answer
         // (`docs/rules/runtimes.md`, `docs/rules/setup.md` section 4).
+        //
+        // The ladder before either, because which folders are read for models
+        // is two settings on it (#72). Read here rather than lazily: the
+        // ladder is asked for on the first load and on every turn, and a
+        // document that cannot be read is reported and the defaults are used,
+        // which is a subsystem reported and skipped rather than a window that
+        // does not open (`AGENTS.md`).
+        let settings = Arc::new(Settings::open(SettingsStore::in_profile(profile)));
         let answers = Arc::new(AnswersStore::in_profile(profile));
+        let models = Arc::new(Models::new(settings.clone(), answers.clone(), profile));
         let ledger = RuntimesStore::in_profile(profile);
         let runtimes_dir = ledger.runtimes_dir();
         let runtimes = Arc::new(Runtimes::new(
             ledger,
             runtimes_dir.clone(),
-            crate::setup::verification(answers.clone()),
+            crate::setup::verification(answers.clone(), models.clone()),
         ));
-        let setup = Arc::new(Setup::new(answers, runtimes, runtimes_dir));
-        // Read here rather than lazily: the ladder is asked for on the first
-        // load and on every turn, and a document that cannot be read is
-        // reported and the defaults are used, which is a subsystem reported and
-        // skipped rather than a window that does not open (`AGENTS.md`).
-        let settings = Arc::new(Settings::open(SettingsStore::in_profile(profile)));
+        let setup = Arc::new(Setup::new(answers, runtimes, runtimes_dir, models));
         // Both ends of a delegation, made together and split between the
         // registry and the conversation below.
         let (delegating, delegations) = demido_chat::delegations();

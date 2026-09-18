@@ -384,6 +384,27 @@ impl Resolved {
         })
     }
 
+    /// The download folder somebody chose, or nothing for the profile's own.
+    #[must_use]
+    pub fn download_folder(&self) -> Option<std::path::PathBuf> {
+        self.get(id::DOWNLOAD_FOLDER)
+            .as_str()
+            .map(std::path::PathBuf::from)
+    }
+
+    /// The scan folders somebody chose, or nothing for what detection finds.
+    /// An empty list is a choice, and comes back as one.
+    #[must_use]
+    pub fn scan_folders(&self) -> Option<Vec<std::path::PathBuf>> {
+        self.get(id::SCAN_FOLDERS).as_array().map(|folders| {
+            folders
+                .iter()
+                .filter_map(Value::as_str)
+                .map(std::path::PathBuf::from)
+                .collect()
+        })
+    }
+
     /// The tools this conversation has been answered *always for this tool*
     /// about, or nothing.
     ///

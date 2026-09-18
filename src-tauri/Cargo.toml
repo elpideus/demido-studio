@@ -24,6 +24,7 @@ demido-chat = { path = "crates/demido-chat" }
 demido-core = { path = "crates/demido-core" }
 demido-hardware = { path = "crates/demido-hardware" }
 demido-inference = { path = "crates/demido-inference" }
+demido-models = { path = "crates/demido-models" }
 demido-permission = { path = "crates/demido-permission" }
 demido-prompts = { path = "crates/demido-prompts" }
 demido-runtimes = { path = "crates/demido-runtimes" }
@@ -80,6 +81,10 @@ demido-chat.workspace = true
 demido-core.workspace = true
 demido-hardware.workspace = true
 demido-inference.workspace = true
+# The library: the folders read for models, and what is in them. Named here
+# because the wizard, the settings page and the runtime verification all read
+# it, and the one place they meet is the root (`src/models.rs`).
+demido-models.workspace = true
 # The paragraph register, for the editor's three commands. The turn loop reaches
 # it through the conversation; Settings reaches it directly, over the same
 # directory (`src/wiring.rs`).

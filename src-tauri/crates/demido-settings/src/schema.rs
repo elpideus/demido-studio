@@ -62,6 +62,14 @@ pub mod id {
     /// nobody gave. This crate stores what it is handed; the tier is the
     /// caller's, and `demido-chat/tests/a_tool.rs` is what holds it to the chat.
     pub const TOOLS_ALWAYS: &str = "tools.always";
+    /// Where Demido downloads models to, and the one folder it will ever
+    /// delete one from. Unset, a folder inside the profile
+    /// (`docs/rules/profiles.md`).
+    pub const DOWNLOAD_FOLDER: &str = "models.download_folder";
+    /// The folders models are read from and never written to. Unset, what
+    /// detection found: the setting is seeded by detection, and the first
+    /// edit makes it the person's (#72).
+    pub const SCAN_FOLDERS: &str = "models.scan_folders";
 }
 
 /// The names a mode is stored under, strictest first.
@@ -92,6 +100,16 @@ pub struct Setting {
     /// costs them a reload. Only the context length does: it is a flag on the
     /// process, and the other two are fields of a request.
     pub reloads: bool,
+    /// Whether this is one answer for the whole profile rather than a value a
+    /// chat can override.
+    ///
+    /// Where a profile keeps its models is not a property of one
+    /// conversation, and a chat that could move the download folder would be
+    /// a chat that could send one download somewhere the rest of the profile
+    /// never reads. So only the global tier holds these, which on this ladder
+    /// is the profile (`docs/rules/profiles.md`: "global" now means
+    /// profile-global), and [`crate::Settings::set`] refuses any other.
+    pub profile: bool,
 }
 
 /// What a setting accepts, and what it is when nobody has said otherwise.
@@ -152,6 +170,18 @@ pub enum Kind {
     /// offered no tools. The names are not checked against a registry here,
     /// because this crate has none: a name nothing registers offers nothing.
     Set {},
+    /// One folder, or nothing, which is **the caller's default folder**.
+    ///
+    /// Nothing is not a path because the default is not a constant: it is a
+    /// folder inside whichever profile is running, and only the host knows
+    /// where that is.
+    Folder {},
+    /// A list of folders, or nothing, which is **what detection found**.
+    ///
+    /// Nothing is not the empty list, for the reason a set's nothing is not
+    /// empty: nothing is nobody having chosen, so detection seeds it, and the
+    /// empty list is somebody having removed every folder.
+    Folders {},
 }
 
 /// Why a value was refused.
@@ -170,6 +200,8 @@ pub enum Invalid {
     OutOfRange {
         allowed: String,
     },
+    /// A per-profile setting offered to a tier that is not the profile's.
+    ProfileOnly,
 }
 
 impl std::fmt::Display for Invalid {
@@ -178,6 +210,8 @@ impl std::fmt::Display for Invalid {
             Invalid::Unknown => out.write_str("no setting by that name"),
             Invalid::WrongType { expected } => write!(out, "expected {expected}"),
             Invalid::OutOfRange { allowed } => write!(out, "outside {allowed}"),
+            // not-a-prompt: what a refusal says to the person who set it.
+            Invalid::ProfileOnly => out.write_str("set for the whole profile, not for one chat"),
         }
     }
 }
@@ -197,6 +231,7 @@ pub static SCHEMA: &[Setting] = &[
             multiline: true,
         },
         reloads: false,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above.
     Setting {
@@ -211,6 +246,7 @@ pub static SCHEMA: &[Setting] = &[
             on: true,
         },
         reloads: false,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above.
     Setting {
@@ -225,6 +261,7 @@ pub static SCHEMA: &[Setting] = &[
             unit: "tokens",
         },
         reloads: true,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above.
     Setting {
@@ -241,6 +278,7 @@ pub static SCHEMA: &[Setting] = &[
             unit: "steps",
         },
         reloads: false,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above.
     Setting {
@@ -268,6 +306,7 @@ pub static SCHEMA: &[Setting] = &[
             unit: "levels",
         },
         reloads: false,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above.
     Setting {
@@ -297,6 +336,7 @@ pub static SCHEMA: &[Setting] = &[
         // A slot count is a flag on the process, the way the context length is:
         // `llama.cpp` is started with the slots it will ever have.
         reloads: true,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above. The mode
     // is never prose to a model (`docs/rules/tools.md`), and neither is this.
@@ -310,6 +350,7 @@ pub static SCHEMA: &[Setting] = &[
             options: MODES,
         },
         reloads: false,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above.
     Setting {
@@ -319,6 +360,7 @@ pub static SCHEMA: &[Setting] = &[
         summary: "What the model is shown. A tool switched off is not sent to it at all.",
         kind: Kind::Set {},
         reloads: false,
+        profile: false,
     },
     // not-a-prompt: a settings page's own label and caption, as above. Nothing
     // draws this one today: the approval row writes it and the matrix reads it.
@@ -329,6 +371,27 @@ pub static SCHEMA: &[Setting] = &[
         summary: "The tools you answered always for, in this conversation. Never covers a call that cannot be undone.",
         kind: Kind::Set {},
         reloads: false,
+        profile: false,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above.
+    Setting {
+        id: id::DOWNLOAD_FOLDER,
+        section: "Models",
+        title: "Download folder",
+        summary: "Where downloaded models land. Changing it moves nothing: the old folder is still read.",
+        kind: Kind::Folder {},
+        reloads: false,
+        profile: true,
+    },
+    // not-a-prompt: a settings page's own label and caption, as above.
+    Setting {
+        id: id::SCAN_FOLDERS,
+        section: "Models",
+        title: "Model folders",
+        summary: "Folders other tools keep models in. Read and offered, never written to.",
+        kind: Kind::Folders {},
+        reloads: false,
+        profile: true,
     },
 ];
 
@@ -352,7 +415,7 @@ impl Setting {
             }
             Kind::Count { default, .. } => json!(default),
             Kind::Text { default, .. } | Kind::Choice { default, .. } => json!(default),
-            Kind::Set {} => Value::Null,
+            Kind::Set {} | Kind::Folder {} | Kind::Folders {} => Value::Null,
         }
     }
 
@@ -428,6 +491,42 @@ impl Setting {
                     }
                 }
                 Ok(json!(names))
+            }
+
+            Kind::Folder {} => {
+                if value.is_null() {
+                    return Ok(Value::Null);
+                }
+                // not-a-prompt: what a refusal says to the person who typed it.
+                let wrong = Invalid::WrongType {
+                    expected: "a folder, or nothing for the profile's own",
+                };
+                let folder = value.as_str().map(str::trim).ok_or_else(|| wrong.clone())?;
+                if folder.is_empty() {
+                    return Err(wrong);
+                }
+                Ok(json!(folder))
+            }
+
+            Kind::Folders {} => {
+                if value.is_null() {
+                    return Ok(Value::Null);
+                }
+                // not-a-prompt: what a refusal says to the person who typed it.
+                let wrong = Invalid::WrongType {
+                    expected: "a list of folders, or nothing for the ones detected",
+                };
+                let mut folders: Vec<&str> = Vec::new();
+                for item in value.as_array().ok_or_else(|| wrong.clone())? {
+                    let folder = item.as_str().map(str::trim).ok_or_else(|| wrong.clone())?;
+                    if folder.is_empty() {
+                        return Err(wrong);
+                    }
+                    if !folders.contains(&folder) {
+                        folders.push(folder);
+                    }
+                }
+                Ok(json!(folders))
             }
         }
     }
@@ -527,6 +626,55 @@ mod tests {
             declared.accept(&json!(2)),
             Err(Invalid::WrongType { .. })
         ));
+    }
+
+    /// Where models live has no default a schema can write down: the download
+    /// folder is inside whichever profile is running, and the scan folders are
+    /// whatever detection finds on this machine. Both are nothing until
+    /// somebody says, and the host fills nothing in.
+    #[test]
+    fn the_model_folders_are_nothing_until_somebody_says() {
+        for id in [id::DOWNLOAD_FOLDER, id::SCAN_FOLDERS] {
+            let folders = setting(id).expect("declared");
+            assert_eq!(folders.default_value(), Value::Null, "{id}");
+            assert!(folders.profile, "{id} is one answer per profile");
+            assert_eq!(folders.accept(&Value::Null), Ok(Value::Null));
+        }
+    }
+
+    #[test]
+    fn a_download_folder_is_one_folder_and_never_a_blank() {
+        let folder = setting(id::DOWNLOAD_FOLDER).expect("declared");
+        assert_eq!(
+            folder.accept(&json!(" D:\\models ")),
+            Ok(json!("D:\\models"))
+        );
+        assert!(folder.accept(&json!("   ")).is_err());
+        assert!(folder.accept(&json!(["D:/models"])).is_err());
+    }
+
+    /// The empty list is somebody having removed every folder, which is a
+    /// different answer from nobody having chosen, which is detection's.
+    #[test]
+    fn the_scan_folders_are_a_list_each_once_and_empty_is_an_answer() {
+        let folders = setting(id::SCAN_FOLDERS).expect("declared");
+        assert_eq!(folders.accept(&json!([])), Ok(json!([])));
+        assert_eq!(
+            folders.accept(&json!(["D:/a", " D:/a ", "E:/b"])),
+            Ok(json!(["D:/a", "E:/b"]))
+        );
+        assert!(folders.accept(&json!(["D:/a", ""])).is_err());
+        assert!(folders.accept(&json!("D:/a")).is_err());
+    }
+
+    #[test]
+    fn only_the_model_folders_are_per_profile() {
+        let profile: Vec<&str> = SCHEMA
+            .iter()
+            .filter(|setting| setting.profile)
+            .map(|setting| setting.id)
+            .collect();
+        assert_eq!(profile, [id::DOWNLOAD_FOLDER, id::SCAN_FOLDERS]);
     }
 
     /// Everything, until somebody names a set. A set is names, each once, and

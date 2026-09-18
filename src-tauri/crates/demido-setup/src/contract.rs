@@ -55,6 +55,8 @@ fn a_store_opened_again_reads_what_the_last_one_wrote<S: Store>(open: impl Fn(&s
 
 /// A profile somebody has actually set up: every field carrying something, so
 /// a store that drops one is caught rather than passing on the empty case.
+/// Every field but the folders an earlier build confirmed, which are read and
+/// never written back (#72).
 fn answered() -> Answers {
     let mut answers = Answers {
         ecosystem: Some(Ecosystem::Cuda),
@@ -62,7 +64,6 @@ fn answered() -> Answers {
         closed: true,
         ..Answers::default()
     };
-    answers.add_folder(PathBuf::from("D:/models"));
     answers.tick("chrome", false);
     answers
 }

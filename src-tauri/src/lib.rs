@@ -14,6 +14,7 @@ pub mod chat;
 /// left in to warn about itself is a warning every release build prints.
 #[cfg(debug_assertions)]
 mod dev_server;
+pub mod models;
 pub mod monitor;
 pub mod prompts;
 pub mod settings;
@@ -231,6 +232,7 @@ pub fn run() -> demido_core::Result<()> {
             setup::setup_tick,
             setup::setup_add_folder,
             setup::setup_remove_folder,
+            setup::setup_download_folder,
             setup::setup_choose_model,
             setup::setup_leave,
             setup::setup_resume,

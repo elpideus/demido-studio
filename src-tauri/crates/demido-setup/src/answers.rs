@@ -36,15 +36,15 @@ pub struct Answers {
     /// step settled and what the settings page later edits.
     pub ecosystem: Option<Ecosystem>,
 
-    /// Where models are read from.
+    /// The folders an earlier build of the wizard confirmed.
     ///
-    /// Brief B55: "Multiple folders should be set-able for model detection"
-    ///
-    /// Pre-filled from a readable folder already on the machine and confirmed
-    /// rather than typed, so a person with models from LM Studio moves no
-    /// files and makes no symlinks. A folder that has since gone is left in
-    /// the list: it is still what the person chose, and the models step says
-    /// it read nothing from it.
+    /// **Read, never written.** Where models are read from is two settings on
+    /// the ladder since #72 (`demido_settings::id::SCAN_FOLDERS`), because the
+    /// settings page and the wizard draw one control and a second copy of the
+    /// answer would be a copy that goes stale. A profile set up before then
+    /// still has its folders here, and the host seeds the setting from them
+    /// once; the next write of this file drops them.
+    #[serde(skip_serializing)]
     pub folders: Vec<PathBuf>,
 
     /// The GGUF that answers.
@@ -105,17 +105,6 @@ impl Answers {
             self.unticked.push(id.to_owned());
         }
     }
-
-    /// Add a folder models are read from, if it is not already one.
-    pub fn add_folder(&mut self, folder: PathBuf) {
-        if !self.folders.contains(&folder) {
-            self.folders.push(folder);
-        }
-    }
-
-    pub fn remove_folder(&mut self, folder: &PathBuf) {
-        self.folders.retain(|kept| kept != folder);
-    }
 }
 
 #[cfg(test)]
@@ -146,11 +135,14 @@ mod tests {
         assert!(answers.unticked.is_empty());
     }
 
+    /// A profile set up before the folders moved onto the ladder keeps them:
+    /// they are read, and they are not written back.
     #[test]
-    fn a_folder_is_added_once() {
-        let mut answers = Answers::default();
-        answers.add_folder(PathBuf::from("C:/models"));
-        answers.add_folder(PathBuf::from("C:/models"));
-        assert_eq!(answers.folders.len(), 1);
+    fn the_folders_an_earlier_build_confirmed_are_read_and_not_written() {
+        let read: Answers =
+            serde_json::from_str(r#"{"generation":1,"folders":["C:/models"]}"#).expect("read");
+        assert_eq!(read.folders, vec![PathBuf::from("C:/models")]);
+        let written = serde_json::to_string(&read).expect("written");
+        assert!(!written.contains("folders"), "{written}");
     }
 }

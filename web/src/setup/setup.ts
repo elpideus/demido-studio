@@ -95,12 +95,60 @@ export type Group = 'required' | 'capability'
 
 export type ManifestGroup = { group: Group; rows: RuntimeRow[] }
 
-export type Model = { path: string; name: string; sizeMib: number; folder: string }
+/** Whether a model can do something, as far as its files say. The Rust
+ * `Fact`. `unknown` is drawn differently from `no`: nothing measured it. */
+export type Fact = 'yes' | 'no' | 'unknown'
+
+export type Capabilities = { vision: Fact; tools: Fact; reasoning: Fact; audio: Fact }
+
+/** A model on disk, verified. The Rust `demido_models::Local`. */
+export type Model = {
+  path: string
+  label: string
+  /** Every piece of the weights. */
+  bytes: number
+  shards?: number
+  repo?: string
+  /** `Demido`, a tool's name, or the folder it was read out of. */
+  library: string
+  /** The folder of the two settings it was read out of. */
+  folder: string
+  /** Read and offered, never written to or deleted from. */
+  borrowed: boolean
+  architecture?: string
+  context?: number
+  capabilities: Capabilities
+}
+
+/** Why a weights file on disk is not offered. The Rust `Damage`. */
+export type Damage =
+  | { kind: 'not-gguf' }
+  | { kind: 'unsupported'; version: number }
+  | { kind: 'malformed'; reason: string }
+  | { kind: 'truncated'; needs: number | null; has: number }
+  | { kind: 'missing-piece'; index: number; total: number }
+  | { kind: 'unreadable'; reason: string }
+
+export type Damaged = {
+  path: string
+  library: string
+  folder: string
+  borrowed: boolean
+  damage: Damage
+}
+
+export type Folder = { path: string; library: string }
 
 export type Models = {
-  folders: string[]
+  /** Demido's own folder, and the only one anything is deleted from. */
+  download: string
+  /** Bytes Demido has spent in it. Borrowed folders are never counted. */
+  spent: number
+  /** Read, never written. */
+  folders: Folder[]
   suggested: string[]
   models: Model[]
+  damaged: Damaged[]
   chosen: string | null
 }
 
@@ -156,6 +204,9 @@ type Setup = {
   tick: (id: string, on: boolean) => Promise<void>
   addFolder: (path: string) => Promise<void>
   removeFolder: (path: string) => Promise<void>
+  /** Move the download folder, or put it back in the profile with `null`.
+   * Nothing moves: the old folder is still read. */
+  downloadTo: (path: string | null) => Promise<void>
   chooseModel: (path: string) => Promise<void>
   fetch: () => Promise<void>
   /** Call off the fetch in flight. What has arrived stays on disk. */
@@ -203,6 +254,8 @@ export const useSetup = create<Setup>((set, get) => ({
   addFolder: (path) => gesture(set, () => invoke<View>('setup_add_folder', { path })),
 
   removeFolder: (path) => gesture(set, () => invoke<View>('setup_remove_folder', { path })),
+
+  downloadTo: (path) => gesture(set, () => invoke<View>('setup_download_folder', { path })),
 
   chooseModel: (path) => gesture(set, () => invoke<View>('setup_choose_model', { path })),
 

@@ -672,6 +672,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "demido-models"
+version = "0.1.0"
+dependencies = [
+ "demido-core",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "demido-permission"
 version = "0.1.0"
 dependencies = [
@@ -757,6 +768,7 @@ dependencies = [
  "demido-core",
  "demido-hardware",
  "demido-inference",
+ "demido-models",
  "demido-prompts",
  "demido-runtimes",
  "demido-settings",

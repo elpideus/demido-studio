@@ -106,7 +106,13 @@ impl Settings {
     pub fn set(&self, scope: &Scope, id: &str, value: &Value) -> Result<()> {
         let accepted = crate::schema::setting(id)
             .ok_or(Invalid::Unknown)
-            .and_then(|setting| setting.accept(value))
+            .and_then(|setting| {
+                // One answer per profile, held by the profile's own tier.
+                if setting.profile && *scope != Scope::Global {
+                    return Err(Invalid::ProfileOnly);
+                }
+                setting.accept(value)
+            })
             .map_err(|reason| Error::Refused {
                 id: id.to_owned(),
                 reason,
@@ -198,6 +204,39 @@ mod tests {
         assert_eq!(resolved.temperature(), Some(0.7));
         assert_eq!(resolved.context_length(), 4096);
         assert_eq!(resolved.system_prompt(), "");
+    }
+
+    /// Where a profile keeps its models is the profile's, and a chat that
+    /// could move the download folder could send one download somewhere the
+    /// rest of the profile never reads.
+    #[test]
+    fn the_model_folders_are_set_for_the_profile_and_refused_on_a_chat() {
+        let settings = settings();
+        let refused = settings.set(&Scope::chat("one"), id::DOWNLOAD_FOLDER, &json!("D:/m"));
+        assert!(
+            matches!(
+                refused,
+                Err(Error::Refused {
+                    reason: Invalid::ProfileOnly,
+                    ..
+                })
+            ),
+            "{refused:?}"
+        );
+
+        settings
+            .set(&Scope::Global, id::SCAN_FOLDERS, &json!(["D:/lmstudio"]))
+            .expect("set for the profile");
+        let resolved = settings.resolve(&Ladder::for_chat("one"));
+        assert_eq!(
+            resolved.scan_folders(),
+            Some(vec![std::path::PathBuf::from("D:/lmstudio")])
+        );
+        assert_eq!(
+            resolved.download_folder(),
+            None,
+            "nothing: the profile's own"
+        );
     }
 
     /// The acceptance criterion: a global change applies to new chats.
