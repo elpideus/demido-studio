@@ -25,7 +25,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// The four bytes every GGUF starts with.
 const MAGIC: [u8; 4] = *b"GGUF";
@@ -76,7 +76,7 @@ pub struct Header {
 /// Why a file is not a model that can be offered.
 ///
 /// Carried to the window as data, and it writes the sentence.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Damage {
     /// It does not start with `GGUF`. An HTML login page saved under a `.gguf`

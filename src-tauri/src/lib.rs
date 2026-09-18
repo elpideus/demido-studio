@@ -14,6 +14,7 @@ pub mod chat;
 /// left in to warn about itself is a warning every release build prints.
 #[cfg(debug_assertions)]
 mod dev_server;
+pub mod downloads;
 pub mod models;
 pub mod monitor;
 pub mod prompts;
@@ -191,6 +192,9 @@ pub fn run() -> demido_core::Result<()> {
             // window (`src/chat.rs`).
             app.manage(chat::Approvals::default());
             app.manage(Started::default());
+            // What the profile left downloading carries on, whatever the
+            // splash is doing: a restart is not a reinstall.
+            downloads::start(app.handle());
 
             // The splash is expected to ask for the sequence itself, and this
             // is what happens when it cannot. See `SPLASH_SPEAKS_WITHIN`.
@@ -218,6 +222,12 @@ pub fn run() -> demido_core::Result<()> {
             chat::chat_send,
             chat::chat_stop,
             chat::chat_decide,
+            downloads::downloads_rows,
+            downloads::downloads_add,
+            downloads::downloads_pause,
+            downloads::downloads_pause_all,
+            downloads::downloads_resume,
+            downloads::downloads_cancel,
             models::models_search,
             models::models_choices,
             monitor::monitor_log,
