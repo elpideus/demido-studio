@@ -42,6 +42,12 @@ number on a card, not a promise of the trait. The measurement lives in
 user's number through raw would hand back a fraction of it and every one-slot
 test would still be green.
 
+What the trait does say is **which file a configuration loads**,
+`Backend::model_file`, because the cost is read from that file's header
+(`demido_models::slot`, [#105](https://github.com/elpideus/demido-studio/issues/105)).
+It defaults to `None`, a backend with no file to price a slot from, whose slots
+above the first are then unmeasured; `LlamaCpp` names `--model`.
+
 | Implementation | Where | Runs the suite in |
 |---|---|---|
 | `LlamaCpp` | `src/llamacpp.rs` | `tests/llamacpp_contract.rs` |

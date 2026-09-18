@@ -34,18 +34,24 @@
 //! stale figure is an allocation failure inside the driver rather than a queue.
 //!
 //! It is taken **before the weights land**, so it is the card as it stands
-//! rather than as it will stand. Answering that needs the load priced whole,
-//! which is what the fit verdict does with this same arithmetic
-//! ([#74](https://github.com/elpideus/demido-studio/issues/74)). What a slot
-//! costs is still unmeasured
-//! ([#105](https://github.com/elpideus/demido-studio/issues/105)), so the only
-//! admission reachable from a window is the one that needs no room: the
-//! default.
+//! rather than as it will stand, and the load is priced whole against it: the
+//! weights, the conversation's own slot and what the build holds beside them
+//! (`demido_vram::BESIDE_THE_KV`) come out of the reading first, with
+//! what the resident model was weighed at holding given back when this load
+//! replaces it, and the slots above the first are admitted from what is left.
+//! A reading taken before a 9 GB model lands that admitted slots against the
+//! whole of it would be the paging failure the budget exists to prevent.
+//!
+//! What a slot costs is read from the header of the model in force, at the
+//! context length in force (`demido_models::slot`,
+//! [#105](https://github.com/elpideus/demido-studio/issues/105)). An
+//! architecture that reading does not know is unmeasured, and queues every slot
+//! above the first with that reason rather than admitting one on a guess.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use demido_vram::{admit, free_now, weighed, Admission, Budget, Card};
+use demido_vram::{admit, free_now, weighed, Admission, Budget, Card, Load, BESIDE_THE_KV};
 
 /// How the card is asked. A closure rather than a trait, per the note above.
 type Reading = Arc<dyn Fn() -> Option<Card> + Send + Sync>;
@@ -55,18 +61,14 @@ type Reading = Arc<dyn Fn() -> Option<Card> + Send + Sync>;
 #[derive(Clone)]
 pub struct Pool {
     reading: Reading,
-    /// What one slot's KV reserves on the model in force, in bytes.
+    /// A slot's price pinned by a test's card, whose reading is then the room
+    /// beside the load rather than the card before it.
     ///
-    /// **Measured, never assumed**, and zero until something has measured one.
-    /// Zero is not free: `demido_vram::admit` queues an unmeasured slot and
-    /// says so, because a slot admitted on a number nobody measured is the
-    /// paging-through-host-memory failure the whole budget exists to avoid. The
-    /// producer is a header reading of the model in force, which reads the
-    /// attention geometry a KV cache is sized from
-    /// ([#105](https://github.com/elpideus/demido-studio/issues/105)); until it
-    /// lands, parallelism above the slot a conversation already has queues with
-    /// a stated reason, which is the honest answer rather than a guess.
-    per_slot: u64,
+    /// `None` on the real card, where both come from the load being admitted
+    /// ([`Pool::admit`]). A scripted backend has no file to price a slot from
+    /// and no weights to land, so a suite's card answers the whole question
+    /// instead: what the conversation's model leaves, and what a slot costs.
+    pinned_price: Option<u64>,
     /// What the resident model was weighed at holding on the card, in bytes,
     /// by [`Pool::weigh`]. Zero until a load has been weighed.
     ///
@@ -82,12 +84,13 @@ impl Pool {
     pub fn on_the_card() -> Self {
         Self {
             reading: Arc::new(free_now),
-            per_slot: 0,
+            pinned_price: None,
             held: Arc::default(),
         }
     }
 
-    /// A card that always reports `free`, on which a slot reserves `per_slot`.
+    /// A card on which the conversation's model leaves `free`, and a slot
+    /// reserves `per_slot`, whatever is loaded.
     ///
     /// What a suite runs against: a conversation's slot count is a decision
     /// about a card, and a test that asked the machine it happens to be running
@@ -97,24 +100,49 @@ impl Pool {
         let card = Card { free, total: free };
         Self {
             reading: Arc::new(move || Some(card)),
-            per_slot,
+            pinned_price: Some(per_slot),
             held: Arc::default(),
         }
     }
 
-    /// How many slots to open, given the slots already open and the ladder's
-    /// `tools.parallel_agents`.
+    /// How many slots a load of `load` opens, given the ladder's
+    /// `tools.parallel_agents`. `replacing` says whether a model this pool
+    /// weighed is resident and makes way for it.
+    ///
+    /// The conversation's own slot goes in as already open: it is the model
+    /// being loaded rather than a sub-agent, and a budget that could refuse it
+    /// would be a card with no room answering the question by unloading the
+    /// chat. A slot `load` does not price (`Load::context` of `None`) is
+    /// unmeasured.
     ///
     /// A card that cannot be read is a card with nothing to spare, and the
     /// slots already open stay open: this never evicts and never closes, so an
     /// unreadable card costs the conversation nothing it already has.
     #[must_use]
-    pub fn admit(&self, open: u32, wanted: u32) -> Admission {
-        let free = (self.reading)().map_or(0, |card| card.free);
+    pub fn admit(&self, load: Load, replacing: bool, wanted: u32) -> Admission {
+        let card = (self.reading)();
+        let (free, per_slot) = match self.pinned_price {
+            Some(per_slot) => (card.map_or(0, |card| card.free), per_slot),
+            None => {
+                let per_slot = load.context.unwrap_or(0);
+                let given_back = if replacing { self.held() } else { 0 };
+                let beside = card.map_or(0, |card| {
+                    // What the resident model gives back can never make the
+                    // card larger than it is.
+                    card.free
+                        .saturating_add(given_back)
+                        .min(card.total)
+                        .saturating_sub(load.weights)
+                        .saturating_sub(per_slot)
+                        .saturating_sub(BESIDE_THE_KV)
+                });
+                (beside, per_slot)
+            }
+        };
         admit(Budget {
             free,
-            per_slot: self.per_slot,
-            open,
+            per_slot,
+            open: 1,
             wanted,
         })
     }
@@ -151,7 +179,7 @@ impl Pool {
 impl std::fmt::Debug for Pool {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         out.debug_struct("Pool")
-            .field("per_slot", &self.per_slot)
+            .field("pinned_price", &self.pinned_price)
             .field("held", &self.held())
             .finish_non_exhaustive()
     }
@@ -166,55 +194,161 @@ mod tests {
     use super::*;
     use demido_vram::{Queued, MIB};
 
-    /// The rig's reference model at 32k on the 12 GB card: 423 MiB free, and a
-    /// slot costs 1129. The default asks for nothing, so it is admitted on a
-    /// card with no room at all.
-    #[test]
-    fn the_default_opens_the_one_slot_the_conversation_already_has() {
-        let pool = Pool::on_a_card_with(423 * MIB, 1129 * MIB);
-        let admission = pool.admit(1, 1);
+    /// The rig's card, an RTX 3060 with 12 GB, as NVML read it with nothing
+    /// loaded on #105.
+    const TOTAL: u64 = 12288 * MIB;
+    const IDLE: u64 = 10511 * MIB;
 
-        assert_eq!(admission.open, 1);
-        assert_eq!(admission.queued, 0);
-        assert_eq!(admission.reason, None);
+    /// The development model as a load prices it: its file, and one slot at
+    /// 32k read from its header (`demido_models::slot`).
+    const DEVELOPMENT: Load = Load {
+        weights: 7813 * MIB,
+        context: Some(552 * MIB),
+    };
+
+    /// The reference model the same way.
+    const REFERENCE: Load = Load {
+        weights: 9551 * MIB,
+        context: Some(940 * MIB),
+    };
+
+    /// What a scripted backend loads: nothing a pool could price.
+    const SCRIPTED: Load = Load {
+        weights: 0,
+        context: None,
+    };
+
+    /// A real-card pool over a card that always reads `free`.
+    fn reading(free: u64) -> Pool {
+        Pool {
+            reading: Arc::new(move || Some(Card { free, total: TOTAL })),
+            pinned_price: None,
+            held: Arc::default(),
+        }
     }
 
-    /// The same card asked for two. It degrades to a queue with the reason
-    /// stated, rather than to a load that fails.
+    /// The load is priced whole against the reading taken before it lands.
+    /// The development model leaves 1881 MiB beside its weights, its own slot
+    /// and what the build holds beside them, which is three slots more at 552:
+    /// asked for five, four open.
     #[test]
-    fn a_parallelism_the_card_cannot_honour_queues() {
-        let pool = Pool::on_a_card_with(423 * MIB, 1129 * MIB);
-        let admission = pool.admit(1, 2);
+    fn the_development_model_is_priced_whole_before_it_lands() {
+        let admission = reading(IDLE).admit(DEVELOPMENT, false, 5);
 
-        assert_eq!(admission.open, 1, "the slot that is open stays open");
+        assert_eq!(admission.open, 4);
         assert_eq!(admission.queued, 1);
         assert_eq!(
             admission.reason,
             Some(Queued::NoRoom {
-                free: 423 * MIB,
-                needed: 1129 * MIB,
+                free: 1881 * MIB,
+                needed: 552 * MIB,
             })
         );
     }
 
-    /// The development model on the same card has room, so the same setting is
-    /// honoured. Which is the point of it being a budget rather than a
-    /// preference: the answer depends on what is loaded.
+    /// The reference model at 32k on the same card leaves nothing beside its
+    /// load, against 940 a second slot costs. The whole card read before the
+    /// load would have admitted ten; that is the failure pricing it whole is
+    /// for.
     #[test]
-    fn a_card_with_room_opens_what_was_asked_for() {
-        let pool = Pool::on_a_card_with(5583 * MIB, 563 * MIB);
-        assert_eq!(pool.admit(1, 4).open, 4);
+    fn the_reference_model_has_no_room_once_its_weights_are_counted() {
+        let admission = reading(IDLE).admit(REFERENCE, false, 2);
+
+        assert_eq!(admission.open, 1, "the conversation's own slot stays");
+        assert_eq!(
+            admission.reason,
+            Some(Queued::NoRoom {
+                free: 0,
+                needed: 940 * MIB,
+            })
+        );
     }
 
-    /// Nothing has measured a slot, so nothing is admitted on a guess, however
-    /// much is free.
+    /// The reference model at the default 4k: a slot is 380 MiB, and the card
+    /// read before the load has 580 beside the weights and the first slot, but
+    /// 315 once the compute buffers and the CUDA context are counted. Weighed,
+    /// one slot of it held 10181 MiB, so a second would have overrun a card
+    /// reading 10511 by 50.
     #[test]
-    fn an_unmeasured_slot_queues_on_the_emptiest_card() {
-        let pool = Pool::on_a_card_with(12288 * MIB, 0);
-        let admission = pool.admit(1, 4);
+    fn what_the_build_holds_beside_the_kv_is_counted() {
+        let at_4k = Load {
+            weights: 9551 * MIB,
+            context: Some(380 * MIB),
+        };
+        let admission = reading(IDLE).admit(at_4k, false, 2);
 
         assert_eq!(admission.open, 1);
+        assert_eq!(
+            admission.reason,
+            Some(Queued::NoRoom {
+                free: 315 * MIB,
+                needed: 380 * MIB,
+            })
+        );
+        assert_eq!(
+            reading(11046 * MIB).admit(at_4k, false, 2).open,
+            2,
+            "with 535 MiB more free, as the card read when it was weighed, it fits"
+        );
+    }
+
+    /// A load that replaces the resident model gets back what that model was
+    /// weighed at holding, so a card that looks full because Demido's own
+    /// model is on it is not full for the load that replaces it.
+    #[test]
+    fn a_replacement_counts_what_the_resident_model_gives_back() {
+        let pool = reading(4804 * MIB);
+        pool.held.store(5707 * MIB, Ordering::SeqCst);
+
+        assert_eq!(pool.admit(DEVELOPMENT, true, 4).open, 4);
+        assert_eq!(
+            pool.admit(DEVELOPMENT, false, 4).open,
+            1,
+            "a model nothing weighed gives nothing back"
+        );
+    }
+
+    /// Given back is never more than the card holds.
+    #[test]
+    fn nothing_given_back_makes_the_card_larger_than_it_is() {
+        let pool = reading(IDLE);
+        pool.held.store(TOTAL, Ordering::SeqCst);
+        let admission = pool.admit(REFERENCE, true, 3);
+
+        assert_eq!(admission.open, 2, "1532 MiB beside the load is one slot");
+        assert_eq!(
+            admission.reason,
+            Some(Queued::NoRoom {
+                free: (12288 - 9551 - 940 - 265) * MIB,
+                needed: 940 * MIB,
+            })
+        );
+    }
+
+    /// A model whose header this build cannot price queues every slot above the
+    /// first as unmeasured, however much is free.
+    #[test]
+    fn an_unpriced_slot_queues_on_the_emptiest_card() {
+        let load = Load {
+            weights: 5000 * MIB,
+            context: None,
+        };
+        let admission = reading(TOTAL).admit(load, false, 4);
+
+        assert_eq!(admission.open, 1);
+        assert_eq!(admission.queued, 3);
         assert_eq!(admission.reason, Some(Queued::Unmeasured));
+    }
+
+    /// The default asks for nothing above the conversation's own slot, so it
+    /// is admitted on a card with no room at all, whatever the load costs.
+    #[test]
+    fn the_default_opens_the_one_slot_the_conversation_already_has() {
+        let admission = reading(0).admit(REFERENCE, false, 1);
+
+        assert_eq!(admission.open, 1);
+        assert_eq!(admission.queued, 0);
+        assert_eq!(admission.reason, None);
     }
 
     /// A card nothing could read is a card with nothing to spare, and the slot
@@ -223,10 +357,10 @@ mod tests {
     fn an_unreadable_card_opens_nothing_new_and_closes_nothing() {
         let pool = Pool {
             reading: Arc::new(|| None),
-            per_slot: 563 * MIB,
+            pinned_price: None,
             held: Arc::default(),
         };
-        let admission = pool.admit(1, 3);
+        let admission = pool.admit(DEVELOPMENT, false, 3);
 
         assert_eq!(admission.open, 1);
         assert_eq!(admission.queued, 2);
@@ -234,9 +368,29 @@ mod tests {
             admission.reason,
             Some(Queued::NoRoom {
                 free: 0,
-                needed: 563 * MIB,
+                needed: 552 * MIB,
             })
         );
+    }
+
+    /// A suite's card answers the whole question: the rig's reference model at
+    /// 32k leaves 423 MiB and a slot costs 1129, so two queue to one. The load
+    /// is not consulted, because a scripted backend has none.
+    #[test]
+    fn a_pinned_card_answers_for_the_load() {
+        let pool = Pool::on_a_card_with(423 * MIB, 1129 * MIB);
+        let admission = pool.admit(SCRIPTED, false, 2);
+
+        assert_eq!(admission.open, 1);
+        assert_eq!(
+            admission.reason,
+            Some(Queued::NoRoom {
+                free: 423 * MIB,
+                needed: 1129 * MIB,
+            })
+        );
+        let roomy = Pool::on_a_card_with(5583 * MIB, 563 * MIB);
+        assert_eq!(roomy.admit(SCRIPTED, false, 4).open, 4);
     }
 
     /// The reading is taken per call, not at construction. A card that empties
@@ -248,20 +402,20 @@ mod tests {
         let counted = asked.clone();
         let pool = Pool {
             reading: Arc::new(move || {
-                // 4 MiB the first time, nothing after it.
+                // Room for a second slot the first time, none after it.
                 let first = counted.fetch_add(1, Ordering::SeqCst) == 0;
                 Some(Card {
-                    free: if first { 4 * MIB } else { 0 },
-                    total: 12288 * MIB,
+                    free: if first { IDLE } else { 7813 * MIB },
+                    total: TOTAL,
                 })
             }),
-            per_slot: MIB,
+            pinned_price: None,
             held: Arc::default(),
         };
 
-        assert_eq!(pool.admit(1, 2).open, 2);
+        assert_eq!(pool.admit(DEVELOPMENT, false, 2).open, 2);
         assert_eq!(
-            pool.admit(1, 2).open,
+            pool.admit(DEVELOPMENT, false, 2).open,
             1,
             "the second reading is the one that decides"
         );
@@ -277,10 +431,10 @@ mod tests {
                 let at = usize::try_from(next.fetch_add(1, Ordering::SeqCst)).unwrap();
                 Some(Card {
                     free: frees[at.min(frees.len() - 1)] * MIB,
-                    total: 12288 * MIB,
+                    total: TOTAL,
                 })
             }),
-            per_slot: 0,
+            pinned_price: None,
             held: Arc::default(),
         }
     }
@@ -312,7 +466,7 @@ mod tests {
     fn a_load_nobody_could_weigh_holds_nothing() {
         let pool = Pool {
             reading: Arc::new(|| None),
-            per_slot: 0,
+            pinned_price: None,
             held: Arc::new(AtomicU64::new(5749 * MIB)),
         };
         pool.weigh(None, true);

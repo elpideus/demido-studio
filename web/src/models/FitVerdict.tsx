@@ -14,9 +14,11 @@ import styles from './FitVerdict.module.css'
  *
  * `weights` is the choice's weights alone (`Choice.weights`), which is what
  * loading costs; the projector is resident only while an image is read.
+ * `path` is the file for a model already on disk, whose header prices the
+ * context as well; a file not yet downloaded has none to read.
  */
-export function FitVerdict({ weights }: { weights: number }) {
-  const verdict = useFit(weights)
+export function FitVerdict({ weights, path }: { weights: number; path?: string }) {
+  const verdict = useFit(weights, path)
   if (!verdict) return null
   const { label, sentence } = words(verdict)
 

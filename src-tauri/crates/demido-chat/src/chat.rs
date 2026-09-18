@@ -22,6 +22,7 @@ use demido_tools::{Failure, Outcome, Registry};
 use demido_trace::{
     Called, Decision, Delegation, Journal, Layer, Replay, Sent, Session, SessionId, Source,
 };
+use demido_vram::Load;
 
 use crate::delegation::Delegations;
 use crate::flight::{Flight, Harvest, Slots};
@@ -436,12 +437,27 @@ impl<B: Backend, J: Journal> Chat<B, J> {
 
         // And the slots, which is the same shape of decision one layer along:
         // the ladder asks for a parallelism and `crate::pool` decides what the
-        // card can hold. Its module doc is where that reasoning lives; the one
-        // thing that has to be read here is the 1, which is the conversation's
-        // own slot going in as already open. It is the model being loaded
-        // rather than a sub-agent, and a budget that could refuse it would be a
-        // card with no room answering the question by unloading the chat.
-        let admission = self.pool.admit(1, resolved.parallel_agents());
+        // card can hold, against this load priced whole. Its module doc is
+        // where that reasoning lives. What is read here is the price: the
+        // model's files, and one slot at the context in force from its header
+        // (#105), off the runtime because it is a file read.
+        let priced = match B::model_file(&config).map(std::path::Path::to_path_buf) {
+            Some(file) => {
+                let context = resolved.context_length();
+                tokio::task::spawn_blocking(move || demido_models::price(&file, context))
+                    .await
+                    .ok()
+            }
+            None => None,
+        };
+        let load = Load {
+            weights: priced.map_or(0, |priced| priced.weights),
+            context: priced.and_then(|priced| priced.per_slot),
+        };
+        let resident = self.supervisor.current().await;
+        let admission = self
+            .pool
+            .admit(load, resident.is_some(), resolved.parallel_agents());
         if let Some(reason) = admission.reason {
             tracing::info!(
                 opened = admission.open,
@@ -456,7 +472,6 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         // model gives back (`Pool::weigh`). Only a load that started a server
         // is weighed: one the supervisor answered with the server already
         // running changed nothing on the card.
-        let resident = self.supervisor.current().await;
         let before = self.pool.card();
         match self.supervisor.ensure(config).await {
             Ok(backend) => {

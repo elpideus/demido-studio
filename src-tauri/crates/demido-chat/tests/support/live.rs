@@ -70,6 +70,10 @@ impl Backend for Watching {
         LlamaCpp::with_slots(config, slots)
     }
 
+    fn model_file(config: &Self::Config) -> Option<&std::path::Path> {
+        LlamaCpp::model_file(config)
+    }
+
     async fn ready(&self) -> bool {
         self.0.ready().await
     }

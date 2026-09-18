@@ -220,6 +220,10 @@ impl Backend for LlamaCpp {
         config
     }
 
+    fn model_file(config: &Config) -> Option<&std::path::Path> {
+        Some(&config.model)
+    }
+
     async fn start(config: Config) -> Result<Self> {
         if !config.binary.exists() {
             return Err(did_not_start(format!(

@@ -357,7 +357,7 @@ function LocalDetail({
           <Check className={styles.icon} strokeWidth={1.8} aria-hidden />
           {chosen ? 'Answering with this' : 'Answer with this'}
         </button>
-        <FitVerdict weights={model.bytes} />
+        <FitVerdict weights={model.bytes} path={model.path} />
       </div>
     </article>
   )

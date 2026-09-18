@@ -124,6 +124,18 @@ pub trait Backend: Send + Sync + Sized + 'static {
     /// window smaller than the one it asked for.
     fn with_slots(config: Self::Config, slots: u32) -> Self::Config;
 
+    /// The model file this configuration loads, when it loads one from disk.
+    ///
+    /// What a slot is priced from: the attention geometry a KV cache is sized
+    /// by is in the file's header (`demido_models::slot`), and the
+    /// configuration is the one place that knows which file is in force
+    /// ([#105](https://github.com/elpideus/demido-studio/issues/105)). `None`,
+    /// the default, is a backend with no file to read, whose slots are then
+    /// unmeasured rather than guessed at.
+    fn model_file(_config: &Self::Config) -> Option<&std::path::Path> {
+        None
+    }
+
     /// Whether it is answering. Asked on every request rather than assumed from
     /// the fact that it started once, because a process that exited leaves a
     /// handle that looks fine from the outside.

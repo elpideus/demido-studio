@@ -319,8 +319,15 @@ model, so S1's process-wide single-model permit still holds and what parallelism
 costs is a KV reservation. `--ctx-size` is per slot
 ([#19](https://github.com/elpideus/demido-studio/issues/19)), so a slot is that
 reservation and parallelism multiplies it: on the rig, a few hundred MiB on the
-development model at 32k (563 derived, 620 weighed, both in
-[`done.md`](done.md)) and 1129 on the reference model.
+development model at 32k (552 priced from its header, against 563 derived and
+620 weighed, all in [`done.md`](done.md)) and 940 on the reference model.
+
+**A slot is priced from the header of the model in force**, at the context
+length in force ([#105](https://github.com/elpideus/demido-studio/issues/105)),
+and the load is priced whole before it lands: weights, the conversation's own
+slot and what the build holds beside them come out of the card's reading first.
+An architecture the reading does not know is unmeasured and queues, never a
+guess.
 
 **The number counts slots, and the conversation is the first of them.** At 1
 there is one generation at a time; at 4 there are three sub-agents beside the
@@ -344,8 +351,8 @@ settings page saw when it was drawn.
 
 **The default is 1**, which is the synchronous path: the call blocks and the
 answer is the tool's own result. It is also the only value the reference model
-can honour on the rig, and a default the reference gate cannot run at is not a
-default.
+can honour on the rig at 32k, and a default the reference gate cannot run at is
+not a default.
 
 **The conversation's own slot is never refused.** It is the model, not a
 sub-agent. Only the slots above it are the budget's to grant.
