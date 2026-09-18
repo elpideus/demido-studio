@@ -7,6 +7,7 @@ import { size } from '@/shell/bytes'
 import {
   answerWith,
   cancel,
+  moving,
   pause,
   pauseAll,
   resume,
@@ -36,7 +37,7 @@ export function Queue() {
   const rows = useRows()
   // Waiting rows as well as running ones: pausing a row that is waiting for a
   // slot is what stops it taking the next one.
-  const pausable = rows.some((row) => row.state === 'running' || row.state === 'queued')
+  const pausable = rows.some((row) => moving(row) && row.state !== 'verifying')
 
   return (
     <section className={styles.queue} aria-label="Downloads">
@@ -82,14 +83,14 @@ function QueueRow({ row }: { row: Row }) {
         </div>
         <div className={styles.actions}>
           {(row.state === 'running' || row.state === 'queued') && (
-            <Icon label={`Pause ${row.name}`} onClick={() => void pause(row.id)}>
+            <IconButton label={`Pause ${row.name}`} onClick={() => void pause(row.id)}>
               <Pause className={styles.icon} strokeWidth={1.8} aria-hidden />
-            </Icon>
+            </IconButton>
           )}
           {row.state === 'paused' && (
-            <Icon label={`Resume ${row.name}`} onClick={() => void resume(row.id)}>
+            <IconButton label={`Resume ${row.name}`} onClick={() => void resume(row.id)}>
               <Play className={styles.icon} strokeWidth={1.8} aria-hidden />
-            </Icon>
+            </IconButton>
           )}
           {/* Retry is a word rather than an icon, because it is the one thing
            * a failed row is for and it must not be mistaken for resume. */}
@@ -116,12 +117,12 @@ function QueueRow({ row }: { row: Row }) {
            * seconds. A cancel on a finished row dismisses it and leaves the
            * model where it is. */}
           {row.state !== 'verifying' && (
-            <Icon
+            <IconButton
               label={row.state === 'done' ? `Dismiss ${row.name}` : `Cancel ${row.name}`}
               onClick={() => void cancel(row.id)}
             >
               <X className={styles.icon} strokeWidth={1.8} aria-hidden />
-            </Icon>
+            </IconButton>
           )}
         </div>
       </div>
@@ -138,7 +139,7 @@ function QueueRow({ row }: { row: Row }) {
   )
 }
 
-function Icon({
+function IconButton({
   label,
   onClick,
   children,
@@ -190,7 +191,7 @@ function cause(failure: Failure): string {
     case 'refused':
       return `The host refused with ${failure.status}.`
     case 'unreachable':
-      return 'The host could not be reached.'
+      return `The host could not be reached: ${failure.detail}.`
     case 'reset':
       return 'The connection was reset. The bytes so far are kept.'
     case 'ended-early':
@@ -202,9 +203,9 @@ function cause(failure: Failure): string {
     case 'not-the-file':
       return 'The host sent a web page instead of the file.'
     case 'corrupt':
-      return 'The file did not match its published digest, so it was deleted.'
+      return 'The file did not match its published digest, so it was deleted. A retry fetches it again.'
     case 'damaged':
-      return 'The file arrived and is not a readable model, so it was deleted.'
+      return 'The file arrived and is not a readable model, so it was deleted. A retry fetches it again.'
     case 'disk':
       return `The disk refused: ${failure.detail}.`
   }

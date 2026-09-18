@@ -54,12 +54,6 @@
   background: var(--color-active);
 }
 
-/* Close says what it does under the pointer, in the error colour, the one
- * control on the bar that ends something. */
-.control[data-close]:hover {
-  color: var(--color-rose);
-}
-
 .icon {
   width: var(--size-icon-small);
   height: var(--size-icon-small);

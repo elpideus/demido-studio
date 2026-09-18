@@ -28,22 +28,26 @@ export function TitleBar() {
   const [maximised, setMaximised] = useState(false)
 
   useEffect(() => {
-    const window = getCurrentWindow()
+    const own = getCurrentWindow()
     const settle = () =>
-      void window
+      void own
         .isMaximized()
         .then(setMaximised)
         .catch(() => {})
     settle()
-    const focus = window.onFocusChanged(({ payload }) => setFocused(payload))
-    const resized = window.onResized(settle)
+    void own
+      .isFocused()
+      .then(setFocused)
+      .catch(() => {})
+    const focus = own.onFocusChanged(({ payload }) => setFocused(payload))
+    const resized = own.onResized(settle)
     return () => {
       void focus.then((unlisten) => unlisten())
       void resized.then((unlisten) => unlisten())
     }
   }, [])
 
-  const window = getCurrentWindow()
+  const own = getCurrentWindow()
 
   return (
     <header className={styles.bar} data-focused={focused} data-tauri-drag-region>
@@ -56,7 +60,7 @@ export function TitleBar() {
           type="button"
           className={styles.control}
           aria-label="Minimise"
-          onClick={() => void window.minimize()}
+          onClick={() => void own.minimize()}
         >
           <Minus className={styles.icon} strokeWidth={1.8} aria-hidden />
         </button>
@@ -64,7 +68,7 @@ export function TitleBar() {
           type="button"
           className={styles.control}
           aria-label={maximised ? 'Restore' : 'Maximise'}
-          onClick={() => void window.toggleMaximize()}
+          onClick={() => void own.toggleMaximize()}
         >
           {maximised ? (
             <Copy className={styles.icon} strokeWidth={1.8} aria-hidden />
@@ -75,9 +79,8 @@ export function TitleBar() {
         <button
           type="button"
           className={styles.control}
-          data-close
           aria-label="Close"
-          onClick={() => void window.close()}
+          onClick={() => void own.close()}
         >
           <X className={styles.icon} strokeWidth={1.8} aria-hidden />
         </button>

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowDownToLine, CircleAlert } from 'lucide-react'
 
 import { size } from '@/shell/bytes'
-import { useKey } from '@/shell/keys'
-import { open, useRows, type Row } from './downloads'
+import { moving, open, useRows, type Row } from './downloads'
 import { Queue } from './Queue'
 import styles from './Indicator.module.css'
 
@@ -23,7 +22,10 @@ import styles from './Indicator.module.css'
  *   because a failure waits for a person and a running download does not.
  *
  * The queue opens beneath it as a popover, dismissed by a click outside or by
- * Escape, the way the composer's popovers are.
+ * Escape from inside it, the way the composer's popovers are. Escape is the
+ * popover's own key rather than a scoped binding, because the approval row
+ * binds Escape to deny, and a person closing the queue must not also refuse
+ * a tool call waiting on the desk.
  */
 export function Indicator() {
   const rows = useRows()
@@ -46,7 +48,16 @@ export function Indicator() {
   const state = summary(rows)
 
   return (
-    <div className={styles.bay} ref={bay}>
+    <div
+      className={styles.bay}
+      ref={bay}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && shown) {
+          event.preventDefault()
+          setShown(false)
+        }
+      }}
+    >
       <button
         type="button"
         className={styles.indicator}
@@ -62,17 +73,11 @@ export function Indicator() {
         )}
         {state.words && <span className={styles.words}>{state.words}</span>}
       </button>
-      {shown && <Shown close={() => setShown(false)} />}
-    </div>
-  )
-}
-
-/** The queue while it is open, which is while Escape is its. */
-function Shown({ close }: { close: () => void }) {
-  useKey('panel', 'Escape', close)
-  return (
-    <div className={styles.popover}>
-      <Queue />
+      {shown && (
+        <div className={styles.popover}>
+          <Queue />
+        </div>
+      )}
     </div>
   )
 }
@@ -83,11 +88,9 @@ type Summary = { state: 'idle' | 'active' | 'failed'; words: string | null }
 function summary(rows: Row[]): Summary {
   const failed = rows.filter((row) => row.state === 'failed').length
   if (failed > 0) return { state: 'failed', words: `${failed} failed` }
-  const moving = rows.filter(
-    (row) => row.state === 'running' || row.state === 'queued' || row.state === 'verifying',
-  )
-  if (moving.length === 0) return { state: 'idle', words: null }
-  const received = moving.reduce((sum, row) => sum + row.received, 0)
-  const total = moving.reduce((sum, row) => sum + row.total, 0)
+  const arriving = rows.filter(moving)
+  if (arriving.length === 0) return { state: 'idle', words: null }
+  const received = arriving.reduce((sum, row) => sum + row.received, 0)
+  const total = arriving.reduce((sum, row) => sum + row.total, 0)
   return { state: 'active', words: `${size(received)} of ${size(total)}` }
 }

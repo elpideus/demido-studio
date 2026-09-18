@@ -128,9 +128,10 @@
   height: var(--size-icon-small);
 }
 
-/* A worded action: Pause all, Retry, Use. On the panel it is raised, and on a
- * raised row it stands one step further up by hovering rather than by a new
- * resting colour, because there is no role above `raised` at rest. */
+/* A worded action: Pause all, Retry, Use. On the panel it is raised. On a
+ * raised row it is a ghost, unfilled until the pointer is over it, because
+ * there is no role above `raised` at rest and `hover` is never one
+ * (docs/rules/surfaces.md rule 2). */
 .chip {
   flex: none;
   display: flex;
@@ -149,14 +150,13 @@
 }
 
 .row .chip {
-  background: var(--color-hover);
+  background: none;
 }
 
 .chip:hover:not(:disabled) {
   background: var(--color-hover);
 }
 
-.row .chip:hover:not(:disabled),
 .chip:active:not(:disabled) {
   background: var(--color-active);
 }

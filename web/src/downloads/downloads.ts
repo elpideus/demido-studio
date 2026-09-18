@@ -112,6 +112,25 @@ function apply(event: Event) {
   schedule()
 }
 
+/** Every row at once, replacing the copy: what the window is sent when it fell
+ * behind, because a missed last change has nothing after it to repair it. */
+function replace(all: Row[]) {
+  const before = new Map(rows)
+  rows.clear()
+  for (const row of all) {
+    rows.set(row.id, row)
+    if (row.state === 'done' && before.get(row.id)?.state !== 'done') arrived()
+  }
+  for (const id of before.keys()) if (!rows.has(id)) gone.add(id)
+  schedule()
+}
+
+/** Whether a row is still on its way: running, waiting for a slot, or being
+ * checked. */
+export function moving(row: Row): boolean {
+  return row.state === 'running' || row.state === 'queued' || row.state === 'verifying'
+}
+
 /** A model is in the library. Every surface that lists models reads the set-up
  * view, so reading it again is what offers the new one there. */
 function arrived() {
@@ -147,6 +166,7 @@ export async function open(): Promise<void> {
   opened = listen<Event>('downloads://event', (event) => apply(event.payload))
   try {
     await opened
+    await listen<Row[]>('downloads://rows', (event) => replace(event.payload))
   } catch (error) {
     // Without the channel the indicator shows what was queued at startup and
     // never moves. The downloads themselves carry on.

@@ -21,6 +21,11 @@ use crate::wiring::Wiring;
 /// Every row change, as [`Event`].
 pub const EVENT: &str = "downloads://event";
 
+/// Every row at once, sent when the window fell behind. A row's last change
+/// (done, failed, gone) has nothing after it to carry it, so a window that
+/// missed one would keep a row that is no longer true.
+pub const ROWS: &str = "downloads://rows";
+
 /// Carry on with what the profile left running, and tell the window about
 /// every change from here on. Called once, from setup; the queue is started
 /// from inside the runtime, which is where its transfers are spawned.
@@ -33,11 +38,14 @@ pub fn start(app: &AppHandle) {
         loop {
             match events.recv().await {
                 Ok(event) => tell(&app, &event),
-                // A window that fell behind lost some progress figures, never
-                // a row: `downloads_rows` is always whole, and the next change
-                // carries the row as it is now.
+                // A window that fell behind may have missed a row's last
+                // change, which nothing follows, so it is sent the whole queue
+                // as it is now rather than trusted to catch up.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
                     tracing::debug!(missed, "the window fell behind the download queue");
+                    if let Err(error) = app.emit(ROWS, queue.rows()) {
+                        tracing::warn!(%error, "the window was not sent the download queue");
+                    }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
             }
