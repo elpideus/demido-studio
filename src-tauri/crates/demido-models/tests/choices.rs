@@ -136,6 +136,7 @@ fn a_split_model_is_one_choice_whose_pieces_are_its_shards() {
         ]
     );
     assert_eq!(q4.bytes, 49_630_904_192 + 13_137_819_360);
+    assert_eq!(q4.weights, q4.bytes, "every shard is weights");
 
     let whole = choices
         .iter()
@@ -202,6 +203,9 @@ fn a_projector_is_fetched_with_the_weights_and_never_offered() {
         assert_eq!(projector.path, "mmproj-model-f16.gguf");
         let weights: u64 = choice.pieces.iter().map(|piece| piece.bytes).sum();
         assert_eq!(choice.bytes, weights + 851_251_104);
+        // What loading costs is the weights alone: the projector is resident
+        // only while an image is read (#74).
+        assert_eq!(choice.weights, weights);
     }
 
     let qat = repository("tree-google--gemma-3-4b-it-qat-q4_0-gguf.json");
@@ -292,7 +296,10 @@ fn a_choice_crosses_to_the_window_as_these_keys() {
         .map(String::as_str)
         .collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["bytes", "name", "pieces", "projector", "quant"]);
+    assert_eq!(
+        keys,
+        ["bytes", "name", "pieces", "projector", "quant", "weights"]
+    );
     assert_eq!(value["quant"]["label"], "Q4_K_M");
 }
 

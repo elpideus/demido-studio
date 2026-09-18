@@ -101,6 +101,9 @@ demido-shell.workspace = true
 # tools a build ships is a wiring decision.
 demido-tools.workspace = true
 demido-trace.workspace = true
+# The fit verdict (#74): the card read when the detail pane asks, and the
+# pool's own arithmetic pricing the load against it (`src/fit.rs`).
+demido-vram.workspace = true
 serde.workspace = true
 # A setting's value crosses the boundary as whatever the schema says it is, so
 # the command that carries one takes a `Value` rather than a type per kind.

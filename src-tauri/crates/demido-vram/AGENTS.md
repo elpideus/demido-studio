@@ -1,6 +1,14 @@
 # demido-vram
 
-What the card has free, and whether one more generation slot fits in it.
+What the card has free, whether one more generation slot fits in it, and
+whether a model fits on it before anybody downloads it.
+
+Two consumers, one arithmetic: `demido_chat::Pool` asks how many slots open
+([#65](https://github.com/elpideus/demido-studio/issues/65)), and the Models
+window's detail pane asks whether a file fits
+([#74](https://github.com/elpideus/demido-studio/issues/74)). That second one
+is why the crate is here at all: it was the port ledger's one candidate for
+deletion, for having no consumer, and #74 promoted it by being one.
 
 ## The one idea
 
@@ -29,6 +37,36 @@ arithmetic rather than a field inside it, because *the card's free memory is not
 what a settings page saw when it was drawn*. A browser window opened between the
 two moves the answer by more than a slot costs, so anything that opens a slot
 reads again at the moment it opens one.
+
+## The fit verdict
+
+`verdict` prices a whole load, weights and context, as **one slot** and hands
+it to `admit`: open none, want one. *No room* is partial offload. So the
+boundary a slot opens on and the boundary a model fits on are one line of
+code, and a change to it is seen by both consumers.
+
+It is the shape of `docs/rules/done.md`'s table: weights, then a context on
+top of them, against the card. The idle desktop is inside that table's totals
+and already outside a free reading, so it cancels, and the test table asserts
+every measured row leaving exactly what `done.md` says it leaves (271 MiB for
+breadth at 32k, 423 for the reference).
+
+- **It informs and never blocks.** Nothing takes a `Verdict` as an argument to
+  a download; the window writes a sentence from it, in ink.
+- **The resident model is room.** One model is resident, so a load replaces it,
+  and what it holds is added back (`replacing`), never beyond the card's total.
+  What it holds is **weighed** around its load by `weighed`, the way `done.md`
+  weighed a second slot, and never read off its file: the rig's development
+  model is a 7813 MiB file holding about 5 GiB of the card. The pool does the
+  weighing (`demido_chat::Pool::weigh`), because it already reads the card at
+  every load.
+- **An unpriced context is said, not counted as zero.** Before a download the
+  context is not priced: the geometry a KV cache is sized from is in the file's
+  header, and the pane does not fetch one. `Load::context` is `None`, and the
+  verdict carries `context_priced: false` to the window, which says *before the
+  context*.
+- **Weights of no stated size are `Unpriced`, an unread card is `Unread`.**
+  Neither is a card that is full.
 
 ## Invariants
 
@@ -91,16 +129,26 @@ something does, it is an addition rather than the thing that was missing.
 
 `per_slot` is measured, and nothing in this build measures one yet, so the only
 admission the window can reach today is the default: one slot, which is the
-conversation's own and is never the pool's to refuse. The producer is the fit
-verdict ([#74](https://github.com/elpideus/demido-studio/issues/74)), which
-reads the attention geometry a KV cache is sized from. That is also what will
-answer the one ordering question this crate leaves open: `free_now` is read
-before the weights land, so it is the card as it stands rather than as it will
-stand, and pricing the load whole is what makes a pre-load reading answerable.
+conversation's own and is never the pool's to refuse. The fit verdict
+([#74](https://github.com/elpideus/demido-studio/issues/74)) was expected to
+produce it from the attention geometry, and did not: it prices a file before it
+exists on disk, where there is no header to read the geometry from. So the
+producer is still open, and it is a header reading of the model in force, which
+`demido-models`' `gguf` already parses
+([#105](https://github.com/elpideus/demido-studio/issues/105)). Until it
+lands, parallelism above the default queues with `Unmeasured`, which is the
+honest answer rather than a guess.
+
+What #74 did settle is the ordering question this crate left open: `free_now`
+is read before the weights land, so it is the card as it stands rather than as
+it will stand. Pricing the load whole against that reading, with what the
+resident model was weighed at holding given back, is what makes a pre-load
+reading answerable.
 
 The rig's figures are `docs/rules/done.md`'s, and the tests here use them
-verbatim. That includes both readings of the development model's slot, 563
-derived out of a total and 620 weighed directly: asserting both is how the table
+verbatim, in both tables: the slot's in `lib.rs` and the fit's in `fit.rs`.
+That includes both readings of the development model's slot, 563 derived out
+of a total and 620 weighed directly: asserting both is how the table
 says the rule is about the arithmetic rather than about which reading of one
 slot it was handed.
 

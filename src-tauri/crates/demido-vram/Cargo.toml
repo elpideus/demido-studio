@@ -1,6 +1,6 @@
 [package]
 name = "demido-vram"
-description = "What the card has free, and whether one more slot fits in it."
+description = "What the card has free, whether one more slot fits in it, and whether a model does."
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -22,3 +22,6 @@ workspace = true
 libloading = "0.9"
 serde.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

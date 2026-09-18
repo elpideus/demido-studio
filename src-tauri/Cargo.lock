@@ -798,6 +798,7 @@ dependencies = [
  "demido-shell",
  "demido-tools",
  "demido-trace",
+ "demido-vram",
  "serde",
  "serde_json",
  "tauri",
@@ -845,6 +846,7 @@ version = "0.1.0"
 dependencies = [
  "libloading 0.9.0",
  "serde",
+ "serde_json",
  "tracing",
 ]
 
