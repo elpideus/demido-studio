@@ -218,6 +218,8 @@ pub fn run() -> demido_core::Result<()> {
             chat::chat_send,
             chat::chat_stop,
             chat::chat_decide,
+            models::models_search,
+            models::models_files,
             monitor::monitor_log,
             monitor::monitor_assembly,
             monitor::monitor_agents,

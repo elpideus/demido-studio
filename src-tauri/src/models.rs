@@ -5,17 +5,24 @@
 //! What is here is the one place the two meet, so the wizard's models step,
 //! the settings page and the runtime verification all read the same folders
 //! the same way ([#72](https://github.com/elpideus/demido-studio/issues/72)).
+//!
+//! It is also where the index is asked
+//! ([#70](https://github.com/elpideus/demido-studio/issues/70)). Both commands
+//! answer with a state rather than an `Err`, so a dead connection is something
+//! the browser says beside the installed models rather than a failed query
+//! that takes the pane down with it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+use demido_models::index::{Answer, File, Index, Repo};
 use demido_models::{sources, Folders, Library, Scan};
 use demido_settings::{id, Ladder, Scope, Settings};
 use demido_setup::Store as _;
 
-use crate::wiring::AnswersStore;
+use crate::wiring::{AnswersStore, Wiring};
 
 pub struct Models {
     settings: Arc<Settings>,
@@ -26,6 +33,8 @@ pub struct Models {
     /// a default that writes outside it needs permissions Demido should not
     /// ask for (`docs/rules/profiles.md`).
     default_download: PathBuf,
+    /// What Hugging Face publishes. One per window, so one connection pool.
+    index: Index,
 }
 
 impl Models {
@@ -38,6 +47,7 @@ impl Models {
             settings,
             answers,
             default_download: profile.join("models"),
+            index: Index::default(),
         }
     }
 
@@ -124,6 +134,16 @@ impl Models {
         Ok(())
     }
 
+    /// Repositories publishing GGUF files, most downloaded first.
+    pub async fn search(&self, query: &str) -> Answer<Vec<Repo>> {
+        self.index.search(query).await
+    }
+
+    /// Every `.gguf` in one repository.
+    pub async fn files(&self, repo: &str) -> Answer<Vec<File>> {
+        self.index.files(repo).await
+    }
+
     fn write_scan(&self, folders: &[PathBuf]) -> demido_core::Result<()> {
         let value = Value::from(
             folders
@@ -135,6 +155,24 @@ impl Models {
             .set(&Scope::Global, id::SCAN_FOLDERS, &value)?;
         Ok(())
     }
+}
+
+/// Repositories publishing GGUF files, most downloaded first.
+#[tauri::command]
+pub async fn models_search(
+    wiring: tauri::State<'_, Wiring>,
+    query: String,
+) -> demido_core::Result<Answer<Vec<Repo>>> {
+    Ok(wiring.setup.models.search(&query).await)
+}
+
+/// Every `.gguf` in one repository.
+#[tauri::command]
+pub async fn models_files(
+    wiring: tauri::State<'_, Wiring>,
+    repo: String,
+) -> demido_core::Result<Answer<Vec<File>>> {
+    Ok(wiring.setup.models.files(&repo).await)
 }
 
 #[cfg(test)]
