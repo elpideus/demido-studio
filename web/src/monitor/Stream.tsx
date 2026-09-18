@@ -1,4 +1,4 @@
-import { useMonitor, type Event } from './log'
+import { MAIN, scoped, useMonitor, type Event } from './log'
 import { digest, ICONS, weighed } from './sources'
 import styles from './Stream.module.css'
 
@@ -25,9 +25,19 @@ import styles from './Stream.module.css'
  */
 
 export function Stream() {
-  const events = useMonitor((monitor) => monitor.events)
+  const all = useMonitor((monitor) => monitor.events)
+  const agents = useMonitor((monitor) => monitor.agents)
+  const scope = useMonitor((monitor) => monitor.scope)
   const selected = useMonitor((monitor) => monitor.selected)
   const select = useMonitor((monitor) => monitor.select)
+
+  // Selecting an agent filters the stream to its events
+  // ([#68](https://github.com/elpideus/demido-studio/issues/68)). Unscoped, a
+  // sub-agent's rows stay where they happened in the run and carry its name in
+  // the delegated colour, indented by its depth, so the shape of the chain
+  // reads here the way it reads in the column.
+  const events = scoped(all, scope)
+  const depths = new Map(agents.map((agent) => [agent.agent, agent.depth]))
 
   if (events.length === 0) {
     return (
@@ -48,11 +58,19 @@ export function Stream() {
               type="button"
               className={styles.row}
               data-source={event.source}
+              style={
+                scope === null
+                  ? ({ '--depth': depths.get(event.agent) ?? 0 } as React.CSSProperties)
+                  : undefined
+              }
               aria-current={event.seq === selected ? 'true' : undefined}
               onClick={() => void select(event.seq)}
             >
               <Mark event={event} />
               <span className={styles.kind}>{event.event}</span>
+              <span className={styles.agent}>
+                {scope === null && event.agent !== MAIN ? event.agent : ''}
+              </span>
               <span className={styles.said}>{summary(event)}</span>
               {/* The number alone. The bar beside it is the cost axis, which is
                * not in this slice. */}

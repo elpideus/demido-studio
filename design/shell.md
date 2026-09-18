@@ -86,6 +86,8 @@ width**: the column that is a list of what happened keeps the panel, and the two
 moment of it are not drawn rather than squeezed. The rule the floor exists for is unchanged, and so
 is the number. When the scope column and the float layer land, the form above is what this becomes.
 
+**Amended again on [#68](https://github.com/elpideus/demido-studio/issues/68)**, which landed the scope column. At the floor it **drops to icons**, one per agent, the conversation first and each sub-agent in `--color-violet`, and scoping still works from them: the header's two numbers and the source ledger go with the width. The inspector is still not drawn rather than detached, because there is still no float layer to detach it into.
+
 ### The gesture
 
 There is no pin button. Pinning is a gesture with two forms that end in the same place:

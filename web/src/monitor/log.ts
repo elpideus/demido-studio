@@ -106,8 +106,34 @@ export type Assembly = {
   groups: Grouped[]
 }
 
+/** One agent of the session: the conversation, or a sub-agent and where it
+ * came from. The Rust `Agent`, and what the left column is drawn from. */
+export type Agent = {
+  agent: string
+  /** Zero for the conversation, and the indent for everything below it. */
+  depth: number
+  parent: string | null
+  /** The `tool/call` that opened it, by position. */
+  call: number | null
+  /** Whether it has a request out that nothing has answered yet, which is
+   * what the slot strip counts as a filled slot. What the log says was in
+   * flight at its last line, so it means something only while a turn runs. */
+  generating: boolean
+}
+
+/** The conversation's own agent, which `Main session` names. The Rust
+ * `AgentId::MAIN`. */
+export const MAIN = 'main'
+
 type Monitor = {
   events: Event[]
+  /** The session's agents, the conversation first. */
+  agents: Agent[]
+  /** The agent the stream and the ledger are scoped to, or null for the
+   * unscoped run, which is what `Main session` returns to. */
+  scope: string | null
+  /** Scope the window to one agent, or to nothing. */
+  scopeTo: (agent: string | null) => Promise<void>
   /** The event the inspector is showing, or nothing before the first read. */
   selected: number | null
   /** The assembly at `selected`, or null where there is none: a moment before
@@ -122,28 +148,34 @@ type Monitor = {
 
 export const useMonitor = create<Monitor>((set, get) => ({
   events: [],
+  agents: [],
+  scope: null,
   selected: null,
   assembly: null,
 
   read: async () => {
-    const events = await invoke<Event[]>('monitor_log').catch((error: unknown) => {
-      // The panel opens either way and says it has nothing, which is also what
-      // an empty log looks like. What reaches here is the channel being absent,
-      // which is the frontend running without the window around it.
-      console.warn('the session log could not be read', error)
-      return [] as Event[]
-    })
-    set({ events })
+    // The two questions are asked together so the column and the stream are
+    // drawn from one reading of the log rather than from two moments of it.
+    const [events, agents] = await Promise.all([
+      invoke<Event[]>('monitor_log').catch((error: unknown) => {
+        // The panel opens either way and says it has nothing, which is also
+        // what an empty log looks like. What reaches here is the channel being
+        // absent, which is the frontend running without the window around it.
+        console.warn('the session log could not be read', error)
+        return [] as Event[]
+      }),
+      invoke<Agent[]>('monitor_agents').catch((error: unknown) => {
+        console.warn('the agents of the session could not be read', error)
+        return [] as Agent[]
+      }),
+    ])
+    set({ events, agents })
+    await follow(get)
+  },
 
-    // The monitor opens on the present moment rather than on nothing, and
-    // follows it while a turn runs. A selection somebody made is left alone:
-    // reading the log again must not move the thing they are reading.
-    const selected = get().selected
-    const last = events.at(-1)
-    if (!last) return
-    if (selected === null || !events.some((event) => event.seq === selected)) {
-      await get().select(last.seq)
-    }
+  scopeTo: async (agent) => {
+    set({ scope: agent })
+    await follow(get)
   },
 
   select: async (seq) => {
@@ -159,3 +191,36 @@ export const useMonitor = create<Monitor>((set, get) => ({
     if (get().selected === seq) set({ assembly })
   },
 }))
+
+/**
+ * The events a scope shows: every event for the unscoped run, and one agent's
+ * own for an agent.
+ *
+ * **A filter over one stream**, never a second stream
+ * (`docs/decisions/0013-a-sub-agent-is-a-scope-on-one-log.md`). The
+ * `agent/delegated` line that opened a sub-agent is its parent's, because what
+ * happened in the parent's stream is that it delegated, so scoping to the child
+ * starts at the child's own first line.
+ */
+export function scoped(events: Event[], scope: string | null): Event[] {
+  return scope === null ? events : events.filter((event) => event.agent === scope)
+}
+
+/**
+ * Keep the inspector on something the scope shows.
+ *
+ * The monitor opens on the present moment rather than on nothing, and follows
+ * it while a turn runs. A selection somebody made is left alone while it is
+ * still in view: reading the log again must not move the thing they are
+ * reading. A selection the scope has just hidden moves to the scope's latest
+ * event, so the inspector never explains a row that is not on screen.
+ */
+async function follow(get: () => Monitor) {
+  const { events, scope, selected, select } = get()
+  const shown = scoped(events, scope)
+  const last = shown.at(-1)
+  if (!last) return
+  if (selected === null || !shown.some((event) => event.seq === selected)) {
+    await select(last.seq)
+  }
+}

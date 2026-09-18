@@ -15,6 +15,8 @@
 
 use serde::Serialize;
 
+use demido_vram::Queued;
+
 /// What the desk can say about the model right now.
 ///
 /// Serialised tagged, so the window branches on `state` and reads the fields
@@ -36,7 +38,18 @@ pub enum Presence {
     /// parallelism the card could not honour degrades to a queue, and a window
     /// that drew the preference would be promising a sub-agent that is never
     /// going to start.
-    Ready { model: String, slots: u32 },
+    ///
+    /// `limit` is why fewer opened than `tools.parallel_agents` asked for, or
+    /// nothing when every slot asked for opened. It is the **card's** limit and
+    /// never the person's preference, and the monitor draws the two apart
+    /// ([#68](https://github.com/elpideus/demido-studio/issues/68)): a number
+    /// the person set and a number the card allowed are different sentences,
+    /// and only one of them is something the person can change by typing.
+    Ready {
+        model: String,
+        slots: u32,
+        limit: Option<Queued>,
+    },
     /// It did not start, or it died. The desk stays usable: startup never
     /// blocks and a subsystem that fails is reported and skipped (`AGENTS.md`).
     Failed { detail: String },
@@ -74,6 +87,7 @@ mod tests {
         assert!(Presence::Ready {
             model: "tiny".into(),
             slots: 1,
+            limit: None,
         }
         .is_ready());
         assert!(!Presence::Loading {
@@ -112,10 +126,33 @@ mod tests {
         let value = serde_json::to_value(Presence::Ready {
             model: "gemma".into(),
             slots: 2,
+            limit: None,
         })
         .expect("a value");
         assert_eq!(value["state"], serde_json::json!("ready"));
         assert_eq!(value["slots"], serde_json::json!(2));
+        assert_eq!(value["limit"], serde_json::Value::Null);
+    }
+
+    /// A card that held fewer slots than were asked for says why, with its
+    /// numbers, so the monitor can draw a limit that is the card's beside the
+    /// preference that is the person's
+    /// ([#68](https://github.com/elpideus/demido-studio/issues/68)).
+    #[test]
+    fn a_ready_model_held_back_by_the_card_says_why() {
+        let value = serde_json::to_value(Presence::Ready {
+            model: "gemma".into(),
+            slots: 1,
+            limit: Some(demido_vram::Queued::NoRoom {
+                free: 423,
+                needed: 1129,
+            }),
+        })
+        .expect("a value");
+        assert_eq!(
+            value["limit"],
+            serde_json::json!({ "queued": "no-room", "free": 423, "needed": 1129 })
+        );
     }
 
     /// A failure keeps the backend's own sentence. It is the difference between

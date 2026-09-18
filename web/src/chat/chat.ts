@@ -102,9 +102,14 @@ export type Presence =
   /** `slots` is what the backend actually opened, never what
    * `tools.parallel_agents` asked for: a parallelism the card cannot hold
    * degrades to a queue, and drawing the preference would promise a sub-agent
-   * that is never going to start. */
-  | { state: 'ready'; model: string; slots: number }
+   * that is never going to start. `limit` is why fewer opened than were asked
+   * for: the card's limit, never the person's preference. */
+  | { state: 'ready'; model: string; slots: number; limit: Limit | null }
   | { state: 'failed'; detail: string }
+
+/** Why the card opened fewer slots than `tools.parallel_agents` asked for.
+ * The Rust `demido_vram::Queued`, with its numbers in bytes. */
+export type Limit = { queued: 'no-room'; free: number; needed: number } | { queued: 'unmeasured' }
 
 /** What a model that is still on its way says, in the one wording.
  *

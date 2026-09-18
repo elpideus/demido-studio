@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { useChat } from '@/chat/chat'
 import { useDesk } from '@/shell/desk'
 import { Assembled, Detail } from './Inspector'
+import { Scope } from './Scope'
 import { Stream } from './Stream'
 import { useMonitor } from './log'
 import styles from './Monitor.module.css'
@@ -22,12 +23,14 @@ import styles from './Monitor.module.css'
  * read against is the conversation that produced it, and a float that covered
  * the transcript would hide the thing being explained.
  *
- * Three of the nine components `design/system.md` lists under Session monitor
- * are here, and the rest are deferred by
- * [#57](https://github.com/elpideus/demido-studio/issues/57) rather than
- * forgotten: the lanes, the token weight bars, the occupancy header, the source
- * ledger and the agent scope are each a projection of data this log already
- * carries, so the screens can arrive without the record changing shape.
+ * Six of the nine components `design/system.md` lists under Session monitor
+ * are here: the stream, the assembly and the detail pane from
+ * [#57](https://github.com/elpideus/demido-studio/issues/57), and the agent
+ * scope, the slot strip and the source ledger from
+ * [#68](https://github.com/elpideus/demido-studio/issues/68). The rest are
+ * deferred rather than forgotten: the lanes, the token weight bars and the
+ * occupancy header are each a projection of data this log already carries, so
+ * the screens can arrive without the record changing shape.
  *
  * **Escape does not close it**, unlike the settings window. A pinned panel is
  * part of the layout rather than something over it, and Escape at panel scope
@@ -50,10 +53,13 @@ export function Monitor() {
   // one listener on that channel, and keeps this panel a reader of the log
   // rather than a second thing assembling a session from events.
   const transcript = useChat((chat) => chat.transcript)
+  // And when a turn starts or ends, which is what the slot strip counts
+  // against: a request out on the log is a filled slot only while a turn runs.
+  const running = useChat((chat) => chat.running)
 
   useEffect(() => {
     void read()
-  }, [read, transcript])
+  }, [read, transcript, running])
 
   const panel = useRef<HTMLElement>(null)
   const reduced = useReduced(panel)
@@ -82,10 +88,17 @@ export function Monitor() {
         </header>
 
         <div className={styles.columns}>
+          {/* The agent scope ([#68](https://github.com/elpideus/demido-studio/issues/68)),
+           * which replaced a Sub-agents window: at the floor it drops to icons
+           * rather than going, because scoping is how a sub-agent is read at
+           * all and a reduced form without it would hide delegation exactly
+           * where the window is smallest. */}
+          <Scope reduced={reduced} />
           <Stream />
           {/* The reduced form, stated as `design/shell.md` requires a panel
-           * with a floor to state one: at 210px the stream keeps the whole
-           * panel and the inspector is not drawn. Three columns squeezed into
+           * with a floor to state one: at 210px the scope column is icons, the
+           * stream keeps the rest of the panel and the inspector is not drawn,
+           * because there is no float layer yet to detach it into. Three columns squeezed into
            * the height of two rows is the failure that rule exists to prevent,
            * and it keeps every element by making all of them unreadable. */}
           {!reduced && (

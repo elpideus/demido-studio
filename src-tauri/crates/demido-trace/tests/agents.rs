@@ -482,6 +482,64 @@ fn the_agents_are_the_monitors_left_column() {
     assert_eq!(agents[2].parent.as_ref(), Some(one.agent()));
 }
 
+/// What the slot strip counts: an agent is generating from the moment its
+/// request is sent until an answer or a failure comes back
+/// ([#68](https://github.com/elpideus/demido-studio/issues/68)). A parent
+/// waiting on a child it blocked for is not generating, because it holds no
+/// slot while it waits, which is why this is read off each agent's own requests
+/// rather than off which agents are open.
+#[test]
+fn an_agent_generates_between_a_request_and_its_answer() {
+    let journal = Memory::new();
+    let session = Session::new("generating", journal.clone());
+    let seq = exchange(&session, "delegate this", "");
+    let call = session
+        .called(
+            1,
+            seq,
+            &ToolCall {
+                id: "call-1".into(),
+                name: "delegate_task".into(),
+                arguments: "{}".into(),
+            },
+        )
+        .unwrap();
+    let child = session.delegate(1, call).unwrap();
+
+    let generating = |journal: &Memory| -> Vec<(AgentId, bool)> {
+        Replay::of(journal)
+            .unwrap()
+            .agents()
+            .into_iter()
+            .map(|agent| (agent.agent, agent.generating))
+            .collect()
+    };
+    assert_eq!(
+        generating(&journal),
+        vec![(AgentId::main(), false), (child.agent().clone(), false)],
+        "the parent's answer asked for a call and came back, and the child has sent nothing"
+    );
+
+    let mut turn = child.begin();
+    turn.parameters("a-model", Options::default()).unwrap();
+    turn.user("summarise the tree").unwrap();
+    turn.send().unwrap();
+    assert_eq!(
+        generating(&journal),
+        vec![(AgentId::main(), false), (child.agent().clone(), true)],
+        "a request sent and not answered is a slot in use, and it is the child's"
+    );
+
+    child
+        .failed(1, "stopped", "the person pressed Stop")
+        .unwrap();
+    assert_eq!(
+        generating(&journal),
+        vec![(AgentId::main(), false), (child.agent().clone(), false)],
+        "a failure ends a generation the way an answer does"
+    );
+}
+
 #[test]
 fn a_session_resumes_over_its_own_events_and_not_its_childrens() {
     // Both halves of what `resume` restores are per agent. A parent that took
