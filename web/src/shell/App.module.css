@@ -3,10 +3,18 @@
  * docs/rules/surfaces.md and the numbers are design/tokens.css.
  */
 
+/* The window: its title bar, then everything else. */
+.frame {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Flex rather than a grid with named columns, because the rail moving edges is
  * then one property instead of two templates that have to stay opposites. */
 .shell {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: row;
 }

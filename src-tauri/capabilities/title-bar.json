@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "title-bar",
+  "description": "The desk draws its own title bar, because the download indicator lives in it (design/shell.md), so the desk moves, minimises, maximises and closes its own window. The desk only: the splash has no bar and is not asked to.",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close"
+  ]
+}

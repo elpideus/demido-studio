@@ -14,6 +14,7 @@ import {
   type RuntimeRow,
   type Vendor,
 } from './setup'
+import { size } from '@/shell/bytes'
 import styles from './Controls.module.css'
 
 /**
@@ -499,12 +500,6 @@ function damage(damage: Damage): string {
     case 'unreadable':
       return `which could not be read: ${damage.reason}`
   }
-}
-
-/** Bytes as a person reads a model's size. */
-function size(bytes: number): string {
-  const gib = bytes / (1024 * 1024 * 1024)
-  return gib >= 1 ? `${gib.toFixed(1)} GiB` : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 /** What detection saw, in this application's own words. */

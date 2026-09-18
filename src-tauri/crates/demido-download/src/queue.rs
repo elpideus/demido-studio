@@ -20,6 +20,7 @@
 //! to read.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -75,6 +76,9 @@ pub struct Row {
     pub id: Id,
     pub repo: String,
     pub name: String,
+    /// The file a backend is handed once the item is done: the first piece of
+    /// the weights. The window offers a finished row as this model.
+    pub path: PathBuf,
     /// Bytes on disk, in bytes against [`Row::total`].
     pub received: u64,
     /// What the item costs, as the index stated it.
@@ -146,6 +150,11 @@ impl Job {
             id,
             repo: self.item.repo.clone(),
             name: self.item.name.clone(),
+            path: self
+                .item
+                .target()
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
             received: self.received,
             total: self.item.bytes(),
             state: self.state.clone(),

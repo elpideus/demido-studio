@@ -1,0 +1,66 @@
+/*
+ * The application title bar. A bar rather than a surface, so it is `chrome`
+ * (docs/rules/surfaces.md), and its states are design/system.md's. Every
+ * number is a token from design/tokens.css.
+ */
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  padding: var(--space-tight) var(--space-tight) var(--space-tight) var(--space-room);
+  background: var(--color-chrome);
+  user-select: none;
+}
+
+.title {
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  white-space: nowrap;
+}
+
+.bar[data-focused='true'] .title {
+  color: var(--color-ink-2);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+.control {
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background-color var(--duration-tap) var(--ease-mech);
+}
+
+.control:hover {
+  background: var(--color-hover);
+}
+
+.control:active {
+  background: var(--color-active);
+}
+
+/* Close says what it does under the pointer, in the error colour, the one
+ * control on the bar that ends something. */
+.control[data-close]:hover {
+  color: var(--color-rose);
+}
+
+.icon {
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}

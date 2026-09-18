@@ -1,0 +1,70 @@
+/*
+ * The download indicator. A title bar button, so `ink-3` at rest with `hover`
+ * and `active` under the pointer (design/system.md, "Application title bar").
+ * Every number is a token from design/tokens.css.
+ */
+
+.bay {
+  position: relative;
+  display: flex;
+}
+
+.indicator {
+  height: var(--size-control);
+  min-width: var(--size-control);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-tight);
+  padding: 0 var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color var(--duration-tap) var(--ease-mech);
+}
+
+.indicator:hover {
+  background: var(--color-hover);
+}
+
+.indicator:active,
+.indicator[aria-expanded='true'] {
+  background: var(--color-active);
+}
+
+.indicator[data-state='active'] {
+  color: var(--color-signal);
+}
+
+.indicator[data-state='failed'] {
+  color: var(--color-rose);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+/* The bytes in the silkscreen voice, which is how the system sets a size. */
+.words {
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  line-height: var(--leading-flush);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Beneath the indicator, its right edge on the indicator's, so it opens into
+ * the window rather than off the side of it. */
+.popover {
+  position: absolute;
+  top: calc(100% + var(--space-control));
+  right: 0;
+  z-index: 1;
+}
