@@ -58,6 +58,11 @@ export function Control({ row, onChange }: Change) {
       // A set is the tool picker's, and the popover is its whole surface
       // (`docs/rules/tools.md`). A settings page is handed none to draw.
       return null
+    case 'folder':
+    case 'folders':
+      // The model folders are the Set-up page's folder control, which moves
+      // the two together (#72). A page is handed none to draw.
+      return null
   }
 }
 

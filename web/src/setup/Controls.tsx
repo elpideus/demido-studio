@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Check, FolderPlus, HardDrive, Link2, Plus, X } from 'lucide-react'
+import { Check, FolderOpen, FolderPlus, HardDrive, Link2, Pencil, Plus, X } from 'lucide-react'
 
 import {
   useSetup,
   type Availability,
   type Ecosystem,
+  type Damage,
+  type Damaged,
   type ManifestGroup,
   type Model,
   type Reason,
@@ -275,38 +277,99 @@ function RuntimeRowControl({ row }: { row: RuntimeRow }) {
 }
 
 /**
- * The model folder, pre-filled from a readable folder already on the machine.
+ * Where models live: Demido's own download folder, and the folders read for
+ * models other tools already fetched.
  *
- * Section 7's first escape and the brief's own mechanism, so a person with
- * models from LM Studio moves no files and makes no symlinks. A folder is
- * confirmed, never adopted: what is offered here is what was found, and
- * nothing is read from a folder nobody said yes to.
+ * Brief B55, and since #72 both are settings on the ladder rather than wizard
+ * answers, so this one control is what the wizard's models step and the
+ * settings page draw. The scan folders are seeded by detection: a person with
+ * models from LM Studio moves no files and makes no symlinks, and a folder they
+ * remove is offered back rather than put back.
  */
 export function ModelFolderControl() {
   const view = useSetup((setup) => setup.view)
   const add = useSetup((setup) => setup.addFolder)
   const remove = useSetup((setup) => setup.removeFolder)
+  const downloadTo = useSetup((setup) => setup.downloadTo)
   const [typed, setTyped] = useState('')
+  const [moving, setMoving] = useState<string | null>(null)
   if (!view) return null
-  const { folders, suggested, models } = view.models
+  const { download, spent, folders, suggested, models } = view.models
+  const held = (folder: string) => models.filter((model) => model.folder === folder).length
+  const move = (to: string) => void downloadTo(to).then(() => setMoving(null))
 
   return (
     <div className={styles.control}>
       <div className={styles.rows}>
-        {folders.map((folder) => {
-          const held = models.filter((model) => model.folder === folder).length
+        <p className={styles.detected}>Downloads land in:</p>
+        <div className={styles.folder}>
+          <HardDrive className={styles.icon} strokeWidth={1.8} aria-hidden />
+          <span className={styles.folderPath}>{download}</span>
+          <span className={styles.folderCount}>{size(spent)} spent here</span>
+          {moving === null && (
+            <button
+              type="button"
+              className={styles.remove}
+              aria-label="Move the download folder"
+              onClick={() => setMoving('')}
+            >
+              <Pencil className={styles.icon} strokeWidth={1.8} aria-hidden />
+            </button>
+          )}
+        </div>
+        {moving !== null && (
+          <>
+            <div className={styles.point}>
+              <input
+                type="text"
+                className={styles.path}
+                value={moving}
+                placeholder="A folder for new downloads"
+                aria-label="A folder for new downloads"
+                autoFocus
+                onChange={(event) => setMoving(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && moving.trim() !== '') move(moving.trim())
+                  if (event.key === 'Escape') setMoving(null)
+                }}
+              />
+              <button
+                type="button"
+                className={styles.action}
+                disabled={moving.trim() === ''}
+                onClick={() => move(moving.trim())}
+              >
+                Move
+              </button>
+              <button type="button" className={styles.quiet} onClick={() => setMoving(null)}>
+                Cancel
+              </button>
+            </div>
+            <p className={styles.detected}>
+              Nothing is moved. The models already downloaded stay where they are, and that folder
+              is still read.
+            </p>
+          </>
+        )}
+      </div>
+      <div className={styles.rows}>
+        <p className={styles.detected}>Also read, never written to:</p>
+        {folders.map(({ path, library }) => {
+          const count = held(path)
           return (
-            <div key={folder} className={styles.folder}>
-              <HardDrive className={styles.icon} strokeWidth={1.8} aria-hidden />
-              <span className={styles.folderPath}>{folder}</span>
+            <div key={path} className={styles.folder}>
+              <FolderOpen className={styles.icon} strokeWidth={1.8} aria-hidden />
+              <span className={styles.folderPath}>
+                {library === path ? path : `${library}, ${path}`}
+              </span>
               <span className={styles.folderCount}>
-                {held === 0 ? 'nothing readable' : `${held} model${held === 1 ? '' : 's'}`}
+                {count === 0 ? 'nothing readable' : `${count} model${count === 1 ? '' : 's'}`}
               </span>
               <button
                 type="button"
                 className={styles.remove}
-                aria-label={`Stop reading models from ${folder}`}
-                onClick={() => void remove(folder)}
+                aria-label={`Stop reading models from ${path}`}
+                onClick={() => void remove(path)}
               >
                 <X className={styles.icon} strokeWidth={1.8} aria-hidden />
               </button>
@@ -314,7 +377,7 @@ export function ModelFolderControl() {
           )
         })}
         {folders.length === 0 && (
-          <p className={styles.detected}>No folder is being read for models yet.</p>
+          <p className={styles.detected}>No other folder is being read for models.</p>
         )}
       </div>
       {suggested.length > 0 && (
@@ -365,49 +428,83 @@ export function ModelFolderControl() {
  * Which model answers.
  *
  * The same list the composer will be talking to, because the wizard's last
- * step and the composer are told by one place (`demido_setup::target`).
+ * step and the composer are told by one place (`demido_setup::target`). Every
+ * model here was verified before it was offered: a file cut short is listed
+ * under the models with what is wrong with it, and is not a choice.
  */
 export function ModelControl() {
   const view = useSetup((setup) => setup.view)
   const choose = useSetup((setup) => setup.chooseModel)
   if (!view) return null
-  const { models, chosen } = view.models
-
-  if (models.length === 0) {
-    return (
-      <p className={styles.detected}>
-        No model was read out of those folders. Add a folder that holds a GGUF file, or download one
-        into one of them.
-      </p>
-    )
-  }
+  const { models, damaged, chosen } = view.models
 
   return (
-    <div className={styles.rows} role="radiogroup" aria-label="Model">
-      {models.map((model: Model) => (
-        <button
-          key={model.path}
-          type="button"
-          role="radio"
-          aria-checked={model.path === chosen}
-          className={styles.option}
-          data-chosen={model.path === chosen}
-          data-offered
-          onClick={() => void choose(model.path)}
-        >
-          <span className={styles.optionName}>
-            {model.name}
-            {model.path === chosen && (
-              <Check className={styles.icon} strokeWidth={1.8} aria-hidden />
-            )}
-          </span>
-          <span className={styles.optionWhy}>
-            {mib(model.sizeMib)} in {model.folder}
-          </span>
-        </button>
+    <div className={styles.rows}>
+      {models.length === 0 ? (
+        <p className={styles.detected}>
+          No model was read out of those folders. Add a folder that holds a GGUF file, or download
+          one into one of them.
+        </p>
+      ) : (
+        <div className={styles.rows} role="radiogroup" aria-label="Model">
+          {models.map((model: Model) => (
+            <button
+              key={model.path}
+              type="button"
+              role="radio"
+              aria-checked={model.path === chosen}
+              className={styles.option}
+              data-chosen={model.path === chosen}
+              data-offered
+              onClick={() => void choose(model.path)}
+            >
+              <span className={styles.optionName}>
+                {model.label}
+                {model.path === chosen && (
+                  <Check className={styles.icon} strokeWidth={1.8} aria-hidden />
+                )}
+              </span>
+              <span className={styles.optionWhy}>
+                {size(model.bytes)},{' '}
+                {model.borrowed ? `borrowed from ${model.library}` : 'downloaded by Demido'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {damaged.map((file: Damaged) => (
+        <p key={file.path} className={styles.detected}>
+          Not offered: {file.path}, {damage(file.damage)}.
+        </p>
       ))}
     </div>
   )
+}
+
+/** Why a file is not offered, in this application's own words. */
+function damage(damage: Damage): string {
+  switch (damage.kind) {
+    case 'not-gguf':
+      return 'which is not a GGUF file'
+    case 'unsupported':
+      return `which is GGUF version ${damage.version}, a version this build does not read`
+    case 'malformed':
+      return `whose header is malformed: ${damage.reason}`
+    case 'truncated':
+      return damage.needs === null
+        ? `which is cut short inside its header at ${size(damage.has)}`
+        : `which is cut short: ${size(damage.has)} of ${size(damage.needs)}`
+    case 'missing-piece':
+      return `whose piece ${damage.index} of ${damage.total} is missing`
+    case 'unreadable':
+      return `which could not be read: ${damage.reason}`
+  }
+}
+
+/** Bytes as a person reads a model's size. */
+function size(bytes: number): string {
+  const gib = bytes / (1024 * 1024 * 1024)
+  return gib >= 1 ? `${gib.toFixed(1)} GiB` : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 /** What detection saw, in this application's own words. */

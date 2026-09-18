@@ -179,6 +179,10 @@ export function ChatSettings({ close }: { close: () => void }) {
  * rather than drawing a second control for it, and the main window keeps it as
  * the default every new chat opens with.
  *
+ * The model folders are one answer per profile (#72), drawn by the Set-up
+ * page's folder control, which moves the scan folders with the download folder
+ * so that nothing downloaded goes unread.
+ *
  * *Always for this tool* is written by the approval row in the transcript and
  * drawn by nothing (#55). It is a record of answers somebody gave about calls
  * they were shown, and a settings page offering to edit it would be a page
@@ -186,6 +190,9 @@ export function ChatSettings({ close }: { close: () => void }) {
  * work the Lessons page's shape will do, not a set field.
  */
 function drawnOn(tier: Tier, row: Row): boolean {
+  // Where a profile keeps its models is the Set-up page's folder control, and
+  // no chat can override it.
+  if (row.setting.profile) return false
   if (row.setting.id === OFFERED || row.setting.id === ALWAYS) return false
   if (row.setting.id === MODE) return tier === 'global'
   return true
