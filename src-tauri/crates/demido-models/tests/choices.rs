@@ -295,3 +295,51 @@ fn a_choice_crosses_to_the_window_as_these_keys() {
     assert_eq!(keys, ["bytes", "name", "pieces", "projector", "quant"]);
     assert_eq!(value["quant"]["label"], "Q4_K_M");
 }
+
+/// A projector in another quantisation's directory is that directory's; one
+/// at the top of the repository is everybody's.
+#[test]
+fn a_projector_is_read_beside_the_weights_or_at_the_top() {
+    let listed = br#"[
+        {"type":"file","path":"mmproj-F16.gguf","size":16},
+        {"type":"file","path":"Q8_0/mmproj-BF16.gguf","size":15},
+        {"type":"file","path":"Q8_0/Model-Q8_0.gguf","size":8},
+        {"type":"file","path":"Q4_K_M/Model-Q4_K_M.gguf","size":4}
+    ]"#;
+    let choices = choices(index::parse_files(listed).expect("parses"));
+    let projector = |label: &str| {
+        choices
+            .iter()
+            .find(|choice| {
+                choice
+                    .quant
+                    .as_ref()
+                    .is_some_and(|quant| quant.label == label)
+            })
+            .and_then(|choice| choice.projector.as_ref())
+            .map(|file| file.path.as_str())
+    };
+    assert_eq!(projector("Q8_0"), Some("mmproj-F16.gguf"));
+    assert_eq!(projector("Q4_K_M"), Some("mmproj-F16.gguf"));
+
+    let nested = br#"[
+        {"type":"file","path":"Q8_0/mmproj-F16.gguf","size":16},
+        {"type":"file","path":"Q4_K_M/Model-Q4_K_M.gguf","size":4}
+    ]"#;
+    let choices = demido_models::choices(index::parse_files(nested).expect("parses"));
+    assert_eq!(choices[0].projector, None, "not in its directory");
+}
+
+/// Hugging Face paths are case sensitive, so two spellings are two files and
+/// neither is lost.
+#[test]
+fn two_files_differing_in_case_are_two_choices() {
+    let listed = br#"[
+        {"type":"file","path":"model-Q4_K_M.gguf","size":4},
+        {"type":"file","path":"Model-Q4_K_M.gguf","size":5}
+    ]"#;
+    assert_eq!(
+        choices(index::parse_files(listed).expect("parses")).len(),
+        2
+    );
+}

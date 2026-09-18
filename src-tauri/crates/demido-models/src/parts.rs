@@ -162,6 +162,18 @@ pub fn shard_of(stem: &str) -> (&str, Option<Shard>) {
     }
 }
 
+/// The last segment of a repository path: `Q4_K_M/model.gguf` is
+/// `model.gguf`.
+pub fn filename_in(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// A repository path's filename without its extension.
+pub fn stem_in(path: &str) -> &str {
+    let name = filename_in(path);
+    name.rsplit_once('.').map_or(name, |(stem, _)| stem)
+}
+
 /// A path's filename without its extension.
 pub fn stem_of(path: &Path) -> &str {
     path.file_stem()

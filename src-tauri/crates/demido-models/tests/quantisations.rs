@@ -108,6 +108,7 @@ fn an_unpublished_label_keeps_its_spelling_and_has_no_number() {
         ("Qwen3-0.6B-UD-Q8_K_XL.gguf", "UD-Q8_K_XL"),
         ("gpt-oss-120b-UD-Q4_K_XL-00001-of-00002.gguf", "UD-Q4_K_XL"),
         ("Qwen3-0.6B-Q2_K_L.gguf", "Q2_K_L"),
+        ("Model.UD-Q4_K_XL.gguf", "UD-Q4_K_XL"),
         ("gpt-oss-20b-MXFP4.gguf", "MXFP4"),
         ("model-q9_k_ultra.gguf", "q9_k_ultra"),
     ] {

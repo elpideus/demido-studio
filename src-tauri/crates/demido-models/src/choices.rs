@@ -22,11 +22,12 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::index::File;
-use crate::parts::{belongs_to, part_of, shard_of, Part};
+use crate::parts::{belongs_to, filename_in as filename, part_of, shard_of, stem_in as stem, Part};
 use crate::quant::Quant;
 
 /// One thing a person can choose to download from a repository.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Choice {
     /// The filename without its directory, extension or split suffix: what
     /// the file is called, and what the window shows when there is no label.
@@ -44,9 +45,15 @@ pub struct Choice {
     pub bytes: u64,
 }
 
-/// One model's key: its directory and name, lowercased, and how many pieces
-/// it says it has.
-type Model = (String, Option<u32>);
+/// Which model a weights file is a piece of: its path without the split
+/// suffix, as the repository spells it (Hugging Face paths are case
+/// sensitive, so two spellings are two files), and how many pieces it says it
+/// has.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Model {
+    path: String,
+    total: Option<u32>,
+}
 
 /// A repository's files, read into what a person can choose, most faithful
 /// first.
@@ -65,11 +72,10 @@ pub fn choices(files: Vec<File>) -> Vec<Choice> {
                 let (name, shard) = shard_of(stem(&file.path));
                 // The directory is part of the key: `Q4_K_M/model` and
                 // `Q8_0/model` are different models whatever they are named.
-                let directory = file.path.rsplit_once('/').map_or("", |(dir, _)| dir);
-                let key = (
-                    format!("{directory}/{name}").to_lowercase(),
-                    shard.map(|shard| shard.total),
-                );
+                let key = Model {
+                    path: format!("{}/{name}", directory(&file.path)),
+                    total: shard.map(|shard| shard.total),
+                };
                 let index = shard.map_or(1, |shard| shard.index);
                 models.entry(key).or_default().push((index, file));
             }
@@ -78,7 +84,7 @@ pub fn choices(files: Vec<File>) -> Vec<Choice> {
 
     let mut choices: Vec<Choice> = models
         .into_iter()
-        .filter_map(|((_, total), mut pieces)| {
+        .filter_map(|(Model { total, .. }, mut pieces)| {
             pieces.sort_by_key(|(index, _)| *index);
             let whole = pieces
                 .iter()
@@ -106,8 +112,15 @@ fn choice(pieces: Vec<File>, projectors: &[File]) -> Choice {
     let quant = Quant::parse(filename(first));
 
     let weights = name.to_lowercase();
+    let beside = directory(first);
     let projector = projectors
         .iter()
+        // Beside the weights, or at the top of the repository, which is where
+        // a projector shared by quantisations in subdirectories sits.
+        .filter(|projector| {
+            let at = directory(&projector.path);
+            at == beside || at.is_empty()
+        })
         .filter(|projector| belongs_to(filename(&projector.path), &weights))
         .min_by_key(|projector| (preference(projector), projector.path.as_str()))
         .cloned();
@@ -131,20 +144,15 @@ fn choice(pieces: Vec<File>, projectors: &[File]) -> Choice {
 /// `F32`, then anything else. Three precisions of one projector are one
 /// projector a person needs, not three downloads.
 fn preference(projector: &File) -> usize {
+    const ORDER: [&str; 3] = ["F16", "BF16", "F32"];
     let label = Quant::parse(filename(&projector.path)).map(|quant| quant.label);
-    ["F16", "BF16", "F32"]
+    ORDER
         .iter()
         .position(|precision| label.as_deref() == Some(*precision))
-        .unwrap_or(3)
+        .unwrap_or(ORDER.len())
 }
 
-/// The last segment of a repository path.
-fn filename(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
-}
-
-/// The filename without its extension.
-fn stem(path: &str) -> &str {
-    let name = filename(path);
-    name.rsplit_once('.').map_or(name, |(stem, _)| stem)
+/// A repository path's directory, empty at the top.
+fn directory(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(directory, _)| directory)
 }

@@ -20,14 +20,15 @@ use std::cmp::Ordering;
 
 use serde::Serialize;
 
-use crate::parts::shard_of;
+use crate::parts::{shard_of, stem_in};
 
 /// A quantisation, as a filename names it.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Quant {
-    /// Upstream's spelling for a label llama.cpp publishes (`Q4_K_M`, whatever
-    /// case the file used), and the file's own spelling, exactly, for one it
-    /// does not (`UD-Q4_K_XL`).
+    /// Upstream's spelling for a label llama.cpp publishes (`Q4_K_M`, even
+    /// from a file that wrote `q4_k_m`), and the file's own spelling, exactly,
+    /// for one it does not (`UD-Q4_K_XL`).
     pub label: String,
     /// Bits per weight, as llama.cpp publishes it. `None` for a label nobody
     /// has published a number for, which the window shows with no number
@@ -106,14 +107,7 @@ impl Quant {
     /// can hold what looks like a label (`Q8-Coder-7B-Q4_K_M`) and only the
     /// last one is the answer. A directory in front is ignored.
     pub fn parse(filename: &str) -> Option<Quant> {
-        let name = filename.rsplit('/').next().unwrap_or(filename);
-        let stem = match name.len().checked_sub(".gguf".len()) {
-            Some(at) if name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".gguf") => {
-                &name[..at]
-            }
-            _ => name,
-        };
-        let (stem, _) = shard_of(stem);
+        let (stem, _) = shard_of(stem_in(filename));
 
         let (head, tail) = match stem.rfind(['-', '.']) {
             Some(at) => (&stem[..at], &stem[at + 1..]),
@@ -125,7 +119,7 @@ impl Quant {
         }
 
         // A recipe word in front makes the whole thing the publisher's label.
-        let recipe = head.rsplit('-').next().unwrap_or_default();
+        let recipe = head.rsplit(['-', '.']).next().unwrap_or_default();
         if RECIPES.iter().any(|word| recipe.eq_ignore_ascii_case(word)) {
             let at = head.len() - recipe.len();
             return Some(Quant {
