@@ -82,6 +82,14 @@ impl Tier {
     pub fn path(self) -> PathBuf {
         models_root().join(self.file())
     }
+
+    /// The repository this tier's weights were published in, `publisher/model`,
+    /// which is where S3's suite fetches a fresh copy of it from.
+    pub fn repo(self) -> &'static str {
+        let file = self.file();
+        let (repo, _) = file.rsplit_once('/').expect("a publisher and a model");
+        repo
+    }
 }
 
 /// `llama-server`, at the pinned build.
@@ -113,14 +121,6 @@ pub fn models_root() -> PathBuf {
 
 /// Refuse to run rather than pass on a machine with no rig.
 pub fn require(tier: Tier) -> LlamaCppConfig {
-    let binary = binary();
-    assert!(
-        binary.exists(),
-        "no llama-server at {}. The live suite needs the pinned build (b10816, \
-         427291b5). Point DEMIDO_LLAMA_BIN at it.",
-        binary.display()
-    );
-
     let model = tier.path();
     assert!(
         model.exists(),
@@ -129,6 +129,20 @@ pub fn require(tier: Tier) -> LlamaCppConfig {
         model.display()
     );
 
+    configured(model, tier)
+}
+
+/// What the rig starts `model` with, answering as `tier`. The same flags for a
+/// model on the rig and for one S3's suite fetched a minute ago, so the only
+/// thing that differs between the two is where the weights came from.
+pub fn configured(model: PathBuf, tier: Tier) -> LlamaCppConfig {
+    let binary = binary();
+    assert!(
+        binary.exists(),
+        "no llama-server at {}. The live suite needs the pinned build (b10816, \
+         427291b5). Point DEMIDO_LLAMA_BIN at it.",
+        binary.display()
+    );
     let mut config = LlamaCppConfig::new(binary, model);
     config.alias = tier.label().to_owned();
     // Every layer on the card, or fail loudly. The point of the rig is to find

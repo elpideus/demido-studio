@@ -172,6 +172,63 @@ fn the_committed_trace_of_an_edited_tool_rebuilds_each_turn_in_its_own_wording()
     );
 }
 
+/// S3's fixture: a model the queue fetched in the same run, reading a planted
+/// file it was not told how to read, from
+/// `a_fetched_model::the_log_of_a_fetched_model_s_tool_call_rebuilds_and_is_kept`.
+///
+/// The closing run of v0.1, read back by a different process: every request
+/// rebuilds as it was sent, a tool was offered and called, and the seal only
+/// the file held reached the model as that call's result.
+#[test]
+fn the_committed_trace_of_a_fetched_model_rebuilds_the_call_it_chose() {
+    let replay =
+        Replay::over(JsonLines::read(fixture("a-fetched-model.jsonl")).expect("read the fixture"));
+    let sent: Vec<Request> = serde_json::from_str(
+        &std::fs::read_to_string(fixture("a-fetched-model.sent.json"))
+            .expect("the requests beside it"),
+    )
+    .expect("the requests");
+
+    let assemblies: Vec<u64> = replay
+        .events()
+        .iter()
+        .filter(|event| matches!(event.body, Body::Assembly { .. }))
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(assemblies.len(), sent.len());
+    assert!(sent.len() > 1, "the committed turn called nothing");
+    for (seq, request) in assemblies.iter().zip(&sent) {
+        let rebuilt = replay.request(*seq).expect("rebuilt");
+        assert_eq!(
+            serde_json::to_string(&rebuilt).expect("a request"),
+            serde_json::to_string(request).expect("a request"),
+            "the committed log no longer rebuilds the request sent at step {seq}"
+        );
+    }
+
+    // Nothing the person said named a tool, which is what `chose` means.
+    let question = replay
+        .history()
+        .into_iter()
+        .find(|exchange| exchange.role == Role::User)
+        .map(|exchange| exchange.text)
+        .expect("the question");
+    for tool in &sent[0].tools {
+        assert!(
+            !question.contains(tool.name.as_str()),
+            "the question names {}",
+            tool.name
+        );
+    }
+    assert!(
+        sent.iter()
+            .flat_map(|request| &request.messages)
+            .any(|message| message.role == Role::Tool
+                && message.content.contains("5082-CORMORANT-BASALT")),
+        "the planted seal never reached the model as a tool result"
+    );
+}
+
 /// The prune is part of the fixture's contract, not a tidying step: a fixture
 /// carrying a scratch path or a wall-clock reading is one that cannot be diffed
 /// against the next run of the same scenario.
@@ -184,6 +241,8 @@ fn the_committed_traces_carry_nothing_from_the_machine_that_wrote_them() {
         "a-delegation.sent.json",
         "an-edited-tool.jsonl",
         "an-edited-tool.sent.json",
+        "a-fetched-model.jsonl",
+        "a-fetched-model.sent.json",
     ] {
         let raw = std::fs::read_to_string(fixture(name)).expect("read the fixture");
         if name.ends_with(".jsonl") {

@@ -270,6 +270,22 @@ fn a_draft_model_is_never_offered() {
     assert_eq!(choices[0].bytes, 8);
 }
 
+/// The other way publishers name a draft: `Model-draft-Q4_0`, a word in the
+/// name rather than a prefix. Found by #78's live run, where the breadth
+/// model's repository offered its 2.4 GB draft as the smallest quantisation of
+/// a 27B, and the suite would have fetched and run the draft in its place.
+#[test]
+fn a_draft_named_in_the_middle_is_never_offered() {
+    let choices = repository("tree-JonathanColetti--Qwen3.8-27B-Uncensored-GGUF.json");
+    let names: Vec<&str> = choices.iter().map(|choice| choice.name.as_str()).collect();
+    assert!(
+        names.iter().all(|name| !name.contains("draft")),
+        "a draft is offered: {names:?}"
+    );
+    assert_eq!(choices.len(), 12, "{names:?}");
+    assert!(choices.iter().all(|choice| choice.projector.is_some()));
+}
+
 /// Weights whose name carries no label are still weights: offered under their
 /// name, after everything that has one.
 #[test]

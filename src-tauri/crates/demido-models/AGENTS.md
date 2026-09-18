@@ -91,7 +91,9 @@ not listed, because it is not there yet.
 - **Only weights are a choice, in the index as on disk.** `choices` offers one
   choice per model, a split model's shards as its pieces in order, and fetches
   the projector the weights need beside them. A projector or a draft is never
-  a choice, and a split the listing lacks a piece of is not offered.
+  a choice, and a split the listing lacks a piece of is not offered. A draft
+  is named either way publishers name one: an `mtp-` prefix, or `draft` as a
+  word of its own anywhere in the name (`Model-draft-Q4_0`, found on #78).
 - **The size is the server's.** A choice's `bytes` is every piece and its
   projector as the tree states them, added up, never bits per weight times a
   parameter count.
