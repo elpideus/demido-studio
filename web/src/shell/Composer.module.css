@@ -124,8 +124,10 @@
 
 /* A chip on the composer's own recess, so it is raised rather than another
  * well. It sits beside the sentence that says what went wrong, because that
- * sentence is the only context it has. */
-.retry {
+ * sentence is the only context it has. Browse models is the same chip, beside
+ * the sentence saying nothing is loaded. */
+.retry,
+.browse {
   flex: none;
   margin-left: auto;
   padding: var(--space-tight) var(--space-control);
@@ -140,11 +142,13 @@
   transition: background var(--duration-tap) var(--ease-mech);
 }
 
-.retry:hover {
+.retry:hover,
+.browse:hover {
   background: var(--color-hover);
 }
 
-.retry:active {
+.retry:active,
+.browse:active {
   background: var(--color-active);
 }
 
@@ -170,7 +174,8 @@
 }
 
 /* The model selector: raised, with its capability tags inline
- * (design/system.md). Open is armed, like the other controls beside it. */
+ * (design/system.md). It opens the Models window and reports nothing: the
+ * rail says what is open. */
 .model {
   flex: none;
   max-width: calc(8 * var(--size-control));
@@ -196,11 +201,6 @@
 
 .model:active {
   background: var(--color-active);
-}
-
-.model[aria-pressed='true'] {
-  background: var(--color-edge);
-  color: var(--color-ink);
 }
 
 .modelName {

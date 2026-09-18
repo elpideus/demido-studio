@@ -30,8 +30,12 @@ Icons only, on `--color-chrome`, movable to either edge of the window. Navigatio
 Settings at the bottom, per the brief. Right-clicking empty rail space or the Settings button offers
 **Edit Navbar**.
 
-Default order, top to bottom: Chats, Files, Code graph, Market charts, Session monitor, Browser.
-Settings sits alone at the other end.
+Default order, top to bottom: Chats, Files, Code graph, Market charts, Session monitor, Browser,
+Models. Settings sits alone at the other end.
+
+**Amended on #75**: **Models** joins the end of the navigation. The composer's model control and
+the empty state's Browse models open the same window, but they are ways in rather than reports: the
+rail item is what says it is open, because the rail is the only place that does.
 
 **Amended on #8**, and it amends the brief's own rail listing too: there is no **Sub-agents** entry.
 A sub-agent is a scope on the session log, not a window of its own, so it lives inside the session

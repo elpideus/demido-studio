@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Activity,
+  Boxes,
   ChartCandlestick,
   FolderTree,
   Globe,
@@ -10,7 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { useDesk, type Side } from './desk'
+import { useDesk, type Panel, type Side } from './desk'
 import styles from './Rail.module.css'
 
 /**
@@ -32,7 +33,7 @@ import styles from './Rail.module.css'
 /** The rail's default order, top to bottom, from `design/shell.md`. There is no
  * Sub-agents entry: a sub-agent is a scope on the session log rather than a
  * window, which amended the brief's own listing on #8. */
-const NAVIGATION: { label: string; icon: LucideIcon; panel?: Pinned }[] = [
+const NAVIGATION: { label: string; icon: LucideIcon; panel?: Pinned; floats?: Panel }[] = [
   { label: 'Chats', icon: MessagesSquare },
   { label: 'Files', icon: FolderTree },
   { label: 'Code graph', icon: Waypoints },
@@ -44,6 +45,9 @@ const NAVIGATION: { label: string; icon: LucideIcon; panel?: Pinned }[] = [
   // field rather than another comparison.
   { label: 'Session monitor', icon: Activity, panel: 'monitor' },
   { label: 'Browser', icon: Globe },
+  // Also opened from the composer, which is a way in rather than a report
+  // (`design/shell.md`, amended on #75).
+  { label: 'Models', icon: Boxes, floats: 'models' },
 ]
 
 /** A panel the rail opens pinned. One so far, and the rail is the only place
@@ -61,6 +65,7 @@ export function Rail() {
   const monitor = useDesk((desk) => desk.monitor)
   const toggleMonitor = useDesk((desk) => desk.toggleMonitor)
   const [menu, setMenu] = useState<At | null>(null)
+  const floating = (which: Panel) => () => toggle(which)
 
   return (
     <nav
@@ -84,8 +89,8 @@ export function Rail() {
             // has its own marker in `design/system.md` and drawing it is the
             // window manager's, which is also what will make a panel able to be
             // open without being focused.
-            open={entry.panel ? monitor : undefined}
-            onOpen={entry.panel ? toggleMonitor : undefined}
+            open={entry.panel ? monitor : entry.floats ? panel === entry.floats : undefined}
+            onOpen={entry.panel ? toggleMonitor : entry.floats ? floating(entry.floats) : undefined}
           />
         ))}
       </ul>

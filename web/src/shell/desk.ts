@@ -35,8 +35,9 @@ export type Shell = {
  * still being read, so the first frame is never blank. */
 const DEFAULT: Shell = { rail: 'left' }
 
-/** A panel that floats over the desk. Settings opens from the rail; Models
- * opens from the composer, which is where a model is chosen
+/** A panel that floats over the desk. The rail is the only place in the UI
+ * that reports what is open (`design/shell.md`); Models is also opened from
+ * the composer, which is where a model is chosen
  * ([#75](https://github.com/elpideus/demido-studio/issues/75)). */
 export type Panel = 'settings' | 'models'
 

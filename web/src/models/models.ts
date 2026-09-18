@@ -64,6 +64,12 @@ export type Choice = {
   weights: number
 }
 
+/** A call that never reached the command: the channel itself. Said the way
+ * a dead connection is, because to a person it is one. */
+function unanswered(error: unknown): Answer<never> {
+  return { state: 'unreadable', cause: 'offline', reason: sentence(error) }
+}
+
 /** How long typing has to pause before the index is asked. */
 const SETTLE_MS = 300
 
@@ -89,8 +95,8 @@ export function useSearch(query: string): { answer?: Answer<Repo[]>; asking: boo
         (error: unknown) => {
           if (!live) return
           // The command answers a dead connection as a state. What reaches
-          // here is the channel itself, which is said the same way.
-          setAnswer({ state: 'unreadable', cause: 'offline', reason: sentence(error) })
+          // here is the channel itself.
+          setAnswer(unanswered(error))
           setAsking(false)
         },
       )
@@ -125,7 +131,7 @@ export function useChoices(repo: string): Answer<Choice[]> | undefined {
         if (live) setAnswer(found)
       },
       (error: unknown) => {
-        if (live) setAnswer({ state: 'unreadable', cause: 'offline', reason: sentence(error) })
+        if (live) setAnswer(unanswered(error))
       },
     )
     return () => {

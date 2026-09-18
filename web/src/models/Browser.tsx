@@ -49,7 +49,7 @@ type Selected = { kind: 'local'; path: string } | { kind: 'repo'; id: string }
  * wizard's models step renders it in place. None of them has a second screen
  * for this, which is S1's one-component-two-hosts rule applied once more: what
  * the wizard offers is exactly what the desk offers. The only thing a host
- * decides is what answering with a model on disk means, which in the wizard
+ * decides is what choosing a model on disk means, which in the wizard
  * is choosing it for Finish and on the desk is loading it now.
  *
  * **Two panes, always.** v2's browser had never once laid out in two panes
@@ -63,12 +63,13 @@ type Selected = { kind: 'local'; path: string } | { kind: 'repo'; id: string }
  * beside the weights that need it and no draft at all. Neither list has a
  * shape a projector could be offered in.
  */
-export function Browser({ answer }: { answer: (path: string) => Promise<void> }) {
+export function Browser({ choose }: { choose: (path: string) => Promise<void> }) {
   const view = useSetup((setup) => setup.view)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<Selected | null>(null)
   const { answer: index, asking } = useSearch(query)
+  const said = query.trim()
 
   const library = view?.models
   const installed = useMemo(
@@ -76,20 +77,35 @@ export function Browser({ answer }: { answer: (path: string) => Promise<void> })
     [library, query],
   )
   const repos = index?.state === 'read' ? index.found : []
-  const showInstalled = filter !== 'gguf'
+  // An unreadable index lists the installed models whatever the filter: the
+  // sentence saying the index is gone is only half the state without them.
+  const showInstalled = filter !== 'gguf' || index?.state === 'unreadable'
   const showIndex = filter !== 'installed'
+  const shownInstalled = showInstalled ? installed : []
+  const shownRepos = showIndex ? repos : []
 
-  // Something is always in the right pane once there is anything to show:
-  // the model that answers, then the first installed one, then the first
-  // repository. A pane that opened empty would ask for a click before it said
-  // anything.
+  // The right pane shows something the list is showing: the model that
+  // answers, then the first installed one, then the first repository. A pane
+  // that opened empty would ask for a click before it said anything, and one
+  // left on a row a filter or a search took away would describe a model that
+  // is not on screen.
+  const visible =
+    selected?.kind === 'local'
+      ? shownInstalled.some((model) => model.path === selected.path)
+      : selected?.kind === 'repo'
+        ? shownRepos.some((found) => found.id === selected.id)
+        : false
   useEffect(() => {
-    if (selected) return
+    if (visible) return
     const first =
-      library?.models.find((model) => model.path === library.chosen) ?? library?.models[0]
-    if (first) setSelected({ kind: 'local', path: first.path })
-    else if (repos[0]) setSelected({ kind: 'repo', id: repos[0].id })
-  }, [selected, library, repos])
+      shownInstalled.find((model) => model.path === library?.chosen) ?? shownInstalled[0]
+    const next: Selected | null = first
+      ? { kind: 'local', path: first.path }
+      : shownRepos[0]
+        ? { kind: 'repo', id: shownRepos[0].id }
+        : null
+    if (key(next) !== key(selected)) setSelected(next)
+  }, [visible, shownInstalled, shownRepos, library, selected])
 
   const local =
     selected?.kind === 'local'
@@ -133,7 +149,7 @@ export function Browser({ answer }: { answer: (path: string) => Promise<void> })
               {installed.length === 0 ? (
                 <p className={styles.said}>
                   {library?.models.length
-                    ? `No installed model matches "${query.trim()}".`
+                    ? `No installed model matches "${said}".`
                     : 'Nothing is installed yet. A model downloaded here, or read from a folder below, is listed here.'}
                 </p>
               ) : (
@@ -173,7 +189,7 @@ export function Browser({ answer }: { answer: (path: string) => Promise<void> })
                    * a URL and a library's error, kept for whoever hovers. */}
                   <p className={styles.said} title={index.reason}>
                     {unreadable(index.cause)}{' '}
-                    {filter === 'all'
+                    {filter === 'all' || filter === 'gguf'
                       ? 'The installed models below are still yours to use.'
                       : 'The installed models are still listed under Installed.'}
                   </p>
@@ -182,7 +198,9 @@ export function Browser({ answer }: { answer: (path: string) => Promise<void> })
                 <p className={styles.said}>
                   {asking
                     ? 'Asking Hugging Face.'
-                    : `Nothing in the index matches "${query.trim()}". Try a shorter name, or an author.`}
+                    : said
+                      ? `Nothing in the index matches "${said}". Try a shorter name, or an author.`
+                      : 'The index listed nothing.'}
                 </p>
               ) : (
                 repos.map((found) => (
@@ -222,7 +240,7 @@ export function Browser({ answer }: { answer: (path: string) => Promise<void> })
 
       <div className={styles.detail}>
         {local ? (
-          <LocalDetail model={local} chosen={local.path === library?.chosen} answer={answer} />
+          <LocalDetail model={local} chosen={local.path === library?.chosen} choose={choose} />
         ) : repo ? (
           <RepoDetail key={repo.id} repo={repo} />
         ) : (
@@ -293,11 +311,11 @@ function RepoRow({
 function LocalDetail({
   model,
   chosen,
-  answer,
+  choose,
 }: {
   model: Model
   chosen: boolean
-  answer: (path: string) => Promise<void>
+  choose: (path: string) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
 
@@ -333,7 +351,7 @@ function LocalDetail({
           disabled={busy || chosen}
           onClick={() => {
             setBusy(true)
-            void answer(model.path).finally(() => setBusy(false))
+            void choose(model.path).finally(() => setBusy(false))
           }}
         >
           <Check className={styles.icon} strokeWidth={1.8} aria-hidden />
@@ -445,7 +463,8 @@ function RepoDetail({ repo }: { repo: Repo }) {
 }
 
 /** One of a model's facts. A fact nobody stated says so rather than being
- * left out, so the same five rows are in the same places on every model. */
+ * left out, so a pane of one kind has the same rows in the same places on
+ * every model. */
 function Fact({ name, value }: { name: string; value?: string }) {
   return (
     <div className={styles.fact}>
@@ -455,6 +474,12 @@ function Fact({ name, value }: { name: string; value?: string }) {
       </dd>
     </div>
   )
+}
+
+/** A selection as one comparable value. */
+function key(selected: Selected | null): string {
+  if (!selected) return ''
+  return selected.kind === 'local' ? `local:${selected.path}` : `repo:${selected.id}`
 }
 
 /** The option a person is shown first: `Q4_K_M` where the repository has it,
@@ -482,7 +507,7 @@ export function ModelsWindow() {
     return () => document.removeEventListener('keydown', dismiss)
   }, [close])
 
-  async function answer(path: string) {
+  async function choose(path: string) {
     try {
       await invoke('setup_choose_model', { path })
     } catch (error) {
@@ -504,7 +529,7 @@ export function ModelsWindow() {
           </button>
         </header>
         <div className={styles.body}>
-          <Browser answer={answer} />
+          <Browser choose={choose} />
         </div>
       </section>
     </>

@@ -56,7 +56,6 @@ export function Composer() {
   const outstanding = useSetup((setup) => setup.view !== null && !setup.view.complete)
   const resume = useSetup((setup) => setup.resume)
   const readSettings = useSettings((settings) => settings.read)
-  const panel = useDesk((desk) => desk.panel)
   const togglePanel = useDesk((desk) => desk.toggle)
   const [message, setMessage] = useState('')
   const [open, setOpen] = useState<Open>(null)
@@ -139,7 +138,7 @@ export function Composer() {
         {/* The way out `design/shell.md` promises the empty state: a model
          * nobody has yet is one the browser can find. */}
         {presence.state === 'absent' && (
-          <button type="button" className={styles.retry} onClick={() => togglePanel('models')}>
+          <button type="button" className={styles.browse} onClick={() => togglePanel('models')}>
             Browse models
           </button>
         )}
@@ -155,7 +154,7 @@ export function Composer() {
          * settings follow: a context length or a system prompt set before a
          * model starts is the ordinary order to do it in. */}
         <div className={styles.controls}>
-          <ModelControl open={panel === 'models'} toggle={() => togglePanel('models')} />
+          <ModelControl open={() => togglePanel('models')} />
           <ModeControl open={open === 'mode'} toggle={() => toggle('mode')} close={close} />
           <button
             type="button"
@@ -203,7 +202,7 @@ export function Composer() {
  * The tags are the chosen file's, read from the file, because that is the
  * model the composer is talking to.
  */
-function ModelControl({ open, toggle }: { open: boolean; toggle: () => void }) {
+function ModelControl({ open }: { open: () => void }) {
   const presence = useChat((chat) => chat.presence)
   const chosen = useSetup((setup) =>
     setup.view?.models.models.find((model) => model.path === setup.view?.models.chosen),
@@ -218,8 +217,8 @@ function ModelControl({ open, toggle }: { open: boolean; toggle: () => void }) {
       type="button"
       className={styles.model}
       aria-label={`Model: ${name}`}
-      aria-pressed={open}
-      onClick={toggle}
+      // No pressed state: whether the window is open is the rail's to report.
+      onClick={open}
     >
       <Boxes className={styles.icon} strokeWidth={1.8} aria-hidden />
       <span className={styles.modelName}>{name}</span>

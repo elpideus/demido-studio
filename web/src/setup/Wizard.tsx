@@ -123,7 +123,7 @@ export function Wizard() {
             <>
               <ModelFolderControl />
               <div className={styles.browser}>
-                <Browser answer={chooseModel} />
+                <Browser choose={chooseModel} />
               </div>
             </>
           )}

@@ -410,28 +410,28 @@ pub fn parse_listing(body: &[u8]) -> Result<Vec<Repo>, Malformed> {
     let listed: Vec<Listed> = serde_json::from_slice(body)?;
     let mut repos: Vec<Repo> = listed
         .into_iter()
-        .map(|item| Repo {
-            stated: stated(item.pipeline_tag.as_deref(), &item.tags),
-            params: item.gguf.as_ref().and_then(|gguf| gguf.total),
-            architecture: item
-                .gguf
-                .as_ref()
-                .and_then(|gguf| gguf.architecture.clone()),
-            context: item.gguf.as_ref().and_then(|gguf| gguf.context_length),
-            id: item.id,
-            author: item.author,
-            downloads: item.downloads,
-            likes: item.likes,
-            // `false` when open, `"auto"` or `"manual"` when not, so anything
-            // that is not the boolean false is a gate. An absent field is
-            // open: that is what the listing sends for a repository nobody
-            // gated.
-            gated: item
-                .gated
-                .is_some_and(|gated| gated != serde_json::Value::Bool(false)),
-            pipeline: item.pipeline_tag,
-            library: item.library_name,
-            tags: item.tags,
+        .map(|item| {
+            let gguf = item.gguf.unwrap_or_default();
+            Repo {
+                stated: stated(item.pipeline_tag.as_deref(), &item.tags),
+                params: gguf.total,
+                architecture: gguf.architecture,
+                context: gguf.context_length,
+                id: item.id,
+                author: item.author,
+                downloads: item.downloads,
+                likes: item.likes,
+                // `false` when open, `"auto"` or `"manual"` when not, so anything
+                // that is not the boolean false is a gate. An absent field is
+                // open: that is what the listing sends for a repository nobody
+                // gated.
+                gated: item
+                    .gated
+                    .is_some_and(|gated| gated != serde_json::Value::Bool(false)),
+                pipeline: item.pipeline_tag,
+                library: item.library_name,
+                tags: item.tags,
+            }
         })
         .collect();
     repos.sort_by_key(|repo| std::cmp::Reverse(repo.downloads));
@@ -525,7 +525,7 @@ struct Listed {
 }
 
 /// The part of the Hub's `gguf` object the browser shows.
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct Gguf {
     #[serde(default)]
     total: Option<u64>,

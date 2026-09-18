@@ -18,13 +18,17 @@ import styles from './Capabilities.module.css'
  * `from` says whose statement it is, which is what the tooltip tells a person
  * who hovers one.
  */
+/** Whose statement a set of tags is: the file on disk, or the publisher of a
+ * repository in the index. */
+export type Source = 'file' | 'publisher'
+
 export function Capabilities({
   facts,
   from,
   compact = false,
 }: {
   facts: Facts
-  from: 'file' | 'publisher'
+  from: Source
   compact?: boolean
 }) {
   return (
@@ -68,7 +72,7 @@ const KINDS: { key: keyof Facts; name: string; icon: LucideIcon }[] = [
 ]
 
 /** What one tag says to a person who hovers it, or to a screen reader. */
-function saying(name: string, fact: Fact, from: 'file' | 'publisher'): string {
+function saying(name: string, fact: Fact, from: Source): string {
   switch (fact) {
     case 'yes':
       return from === 'file' ? `${name}: read from the file` : `${name}: stated by the publisher`
