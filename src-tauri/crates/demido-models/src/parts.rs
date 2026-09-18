@@ -13,8 +13,8 @@
 //! entries are choices and which are parts.
 //!
 //! Carried from v2's `demido-models::parts`, which found every one of these
-//! layouts in a real library on a real machine. #71 extends it to the index
-//! side; this file is what the library needs to read a folder.
+//! layouts in a real library on a real machine. The same rules read a
+//! repository before anything is fetched ([`crate::choices`], #71).
 
 use std::path::{Path, PathBuf};
 
@@ -80,6 +80,9 @@ pub struct Companion {
 ///   at its own precision, for use with any quantisation of it: `mmproj-BF16`
 ///   beside a Q8 and a Q4. So the comparison is on the model name with the
 ///   precision taken off, and a projector that names no model is the folder's.
+///   So is one named `model`: `mmproj-model-f16` is the name llama.cpp's
+///   converter writes when nobody gives it one, and `ggml-org` and `google`
+///   both publish it that way (`tests/fixtures/index/`).
 /// - **A draft belongs to one file.** `mtp-Model-Q8_0` is built against the Q8
 ///   weights, and offering it beside the Q4 is a pairing `llama.cpp` refuses
 ///   for a reason the user cannot see. So that one matches exactly.
@@ -91,7 +94,10 @@ pub fn belongs_to(companion: &str, weights_stem: &str) -> bool {
         Part::Weights | Part::Draft => named == weights,
         Part::Projector => {
             let family = without_precision(&named);
-            family.is_empty() || weights.starts_with(family)
+            family.is_empty()
+                || family == "model"
+                || family.starts_with("model-")
+                || weights.starts_with(family)
         }
     }
 }
@@ -156,6 +162,18 @@ pub fn shard_of(stem: &str) -> (&str, Option<Shard>) {
     }
 }
 
+/// The last segment of a repository path: `Q4_K_M/model.gguf` is
+/// `model.gguf`.
+pub fn filename_in(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// A repository path's filename without its extension.
+pub fn stem_in(path: &str) -> &str {
+    let name = filename_in(path);
+    name.rsplit_once('.').map_or(name, |(stem, _)| stem)
+}
+
 /// A path's filename without its extension.
 pub fn stem_of(path: &Path) -> &str {
     path.file_stem()
@@ -207,6 +225,14 @@ mod tests {
             "mmproj-Other-Model-f16.gguf",
             "qwythos-9b-claude-mythos-5-1m-q4_k_m"
         ));
+    }
+
+    /// The converter's default name, as two publishers ship it.
+    #[test]
+    fn a_projector_named_model_belongs_to_the_folder() {
+        assert!(belongs_to("mmproj-model-f16.gguf", "gemma-3-4b-it-q4_k_m"));
+        assert!(belongs_to("mmproj-model-f16-4B.gguf", "gemma-3-4b-it-q4_0"));
+        assert!(!belongs_to("mmproj-modelo-f16.gguf", "gemma-3-4b-it-q4_0"));
     }
 
     #[test]

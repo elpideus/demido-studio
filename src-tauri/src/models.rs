@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use demido_models::index::{Answer, File, Index, Repo};
-use demido_models::{sources, Folders, Library, Scan};
+use demido_models::index::{Answer, Index, Repo};
+use demido_models::{choices, sources, Choice, Folders, Library, Scan};
 use demido_settings::{id, Ladder, Scope, Settings};
 use demido_setup::Store as _;
 
@@ -139,9 +139,11 @@ impl Models {
         self.index.search(query).await
     }
 
-    /// Every `.gguf` in one repository.
-    pub async fn files(&self, repo: &str) -> Answer<Vec<File>> {
-        self.index.files(repo).await
+    /// What a person can choose in one repository: its weights, one choice
+    /// per quantisation with a split model's shards as its pieces and the
+    /// projector it needs beside it, most faithful first.
+    pub async fn choices(&self, repo: &str) -> Answer<Vec<Choice>> {
+        self.index.files(repo).await.map(choices)
     }
 
     fn write_scan(&self, folders: &[PathBuf]) -> demido_core::Result<()> {
@@ -166,13 +168,14 @@ pub async fn models_search(
     Ok(wiring.setup.models.search(&query).await)
 }
 
-/// Every `.gguf` in one repository.
+/// What a person can choose in one repository, most faithful first
+/// ([#71](https://github.com/elpideus/demido-studio/issues/71)).
 #[tauri::command]
-pub async fn models_files(
+pub async fn models_choices(
     wiring: tauri::State<'_, Wiring>,
     repo: String,
-) -> demido_core::Result<Answer<Vec<File>>> {
-    Ok(wiring.setup.models.files(&repo).await)
+) -> demido_core::Result<Answer<Vec<Choice>>> {
+    Ok(wiring.setup.models.choices(&repo).await)
 }
 
 #[cfg(test)]

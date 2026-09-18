@@ -8,6 +8,8 @@
 //! | [`sources`] | Where other tools keep models, and what a borrowed row is called. |
 //! | [`library`] | The directory as the registry: scan, remove, and where a download lands. |
 //! | [`parts`] | Which `.gguf` is weights, a projector, a draft or a piece of a split. |
+//! | [`quant`] | A quantisation label, read into a value ordered by fidelity. |
+//! | [`choices`] | A repository's files, read into what a person can choose. |
 //! | [`gguf`] | The header: the facts a file states, and whether it is whole. |
 //! | [`index`] | What Hugging Face publishes, keyless, parsed from bytes. |
 //!
@@ -18,19 +20,23 @@
 //!
 //! See `AGENTS.md` beside this file for the invariants.
 
+pub mod choices;
 pub mod folders;
 pub mod gguf;
 pub mod index;
 pub mod library;
 pub mod parts;
+pub mod quant;
 pub mod sources;
 
 use std::path::PathBuf;
 
+pub use choices::{choices, Choice};
 pub use folders::Folders;
 pub use gguf::Damage;
 pub use library::{Capabilities, Damaged, Fact, Library, Local, Scan, LIMIT};
 pub use parts::{Companion, Part, Shard};
+pub use quant::Quant;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

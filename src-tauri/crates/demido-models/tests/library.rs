@@ -313,6 +313,32 @@ fn borrowed_bytes_are_not_disk_demido_spent() {
     assert_eq!(scan.spent, mine + 100, "Demido's files, partial included");
 }
 
+/// What the browser fetches is what the library reads: `ggml-org` names its
+/// projector `mmproj-model-f16`, llama.cpp's default, and the weights beside
+/// it can see (#71).
+#[test]
+fn a_projector_under_the_converters_default_name_gives_its_folder_eyes() {
+    let rig = Rig::new();
+    let folder = rig.mine.join("ggml-org/gemma-3-4b-it-GGUF");
+    write(
+        &folder.join("gemma-3-4b-it-Q4_K_M.gguf"),
+        &Spec::model("gemma3"),
+    );
+    write(
+        &folder.join("mmproj-model-f16.gguf"),
+        &Spec {
+            sees: Some(true),
+            ..Spec::model("clip")
+        },
+    );
+
+    let scan = rig.library().scan();
+    assert_eq!(scan.models.len(), 1, "the projector is not a model");
+    let gemma = named(&scan.models, "gemma-3-4b-it-Q4_K_M");
+    assert_eq!(gemma.companions.len(), 1);
+    assert_eq!(gemma.capabilities.vision, Fact::Yes);
+}
+
 #[test]
 fn what_a_model_is_capable_of_is_read_out_of_the_file() {
     let rig = Rig::new();

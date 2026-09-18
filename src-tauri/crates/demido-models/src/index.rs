@@ -84,7 +84,7 @@ pub struct Repo {
 ///
 /// Only the facts the server sends. Which file is weights, a projector or a
 /// piece of a split model, and what its quantisation is, are read off this
-/// list by #71.
+/// list by [`crate::choices`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct File {
@@ -114,6 +114,17 @@ pub enum Answer<T> {
         cause: Cause,
         reason: String,
     },
+}
+
+impl<T> Answer<T> {
+    /// What was found, read into something else. An unreadable answer stays
+    /// exactly what it was.
+    pub fn map<U>(self, read: impl FnOnce(T) -> U) -> Answer<U> {
+        match self {
+            Answer::Read { found } => Answer::Read { found: read(found) },
+            Answer::Unreadable { cause, reason } => Answer::Unreadable { cause, reason },
+        }
+    }
 }
 
 /// Why the index could not be read. Distinct causes, because a person does
