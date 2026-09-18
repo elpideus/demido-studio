@@ -50,6 +50,10 @@ pub const LISTING: usize = 30;
 /// has not answered in this long is a connection that is not going to.
 const PATIENCE: Duration = Duration::from_secs(20);
 
+/// How many pages of one repository's tree are read. A page is a thousand
+/// entries; a GGUF repository past this many is not one a person chooses from.
+const PAGES: usize = 20;
+
 /// A repository that publishes GGUF weights, as the listing describes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,10 +126,11 @@ pub enum Cause {
     /// Hugging Face is limiting this address. It passes.
     RateLimited,
     /// No such public repository. Keyless, Hugging Face answers a private or
-    /// absent repository with `401`, not `404`.
+    /// absent repository with `401`, not `404`. A `403` is somebody refusing,
+    /// which is `Refused`.
     Missing,
-    /// Some other refusal, with its status.
-    Answered,
+    /// Any other refusal, with its status: a `403` from a proxy, a `5xx`.
+    Refused,
     /// A success whose body is not what the index sends: a captive portal, a
     /// proxy's error page, a schema that moved.
     Malformed,
@@ -135,6 +140,12 @@ pub enum Cause {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
 pub struct Malformed(String);
+
+impl From<serde_json::Error> for Malformed {
+    fn from(error: serde_json::Error) -> Self {
+        Self(error.to_string())
+    }
+}
 
 /// The index, at one host.
 #[derive(Debug, Clone)]
@@ -188,10 +199,15 @@ impl Index {
             url.push_str("&search=");
             url.push_str(&encode(query));
         }
-        self.read(&url, parse_listing).await
+        self.read(&url, "a listing", parse_listing).await
     }
 
     /// Every `.gguf` in a repository, subdirectories included.
+    ///
+    /// The tree is paged, and a repository of split quantisations can run past
+    /// one page, so every page is read: a list cut short would be offered as
+    /// the whole repository. Bounded at [`PAGES`], and a tree longer than that
+    /// is stated rather than quietly truncated.
     ///
     /// The id goes into a path, so one that is not `owner/name` is refused
     /// before anything is sent rather than allowed to become some other URL.
@@ -202,11 +218,46 @@ impl Index {
                 reason: format!("{repo:?} is not a repository id of the form owner/name"),
             };
         }
-        let url = format!("{}/api/models/{repo}/tree/main?recursive=true", self.host);
-        self.read(&url, parse_files).await
+        let mut url = format!("{}/api/models/{repo}/tree/main?recursive=true", self.host);
+        let mut found = Vec::new();
+        for _ in 0..PAGES {
+            let page = match self.fetch(&url, "a file list", parse_files).await {
+                Ok(page) => page,
+                Err(unreadable) => return unreadable,
+            };
+            found.extend(page.found);
+            match page.next {
+                // Only ever onward on the same host. A `Link` elsewhere is
+                // not where this repository's files are.
+                Some(next) if next.starts_with(&format!("{}/", self.host)) => url = next,
+                _ => return Answer::Read { found },
+            }
+        }
+        Answer::Unreadable {
+            cause: Cause::Malformed,
+            reason: format!("{repo} lists more than {PAGES} pages of files"),
+        }
     }
 
-    async fn read<T>(&self, url: &str, parse: fn(&[u8]) -> Result<T, Malformed>) -> Answer<T> {
+    /// Ask once, and parse what came back as `what`.
+    async fn read<T>(
+        &self,
+        url: &str,
+        what: &str,
+        parse: fn(&[u8]) -> Result<T, Malformed>,
+    ) -> Answer<T> {
+        match self.fetch(url, what, parse).await {
+            Ok(page) => Answer::Read { found: page.found },
+            Err(unreadable) => unreadable,
+        }
+    }
+
+    async fn fetch<T, U>(
+        &self,
+        url: &str,
+        what: &str,
+        parse: fn(&[u8]) -> Result<T, Malformed>,
+    ) -> Result<Page<T>, Answer<U>> {
         let unreadable = |cause, reason: String| Answer::Unreadable { cause, reason };
 
         let response = match self
@@ -220,49 +271,73 @@ impl Index {
             Ok(response) => response,
             Err(error) => {
                 tracing::warn!(%error, url, "the model index did not answer");
-                return unreadable(
+                return Err(unreadable(
                     Cause::Offline,
                     format!("Hugging Face could not be reached: {error}"),
-                );
+                ));
             }
         };
 
         let status = response.status();
+        let next = response
+            .headers()
+            .get(reqwest::header::LINK)
+            .and_then(|link| link.to_str().ok())
+            .and_then(next_page);
         let body = match response.bytes().await {
             Ok(body) => body,
             Err(error) => {
-                return unreadable(
+                return Err(unreadable(
                     Cause::Offline,
                     format!("Hugging Face stopped answering part way: {error}"),
-                )
+                ))
             }
         };
 
         match status.as_u16() {
             200..=299 => match parse(&body) {
-                Ok(found) => Answer::Read { found },
-                Err(error) => unreadable(
+                Ok(found) => Ok(Page { found, next }),
+                Err(error) => Err(unreadable(
                     Cause::Malformed,
-                    format!("Hugging Face answered with something that is not a listing: {error}"),
-                ),
+                    format!("Hugging Face answered with something that is not {what}: {error}"),
+                )),
             },
-            429 => unreadable(
+            429 => Err(unreadable(
                 Cause::RateLimited,
                 format!("Hugging Face is limiting requests from this address ({status}); it passes within minutes"),
-            ),
-            401 | 403 | 404 => unreadable(
+            )),
+            401 | 404 => Err(unreadable(
                 Cause::Missing,
                 format!("Hugging Face has no public repository there ({status})"),
-            ),
+            )),
             _ => {
                 let said: String = String::from_utf8_lossy(&body).chars().take(200).collect();
-                unreadable(
-                    Cause::Answered,
+                Err(unreadable(
+                    Cause::Refused,
                     format!("Hugging Face answered {status}: {said}"),
-                )
+                ))
             }
         }
     }
+}
+
+/// One answer, and where the rest of it is.
+struct Page<T> {
+    found: T,
+    next: Option<String>,
+}
+
+/// The `rel="next"` target of a `Link` header, which is how the tree says it
+/// has more.
+fn next_page(link: &str) -> Option<String> {
+    link.split(',').find_map(|part| {
+        let (target, params) = part.split_once(';')?;
+        let next = params
+            .split(';')
+            .any(|param| param.trim().eq_ignore_ascii_case("rel=\"next\""));
+        let target = target.trim().strip_prefix('<')?.strip_suffix('>')?;
+        next.then(|| target.to_owned())
+    })
 }
 
 /// Read a search payload.
@@ -271,8 +346,7 @@ impl Index {
 /// [`LISTING`] whatever `limit` the server honoured, so both promises hold at
 /// this function rather than at a query string.
 pub fn parse_listing(body: &[u8]) -> Result<Vec<Repo>, Malformed> {
-    let listed: Vec<Listed> =
-        serde_json::from_slice(body).map_err(|error| Malformed(error.to_string()))?;
+    let listed: Vec<Listed> = serde_json::from_slice(body)?;
     let mut repos: Vec<Repo> = listed
         .into_iter()
         .map(|item| Repo {
@@ -303,8 +377,7 @@ pub fn parse_listing(body: &[u8]) -> Result<Vec<Repo>, Malformed> {
 /// unquantised weights beside the GGUFs. A file llama.cpp cannot load is not a
 /// choice anybody has, so it is dropped here rather than shown greyed.
 pub fn parse_files(body: &[u8]) -> Result<Vec<File>, Malformed> {
-    let entries: Vec<Entry> =
-        serde_json::from_slice(body).map_err(|error| Malformed(error.to_string()))?;
+    let entries: Vec<Entry> = serde_json::from_slice(body)?;
     Ok(entries
         .into_iter()
         .filter(|entry| entry.kind == "file" && is_gguf(&entry.path))
@@ -421,6 +494,17 @@ mod tests {
         ] {
             assert!(!is_repo_id(refused), "{refused}");
         }
+    }
+
+    #[test]
+    fn the_next_page_is_read_off_the_link_header() {
+        let link = "<https://huggingface.co/api/models/a/b/tree/main?cursor=Zz%3D>; rel=\"next\"";
+        assert_eq!(
+            next_page(link).as_deref(),
+            Some("https://huggingface.co/api/models/a/b/tree/main?cursor=Zz%3D")
+        );
+        assert_eq!(next_page("<https://x/y>; rel=\"prev\""), None);
+        assert_eq!(next_page(""), None);
     }
 
     #[test]

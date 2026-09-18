@@ -52,7 +52,7 @@ not listed, because it is not there yet.
 - **Only `index.rs` touches the network, and nothing here downloads.** The
   queue (#73) fetches weights. The library is the part of the models surface a
   network failure must never take away, and the index is built so it cannot:
-  every call answers with an `Answer`, `Read` or `Unreadable` with a `Cause`,
+  every call answers with an `Answer`: `Read`, or `Unreadable` with a `Cause`,
   never an `Err`, so a dead connection is a state the browser renders beside
   the installed models.
 - **The index parses bytes, and only bytes** (#70). `parse_listing` and
@@ -70,6 +70,10 @@ not listed, because it is not there yet.
   reads as no digest rather than as sixty-four asterisks to verify against.
 - **Capped and ordered at the parser**, not only in the query string: most
   downloaded first, at most `LISTING`, whatever the server honoured.
+- **A file list is every page of it.** The tree is paged by a `Link` header;
+  every `rel="next"` on the same host is followed, up to `PAGES`, and a tree
+  longer than that is `Unreadable` rather than a short list passed off as the
+  whole repository.
 - **A scan never fails.** A missing or unreadable folder contributes nothing;
   startup never blocks, and a drive that is not plugged in is not a broken
   library. Bounded at four folders deep and 500 models.
@@ -85,7 +89,6 @@ not listed, because it is not there yet.
 - **Non-GGUF files are dropped by the file parser**, importance matrices
   included even though they sit in LFS. A file llama.cpp cannot load is not a
   choice.
-
 - **Moving the download folder makes the old one borrowed.** Nothing moves,
   the old folder becomes a scan folder so every model in it is still offered,
   and from then on Demido will not delete from it. That is the honest reading

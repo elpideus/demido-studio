@@ -134,6 +134,16 @@ impl Models {
         Ok(())
     }
 
+    /// Repositories publishing GGUF files, most downloaded first.
+    pub async fn search(&self, query: &str) -> Answer<Vec<Repo>> {
+        self.index.search(query).await
+    }
+
+    /// Every `.gguf` in one repository.
+    pub async fn files(&self, repo: &str) -> Answer<Vec<File>> {
+        self.index.files(repo).await
+    }
+
     fn write_scan(&self, folders: &[PathBuf]) -> demido_core::Result<()> {
         let value = Value::from(
             folders
@@ -153,7 +163,7 @@ pub async fn models_search(
     wiring: tauri::State<'_, Wiring>,
     query: String,
 ) -> demido_core::Result<Answer<Vec<Repo>>> {
-    Ok(wiring.setup.models.index.search(&query).await)
+    Ok(wiring.setup.models.search(&query).await)
 }
 
 /// Every `.gguf` in one repository.
@@ -162,7 +172,7 @@ pub async fn models_files(
     wiring: tauri::State<'_, Wiring>,
     repo: String,
 ) -> demido_core::Result<Answer<Vec<File>>> {
-    Ok(wiring.setup.models.index.files(&repo).await)
+    Ok(wiring.setup.models.files(&repo).await)
 }
 
 #[cfg(test)]

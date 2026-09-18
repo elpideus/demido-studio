@@ -145,8 +145,9 @@ fn publisher_fields_are_passed_through_verbatim() {
 }
 
 /// The listing carries no reliable statement of tool use, reasoning or vision,
-/// so a repository has no field that could hold one. What crosses to the
-/// window is this set of keys and nothing else.
+/// so a repository has no field that could hold one. Every key that crosses
+/// to the window is one of these; an absent option is left out, never
+/// replaced by something else.
 #[test]
 fn no_capability_is_inferred_from_the_listing() {
     for repo in listing("search-gemma-3-4b-it-qat.json") {
@@ -316,34 +317,62 @@ impl Arrived {
     }
 }
 
+/// One answer the server gives: a status, any extra header lines (`{host}`
+/// stands for the server's own address), and a body.
+struct Reply {
+    status: &'static str,
+    headers: String,
+    body: Vec<u8>,
+}
+
+/// Answer one connection per reply, in order, and hand back what was asked.
+async fn serve(replies: Vec<Reply>) -> (String, tokio::task::JoinHandle<Vec<Arrived>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bound");
+    let host = format!("http://{}", listener.local_addr().expect("addr"));
+    let at = host.clone();
+    let served = tokio::spawn(async move {
+        let mut arrived = Vec::new();
+        for reply in replies {
+            let (mut socket, _) = listener.accept().await.expect("accepted");
+            let mut buf = vec![0u8; 16 * 1024];
+            let n = socket.read(&mut buf).await.expect("read the request");
+            let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let mut lines = request.lines();
+            let line = lines.next().unwrap_or_default().to_owned();
+            let headers = lines
+                .take_while(|line| !line.is_empty())
+                .filter_map(|line| line.split_once(':'))
+                .map(|(key, value)| (key.trim().to_owned(), value.trim().to_owned()))
+                .collect();
+            let head = format!(
+                "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n",
+                reply.status,
+                reply.body.len(),
+                reply.headers.replace("{host}", &at),
+            );
+            socket.write_all(head.as_bytes()).await.expect("wrote head");
+            socket.write_all(&reply.body).await.expect("wrote body");
+            arrived.push(Arrived { line, headers });
+        }
+        arrived
+    });
+    (host, served)
+}
+
 /// Answer one request with `status` and `body`, and hand back what was asked.
 async fn serve_once(
     status: &'static str,
     body: Vec<u8>,
 ) -> (String, tokio::task::JoinHandle<Arrived>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bound");
-    let host = format!("http://{}", listener.local_addr().expect("addr"));
-    let served = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.expect("accepted");
-        let mut buf = vec![0u8; 16 * 1024];
-        let n = socket.read(&mut buf).await.expect("read the request");
-        let request = String::from_utf8_lossy(&buf[..n]).into_owned();
-        let mut lines = request.lines();
-        let line = lines.next().unwrap_or_default().to_owned();
-        let headers = lines
-            .take_while(|line| !line.is_empty())
-            .filter_map(|line| line.split_once(':'))
-            .map(|(key, value)| (key.trim().to_owned(), value.trim().to_owned()))
-            .collect();
-        let head = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
-        );
-        socket.write_all(head.as_bytes()).await.expect("wrote head");
-        socket.write_all(&body).await.expect("wrote body");
-        Arrived { line, headers }
-    });
-    (host, served)
+    let (host, served) = serve(vec![Reply {
+        status,
+        headers: String::new(),
+        body,
+    }])
+    .await;
+    let one =
+        tokio::spawn(async move { served.await.expect("served").pop().expect("one request") });
+    (host, one)
 }
 
 fn found<T: std::fmt::Debug>(answer: Answer<T>) -> T {
@@ -415,6 +444,55 @@ async fn a_repository_s_files_are_asked_for_by_its_id() {
     );
 }
 
+/// The tree is paged. A repository of split quantisations can run past one
+/// page, and a list cut short would be offered as the whole repository.
+#[tokio::test]
+async fn every_page_of_a_file_list_is_read() {
+    let first = br#"[{"type":"file","path":"Q4_K_M/m-Q4_K_M-00001-of-00002.gguf","size":10}]"#;
+    let second = br#"[{"type":"file","path":"Q4_K_M/m-Q4_K_M-00002-of-00002.gguf","size":20}]"#;
+    let (host, served) = serve(vec![
+        Reply {
+            status: "200 OK",
+            headers: "Link: <{host}/api/models/a/m/tree/main?recursive=true&cursor=Zz%3D>; rel=\"next\"\r\n".into(),
+            body: first.to_vec(),
+        },
+        Reply {
+            status: "200 OK",
+            headers: String::new(),
+            body: second.to_vec(),
+        },
+    ])
+    .await;
+
+    let files = found(Index::at(&host).files("a/m").await);
+    assert_eq!(
+        paths(&files),
+        [
+            "Q4_K_M/m-Q4_K_M-00001-of-00002.gguf",
+            "Q4_K_M/m-Q4_K_M-00002-of-00002.gguf",
+        ]
+    );
+    let arrived = served.await.expect("served");
+    assert!(
+        arrived[1].line.contains("cursor=Zz%3D"),
+        "{}",
+        arrived[1].line
+    );
+}
+
+/// A `Link` to some other host is not where this repository's files are.
+#[tokio::test]
+async fn a_next_page_elsewhere_is_not_followed() {
+    let (host, _served) = serve(vec![Reply {
+        status: "200 OK",
+        headers: "Link: <http://elsewhere.invalid/more>; rel=\"next\"\r\n".into(),
+        body: fixture("tree-ggml-org--gemma-3-4b-it-GGUF.json"),
+    }])
+    .await;
+    let files = found(Index::at(&host).files("ggml-org/gemma-3-4b-it-GGUF").await);
+    assert_eq!(files.len(), 4);
+}
+
 /// Nothing listening is the machine offline, and it is an answer, not an
 /// error: the caller still has its own library to show beside it.
 #[tokio::test]
@@ -433,7 +511,7 @@ async fn an_unreachable_index_is_a_stated_condition() {
 
 #[tokio::test]
 async fn each_refusal_says_what_actually_happened() {
-    let cases: [(&str, &[u8], Cause); 4] = [
+    let cases: [(&str, &[u8], Cause); 5] = [
         (
             "429 Too Many Requests",
             b"{\"error\":\"slow down\"}",
@@ -451,7 +529,9 @@ async fn each_refusal_says_what_actually_happened() {
             b"{\"error\":\"Repository not found\"}",
             Cause::Missing,
         ),
-        ("503 Service Unavailable", b"upstream down", Cause::Answered),
+        // Somebody refusing, a proxy or a block, is not a missing repository.
+        ("403 Forbidden", b"blocked", Cause::Refused),
+        ("503 Service Unavailable", b"upstream down", Cause::Refused),
     ];
     for (status, body, expected) in cases {
         let (host, _served) = serve_once(status, body.to_vec()).await;
