@@ -35,9 +35,11 @@ export type Shell = {
  * still being read, so the first frame is never blank. */
 const DEFAULT: Shell = { rail: 'left' }
 
-/** A panel that floats over the desk. One so far, and the rail is the only
- * place in the UI that reports what is open (`design/shell.md`). */
-export type Panel = 'settings'
+/** A panel that floats over the desk. The rail is the only place in the UI
+ * that reports what is open (`design/shell.md`); Models is also opened from
+ * the composer, which is where a model is chosen
+ * ([#75](https://github.com/elpideus/demido-studio/issues/75)). */
+export type Panel = 'settings' | 'models'
 
 type Desk = Shell & {
   /** False until Rust has answered. Nothing is reported back before it is

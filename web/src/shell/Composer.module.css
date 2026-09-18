@@ -124,8 +124,10 @@
 
 /* A chip on the composer's own recess, so it is raised rather than another
  * well. It sits beside the sentence that says what went wrong, because that
- * sentence is the only context it has. */
-.retry {
+ * sentence is the only context it has. Browse models is the same chip, beside
+ * the sentence saying nothing is loaded. */
+.retry,
+.browse {
   flex: none;
   margin-left: auto;
   padding: var(--space-tight) var(--space-control);
@@ -140,11 +142,13 @@
   transition: background var(--duration-tap) var(--ease-mech);
 }
 
-.retry:hover {
+.retry:hover,
+.browse:hover {
   background: var(--color-hover);
 }
 
-.retry:active {
+.retry:active,
+.browse:active {
   background: var(--color-active);
 }
 
@@ -167,4 +171,41 @@
 .icon {
   width: var(--size-icon-small);
   height: var(--size-icon-small);
+}
+
+/* The model selector: raised, with its capability tags inline
+ * (design/system.md). It opens the Models window and reports nothing: the
+ * rail says what is open. */
+.model {
+  flex: none;
+  max-width: calc(8 * var(--size-control));
+  height: var(--size-control);
+  display: flex;
+  align-items: center;
+  gap: var(--space-control);
+  padding: 0 var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.model:hover {
+  background: var(--color-hover);
+}
+
+.model:active {
+  background: var(--color-active);
+}
+
+.modelName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

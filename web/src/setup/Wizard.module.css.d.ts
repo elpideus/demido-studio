@@ -4,6 +4,7 @@
 declare const styles: {
   readonly scrim: string
   readonly window: string
+  readonly browser: string
   readonly bar: string
   readonly name: string
   readonly leave: string

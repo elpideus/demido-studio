@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 
 import { Transcript } from '@/chat/Transcript'
 import { useChat } from '@/chat/chat'
+import { ModelsWindow } from '@/models/Browser'
 import { Monitor } from '@/monitor/Monitor'
 import { Settings } from '@/settings/Settings'
 import { SetupRow, Wizard, useSetupOnce } from '@/setup/Wizard'
@@ -105,6 +106,7 @@ export function App() {
            * conversation above it. */}
           {monitor && <Monitor />}
           {panel === 'settings' && <Settings />}
+          {panel === 'models' && <ModelsWindow />}
           <Wizard />
           {/* Over everything on the desk, including the settings window, because
            * what it reports is usually a value that window just refused. */}

@@ -1,0 +1,74 @@
+/*
+ * Capability tags (design/shell.md, design/system.md "Capability tag"):
+ * --radius-chip on raised, present in its --cap-* colour, absent greyed to
+ * ink-4 and never hidden. Unknown (#75) is a third state and must not read as
+ * absent: unfilled rather than raised, ink-3 rather than ink-4, and a question
+ * mark, which it keeps even where the tags are icons only. No outline: a
+ * border is a hairline, and docs/rules/gaps-and-hairlines.md has no row for a
+ * chip.
+ */
+
+.tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-tight);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-hair);
+  padding: var(--space-hair) var(--space-tight);
+  border-radius: var(--radius-chip);
+  background: var(--color-raised);
+  color: var(--color-ink-4);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+.tags[data-compact='true'] {
+  flex: none;
+  flex-wrap: nowrap;
+}
+
+.tags[data-compact='true'] .tag {
+  padding: var(--space-hair);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+.tag[data-fact='yes'][data-cap='vision'] {
+  color: var(--cap-vision);
+}
+
+.tag[data-fact='yes'][data-cap='tools'] {
+  color: var(--cap-tools);
+}
+
+.tag[data-fact='yes'][data-cap='reasoning'] {
+  color: var(--cap-reasoning);
+}
+
+.tag[data-fact='yes'][data-cap='audio'] {
+  color: var(--cap-audio);
+}
+
+.tag[data-fact='unknown'] {
+  background: none;
+  color: var(--color-ink-3);
+}
+
+.name {
+  white-space: nowrap;
+}
+
+.unknown {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  line-height: var(--leading-flush);
+}

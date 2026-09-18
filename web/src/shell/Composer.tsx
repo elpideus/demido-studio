@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, SlidersHorizontal, Square, Wrench } from 'lucide-react'
+import { Boxes, Send, SlidersHorizontal, Square, Wrench } from 'lucide-react'
 
 import { loading, useChat, type Presence } from '@/chat/chat'
+import { Capabilities } from '@/models/Capabilities'
 import { useSettings } from '@/settings/ladder'
 import { ChatSettings } from '@/settings/Settings'
 import { useSetup } from '@/setup/setup'
 import { ModeControl } from './ModeControl'
+import { useDesk } from './desk'
 import { ToolPicker } from './ToolPicker'
 import styles from './Composer.module.css'
 
@@ -40,6 +42,10 @@ type Open = 'settings' | 'tools' | 'mode' | null
  * S1, so the desk behind the door has no Nexus rung
  * ([#48](https://github.com/elpideus/demido-studio/issues/48)); a button that
  * goes nowhere is a worse empty state than one button fewer.
+ *
+ * The model control and the empty state's **Browse models** both open the
+ * Models window over the desk, the same browser the wizard's models step
+ * renders in place ([#75](https://github.com/elpideus/demido-studio/issues/75)).
  */
 export function Composer() {
   const presence = useChat((chat) => chat.presence)
@@ -50,6 +56,7 @@ export function Composer() {
   const outstanding = useSetup((setup) => setup.view !== null && !setup.view.complete)
   const resume = useSetup((setup) => setup.resume)
   const readSettings = useSettings((settings) => settings.read)
+  const togglePanel = useDesk((desk) => desk.toggle)
   const [message, setMessage] = useState('')
   const [open, setOpen] = useState<Open>(null)
   const bay = useRef<HTMLDivElement>(null)
@@ -128,6 +135,13 @@ export function Composer() {
          * that reports the failure is also the composer that can never be used
          * again, and a subsystem that is reported and skipped has to be one the
          * desk can ask for a second time. */}
+        {/* The way out `design/shell.md` promises the empty state: a model
+         * nobody has yet is one the browser can find. */}
+        {presence.state === 'absent' && (
+          <button type="button" className={styles.browse} onClick={() => togglePanel('models')}>
+            Browse models
+          </button>
+        )}
         {presence.state === 'failed' && (
           <button type="button" className={styles.retry} onClick={load}>
             Try again
@@ -140,6 +154,7 @@ export function Composer() {
          * settings follow: a context length or a system prompt set before a
          * model starts is the ordinary order to do it in. */}
         <div className={styles.controls}>
+          <ModelControl open={() => togglePanel('models')} />
           <ModeControl open={open === 'mode'} toggle={() => toggle('mode')} close={close} />
           <button
             type="button"
@@ -177,6 +192,38 @@ export function Composer() {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Which model answers, with its capability tags inline (`design/system.md`,
+ * "Model selector"), opening the Models window.
+ *
+ * The tags are the chosen file's, read from the file, because that is the
+ * model the composer is talking to.
+ */
+function ModelControl({ open }: { open: () => void }) {
+  const presence = useChat((chat) => chat.presence)
+  const chosen = useSetup((setup) =>
+    setup.view?.models.models.find((model) => model.path === setup.view?.models.chosen),
+  )
+  const name =
+    presence.state === 'ready' || presence.state === 'loading'
+      ? presence.model
+      : (chosen?.label ?? 'No model')
+
+  return (
+    <button
+      type="button"
+      className={styles.model}
+      aria-label={`Model: ${name}`}
+      // No pressed state: whether the window is open is the rail's to report.
+      onClick={open}
+    >
+      <Boxes className={styles.icon} strokeWidth={1.8} aria-hidden />
+      <span className={styles.modelName}>{name}</span>
+      {chosen && <Capabilities facts={chosen.capabilities} from="file" compact />}
+    </button>
   )
 }
 

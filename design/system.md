@@ -159,8 +159,8 @@ lets it be read later.
 
 | Component | States | Tokens |
 |---|---|---|
-| Model row | rest, hover, selected, installed, not installed | `panel` card, `hover`, selected `edge`. |
-| Capability tag | present, absent | `--radius-chip` on `raised`; present in its `--cap-*` colour, absent greyed to `ink-4` and never hidden. |
+| Model row | rest, hover, selected, installed, not installed | Unfilled on the list pane, which is itself the `panel` card; `hover`, selected `edge`. A card on a card would be one step drawn twice. |
+| Capability tag | present, absent, unknown | `--radius-chip` on `raised`; present in its `--cap-*` colour, absent greyed to `ink-4` and never hidden. **Unknown** is what the index has for anything a publisher did not state ([#75](https://github.com/elpideus/demido-studio/issues/75)): unfilled, `ink-3` and a `?`, kept even where the tags are icons only, so it never reads as absent. |
 | Download row | queued, running, paused, failed, done | `raised`; progress `signal`, paused `amber`, failed `rose` with retry in place, resuming rather than restarting. |
 | Download indicator | idle, active, failed | In the application title bar; the queue opens as `panel` with `shadow-float`. Owns per-item pause, resume, cancel. |
 | Model metadata | always | Quant, size and context in the silkscreen voice at `ink-3`. |

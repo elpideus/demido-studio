@@ -1,0 +1,482 @@
+/*
+ * The Models browser (#75) and the window that hosts it over the desk. Roles
+ * are docs/rules/surfaces.md, shapes design/system.md "Models", every number a
+ * token from design/tokens.css.
+ *
+ * Two panes at every width, as a plain flex row. v2's two-pane browser never
+ * laid out in two panes because a container query sat on the wrong element
+ * (docs/rules/done.md); there is no query here to put in the wrong place.
+ */
+
+/* ---- the window over the desk ------------------------------------------ */
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-scrim);
+}
+
+/* Wider than a page of settings: two panes side by side is the point. */
+.window {
+  position: absolute;
+  inset: var(--space-bay);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+  box-shadow: var(--shadow-float);
+}
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-room);
+  padding: var(--space-control) var(--space-control) var(--space-control) var(--space-room);
+  background: var(--color-chrome);
+}
+
+.name {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-strong);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+}
+
+.close {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.close:hover {
+  background: var(--color-hover);
+}
+
+.close:active {
+  background: var(--color-active);
+}
+
+/* A window body is ground, not an island. */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: var(--space-gutter);
+  background: var(--color-rack);
+}
+
+/* ---- the two panes ----------------------------------------------------- */
+
+.browser {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-gutter);
+}
+
+.list {
+  flex: none;
+  width: calc(11 * var(--size-control));
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-control);
+  padding: var(--space-room);
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+}
+
+.detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-page);
+  background: var(--color-panel);
+  border-radius: var(--radius-island);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+/* A field is a recess. */
+.search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-control);
+  padding: var(--space-control) var(--space-room);
+  background: var(--color-well);
+  border-radius: var(--radius-control);
+  color: var(--color-ink-3);
+}
+
+.field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+}
+
+.field::placeholder {
+  color: var(--color-ink-4);
+}
+
+.field:focus {
+  outline: none;
+}
+
+.filters {
+  flex: none;
+  display: flex;
+  gap: var(--space-tight);
+}
+
+.filter {
+  padding: var(--space-tight) var(--space-room);
+  border: none;
+  border-radius: var(--radius-chip);
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.filter:hover {
+  background: var(--color-hover);
+}
+
+.filter[aria-checked='true'] {
+  background: var(--color-edge);
+  color: var(--color-ink);
+}
+
+/* The one scrolling region. The footer beneath it is fixed, so it carries the
+ * seam (docs/rules/gaps-and-hairlines.md, case 1). */
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+/* An unreadable index goes to the top of the list, above the installed
+ * models it tells a person are still there. */
+.group[data-first='true'] {
+  order: -1;
+}
+
+/* The silkscreen voice: equipment labels. */
+.heading {
+  margin: 0 0 var(--space-tight);
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  font-weight: normal;
+  letter-spacing: var(--tracking-silkscreen);
+  line-height: var(--leading-flush);
+  text-transform: uppercase;
+}
+
+.said {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  overflow-wrap: anywhere;
+}
+
+.dead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  padding: var(--space-control) var(--space-room);
+  background: var(--color-raised);
+  border-radius: var(--radius-control);
+}
+
+.deadWhat {
+  margin: 0;
+  color: var(--color-rose);
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+}
+
+/* A model row: unfilled on the pane, hover under the pointer, selected edge. */
+.row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-tight);
+  padding: var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-2);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.row:hover {
+  background: var(--color-hover);
+}
+
+.row[aria-pressed='true'] {
+  background: var(--color-edge);
+  color: var(--color-ink);
+}
+
+.rowName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+  overflow-wrap: anywhere;
+}
+
+.rowFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-control);
+}
+
+/* Model metadata: the silkscreen voice at ink-3. */
+.meta {
+  min-width: 0;
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  line-height: var(--leading-ui);
+  text-transform: uppercase;
+}
+
+.folders {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  padding-top: var(--space-control);
+  border-top: 1px solid var(--color-seam);
+}
+
+.folder {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  min-width: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.library {
+  flex: none;
+  color: var(--color-ink-2);
+}
+
+.path {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+/* ---- the detail pane --------------------------------------------------- */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+  max-width: var(--measure-prose);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-display);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-tight);
+  overflow-wrap: anywhere;
+}
+
+/* Gating is waiting on somebody's terms, which is amber's meaning. */
+.gate {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-control);
+  padding: var(--space-control) var(--space-room);
+  background: var(--color-raised);
+  border-radius: var(--radius-control);
+  color: var(--color-amber);
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(4 * var(--size-control)), 1fr));
+  gap: var(--space-room);
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  min-width: 0;
+}
+
+.factName {
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  line-height: var(--leading-flush);
+  text-transform: uppercase;
+}
+
+.factValue {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+  overflow-wrap: anywhere;
+}
+
+.factValue[data-unstated='true'] {
+  color: var(--color-ink-3);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+/* A download option: raised on the pane, the chosen one edge. */
+.option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-room);
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.option:hover {
+  background: var(--color-hover);
+}
+
+.option[aria-checked='true'] {
+  background: var(--color-edge);
+  color: var(--color-ink);
+}
+
+.optionName {
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+}
+
+/* The one primary action, with the fit verdict beside it. */
+.act {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-room);
+}
+
+.primary {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-control);
+  padding: var(--space-control) var(--space-room);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-edge);
+  color: var(--color-signal);
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.primary:hover,
+.primary:active {
+  background: var(--color-edge-strong);
+}
+
+.primary:disabled {
+  background: var(--color-raised);
+  color: var(--color-ink-3);
+  cursor: default;
+}
