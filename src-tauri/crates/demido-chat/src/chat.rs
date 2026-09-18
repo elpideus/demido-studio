@@ -445,19 +445,33 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         }
         let config = B::with_slots(config, admission.open);
 
+        // Weighed around the load, so the fit verdict knows what the resident
+        // model gives back (`Pool::weigh`). Only a load that started a server
+        // is weighed: one the supervisor answered with the server already
+        // running changed nothing on the card.
+        let resident = self.supervisor.current().await;
+        let before = self.pool.card();
         match self.supervisor.ensure(config).await {
-            Ok(backend) => self.report(
-                Presence::Ready {
-                    model: model.id.clone(),
-                    // Asked of the backend, never repeated from the admission:
-                    // the number shown to the user is the number actually
-                    // opened, and a server that opened a different one is a
-                    // defect this is the only place that could notice.
-                    slots: backend.slots().await.unwrap_or(admission.open),
-                    limit: admission.reason,
-                },
-                &mut report,
-            ),
+            Ok(backend) => {
+                let started = resident
+                    .as_ref()
+                    .is_none_or(|resident| !Arc::ptr_eq(resident, &backend));
+                if started {
+                    self.pool.weigh(before, resident.is_some());
+                }
+                self.report(
+                    Presence::Ready {
+                        model: model.id.clone(),
+                        // Asked of the backend, never repeated from the admission:
+                        // the number shown to the user is the number actually
+                        // opened, and a server that opened a different one is a
+                        // defect this is the only place that could notice.
+                        slots: backend.slots().await.unwrap_or(admission.open),
+                        limit: admission.reason,
+                    },
+                    &mut report,
+                )
+            }
             Err(error) => {
                 tracing::warn!(%error, "the model did not start");
                 self.report(
@@ -468,6 +482,14 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                 )
             }
         }
+    }
+
+    /// What the resident model was weighed at holding on the card when it
+    /// loaded, in bytes, and zero before anything has. What a model chosen
+    /// next gets back, which the fit verdict counts as room
+    /// ([#74](https://github.com/elpideus/demido-studio/issues/74)).
+    pub fn held(&self) -> u64 {
+        self.pool.held()
     }
 
     /// The log, read.

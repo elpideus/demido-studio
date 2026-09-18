@@ -1,0 +1,32 @@
+/*
+ * The fit verdict (#74). Ink only: partial offload is a fact about a choice,
+ * not an alarm, so no verdict takes `amber` or `rose`. The label is `ink`, the
+ * sentence `ink-3`. Every number is a token from design/tokens.css.
+ */
+
+.verdict {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-tight);
+  row-gap: var(--space-hair);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.icon {
+  flex: none;
+  align-self: center;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+  color: var(--color-ink-3);
+}
+
+.label {
+  color: var(--color-ink);
+}
+
+.sentence {
+  color: var(--color-ink-3);
+}

@@ -43,6 +43,11 @@ pub struct Choice {
     /// What the download costs: every piece and the projector, each as the
     /// server states it, added up.
     pub bytes: u64,
+    /// What loading it costs before any context: the pieces alone, as the
+    /// server states them. The projector is left out, because it is only
+    /// resident while an image is being read. What the fit verdict prices
+    /// ([#74](https://github.com/elpideus/demido-studio/issues/74)).
+    pub weights: u64,
 }
 
 /// Which model a weights file is a piece of: its path without the split
@@ -125,10 +130,12 @@ fn choice(pieces: Vec<File>, projectors: &[File]) -> Choice {
         .min_by_key(|projector| (preference(projector), projector.path.as_str()))
         .cloned();
 
-    let bytes = pieces
+    let weights = pieces
         .iter()
-        .chain(projector.as_ref())
         .fold(0u64, |total, file| total.saturating_add(file.bytes));
+    let bytes = projector
+        .as_ref()
+        .map_or(weights, |projector| weights.saturating_add(projector.bytes));
 
     Choice {
         name,
@@ -136,6 +143,7 @@ fn choice(pieces: Vec<File>, projectors: &[File]) -> Choice {
         pieces,
         projector,
         bytes,
+        weights,
     }
 }
 

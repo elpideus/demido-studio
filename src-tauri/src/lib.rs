@@ -15,6 +15,7 @@ pub mod chat;
 #[cfg(debug_assertions)]
 mod dev_server;
 pub mod downloads;
+pub mod fit;
 pub mod models;
 pub mod monitor;
 pub mod prompts;
@@ -228,6 +229,7 @@ pub fn run() -> demido_core::Result<()> {
             downloads::downloads_pause_all,
             downloads::downloads_resume,
             downloads::downloads_cancel,
+            fit::models_fit,
             models::models_search,
             models::models_choices,
             monitor::monitor_log,

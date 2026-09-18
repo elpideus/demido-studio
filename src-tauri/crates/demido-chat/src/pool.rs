@@ -35,15 +35,17 @@
 //!
 //! It is taken **before the weights land**, so it is the card as it stands
 //! rather than as it will stand. Answering that needs the load priced whole,
-//! which is the fit verdict's
-//! ([#74](https://github.com/elpideus/demido-studio/issues/74)) and is also
-//! what will first measure a slot at all. Until it does, `per_slot` is
-//! unmeasured and the only admission reachable from a window is the one that
-//! needs no room: the default.
+//! which is what the fit verdict does with this same arithmetic
+//! ([#74](https://github.com/elpideus/demido-studio/issues/74)). What a slot
+//! costs is still unmeasured
+//! ([#105](https://github.com/elpideus/demido-studio/issues/105)), so the only
+//! admission reachable from a window is the one that needs no room: the
+//! default.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use demido_vram::{admit, free_now, Admission, Budget, Card};
+use demido_vram::{admit, free_now, weighed, Admission, Budget, Card};
 
 /// How the card is asked. A closure rather than a trait, per the note above.
 type Reading = Arc<dyn Fn() -> Option<Card> + Send + Sync>;
@@ -59,12 +61,19 @@ pub struct Pool {
     /// Zero is not free: `demido_vram::admit` queues an unmeasured slot and
     /// says so, because a slot admitted on a number nobody measured is the
     /// paging-through-host-memory failure the whole budget exists to avoid. The
-    /// producer is the fit verdict
-    /// ([#74](https://github.com/elpideus/demido-studio/issues/74)), which
-    /// reads the attention geometry a KV cache is sized from; until it lands,
-    /// parallelism above the slot a conversation already has queues with a
-    /// stated reason, which is the honest answer rather than a guess.
+    /// producer is a header reading of the model in force, which reads the
+    /// attention geometry a KV cache is sized from
+    /// ([#105](https://github.com/elpideus/demido-studio/issues/105)); until it
+    /// lands, parallelism above the slot a conversation already has queues with
+    /// a stated reason, which is the honest answer rather than a guess.
     per_slot: u64,
+    /// What the resident model was weighed at holding on the card, in bytes,
+    /// by [`Pool::weigh`]. Zero until a load has been weighed.
+    ///
+    /// Shared between clones: there is one card and one resident model, and a
+    /// copy of the pool that had its own figure would be a second answer to
+    /// what is on it.
+    held: Arc<AtomicU64>,
 }
 
 impl Pool {
@@ -74,6 +83,7 @@ impl Pool {
         Self {
             reading: Arc::new(free_now),
             per_slot: 0,
+            held: Arc::default(),
         }
     }
 
@@ -88,6 +98,7 @@ impl Pool {
         Self {
             reading: Arc::new(move || Some(card)),
             per_slot,
+            held: Arc::default(),
         }
     }
 
@@ -109,10 +120,41 @@ impl Pool {
     }
 }
 
+impl Pool {
+    /// The card, read now.
+    #[must_use]
+    pub fn card(&self) -> Option<Card> {
+        (self.reading)()
+    }
+
+    /// Weigh the server a load just started: `before` is the card as it read
+    /// before the load, and `replaced` says whether a server this pool had
+    /// weighed was resident then and has made way.
+    ///
+    /// Weighed rather than taken from the model file, because a file is not
+    /// what lands on the card (`demido_vram::weighed`). What it is for is the
+    /// fit verdict ([#74](https://github.com/elpideus/demido-studio/issues/74)):
+    /// the resident model is room for the one that would replace it, and this
+    /// is how much.
+    pub fn weigh(&self, before: Option<Card>, replaced: bool) {
+        let given_back = if replaced { self.held() } else { 0 };
+        let held = weighed(before, given_back, self.card()).unwrap_or(0);
+        self.held.store(held, Ordering::SeqCst);
+    }
+
+    /// What the resident model was weighed at holding. Zero when nothing has
+    /// been weighed, or the card could not be read around the load.
+    #[must_use]
+    pub fn held(&self) -> u64 {
+        self.held.load(Ordering::SeqCst)
+    }
+}
+
 impl std::fmt::Debug for Pool {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         out.debug_struct("Pool")
             .field("per_slot", &self.per_slot)
+            .field("held", &self.held())
             .finish_non_exhaustive()
     }
 }
@@ -184,6 +226,7 @@ mod tests {
         let pool = Pool {
             reading: Arc::new(|| None),
             per_slot: 563 * MIB,
+            held: Arc::default(),
         };
         let admission = pool.admit(1, 3);
 
@@ -203,8 +246,6 @@ mod tests {
     /// first answer would open a slot against memory somebody else now holds.
     #[test]
     fn the_card_is_asked_every_time() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-
         let asked = Arc::new(AtomicU64::new(0));
         let counted = asked.clone();
         let pool = Pool {
@@ -217,6 +258,7 @@ mod tests {
                 })
             }),
             per_slot: MIB,
+            held: Arc::default(),
         };
 
         assert_eq!(pool.admit(1, 2).open, 2);
@@ -226,5 +268,56 @@ mod tests {
             "the second reading is the one that decides"
         );
         assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    /// A pool that answers each reading in turn, from `done.md`'s weighed
+    /// table.
+    fn reading_in_turn(frees: &'static [u64]) -> Pool {
+        let next = Arc::new(AtomicU64::new(0));
+        Pool {
+            reading: Arc::new(move || {
+                let at = usize::try_from(next.fetch_add(1, Ordering::SeqCst)).unwrap();
+                Some(Card {
+                    free: frees[at.min(frees.len() - 1)] * MIB,
+                    total: 12288 * MIB,
+                })
+            }),
+            per_slot: 0,
+            held: Arc::default(),
+        }
+    }
+
+    /// The load is weighed the way `done.md` weighed one: nothing loaded, the
+    /// development model at 32k on one slot, then on two slots replacing it.
+    /// What the pool holds is the table's own cost column each time, and a
+    /// clone of the pool reads the same figure.
+    #[test]
+    fn a_load_is_weighed_and_a_replacement_gives_the_first_back() {
+        // Read once before the first load and once after it, then the same
+        // for the second.
+        let pool = reading_in_turn(&[7984, 2235, 2235, 1615]);
+        let copy = pool.clone();
+        assert_eq!(pool.held(), 0, "nothing has been weighed");
+
+        let before = pool.card();
+        pool.weigh(before, false);
+        assert_eq!(copy.held(), 5749 * MIB);
+
+        let before = pool.card();
+        pool.weigh(before, true);
+        assert_eq!(copy.held(), 6369 * MIB);
+    }
+
+    /// A load the card could not be read around weighs nothing, rather than a
+    /// figure nobody took.
+    #[test]
+    fn a_load_nobody_could_weigh_holds_nothing() {
+        let pool = Pool {
+            reading: Arc::new(|| None),
+            per_slot: 0,
+            held: Arc::new(AtomicU64::new(5749 * MIB)),
+        };
+        pool.weigh(None, true);
+        assert_eq!(pool.held(), 0);
     }
 }

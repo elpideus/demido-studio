@@ -20,6 +20,14 @@
 //! not what a settings page saw when it was drawn*. Anything that opens a slot
 //! reads again at the moment it opens one.
 //!
+//! ## And whether a model fits, before it is downloaded
+//!
+//! [`verdict`] is the second consumer of [`admit`], not a second arithmetic: a
+//! load priced whole is one slot, and *no room* is partial offload. It is the
+//! detail pane's verdict
+//! ([#74](https://github.com/elpideus/demido-studio/issues/74)), and it lives
+//! in `fit.rs`.
+//!
 //! ## What it will not do
 //!
 //! **Either the slot's KV is shown in the context arithmetic, or the slot is
@@ -40,8 +48,10 @@
 //! [`docs/rules/tiles.md`](../../../../docs/rules/tiles.md) is explicit that a
 //! trait is a decision rather than a default.
 
+mod fit;
 mod reading;
 
+pub use fit::{verdict, weighed, Load, Verdict};
 pub use reading::{free_now, Card};
 
 use serde::Serialize;
@@ -124,10 +134,10 @@ pub enum Queued {
     /// Refusing rather than guessing, for the reason at the top of this file: a
     /// slot admitted on a number nobody measured is an allocation failure
     /// inside the driver, halfway through a load, with a message written for a
-    /// CUDA programmer. The fit verdict
-    /// ([#74](https://github.com/elpideus/demido-studio/issues/74)) is what
-    /// will produce the number; until it does, parallelism above the slots
-    /// already open queues and says so.
+    /// CUDA programmer. A header reading of the model in force is what will
+    /// produce the number ([#105](https://github.com/elpideus/demido-studio/issues/105));
+    /// until it does, parallelism above the slots already open queues and says
+    /// so.
     Unmeasured,
 }
 
