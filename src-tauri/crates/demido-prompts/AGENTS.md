@@ -79,7 +79,13 @@ register through a second `Paragraphs` on the same directory rather than through
 the conversation, which is safe because the crate holds no state: the editor's
 handle and the turn loop's read the same files, and
 `an_edit_is_what_the_next_read_returns_with_no_invalidation_in_between` is the
-promise that makes that true. The tool register's editor is S3.
+promise that makes that true.
+
+The tool register's editor is the same three commands over `Tools`
+(`tool_documents_list`, `_set`, `_reset`) and `web/src/settings/ToolDocuments.tsx`
+([#77](https://github.com/elpideus/demido-studio/issues/77)). The list joins each
+document to its tool's schema shape, read from the registry, so the page can draw
+the part that is not editable beside the part that is.
 
 `Error` converts into `demido_core::Error` at that boundary, so a window
 branches on a tag rather than on the wording of a sentence: an id this build
@@ -146,11 +152,15 @@ rendered above the field in the editor:
 A `note` is plain prose with no markup in it, because the editor renders it as
 text and nothing else consumes it.
 
-`Dependency` has two kinds and only one of them has an entry today.
-`Measured` is the classifier's. `Shared` is the asking sentence's, which arrives
-with the first skill: it is declared now rather than later because the editor
-renders both sentences side by side, and a kind added when its first entry
-appears would be a schema change to a seam the window is already reading.
+`Dependency` has three kinds. `Measured` is the classifier's: a pinned number,
+and a changed default is a release gate. `Driven` is a live suite's: what a
+model was watched doing against the shipped wording, `read_file` chosen out of
+six and `delegate_task`'s election, suppressed by an edit like a measurement
+and not pinned, because the live suites are re-run every slice. `Shared` is one
+wording reaching more than one place: every tool document is sent to every
+conversation and sub-agent the tool is on for, and the asking sentence will be
+when the first skill arrives. Every tool entry declares at least that one, so
+no tool opens onto a field with nothing said about what an edit costs.
 
 An edit **suppresses the claim rather than being refused**. `Prompt::suppressed`
 is what the window renders: a user may degrade their own classifier,

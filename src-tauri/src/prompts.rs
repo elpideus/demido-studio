@@ -7,10 +7,10 @@
 //! about any of it would be a second place deciding what a prompt says, which is
 //! the failure `docs/rules/prompts.md` exists to prevent.
 //!
-//! **Only the paragraph register.** The tool register's editor is S3, and this
-//! build offers no command that would open one: a page listing twenty five tool
-//! documents before there is a surface that declares their dependants would be
-//! offering to change something whose cost is not yet written down.
+//! **Both registers, three commands each.** The paragraph register's landed on
+//! [#58](https://github.com/elpideus/demido-studio/issues/58); the tool
+//! register's on [#77](https://github.com/elpideus/demido-studio/issues/77),
+//! once every document could declare what it is load-bearing for.
 //!
 //! What a [`Prompt`] carries is what the editor draws, and it is deliberately
 //! the whole truth about one entry rather than a projection of it: the
@@ -19,7 +19,8 @@
 //! measured claims the edit suppressed, and the note. The window renders that;
 //! it does not compute any of it.
 
-use demido_prompts::Prompt;
+use demido_prompts::{Document, Prompt};
+use serde::Serialize;
 
 use crate::wiring::Wiring;
 
@@ -66,5 +67,65 @@ pub fn prompts_set(
 #[tauri::command]
 pub fn prompts_reset(wiring: tauri::State<'_, Wiring>, id: String) -> demido_core::Result<()> {
     wiring.prompts.reset(&id)?;
+    Ok(())
+}
+
+/// One tool's document, and the shape it is merged onto.
+///
+/// The shape is here so the editor can draw it as what it is: the half of what
+/// a model is shown that is a contract with the parser and not editable text
+/// (`docs/rules/prompts.md`). `None` for a document whose tool this build did
+/// not register, which is the state `demido-tools`' `tests/documents.rs`
+/// keeps anything from reaching.
+#[derive(Debug, Serialize)]
+pub struct ToolDocument {
+    #[serde(flatten)]
+    pub document: Document,
+    pub shape: Option<serde_json::Value>,
+}
+
+/// Every tool document, in register order, each beside its shape.
+///
+/// Read the way `prompts_list` is: on every open and after every change.
+#[tauri::command]
+pub fn tool_documents_list(wiring: tauri::State<'_, Wiring>) -> Vec<ToolDocument> {
+    let mut shapes = wiring.chat.shapes();
+    wiring
+        .tools
+        .all()
+        .into_iter()
+        .map(|document| {
+            let shape = shapes
+                .iter()
+                .position(|(name, _)| name == document.tool.name)
+                .map(|at| shapes.swap_remove(at).1);
+            ToolDocument { document, shape }
+        })
+        .collect()
+}
+
+/// Replace one tool's document, description and parameter prose together.
+///
+/// Refused only for what could never reach a model as meant: prose for a
+/// parameter the shape does not have, and a placeholder, which no tool
+/// document declares. Never for what depends on the wording.
+#[tauri::command]
+pub fn tool_documents_set(
+    wiring: tauri::State<'_, Wiring>,
+    name: String,
+    text: String,
+) -> demido_core::Result<()> {
+    wiring.tools.set(&name, &text)?;
+    Ok(())
+}
+
+/// Forget the edit, so the document this build ships is what the next turn
+/// offers.
+#[tauri::command]
+pub fn tool_documents_reset(
+    wiring: tauri::State<'_, Wiring>,
+    name: String,
+) -> demido_core::Result<()> {
+    wiring.tools.reset(&name)?;
     Ok(())
 }

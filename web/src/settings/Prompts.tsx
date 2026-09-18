@@ -22,7 +22,7 @@ import styles from './Prompts.module.css'
  *
  * as something a person can open. `docs/rules/prompts.md` decides what that
  * means and this page is the whole of it for the paragraph register; the tool
- * register's editor is S3.
+ * register's is `ToolDocuments.tsx`, drawn from the same pieces below.
  *
  * **Nothing here is read-only, and no edit is refused for what depends on it.**
  * That was drawn and rejected in writing: it contradicts the brief on the four
@@ -131,7 +131,14 @@ function Entry({ prompt, open, toggle }: { prompt: Prompt; open: boolean; toggle
             />
           ))}
 
-          {outdated(prompt) && <Moved prompt={prompt} reset={() => void reset(paragraph.id)} />}
+          {outdated(prompt) && (
+            <Moved
+              text={prompt.text}
+              shipped={paragraph.default}
+              note={prompt.note}
+              reset={() => void reset(paragraph.id)}
+            />
+          )}
 
           <textarea
             className={styles.text}
@@ -183,10 +190,11 @@ function Entry({ prompt, open, toggle }: { prompt: Prompt; open: boolean; toggle
 /**
  * One thing that depends on this exact wording, and whether it still stands.
  *
- * Two kinds and they cost different things. A **measured** claim is a number
- * this repo publishes, and an edit suppresses it: the row is struck out, because
- * what changed is not the wording of the warning but whether the claim is still
- * being made. A **shared** wording is used in more than one place, so an edit
+ * Two costs, whatever the kind. A **measured** claim is a number this repo
+ * publishes and a **driven** one is what a live suite watched a model do, and
+ * an edit suppresses either: the row is struck out, because what changed is not
+ * the wording of the warning but whether the claim is still being made. A
+ * **shared** wording is used in more than one place, so an edit
  * changes all of them at once and there is nothing to suppress; it reads the
  * same before and after.
  *
@@ -196,7 +204,7 @@ function Entry({ prompt, open, toggle }: { prompt: Prompt; open: boolean; toggle
  * of one entry's dependants saying the same thing would collapse into one row,
  * and the person would be told one of the two things an edit costs them.
  */
-function Depends({ dependant, suppressed }: { dependant: Dependant; suppressed: boolean }) {
+export function Depends({ dependant, suppressed }: { dependant: Dependant; suppressed: boolean }) {
   const Glyph = suppressed ? CircleSlash : dependant.kind === 'shared' ? Info : TriangleAlert
 
   return (
@@ -224,15 +232,27 @@ function Depends({ dependant, suppressed }: { dependant: Dependant; suppressed: 
  * It stays a note. It blocks nothing, the text in force is still the one the
  * person chose, and the next turn sends it either way.
  */
-function Moved({ prompt, reset }: { prompt: Prompt; reset: () => void }) {
-  const lines = compare(prompt.text, prompt.paragraph.default)
+export function Moved({
+  text,
+  shipped,
+  note,
+  reset,
+}: {
+  /** The text in force: the person's edit. */
+  text: string
+  /** The text this build ships, which the reset restores. */
+  shipped: string
+  note: string | null
+  reset: () => void
+}) {
+  const lines = compare(text, shipped)
 
   return (
     <section className={styles.moved}>
-      {prompt.note && (
+      {note && (
         <p className={styles.depends}>
           <TriangleAlert className={styles.icon} strokeWidth={1.8} aria-hidden />
-          <span className={styles.note}>{prompt.note}</span>
+          <span className={styles.note}>{note}</span>
         </p>
       )}
       <pre className={styles.diff}>

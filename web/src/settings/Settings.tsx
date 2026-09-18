@@ -6,6 +6,7 @@ import { useDesk } from '@/shell/desk'
 import { Field } from './Control'
 import { ALWAYS, MODE, OFFERED, useSettings, type Row, type Tier } from './ladder'
 import { PromptsPage } from './Prompts'
+import { ToolDocumentsPage } from './ToolDocuments'
 import styles from './Settings.module.css'
 
 /**
@@ -92,6 +93,7 @@ export function Settings() {
           <div className={styles.page}>
             {section === 'conversation' && <Page tier="global" />}
             {section === 'prompts' && <PromptsPage />}
+            {section === 'tools' && <ToolDocumentsPage />}
             {section === 'setup' && <SetupPage />}
           </div>
         </div>
@@ -105,10 +107,14 @@ export function Settings() {
  *
  * Prompts is where "All prompts should be editable" lands as a page: the
  * paragraph register, by id, each entry opening into its text
- * (`docs/rules/prompts.md`). Set-up is where set-up is changed after the wizard
- * is gone.
+ * (`docs/rules/prompts.md`). Tool prompts is the other register: one document
+ * per host tool, its description and its parameter prose
+ * ([#77](https://github.com/elpideus/demido-studio/issues/77)). A section of
+ * its own rather than a group under Prompts, because the two are keyed
+ * differently and a tool document carries a shape a paragraph never has. Set-up
+ * is where set-up is changed after the wizard is gone.
  */
-const SECTIONS = ['conversation', 'prompts', 'setup'] as const
+const SECTIONS = ['conversation', 'prompts', 'tools', 'setup'] as const
 
 type Section = (typeof SECTIONS)[number]
 
@@ -117,6 +123,7 @@ type Section = (typeof SECTIONS)[number]
 const NAMED: Record<Section, string> = {
   conversation: 'Conversation',
   prompts: 'Prompts',
+  tools: 'Tool prompts',
   setup: 'Set-up',
 }
 

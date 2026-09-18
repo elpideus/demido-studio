@@ -334,8 +334,9 @@ pub(crate) fn stored(path: &Path, base_path: &Path, shipped: &str) -> Stored {
     }
 }
 
-/// The measured claims an entry's text no longer supports: every one of them
-/// once it has been edited, and none while it is the built-in wording.
+/// The claims about the shipped wording an entry's text no longer supports,
+/// measured or driven live: every one of them once it has been edited, and
+/// none while it is the built-in wording.
 pub(crate) fn suppressed(
     origin: Origin,
     dependants: &'static [Dependant],
@@ -344,7 +345,12 @@ pub(crate) fn suppressed(
         Origin::BuiltIn => Vec::new(),
         Origin::Edited => dependants
             .iter()
-            .filter(|dependant| matches!(dependant.kind, Dependency::Measured { .. }))
+            .filter(|dependant| {
+                matches!(
+                    dependant.kind,
+                    Dependency::Measured { .. } | Dependency::Driven { .. }
+                )
+            })
             .collect(),
     }
 }

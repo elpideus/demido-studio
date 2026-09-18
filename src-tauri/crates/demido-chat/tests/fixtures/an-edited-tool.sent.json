@@ -1,0 +1,678 @@
+[
+  {
+    "model": "development",
+    "messages": [
+      {
+        "role": "user",
+        "content": "The winch code for bay four is written in winch.txt. What is it?          Answer with the code alone."
+      }
+    ],
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Read a text file from the workspace. Give a path relative to the workspace root. Returns the file with line numbers, so you can refer to a line by number afterwards.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from_line": {
+              "description": "First line to return, counting from 1. Omit to start at the top.",
+              "type": "integer"
+            },
+            "lines": {
+              "description": "How many lines to return. Omit to read to the end.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Path relative to the workspace root, such as src/main.rs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "list_directory",
+        "description": "List what is in a directory of the workspace. Give a path relative to the workspace root, or \".\" for the root itself. Entries are numbered and directories are marked with a trailing slash. A directory too large to show at once comes back in parts, and the last line says how to ask for the next part.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first entry to return, as numbered in a previous listing of the same directory. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Path relative to the workspace root. Use \".\" for the root.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "search_files",
+        "description": "Find every line in the workspace that contains a phrase. Give plain text, not a pattern: it is matched literally and case-insensitively. Answers with paths and line numbers, which read_file takes as from_line. Use this before reading files when you do not know which file holds something.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first match to return, as numbered in a previous search for the same text. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Directory to search, relative to the workspace root. Omit to search all of it.",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text to find. Matched literally, ignoring case.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "write_file",
+        "description": "Write a text file in the workspace, replacing whatever was there. Give a path relative to the workspace root and the whole new contents. Read the file first if you are changing part of it: this replaces all of it.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "description": "The whole new contents of the file.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Path relative to the workspace root, such as src/main.rs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "delete_file",
+        "description": "Delete one file from the workspace. Give a path relative to the workspace root. It removes a single file, never a directory, and what it removes cannot be put back.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "description": "Path relative to the workspace root, such as notes/old.txt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "run_command",
+        "description": "Run a shell command and read what it printed. It starts in the workspace root unless you give a directory. Use this for building, testing, searching and version control. A command that exits with a non-zero status counts as failed. Very long output is cut, and the result says how much was left out.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "description": "The command line to run, as you would type it in a terminal.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "Directory to start in, relative to the workspace root. Omit to start in the root.",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "description": "Give up after this long. Omit for 60 seconds. At most 600.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0.7
+    }
+  },
+  {
+    "model": "development",
+    "messages": [
+      {
+        "role": "user",
+        "content": "The winch code for bay four is written in winch.txt. What is it?          Answer with the code alone."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "calls": [
+          {
+            "id": "cZPJ9rCgU8C2Hl0gBfy8eNrwEg3XYjKj",
+            "name": "read_file",
+            "arguments": "{\"path\":\"winch.txt\"}"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "    1  The winch code for bay four is 7731-MARGATE-OXIDE.",
+        "answers": "cZPJ9rCgU8C2Hl0gBfy8eNrwEg3XYjKj"
+      }
+    ],
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Read a text file from the workspace. Give a path relative to the workspace root. Returns the file with line numbers, so you can refer to a line by number afterwards.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from_line": {
+              "description": "First line to return, counting from 1. Omit to start at the top.",
+              "type": "integer"
+            },
+            "lines": {
+              "description": "How many lines to return. Omit to read to the end.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Path relative to the workspace root, such as src/main.rs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "list_directory",
+        "description": "List what is in a directory of the workspace. Give a path relative to the workspace root, or \".\" for the root itself. Entries are numbered and directories are marked with a trailing slash. A directory too large to show at once comes back in parts, and the last line says how to ask for the next part.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first entry to return, as numbered in a previous listing of the same directory. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Path relative to the workspace root. Use \".\" for the root.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "search_files",
+        "description": "Find every line in the workspace that contains a phrase. Give plain text, not a pattern: it is matched literally and case-insensitively. Answers with paths and line numbers, which read_file takes as from_line. Use this before reading files when you do not know which file holds something.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first match to return, as numbered in a previous search for the same text. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Directory to search, relative to the workspace root. Omit to search all of it.",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text to find. Matched literally, ignoring case.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "write_file",
+        "description": "Write a text file in the workspace, replacing whatever was there. Give a path relative to the workspace root and the whole new contents. Read the file first if you are changing part of it: this replaces all of it.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "description": "The whole new contents of the file.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Path relative to the workspace root, such as src/main.rs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "delete_file",
+        "description": "Delete one file from the workspace. Give a path relative to the workspace root. It removes a single file, never a directory, and what it removes cannot be put back.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "description": "Path relative to the workspace root, such as notes/old.txt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "run_command",
+        "description": "Run a shell command and read what it printed. It starts in the workspace root unless you give a directory. Use this for building, testing, searching and version control. A command that exits with a non-zero status counts as failed. Very long output is cut, and the result says how much was left out.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "description": "The command line to run, as you would type it in a terminal.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "Directory to start in, relative to the workspace root. Omit to start in the root.",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "description": "Give up after this long. Omit for 60 seconds. At most 600.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0.7
+    }
+  },
+  {
+    "model": "development",
+    "messages": [
+      {
+        "role": "user",
+        "content": "The winch code for bay four is written in winch.txt. What is it?          Answer with the code alone."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "calls": [
+          {
+            "id": "cZPJ9rCgU8C2Hl0gBfy8eNrwEg3XYjKj",
+            "name": "read_file",
+            "arguments": "{\"path\":\"winch.txt\"}"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "    1  The winch code for bay four is 7731-MARGATE-OXIDE.",
+        "answers": "cZPJ9rCgU8C2Hl0gBfy8eNrwEg3XYjKj"
+      },
+      {
+        "role": "assistant",
+        "content": "7731-MARGATE-OXIDE"
+      },
+      {
+        "role": "user",
+        "content": "The gate code is written in gate.txt. What is it? Answer with the              code alone."
+      }
+    ],
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Open a text file in the workspace and return it with numbered lines. The path is relative to the workspace root.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from_line": {
+              "description": "The first line you want, counting from 1. Leave it out to start at line 1.",
+              "type": "integer"
+            },
+            "lines": {
+              "description": "How many lines you want. Leave it out to get the rest of the file.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Where the file is, relative to the workspace root, for example notes/todo.txt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "list_directory",
+        "description": "List what is in a directory of the workspace. Give a path relative to the workspace root, or \".\" for the root itself. Entries are numbered and directories are marked with a trailing slash. A directory too large to show at once comes back in parts, and the last line says how to ask for the next part.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first entry to return, as numbered in a previous listing of the same directory. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Path relative to the workspace root. Use \".\" for the root.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "search_files",
+        "description": "Find every line in the workspace that contains a phrase. Give plain text, not a pattern: it is matched literally and case-insensitively. Answers with paths and line numbers, which read_file takes as from_line. Use this before reading files when you do not know which file holds something.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first match to return, as numbered in a previous search for the same text. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Directory to search, relative to the workspace root. Omit to search all of it.",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text to find. Matched literally, ignoring case.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "write_file",
+        "description": "Write a text file in the workspace, replacing whatever was there. Give a path relative to the workspace root and the whole new contents. Read the file first if you are changing part of it: this replaces all of it.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "description": "The whole new contents of the file.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Path relative to the workspace root, such as src/main.rs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "delete_file",
+        "description": "Delete one file from the workspace. Give a path relative to the workspace root. It removes a single file, never a directory, and what it removes cannot be put back.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "description": "Path relative to the workspace root, such as notes/old.txt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "run_command",
+        "description": "Run a shell command and read what it printed. It starts in the workspace root unless you give a directory. Use this for building, testing, searching and version control. A command that exits with a non-zero status counts as failed. Very long output is cut, and the result says how much was left out.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "description": "The command line to run, as you would type it in a terminal.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "Directory to start in, relative to the workspace root. Omit to start in the root.",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "description": "Give up after this long. Omit for 60 seconds. At most 600.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0.7
+    }
+  },
+  {
+    "model": "development",
+    "messages": [
+      {
+        "role": "user",
+        "content": "The winch code for bay four is written in winch.txt. What is it?          Answer with the code alone."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "calls": [
+          {
+            "id": "cZPJ9rCgU8C2Hl0gBfy8eNrwEg3XYjKj",
+            "name": "read_file",
+            "arguments": "{\"path\":\"winch.txt\"}"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "    1  The winch code for bay four is 7731-MARGATE-OXIDE.",
+        "answers": "cZPJ9rCgU8C2Hl0gBfy8eNrwEg3XYjKj"
+      },
+      {
+        "role": "assistant",
+        "content": "7731-MARGATE-OXIDE"
+      },
+      {
+        "role": "user",
+        "content": "The gate code is written in gate.txt. What is it? Answer with the              code alone."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "calls": [
+          {
+            "id": "DIrxS0js1LVCUfGXNHN5zxCroL9rENu6",
+            "name": "read_file",
+            "arguments": "{\"path\":\"gate.txt\"}"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "    1  The gate code for the north yard is 4410-TALLOW-QUAY.",
+        "answers": "DIrxS0js1LVCUfGXNHN5zxCroL9rENu6"
+      }
+    ],
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Open a text file in the workspace and return it with numbered lines. The path is relative to the workspace root.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from_line": {
+              "description": "The first line you want, counting from 1. Leave it out to start at line 1.",
+              "type": "integer"
+            },
+            "lines": {
+              "description": "How many lines you want. Leave it out to get the rest of the file.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Where the file is, relative to the workspace root, for example notes/todo.txt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "list_directory",
+        "description": "List what is in a directory of the workspace. Give a path relative to the workspace root, or \".\" for the root itself. Entries are numbered and directories are marked with a trailing slash. A directory too large to show at once comes back in parts, and the last line says how to ask for the next part.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first entry to return, as numbered in a previous listing of the same directory. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Path relative to the workspace root. Use \".\" for the root.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "search_files",
+        "description": "Find every line in the workspace that contains a phrase. Give plain text, not a pattern: it is matched literally and case-insensitively. Answers with paths and line numbers, which read_file takes as from_line. Use this before reading files when you do not know which file holds something.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Number of the first match to return, as numbered in a previous search for the same text. Omit to start at the beginning.",
+              "type": "integer"
+            },
+            "path": {
+              "description": "Directory to search, relative to the workspace root. Omit to search all of it.",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text to find. Matched literally, ignoring case.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "write_file",
+        "description": "Write a text file in the workspace, replacing whatever was there. Give a path relative to the workspace root and the whole new contents. Read the file first if you are changing part of it: this replaces all of it.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "description": "The whole new contents of the file.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Path relative to the workspace root, such as src/main.rs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "delete_file",
+        "description": "Delete one file from the workspace. Give a path relative to the workspace root. It removes a single file, never a directory, and what it removes cannot be put back.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "description": "Path relative to the workspace root, such as notes/old.txt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "run_command",
+        "description": "Run a shell command and read what it printed. It starts in the workspace root unless you give a directory. Use this for building, testing, searching and version control. A command that exits with a non-zero status counts as failed. Very long output is cut, and the result says how much was left out.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "description": "The command line to run, as you would type it in a terminal.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "Directory to start in, relative to the workspace root. Omit to start in the root.",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "description": "Give up after this long. Omit for 60 seconds. At most 600.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0.7
+    }
+  }
+]

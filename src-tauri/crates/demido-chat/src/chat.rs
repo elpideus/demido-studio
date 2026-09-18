@@ -362,6 +362,13 @@ impl<B: Backend, J: Journal> Chat<B, J> {
         self.tools.groups()
     }
 
+    /// Every tool this conversation could offer, by name, with its schema's
+    /// shape and no prose on it. What the tool register's editor draws as the
+    /// half of a tool that is a contract with the parser.
+    pub fn shapes(&self) -> Vec<(String, serde_json::Value)> {
+        self.tools.shapes()
+    }
+
     /// What the composer should say about the model.
     pub fn presence(&self) -> Presence {
         self.presence

@@ -373,6 +373,20 @@ impl Registry {
         self.plan(call)?.run().await
     }
 
+    /// Every registered tool's schema shape, by name, with no prose on it.
+    ///
+    /// What the tool register's editor draws beside a document: the half of
+    /// what a model is shown that is a contract with the parser and not
+    /// editable text (`docs/rules/prompts.md`). Registered rather than on
+    /// offer, because a person edits a tool's words whether or not a
+    /// workspace would let it be called today.
+    pub fn shapes(&self) -> Vec<(String, Value)> {
+        self.tools
+            .iter()
+            .map(|entry| (entry.tool.name().to_owned(), entry.tool.parameters()))
+            .collect()
+    }
+
     /// What the model may be shown right now.
     fn on_offer(&self) -> Vec<&Arc<dyn Tool>> {
         match self.workspace {
@@ -687,6 +701,29 @@ mod tests {
                 ("shell", vec!["run_command".to_owned()]),
                 ("delegation", vec!["delegate_task".to_owned()]),
             ]
+        );
+    }
+
+    /// The editor shows a tool's shape beside its document, and a fresh profile
+    /// has no workspace, so the shapes are answered from what is registered
+    /// rather than from what is on offer.
+    #[test]
+    fn every_registered_shape_is_listed_whether_or_not_there_is_a_workspace() {
+        let registry = Registry::of_files(None)
+            .with_group(shell())
+            .with_group(delegation(nothing()));
+
+        let shapes = registry.shapes();
+        let names: Vec<&str> = shapes.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names.len(), 7, "{names:?}");
+        let (_, read) = shapes
+            .iter()
+            .find(|(name, _)| name == "read_file")
+            .expect("read_file is registered");
+        assert!(read["properties"]["path"].is_object());
+        assert!(
+            read["properties"]["path"].get("description").is_none(),
+            "a shape carries no prose: that is the document's"
         );
     }
 

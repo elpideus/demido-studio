@@ -102,6 +102,15 @@ above the field in the editor:
 
 > A measurement in evals/lessons/ was taken against this wording.
 
+A tool document's dependants are of two more kinds
+([#77](https://github.com/elpideus/demido-studio/issues/77)). Every one is
+**shared**, because it is sent to every conversation and sub-agent its tool is
+on for. Two are **driven**: a live suite watched a model act on the shipped
+wording (`read_file` chosen out of six, and `delegate_task`'s election). A
+driven claim is suppressed by an edit like a measured one, and is not pinned,
+because the live suites are re-run every slice
+([`done.md`](done.md)).
+
 A dependant's sentence is plain prose with no markup in it, because the editor
 renders it as text and nothing else consumes it
 ([#58](https://github.com/elpideus/demido-studio/issues/58)).

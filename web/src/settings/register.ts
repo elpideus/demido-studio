@@ -16,17 +16,23 @@ import { useToasts } from '@/shell/toasts'
  * in place, because two live copies of a prompt are two things that can come to
  * disagree about what a model was shown.
  *
- * Only the paragraph register. The tool register's editor is S3
- * (`docs/rules/prompts.md`), and this build has no command that would open one.
+ * Both registers, as two stores over one write path: `usePrompts` for the
+ * paragraphs and `useToolDocuments` for the tool documents
+ * ([#77](https://github.com/elpideus/demido-studio/issues/77)). Two stores
+ * because the two are keyed differently, an id and a tool name, and one list
+ * holding both would make a key mean two things, which is the reason Rust keeps
+ * them in two registers.
  */
 
 /** Where the text in force came from. The Rust `Origin`. */
 export type Origin = 'built-in' | 'edited'
 
 /** What kind of promise a dependant is. The Rust `Dependency`, externally
- * tagged: a measurement names the file holding the pinned digest, and a shared
- * wording names nothing because there is nothing to follow. */
-export type Dependency = 'shared' | { measured: { pinned_in: string } }
+ * tagged: a measurement names the file holding the pinned digest, a live run
+ * names the suite that drove it, and a shared wording names nothing because
+ * there is nothing to follow. */
+export type Dependency =
+  'shared' | { measured: { pinned_in: string } } | { driven: { suite: string } }
 
 /** Something that depends on one paragraph's exact wording. The Rust
  * `Dependant`. This is what replaces a read-only flag: the sentence is rendered
@@ -75,8 +81,44 @@ export type Prompt = {
  * shared channel that also carries an edit that could not be read, and a diff
  * drawn from a sentence is a diff that changes when somebody rewords one.
  */
-export function outdated(prompt: Prompt): boolean {
-  return prompt.base !== null && prompt.base !== prompt.shipped
+export function outdated(entry: { base: string | null; shipped: string }): boolean {
+  return entry.base !== null && entry.base !== entry.shipped
+}
+
+/** One host tool's declaration. The Rust `ToolEntry`. `parameters` are the
+ * names the document may give prose to, in schema order; `default` is the
+ * whole document this build ships. */
+export type ToolEntry = {
+  name: string
+  title: string
+  summary: string
+  parameters: string[]
+  dependants: Dependant[]
+  default: string
+}
+
+/** A tool's schema with no prose on it: the contract with the parser, drawn
+ * beside the document and never edited. Only the part the editor reads. */
+export type Shape = {
+  properties?: Record<string, { type?: string | string[] }>
+  required?: string[]
+}
+
+/** One tool's document as it stands right now, beside its shape. The Rust
+ * `Document`, whole, with the shape the command joins on. */
+export type ToolDocument = {
+  tool: ToolEntry
+  /** The whole document: the description, then one `## <parameter>` section
+   * per parameter. Edited as one text and hashed as one. */
+  text: string
+  origin: Origin
+  hash: string
+  shipped: string
+  base: string | null
+  suppressed: Dependant[]
+  note: string | null
+  /** `null` only for a document whose tool this build did not register. */
+  shape: Shape | null
 }
 
 type Prompts = {
@@ -109,9 +151,37 @@ export const usePrompts = create<Prompts>((set, get) => ({
     }
   },
 
-  set: async (id, text) => write(() => invoke('prompts_set', { id, text }), get),
+  set: async (id, text) => write(() => invoke('prompts_set', { id, text }), get().read, refusal),
 
-  reset: async (id) => write(() => invoke('prompts_reset', { id }), get),
+  reset: async (id) => write(() => invoke('prompts_reset', { id }), get().read, refusal),
+}))
+
+type ToolDocuments = {
+  /** Every document, in register order, or nothing while the first read is in
+   * flight, for the reason `Prompts.entries` gives. */
+  entries: ToolDocument[] | null
+  read: () => Promise<void>
+  set: (name: string, text: string) => Promise<boolean>
+  reset: (name: string) => Promise<boolean>
+}
+
+export const useToolDocuments = create<ToolDocuments>((set, get) => ({
+  entries: null,
+
+  read: async () => {
+    try {
+      set({ entries: await invoke<ToolDocument[]>('tool_documents_list') })
+    } catch (error) {
+      console.warn('the tool register could not be read', error)
+      useToasts.getState().show(sentence(error))
+    }
+  },
+
+  set: async (name, text) =>
+    write(() => invoke('tool_documents_set', { name, text }), get().read, toolRefusal),
+
+  reset: async (name) =>
+    write(() => invoke('tool_documents_reset', { name }), get().read, toolRefusal),
 }))
 
 /**
@@ -130,7 +200,11 @@ export const usePrompts = create<Prompts>((set, get) => ({
  * sentence for it is written here because the one that crossed the boundary
  * names an id.
  */
-async function write(call: () => Promise<unknown>, get: () => Prompts): Promise<boolean> {
+async function write(
+  call: () => Promise<unknown>,
+  read: () => Promise<void>,
+  refusal: (error: unknown) => string,
+): Promise<boolean> {
   try {
     await call()
   } catch (error) {
@@ -141,7 +215,7 @@ async function write(call: () => Promise<unknown>, get: () => Prompts): Promise<
     return false
   }
 
-  await get().read()
+  await read()
   return true
 }
 
@@ -160,4 +234,15 @@ async function write(call: () => Promise<unknown>, get: () => Prompts): Promise<
 function refusal(error: unknown): string {
   if (!refused(error)) return sentence(error)
   return 'That names something nothing will fill in. Only the placeholders listed under the field are replaced.'
+}
+
+/**
+ * The same, for a tool document. Two refusals rather than one, and neither is a
+ * judgement about the wording either: a section for a parameter the shape does
+ * not have would describe nothing, and a tool document fills in no
+ * placeholders.
+ */
+function toolRefusal(error: unknown): string {
+  if (!refused(error)) return sentence(error)
+  return 'A tool document can only give prose to the parameters in its shape, and fills in no placeholders.'
 }

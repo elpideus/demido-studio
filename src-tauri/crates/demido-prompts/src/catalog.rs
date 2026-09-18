@@ -80,6 +80,20 @@ pub enum Dependency {
     /// One wording, used in more than one place, so an edit changes all of them
     /// at once. Nothing is suppressed and nothing is gated: the user is told.
     Shared,
+    /// A live-model suite was driven against this exact wording, and what it
+    /// saw a model do is evidence this repo cites.
+    ///
+    /// Suppressed by an edit the way a measurement is, because the evidence is
+    /// about the shipped wording and not about somebody's. Not a release gate:
+    /// the live suites are re-run every slice (`docs/rules/done.md`), so a
+    /// changed default is driven again on the next one rather than pinned.
+    /// The tool register's, since a tool document is what a model picks a tool
+    /// on and the live suites are where that was watched happening
+    /// ([#77](https://github.com/elpideus/demido-studio/issues/77)).
+    Driven {
+        /// The suite, relative to the repository root.
+        suite: &'static str,
+    },
 }
 
 /// Ids, so nothing has to spell a paragraph out twice.

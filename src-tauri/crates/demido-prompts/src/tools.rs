@@ -36,7 +36,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::catalog::{placeholders_in, Dependant};
+use crate::catalog::{placeholders_in, Dependant, Dependency};
 use crate::register::{self, Error, Origin, Result, Stored};
 
 /// One host tool's document: what it is called, what it gives prose to, what
@@ -47,62 +47,114 @@ pub struct ToolEntry {
     /// disk and the name `tools/offered` records, so renaming one is a
     /// migration.
     pub name: &'static str,
+    /// The editor's heading for this document. A label, never payload.
+    pub title: &'static str,
+    /// One sentence about what the tool does for the person, shown above the
+    /// field. A label, never payload: what the model reads is `default`.
+    pub summary: &'static str,
     /// Every parameter the tool's schema declares, in schema order.
     ///
     /// Declared rather than discovered so that an edit giving prose to a
     /// property that does not exist is refused, and so that `demido-tools` can
     /// hold this list to the schema it actually parses against.
     pub parameters: &'static [&'static str],
-    /// What this wording is load-bearing for. Empty for a document no
-    /// measurement was taken against.
+    /// What this wording is load-bearing for, rendered above the field. Never
+    /// empty: every document is at least what a model picks its tool on.
     pub dependants: &'static [Dependant],
     /// The document this build ships. Never mutated; an edit is a file on disk.
     pub default: &'static str,
 }
 
-const NOTHING_DEPENDS_ON_IT: &[Dependant] = &[];
+/// What every tool document is load-bearing for, whoever the tool is.
+///
+/// A tool's document is not composed into anything a person reads first: it
+/// is the words a model picks the tool on, sent beside every other tool's on
+/// every turn the tool is switched on, and to every sub-agent it is passed
+/// down to. So one edit changes what every one of those contexts is told, and
+/// the person making it should hear that before they make it.
+// not-a-prompt: the sentence the editor renders above the field, never sent.
+const OFFERED: Dependant = Dependant {
+    note: "Every conversation and every sub-agent this tool is switched on for is sent this wording, and a small model picks a tool almost entirely on it.",
+    kind: Dependency::Shared,
+};
+
+/// The planted file in S2's live suite names a file and never a tool, and the
+/// model picks this one out of six on its words
+/// ([#59](https://github.com/elpideus/demido-studio/issues/59)).
+// not-a-prompt: the sentence the editor renders above the field, never sent.
+const CHOSEN_LIVE: Dependant = Dependant {
+    note: "The live tools suite watched a model choose this tool out of six, with nothing naming it, against this wording.",
+    kind: Dependency::Driven {
+        suite: "src-tauri/crates/demido-chat/tests/a_real_model_with_tools.rs",
+    },
+};
+
+/// S4's election: whether a model delegates with nothing naming delegation,
+/// measured on all three tiers against this wording
+/// ([#69](https://github.com/elpideus/demido-studio/issues/69)). No tier did,
+/// and a rewording is exactly what that result is waiting on, which is why the
+/// person rewriting it should know the number was taken against this one.
+// not-a-prompt: the sentence the editor renders above the field, never sent.
+const ELECTED_LIVE: Dependant = Dependant {
+    note: "The live delegation suite measured whether a model delegates unprompted against this wording.",
+    kind: Dependency::Driven {
+        suite: "src-tauri/crates/demido-chat/tests/a_real_model_delegating.rs",
+    },
+};
+
+const OFFERED_ONLY: &[Dependant] = &[OFFERED];
 
 /// Every host tool there is a document for.
-///
-/// No title and no summary, unlike a [`crate::Paragraph`]: those are the
-/// editor's labels, and the editor for this register is S3
-/// (`docs/rules/prompts.md`), so they arrive with it rather than as fields
-/// nothing reads.
+// not-a-prompt: what a model reads is the `include_str!` default beside each
+// entry. The titles and summaries here are the editor's labels, and
+// `check-rules.mjs` refuses a `default` that is anything but a file.
 pub static TOOLS: &[ToolEntry] = &[
     ToolEntry {
         name: "read_file",
+        title: "Read a file",
+        summary: "How the model is told it can open a file in the workspace, and a range of its lines.",
         parameters: &["path", "from_line", "lines"],
-        dependants: NOTHING_DEPENDS_ON_IT,
+        dependants: &[OFFERED, CHOSEN_LIVE],
         default: include_str!("../defaults/tools/read_file.md"),
     },
     ToolEntry {
         name: "list_directory",
+        title: "List a directory",
+        summary: "How the model is told it can see what a folder holds, a part at a time.",
         parameters: &["path", "from"],
-        dependants: NOTHING_DEPENDS_ON_IT,
+        dependants: OFFERED_ONLY,
         default: include_str!("../defaults/tools/list_directory.md"),
     },
     ToolEntry {
         name: "search_files",
+        title: "Search files",
+        summary: "How the model is told it can find a phrase across the workspace before reading anything.",
         parameters: &["text", "path", "from"],
-        dependants: NOTHING_DEPENDS_ON_IT,
+        dependants: OFFERED_ONLY,
         default: include_str!("../defaults/tools/search_files.md"),
     },
     ToolEntry {
         name: "write_file",
+        title: "Write a file",
+        summary: "How the model is told it can replace a file's contents, and that it replaces all of them.",
         parameters: &["path", "content"],
-        dependants: NOTHING_DEPENDS_ON_IT,
+        dependants: OFFERED_ONLY,
         default: include_str!("../defaults/tools/write_file.md"),
     },
     ToolEntry {
         name: "delete_file",
+        title: "Delete a file",
+        summary: "How the model is told it can remove one file, and that nothing brings it back.",
         parameters: &["path"],
-        dependants: NOTHING_DEPENDS_ON_IT,
+        dependants: OFFERED_ONLY,
         default: include_str!("../defaults/tools/delete_file.md"),
     },
     ToolEntry {
         name: "run_command",
+        title: "Run a command",
+        summary: "How the model is told it can run a shell command, where it starts and when it gives up.",
         parameters: &["command", "cwd", "timeout_seconds"],
-        dependants: NOTHING_DEPENDS_ON_IT,
+        dependants: OFFERED_ONLY,
         default: include_str!("../defaults/tools/run_command.md"),
     },
     // An entry from the first commit that ships the tool
@@ -113,8 +165,10 @@ pub static TOOLS: &[ToolEntry] = &[
     // rewording is never the one to retrofit.
     ToolEntry {
         name: "delegate_task",
+        title: "Delegate a task",
+        summary: "How the model is told it can hand work to a sub-agent with a clean context, and when that is worth it.",
         parameters: &["task"],
-        dependants: NOTHING_DEPENDS_ON_IT,
+        dependants: &[OFFERED, ELECTED_LIVE],
         default: include_str!("../defaults/tools/delegate_task.md"),
     },
 ];
@@ -442,6 +496,62 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn every_entry_is_labelled_and_says_what_it_is_load_bearing_for() {
+        // The editor renders the dependants above the field, so an entry
+        // declaring none would open onto a field with nothing said about what
+        // an edit costs. Every tool document costs something: a small model
+        // picks a tool on these words.
+        for entry in TOOLS {
+            assert!(!entry.title.is_empty(), "{} has no title", entry.name);
+            assert!(!entry.summary.is_empty(), "{} has no summary", entry.name);
+            assert!(
+                !entry.dependants.is_empty(),
+                "{} declares nothing it is load-bearing for",
+                entry.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_driven_claim_names_a_live_suite_that_offers_the_tool() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        for entry in TOOLS {
+            for dependant in entry.dependants {
+                let Dependency::Driven { suite } = dependant.kind else {
+                    continue;
+                };
+                let source = std::fs::read_to_string(root.join(suite))
+                    .unwrap_or_else(|_| panic!("{} names {suite}, which is not there", entry.name));
+                assert!(
+                    source.contains(entry.name),
+                    "{suite} never names {}",
+                    entry.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_edit_suppresses_the_live_claim_and_keeps_the_shared_one() {
+        // The live suites were driven against the shipped wording. On a
+        // machine where somebody rewrote it, that is no longer a claim about
+        // their app; that the document is sent wherever the tool is on still
+        // is.
+        let (_dir, tools) = open();
+        let shipped = tools.get("read_file").unwrap();
+        assert!(shipped.suppressed.is_empty());
+
+        let edited = tools
+            .set("read_file", "Read a file.\n\n## path\n\nWhere.")
+            .unwrap();
+        assert!(!edited.suppressed.is_empty());
+        assert!(edited
+            .suppressed
+            .iter()
+            .all(|dependant| matches!(dependant.kind, Dependency::Driven { .. })));
     }
 
     #[test]
