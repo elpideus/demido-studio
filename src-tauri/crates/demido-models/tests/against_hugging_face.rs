@@ -63,3 +63,31 @@ async fn a_repository_that_is_not_there_is_missing() {
         "{answer:?}"
     );
 }
+
+/// A vision repository as it is published today reads into choices that carry
+/// their projector and never offer it, and a split one into one choice per
+/// quantisation (#71).
+#[tokio::test]
+#[ignore = "needs the network"]
+async fn a_real_repository_reads_into_choices() {
+    let Answer::Read { found } = Index::default()
+        .files("ggml-org/gemma-3-4b-it-GGUF")
+        .await
+        .map(demido_models::choices)
+    else {
+        panic!("the tree was not readable");
+    };
+    assert!(!found.is_empty());
+    assert!(found.iter().all(|choice| choice.projector.is_some()));
+    assert!(found.iter().all(|choice| !choice.name.contains("mmproj")));
+
+    let Answer::Read { found } = Index::default()
+        .files("unsloth/gpt-oss-120b-GGUF")
+        .await
+        .map(demido_models::choices)
+    else {
+        panic!("the tree was not readable");
+    };
+    assert!(found.iter().any(|choice| choice.pieces.len() > 1));
+    assert!(found.windows(2).all(|pair| pair[0].quant >= pair[1].quant));
+}

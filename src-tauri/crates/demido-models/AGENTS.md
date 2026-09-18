@@ -23,6 +23,8 @@ not listed, because it is not there yet.
 | `parts.rs` | Weights, projector, draft, and the pieces of a split model, by filename. |
 | `gguf.rs` | The header: the facts a file states and whether the file is as long as it says. |
 | `index.rs` | What Hugging Face publishes, keyless: the search, a repository's files, and the two pure parsers under them. |
+| `quant.rs` | A quantisation label, read off a filename into a value ordered by fidelity, with llama.cpp's published bits per weight. |
+| `choices.rs` | A repository's files, read into what a person can choose: one choice per model, its shards as pieces, its projector beside it. |
 
 ## Invariants
 
@@ -74,6 +76,18 @@ not listed, because it is not there yet.
   every `rel="next"` on the same host is followed, up to `PAGES`, and a tree
   longer than that is `Unreadable` rather than a short list passed off as the
   whole repository.
+- **Nothing guesses a quantisation** (#71). A label llama.cpp publishes a
+  number for carries that number and upstream's spelling; any other label
+  keeps the file's spelling exactly, carries no number, and sorts after every
+  label that has one. `tests/quantisations.rs` holds the table a second time,
+  with its source, and fails if the two disagree.
+- **Only weights are a choice, in the index as on disk.** `choices` offers one
+  choice per model, a split model's shards as its pieces in order, and fetches
+  the projector the weights need beside them. A projector or a draft is never
+  a choice, and a split the listing lacks a piece of is not offered.
+- **The size is the server's.** A choice's `bytes` is every piece and its
+  projector as the tree states them, added up, never bits per weight times a
+  parameter count.
 - **A scan never fails.** A missing or unreadable folder contributes nothing;
   startup never blocks, and a drive that is not plugged in is not a broken
   library. Bounded at four folders deep and 500 models.
@@ -111,6 +125,24 @@ not listed, because it is not there yet.
 - **Unset scan folders are what detection finds, every time they are read**,
   until somebody edits the list. An empty list is an answer (they removed them
   all) and is never re-seeded.
+- **Bits per weight are the README's measured row where it has one.**
+  llama.cpp's `tools/quantize/README.md` measures one model, so those numbers
+  compare with each other and include the tensors a recipe keeps wider. Where
+  it has no row (`Q4_0`, `BF16`, the ternary types) the number is the one
+  `quantize.cpp` states or ggml's block layout fixes, which is the type's width
+  alone. Both are published; neither is estimated.
+- **`UD` in front of a label makes the label the publisher's.** Unsloth
+  Dynamic requantises layers the label does not describe, so `UD-IQ1_M` gets
+  no number even though `IQ1_M` has one. `quant::RECIPES` is the list; a
+  publisher's word nobody has added there reads as part of the model's name,
+  and the label after it keeps its number.
+- **A projector named `model` is the folder's.** `mmproj-model-f16` is what
+  llama.cpp's converter writes when nobody names it, and `ggml-org` and
+  `google` publish it so. Read that way on disk and in the index alike.
+- **One projector per choice, `F16` first.** A repository publishing a
+  projector at three precisions needs one of them fetched: `F16`, then `BF16`,
+  then `F32`, then any other. A draft is not fetched at all; it makes a model
+  faster, and nothing yet loads one.
 - **Reasoning is a thinking block in the template.** `<think>`,
   `enable_thinking`, `reasoning_content` or `thinking`. Every thinking template
   on the rig matches; a template that thinks under some other word reads `No`,
@@ -130,6 +162,11 @@ real host and is `--ignored`:
 ```text
 cargo test --manifest-path src-tauri/Cargo.toml -p demido-models --test against_hugging_face -- --ignored
 ```
+
+`tests/quantisations.rs` maps every published label to its bits and every
+unpublished one to its spelling and last place. `tests/choices.rs` reads the
+same committed payloads into choices: the ordered list, the split model, the
+projector, and the sizes the server sent.
 
 `tests/library.rs` writes real GGUF bytes into real temporary folders
 (`tests/support/mod.rs`) and reads them back through the calls the window makes,
