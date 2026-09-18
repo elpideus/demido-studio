@@ -51,6 +51,20 @@ impl Folders {
         }
     }
 
+    /// The scan folder `to` is, or sits inside, if any.
+    ///
+    /// A download folder there would be Demido writing into a borrowed
+    /// folder, which is the one thing a borrowed folder is promised never
+    /// happens (#72), so the host refuses the move rather than quietly
+    /// making another tool's library Demido's.
+    pub fn borrowed_at(&self, to: &Path) -> Option<&Path> {
+        let at = key(to);
+        self.scan
+            .iter()
+            .find(|folder| at.starts_with(&key(folder)))
+            .map(PathBuf::as_path)
+    }
+
     /// The folders after the download folder moves to `to`.
     ///
     /// **Nothing moves.** The models already downloaded stay where they are,
@@ -167,13 +181,20 @@ mod tests {
     }
 
     #[test]
-    fn moving_the_download_folder_onto_a_scan_folder_makes_it_demidos() {
-        let before = Folders {
+    fn a_download_folder_on_or_inside_a_borrowed_folder_is_named_as_one() {
+        let folders = Folders {
             download: PathBuf::from("P:/m"),
             scan: paths(&["D:/weights"]),
         };
-        let after = before.with_download(PathBuf::from("D:/Weights/"));
-        assert_eq!(after.scan, paths(&["P:/m"]));
+        for to in ["D:/Weights/", "d:\\weights\\demido"] {
+            assert_eq!(
+                folders.borrowed_at(Path::new(to)),
+                Some(Path::new("D:/weights")),
+                "{to}"
+            );
+        }
+        assert_eq!(folders.borrowed_at(Path::new("D:/weights-2")), None);
+        assert_eq!(folders.borrowed_at(Path::new("E:/new")), None);
     }
 
     #[test]

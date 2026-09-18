@@ -72,11 +72,16 @@ names the scope, and `demido-chat/tests/a_tool.rs` is what holds it to the chat.
 It is also the one setting no surface draws, because it is a record of answers
 somebody gave about calls they were shown rather than a control.
 
-Two fields on `Setting` are worth knowing about:
+Three fields on `Setting` are worth knowing about:
 
 - **`kind`** carries the control, its range and its default, so a setting cannot
   be declared with a default its own range would reject, and so one component
   can draw it in two hosts (the settings page and the set-up wizard).
+- **`profile`** says it is one answer for the whole profile. Only the global
+  tier holds it, and `Settings::set` refuses any other with
+  `Invalid::ProfileOnly`. The two model folders are the only ones
+  ([#72](https://github.com/elpideus/demido-studio/issues/72)): where a profile
+  keeps its models is not a property of one conversation.
 - **`reloads`** says whether changing it costs a restart of the server. Only the
   context length does: it is a flag on the process, and the other two are fields
   of a request. The window reads it to decide whether to load the model again.

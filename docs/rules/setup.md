@@ -361,6 +361,13 @@ neither asking for elevation and neither creating a machine-wide directory.**
 - **The model folder is pre-filled** from any readable model folder already
   visible on the machine, for the user to confirm. The mechanism is the brief's
   own: Brief B55: "Multiple folders should be set-able for model detection, so that Demido Studio can use models downloaded by other tools (like LM Studio) without the need to move them or create symlinks."
+
+  Since [#72](https://github.com/elpideus/demido-studio/issues/72) the folders
+  are a setting on the ladder, **seeded by detection**: until the person edits
+  the list, it is every readable folder detection finds, shown on the step
+  with a remove button on each, and the first edit makes it theirs. That is
+  confirmation by being shown rather than by a click per folder. The folders
+  are only ever read, which is what makes reading them before a click safe.
 - **Each runtime row offers "point at one I already have"**, a path to a binary
   the user owns. That makes the row **linked** rather than **managed**, which
   [`runtimes.md`](runtimes.md) turns into a rule: Demido reads and launches it,

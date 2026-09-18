@@ -277,9 +277,14 @@ impl Library {
         if !resolved.starts_with(&own) || resolved == own {
             return Err(outside());
         }
+        // Inside the root, and not inside a borrowed folder that is itself
+        // inside it. A borrowed folder that *contains* the root (a scan of
+        // `D:\` with downloads in `D:\models`) is further away than the root
+        // and does not decide.
         for root in &self.borrowed {
             if let Ok(borrowed) = std::fs::canonicalize(&root.path) {
-                if resolved.starts_with(&borrowed) {
+                let closer = borrowed.components().count() > own.components().count();
+                if closer && resolved.starts_with(&borrowed) {
                     return Err(outside());
                 }
             }
@@ -393,7 +398,9 @@ fn read_folder(root: &Root, files: &[PathBuf], found: &mut Found) {
 
     for (total, mut pieces) in models.into_values() {
         pieces.sort();
-        let first = pieces[0].1.clone();
+        let Some((_, first)) = pieces.first().cloned() else {
+            continue;
+        };
         let identity = key(&first);
         if found.seen.contains(&identity) {
             continue;
@@ -426,15 +433,15 @@ fn model(
         }
     }
 
-    let mut header = None;
-    let mut bytes = 0u64;
-    for (_, piece) in pieces {
-        let read = gguf::verify(piece)?;
+    let Some((_, first)) = pieces.first() else {
+        return Err(Damage::NotGguf);
+    };
+    let header = gguf::verify(first)?;
+    let mut bytes = length(first);
+    for (_, piece) in &pieces[1..] {
+        gguf::verify(piece)?;
         bytes = bytes.saturating_add(length(piece));
-        header.get_or_insert(read);
     }
-    let first = &pieces[0].1;
-    let header = header.ok_or(Damage::NotGguf)?;
 
     let (label, _) = shard_of(stem_of(first));
     let stem = label.to_lowercase();

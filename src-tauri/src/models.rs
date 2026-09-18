@@ -99,8 +99,18 @@ impl Models {
     /// then on. Both settings are written here, together, because a download
     /// folder changed without the scan folders is the one move that would make
     /// models disappear from the library.
+    ///
+    /// A folder that is, or is inside, a scan folder is refused: downloading
+    /// there would be writing into a borrowed folder.
     pub fn set_download(&self, to: Option<PathBuf>) -> demido_core::Result<()> {
         let now = self.folders();
+        if let Some(borrowed) = to.as_deref().and_then(|to| now.borrowed_at(to)) {
+            // not-a-prompt: a refusal the window shows the person who moved it.
+            return Err(demido_core::Error::invalid(
+                "a download folder",
+                format!("{} is read from and never written to", borrowed.display()),
+            ));
+        }
         let after = now.with_download(to.clone().unwrap_or_else(|| self.default_download.clone()));
         self.write_scan(&after.scan)?;
         match to {
@@ -178,6 +188,22 @@ mod tests {
             folders.scan,
             vec![PathBuf::from("D:/lmstudio"), profile.join("models")]
         );
+    }
+
+    #[test]
+    fn a_download_folder_inside_a_borrowed_one_is_refused_and_nothing_changes() {
+        let profile = profile("refused");
+        let (models, _) = models(&profile);
+        models.write_scan(&[]).expect("cleared");
+        models
+            .add_scan(PathBuf::from("D:/lmstudio"))
+            .expect("added");
+        let before = models.folders();
+
+        assert!(models
+            .set_download(Some(PathBuf::from("D:/lmstudio/demido")))
+            .is_err());
+        assert_eq!(models.folders(), before);
     }
 
     #[test]

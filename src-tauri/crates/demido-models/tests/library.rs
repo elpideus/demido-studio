@@ -163,6 +163,24 @@ fn removal_refuses_a_borrowed_folder_even_inside_demidos_own() {
 }
 
 #[test]
+fn a_borrowed_folder_that_holds_demidos_own_does_not_claim_its_files() {
+    // A scan of a whole drive with downloads in a folder on it. The closer
+    // folder decides, and for a download that is Demido's.
+    let rig = Rig::new();
+    let drive = rig.mine.parent().unwrap().to_path_buf();
+    let model = rig.mine.join("p/m/Mine-Q8_0.gguf");
+    write(&model, &Spec::model("llama"));
+    let library = Library::open(&Folders {
+        download: rig.mine.clone(),
+        scan: vec![drive],
+    });
+
+    assert!(!named(&library.scan().models, "Mine-Q8_0").borrowed);
+    library.remove(&model).expect("it is Demido's");
+    assert!(!model.exists());
+}
+
+#[test]
 fn removal_inside_the_root_takes_every_piece_and_nothing_else() {
     let rig = Rig::new();
     let folder = rig.mine.join("r/m");

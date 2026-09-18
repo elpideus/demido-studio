@@ -62,10 +62,20 @@ not listed, because it is not there yet.
   and from then on Demido will not delete from it. That is the honest reading
   of a setting change that did not take the files with it; a person who wants
   them to be Demido's again moves the download folder back.
-- **Moving the download folder onto a scan folder makes that folder Demido's.**
-  It stops being borrowed, because the person just said Demido may write
-  there. The alternative, refusing, would make a household sharing one folder
-  of weights (`docs/rules/profiles.md`) unable to download into it.
+- **A download folder on or inside a scan folder is refused**
+  (`Folders::borrowed_at`). Downloading there would be writing into a borrowed
+  folder. A household sharing one folder of weights (`docs/rules/profiles.md`)
+  removes it from the scan folders first, which is saying out loud that Demido
+  may write there.
+- **The closer folder decides whose a file is.** A borrowed folder inside the
+  download folder keeps its files borrowed; a borrowed folder that contains the
+  download folder (a whole drive) does not claim Demido's downloads.
+- **Moving the download folder takes the old folder's bytes out of the spent
+  figure.** They become a scan folder's bytes, and the figure is what the
+  current folder holds. Moving it back brings them back.
+- **Tools is the template naming `tools`.** A substring, so a template that
+  mentions the word without rendering a list would read `Yes`; none on the rig
+  does, and the alternative is evaluating Jinja.
 - **Unset scan folders are what detection finds, every time they are read**,
   until somebody edits the list. An empty list is an answer (they removed them
   all) and is never re-seeded.
