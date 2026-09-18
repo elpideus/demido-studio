@@ -50,6 +50,12 @@ impl Toolbox {
             .collect()
     }
 
+    /// Every registered tool's schema shape, by name: what the tool register's
+    /// editor draws beside a document as the part that is not editable.
+    pub fn shapes(&self) -> Vec<(String, serde_json::Value)> {
+        self.registry.shapes()
+    }
+
     /// The registry as one turn offers it: narrowed to `set`, or all of it when
     /// nobody on the ladder named one.
     pub(crate) fn narrowed(&self, set: Option<&[String]>) -> Registry {

@@ -71,6 +71,7 @@ use serde_json::json;
 
 use demido_chat::{Asking, Chat, Decision, Delegations, Model, Moment, Outcome, Presence, Toolbox};
 use demido_inference::{Request, Role, Supervisor};
+use demido_prompts::Tools;
 use demido_settings::{id, Memory as SettingsMemory, Scope, Settings};
 use demido_tools::{files, shell, Registry, Workspace};
 use demido_trace::{Body, Event, JsonLines, Replay};
@@ -334,7 +335,7 @@ async fn planted(tier: Tier, keep_the_fixture: bool) {
     );
 
     if keep_the_fixture {
-        keep(&rig, &sent);
+        keep(&rig, &sent, "a-planted-file");
     }
     chat.shutdown().await;
 }
@@ -834,8 +835,120 @@ async fn the_log_of_a_turn_with_tools_rebuilds_every_assembly_that_was_sent() {
     planted(tier, true).await;
 }
 
+/// **A tool document edited mid-session**
+/// ([#77](https://github.com/elpideus/demido-studio/issues/77)).
+///
+/// The editor's promise, with a real model on the other end: an edit made from
+/// Settings is the document the next turn offers, and a reply from before it
+/// still rebuilds with the wording that produced it. The same planted file, read
+/// once under the shipped `read_file`, then the document is edited through the
+/// register the Settings page writes through, and a second file is read under
+/// the new words.
+///
+/// Three things are asserted and all of them are Demido's rather than the
+/// model's: every request before the edit carried the shipped document and
+/// every one after it the edited one, the model still answered out of a file
+/// under the new wording, and the log rebuilds every request byte for byte,
+/// both wordings included. It writes the fixture `replayed.rs` reads.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a card and a model; see the live command in AGENTS.md"]
+async fn a_tool_document_edited_mid_session_is_what_the_next_turn_offers() {
+    let tier = Tier::Development;
+    let _permit = rig::ONE_MODEL_AT_A_TIME.acquire().await.expect("a permit");
+
+    let rig = Rig::new("edited", tier);
+    rig.plant("winch.txt", PLANTED);
+    rig.plant("gate.txt", GATE);
+    let chat = rig.chat("cautious");
+    loaded(&chat, tier).await;
+
+    chat.ask(
+        "The winch code for bay four is written in winch.txt. What is it? Answer with the code alone.",
+        |_| {},
+        nobody(),
+    )
+    .await
+    .expect("the first answer");
+    let before = Watching::sent().len();
+
+    let documents = Tools::open(rig.dir.join("prompts"));
+    let shipped = documents.get("read_file").expect("a declared tool");
+    let edited = documents
+        .set("read_file", EDITED_READ_FILE)
+        .expect("an edit is never refused for what depends on it");
+    assert_ne!(edited.hash, shipped.hash);
+
+    let answer = chat
+        .ask(
+            "The gate code is written in gate.txt. What is it? Answer with the code alone.",
+            |_| {},
+            nobody(),
+        )
+        .await
+        .expect("the second answer");
+
+    let sent = Watching::sent();
+    assert!(
+        sent.len() > before,
+        "the second question sent nothing after the edit"
+    );
+    for (step, request) in sent.iter().enumerate() {
+        let Some(read) = request.tools.iter().find(|tool| tool.name == "read_file") else {
+            continue;
+        };
+        let expected = if step < before {
+            shipped.description()
+        } else {
+            edited.description()
+        };
+        assert_eq!(
+            read.description, expected,
+            "step {step} offered read_file in the wrong wording"
+        );
+    }
+
+    assert!(
+        answer.text.contains(GATE_CODE),
+        "under the edited wording the {} model was asked for a code only gate.txt holds, and said: {}",
+        tier.label(),
+        answer.text
+    );
+
+    chat.shutdown().await;
+    // Both wordings are in the log once each, and every step rebuilds as sent.
+    keep(&rig, &sent, "an-edited-tool");
+    println!(
+        "{before} steps under {}, {} under {}",
+        shipped.hash,
+        sent.len() - before,
+        edited.hash
+    );
+}
+
+/// The second planted file, for the turn after the edit.
+const GATE: &str = "The gate code for the north yard is 4410-TALLOW-QUAY.
+";
+const GATE_CODE: &str = "4410-TALLOW-QUAY";
+
+/// `read_file`, reworded the way a person in the editor would: the same
+/// parameters, new prose on all of them.
+const EDITED_READ_FILE: &str = "Open a text file in the workspace and return it with numbered lines. The path is relative to the workspace root.
+
+## path
+
+Where the file is, relative to the workspace root, for example notes/todo.txt
+
+## from_line
+
+The first line you want, counting from 1. Leave it out to start at line 1.
+
+## lines
+
+How many lines you want. Leave it out to get the rest of the file.
+";
+
 /// Compare the log against what the backend received, then commit it.
-fn keep(rig: &Rig, sent: &[Request]) {
+fn keep(rig: &Rig, sent: &[Request], name: &str) {
     // Everything holding the log is closed. What is left is the file, which is
     // the only thing a later process has.
     let replay = Replay::over(JsonLines::read(rig.log()).expect("read the log"));
@@ -875,12 +988,12 @@ fn keep(rig: &Rig, sent: &[Request]) {
 
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     std::fs::create_dir_all(&fixtures).expect("made the fixtures directory");
-    let log = fixtures.join("a-planted-file.jsonl");
+    let log = fixtures.join(format!("{name}.jsonl"));
     prune(&rig.log(), &log, &rig.project);
     // Pruned the same way, or the pair would disagree the moment the offline
     // suite compared one against the other.
     std::fs::write(
-        fixtures.join("a-planted-file.sent.json"),
+        fixtures.join(format!("{name}.sent.json")),
         scrub(
             &serde_json::to_string_pretty(sent).expect("the requests"),
             &rig.project,

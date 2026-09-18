@@ -22,5 +22,10 @@ declare const styles: {
   readonly placeholder: string
   readonly revert: string
   readonly icon: string
+  readonly shape: string
+  readonly shapeHead: string
+  readonly param: string
+  readonly paramName: string
+  readonly paramType: string
 }
 export default styles

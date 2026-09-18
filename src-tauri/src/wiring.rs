@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use demido_chat::{Chat, Model, Toolbox};
 use demido_inference::{LlamaCpp, LlamaCppConfig, Supervisor};
-use demido_prompts::Paragraphs;
+use demido_prompts::{Paragraphs, Tools};
 use demido_runtimes::Runtimes;
 use demido_settings::Settings;
 use demido_shell::{Debounced, Files};
@@ -55,11 +55,15 @@ pub struct Wiring {
     /// next turn sends, with nothing to invalidate in between, and the editor
     /// does not have to reach through a chat to save a string that is not the
     /// chat's.
-    ///
-    /// The tool register's editor is S3 and is deliberately absent here
-    /// (`docs/rules/prompts.md`): its documents are edited in this same
-    /// directory, so adding it later is a second handle beside this one.
     pub prompts: Paragraphs,
+    /// The tool register, over the same directory, for its editor
+    /// ([#77](https://github.com/elpideus/demido-studio/issues/77)).
+    ///
+    /// A second handle beside the paragraphs for the same reason they have
+    /// one: it holds no state, and the toolbox opens its own on this
+    /// directory, so a document edited from Settings is what the next turn
+    /// offers.
+    pub tools: Tools,
     /// What is in force, and where a settings page sets it.
     ///
     /// Shared with the chat rather than held beside it: the ladder the window
@@ -356,6 +360,7 @@ impl Wiring {
                 // goes to the chat, in these two lines and nowhere else.
                 delegations,
             ),
+            tools: Tools::open(prompts.clone()),
             prompts: Paragraphs::open(prompts),
             settings,
             setup,
@@ -445,6 +450,43 @@ mod tests {
         );
 
         let reset = wiring.prompts.reset(id::CAVEMAN_ULTRA).expect("reset");
+        assert_eq!(reset.origin, Origin::BuiltIn);
+    }
+
+    /// The tool register's editor writes where the toolbox reads, and has a
+    /// shape to draw for every document it lists.
+    ///
+    /// The same promise as the paragraph editor's above, for the other
+    /// register: an edit made from Settings is the document the next turn
+    /// offers. Asserted through a `Tools` opened the way the toolbox opens its
+    /// own, on the profile's prompts directory.
+    #[test]
+    fn a_tool_document_edited_from_settings_is_the_one_a_turn_offers() {
+        use demido_prompts::{Origin, Tools};
+
+        let dir = profile("tool-documents");
+        let wiring = Wiring::assemble(&dir).expect("assembled");
+
+        let edited = wiring
+            .tools
+            .set("delete_file", "Remove one file.\n\n## path\n\nWhich one.")
+            .expect("an edit is never refused for what depends on it");
+        assert_eq!(edited.origin, Origin::Edited);
+        let offered = Tools::open(dir.join("prompts"))
+            .get("delete_file")
+            .expect("a declared tool");
+        assert_eq!(offered.hash, edited.hash, "the toolbox reads the edit");
+
+        let shapes = wiring.chat.shapes();
+        for document in wiring.tools.all() {
+            assert!(
+                shapes.iter().any(|(name, _)| name == document.tool.name),
+                "{} has a document and no shape to draw beside it",
+                document.tool.name
+            );
+        }
+
+        let reset = wiring.tools.reset("delete_file").expect("reset");
         assert_eq!(reset.origin, Origin::BuiltIn);
     }
 

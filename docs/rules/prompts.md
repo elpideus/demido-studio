@@ -102,6 +102,19 @@ above the field in the editor:
 
 > A measurement in evals/lessons/ was taken against this wording.
 
+A tool document's dependants are of two kinds, one of them new
+([#77](https://github.com/elpideus/demido-studio/issues/77)). Every one is
+**shared**, because it is sent to every conversation and sub-agent its tool is
+on for. Two are **driven**: a live suite watched a model act on the shipped
+wording (`read_file` chosen out of six, and `delegate_task`'s election). A
+driven claim is suppressed by an edit like a measured one, and is not pinned,
+because the live suites are re-run every slice
+([`done.md`](done.md)). The limit, written down: between a change to a
+shipped default and the next slice's live run, a driven claim describes a
+wording that was not the one driven. Pinning it would close that gap and make
+every reworded tool a release gate, which is the cost measured claims pay and
+that the most-rewritten wording in the register should not.
+
 A dependant's sentence is plain prose with no markup in it, because the editor
 renders it as text and nothing else consumes it
 ([#58](https://github.com/elpideus/demido-studio/issues/58)).

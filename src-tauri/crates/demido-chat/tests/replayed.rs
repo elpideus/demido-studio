@@ -112,6 +112,66 @@ fn the_committed_trace_of_a_planted_file_still_rebuilds_every_request_that_was_s
     );
 }
 
+/// #77's fixture: a conversation whose `read_file` document was edited between
+/// two questions, from
+/// `a_real_model_with_tools::a_tool_document_edited_mid_session_is_what_the_next_turn_offers`.
+///
+/// The editor's rebuild promise, read back by a different process: the log
+/// holds both wordings, each once, and every request rebuilds as it was sent, so
+/// the reply from before the edit is explained by the words that produced it
+/// and not by the ones that replaced them.
+#[test]
+fn the_committed_trace_of_an_edited_tool_rebuilds_each_turn_in_its_own_wording() {
+    let replay =
+        Replay::over(JsonLines::read(fixture("an-edited-tool.jsonl")).expect("read the fixture"));
+    let sent: Vec<Request> = serde_json::from_str(
+        &std::fs::read_to_string(fixture("an-edited-tool.sent.json"))
+            .expect("the requests beside it"),
+    )
+    .expect("the requests");
+
+    let versions: Vec<&str> = replay
+        .events()
+        .iter()
+        .filter_map(|event| match &event.body {
+            Body::ToolVersion { name, hash, .. } if name == "read_file" => Some(hash.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        versions.len(),
+        2,
+        "the log should hold read_file once as shipped and once as edited: {versions:?}"
+    );
+    assert_ne!(versions[0], versions[1]);
+
+    let assemblies: Vec<u64> = replay
+        .events()
+        .iter()
+        .filter(|event| matches!(event.body, Body::Assembly { .. }))
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(assemblies.len(), sent.len());
+
+    let mut wordings = std::collections::BTreeSet::new();
+    for (seq, request) in assemblies.iter().zip(&sent) {
+        let rebuilt = replay.request(*seq).expect("rebuilt");
+        assert_eq!(
+            serde_json::to_string(&rebuilt).expect("a request"),
+            serde_json::to_string(request).expect("a request"),
+            "the committed log no longer rebuilds the request sent at step {seq}"
+        );
+        if let Some(read) = rebuilt.tools.iter().find(|tool| tool.name == "read_file") {
+            wordings.insert(read.description.clone());
+        }
+    }
+    assert_eq!(
+        wordings.len(),
+        2,
+        "the rebuilt requests carry one read_file wording, so the edit is not in them"
+    );
+}
+
 /// The prune is part of the fixture's contract, not a tidying step: a fixture
 /// carrying a scratch path or a wall-clock reading is one that cannot be diffed
 /// against the next run of the same scenario.
@@ -122,6 +182,8 @@ fn the_committed_traces_carry_nothing_from_the_machine_that_wrote_them() {
         "a-planted-file.sent.json",
         "a-delegation.jsonl",
         "a-delegation.sent.json",
+        "an-edited-tool.jsonl",
+        "an-edited-tool.sent.json",
     ] {
         let raw = std::fs::read_to_string(fixture(name)).expect("read the fixture");
         if name.ends_with(".jsonl") {

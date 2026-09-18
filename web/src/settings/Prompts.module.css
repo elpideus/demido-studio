@@ -279,3 +279,48 @@
   width: var(--size-icon-small);
   height: var(--size-icon-small);
 }
+
+/* A tool's shape: the half of what a model is shown that is a contract with the
+ * parser and not text. Read-only, so it is not a well like the field below it,
+ * which is where typing happens; it is metadata set in the page, in the same
+ * mono the id is, so a parameter's name reads the same here and in the `##`
+ * heading that gives it prose. */
+.shape {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  margin: 0;
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.shapeHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  margin-bottom: var(--space-hair);
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+.param {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-tight);
+  margin: 0;
+  padding-left: calc(var(--size-icon-small) + var(--space-tight));
+}
+
+.paramName {
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+}
+
+.paramType {
+  color: var(--color-ink-3);
+}
