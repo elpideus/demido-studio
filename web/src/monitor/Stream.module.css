@@ -47,11 +47,14 @@
  */
 .row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-tight);
   width: 100%;
   padding: var(--space-hair) var(--space-control);
+  /* Depth is the indent: a sub-agent's rows sit under the conversation's by as
+   * many steps as the chain is deep. Zero, and no indent, when scoped. */
+  padding-left: calc(var(--space-control) + var(--depth, 0) * var(--space-room));
   border: none;
   border-radius: var(--radius-control);
   background: none;
@@ -84,6 +87,17 @@
 /* The record's own name for the line, in the voice equipment labels take. */
 .kind {
   color: var(--source);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+}
+
+/* Whose row this is, when it is not the conversation's. Delegated work is
+ * violet (docs/rules/surfaces.md rule 4), never a lighter grey. Empty on the
+ * conversation's own rows. */
+.agent {
+  color: var(--color-violet);
   font-family: var(--font-mono);
   font-variation-settings: 'wdth' var(--width-code);
   font-size: var(--text-micro);

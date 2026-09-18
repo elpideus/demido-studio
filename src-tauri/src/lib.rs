@@ -219,6 +219,7 @@ pub fn run() -> demido_core::Result<()> {
             chat::chat_decide,
             monitor::monitor_log,
             monitor::monitor_assembly,
+            monitor::monitor_agents,
             prompts::prompts_list,
             prompts::prompts_set,
             prompts::prompts_reset,

@@ -454,6 +454,7 @@ impl<B: Backend, J: Journal> Chat<B, J> {
                     // opened, and a server that opened a different one is a
                     // defect this is the only place that could notice.
                     slots: backend.slots().await.unwrap_or(admission.open),
+                    limit: admission.reason,
                 },
                 &mut report,
             ),

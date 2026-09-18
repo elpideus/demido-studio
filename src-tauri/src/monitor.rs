@@ -8,7 +8,7 @@
 //! whole product claim.
 
 use demido_chat::Assembly;
-use demido_trace::Event;
+use demido_trace::{Agent, Event};
 
 use crate::wiring::Wiring;
 
@@ -36,4 +36,16 @@ pub fn monitor_assembly(
     at: u64,
 ) -> demido_core::Result<Option<Assembly>> {
     Ok(wiring.chat.assembly(at)?)
+}
+
+/// The agents of the session: the conversation first, then every sub-agent in
+/// the order it was opened, each with its depth and whether it is generating.
+///
+/// What the monitor's left column and its slot strip are drawn from
+/// ([#68](https://github.com/elpideus/demido-studio/issues/68)). A projection
+/// of the same log `monitor_log` answers with rather than a second record of
+/// the run, so the column and the stream cannot disagree about who was in it.
+#[tauri::command]
+pub fn monitor_agents(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<Vec<Agent>> {
+    Ok(wiring.chat.replay()?.agents())
 }

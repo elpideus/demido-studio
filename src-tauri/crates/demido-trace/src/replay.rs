@@ -287,6 +287,17 @@ pub struct Agent {
     /// absent on the main session, which nothing opened.
     pub parent: Option<AgentId>,
     pub call: Option<u64>,
+    /// Whether it has a request out that nothing has answered yet: sent, and
+    /// neither a completion nor a failure after it.
+    ///
+    /// What the slot strip counts as a filled slot. It is read off the agent's
+    /// own requests rather than off which agents are open, because an open
+    /// agent is often only waiting: a parent blocked on its child holds no slot
+    /// while it waits, and counting it would draw two slots in use on a card
+    /// that opened one. A log is a record of the past, so this is what the log
+    /// says was in flight at its last line; a window reading a log no turn is
+    /// writing to anymore has nothing generating, whatever the last line says.
+    pub generating: bool,
 }
 
 /// A log, read.
@@ -372,6 +383,7 @@ impl Replay {
             depth: 0,
             parent: None,
             call: None,
+            generating: self.generating(&AgentId::main()),
         }];
         for event in &self.events {
             if let Body::Delegated { call, agent, depth } = &event.body {
@@ -380,10 +392,26 @@ impl Replay {
                     depth: *depth,
                     parent: Some(event.agent.clone()),
                     call: Some(*call),
+                    generating: self.generating(agent),
                 });
             }
         }
         agents
+    }
+
+    /// Whether `agent`'s last request is still unanswered: its latest
+    /// assembly, completion or failure is the assembly.
+    fn generating(&self, agent: &AgentId) -> bool {
+        self.events
+            .iter()
+            .rev()
+            .filter(|event| event.agent == *agent)
+            .find_map(|event| match event.body {
+                Body::Assembly { .. } => Some(true),
+                Body::Completion { .. } | Body::Failure { .. } => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false)
     }
 
     pub fn is_empty(&self) -> bool {

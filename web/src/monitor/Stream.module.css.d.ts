@@ -9,6 +9,7 @@ declare const styles: {
   readonly row: string
   readonly icon: string
   readonly kind: string
+  readonly agent: string
   readonly said: string
   readonly weight: string
 }

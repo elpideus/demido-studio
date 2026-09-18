@@ -10,7 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import type { Source, Weight } from './log'
+import type { Event, Source, Weight } from './log'
 
 /**
  * The eight sources, each with its icon.
@@ -70,4 +70,32 @@ export function weighed(weight: Weight): string {
  * is one tab away, in the record itself. */
 export function digest(hash: string): string {
   return hash.replace(/^sha256:/, '').slice(0, 12)
+}
+
+/** Count and tokens for one source. The Rust `Tally`. */
+export type Tally = { events: number; weight: Weight }
+
+/**
+ * The source ledger over some events: count and tokens per source, in the
+ * order the eight are listed, with the sources nothing came from left out.
+ *
+ * A tally is estimated if any event in it was, the rule the Rust `Tally` keeps,
+ * so a total built partly out of guesses carries the tilde.
+ */
+export function tallied(events: Event[]): [Source, Tally][] {
+  const tallies = new Map<Source, Tally>()
+  for (const event of events) {
+    const tally = tallies.get(event.source) ?? {
+      events: 0,
+      weight: { tokens: 0, basis: 'counted' },
+    }
+    tally.events += 1
+    tally.weight.tokens += event.weight.tokens
+    if (event.weight.basis === 'estimated') tally.weight.basis = 'estimated'
+    tallies.set(event.source, tally)
+  }
+  return (Object.keys(ICONS) as Source[]).flatMap((source) => {
+    const tally = tallies.get(source)
+    return tally ? [[source, tally] as [Source, Tally]] : []
+  })
 }

@@ -128,6 +128,12 @@
    * the seam that resizes it reads this rather than carrying its own copy. */
   --floor-monitor: 210px;
 
+  /* The session monitor's left column: the agents, the two numbers that
+   * govern them and the source ledger ([#68](https://github.com/elpideus/demido-studio/issues/68)).
+   * Wide enough for the settings page's own number field with its unit and
+   * the way back to global on one line, which is the widest thing it holds. */
+  --size-scope: 304px;
+
   /* How much of a sub-agent's answer stands unfolded in the transcript
    * ([#67](https://github.com/elpideus/demido-studio/issues/67)). The fold is
    * by height rather than by line count, because the answer is prose the model

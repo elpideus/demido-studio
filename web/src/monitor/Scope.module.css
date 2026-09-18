@@ -1,0 +1,304 @@
+/*
+ * The monitor's left column: the agents, the two numbers that govern them, the
+ * slot strip and the source ledger. Roles are docs/rules/surfaces.md, the shapes
+ * are design/system.md's Session monitor table, and every number is a token
+ * from design/tokens.css.
+ *
+ * The column is `chrome`, which design/system.md gives the source ledger: a bar
+ * rather than a surface, the rail column the scope and the ledger share.
+ */
+
+.column {
+  flex: none;
+  width: var(--size-scope);
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-room);
+  overflow-x: hidden;
+  padding: var(--space-room);
+  background: var(--color-chrome);
+}
+
+/* Equipment labels: the silkscreen voice, which is what it is for. */
+.heading {
+  margin: 0;
+  color: var(--color-ink-4);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-silkscreen);
+  font-size: var(--text-silkscreen);
+  line-height: var(--leading-flush);
+  letter-spacing: var(--tracking-silkscreen);
+  text-transform: uppercase;
+}
+
+.governs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-tight);
+}
+
+/* One of the two numbers: its name, the settings page's own control, and the
+ * way back to global when this chat has overridden it. */
+.knob {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  min-height: var(--size-control);
+}
+
+/* The name takes what the control and the way back leave, so the three fit
+ * on one line at the column's width whether or not the way back is drawn. */
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink-2);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+/* Overridden marks the name, and the mark is the words: design/shell.md bans a
+ * coloured circle beside a label. */
+.knob[data-overridden='true'] .label {
+  color: var(--color-signal);
+}
+
+/* Following global reads the inherited value in ink-4 (design/system.md): the
+ * number is not what this chat says, it is what it is being handed. */
+.knob[data-following='true'] input {
+  color: var(--color-ink-4);
+}
+
+.revert {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  /* Nothing at rest, like the close button on the panel's own bar: a control
+   * on a chrome column is not raised on an island, and raised is darker than
+   * chrome, so it would read as a hole. */
+  background: none;
+  color: var(--color-ink-3);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.revert:hover {
+  background: var(--color-hover);
+}
+
+.revert:active {
+  background: var(--color-active);
+}
+
+/* The card's limit, which is not the person's number. Waiting is amber
+ * (surfaces.md rule 4), and the sentence after it is body text in ink-3. */
+.limit {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+}
+
+.held {
+  color: var(--color-amber);
+}
+
+/* The slot strip: pills in their state's colour, counted in words beside them. */
+.slots {
+  display: flex;
+  align-items: center;
+  gap: var(--space-room);
+  min-height: var(--size-control);
+}
+
+.strip {
+  display: flex;
+  gap: var(--space-hair);
+}
+
+.slot {
+  width: var(--space-room);
+  height: var(--space-tight);
+  border-radius: var(--radius-pill);
+}
+
+.slot[data-state='filled'] {
+  background: var(--color-signal);
+}
+
+.slot[data-state='queued'] {
+  background: var(--color-amber);
+}
+
+.slot[data-state='free'] {
+  background: var(--color-ink-4);
+}
+
+.caption {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  line-height: var(--leading-flush);
+}
+
+/* The agents. Depth is the indent. */
+.agents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+}
+
+.agent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-hair) var(--space-control);
+  padding-left: calc(var(--space-control) + var(--depth, 0) * var(--space-room));
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.agent:hover {
+  background: var(--color-hover);
+}
+
+/* Selected is edge, which means state and not elevation. */
+.agent[aria-current='true'] {
+  background: var(--color-edge);
+}
+
+/* Delegated work is violet (surfaces.md rule 4), never a lighter grey. */
+.agent[data-delegated='true'] .glyph,
+.agent[data-delegated='true'] .id {
+  color: var(--color-violet);
+}
+
+.glyph {
+  flex: none;
+  width: var(--size-icon-small);
+  height: var(--size-icon-small);
+}
+
+.name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.id {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+}
+
+.task {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The source ledger, beneath the agents. */
+.ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  margin: 0;
+}
+
+.source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-room);
+  padding: var(--space-hair) var(--space-control);
+}
+
+.sourceName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  color: var(--color-ink-2);
+  font-size: var(--text-meta);
+  line-height: var(--leading-flush);
+}
+
+/* The source's icon carries its colour as well, because colour is never the
+ * only signal. `--source` is mapped from `data-source` in global.css. */
+.sourceName .glyph {
+  color: var(--source);
+}
+
+.tally {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-variation-settings: 'wdth' var(--width-code);
+  font-size: var(--text-micro);
+  text-align: right;
+}
+
+/* The reduced form: the column as icons, one per agent. */
+.icons {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  padding: var(--space-hair);
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* The scrollbar takes its own width rather than the icons', so a long chain
+   * scrolls down without the strip also scrolling sideways. */
+  scrollbar-gutter: stable;
+  background: var(--color-chrome);
+}
+
+.icon {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink-2);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.icon:hover {
+  background: var(--color-hover);
+}
+
+.icon[aria-current='true'] {
+  background: var(--color-edge);
+}
+
+.icon[data-delegated='true'] {
+  color: var(--color-violet);
+}
