@@ -91,7 +91,7 @@ pub(crate) async fn fetch(piece: &Piece, run: Run<'_>, report: Report<'_>) -> Re
         .map_or(0, |meta| meta.len());
     if from > piece.bytes {
         // Longer than the file it is part of: not a prefix of anything.
-        remove(&partial).await;
+        remove(&partial);
         from = 0;
     }
 
@@ -101,13 +101,13 @@ pub(crate) async fn fetch(piece: &Piece, run: Run<'_>, report: Report<'_>) -> Re
             Body::Stream { response, from: at } => {
                 from = write(piece, response, at, run, report).await?;
             }
-            Body::Restart if !restarted => {
+            Body::Restart(_) if !restarted => {
                 tracing::warn!(url = %piece.url, from, "the host refused the resume point; starting over");
-                remove(&partial).await;
+                remove(&partial);
                 restarted = true;
                 from = 0;
             }
-            Body::Restart => return Err(Failure::Refused { status: 416 }.into()),
+            Body::Restart(status) => return Err(Failure::Refused { status }.into()),
         }
     }
 
@@ -123,8 +123,9 @@ enum Body {
         response: reqwest::Response,
         from: u64,
     },
-    /// The bytes on disk are not a prefix of what is served.
-    Restart,
+    /// The bytes on disk are not a prefix of what is served, with the status
+    /// that said so.
+    Restart(u16),
 }
 
 async fn body(piece: &Piece, from: u64, run: Run<'_>) -> Result<Body, Stop> {
@@ -144,7 +145,7 @@ async fn body(piece: &Piece, from: u64, run: Run<'_>) -> Result<Body, Stop> {
 
     let status = response.status();
     if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && from > 0 {
-        return Ok(Body::Restart);
+        return Ok(Body::Restart(status.as_u16()));
     }
     if let Some(failure) = refusal(status) {
         return Err(failure.into());
@@ -170,7 +171,7 @@ async fn body(piece: &Piece, from: u64, run: Run<'_>) -> Result<Body, Stop> {
             Some((start, total)) if start == from => (from, total.or(length.map(|l| from + l))),
             // A range, but not the one asked for: the bytes on disk and what
             // is coming do not line up.
-            _ => return Ok(Body::Restart),
+            _ => return Ok(Body::Restart(status.as_u16())),
         }
     } else {
         // The whole file, whatever was asked. Appending it to what is on disk
@@ -180,7 +181,7 @@ async fn body(piece: &Piece, from: u64, run: Run<'_>) -> Result<Body, Stop> {
     };
 
     if let Some(stated) = stated.filter(|stated| *stated != piece.bytes) {
-        remove(&piece.partial()).await;
+        remove(&piece.partial());
         return Err(Failure::WrongSize {
             stated,
             expected: piece.bytes,
@@ -245,7 +246,7 @@ async fn write(
     drop(file);
 
     if let Err(Stop::Failed(Failure::WrongSize { .. })) = &outcome {
-        remove(&partial).await;
+        remove(&partial);
     }
     outcome?;
     flushed?;
@@ -262,6 +263,10 @@ async fn stream(
 ) -> Result<(), Stop> {
     let mut body = response.bytes_stream();
     let mut last = Instant::now();
+    // The first chunk is reported whatever the throttle says: a slow transfer
+    // that has received something and one that has received nothing look
+    // alike until it is, and they want different reactions.
+    let mut first = true;
     report(*received);
 
     loop {
@@ -293,7 +298,8 @@ async fn stream(
         file.write_all(&chunk).await.map_err(disk)?;
         *received = after;
 
-        if last.elapsed() >= REPORT_EVERY {
+        if first || last.elapsed() >= REPORT_EVERY {
+            first = false;
             last = Instant::now();
             report(*received);
         }
@@ -329,29 +335,33 @@ fn interrupted(error: &reqwest::Error, received: u64, piece: &Piece) -> Failure 
     }
 }
 
-/// Check the whole partial file: its digest where the index published one,
-/// and that it is a GGUF as long as its own header says. A file that fails is
-/// deleted, because every later resume would fail at the same place.
+/// Check a piece where it is: its digest where the index published one, and
+/// that it is a GGUF as long as its own header says. The partial file, or the
+/// finished one when an earlier run already renamed it, so a file left at the
+/// destination is checked rather than trusted for its length. A file that
+/// fails is deleted: it is Demido's own, and every later resume would fail at
+/// the same place.
 pub(crate) async fn verify(piece: &Piece, cancel: &CancellationToken) -> Result<(), Stop> {
-    if finished(piece) {
-        return Ok(());
-    }
-    let partial = piece.partial();
+    let path = if finished(piece) {
+        piece.destination.clone()
+    } else {
+        piece.partial()
+    };
     if let Some(expected) = &piece.sha256 {
-        let actual = sha256(&partial, cancel).await?;
+        let actual = sha256(&path, cancel).await?;
         if !actual.eq_ignore_ascii_case(expected) {
-            remove(&partial).await;
+            remove(&path);
             return Err(Failure::Corrupt.into());
         }
     }
-    let checked = partial.clone();
+    let checked = path.clone();
     let header = tokio::task::spawn_blocking(move || demido_models::gguf::verify(&checked))
         .await
         .map_err(|error| Failure::Disk {
             detail: error.to_string(),
         })?;
     if let Err(damage) = header {
-        remove(&partial).await;
+        remove(&path);
         return Err(Failure::Damaged { damage }.into());
     }
     Ok(())
@@ -377,25 +387,30 @@ async fn sha256(path: &Path, cancel: &CancellationToken) -> Result<String, Stop>
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Rename a verified piece into place. The moment it becomes part of the
-/// library, and atomic, so a scan never sees half of it.
-pub(crate) async fn promote(piece: &Piece) -> Result<(), Failure> {
+/// Rename a verified piece into place: the moment it becomes part of the
+/// library. `std::fs::rename` replaces an existing file in one step on
+/// Windows as elsewhere, so a scan never sees half of it. True when it moved,
+/// false when an earlier run had already put it there.
+pub(crate) fn promote(piece: &Piece) -> Result<bool, Failure> {
     if finished(piece) {
-        return Ok(());
+        return Ok(false);
     }
-    if tokio::fs::metadata(&piece.destination).await.is_ok() {
-        tokio::fs::remove_file(&piece.destination)
-            .await
-            .map_err(disk_failure)?;
-    }
-    tokio::fs::rename(piece.partial(), &piece.destination)
-        .await
-        .map_err(disk_failure)
+    std::fs::rename(piece.partial(), &piece.destination).map_err(disk_failure)?;
+    Ok(true)
 }
 
-/// Delete a partial file, if there is one.
-pub(crate) async fn remove(path: &Path) {
-    if let Err(error) = tokio::fs::remove_file(path).await {
+/// Put a promoted piece back beside its destination, when a later piece of
+/// the same item could not be promoted.
+pub(crate) fn demote(piece: &Piece) {
+    if let Err(error) = std::fs::rename(&piece.destination, piece.partial()) {
+        tracing::warn!(path = %piece.destination.display(), %error, "a promoted piece could not be put back");
+    }
+}
+
+/// Delete a file, if there is one. Synchronous, because the queue deletes
+/// under its lock, and one `remove_file` is not worth a trip to the pool.
+pub(crate) fn remove(path: &Path) {
+    if let Err(error) = std::fs::remove_file(path) {
         if error.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!(path = %path.display(), %error, "a partial download could not be deleted");
         }

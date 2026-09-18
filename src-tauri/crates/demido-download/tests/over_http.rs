@@ -52,6 +52,9 @@ enum Act {
     Slow,
     /// Headers and a little of the body, then nothing, forever.
     Trickle,
+    /// Promise this many bytes, send a kilobyte, then nothing, forever: a
+    /// large transfer that stays running for as long as a test needs.
+    Promise(u64),
 }
 
 struct Route {
@@ -218,6 +221,15 @@ async fn answer(
                 socket.flush().await.ok();
                 tokio::time::sleep(Duration::from_millis(15)).await;
             }
+        }
+        Act::Promise(length) => {
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+            );
+            socket.write_all(head.as_bytes()).await.ok();
+            socket.write_all(&[0u8; 1024]).await.ok();
+            socket.flush().await.ok();
+            std::future::pending::<()>().await;
         }
         Act::Trickle => {
             socket.write_all(head(&body, start).as_bytes()).await.ok();
@@ -912,4 +924,112 @@ async fn a_split_model_and_its_projector_are_one_item_and_one_model() {
         1,
         "the projector is beside it"
     );
+}
+
+// --- the review of #73: transitions that arrive while another is landing ----
+
+#[tokio::test]
+async fn a_resume_straight_after_a_pause_is_not_lost() {
+    let dir = scratch("pause-resume");
+    let body = model();
+    let server = serve(vec![("/m.gguf", body.clone(), vec![Act::Slow])]).await;
+    let queue = queue(&dir);
+
+    let item = item(server.url("/m.gguf"), &dir, "m.gguf", &body);
+    let piece = item.files[0].clone();
+    let id = queue.enqueue(item);
+    moving(&queue, id).await;
+    // Both before the transfer can have noticed the first.
+    queue.pause(id);
+    queue.resume(id);
+
+    assert_eq!(settled(&queue, id).await, Some(State::Done));
+    assert_eq!(std::fs::read(&piece.destination).expect("landed"), body);
+}
+
+#[tokio::test]
+async fn asking_again_for_a_model_being_cancelled_downloads_it() {
+    let dir = scratch("cancel-again");
+    let body = model();
+    let server = serve(vec![("/m.gguf", body.clone(), vec![Act::Slow])]).await;
+    let queue = queue(&dir);
+
+    let item = item(server.url("/m.gguf"), &dir, "m.gguf", &body);
+    let piece = item.files[0].clone();
+    let id = queue.enqueue(item.clone());
+    moving(&queue, id).await;
+    queue.cancel(id);
+    let again = queue.enqueue(item);
+
+    assert_eq!(again, id, "the same model is the same row");
+    assert_eq!(settled(&queue, id).await, Some(State::Done));
+    assert_eq!(std::fs::read(&piece.destination).expect("landed"), body);
+}
+
+#[tokio::test]
+async fn two_quick_asks_for_one_model_are_one_row() {
+    let dir = scratch("double-click");
+    let body = model();
+    let server = serve(vec![("/m.gguf", body.clone(), vec![])]).await;
+    let queue = queue(&dir);
+
+    let item = item(server.url("/m.gguf"), &dir, "m.gguf", &body);
+    let (first, second) = tokio::join!(async { queue.enqueue(item.clone()) }, async {
+        queue.enqueue(item.clone())
+    });
+    assert_eq!(first, second);
+    assert_eq!(queue.rows().len(), 1);
+    assert_eq!(settled(&queue, first).await, Some(State::Done));
+}
+
+/// Two models that each fit and do not fit together: the second is refused
+/// before it starts, not when the disk fills under both.
+#[tokio::test]
+async fn free_space_counts_what_the_running_items_are_still_to_write() {
+    let dir = scratch("room-shared");
+    let free = demido_download::room::free(&dir).expect("this volume says");
+    let half = free / 2 + free / 8;
+    let server = serve(vec![("/a.gguf", Vec::new(), vec![Act::Promise(half)])]).await;
+    let queue = Queue::with(Files::in_profile(&dir), 2, Duration::from_secs(30));
+
+    let mut first = item(server.url("/a.gguf"), &dir, "a.gguf", &[]);
+    first.files[0].bytes = half;
+    let first = queue.enqueue(first);
+    moving(&queue, first).await;
+
+    let mut second = item(server.url("/b.gguf"), &dir, "b.gguf", &[]);
+    second.files[0].bytes = half;
+    let second = queue.enqueue(second);
+    assert!(matches!(
+        failure(settled(&queue, second).await),
+        Failure::NoRoom { .. }
+    ));
+    assert!(server.requests("/b.gguf").is_empty());
+    queue.cancel(first);
+}
+
+#[tokio::test]
+async fn a_file_already_at_the_destination_is_checked_rather_than_trusted() {
+    let dir = scratch("already-there");
+    let body = model();
+    let server = serve(vec![("/m.gguf", body.clone(), vec![])]).await;
+    let queue = queue(&dir);
+
+    let item = item(server.url("/m.gguf"), &dir, "m.gguf", &body);
+    let piece = item.files[0].clone();
+    std::fs::create_dir_all(piece.destination.parent().unwrap()).unwrap();
+    // The right length, and not a model.
+    std::fs::write(&piece.destination, vec![b'<'; body.len()]).unwrap();
+
+    let id = queue.enqueue(item.clone());
+    assert!(matches!(
+        failure(settled(&queue, id).await),
+        Failure::Damaged { .. }
+    ));
+    assert!(server.requests("/m.gguf").is_empty());
+
+    // The damaged file is gone, so the retry fetches the real one.
+    queue.resume(id);
+    assert_eq!(settled(&queue, id).await, Some(State::Done));
+    assert_eq!(std::fs::read(&piece.destination).expect("landed"), body);
 }

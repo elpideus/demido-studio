@@ -29,11 +29,13 @@ disk is asked before the transfer, and a finished file is checked to be a GGUF.
   `<name>.gguf.part`, which `demido-models` does not list. An item's files are
   renamed into place only once every one of them is whole and verified, and the
   weights' first piece goes last, so the file a backend is handed appears only
-  when everything it needs is beside it.
+  when everything it needs is beside it. A rename that fails puts back the
+  pieces renamed before it, so a failed item leaves nothing in the library.
 - **Verified before offered.** A file is the length the index listed, hashes to
   the LFS digest where the index published one, and passes
   `demido_models::gguf::verify`. A file that fails is deleted: resuming from it
-  would fail at the same byte forever.
+  would fail at the same byte forever. A file an earlier run already left at
+  the destination is checked the same way, never trusted for its length.
 - **The file records intent; the bytes on disk record progress.** An entry in
   `downloads.json` is an item and whether it was paused or failed. How far it
   got is the length of its partial files, read again by `Queue::open`. A
@@ -51,7 +53,13 @@ disk is asked before the transfer, and a finished file is checked to be a GGUF.
   dismissed and its model left alone: deleting a model is not the queue's.
 - **Free space is asked before a byte is requested**, against what is still to
   come rather than the whole item, so a resume is not refused for bytes already
-  on disk.
+  on disk, and after what the other running items are still to write, so two
+  models that each fit and do not fit together are refused before either
+  fills the disk.
+- **Every transition is one step under one lock.** Pause, resume, cancel, a
+  second ask for the same model and a task letting go of its files. A resume
+  or a second ask that arrives while a transfer is still stopping is kept and
+  honoured once it has stopped, never dropped.
 - **The index's size is enforced.** A `Content-Length` or `Content-Range` that
   disagrees with it is refused before anything is written, and a body that runs
   past it is stopped. A `200` to a ranged request is written from zero, never

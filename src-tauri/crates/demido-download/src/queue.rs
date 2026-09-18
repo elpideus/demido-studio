@@ -10,6 +10,11 @@
 //! of its partial files. [`Queue::open`] reads both and [`Queue::start`] picks
 //! up everything nobody paused.
 //!
+//! **Every transition is made under one lock.** A pause, a resume, a cancel,
+//! a second ask for the same model and a task letting go of its files are
+//! each one step on the rows, so whichever arrives second sees the first
+//! rather than landing in a gap between two.
+//!
 //! Concurrency is a pool rather than a per-item setting: several transfers on
 //! one home connection finish no sooner than a few, and make every bar slower
 //! to read.
@@ -88,11 +93,21 @@ pub enum Event {
 }
 
 /// Why a running item is being stopped. The transfer sees one cancelled flag
-/// either way; this is how the queue knows which it was.
+/// whichever it is; this is how the queue knows what to do once it lets go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stopping {
     Pause,
     Cancel,
+    /// Paused or cancelled, then asked for again before the transfer had let
+    /// go. It starts again from its bytes on disk rather than losing the ask.
+    Restart,
+}
+
+/// How a task that did not finish ended.
+enum End {
+    /// It noticed its flag.
+    Stopped,
+    Failed(Failure),
 }
 
 struct Job {
@@ -106,6 +121,26 @@ struct Job {
 }
 
 impl Job {
+    fn new(item: Item, state: State) -> Job {
+        Job {
+            received: on_disk(&item),
+            item,
+            state,
+            cancel: CancellationToken::new(),
+            stopping: None,
+            live: false,
+        }
+    }
+
+    /// Bytes a running transfer is still to write, which is room it is about
+    /// to take on the disk.
+    fn reserving(&self) -> u64 {
+        match self.state {
+            State::Running | State::Verifying => self.item.bytes().saturating_sub(self.received),
+            _ => 0,
+        }
+    }
+
     fn row(&self, id: Id) -> Row {
         Row {
             id,
@@ -122,6 +157,7 @@ impl Job {
     fn entry(&self, id: Id) -> Option<Entry> {
         let held = match (&self.state, self.stopping) {
             (State::Done, _) | (_, Some(Stopping::Cancel)) => return None,
+            (_, Some(Stopping::Restart)) => None,
             (State::Paused, _) | (_, Some(Stopping::Pause)) => Some(Held::Paused),
             (State::Failed { failure }, _) => Some(Held::Failed {
                 failure: failure.clone(),
@@ -141,6 +177,13 @@ fn on_disk(item: &Item) -> u64 {
     item.files.iter().fold(0u64, |total, piece| {
         total.saturating_add(transfer::on_disk(piece))
     })
+}
+
+/// Delete an item's partial files.
+fn delete(item: &Item) {
+    for piece in &item.files {
+        transfer::remove(&piece.partial());
+    }
 }
 
 /// The pool, and the record of every item in it.
@@ -166,16 +209,12 @@ impl Queue {
     /// profile is not a network request, and a caller outside a runtime can
     /// open one. [`Queue::start`] does that.
     pub fn open(files: Files) -> Queue {
-        Self::build(files, CONCURRENCY, STALL)
+        Self::with(files, CONCURRENCY, STALL)
     }
 
     /// The same, with the pool and the stall timeout chosen. A minute is not a
     /// timeout in a test, it is a hang.
     pub fn with(files: Files, concurrency: usize, stall: Duration) -> Queue {
-        Self::build(files, concurrency, stall)
-    }
-
-    fn build(files: Files, concurrency: usize, stall: Duration) -> Queue {
         let mut jobs = BTreeMap::new();
         let mut next = 1;
         for entry in files.read() {
@@ -185,17 +224,7 @@ impl Queue {
                 Some(Held::Failed { failure }) => State::Failed { failure },
             };
             next = next.max(entry.id + 1);
-            jobs.insert(
-                Id(entry.id),
-                Job {
-                    received: on_disk(&entry.item),
-                    item: entry.item,
-                    state,
-                    cancel: CancellationToken::new(),
-                    stopping: None,
-                    live: false,
-                },
-            );
+            jobs.insert(Id(entry.id), Job::new(entry.item, state));
         }
         let (events, _) = broadcast::channel(EVENTS);
         Queue {
@@ -229,36 +258,29 @@ impl Queue {
     ///
     /// An item whose target is already in the queue is that item: two
     /// transfers into one partial file interleave their bytes. Asking again
-    /// for one that is paused or failed is the plainest way of saying carry
-    /// on, so it resumes.
+    /// for one that is paused, failed or being stopped is the plainest way of
+    /// saying carry on, so it resumes. Checked and inserted under one lock, so
+    /// two quick asks are one item.
     pub fn enqueue(&self, item: Item) -> Id {
-        let existing = self
-            .jobs()
-            .iter()
-            .find(|(_, job)| job.state != State::Done && job.item.target() == item.target())
-            .map(|(id, _)| *id);
-        if let Some(id) = existing {
-            self.resume(id);
-            return id;
-        }
-
-        let id = Id(self.inner.next.fetch_add(1, Ordering::SeqCst));
-        {
+        let (id, start) = {
             let mut jobs = self.jobs();
-            jobs.insert(
-                id,
-                Job {
-                    received: on_disk(&item),
-                    item,
-                    state: State::Queued,
-                    cancel: CancellationToken::new(),
-                    stopping: None,
-                    live: false,
-                },
-            );
-            self.settle(&jobs, id);
+            let existing = jobs
+                .iter()
+                .find(|(_, job)| job.state != State::Done && job.item.target() == item.target())
+                .map(|(id, _)| *id);
+            match existing {
+                Some(id) => (id, self.carry_on(&mut jobs, id)),
+                None => {
+                    let id = Id(self.inner.next.fetch_add(1, Ordering::SeqCst));
+                    jobs.insert(id, Job::new(item, State::Queued));
+                    self.settle(&jobs, id);
+                    (id, true)
+                }
+            }
+        };
+        if start {
+            self.spawn(id);
         }
-        self.spawn(id);
         id
     }
 
@@ -266,26 +288,27 @@ impl Queue {
     pub fn pause(&self, id: Id) {
         let mut jobs = self.jobs();
         let Some(job) = jobs.get_mut(&id) else { return };
-        if !job.live || job.stopping.is_some() {
-            return;
+        if job.live {
+            if job.stopping == Some(Stopping::Cancel) {
+                return;
+            }
+            job.stopping = Some(Stopping::Pause);
+            job.cancel.cancel();
+            // Written now rather than when the transfer notices, so a process
+            // killed in between still comes back paused.
+            self.persist(&jobs);
+        } else if job.state == State::Queued {
+            // Queued with no task yet: nothing to stop, only a state to set.
+            job.state = State::Paused;
+            self.settle(&jobs, id);
         }
-        job.stopping = Some(Stopping::Pause);
-        job.cancel.cancel();
-        // Written now rather than when the transfer notices, so a process
-        // killed in between still comes back paused.
-        self.persist(&jobs);
     }
 
     /// Pause every item that is queued or running. A failed item is already
     /// stopped and says why, and pausing it would hide that.
     pub fn pause_all(&self) {
-        let live: Vec<Id> = self
-            .jobs()
-            .iter()
-            .filter(|(_, job)| job.live)
-            .map(|(id, _)| *id)
-            .collect();
-        for id in live {
+        let ids: Vec<Id> = self.jobs().keys().copied().collect();
+        for id in ids {
             self.pause(id);
         }
     }
@@ -293,25 +316,45 @@ impl Queue {
     /// Carry on from the bytes on disk: a paused item, or a failed one, which
     /// is the retry.
     pub fn resume(&self, id: Id) {
-        {
-            let mut jobs = self.jobs();
-            let Some(job) = jobs.get_mut(&id) else { return };
-            if job.live || !matches!(job.state, State::Paused | State::Failed { .. }) {
-                return;
-            }
-            // A fresh flag: the old one is cancelled for good.
-            job.cancel = CancellationToken::new();
-            job.stopping = None;
-            job.state = State::Queued;
-            job.received = on_disk(&job.item);
-            self.settle(&jobs, id);
+        let start = self.carry_on(&mut self.jobs(), id);
+        if start {
+            self.spawn(id);
         }
-        self.spawn(id);
+    }
+
+    /// Put a held item back in the queue, or tell a task that is still
+    /// letting go to start again once it has. True when a task is to be
+    /// spawned for it.
+    fn carry_on(&self, jobs: &mut BTreeMap<Id, Job>, id: Id) -> bool {
+        let Some(job) = jobs.get_mut(&id) else {
+            return false;
+        };
+        if job.live {
+            if job.stopping.is_some() {
+                job.stopping = Some(Stopping::Restart);
+                self.persist(jobs);
+            }
+            return false;
+        }
+        if !matches!(job.state, State::Paused | State::Failed { .. }) {
+            return false;
+        }
+        // A fresh flag: the old one is cancelled for good.
+        job.cancel = CancellationToken::new();
+        job.stopping = None;
+        job.state = State::Queued;
+        job.received = on_disk(&job.item);
+        self.settle(jobs, id);
+        true
     }
 
     /// Take an item out of the queue and delete its partial files, so a
     /// cancel does not quietly keep gigabytes. A finished item's row is
     /// dismissed and its model left where it is: the library owns it now.
+    ///
+    /// The files are deleted under the lock, so an ask for the same model
+    /// arriving meanwhile starts from nothing rather than having its new bytes
+    /// deleted underneath it.
     pub fn cancel(&self, id: Id) {
         let mut jobs = self.jobs();
         let Some(job) = jobs.get_mut(&id) else { return };
@@ -325,9 +368,7 @@ impl Queue {
         }
         let Some(job) = jobs.remove(&id) else { return };
         if job.state != State::Done {
-            for piece in &job.item.files {
-                remove(&piece.partial());
-            }
+            delete(&job.item);
         }
         self.persist(&jobs);
         let _ = self.inner.events.send(Event::Gone { id });
@@ -352,20 +393,28 @@ impl Queue {
     pub async fn settled(&self, id: Id) -> Option<State> {
         let mut events = self.subscribe();
         loop {
-            match self.row(id).map(|row| row.state) {
-                None => return None,
-                Some(state @ (State::Paused | State::Failed { .. } | State::Done)) => {
-                    if !self.jobs().get(&id).is_some_and(|job| job.live) {
-                        return Some(state);
-                    }
-                }
-                Some(_) => {}
+            if let Some(settled) = self.at_rest(id) {
+                return settled;
             }
             // Any event, or a lag, is a reason to look again.
             if let Err(broadcast::error::RecvError::Closed) = events.recv().await {
                 return self.row(id).map(|row| row.state);
             }
         }
+    }
+
+    /// `Some(state)` once an item has stopped moving, `Some(None)` once it is
+    /// gone, and `None` while it is still going.
+    fn at_rest(&self, id: Id) -> Option<Option<State>> {
+        let jobs = self.jobs();
+        let Some(job) = jobs.get(&id) else {
+            return Some(None);
+        };
+        let resting = matches!(
+            job.state,
+            State::Paused | State::Failed { .. } | State::Done
+        );
+        (resting && !job.live).then(|| Some(job.state.clone()))
     }
 
     fn jobs(&self) -> MutexGuard<'_, BTreeMap<Id, Job>> {
@@ -378,13 +427,13 @@ impl Queue {
     }
 
     fn spawn(&self, id: Id) {
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        if tokio::runtime::Handle::try_current().is_err() {
             tracing::warn!(
                 id = id.0,
                 "a download was queued outside the runtime; it starts with the queue"
             );
             return;
-        };
+        }
         {
             let mut jobs = self.jobs();
             let Some(job) = jobs.get_mut(&id) else { return };
@@ -393,8 +442,13 @@ impl Queue {
             }
             job.live = true;
         }
+        self.run(id);
+    }
+
+    /// Start the task for an item already marked live.
+    fn run(&self, id: Id) {
         let queue = self.clone();
-        runtime.spawn(async move { queue.drive(id).await });
+        tokio::spawn(async move { queue.drive(id).await });
     }
 
     async fn drive(&self, id: Id) {
@@ -414,17 +468,29 @@ impl Queue {
             slot = self.inner.slots.clone().acquire_owned() => slot.ok(),
         };
         let Some(_slot) = slot else {
-            return self.stopped(id, &item);
+            return self.end(id, &item, End::Stopped);
         };
 
-        // Against what is still to come, before a byte of it is asked for.
+        // Against what is still to come, before a byte of it is asked for,
+        // and after what the other running items are still to write: two
+        // models that each fit and do not fit together are refused now, not
+        // at 98 per cent.
+        let others = self
+            .jobs()
+            .iter()
+            .filter(|(other, _)| **other != id)
+            .fold(0u64, |total, (_, job)| {
+                total.saturating_add(job.reserving())
+            });
         let needs = item.bytes().saturating_sub(on_disk(&item));
         let folder = item
             .target()
             .and_then(std::path::Path::parent)
             .unwrap_or(std::path::Path::new("."));
-        if let Some(free) = room::free(folder).filter(|free| *free < needs) {
-            return self.failed(id, &item, Failure::NoRoom { needs, free });
+        if let Some(free) = room::free(folder).map(|free| free.saturating_sub(others)) {
+            if free < needs {
+                return self.end(id, &item, End::Failed(Failure::NoRoom { needs, free }));
+            }
         }
 
         self.set(id, State::Running, None);
@@ -446,18 +512,27 @@ impl Queue {
             };
             match verified {
                 Ok(()) => before = before.saturating_add(piece.bytes),
-                Err(Stop::Cancelled) => return self.stopped(id, &item),
-                Err(Stop::Failed(failure)) => return self.failed(id, &item, failure),
+                Err(Stop::Cancelled) => return self.end(id, &item, End::Stopped),
+                Err(Stop::Failed(failure)) => return self.end(id, &item, End::Failed(failure)),
             }
             self.set(id, State::Running, None);
         }
 
         // Every file passed. The weights' first piece goes last, so the file a
         // backend is handed appears only once everything it needs is beside
-        // it.
+        // it. A rename that fails puts back the ones before it, so a failed
+        // item never leaves pieces in the library with no row naming them.
+        let mut promoted = Vec::new();
         for piece in item.files.iter().rev() {
-            if let Err(failure) = transfer::promote(piece).await {
-                return self.failed(id, &item, failure);
+            match transfer::promote(piece) {
+                Ok(true) => promoted.push(piece),
+                Ok(false) => {}
+                Err(failure) => {
+                    for piece in promoted {
+                        transfer::demote(piece);
+                    }
+                    return self.end(id, &item, End::Failed(failure));
+                }
             }
         }
         let mut jobs = self.jobs();
@@ -486,56 +561,49 @@ impl Queue {
         let _ = self.inner.events.send(Event::Row { row: job.row(id) });
     }
 
-    fn failed(&self, id: Id, item: &Item, failure: Failure) {
-        tracing::warn!(id = id.0, repo = %item.repo, %failure, "a download failed");
-        let received = on_disk(item);
-        let mut jobs = self.jobs();
-        let Some(job) = jobs.get_mut(&id) else { return };
-        job.live = false;
-        // Stopped on purpose while the failure was arriving: that wins.
-        match job.stopping.take() {
-            Some(stopping) => {
-                drop(jobs);
-                self.halt(id, item, stopping);
-            }
-            None => {
-                job.state = State::Failed { failure };
-                job.received = received;
-                self.settle(&jobs, id);
-            }
+    /// A task that did not finish has let go of its files. What happens next
+    /// is decided under one lock, so a resume, a cancel or a second ask that
+    /// arrives meanwhile is either before this or after it, never lost in
+    /// between.
+    fn end(&self, id: Id, item: &Item, end: End) {
+        if let End::Failed(failure) = &end {
+            tracing::warn!(id = id.0, repo = %item.repo, %failure, "a download failed");
         }
-    }
-
-    /// The task noticed its flag, and has let go of every file. Paused or
-    /// cancelled, whichever was asked.
-    fn stopped(&self, id: Id, item: &Item) {
-        let stopping = {
+        let restart = {
             let mut jobs = self.jobs();
             let Some(job) = jobs.get_mut(&id) else { return };
             job.live = false;
-            job.stopping.take().unwrap_or(Stopping::Pause)
-        };
-        self.halt(id, item, stopping);
-    }
-
-    fn halt(&self, id: Id, item: &Item, stopping: Stopping) {
-        let mut jobs = self.jobs();
-        match stopping {
-            Stopping::Pause => {
-                if let Some(job) = jobs.get_mut(&id) {
-                    job.state = State::Paused;
-                    job.received = on_disk(item);
+            job.received = on_disk(item);
+            // Stopped on purpose while a failure was arriving: that wins.
+            match (job.stopping.take(), end) {
+                (Some(Stopping::Cancel), _) => {
+                    delete(item);
+                    jobs.remove(&id);
+                    self.persist(&jobs);
+                    let _ = self.inner.events.send(Event::Gone { id });
+                    false
+                }
+                (Some(Stopping::Restart), _) => {
+                    job.cancel = CancellationToken::new();
+                    job.state = State::Queued;
+                    job.live = true;
                     self.settle(&jobs, id);
+                    true
+                }
+                (Some(Stopping::Pause), _) | (None, End::Stopped) => {
+                    job.state = State::Paused;
+                    self.settle(&jobs, id);
+                    false
+                }
+                (None, End::Failed(failure)) => {
+                    job.state = State::Failed { failure };
+                    self.settle(&jobs, id);
+                    false
                 }
             }
-            Stopping::Cancel => {
-                for piece in &item.files {
-                    remove(&piece.partial());
-                }
-                jobs.remove(&id);
-                self.persist(&jobs);
-                let _ = self.inner.events.send(Event::Gone { id });
-            }
+        };
+        if restart {
+            self.run(id);
         }
     }
 
@@ -552,14 +620,6 @@ impl Queue {
         let entries: Vec<Entry> = jobs.iter().filter_map(|(id, job)| job.entry(*id)).collect();
         if let Err(error) = self.inner.files.write(&entries) {
             tracing::warn!(path = %self.inner.files.path().display(), %error, "the download queue could not be saved");
-        }
-    }
-}
-
-fn remove(path: &std::path::Path) {
-    if let Err(error) = std::fs::remove_file(path) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            tracing::warn!(path = %path.display(), %error, "a partial download could not be deleted");
         }
     }
 }

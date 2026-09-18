@@ -84,18 +84,23 @@ pub async fn downloads_add(
         .enqueue(Item::chosen(HOST, &repo, choice, &library)))
 }
 
+// Pause, resume and cancel are async so they run on the runtime rather than
+// the window's thread: a cancel deletes partial files, and a resume spawns the
+// transfer on the runtime it is already on.
+
 #[tauri::command]
-pub fn downloads_pause(wiring: tauri::State<'_, Wiring>, id: Id) {
+pub async fn downloads_pause(wiring: tauri::State<'_, Wiring>, id: Id) -> demido_core::Result<()> {
     wiring.downloads.pause(id);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn downloads_pause_all(wiring: tauri::State<'_, Wiring>) {
+pub async fn downloads_pause_all(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<()> {
     wiring.downloads.pause_all();
+    Ok(())
 }
 
-/// Resume a paused item, or retry a failed one from the bytes on disk. Async
-/// so it runs inside the runtime the transfer is spawned on.
+/// Resume a paused item, or retry a failed one from the bytes on disk.
 #[tauri::command]
 pub async fn downloads_resume(wiring: tauri::State<'_, Wiring>, id: Id) -> demido_core::Result<()> {
     wiring.downloads.resume(id);
@@ -104,6 +109,7 @@ pub async fn downloads_resume(wiring: tauri::State<'_, Wiring>, id: Id) -> demid
 
 /// Take an item out of the queue and delete its partial files.
 #[tauri::command]
-pub fn downloads_cancel(wiring: tauri::State<'_, Wiring>, id: Id) {
+pub async fn downloads_cancel(wiring: tauri::State<'_, Wiring>, id: Id) -> demido_core::Result<()> {
     wiring.downloads.cancel(id);
+    Ok(())
 }

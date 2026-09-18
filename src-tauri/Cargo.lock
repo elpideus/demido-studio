@@ -646,7 +646,6 @@ dependencies = [
 name = "demido-download"
 version = "0.1.0"
 dependencies = [
- "demido-core",
  "demido-models",
  "futures-util",
  "reqwest 0.12.28",

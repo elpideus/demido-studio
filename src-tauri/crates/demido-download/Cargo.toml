@@ -13,7 +13,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-demido-core.workspace = true
 # Where a download lands, what a repository's choice is made of, and the GGUF
 # check a finished file passes before it is renamed into the library.
 demido-models.workspace = true
