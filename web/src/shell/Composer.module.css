@@ -168,3 +168,44 @@
   width: var(--size-icon-small);
   height: var(--size-icon-small);
 }
+
+/* The model selector: raised, with its capability tags inline
+ * (design/system.md). Open is armed, like the other controls beside it. */
+.model {
+  flex: none;
+  max-width: calc(8 * var(--size-control));
+  height: var(--size-control);
+  display: flex;
+  align-items: center;
+  gap: var(--space-control);
+  padding: 0 var(--space-control);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-size: var(--text-meta);
+  line-height: var(--leading-ui);
+  cursor: pointer;
+  transition: background var(--duration-tap) var(--ease-mech);
+}
+
+.model:hover {
+  background: var(--color-hover);
+}
+
+.model:active {
+  background: var(--color-active);
+}
+
+.model[aria-pressed='true'] {
+  background: var(--color-edge);
+  color: var(--color-ink);
+}
+
+.modelName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

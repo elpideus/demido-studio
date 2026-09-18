@@ -29,6 +29,25 @@
   box-shadow: var(--shadow-float);
 }
 
+/* The models step hosts the two-pane browser (#75), which needs the window's
+ * width rather than a column of prose. */
+.window[data-wide='true'] {
+  width: calc(100% - 2 * var(--space-bay));
+}
+
+/* The browser in the page: a fixed share of the window's height, so its list
+ * scrolls inside itself rather than the page growing past the fold. On rack,
+ * as it is in its own window, so its two panel islands stand on ground rather
+ * than on the page's own panel. */
+.browser {
+  flex: none;
+  height: calc(16 * var(--size-control));
+  display: flex;
+  padding: var(--space-gutter);
+  background: var(--color-rack);
+  border-radius: var(--radius-island);
+}
+
 /* A bar rather than a surface. */
 .bar {
   flex: none;

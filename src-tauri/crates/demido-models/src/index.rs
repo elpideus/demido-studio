@@ -17,8 +17,10 @@
 //!
 //! **Publisher fields are passed through and never interpreted.** The listing
 //! carries no reliable statement of tool use or reasoning, and inventing one is
-//! how a browser recommends a model that fails on the first turn. [`Repo`] has
-//! no field that could hold a capability.
+//! how a browser recommends a model that fails on the first turn. So a
+//! [`Repo`]'s capabilities are only what its publisher **states**, in its
+//! pipeline or a tag, and everything unstated is [`Fact::Unknown`]: never
+//! `No`, because a listing cannot state an absence (#75, [`stated`]).
 //!
 //! **A network failure is not a broken window.** Every call answers with an
 //! [`Answer`], never an error: an unreadable index is a stated condition the
@@ -30,6 +32,8 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+
+use crate::library::{Capabilities, Fact};
 
 /// Where the index lives.
 pub const HOST: &str = "https://huggingface.co";
@@ -78,6 +82,48 @@ pub struct Repo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub library: Option<String>,
     pub tags: Vec<String>,
+    /// Parameters, as the Hub reads them out of the published GGUF's header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<u64>,
+    /// `general.architecture` of the published GGUF.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
+    /// The context the published GGUF says it was trained for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
+    /// What the publisher states the model can do, [`Fact::Yes`] or
+    /// [`Fact::Unknown`] and never `No` ([`stated`]).
+    pub stated: Capabilities,
+}
+
+/// What a publisher states a repository's model can do, read off its pipeline
+/// and its tags, exactly.
+///
+/// Only a word that names the capability counts: `image-text-to-text` or
+/// `vision` for vision, `audio-text-to-text` or `audio` for audio, `tool-use`,
+/// `tool-calling` or `function-calling` for tools, `reasoning` or `thinking`
+/// for reasoning. `any-to-any` names no particular input, so it states
+/// nothing. Everything unstated is `Unknown`, drawn differently from the `No`
+/// a file on disk can prove, because a badge claiming an absence nobody
+/// measured would be a guess dressed as a fact.
+pub fn stated(pipeline: Option<&str>, tags: &[String]) -> Capabilities {
+    let says = |words: &[&str]| {
+        let said = pipeline
+            .into_iter()
+            .chain(tags.iter().map(String::as_str))
+            .any(|word| words.contains(&word));
+        if said {
+            Fact::Yes
+        } else {
+            Fact::Unknown
+        }
+    };
+    Capabilities {
+        vision: says(&["image-text-to-text", "vision"]),
+        tools: says(&["tool-use", "tool-calling", "function-calling"]),
+        reasoning: says(&["reasoning", "thinking"]),
+        audio: says(&["audio-text-to-text", "audio"]),
+    }
 }
 
 /// One `.gguf` in a repository.
@@ -201,6 +247,10 @@ impl Index {
             "pipeline_tag",
             "library_name",
             "tags",
+            // The published GGUF's header as the Hub read it: parameters,
+            // architecture and trained context. It carries the chat template
+            // too, which is most of its weight and is not read here.
+            "gguf",
         ] {
             url.push_str("&expand[]=");
             url.push_str(field);
@@ -361,6 +411,13 @@ pub fn parse_listing(body: &[u8]) -> Result<Vec<Repo>, Malformed> {
     let mut repos: Vec<Repo> = listed
         .into_iter()
         .map(|item| Repo {
+            stated: stated(item.pipeline_tag.as_deref(), &item.tags),
+            params: item.gguf.as_ref().and_then(|gguf| gguf.total),
+            architecture: item
+                .gguf
+                .as_ref()
+                .and_then(|gguf| gguf.architecture.clone()),
+            context: item.gguf.as_ref().and_then(|gguf| gguf.context_length),
             id: item.id,
             author: item.author,
             downloads: item.downloads,
@@ -463,6 +520,19 @@ struct Listed {
     library_name: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    gguf: Option<Gguf>,
+}
+
+/// The part of the Hub's `gguf` object the browser shows.
+#[derive(Deserialize)]
+struct Gguf {
+    #[serde(default)]
+    total: Option<u64>,
+    #[serde(default)]
+    architecture: Option<String>,
+    #[serde(default)]
+    context_length: Option<u64>,
 }
 
 #[derive(Deserialize)]

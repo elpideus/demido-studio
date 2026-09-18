@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { ArrowRight, Check, Wrench } from 'lucide-react'
 
 import { loading, useChat } from '@/chat/chat'
-import { AcceleratorControl, ManifestControl, ModelControl, ModelFolderControl } from './Controls'
+import { Browser } from '@/models/Browser'
+import { AcceleratorControl, ManifestControl, ModelFolderControl } from './Controls'
 import { useSetup, type Step } from './setup'
 import styles from './Wizard.module.css'
 
@@ -23,6 +24,11 @@ import styles from './Wizard.module.css'
  * component the settings page renders. There is no second implementation of
  * any control here, and there is deliberately nowhere one could be added: a
  * step is a heading, a sentence and one of those components.
+ *
+ * The models step renders the Models browser itself, the one the desk opens
+ * over the composer ([#75](https://github.com/elpideus/demido-studio/issues/75)),
+ * so the model a person needs is found or downloaded without leaving set-up.
+ * Answering with one here chooses it; Finish is what loads it.
  */
 export function Wizard() {
   const view = useSetup((setup) => setup.view)
@@ -33,6 +39,7 @@ export function Wizard() {
   const finish = useSetup((setup) => setup.finish)
   const busy = useSetup((setup) => setup.busy)
   const presence = useChat((chat) => chat.presence)
+  const chooseModel = useSetup((setup) => setup.chooseModel)
 
   // Nothing until the first read has answered, and nothing once the wizard has
   // been closed. Closing is what leaving does and what finishing does, and it
@@ -67,7 +74,13 @@ export function Wizard() {
   return (
     <>
       <div className={styles.scrim} aria-hidden />
-      <section className={styles.window} role="dialog" aria-label="Set up Demido">
+      <section
+        className={styles.window}
+        role="dialog"
+        aria-label="Set up Demido"
+        // Two panes need the width a page of prose does not.
+        data-wide={on === 'models'}
+      >
         <header className={styles.bar}>
           <h1 className={styles.name}>Set up Demido</h1>
           {/* The way out, on every step and never behind a menu. It is a
@@ -109,7 +122,9 @@ export function Wizard() {
           {on === 'models' && (
             <>
               <ModelFolderControl />
-              <ModelControl />
+              <div className={styles.browser}>
+                <Browser answer={chooseModel} />
+              </div>
             </>
           )}
           {on === 'first-answer' && (

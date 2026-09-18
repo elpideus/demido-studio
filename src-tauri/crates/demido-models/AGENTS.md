@@ -62,8 +62,15 @@ not listed, because it is not there yet.
   hands them the body. A payload that confuses the browser becomes a fixture
   in `tests/fixtures/index/`, captured with `curl` and never edited.
 - **Publisher fields are passed through verbatim.** `pipeline`, `library` and
-  every tag in the order sent. `Repo` has no field a capability could be
-  inferred into, and a test pins its keys.
+  every tag in the order sent, and the published GGUF's parameters,
+  architecture and trained context as the Hub read them from its header.
+- **A repository's capabilities are what its publisher states** (#75). The
+  tension #75 settled: `design/shell.md` draws capabilities wherever a model
+  appears, and v2 refused to badge what it could not verify. So `Repo::stated`
+  is `Yes` only where the pipeline or a tag names the capability
+  (`index::stated` lists the words), and `Unknown` everywhere else. Never `No`:
+  a listing cannot state an absence, and a file on disk is the only thing that
+  can prove one. A test pins `Repo`'s keys and that no listing yields a `No`.
 - **Keyless, and it says who is asking.** No `Authorization`, no cookie, and a
   `User-Agent` naming the app, its version and this repository.
 - **Gating is read at listing time.** The search asks for `gated` by name

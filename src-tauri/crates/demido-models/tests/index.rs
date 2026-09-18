@@ -14,6 +14,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use demido_models::index::{self, Answer, Cause, Index, Repo, LISTING};
+use demido_models::Fact;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -144,36 +145,118 @@ fn publisher_fields_are_passed_through_verbatim() {
     }
 }
 
-/// The listing carries no reliable statement of tool use, reasoning or vision,
-/// so a repository has no field that could hold one. Every key that crosses
-/// to the window is one of these; an absent option is left out, never
-/// replaced by something else.
+/// A repository crosses to the window with these keys and no others. The
+/// capabilities cross as `stated`, which is a statement the publisher made or
+/// nothing: an absent option is left out, never replaced by something else.
 #[test]
-fn no_capability_is_inferred_from_the_listing() {
-    for repo in listing("search-gemma-3-4b-it-qat.json") {
-        let value = serde_json::to_value(&repo).expect("serialises");
-        let mut keys: Vec<&str> = value
-            .as_object()
-            .expect("an object")
-            .keys()
-            .map(String::as_str)
-            .collect();
-        keys.sort_unstable();
-        let expected = [
-            "author",
-            "downloads",
-            "gated",
-            "id",
-            "library",
-            "likes",
-            "pipeline",
-            "tags",
-        ];
-        assert!(
-            keys.iter().all(|key| expected.contains(key)),
-            "{}: {keys:?}",
-            repo.id
-        );
+fn a_repository_crosses_with_the_publisher_s_fields_and_nothing_else() {
+    for name in [
+        "search-gemma-3-4b-it-qat.json",
+        "search-gemma-4-e4b-expanded.json",
+    ] {
+        for repo in listing(name) {
+            let value = serde_json::to_value(&repo).expect("serialises");
+            let mut keys: Vec<&str> = value
+                .as_object()
+                .expect("an object")
+                .keys()
+                .map(String::as_str)
+                .collect();
+            keys.sort_unstable();
+            let expected = [
+                "architecture",
+                "author",
+                "context",
+                "downloads",
+                "gated",
+                "id",
+                "library",
+                "likes",
+                "params",
+                "pipeline",
+                "stated",
+                "tags",
+            ];
+            assert!(
+                keys.iter().all(|key| expected.contains(key)),
+                "{}: {keys:?}",
+                repo.id
+            );
+        }
+    }
+}
+
+// --- what the publisher states ---------------------------------------------
+
+/// Params, architecture and trained context, as the Hub reads them out of the
+/// GGUF the publisher uploaded. Nothing is computed from a name.
+#[test]
+fn a_repository_carries_the_facts_its_publisher_s_file_states() {
+    let repos = listing("search-gemma-4-e4b-expanded.json");
+    let repo = repos
+        .iter()
+        .find(|repo| repo.id == "ggml-org/gemma-4-E4B-it-GGUF")
+        .expect("in the payload");
+    assert_eq!(repo.params, Some(7_518_069_290));
+    assert_eq!(repo.architecture.as_deref(), Some("gemma4"));
+    assert_eq!(repo.context, Some(131_072));
+
+    let unsaid =
+        index::parse_listing(br#"[{"id":"a/none"},{"id":"b/empty","gguf":{}}]"#).expect("parses");
+    for repo in unsaid {
+        assert_eq!(repo.params, None, "{}", repo.id);
+        assert_eq!(repo.architecture, None, "{}", repo.id);
+        assert_eq!(repo.context, None, "{}", repo.id);
+    }
+}
+
+/// `design/shell.md` draws capabilities as tags; v2 refused to badge a
+/// repository it could not verify. Both hold (#75): a repository in the index
+/// carries what its publisher states in its pipeline or its tags, and anything
+/// unstated is `Unknown`. The index never says `No`, because nothing in a
+/// listing can state an absence.
+#[test]
+fn a_capability_is_what_the_publisher_states_and_nothing_else() {
+    let repos = listing("search-gemma-4-e4b-expanded.json");
+    let stated = |id: &str| repos.iter().find(|repo| repo.id == id).expect(id).stated;
+
+    // Pipeline `image-text-to-text`, tags `vision` and `audio`.
+    let both = stated("HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive");
+    assert_eq!(both.vision, Fact::Yes);
+    assert_eq!(both.audio, Fact::Yes);
+    assert_eq!(both.tools, Fact::Unknown);
+    assert_eq!(both.reasoning, Fact::Unknown);
+
+    // A tag says tool use, and nothing says vision.
+    let tools = stated("shafire/Zero-Gemma4-E4B-OpenZero-GGUF");
+    assert_eq!(tools.tools, Fact::Yes);
+    assert_eq!(tools.vision, Fact::Unknown);
+
+    // `audio-text-to-text` as a tag, beside a `text-generation` pipeline.
+    let audio = stated("bartowski/huihui-ai_Huihui-gemma-3n-E4B-it-abliterated-GGUF");
+    assert_eq!(audio.audio, Fact::Yes);
+
+    // `any-to-any` states no particular input, so it states nothing here.
+    let any = stated("ggml-org/gemma-4-E4B-it-GGUF");
+    assert_eq!(
+        [any.vision, any.tools, any.reasoning, any.audio],
+        [Fact::Unknown; 4]
+    );
+
+    let reasoning =
+        index::parse_listing(br#"[{"id":"a/think","tags":["thinking"]}]"#).expect("parses");
+    assert_eq!(reasoning[0].stated.reasoning, Fact::Yes);
+
+    for name in ["search-gemma-3-4b-it-qat.json", "search-front-page.json"] {
+        for repo in listing(name).into_iter().chain(repos.clone()) {
+            let facts = [
+                repo.stated.vision,
+                repo.stated.tools,
+                repo.stated.reasoning,
+                repo.stated.audio,
+            ];
+            assert!(!facts.contains(&Fact::No), "{}: {facts:?}", repo.id);
+        }
     }
 }
 
@@ -414,6 +497,7 @@ async fn the_request_identifies_the_app_and_carries_no_key() {
         &format!("limit={LISTING}"),
         "search=gemma+3%2Fqat",
         "expand[]=gated",
+        "expand[]=gguf",
     ] {
         assert!(line.contains(part), "{part} in {line}");
     }

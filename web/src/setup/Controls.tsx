@@ -5,10 +5,7 @@ import {
   useSetup,
   type Availability,
   type Ecosystem,
-  type Damage,
-  type Damaged,
   type ManifestGroup,
-  type Model,
   type Reason,
   type RowState,
   type RuntimeRow,
@@ -423,83 +420,6 @@ export function ModelFolderControl() {
       </div>
     </div>
   )
-}
-
-/**
- * Which model answers.
- *
- * The same list the composer will be talking to, because the wizard's last
- * step and the composer are told by one place (`demido_setup::target`). Every
- * model here was verified before it was offered: a file cut short is listed
- * under the models with what is wrong with it, and is not a choice.
- */
-export function ModelControl() {
-  const view = useSetup((setup) => setup.view)
-  const choose = useSetup((setup) => setup.chooseModel)
-  if (!view) return null
-  const { models, damaged, chosen } = view.models
-
-  return (
-    <div className={styles.rows}>
-      {models.length === 0 ? (
-        <p className={styles.detected}>
-          No model was read out of those folders. Add a folder that holds a GGUF file, or download
-          one into one of them.
-        </p>
-      ) : (
-        <div className={styles.rows} role="radiogroup" aria-label="Model">
-          {models.map((model: Model) => (
-            <button
-              key={model.path}
-              type="button"
-              role="radio"
-              aria-checked={model.path === chosen}
-              className={styles.option}
-              data-chosen={model.path === chosen}
-              data-offered
-              onClick={() => void choose(model.path)}
-            >
-              <span className={styles.optionName}>
-                {model.label}
-                {model.path === chosen && (
-                  <Check className={styles.icon} strokeWidth={1.8} aria-hidden />
-                )}
-              </span>
-              <span className={styles.optionWhy}>
-                {size(model.bytes)},{' '}
-                {model.borrowed ? `borrowed from ${model.library}` : 'downloaded by Demido'}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      {damaged.map((file: Damaged) => (
-        <p key={file.path} className={styles.detected}>
-          Not offered: {file.path}, {damage(file.damage)}.
-        </p>
-      ))}
-    </div>
-  )
-}
-
-/** Why a file is not offered, in this application's own words. */
-function damage(damage: Damage): string {
-  switch (damage.kind) {
-    case 'not-gguf':
-      return 'which is not a GGUF file'
-    case 'unsupported':
-      return `which is GGUF version ${damage.version}, a version this build does not read`
-    case 'malformed':
-      return `whose header is malformed: ${damage.reason}`
-    case 'truncated':
-      return damage.needs === null
-        ? `which is cut short inside its header at ${size(damage.has)}`
-        : `which is cut short: ${size(damage.has)} of ${size(damage.needs)}`
-    case 'missing-piece':
-      return `whose piece ${damage.index} of ${damage.total} is missing`
-    case 'unreadable':
-      return `which could not be read: ${damage.reason}`
-  }
 }
 
 /** What detection saw, in this application's own words. */
