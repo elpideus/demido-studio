@@ -210,6 +210,13 @@ impl Registry {
         groups
     }
 
+    /// Where the tools act, or `None` when nothing is on offer because there
+    /// is nowhere for them to act. What the picker says beside its switches,
+    /// since [`Registry::groups`] is drawn either way.
+    pub fn workspace(&self) -> Option<&Workspace> {
+        self.workspace.as_ref()
+    }
+
     /// The same registry holding only the tools named, in their registered
     /// order.
     ///

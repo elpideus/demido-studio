@@ -70,17 +70,22 @@ function ordered(on: Set<string>, groups: Group[]): string[] {
 type Tools = {
   /** What Rust registered, or null until it has been asked. */
   groups: Group[] | null
+  /** The folder the tools act in, or null when the window has none, which is
+   * a model shown no tools whatever the switches say (issue 113). */
+  workspace: string | null
   read: () => Promise<void>
 }
 
-/** The groups, read once. They are what this build registered, and they do not
- * change while it runs. */
+/** The groups and the folder, read once. They are what this build registered
+ * and what the environment named, and neither changes while it runs. */
 export const useTools = create<Tools>((set, get) => ({
   groups: null,
+  workspace: null,
   read: async () => {
     if (get().groups) return
     try {
-      set({ groups: await invoke<Group[]>('chat_tools') })
+      const shelf = await invoke<{ groups: Group[]; workspace: string | null }>('chat_tools')
+      set({ groups: shelf.groups, workspace: shelf.workspace })
     } catch (error) {
       console.warn('the tools could not be read', error)
     }

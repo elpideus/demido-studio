@@ -50,6 +50,13 @@ impl Toolbox {
             .collect()
     }
 
+    /// The folder the tools act in, or `None` when no tool is sent at all.
+    pub fn workspace(&self) -> Option<PathBuf> {
+        self.registry
+            .workspace()
+            .map(|workspace| workspace.root().to_path_buf())
+    }
+
     /// Every registered tool's schema shape, by name: what the tool register's
     /// editor draws beside a document as the part that is not editable.
     pub fn shapes(&self) -> Vec<(String, serde_json::Value)> {

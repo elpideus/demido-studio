@@ -255,8 +255,10 @@ impl Rig {
 /// be a configuration system growing in the composition root.
 ///
 /// An absent or unusable one is not an error and not a warning worth stopping
-/// for. It is a desk with no tools on it, which is a state the loop, the picker
-/// and the model are all already correct about.
+/// for. It is a desk with no tools on it: the loop sends none, and the picker
+/// says so and draws its switches off, which it did not until
+/// [#113](https://github.com/elpideus/demido-studio/issues/113) found it
+/// lighting all of them over a payload with no tools in it.
 fn workspace() -> Option<demido_tools::Workspace> {
     let named = PathBuf::from(std::env::var_os("DEMIDO_WORKSPACE")?);
     match demido_tools::Workspace::open(&named) {

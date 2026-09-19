@@ -198,3 +198,20 @@
   width: var(--size-icon-small);
   height: var(--size-icon-small);
 }
+
+/* Held: drawn so the set can be read, but with no folder nothing a press
+ * changes would reach the model (issue 113). */
+.switch:disabled {
+  color: var(--color-ink-4);
+  cursor: default;
+}
+
+.switch:disabled:hover {
+  background: var(--color-well);
+}
+
+.folder {
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}

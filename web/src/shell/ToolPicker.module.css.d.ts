@@ -7,6 +7,7 @@ declare const styles: {
   readonly title: string
   readonly name: string
   readonly why: string
+  readonly folder: string
   readonly revert: string
   readonly groups: string
   readonly tools: string

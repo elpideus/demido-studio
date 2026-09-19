@@ -34,6 +34,7 @@ import styles from './ToolPicker.module.css'
  */
 export function ToolPicker({ close }: { close: () => void }) {
   const groups = useTools((tools) => tools.groups)
+  const workspace = useTools((tools) => tools.workspace)
   const readGroups = useTools((tools) => tools.read)
   const row = useSettings((settings) => settings.rows.chat?.find((it) => it.setting.id === OFFERED))
   const read = useSettings((settings) => settings.read)
@@ -73,9 +74,25 @@ export function ToolPicker({ close }: { close: () => void }) {
             </button>
           )}
         </div>
-        <p className={styles.why}>
-          What the model is shown in this chat. A tool switched off is not sent to it at all.
-        </p>
+        {/* The switches are the ladder's and are drawn either way, but with no
+         * folder the backend is handed none of them, so they are drawn off and
+         * held still rather than lit over a payload that has no tools (issue 113). */}
+        {groups && !workspace ? (
+          <p className={styles.why}>
+            No folder is attached to this chat, so the model is shown no tools. These take effect
+            once one is.
+          </p>
+        ) : (
+          <p className={styles.why}>
+            What the model is shown in this chat. A tool switched off is not sent to it at all.
+            {workspace && (
+              <>
+                {' '}
+                They act in <span className={styles.folder}>{workspace}</span>.
+              </>
+            )}
+          </p>
+        )}
       </header>
       {/* Nothing rather than an empty list while the first read is in flight,
        * for the reason a settings page draws nothing: a list with no rows for a
@@ -108,7 +125,8 @@ export function ToolPicker({ close }: { close: () => void }) {
                   </button>
                   <Switch
                     label={titled(group.group)}
-                    state={switched}
+                    state={workspace ? switched : 'off'}
+                    held={!workspace}
                     onPress={() =>
                       void set('chat', row.setting, flipGroup(row.value, groups, group.group))
                     }
@@ -121,7 +139,8 @@ export function ToolPicker({ close }: { close: () => void }) {
                         <span className={styles.tool}>{tool}</span>
                         <Switch
                           label={tool}
-                          state={on.has(tool) ? 'on' : 'off'}
+                          state={workspace && on.has(tool) ? 'on' : 'off'}
+                          held={!workspace}
                           onPress={() =>
                             void set('chat', row.setting, flipTool(row.value, groups, tool))
                           }
@@ -150,10 +169,13 @@ export function ToolPicker({ close }: { close: () => void }) {
 function Switch({
   label,
   state,
+  held = false,
   onPress,
 }: {
   label: string
   state: Switched
+  /** Drawn but not pressable: there is nothing a press would send. */
+  held?: boolean
   onPress: () => void
 }) {
   return (
@@ -161,6 +183,7 @@ function Switch({
       type="button"
       role="checkbox"
       className={styles.switch}
+      disabled={held}
       aria-label={label}
       aria-checked={state === 'partial' ? 'mixed' : state === 'on'}
       data-state={state}
