@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "tauri dev",
     "dev:drive": "tauri dev --config src-tauri/tauri.drive.conf.json",
+    "dev-test": "node scripts/dev-test.mjs",
+    "dev-test:fresh": "node scripts/dev-test.mjs --fresh",
     "build": "tauri build",
     "tauri": "tauri",
     "dev:web": "pnpm --filter @demido/web dev",
