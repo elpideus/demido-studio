@@ -183,6 +183,7 @@ Then:
 | `pnpm dev:drive` | The same, plus `withGlobalTauri`, for the window gate. |
 | `pnpm dev-test` | The app on a test profile of its own (`com.demido.studio.test`), so trying it never touches the one `pnpm dev` keeps. Its first launch is the guided set-up. It sets `DEMIDO_WORKSPACE` to a `workspace` folder inside that profile unless one is already set, so the model has tools. |
 | `pnpm dev-test:fresh` | The same, after deleting the test profile: first launch again. |
+| `pnpm dev-test:new-chat` | The same, after moving the test profile's conversation aside with a timestamp: a new chat, with the settings, model and runtimes kept. |
 | `pnpm build` | The release bundle: the NSIS installer. |
 | `pnpm build:web` | The frontend alone. |
 | `pnpm dev:web` | The frontend dev server alone, when you want it in its own terminal. |
