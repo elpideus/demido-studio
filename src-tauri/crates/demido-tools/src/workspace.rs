@@ -125,6 +125,12 @@ impl Workspace {
         &self.root
     }
 
+    /// The root as a person reads it, without the verbatim prefix
+    /// canonicalising put on it. What the tool picker names.
+    pub fn shown(&self) -> PathBuf {
+        plain(&self.root)
+    }
+
     /// Turn a path the model produced into one a tool may open.
     ///
     /// Relative paths are taken as relative to the workspace, which is the only
@@ -294,6 +300,19 @@ fn split_at_existing(path: &Path) -> (PathBuf, PathBuf) {
     }
 
     (existing, rest)
+}
+
+/// A path without the verbatim prefix, as `cmd.exe` and a person both read it.
+///
+/// The workspace root is canonical, and on Windows canonical means the
+/// `\\?\` prefix, which `cmd.exe` refuses as a current directory and replaces
+/// with the Windows directory without failing.
+pub(crate) fn plain(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    match text.strip_prefix(r"\\?\UNC\") {
+        Some(share) => PathBuf::from(format!(r"\\{share}")),
+        None => PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text)),
+    }
 }
 
 #[cfg(test)]

@@ -169,7 +169,8 @@ for this tool"* is how Cautious decays into Balanced by the user's choice rather
 **The tool picker.** A popover from the composer, beside the mode control, listing what this
 conversation offers the model: built-in groups first, then one row per installed skill, each
 expandable in place to its individual tools. Everything is on by default and a disabled tool is not
-sent to the model at all. It is the only surface for this, and it is the reason there is no Chat
+sent to the model at all. With no folder for tools to act in, it says so and draws every switch
+off and held; with one, it names the folder. It is the only surface for this, and it is the reason there is no Chat
 mode: an empty set is what Chat would have been. See
 [`docs/rules/tools.md`](../docs/rules/tools.md).
 

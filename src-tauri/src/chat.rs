@@ -111,14 +111,32 @@ pub fn chat_transcript(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<
     Ok(wiring.chat.transcript()?)
 }
 
-/// What the tool picker draws: every group, with its tools.
+/// What the tool picker draws: every group, with its tools, and the folder
+/// they act in.
 ///
 /// Only the shape. Which of them are on is the ladder's `tools.offered`, read
 /// and written through the settings commands like any other value, so the
 /// picker and a turn are looking at the same set.
 #[tauri::command]
-pub fn chat_tools(wiring: tauri::State<'_, Wiring>) -> Vec<Offering> {
-    wiring.chat.groups()
+pub fn chat_tools(wiring: tauri::State<'_, Wiring>) -> Shelf {
+    Shelf {
+        groups: wiring.chat.groups(),
+        workspace: wiring
+            .chat
+            .workspace()
+            .map(|root| root.display().to_string()),
+    }
+}
+
+/// The tool picker's whole reading.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Shelf {
+    groups: Vec<Offering>,
+    /// `None` when the window has no folder, which is a backend handed no
+    /// tools at all whatever the switches say
+    /// ([#113](https://github.com/elpideus/demido-studio/issues/113)).
+    workspace: Option<String>,
 }
 
 /// What the composer should say about the model right now.

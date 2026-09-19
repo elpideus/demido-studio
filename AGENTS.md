@@ -241,8 +241,10 @@ last of them:
 DEMIDO_WORKSPACE=S:/scratch/project pnpm dev:drive
 ```
 
-A folder that is not there is not an error. It is a desk with no tools on it,
-which is a state the loop, the picker and the model are already correct about.
+A folder that is not there is not an error. It is a desk with no tools on it:
+the loop sends none, and the picker says so and draws its switches off
+([#113](https://github.com/elpideus/demido-studio/issues/113)). `pnpm dev-test`
+sets one for you.
 
 `check-rules.mjs` reads commit metadata as well as files. With no argument it
 checks whatever is not yet on `origin/main`; CI passes the push or pull request

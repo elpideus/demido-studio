@@ -151,6 +151,11 @@ and that is the property that keeps the popover readable in a year.
 step: a fresh user who asks for a file and is refused by a control they have
 never opened is a worse failure than a crowded registry.
 
+**No folder, nothing on.** A window with no workspace sends no tools at all,
+so the picker says so and draws every switch off and held rather than lit over
+an empty payload. The set on the ladder is kept, and applies once a folder is
+there ([#113](https://github.com/elpideus/demido-studio/issues/113)).
+
 **Disabled means absent.** A tool that is off is not sent to the model in any
 form: not in the tool list, not held back behind `find_tools`, not mentioned.
 This is a third case v2's rule never anticipated. That rule says *"a tool held

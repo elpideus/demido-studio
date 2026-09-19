@@ -44,7 +44,20 @@ impl Rig {
 
     /// A conversation called `id`, over its own log, answering from `script`.
     async fn chat(&self, id: &str, script: &Script, log: &Memory) -> Chat<Scripted, Memory> {
-        let registry = Registry::open(Some(Workspace::open(self.project.path()).unwrap()))
+        let workspace = Workspace::open(self.project.path()).unwrap();
+        self.chat_over(Some(workspace), id, script, log).await
+    }
+
+    /// The same, over `workspace`, which may be none: a window nothing has
+    /// pointed at a folder.
+    async fn chat_over(
+        &self,
+        workspace: Option<Workspace>,
+        id: &str,
+        script: &Script,
+        log: &Memory,
+    ) -> Chat<Scripted, Memory> {
+        let registry = Registry::open(workspace)
             .with_group(files())
             .with_group(shell());
         let log = log.clone();
@@ -297,6 +310,34 @@ async fn the_picker_is_given_the_groups_the_registry_holds() {
         .map(|group| (group.group, group.tools.len()))
         .collect();
     assert_eq!(groups, [("files".to_owned(), 5), ("shell".to_owned(), 1)]);
+}
+
+/// The picker is told which folder the tools act in, so it can say so.
+#[tokio::test]
+async fn the_picker_is_told_the_folder_the_tools_act_in() {
+    let rig = Rig::new();
+    let chat = rig
+        .chat(SESSION, &Script::serving("scripted"), &Memory::new())
+        .await;
+
+    let root = Workspace::open(rig.project.path()).unwrap();
+    assert_eq!(chat.workspace(), Some(root.shown()));
+}
+
+/// With no folder the picker is told there is none, and that is the truth: the
+/// backend is handed no tools, whatever the ladder has switched on. A picker
+/// drawing them on here says the model is shown what it never saw (#113).
+#[tokio::test]
+async fn with_no_folder_the_picker_is_told_nothing_is_sent() {
+    let rig = Rig::new();
+    let script = Script::serving("scripted").then_say(&["Hello."]);
+    let chat = rig.chat_over(None, SESSION, &script, &Memory::new()).await;
+
+    chat.ask("Hello.", |_| {}, nobody()).await.unwrap();
+
+    assert_eq!(chat.workspace(), None);
+    assert!(!chat.groups().is_empty(), "the switches are still drawn");
+    assert!(names(&script.requests()[0]).is_empty());
 }
 
 /// The ladder's list of mode names is the matrix's, so the control cannot offer

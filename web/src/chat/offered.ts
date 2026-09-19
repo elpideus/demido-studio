@@ -19,6 +19,9 @@ import { invoke } from '@tauri-apps/api/core'
 /** One row of the picker. The Rust `Offering`. */
 export type Group = { group: string; tools: string[] }
 
+/** What `chat_tools` answers. The Rust `Shelf`. */
+export type Shelf = { groups: Group[]; workspace: string | null }
+
 /** How a group's switch reads. Some tools on and some off is **partial**, and
  * never drawn as on. */
 export type Switched = 'on' | 'partial' | 'off'
@@ -70,17 +73,22 @@ function ordered(on: Set<string>, groups: Group[]): string[] {
 type Tools = {
   /** What Rust registered, or null until it has been asked. */
   groups: Group[] | null
+  /** The folder the tools act in, or null when the window has none, which is
+   * a model shown no tools whatever the switches say (issue 113). */
+  workspace: string | null
   read: () => Promise<void>
 }
 
-/** The groups, read once. They are what this build registered, and they do not
- * change while it runs. */
+/** The groups and the folder, read once. They are what this build registered
+ * and what the environment named, and neither changes while it runs. */
 export const useTools = create<Tools>((set, get) => ({
   groups: null,
+  workspace: null,
   read: async () => {
     if (get().groups) return
     try {
-      set({ groups: await invoke<Group[]>('chat_tools') })
+      const shelf = await invoke<Shelf>('chat_tools')
+      set({ groups: shelf.groups, workspace: shelf.workspace })
     } catch (error) {
       console.warn('the tools could not be read', error)
     }

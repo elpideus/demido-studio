@@ -5,6 +5,7 @@
 //! messages, and that absence is the design (see the crate docs).
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
@@ -361,6 +362,14 @@ impl<B: Backend, J: Journal> Chat<B, J> {
     /// picker draws. Which of them are on is the ladder's, in [`Chat::resolved`].
     pub fn groups(&self) -> Vec<Offering> {
         self.tools.groups()
+    }
+
+    /// The folder this conversation's tools act in. `None` means the backend
+    /// is handed no tools whatever the picker has switched on, which the
+    /// picker has to say rather than draw its switches as if they reached the
+    /// model ([#113](https://github.com/elpideus/demido-studio/issues/113)).
+    pub fn workspace(&self) -> Option<PathBuf> {
+        self.tools.workspace()
     }
 
     /// Every tool this conversation could offer, by name, with its schema's
