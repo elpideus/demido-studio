@@ -52,9 +52,7 @@ impl Toolbox {
 
     /// The folder the tools act in, or `None` when no tool is sent at all.
     pub fn workspace(&self) -> Option<PathBuf> {
-        self.registry
-            .workspace()
-            .map(|workspace| workspace.root().to_path_buf())
+        self.registry.workspace().map(|workspace| workspace.shown())
     }
 
     /// Every registered tool's schema shape, by name: what the tool register's

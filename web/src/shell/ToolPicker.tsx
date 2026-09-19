@@ -48,6 +48,10 @@ export function ToolPicker({ close }: { close: () => void }) {
   }, [readGroups, read])
 
   const on = row && groups ? switchedOn(row.value, groups) : null
+  // With no folder the backend is handed no tools whatever the ladder says, so
+  // every switch is drawn off and held, and so is the chip that would change
+  // the set (issue 113). The ladder's value is untouched either way.
+  const held = groups !== null && workspace === null
 
   return (
     <div
@@ -63,7 +67,7 @@ export function ToolPicker({ close }: { close: () => void }) {
           <h2 className={styles.name}>Tools</h2>
           {/* The way back to the set every chat opens with, and only where this
            * chat has named its own. The same chip a settings row carries. */}
-          {row?.setHere && (
+          {row?.setHere && !held && (
             <button
               type="button"
               className={styles.revert}
@@ -74,13 +78,9 @@ export function ToolPicker({ close }: { close: () => void }) {
             </button>
           )}
         </div>
-        {/* The switches are the ladder's and are drawn either way, but with no
-         * folder the backend is handed none of them, so they are drawn off and
-         * held still rather than lit over a payload that has no tools (issue 113). */}
-        {groups && !workspace ? (
+        {held ? (
           <p className={styles.why}>
-            No folder is attached to this chat, so the model is shown no tools. These take effect
-            once one is.
+            This window has no folder for tools to act in, so the model is shown none of them.
           </p>
         ) : (
           <p className={styles.why}>
@@ -125,8 +125,8 @@ export function ToolPicker({ close }: { close: () => void }) {
                   </button>
                   <Switch
                     label={titled(group.group)}
-                    state={workspace ? switched : 'off'}
-                    held={!workspace}
+                    state={held ? 'off' : switched}
+                    held={held}
                     onPress={() =>
                       void set('chat', row.setting, flipGroup(row.value, groups, group.group))
                     }
@@ -139,8 +139,8 @@ export function ToolPicker({ close }: { close: () => void }) {
                         <span className={styles.tool}>{tool}</span>
                         <Switch
                           label={tool}
-                          state={workspace && on.has(tool) ? 'on' : 'off'}
-                          held={!workspace}
+                          state={!held && on.has(tool) ? 'on' : 'off'}
+                          held={held}
                           onPress={() =>
                             void set('chat', row.setting, flipTool(row.value, groups, tool))
                           }

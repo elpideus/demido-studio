@@ -19,6 +19,9 @@ import { invoke } from '@tauri-apps/api/core'
 /** One row of the picker. The Rust `Offering`. */
 export type Group = { group: string; tools: string[] }
 
+/** What `chat_tools` answers. The Rust `Shelf`. */
+export type Shelf = { groups: Group[]; workspace: string | null }
+
 /** How a group's switch reads. Some tools on and some off is **partial**, and
  * never drawn as on. */
 export type Switched = 'on' | 'partial' | 'off'
@@ -84,7 +87,7 @@ export const useTools = create<Tools>((set, get) => ({
   read: async () => {
     if (get().groups) return
     try {
-      const shelf = await invoke<{ groups: Group[]; workspace: string | null }>('chat_tools')
+      const shelf = await invoke<Shelf>('chat_tools')
       set({ groups: shelf.groups, workspace: shelf.workspace })
     } catch (error) {
       console.warn('the tools could not be read', error)

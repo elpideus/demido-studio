@@ -21,7 +21,6 @@
 //! returned, ran out of time, or was dropped because a generation was stopped.
 //! Elsewhere only the child is killed.
 
-use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -96,7 +95,7 @@ impl Tool for RunCommand {
         let at = context.resolve_dir(arguments["cwd"].as_str().unwrap_or("."))?;
 
         let mut child = shell_running(command)
-            .current_dir(plain(at.path()))
+            .current_dir(crate::workspace::plain(at.path()))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -279,19 +278,6 @@ fn program_of(segment: &str) -> Option<&str> {
         return Some(name);
     }
     None
-}
-
-/// A workspace path as `cmd.exe` will accept it for a working directory.
-///
-/// The workspace root is canonical, and on Windows canonical means the
-/// `\\?\` prefix, which `cmd.exe` refuses as a current directory and replaces
-/// with the Windows directory without failing.
-fn plain(path: &Path) -> PathBuf {
-    let text = path.to_string_lossy();
-    match text.strip_prefix(r"\\?\UNC\") {
-        Some(share) => PathBuf::from(format!(r"\\{share}")),
-        None => PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text)),
-    }
 }
 
 /// The platform's shell, with the command line on it.

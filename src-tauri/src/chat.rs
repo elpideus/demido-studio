@@ -121,7 +121,10 @@ pub fn chat_transcript(wiring: tauri::State<'_, Wiring>) -> demido_core::Result<
 pub fn chat_tools(wiring: tauri::State<'_, Wiring>) -> Shelf {
     Shelf {
         groups: wiring.chat.groups(),
-        workspace: wiring.chat.workspace().map(|root| shown(&root)),
+        workspace: wiring
+            .chat
+            .workspace()
+            .map(|root| root.display().to_string()),
     }
 }
 
@@ -134,16 +137,6 @@ pub struct Shelf {
     /// tools at all whatever the switches say
     /// ([#113](https://github.com/elpideus/demido-studio/issues/113)).
     workspace: Option<String>,
-}
-
-/// A path as a person reads it. The workspace root is canonical, which on
-/// Windows is the verbatim `\\?\` form nobody types.
-fn shown(path: &std::path::Path) -> String {
-    let path = path.display().to_string();
-    match path.strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with("UNC") => rest.to_owned(),
-        _ => path,
-    }
 }
 
 /// What the composer should say about the model right now.

@@ -321,7 +321,7 @@ async fn the_picker_is_told_the_folder_the_tools_act_in() {
         .await;
 
     let root = Workspace::open(rig.project.path()).unwrap();
-    assert_eq!(chat.workspace().as_deref(), Some(root.root()));
+    assert_eq!(chat.workspace(), Some(root.shown()));
 }
 
 /// With no folder the picker is told there is none, and that is the truth: the

@@ -179,7 +179,7 @@
   transition: background var(--duration-tap) var(--ease-mech);
 }
 
-.switch:hover {
+.switch:hover:not(:disabled) {
   background: var(--color-hover);
 }
 
@@ -204,10 +204,6 @@
 .switch:disabled {
   color: var(--color-ink-4);
   cursor: default;
-}
-
-.switch:disabled:hover {
-  background: var(--color-well);
 }
 
 .folder {
