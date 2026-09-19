@@ -369,8 +369,9 @@ Configuration the installed engineering skills read lives in `docs/agents/`.
 
 - **Issue tracker.** GitHub issues on `elpideus/demido-studio`, driven by the
   `gh` CLI. See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
-  The foundation for v3 is being charted as a wayfinder map,
-  [#1](https://github.com/elpideus/demido-studio/issues/1).
+  The foundation for v3 was charted on wayfinder map
+  [#1](https://github.com/elpideus/demido-studio/issues/1), now closed; v0.2 is
+  charted on [#116](https://github.com/elpideus/demido-studio/issues/116).
 - **Session guardrails.** `.claude/settings.json` refuses a force push, hard
   resets, `git clean`, branch deletion and history rewriting inside an agent
   session. Those are Stefan's to run, at a terminal, with the repo in front of

@@ -398,3 +398,29 @@ the downloaded file immediately loadable by S1's path.
 buys convenience while S2 and S4 buy the thesis. It is also the surface v2's
 invisible defect lived on, which is the argument against building it early and
 driving it late.
+
+## v0.2, in four slices
+
+Charted on [#116](https://github.com/elpideus/demido-studio/issues/116). Same two gates, same six
+fields, same rig. Each slice has a spec whose sub-issues are its tickets, and the blocking edges on
+those tickets are the only order that binds; the order below is the one to prefer when a session is
+free to choose.
+
+Brief B17: "Projects system that allows to group chats"
+
+Brief B18: "Native web search and fetch"
+
+Brief B20: "Skills system. This is important because my requirements for it are complex."
+
+| Slice | Spec | What a model can newly do | `Bar:` |
+|---|---|---|---|
+| S5 | [#121](https://github.com/elpideus/demido-studio/issues/121) | Work in the folders and files attached to your project | `chose` |
+| S6 | [#122](https://github.com/elpideus/demido-studio/issues/122) | Search the web and read a page, JavaScript included | `chose` |
+| S7 | [#123](https://github.com/elpideus/demido-studio/issues/123) | Use a skill: engine, `mcp` and `prompt` tools, and a slash command | `chose` |
+| S8 | [#124](https://github.com/elpideus/demido-studio/issues/124) | Delegate to a skill as a sub-agent | split, as S4 |
+
+**Projects run first** because they are what makes the tools reachable at all: until S5 a window has a
+folder only through `DEMIDO_WORKSPACE`. S6 has no dependency on S5 and can run beside it. **The S2
+scenarios re-run against a project root**, because a project is one virtual root with its attachments
+as top-level entries, so every path gains a prefix
+([#118](https://github.com/elpideus/demido-studio/issues/118)).
