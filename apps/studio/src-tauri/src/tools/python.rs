@@ -126,19 +126,37 @@ fn resolve_script(ctx: &ToolContext, file: &str) -> Result<PathBuf, String> {
             .trim_start_matches('/')
             .split_once('/')
             .ok_or("Skill scripts are written as skill:<skill-id>/<file>.")?;
-        let skill = ctx
-            .state
-            .skills
-            .find(skill)
-            .ok_or_else(|| format!("There is no skill called {skill}."))?;
-        ctx.state.skills.resolve_file(&skill.id, rel).map_err(|e| e.to_string())?
+        match ctx.state.skills.find(skill) {
+            Some(found) => ctx.state.skills.resolve_file(&found.id, rel).map_err(|e| e.to_string())?,
+            // A wrong skill id: the file name alone may still identify the script (below).
+            None => ctx.workspace.join(".demido").join("missing"),
+        }
     } else {
         super::workspace_path(&ctx.workspace, file)?
     };
-    if !path.is_file() {
-        return Err(format!("{file} does not exist."));
+    if path.is_file() {
+        return Ok(path);
     }
-    Ok(path)
+    // A bare script name from a skill's instructions: find it among the enabled skills.
+    let wanted = file.rsplit(['/', '\\']).next().unwrap_or(file);
+    let matches: Vec<std::path::PathBuf> = ctx
+        .state
+        .skills
+        .list()
+        .into_iter()
+        .filter(|s| s.enabled)
+        .filter_map(|s| {
+            s.files
+                .iter()
+                .find(|f| f.path.rsplit('/').next() == Some(wanted))
+                .and_then(|f| ctx.state.skills.resolve_file(&s.id, &f.path).ok())
+        })
+        .collect();
+    match matches.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => Err(format!("{file} does not exist in the workspace or in any enabled skill.")),
+        _ => Err(format!("Several skills have a file called {wanted}; use skill:<skill-id>/{wanted}.")),
+    }
 }
 
 async fn read_capped(reader: &mut (impl AsyncReadExt + Unpin)) -> String {

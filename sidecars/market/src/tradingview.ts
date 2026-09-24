@@ -176,38 +176,88 @@ export function clearCredentials(): void {
   emit('auth', { loggedIn: false });
 }
 
+/** The connection being opened, shared by every request that arrives meanwhile. */
+let connecting: Promise<Client> | null = null;
+
+const CONNECT_TIMEOUT_MS = 15_000;
+
 async function requireClient(): Promise<Client> {
   if (authPending) await authPending.catch(() => undefined);
   if (!credentials) {
     throw new RpcError('NOT_LOGGED_IN', 'Not signed in to TradingView.');
   }
   if (client && client.isOpen) return client;
+  if (!connecting) {
+    connecting = connect().finally(() => {
+      connecting = null;
+    });
+  }
+  return connecting;
+}
+
+/**
+ * Opens the websocket and waits until it is up. TradingView's data host resolves to several
+ * servers; one can be unreachable, so a failed attempt is retried (the next lookup usually
+ * lands elsewhere).
+ */
+async function connect(): Promise<Client> {
   if (client) closeClient();
-  const created = new TradingView.Client({
-    token: credentials.session,
-    signature: credentials.signature,
-    // The client looks the user up itself; point it at the page that carries the token.
-    location: USER_PAGE,
-  });
-  created.onError((...err: unknown[]) => {
-    const text = err.map(String).join(' ');
-    log('warn', `TradingView: ${text}`);
-    if (/credentials error/i.test(text)) {
-      credentials = null;
-      username = null;
-      emit('auth', { loggedIn: false, expired: true });
+  let lastError = '';
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (!credentials) throw new RpcError('NOT_LOGGED_IN', 'Not signed in to TradingView.');
+    const created = new TradingView.Client({
+      token: credentials.session,
+      signature: credentials.signature,
+      // The client looks the user up itself; point it at the page that carries the token.
+      location: USER_PAGE,
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timed out')), CONNECT_TIMEOUT_MS);
+        created.onConnected(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+        created.onError((...err: unknown[]) => {
+          const text = err.map(String).join(' ');
+          log('warn', `TradingView: ${text}`);
+          if (/credentials error/i.test(text)) {
+            credentials = null;
+            username = null;
+            emit('auth', { loggedIn: false, expired: true });
+            clearTimeout(timer);
+            reject(new RpcError('SESSION_EXPIRED', 'TradingView did not accept the session. Sign in again.'));
+          } else if (/websocket error/i.test(text)) {
+            clearTimeout(timer);
+            reject(new Error(text));
+          }
+        });
+      });
+    } catch (error) {
+      created.end().catch(() => undefined);
+      if (error instanceof RpcError) throw error;
+      lastError = error instanceof Error ? error.message : String(error);
+      log('warn', `connecting to TradingView failed (attempt ${attempt}): ${lastError}`);
+      await new Promise((r) => setTimeout(r, 600 * attempt));
+      continue;
     }
-  });
-  created.onDisconnected(() => {
-    if (client === created) {
-      client = null;
-      for (const id of [...streams.keys()]) {
-        closeStream(id, 'The connection to TradingView dropped.');
+    created.onDisconnected(() => {
+      if (client === created) {
+        client = null;
+        for (const id of [...streams.keys()]) {
+          closeStream(id, 'The connection to TradingView dropped.');
+        }
       }
-    }
-  });
-  client = created;
-  return created;
+    });
+    client = created;
+    return created;
+  }
+  throw new RpcError('NETWORK', `Could not connect to TradingView (${lastError}). Check the internet connection.`);
+}
+
+/** Drops a client whose socket died, so the next request opens a fresh one. */
+function dropIfDead(c: Client): void {
+  if (client === c && !c.isOpen) closeClient();
 }
 
 function stripTags(text: string): string {
@@ -409,13 +459,16 @@ export async function candles(
   const c = await requireClient();
   const chart = new c.Session.Chart();
   try {
-    const ready = settle(chart, 45_000);
+    const ready = settle(chart, 30_000);
     chart.setMarket(symbol.trim().toUpperCase(), {
       timeframe: TIMEFRAMES[tf].tradingview,
       range: Math.min(count, PAGE),
       ...(to ? { to } : {}),
     });
-    await ready;
+    await ready.catch((error: unknown) => {
+      dropIfDead(c);
+      throw error;
+    });
     let bars = barsOf(chart);
     while (bars.length < count) {
       const before = bars.length;
@@ -449,7 +502,7 @@ export async function openStream(
 ): Promise<{ id: string; info: ChartInfo; bars: Bar[] }> {
   const c = await requireClient();
   const chart = new c.Session.Chart();
-  const ready = settle(chart, 45_000);
+  const ready = settle(chart, 30_000);
   chart.setMarket(symbol.trim().toUpperCase(), {
     timeframe: TIMEFRAMES[tf].tradingview,
     range: Math.min(count, PAGE),
@@ -458,6 +511,7 @@ export async function openStream(
     await ready;
   } catch (error) {
     chart.delete();
+    dropIfDead(c);
     throw error;
   }
   const id = `s${nextStream++}`;
