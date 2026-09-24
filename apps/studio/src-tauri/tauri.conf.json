@@ -1,0 +1,53 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Demido Studio",
+  "mainBinaryName": "demido-studio",
+  "version": "0.1.0",
+  "identifier": "app.demido.studio",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Demido Studio",
+        "width": 1380,
+        "height": 880,
+        "minWidth": 960,
+        "minHeight": 620,
+        "center": true,
+        "theme": "Dark",
+        "backgroundColor": "#191919",
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "img-src": "'self' asset: http://asset.localhost data: blob: https:",
+        "media-src": "'self' asset: http://asset.localhost blob:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost"
+      },
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

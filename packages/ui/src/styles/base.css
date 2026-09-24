@@ -1,0 +1,128 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+p,
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: var(--accent-muted-strong);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Text the user may want to copy */
+.selectable,
+.selectable * {
+  user-select: text;
+  cursor: text;
+}
+
+/* Scrollbars: thin, quiet, visible on hover */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-6) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-full);
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--surface-6);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #4a4a4a;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

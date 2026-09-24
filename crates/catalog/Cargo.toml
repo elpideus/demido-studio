@@ -1,0 +1,15 @@
+[package]
+name = "demido-catalog"
+description = "The pinned list of runtimes and starter models Demido Studio installs, and the logic that picks them for a machine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+demido-core.workspace = true
+demido-hardware.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true

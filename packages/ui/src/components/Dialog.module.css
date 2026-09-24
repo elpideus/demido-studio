@@ -1,0 +1,91 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--scrim);
+  animation: fade var(--duration) var(--ease-out);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-window-focused);
+  outline: none;
+  animation: rise var(--duration-slow) var(--ease-out);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-2) var(--space-6);
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+}
+
+.headings {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: 6px;
+}
+
+.title {
+  font-size: var(--text-lg);
+}
+
+.description {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-6) var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}

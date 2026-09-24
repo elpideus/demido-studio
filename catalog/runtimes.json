@@ -1,0 +1,325 @@
+{
+  "$comment": "What the installer fetches onto the user's machine. Pinned, checksummed and bumped deliberately: see docs/catalog.md.",
+  "llamaCpp": {
+    "release": "b11146",
+    "label": "llama.cpp v0.5.0 (b11146)",
+    "baseUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11146/",
+    "variants": [
+      {
+        "id": "windows-cuda13",
+        "backend": "cuda",
+        "os": "windows",
+        "arch": "x86_64",
+        "label": "CUDA 13.4",
+        "requires": { "nvidiaDriverMin": "580.88", "computeCapabilityMin": 7.5 },
+        "assets": [
+          {
+            "name": "llama-b11146-bin-win-cuda-13.4-x64.zip",
+            "size": 149758833,
+            "sha256": "b1866c0ce76bc7bfb0c24b33e9a37e9669f1be18539b12c74ce361f81c41f047"
+          },
+          {
+            "name": "cudart-llama-bin-win-cuda-13.4-x64.zip",
+            "size": 423535356,
+            "sha256": "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668"
+          }
+        ]
+      },
+      {
+        "id": "windows-cuda12",
+        "backend": "cuda",
+        "os": "windows",
+        "arch": "x86_64",
+        "label": "CUDA 12.4",
+        "requires": { "nvidiaDriverMin": "551.61", "computeCapabilityMin": 5.0 },
+        "assets": [
+          {
+            "name": "llama-b11146-bin-win-cuda-12.4-x64.zip",
+            "size": 253869799,
+            "sha256": "3c806a6ceccc3dae1c743ceb1a1fb2cce5b76f40bfbd4c6b7b8afb6ef45a5807"
+          },
+          {
+            "name": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+            "size": 391443627,
+            "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+          }
+        ]
+      },
+      {
+        "id": "windows-rocm",
+        "backend": "rocm",
+        "os": "windows",
+        "arch": "x86_64",
+        "label": "ROCm 10.0",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-win-rocm-10.0-x64.zip",
+            "size": 251910679,
+            "sha256": "5dee283ec0fd5f38f29df0929769a07266ac6047f74381c153eb54b441e4ef99"
+          }
+        ]
+      },
+      {
+        "id": "windows-vulkan",
+        "backend": "vulkan",
+        "os": "windows",
+        "arch": "x86_64",
+        "label": "Vulkan",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-win-vulkan-x64.zip",
+            "size": 32127004,
+            "sha256": "55a378aa095b466979d85075234f66d7655c7a7483222af0c006c0e55b4d7bd6"
+          }
+        ]
+      },
+      {
+        "id": "windows-cpu",
+        "backend": "cpu",
+        "os": "windows",
+        "arch": "x86_64",
+        "label": "CPU (x64)",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-win-cpu-x64.zip",
+            "size": 18560055,
+            "sha256": "14cf1303ca9ac3abd94816850532f9f9a69ac66fbaca3776fc6f9061c2fac1d1"
+          }
+        ]
+      },
+      {
+        "id": "windows-cpu-arm64",
+        "backend": "cpu",
+        "os": "windows",
+        "arch": "aarch64",
+        "label": "CPU (ARM64)",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-win-cpu-arm64.zip",
+            "size": 12034624,
+            "sha256": "1727d241f3bf6d27360e984e851cf013928fd655bf89f8628e70da027f377b7d"
+          }
+        ]
+      },
+      {
+        "id": "macos-metal",
+        "backend": "metal",
+        "os": "macos",
+        "arch": "aarch64",
+        "label": "Metal",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-macos-arm64.tar.gz",
+            "size": 11189714,
+            "sha256": "1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711"
+          }
+        ]
+      },
+      {
+        "id": "macos-cpu",
+        "backend": "cpu",
+        "os": "macos",
+        "arch": "x86_64",
+        "label": "CPU (Intel Mac)",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-macos-x64.tar.gz",
+            "size": 11237237,
+            "sha256": "305f0e3a17d2c01eb205cd0a62128357f1ec3b55329cb084d94e5ec0115d7a3b"
+          }
+        ]
+      },
+      {
+        "id": "linux-cuda13",
+        "backend": "cuda",
+        "os": "linux",
+        "arch": "x86_64",
+        "label": "CUDA 13.4",
+        "requires": { "nvidiaDriverMin": "580.65", "computeCapabilityMin": 7.5 },
+        "assets": [
+          {
+            "name": "llama-b11146-bin-ubuntu-cuda-13.4-x64.tar.gz",
+            "size": 149265156,
+            "sha256": "1603d9c00a4b6eac8298c5c7868cdb080a3ac31948ab1e457441d71ce274dd7e"
+          },
+          {
+            "name": "cudart-llama-b11146-bin-ubuntu-cuda-13.4-x64.tar.gz",
+            "size": 440231388,
+            "sha256": "7c2af505f8b26ecd3707ab7723fa985fee1df233b7c1d60e5e17724b536d15bb"
+          }
+        ]
+      },
+      {
+        "id": "linux-cuda12",
+        "backend": "cuda",
+        "os": "linux",
+        "arch": "x86_64",
+        "label": "CUDA 12.8",
+        "requires": { "nvidiaDriverMin": "570.26", "computeCapabilityMin": 5.0 },
+        "assets": [
+          {
+            "name": "llama-b11146-bin-ubuntu-cuda-12.8-x64.tar.gz",
+            "size": 168920581,
+            "sha256": "c2ab9e19838513ff69d1af8d999ad717dd3c7ee4714ac04c7ed5ab9077c50e4e"
+          },
+          {
+            "name": "cudart-llama-b11146-bin-ubuntu-cuda-12.8-x64.tar.gz",
+            "size": 594373356,
+            "sha256": "1466daea60aad1144819e151b2bae19d54556cf1da6c129c4f55a5ded2637c25"
+          }
+        ]
+      },
+      {
+        "id": "linux-rocm",
+        "backend": "rocm",
+        "os": "linux",
+        "arch": "x86_64",
+        "label": "ROCm 10.0",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-ubuntu-rocm-10.0-x64.tar.gz",
+            "size": 234721151,
+            "sha256": "50e79dc559a11af3ea59391d416e9a704a715ac6be94352dbba710782c5dd7d1"
+          }
+        ]
+      },
+      {
+        "id": "linux-vulkan",
+        "backend": "vulkan",
+        "os": "linux",
+        "arch": "x86_64",
+        "label": "Vulkan",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-ubuntu-vulkan-x64.tar.gz",
+            "size": 30598492,
+            "sha256": "d3ce40fce7403cc93bcf5718fc46c6efb61ed9709f8e5d9f10c86bf0e30e8fb3"
+          }
+        ]
+      },
+      {
+        "id": "linux-cpu",
+        "backend": "cpu",
+        "os": "linux",
+        "arch": "x86_64",
+        "label": "CPU (x64)",
+        "requires": {},
+        "assets": [
+          {
+            "name": "llama-b11146-bin-ubuntu-x64.tar.gz",
+            "size": 16998357,
+            "sha256": "c150306eb16b5ab696f76a8bdf810c35fd98a24e82158742e6fa28f420ff8410"
+          }
+        ]
+      }
+    ]
+  },
+  "node": {
+    "version": "24.21.0",
+    "assets": [
+      {
+        "os": "windows",
+        "arch": "x86_64",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+        "size": 37618919,
+        "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541"
+      },
+      {
+        "os": "windows",
+        "arch": "aarch64",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-arm64.zip",
+        "size": 33679608,
+        "sha256": "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921"
+      },
+      {
+        "os": "macos",
+        "arch": "aarch64",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
+        "size": 52909993,
+        "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057"
+      },
+      {
+        "os": "macos",
+        "arch": "x86_64",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz",
+        "size": 54203979,
+        "sha256": "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097"
+      },
+      {
+        "os": "linux",
+        "arch": "x86_64",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz",
+        "size": 58088022,
+        "sha256": "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff"
+      },
+      {
+        "os": "linux",
+        "arch": "aarch64",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.gz",
+        "size": 57824078,
+        "sha256": "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5"
+      }
+    ]
+  },
+  "uv": {
+    "version": "0.12.18",
+    "assets": [
+      {
+        "os": "windows",
+        "arch": "x86_64",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.12.18/uv-x86_64-pc-windows-msvc.zip",
+        "size": 17891221,
+        "sha256": "cae6a3bc25239f83dffb467a4b180508d9da23986c04639ebfa44e43e6a84bff"
+      },
+      {
+        "os": "windows",
+        "arch": "aarch64",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.12.18/uv-aarch64-pc-windows-msvc.zip",
+        "size": 19209909,
+        "sha256": "17f27b1c64eacc757ae603579f116a014881e486c5e79ae81877980d4699e943"
+      },
+      {
+        "os": "macos",
+        "arch": "aarch64",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.12.18/uv-aarch64-apple-darwin.tar.gz",
+        "size": 16963768,
+        "sha256": "cf40e0c6a202190ccd9e0406dcfdd5b2d6668a9a5c779b17948963df32aafe5b"
+      },
+      {
+        "os": "macos",
+        "arch": "x86_64",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.12.18/uv-x86_64-apple-darwin.tar.gz",
+        "size": 20759971,
+        "sha256": "2e4108f5395397c8bc5d43bf83d3bdbb2d0e92b90d0efa607756be704905fa33"
+      },
+      {
+        "os": "linux",
+        "arch": "x86_64",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.12.18/uv-x86_64-unknown-linux-gnu.tar.gz",
+        "size": 19798687,
+        "sha256": "89eadd7c76fc063887959510d5ba0ab1264dfd5f1143b925ddb73021a40acf16"
+      },
+      {
+        "os": "linux",
+        "arch": "aarch64",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.12.18/uv-aarch64-unknown-linux-gnu.tar.gz",
+        "size": 19000649,
+        "sha256": "afb6291f3f0a6b4521fc67b947822506c41dde5b60d2189dd8f3695b2ac8c9e7"
+      }
+    ]
+  },
+  "python": {
+    "version": "3.13",
+    "estimatedSize": 36700160,
+    "packages": ["numpy", "pandas", "matplotlib", "requests"],
+    "estimatedPackagesSize": 73400320
+  }
+}

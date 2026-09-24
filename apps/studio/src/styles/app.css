@@ -1,0 +1,6 @@
+/* App-wide rules that are not a component's own. Components use CSS Modules. */
+
+#root {
+  display: flex;
+  flex-direction: column;
+}

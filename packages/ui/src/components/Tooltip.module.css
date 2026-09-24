@@ -1,0 +1,28 @@
+.anchor {
+  display: inline-flex;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  max-width: 280px;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  background: #303030;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.97);
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.visible {
+  opacity: 1;
+  transform: scale(1);
+}

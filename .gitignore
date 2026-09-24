@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+target/
+*.tsbuildinfo
+apps/*/src-tauri/gen/schemas/
+sidecars/market/build/
+
+# Local development runtime and profiles (see docs/development.md)
+.dev/
+
+# Release artifacts
+/release/
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.log

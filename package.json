@@ -1,0 +1,30 @@
+{
+  "name": "demido-studio-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Demido Studio: an easy to use, powerful LLM harness focused on optimization, agentic capabilities and transparency.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "packageManager": "pnpm@11.13.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @demido/studio tauri dev",
+    "dev:installer": "pnpm --filter @demido/installer tauri dev",
+    "dev:runtime": "cargo run -p demido-setup-cli --release -- --dev",
+    "build": "node scripts/build-release.mjs",
+    "build:sidecar": "pnpm --filter @demido/market-sidecar build",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r --parallel test && cargo test --workspace",
+    "test:web": "pnpm -r --parallel test",
+    "test:rust": "cargo test --workspace",
+    "lint:rust": "cargo clippy --workspace --all-targets -- -D warnings",
+    "format": "prettier --write . && cargo fmt --all",
+    "format:check": "prettier --check . && cargo fmt --all --check",
+    "drive": "node scripts/drive.mjs"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  }
+}

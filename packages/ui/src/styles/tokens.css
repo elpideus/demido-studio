@@ -1,0 +1,130 @@
+/*
+ * Demido Studio design tokens.
+ *
+ * Surfaces follow the Windows 11 dark palette: the darker a surface, the further back it sits.
+ * Window title bars and their tab rails are lighter than window content, so a window reads as a
+ * frame around a recessed page.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, back to front */
+  --surface-0: #191919; /* app backdrop and chat canvas */
+  --surface-1: #1c1c1c; /* activity bar, side panels, window content */
+  --surface-2: #202020; /* cards and raised panels */
+  --surface-3: #262626; /* window title bars, tab rails, inputs */
+  --surface-4: #2c2c2c; /* hover */
+  --surface-5: #333333; /* pressed and selected */
+  --surface-6: #3a3a3a; /* strongest fill (scroll thumbs, toggles off) */
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  /* Lines */
+  --border-subtle: rgba(255, 255, 255, 0.055);
+  --border: rgba(255, 255, 255, 0.085);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  /* Text */
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.64);
+  --text-tertiary: rgba(255, 255, 255, 0.44);
+  --text-disabled: rgba(255, 255, 255, 0.28);
+  --text-on-accent: #04210d;
+
+  /* Accent: Demido green */
+  --accent: #5fd08a;
+  --accent-hover: #74da9b;
+  --accent-pressed: #4dbb77;
+  --accent-text: #7fe2a3;
+  --accent-muted: rgba(95, 208, 138, 0.13);
+  --accent-muted-strong: rgba(95, 208, 138, 0.22);
+  --accent-border: rgba(95, 208, 138, 0.42);
+  --focus-ring: 0 0 0 2px var(--surface-0), 0 0 0 4px rgba(95, 208, 138, 0.7);
+
+  /* Status */
+  --danger: #f07474;
+  --danger-muted: rgba(240, 116, 116, 0.13);
+  --warning: #e9b75a;
+  --warning-muted: rgba(233, 183, 90, 0.13);
+  --info: #72a9ee;
+  --info-muted: rgba(114, 169, 238, 0.13);
+  --market-up: #4fcf8a;
+  --market-down: #ef6b6b;
+
+  /* Type */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', -apple-system,
+    BlinkMacSystemFont, 'Inter', 'Helvetica Neue', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', -apple-system,
+    BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', 'JetBrains Mono', 'SF Mono', Consolas, Menlo,
+    monospace;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --text-3xl: 34px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --leading-tight: 1.25;
+  --leading: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* Space (4 px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 56px;
+
+  /* Shape */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 22px;
+  --radius-full: 999px;
+
+  /* Depth */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-popover: 0 14px 36px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-window: 0 18px 50px rgba(0, 0, 0, 0.55), 0 3px 10px rgba(0, 0, 0, 0.4);
+  --shadow-window-focused: 0 22px 60px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.45);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 110ms;
+  --duration: 170ms;
+  --duration-slow: 260ms;
+
+  /* Layout */
+  --activity-bar-width: 52px;
+  --chat-list-width: 272px;
+  --titlebar-height: 38px;
+  --tab-rail-width: 196px;
+  --chat-column: 780px;
+  --z-desktop: 0;
+  --z-windows: 100;
+  --z-popover: 1000;
+  --z-dialog: 2000;
+  --z-toast: 3000;
+  --z-tooltip: 4000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration: 0ms;
+    --duration-slow: 0ms;
+  }
+}

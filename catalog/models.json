@@ -1,0 +1,239 @@
+{
+  "$comment": "Starter models the installer picks by usable VRAM (or RAM on CPU-only machines). unsloth quantized GGUFs are preferred everywhere. Tiers are matched top-down: the first tier whose minimum fits wins.",
+  "families": [
+    {
+      "id": "qwen",
+      "label": "Qwen",
+      "vendor": "Alibaba",
+      "description": "Strong at tool use, coding and following multi-step instructions.",
+      "recommended": true
+    },
+    {
+      "id": "gemma",
+      "label": "Gemma",
+      "vendor": "Google",
+      "description": "Natural, well-rounded writing; quantization-aware builds keep quality high at 4 bit.",
+      "recommended": false
+    }
+  ],
+  "tiers": [
+    {
+      "id": "workstation",
+      "minVramGb": 30,
+      "contextLength": 65536,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.8 27B",
+          "repo": "unsloth/Qwen3.8-27B-GGUF",
+          "file": "Qwen3.8-27B-UD-Q6_K_XL.gguf",
+          "quant": "UD-Q6_K_XL",
+          "size": 25299061664,
+          "sha256": "701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917"
+        },
+        "gemma": {
+          "name": "Gemma 4 31B",
+          "repo": "unsloth/gemma-4-31B-it-qat-GGUF",
+          "file": "gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 17287670048,
+          "sha256": "00b5a7c497f0c8934033088c10a7fa9a4c015e46ee6d89e9c6890650ba5d0e71"
+        }
+      }
+    },
+    {
+      "id": "enthusiast",
+      "minVramGb": 20,
+      "contextLength": 32768,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.8 27B",
+          "repo": "unsloth/Qwen3.8-27B-GGUF",
+          "file": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "quant": "UD-Q4_K_XL",
+          "size": 17559178144,
+          "sha256": "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e"
+        },
+        "gemma": {
+          "name": "Gemma 4 31B",
+          "repo": "unsloth/gemma-4-31B-it-qat-GGUF",
+          "file": "gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 17287670048,
+          "sha256": "00b5a7c497f0c8934033088c10a7fa9a4c015e46ee6d89e9c6890650ba5d0e71"
+        }
+      }
+    },
+    {
+      "id": "high",
+      "minVramGb": 14,
+      "contextLength": 32768,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.8 27B",
+          "repo": "unsloth/Qwen3.8-27B-GGUF",
+          "file": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+          "quant": "UD-Q3_K_XL",
+          "size": 13146393504,
+          "sha256": "8c2a45ff85e7674ca185ec8eb6cdeab0e617ed9d8018caed0b64380eb2a67a5e"
+        },
+        "gemma": {
+          "name": "Gemma 4 26B A4B",
+          "repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF",
+          "file": "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 14249047104,
+          "sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891"
+        }
+      }
+    },
+    {
+      "id": "mainstream",
+      "minVramGb": 10,
+      "contextLength": 32768,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.5 9B",
+          "repo": "unsloth/Qwen3.5-9B-GGUF",
+          "file": "Qwen3.5-9B-UD-Q6_K_XL.gguf",
+          "quant": "UD-Q6_K_XL",
+          "size": 8756929760,
+          "sha256": "33b0050fb9c19abcf815647a78464dad959a06dadaecb0b96af798669f9074d4"
+        },
+        "gemma": {
+          "name": "Gemma 4 12B",
+          "repo": "unsloth/gemma-4-12B-it-qat-GGUF",
+          "file": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 6716356800,
+          "sha256": "90fd44e29e0d7cffeb0fd00dc73cfdab9ed0b0e95306ecf7821ea634c940c370"
+        }
+      }
+    },
+    {
+      "id": "entry",
+      "minVramGb": 7,
+      "contextLength": 24576,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.5 9B",
+          "repo": "unsloth/Qwen3.5-9B-GGUF",
+          "file": "Qwen3.5-9B-UD-Q4_K_XL.gguf",
+          "quant": "UD-Q4_K_XL",
+          "size": 5966095584,
+          "sha256": "6f5d30666c2d8ae16a306e616d95341dcf3cc46810df84d7e6f5a7d1e4c1b293"
+        },
+        "gemma": {
+          "name": "Gemma 4 12B",
+          "repo": "unsloth/gemma-4-12b-it-GGUF",
+          "file": "gemma-4-12b-it-UD-Q3_K_XL.gguf",
+          "quant": "UD-Q3_K_XL",
+          "size": 6022684480,
+          "sha256": "30adc491834f9e57625331b5ae2a51d59a817458d6d9406eca4fd71ff88b9295"
+        }
+      }
+    },
+    {
+      "id": "compact",
+      "minVramGb": 5,
+      "contextLength": 16384,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.5 4B",
+          "repo": "unsloth/Qwen3.5-4B-GGUF",
+          "file": "Qwen3.5-4B-UD-Q6_K_XL.gguf",
+          "quant": "UD-Q6_K_XL",
+          "size": 4145548448,
+          "sha256": "87f58d94410b81429268d8389a3d686e6c6bffecf7852772720fbea059cbbb9d"
+        },
+        "gemma": {
+          "name": "Gemma 4 E4B",
+          "repo": "unsloth/gemma-4-E4B-it-qat-GGUF",
+          "file": "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 4215695776,
+          "sha256": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3"
+        }
+      }
+    },
+    {
+      "id": "light",
+      "minVramGb": 3,
+      "contextLength": 16384,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.5 4B",
+          "repo": "unsloth/Qwen3.5-4B-GGUF",
+          "file": "Qwen3.5-4B-UD-Q4_K_XL.gguf",
+          "quant": "UD-Q4_K_XL",
+          "size": 2912109728,
+          "sha256": "b252c5610a42ca82d20fe2a12813e9d069eed89292907e26c783eeb0bc961bc7"
+        },
+        "gemma": {
+          "name": "Gemma 4 E2B",
+          "repo": "unsloth/gemma-4-E2B-it-qat-GGUF",
+          "file": "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 2620370976,
+          "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889"
+        }
+      }
+    }
+  ],
+  "cpuTiers": [
+    {
+      "id": "cpu-roomy",
+      "minRamGb": 16,
+      "contextLength": 16384,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.5 4B",
+          "repo": "unsloth/Qwen3.5-4B-GGUF",
+          "file": "Qwen3.5-4B-UD-Q4_K_XL.gguf",
+          "quant": "UD-Q4_K_XL",
+          "size": 2912109728,
+          "sha256": "b252c5610a42ca82d20fe2a12813e9d069eed89292907e26c783eeb0bc961bc7"
+        },
+        "gemma": {
+          "name": "Gemma 4 E4B",
+          "repo": "unsloth/gemma-4-E4B-it-qat-GGUF",
+          "file": "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 4215695776,
+          "sha256": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3"
+        }
+      }
+    },
+    {
+      "id": "cpu-tight",
+      "minRamGb": 0,
+      "contextLength": 8192,
+      "models": {
+        "qwen": {
+          "name": "Qwen 3.5 2B",
+          "repo": "unsloth/Qwen3.5-2B-GGUF",
+          "file": "Qwen3.5-2B-UD-Q4_K_XL.gguf",
+          "quant": "UD-Q4_K_XL",
+          "size": 1339752704,
+          "sha256": "0af96165ea615bea39a04118d63f0b6d35908aea850ee4a51aa6151d851b8b35"
+        },
+        "gemma": {
+          "name": "Gemma 4 E2B",
+          "repo": "unsloth/gemma-4-E2B-it-qat-GGUF",
+          "file": "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+          "quant": "QAT UD-Q4_K_XL",
+          "size": 2620370976,
+          "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889"
+        }
+      }
+    }
+  ],
+  "smokeTest": {
+    "$comment": "Tiny model used only by `demido-setup-cli --smoke` to exercise the full install path quickly.",
+    "name": "Qwen 3.5 0.8B",
+    "repo": "unsloth/Qwen3.5-0.8B-GGUF",
+    "file": "Qwen3.5-0.8B-UD-Q4_K_XL.gguf",
+    "quant": "UD-Q4_K_XL",
+    "size": 558772480,
+    "sha256": "3177ebd67afe4438374da19e690bc1b98756f7e0fea9240e1be404336156a7b5"
+  }
+}
