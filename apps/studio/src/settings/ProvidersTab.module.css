@@ -1,0 +1,44 @@
+.providerHead,
+.addHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.providerHead {
+  padding: var(--space-4) var(--space-5);
+}
+
+.addHead {
+  margin-bottom: var(--space-4);
+}
+
+.providerIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(114, 169, 238, 0.25), rgba(95, 208, 138, 0.18));
+  color: var(--info);
+}
+
+.providerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.flex {
+  flex: 1;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

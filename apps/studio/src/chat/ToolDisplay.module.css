@@ -1,0 +1,245 @@
+.muted {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.symbol {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.price {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+}
+
+.change {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.up {
+  color: var(--market-up);
+}
+
+.down {
+  color: var(--market-down);
+}
+
+/* candles */
+.candles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.candlesHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.priceBlock {
+  text-align: right;
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.source {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--surface-4);
+  color: var(--text-secondary);
+}
+
+/* tables of quotes and search results */
+.table {
+  display: flex;
+  flex-direction: column;
+}
+
+.quoteRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.quoteRow:last-child {
+  border-bottom: none;
+}
+
+.quoteName {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.quoteName .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* python */
+.python {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.linkish {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+}
+
+.output {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: #151515;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.stderr {
+  color: #f3a3a3;
+}
+
+.imageButton {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.image {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* file chip */
+.chip {
+  display: inline-flex;
+  align-items: stretch;
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+}
+
+.chipMain,
+.chipReveal {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.chipMain {
+  min-width: 0;
+  padding: 5px var(--space-3);
+}
+
+.chipReveal {
+  padding: 0 var(--space-2);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.chipMain:hover,
+.chipReveal:hover {
+  background: var(--surface-5);
+  color: var(--text-primary);
+}
+
+.chipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipSize {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* skill */
+.skill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.skillIcon {
+  color: var(--accent-text);
+}
+
+.skillText {
+  flex: 1;
+  min-width: 0;
+}
+
+/* file list */
+.fileList {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.fileRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 3px 0;
+  color: var(--text-secondary);
+}

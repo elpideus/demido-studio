@@ -1,0 +1,22 @@
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-windows);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.preview {
+  position: absolute;
+  z-index: 9999;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-lg);
+  background: rgba(95, 208, 138, 0.08);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  transition:
+    left var(--duration) var(--ease-out),
+    top var(--duration) var(--ease-out),
+    width var(--duration) var(--ease-out),
+    height var(--duration) var(--ease-out);
+}

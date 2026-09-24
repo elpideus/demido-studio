@@ -1,0 +1,36 @@
+.rowIcon {
+  flex: none;
+  color: var(--accent-text);
+}
+
+.ok {
+  flex: none;
+  color: var(--accent-text);
+}
+
+.missing {
+  flex: none;
+  color: var(--warning);
+}
+
+.about {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.logs {
+  max-height: 60vh;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: #141414;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

@@ -1,0 +1,60 @@
+.view {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-0);
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 52px;
+  padding: 0 var(--space-4) 0 var(--space-6);
+}
+
+.title {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scroller {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.jump {
+  position: absolute;
+  bottom: 150px;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-4);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-popover);
+  transform: translateX(-50%);
+}
+
+.jump:hover {
+  background: var(--surface-5);
+}

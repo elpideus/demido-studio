@@ -1,0 +1,172 @@
+.frame {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-window);
+  pointer-events: auto;
+  transition:
+    left var(--duration-slow) var(--ease-out),
+    top var(--duration-slow) var(--ease-out),
+    width var(--duration-slow) var(--ease-out),
+    height var(--duration-slow) var(--ease-out),
+    box-shadow var(--duration) var(--ease-out),
+    border-color var(--duration) var(--ease-out);
+  animation: open var(--duration-slow) var(--ease-out);
+}
+
+.focused {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-window-focused);
+}
+
+/* No geometry animation while the pointer is moving or resizing the window. */
+.interacting {
+  transition: none;
+  user-select: none;
+}
+
+.maximized {
+  border-radius: 0;
+  border-color: transparent;
+}
+
+@keyframes open {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(6px);
+  }
+}
+
+.titleBar {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--titlebar-height);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  background: var(--surface-3);
+  cursor: default;
+  touch-action: none;
+}
+
+.titleIcon {
+  display: inline-flex;
+  color: var(--accent-text);
+}
+
+.title {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focused .title {
+  color: var(--text-primary);
+}
+
+.contextAnchor {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.captions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.close:hover:not(:disabled) {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface-1);
+}
+
+/* Resize handles sit just inside the frame's edges. */
+.handle {
+  position: absolute;
+  z-index: 5;
+  touch-action: none;
+}
+
+.h-n,
+.h-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.h-n {
+  top: 0;
+}
+
+.h-s {
+  bottom: 0;
+}
+
+.h-e,
+.h-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.h-e {
+  right: 0;
+}
+
+.h-w {
+  left: 0;
+}
+
+.h-ne,
+.h-nw,
+.h-se,
+.h-sw {
+  width: 12px;
+  height: 12px;
+}
+
+.h-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.h-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.h-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.h-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
