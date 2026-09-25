@@ -17,6 +17,7 @@ import { Button, Spinner, cx, formatDuration } from '@demido/ui';
 
 import { api } from '@/lib/api';
 import type { Message, ToolCall } from '@/lib/types';
+import { callKey, useOpenState } from './openState';
 import { ToolDisplay, isProminent } from './ToolDisplay';
 import styles from './ToolCard.module.css';
 
@@ -70,11 +71,13 @@ interface Props {
   result: Message | undefined;
   /** The turn ended before this call could run. */
   orphaned: boolean;
+  /** Drawn as a row inside another card, without a border of its own. */
+  flat?: boolean;
 }
 
 /** One tool call: what it does, whether it ran, and what came back. */
-export function ToolCard({ call, result, orphaned }: Props) {
-  const [open, setOpen] = useState(false);
+export function ToolCard({ call, result, orphaned, flat }: Props) {
+  const [open, setOpen] = useOpenState(callKey(call.id));
   const Icon = ICONS[call.name] ?? Code2;
   const tr = result?.toolResult;
   const label = tr?.label ?? call.name;
@@ -89,7 +92,7 @@ export function ToolCard({ call, result, orphaned }: Props) {
   if (!running && !awaiting) StatusIcon = cancelled ? CircleSlash : failed ? X : Check;
 
   return (
-    <div className={cx(styles.card, failed && styles.failed, awaiting && styles.awaiting)}>
+    <div className={cx(styles.card, flat && styles.flat, failed && styles.failed, awaiting && styles.awaiting)}>
       <button type="button" className={styles.header} onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className={styles.icon}>
           <Icon size={15} strokeWidth={1.8} aria-hidden />

@@ -7,7 +7,10 @@ import type { Message, ModelEntry } from '@/lib/types';
 import { useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';
 import { useWindows } from '@/stores/windows';
+import { FileBundle } from './FileBundle';
+import { OpenStateProvider, bundleKey } from './openState';
 import { Markdown } from './Markdown';
+import { thoughtSeconds, turnBlocks, type Step } from './steps';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCard } from './ToolCard';
 import styles from './MessageList.module.css';
@@ -126,6 +129,52 @@ function Stats({ message }: { message: Message }) {
   );
 }
 
+/** One model step: its reasoning, text, tool calls and how it ended. */
+function AssistantStep({
+  step: { message: m, calls },
+  pendingTool,
+  workspace,
+}: {
+  step: Step;
+  /** The tool this step is still writing a call to, if any. */
+  pendingTool: string | undefined;
+  workspace: string | null;
+}) {
+  const streaming = m.status === 'streaming';
+  const nothingYet = streaming && !m.content && !m.reasoning;
+  const reasoningLive = streaming && !m.content && m.toolCalls.length === 0;
+  return (
+    <div className={styles.step}>
+      {m.reasoning && (
+        <ThinkingBlock messageId={m.id} text={m.reasoning} live={reasoningLive} seconds={thoughtSeconds(m)} />
+      )}
+      {nothingYet && !pendingTool && (
+        <div className={styles.waiting}>
+          <span className={styles.dot} />
+          <span className={styles.dot} />
+          <span className={styles.dot} />
+        </div>
+      )}
+      {m.content && (
+        <Markdown text={m.content} workspace={workspace} className={cx(streaming && styles.streamingText)} />
+      )}
+      {calls.map((c) => (
+        <ToolCard key={c.call.id} call={c.call} result={c.result} orphaned={c.orphaned} />
+      ))}
+      {streaming && pendingTool && m.toolCalls.length === 0 && (
+        <div className={styles.preparing}>Preparing {pendingTool.replace(/_/g, ' ')}…</div>
+      )}
+      {m.status === 'error' && (
+        <div className={styles.error}>
+          <AlertCircle size={15} aria-hidden />
+          <span>{m.error ?? 'Something went wrong.'}</span>
+        </div>
+      )}
+      {m.status === 'cancelled' && <div className={styles.stopped}>Stopped</div>}
+    </div>
+  );
+}
+
 const AssistantTurn = memo(function AssistantTurn({
   messages,
   model,
@@ -145,7 +194,6 @@ const AssistantTurn = memo(function AssistantTurn({
 }) {
   const open = useWindows((s) => s.open);
   const assistants = messages.filter((m) => m.role === 'assistant');
-  const tools = messages.filter((m) => m.role === 'tool');
   const lastAssistant = assistants[assistants.length - 1];
   const finalText = assistants
     .map((m) => m.content)
@@ -153,6 +201,7 @@ const AssistantTurn = memo(function AssistantTurn({
     .join('\n\n');
   const name = model?.name ?? lastAssistant?.stats?.model ?? 'Assistant';
   const liveTurn = isLast && running;
+  const blocks = useMemo(() => turnBlocks(messages, liveTurn), [messages, liveTurn]);
 
   return (
     <div className={styles.assistant}>
@@ -161,48 +210,20 @@ const AssistantTurn = memo(function AssistantTurn({
         <span className={styles.modelName}>{name}</span>
       </div>
       <div className={styles.assistantBody}>
-        {messages.map((m, index) => {
-          if (m.role !== 'assistant') return null;
-          const streaming = m.status === 'streaming';
-          const nothingYet = streaming && !m.content && !m.reasoning;
-          const reasoningLive = streaming && !m.content && m.toolCalls.length === 0;
-          const tps = m.stats?.tokensPerSecond;
-          const thoughtSeconds = m.reasoning && tps ? m.reasoning.length / 4 / tps : undefined;
-          const laterMessages = messages.slice(index + 1);
-          return (
-            <div key={m.id} className={styles.step}>
-              {m.reasoning && <ThinkingBlock text={m.reasoning} live={reasoningLive} seconds={thoughtSeconds} />}
-              {nothingYet && !pendingTool[m.id] && (
-                <div className={styles.waiting}>
-                  <span className={styles.dot} />
-                  <span className={styles.dot} />
-                  <span className={styles.dot} />
-                </div>
-              )}
-              {m.content && (
-                <Markdown text={m.content} workspace={workspace} className={cx(streaming && styles.streamingText)} />
-              )}
-              {m.toolCalls.map((call) => (
-                <ToolCard
-                  key={call.id}
-                  call={call}
-                  result={tools.find((t) => t.toolCallId === call.id)}
-                  orphaned={!liveTurn && !laterMessages.some((t) => t.toolCallId === call.id)}
-                />
-              ))}
-              {streaming && pendingTool[m.id] && m.toolCalls.length === 0 && (
-                <div className={styles.preparing}>Preparing {pendingTool[m.id]!.replace(/_/g, ' ')}…</div>
-              )}
-              {m.status === 'error' && (
-                <div className={styles.error}>
-                  <AlertCircle size={15} aria-hidden />
-                  <span>{m.error ?? 'Something went wrong.'}</span>
-                </div>
-              )}
-              {m.status === 'cancelled' && <div className={styles.stopped}>Stopped</div>}
-            </div>
-          );
-        })}
+        <OpenStateProvider>
+          {blocks.map((block) =>
+            block.kind === 'files' ? (
+              <FileBundle key={bundleKey(block.id)} id={block.id} steps={block.steps} />
+            ) : (
+              <AssistantStep
+                key={block.step.message.id}
+                step={block.step}
+                pendingTool={pendingTool[block.step.message.id]}
+                workspace={workspace}
+              />
+            ),
+          )}
+        </OpenStateProvider>
       </div>
       {!liveTurn && lastAssistant && (
         <div className={styles.footer}>

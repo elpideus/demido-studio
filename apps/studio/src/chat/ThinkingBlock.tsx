@@ -1,10 +1,12 @@
-import { useState } from 'react';
 import { Brain, ChevronRight } from 'lucide-react';
 import { cx } from '@demido/ui';
 
+import { thinkingKey, useOpenState } from './openState';
 import styles from './ThinkingBlock.module.css';
 
 interface Props {
+  /** The message the reasoning belongs to; its open state is kept under this id. */
+  messageId: string;
   text: string;
   /** Still being written. */
   live: boolean;
@@ -13,8 +15,8 @@ interface Props {
 }
 
 /** The model's reasoning, collapsed to one line unless opened. */
-export function ThinkingBlock({ text, live, seconds }: Props) {
-  const [open, setOpen] = useState(false);
+export function ThinkingBlock({ messageId, text, live, seconds }: Props) {
+  const [open, setOpen] = useOpenState(thinkingKey(messageId));
   const label = live ? 'Thinking' : seconds && seconds >= 1 ? `Thought for ${Math.round(seconds)}s` : 'Thoughts';
   return (
     <div className={styles.block}>

@@ -5,6 +5,20 @@
   background: var(--surface-2);
 }
 
+.flat {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.flat + .flat {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.flat .header {
+  height: 34px;
+}
+
 .awaiting {
   border-color: rgba(233, 183, 90, 0.4);
 }

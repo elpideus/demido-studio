@@ -283,10 +283,11 @@ fn apply_chunk(v: &Value, out: &mut Completion, parts: &mut Vec<Value>, on_event
                         name: name.clone(),
                     });
                     out.tool_calls.push(ToolCall {
+                        // Unique across the chat: results and the history match calls by id.
                         id: call["id"]
                             .as_str()
                             .map(str::to_string)
-                            .unwrap_or_else(|| format!("gemini_call_{index}")),
+                            .unwrap_or_else(|| format!("gemini_call_{index}_{}", crate::db::new_id().replace('-', ""))),
                         name,
                         arguments: call.get("args").map(|a| a.to_string()).unwrap_or_else(|| "{}".into()),
                     });
