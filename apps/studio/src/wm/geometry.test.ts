@@ -135,7 +135,17 @@ describe('pinning', () => {
     const windows = pinWindow([win('a', null), win('b', null)], 'a', 'top', small);
     const after = pinWindow(windows, 'b', 'bottom', small);
     expect(after.find((w) => w.id === 'a')).toMatchObject({ mode: 'floating', slot: null });
-    expect(after.find((w) => w.id === 'b')).toMatchObject({ mode: 'docked', slot: 'bottom' });
+    // Alone in its axis, the row gets the height it wants, not the share it would have had.
+    expect(after.find((w) => w.id === 'b')).toMatchObject({ mode: 'docked', slot: 'bottom', dockHeight: 300 });
+  });
+
+  it('floats the side used least recently when the desktop gets too narrow for two columns', () => {
+    const tiny = { w: 908, h: 700 };
+    const windows = [win('a', 'left', { dockWidth: 560, z: 5 }), win('b', 'right', { dockWidth: 620, z: 3 })];
+    const [a, b] = refitDocks(windows, tiny);
+    expect(b).toMatchObject({ mode: 'floating', slot: null });
+    expect(a).toMatchObject({ mode: 'docked', slot: 'left' });
+    expect(tiny.w - chatInsets(dockLayout([a!, b!])).left).toBeGreaterThanOrEqual(MIN_CHAT_WIDTH);
   });
 
   it('shrinks both columns alike when the desktop gets narrower', () => {
@@ -221,6 +231,11 @@ describe('covering', () => {
     const left = win('a', 'left', { z: 1 });
     const right = win('b', 'right', { z: 2 });
     expect(coveredShare([left, right], 'a', bounds, EVEN_SPLITS)).toBe(0);
+  });
+
+  it('counts the part off the desktop as out of sight', () => {
+    const offLeft = win('a', null, { rect: { x: -200, y: 0, w: 400, h: 400 }, z: 1 });
+    expect(coveredShare([offLeft], 'a', bounds, EVEN_SPLITS)).toBeCloseTo(0.5);
   });
 });
 

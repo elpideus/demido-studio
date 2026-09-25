@@ -20,7 +20,6 @@ import {
   refitDocks,
   resizeDock,
   restoreUnderPointer,
-  slotsOverlap,
 } from '@/wm/geometry';
 
 export type WindowKind = 'settings' | 'market' | 'inspector';
@@ -89,7 +88,11 @@ interface WindowsStore {
   preview: SnapPreview | null;
   /** A docked window's edge is being dragged: every window follows it without animating. */
   resizing: boolean;
-  open: (kind: WindowKind, props?: Record<string, unknown>) => string;
+  /**
+   * Opens a window, or brings forward the one that is open. `slot` pins it there; otherwise a
+   * closed window comes back where it was, pinned or not.
+   */
+  open: (kind: WindowKind, props?: Record<string, unknown>, slot?: Slot) => string;
   /** The navigation rail's button: opens the window, brings a mostly hidden one forward, else closes it. */
   toggle: (kind: WindowKind, props?: Record<string, unknown>) => void;
   close: (id: string) => void;
@@ -130,6 +133,10 @@ function remember(w: WindowState): void {
 
 let counter = 0;
 
+function samePlacement(a: WindowState, b: WindowState): boolean {
+  return a.mode === b.mode && a.slot === b.slot && a.dockWidth === b.dockWidth && a.dockHeight === b.dockHeight;
+}
+
 function isSlot(value: unknown): value is Slot {
   return SLOTS.includes(value as Slot);
 }
@@ -143,15 +150,16 @@ export const useWindows = create<WindowsStore>((set, get) => ({
   preview: null,
   resizing: false,
 
-  open: (kind, props = {}) => {
+  open: (kind, props = {}, slot) => {
     const spec = WINDOW_SPECS[kind];
     const { windows, bounds, zTop } = get();
     const existing = spec.singleton ? windows.find((w) => w.kind === kind) : undefined;
     if (existing) {
+      const raised = windows.map((w) =>
+        w.id === existing.id ? { ...w, props: { ...w.props, ...props }, z: zTop + 1 } : w,
+      );
       set({
-        windows: windows.map((w) =>
-          w.id === existing.id ? { ...w, props: { ...w.props, ...props }, z: zTop + 1 } : w,
-        ),
+        windows: slot ? pinWindow(raised, existing.id, slot, bounds) : raised,
         focusedId: existing.id,
         zTop: zTop + 1,
       });
@@ -179,10 +187,13 @@ export const useWindows = create<WindowsStore>((set, get) => ({
       z: zTop + 1,
     };
     let next = [...windows, win];
-    // Back into the slot it was pinned to, unless another window has taken that space since.
-    const slot = saved?.mode === 'docked' ? saved.slot : null;
-    if (slot && !windows.some((w) => w.mode === 'docked' && w.slot && slotsOverlap(w.slot, slot))) {
+    if (slot) {
       next = pinWindow(next, id, slot, bounds);
+    } else if (saved?.mode === 'docked' && saved.slot) {
+      // Back into the slot it was pinned to, unless that would move or shrink another window.
+      const pinned = pinWindow(next, id, saved.slot, bounds);
+      const undisturbed = pinned.every((w, i) => w.id === id || samePlacement(w, next[i]!));
+      if (undisturbed) next = pinned;
     }
     set({ windows: next, focusedId: id, zTop: zTop + 1 });
     return id;
@@ -192,9 +203,10 @@ export const useWindows = create<WindowsStore>((set, get) => ({
     const { windows, bounds, splits } = get();
     const win = windows.find((w) => w.kind === kind);
     if (!win) get().open(kind, props);
-    // Mostly hidden behind other windows: the click is taken as "show me", not "close".
-    else if (coveredShare(windows, win.id, bounds, splits) > 0.5) get().focus(win.id);
-    else get().close(win.id);
+    // Mostly out of sight behind other windows: the click is taken as "show me", not "close".
+    else if (windows.some((w) => w.z > win.z) && coveredShare(windows, win.id, bounds, splits) > 0.5) {
+      get().focus(win.id);
+    } else get().close(win.id);
   },
 
   close: (id) => {

@@ -51,7 +51,16 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
   const contextAnchor = useRef<HTMLSpanElement>(null);
   const [contextPos, setContextPos] = useState({ x: 0, y: 0 });
 
-  useEffect(() => () => window.clearTimeout(flyoutTimer.current), []);
+  /** Stops the drag or resize in progress; a window can close in the middle of one (Ctrl+W). */
+  const endDrag = useRef<(() => void) | null>(null);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(flyoutTimer.current);
+      endDrag.current?.();
+    },
+    [],
+  );
 
   const rect = displayRect(win, bounds, dockLayout(windows, splits));
   const spec = WINDOW_SPECS[win.kind];
@@ -111,11 +120,16 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       zone = snapZone(px, py, state.bounds);
       state.setPreview(zone ? { rect: previewRect(zone, state.windows, win.id, state.bounds, state.splits) } : null);
     };
-    const onUp = () => {
+    const detach = () => {
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
       target.removeEventListener('pointercancel', onUp);
+      target.removeEventListener('lostpointercapture', onUp);
       wm().setPreview(null);
+      endDrag.current = null;
+    };
+    const onUp = () => {
+      detach();
       setInteracting(false);
       if (!zone) return;
       if (zone === 'maximize') wm().toggleMaximize(win.id);
@@ -124,6 +138,8 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
     target.addEventListener('pointercancel', onUp);
+    target.addEventListener('lostpointercapture', onUp);
+    endDrag.current = detach;
   };
 
   const onResizeDown = (edge: Edge) => (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -156,16 +172,23 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
         wm().setSplit(column, (startTop + dy) / usable);
       }
     };
-    const onUp = () => {
+    const detach = () => {
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
       target.removeEventListener('pointercancel', onUp);
-      setInteracting(false);
+      target.removeEventListener('lostpointercapture', onUp);
       if (docked) wm().setResizing(false);
+      endDrag.current = null;
+    };
+    const onUp = () => {
+      detach();
+      setInteracting(false);
     };
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
     target.addEventListener('pointercancel', onUp);
+    target.addEventListener('lostpointercapture', onUp);
+    endDrag.current = detach;
   };
 
   const maximized = win.mode === 'maximized';

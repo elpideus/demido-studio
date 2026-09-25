@@ -227,16 +227,18 @@ export function pinWindow<T extends Pinnable>(windows: T[], id: string, slot: Sl
       ? { ...w, mode: 'floating' as const, slot: null }
       : w,
   );
-  const acrossSize = sideSize(next, across, axis, id);
-  const room = dockRoom(axis, acrossSize > 0);
   const wanted = sideSize(next, side, axis, id) || win[axis.key];
-  const size = Math.round(
-    Math.min(Math.max(wanted, axis.minDock), Math.max(axis.minDock, room - (acrossSize > 0 ? axis.minDock : 0))),
-  );
-  if (acrossSize > 0 && size + axis.minDock > room) {
-    next = next.map((w) => (onSide(w, across) ? { ...w, mode: 'floating' as const, slot: null } : w));
-  } else if (acrossSize > 0) {
-    next = resizeSide(next, across, axis, Math.min(acrossSize, room - size));
+  const fit = (room: number) => Math.round(Math.min(Math.max(wanted, axis.minDock), Math.max(axis.minDock, room)));
+  const acrossSize = sideSize(next, across, axis, id);
+  let size = fit(dockRoom(axis, false));
+  if (acrossSize > 0) {
+    const room = dockRoom(axis, true);
+    if (room < 2 * axis.minDock) {
+      next = next.map((w) => (onSide(w, across) ? { ...w, mode: 'floating' as const, slot: null } : w));
+    } else {
+      size = fit(room - axis.minDock);
+      next = resizeSide(next, across, axis, Math.min(acrossSize, room - size));
+    }
   }
   next = next.map((w) => (w.id === id ? { ...w, mode: 'docked' as const, slot } : w));
   return resizeSide(next, side, axis, size);
@@ -253,11 +255,23 @@ export function resizeDock<T extends Pinnable>(windows: T[], id: string, size: n
   return resizeSide(windows, side, axis, Math.round(Math.min(Math.max(size, axis.minDock), max)));
 }
 
-/** Re-fits every column and row after the desktop changed size, shrinking both sides alike. */
-export function refitDocks<T extends Pinnable>(windows: T[], bounds: Size): T[] {
+/**
+ * Re-fits every column and row after the desktop changed size, shrinking both sides alike. When
+ * even two minimum sizes no longer fit, the side whose windows were used least recently floats.
+ */
+export function refitDocks<T extends Pinnable & { z?: number }>(windows: T[], bounds: Size): T[] {
   let next = windows;
   for (const axis of [axisOf('left', bounds), axisOf('top', bounds)]) {
     const [first, second] = axis.sides;
+    if (
+      sideSize(next, first, axis) > 0 &&
+      sideSize(next, second, axis) > 0 &&
+      dockRoom(axis, true) < 2 * axis.minDock
+    ) {
+      const top = (side: Column | Row) => Math.max(...next.filter((w) => onSide(w, side)).map((w) => w.z ?? 0));
+      const older = top(first) < top(second) ? first : second;
+      next = next.map((w) => (onSide(w, older) ? { ...w, mode: 'floating' as const, slot: null } : w));
+    }
     const a = sideSize(next, first, axis);
     const b = sideSize(next, second, axis);
     const room = dockRoom(axis, a > 0 && b > 0);
@@ -275,7 +289,10 @@ export function refitDocks<T extends Pinnable>(windows: T[], bounds: Size): T[] 
   return next;
 }
 
-/** Share of a window, from 0 to 1, that windows drawn above it hide. Measured on a grid of points. */
+/**
+ * Share of a window, from 0 to 1, that cannot be seen: hidden by windows drawn above it or off the
+ * desktop. Measured on a grid of points.
+ */
 export function coveredShare<T extends Pinnable & { z: number }>(
   windows: T[],
   id: string,
@@ -287,14 +304,15 @@ export function coveredShare<T extends Pinnable & { z: number }>(
   const layout = dockLayout(windows, splits);
   const a = displayRect(target, bounds, layout);
   const above = windows.filter((w) => w.id !== id && w.z > target.z).map((w) => displayRect(w, bounds, layout));
-  if (above.length === 0 || a.w <= 0 || a.h <= 0) return 0;
+  if (a.w <= 0 || a.h <= 0) return 0;
   const steps = 16;
   let hidden = 0;
   for (let i = 0; i < steps; i += 1) {
     for (let j = 0; j < steps; j += 1) {
       const x = a.x + ((i + 0.5) * a.w) / steps;
       const y = a.y + ((j + 0.5) * a.h) / steps;
-      if (above.some((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)) hidden += 1;
+      const offDesktop = x < 0 || y < 0 || x >= bounds.w || y >= bounds.h;
+      if (offDesktop || above.some((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)) hidden += 1;
     }
   }
   return hidden / (steps * steps);

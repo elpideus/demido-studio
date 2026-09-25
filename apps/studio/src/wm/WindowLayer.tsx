@@ -60,10 +60,7 @@ function SnapAssist({ slot, windows }: { slot: Slot; windows: WindowState[] }) {
   const kinds = (Object.keys(WINDOW_SPECS) as WindowKind[]).filter(
     (k) => k !== neighbour?.kind && (k !== 'inspector' || windows.some((w) => w.kind === k)),
   );
-  const pin = (kind: WindowKind) => {
-    const wm = useWindows.getState();
-    wm.dock(wm.open(kind), slot);
-  };
+  const pin = (kind: WindowKind) => useWindows.getState().open(kind, {}, slot);
   return (
     <div
       className={cx(styles.assist, resizing && styles.resizing)}
