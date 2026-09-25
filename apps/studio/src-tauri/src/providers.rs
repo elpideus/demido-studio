@@ -76,6 +76,16 @@ pub struct ProviderPatch {
     pub api_key: Option<String>,
 }
 
+/// Longest name a provider can be given; it is shown in one line of the model picker.
+const MAX_NAME_CHARS: usize = 60;
+
+/// A name as the person typed it, trimmed and shortened; `None` when nothing is left.
+fn clean_name(name: &str) -> Option<String> {
+    let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
+    let name = name.trim_end();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct ProvidersFile {
     providers: Vec<ProviderConfig>,
@@ -151,7 +161,8 @@ impl ProviderStore {
             id: new_id(),
             kind,
             name: name
-                .filter(|n| !n.trim().is_empty())
+                .as_deref()
+                .and_then(clean_name)
                 .unwrap_or_else(|| kind.label().to_string()),
             enabled: true,
             base_url: None,
@@ -167,49 +178,66 @@ impl ProviderStore {
     }
 
     pub async fn update(&self, id: &str, patch: ProviderPatch) -> CmdResult<ProviderConfig> {
-        let Some(mut config) = self.get(id) else {
+        let Some(config) = self.get(id) else {
             bail_msg!("That provider no longer exists.");
         };
-        if let Some(key) = patch.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
-            let base = patch
-                .base_url
-                .clone()
-                .filter(|u| !u.trim().is_empty())
-                .unwrap_or_else(|| config.base_url());
-            config.models = self.fetch_models(config.kind, &base, key).await?;
-            config.models_fetched_at = Some(now_ms());
+        let key = patch.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
+        // A new key is checked by listing the models with it before anything is saved.
+        let models = match key {
+            Some(key) => {
+                let base = patch
+                    .base_url
+                    .clone()
+                    .filter(|u| !u.trim().is_empty())
+                    .unwrap_or_else(|| config.base_url());
+                Some(self.fetch_models(config.kind, &base, key).await?)
+            }
+            None => None,
+        };
+        let updated = self.edit(id, |config| {
+            if let Some(models) = models {
+                config.models = models;
+                config.models_fetched_at = Some(now_ms());
+            }
+            if let Some(name) = patch.name.as_deref().and_then(clean_name) {
+                config.name = name;
+            }
+            if let Some(enabled) = patch.enabled {
+                config.enabled = enabled;
+            }
+            if let Some(base) = patch.base_url {
+                config.base_url = Some(base).filter(|b| !b.trim().is_empty());
+            }
+        })?;
+        if let Some(key) = key {
             self.secrets.set(&provider_key(id), key);
         }
-        if let Some(name) = patch.name.filter(|n| !n.trim().is_empty()) {
-            config.name = name;
-        }
-        if let Some(enabled) = patch.enabled {
-            config.enabled = enabled;
-        }
-        if let Some(base) = patch.base_url {
-            config.base_url = Some(base).filter(|b| !b.trim().is_empty());
-        }
-        let mut list = self.list.write();
-        if let Some(slot) = list.iter_mut().find(|p| p.id == id) {
-            *slot = config.clone();
-        }
-        self.save(&list)?;
-        Ok(config)
+        Ok(updated)
     }
 
     pub async fn refresh_models(&self, id: &str) -> CmdResult<ProviderConfig> {
-        let Some(mut config) = self.get(id) else {
+        let Some(config) = self.get(id) else {
             bail_msg!("That provider no longer exists.");
         };
         let Some(key) = self.api_key(id) else {
             bail_msg!("This provider has no API key.");
         };
-        config.models = self.fetch_models(config.kind, &config.base_url(), &key).await?;
-        config.models_fetched_at = Some(now_ms());
+        let models = self.fetch_models(config.kind, &config.base_url(), &key).await?;
+        self.edit(id, |config| {
+            config.models = models;
+            config.models_fetched_at = Some(now_ms());
+        })
+    }
+
+    /// Changes a provider as it is now, not as it was before a request: a rename made while its
+    /// models were being fetched must survive the fetch.
+    fn edit(&self, id: &str, change: impl FnOnce(&mut ProviderConfig)) -> CmdResult<ProviderConfig> {
         let mut list = self.list.write();
-        if let Some(slot) = list.iter_mut().find(|p| p.id == id) {
-            *slot = config.clone();
-        }
+        let Some(slot) = list.iter_mut().find(|p| p.id == id) else {
+            bail_msg!("That provider no longer exists.");
+        };
+        change(slot);
+        let config = slot.clone();
         self.save(&list)?;
         Ok(config)
     }
@@ -228,5 +256,20 @@ impl ProviderStore {
                 .await
                 .map_err(|e| crate::error::AppError::msg(format!("Gemini rejected the key: {e}"))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_are_trimmed_and_capped() {
+        assert_eq!(clean_name("  Work Gemini  ").as_deref(), Some("Work Gemini"));
+        assert_eq!(clean_name("   "), None);
+        assert_eq!(
+            clean_name(&"x".repeat(200)).map(|n| n.chars().count()),
+            Some(MAX_NAME_CHARS)
+        );
     }
 }

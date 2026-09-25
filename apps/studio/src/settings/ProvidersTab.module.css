@@ -25,6 +25,35 @@
   color: var(--info);
 }
 
+/* The name clips itself; the row must not, or it cuts off the rename button's focus ring. */
+.providerHead .title {
+  overflow: visible;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.providerHead .rename {
+  margin-left: -4px;
+  color: var(--text-tertiary);
+}
+
+/* The field is taller than the title line; the negative margin keeps the card from jumping. */
+.renameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: -4px 0;
+}
+
+.nameField {
+  flex: 0 1 280px;
+  min-width: 0;
+}
+
 .providerActions {
   display: flex;
   align-items: center;
