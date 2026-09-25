@@ -8,6 +8,67 @@
   color: var(--text-tertiary);
 }
 
+/* installed list */
+.searchBar {
+  flex: none;
+  padding: 0 var(--space-6) var(--space-3);
+}
+
+/* Wraps the actions onto their own row before they squeeze the title. */
+.groupHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-height: 28px;
+  margin-bottom: var(--space-3);
+}
+
+.groupTitle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.groupName {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCount {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.groupActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-left: auto;
+}
+
+.groupSearch {
+  margin-bottom: var(--space-2);
+}
+
+/* A long search with no spaces wraps instead of widening the list. */
+.noMatch {
+  overflow-wrap: anywhere;
+}
+
 /* editor */
 .editorHead {
   display: flex;

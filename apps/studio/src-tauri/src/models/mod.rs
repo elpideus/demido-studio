@@ -352,6 +352,16 @@ impl ModelRegistry {
         self.overrides.read().get(id).cloned().unwrap_or_default()
     }
 
+    /// Turns several models on or off in one write, keeping the rest of their settings. Ids that
+    /// match no model are ignored, so a stale list cannot leave orphaned overrides behind.
+    pub fn set_enabled(&self, ids: &[String], enabled: bool) -> CmdResult<()> {
+        let known: Vec<String> = self.list().into_iter().map(|m| m.id).collect();
+        let ids: Vec<&String> = ids.iter().filter(|id| known.contains(id)).collect();
+        let mut map = self.overrides.write();
+        set_enabled_in(&mut map, &ids, enabled);
+        self.save(&map)
+    }
+
     /// Copies an image into the avatars folder and returns its new file name.
     pub fn import_avatar(&self, source: &Path) -> CmdResult<String> {
         let ext = source
@@ -622,9 +632,33 @@ fn default_enabled_gemini(models: &[crate::llm::gemini::GeminiModel]) -> Vec<Str
     }
 }
 
+fn set_enabled_in(map: &mut BTreeMap<String, ModelSettings>, ids: &[&String], enabled: bool) {
+    for id in ids {
+        map.entry((*id).clone()).or_default().enabled = Some(enabled);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bulk_enable_keeps_other_settings() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "a".to_string(),
+            ModelSettings {
+                name: Some("Mine".into()),
+                enabled: Some(true),
+                ..Default::default()
+            },
+        );
+        let (a, b) = ("a".to_string(), "b".to_string());
+        set_enabled_in(&mut map, &[&a, &b], false);
+        assert_eq!(map["a"].name.as_deref(), Some("Mine"));
+        assert_eq!(map["a"].enabled, Some(false));
+        assert_eq!(map["b"].enabled, Some(false));
+    }
 
     fn file(name: &str, gguf_name: Option<&str>, quant: Option<&str>) -> LocalFile {
         LocalFile {

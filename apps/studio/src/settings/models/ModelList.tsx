@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
   Cpu,
@@ -9,7 +9,11 @@ import {
   MoreHorizontal,
   Pencil,
   Play,
+  Search,
+  SearchX,
   Star,
+  ToggleLeft,
+  ToggleRight,
   Trash2,
   X,
 } from 'lucide-react';
@@ -22,6 +26,8 @@ import {
   IconButton,
   Menu,
   Switch,
+  TextField,
+  cx,
   formatBytes,
   type MenuEntry,
 } from '@demido/ui';
@@ -32,6 +38,7 @@ import type { ModelEntry, ModelFolder } from '@/lib/types';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
+import { LOCAL_GROUP, filterModels, groupModels, type ModelGroupData } from './modelGroups';
 import styles from './Models.module.css';
 
 function meta(m: ModelEntry): string {
@@ -95,7 +102,7 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
       onClick={onEdit}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && onEdit()}
+      onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && onEdit()}
     >
       <Avatar name={model.name} src={fileUrl(model.avatarPath)} size={34} />
       <div className={s.rowMain}>
@@ -123,7 +130,235 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
   );
 }
 
-function Folders() {
+/** A search box whose X and Escape clear it, or close it when `onClose` is given. */
+function SearchField({
+  value,
+  onChange,
+  placeholder,
+  onClose,
+  size,
+  inputRef,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  onClose?: () => void;
+  size?: 'sm' | 'md';
+  inputRef?: RefObject<HTMLInputElement | null>;
+}) {
+  const ownRef = useRef<HTMLInputElement>(null);
+  const input = inputRef ?? ownRef;
+  const dismissable = onClose !== undefined || value !== '';
+  const dismiss = () => {
+    if (onClose) {
+      onClose();
+    } else {
+      onChange('');
+      input.current?.focus();
+    }
+  };
+  return (
+    <TextField
+      ref={input}
+      icon={Search}
+      size={size}
+      value={value}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && dismissable) {
+          e.stopPropagation();
+          dismiss();
+        }
+      }}
+      trailing={
+        dismissable && (
+          <IconButton
+            icon={X}
+            label={onClose ? 'Close search' : 'Clear search'}
+            size="xs"
+            tooltip={false}
+            onClick={dismiss}
+          />
+        )
+      }
+    />
+  );
+}
+
+/** Turns on or off every model a group shows; the labels say "shown" while a search narrows the group. */
+function BulkActions({ models, narrowed }: { models: ModelEntry[]; narrowed: boolean }) {
+  const [pending, setPending] = useState<'on' | 'off' | null>(null);
+  const off = models.filter((m) => !m.enabled);
+  const on = models.filter((m) => m.enabled);
+
+  const setEnabled = async (enabled: boolean) => {
+    setPending(enabled ? 'on' : 'off');
+    try {
+      const ids = (enabled ? off : on).map((m) => m.id);
+      useModels.getState().setModels(await api.setModelsEnabled(ids, enabled));
+    } catch (e) {
+      toast.error(enabled ? 'Could not activate the models' : 'Could not deactivate the models', errorText(e));
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const label = (verb: string) => (narrowed ? `${verb} ${models.length} shown` : `${verb} all`);
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={ToggleRight}
+        loading={pending === 'on'}
+        disabled={pending !== null || off.length === 0}
+        onClick={() => void setEnabled(true)}
+      >
+        {label('Activate')}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={ToggleLeft}
+        loading={pending === 'off'}
+        disabled={pending !== null || on.length === 0}
+        onClick={() => void setEnabled(false)}
+      >
+        {label('Deactivate')}
+      </Button>
+    </>
+  );
+}
+
+/**
+ * One section of the list, with its own search and bulk switches. It stays mounted while the
+ * general search hides it, so its own search survives.
+ */
+function ModelGroup({
+  group,
+  matches,
+  searching,
+  groupQuery,
+  onGroupQueryChange: setGroupQuery,
+  empty,
+  onEdit,
+  onDelete,
+}: {
+  group: ModelGroupData;
+  /** The group's models that match the general search. */
+  matches: ModelEntry[];
+  searching: boolean;
+  /** The group's own search, or null while it is closed. */
+  groupQuery: string | null;
+  onGroupQueryChange: (query: string | null) => void;
+  /** Shown in place of the rows when the group has no models at all. */
+  empty?: ReactNode;
+  onEdit: (id: string) => void;
+  onDelete: (model: ModelEntry) => void;
+}) {
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const focusSearch = useRef(false);
+  const searchOpen = groupQuery !== null;
+  const shown = useMemo(() => filterModels(matches, groupQuery ?? ''), [matches, groupQuery]);
+
+  // Focus when the person opens the search, not when it comes back with the list (after the
+  // editor, or when a general search shows the group again).
+  useEffect(() => {
+    if (searchOpen && focusSearch.current) searchInput.current?.focus();
+    focusSearch.current = false;
+  }, [searchOpen]);
+
+  if (searching && matches.length === 0) return null;
+
+  const total = group.models.length;
+  const active = group.models.filter((m) => m.enabled).length;
+  const closeSearch = () => {
+    setGroupQuery(null);
+    searchButton.current?.focus();
+  };
+
+  return (
+    <section className={s.section}>
+      <div className={styles.groupHead}>
+        <div className={styles.groupTitle}>
+          <h3 className={styles.groupName}>{group.title}</h3>
+          {total > 0 && <span className={styles.groupCount}>{`${active} of ${total} active`}</span>}
+        </div>
+        {total > 0 && (
+          <div className={styles.groupActions}>
+            <IconButton
+              ref={searchButton}
+              icon={Search}
+              label={group.searchLabel}
+              size="sm"
+              active={searchOpen}
+              onClick={() => {
+                if (searchOpen) return closeSearch();
+                focusSearch.current = true;
+                setGroupQuery('');
+              }}
+            />
+            <BulkActions models={shown} narrowed={searching || !!groupQuery?.trim()} />
+          </div>
+        )}
+      </div>
+      {searchOpen && total > 0 && (
+        <div className={styles.groupSearch}>
+          <SearchField
+            inputRef={searchInput}
+            size="sm"
+            value={groupQuery}
+            onChange={setGroupQuery}
+            placeholder={group.searchLabel}
+            onClose={closeSearch}
+          />
+        </div>
+      )}
+      {total === 0 ? (
+        empty
+      ) : shown.length === 0 ? (
+        <div className={s.card}>
+          <EmptyState
+            compact
+            icon={SearchX}
+            title={`No models match “${groupQuery?.trim()}”`}
+            className={styles.noMatch}
+          />
+        </div>
+      ) : (
+        <div className={s.rows}>
+          {shown.map((m) => (
+            <ModelRow key={m.id} model={m} onEdit={() => onEdit(m.id)} onDelete={() => onDelete(m)} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NoLocalModels({ onDownload }: { onDownload: () => void }) {
+  return (
+    <div className={s.card}>
+      <EmptyState
+        compact
+        icon={Cpu}
+        title="No local models yet"
+        description="Download one to run privately on this computer, or add a folder that already has GGUF files."
+        action={
+          <Button variant="primary" icon={Download} onClick={onDownload}>
+            Download a model
+          </Button>
+        }
+      />
+    </div>
+  );
+}
+
+/** Stays mounted while `hidden`, so clearing a search does not reload the list. */
+function Folders({ hidden }: { hidden: boolean }) {
   const [folders, setFolders] = useState<ModelFolder[]>([]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const load = () => {
@@ -140,7 +375,7 @@ function Folders() {
     }
   };
   return (
-    <section className={s.section}>
+    <section className={s.section} hidden={hidden}>
       <h3 className={s.sectionTitle}>
         Model folders
         <Button
@@ -194,94 +429,100 @@ function Folders() {
   );
 }
 
-export function ModelList({ onEdit, onDownload }: { onEdit: (id: string) => void; onDownload: () => void }) {
+/** The Installed view: a search over every model above the scrolling groups and model folders. */
+export function ModelList({
+  query,
+  onQueryChange,
+  groupQueries,
+  onGroupQueryChange,
+  onEdit,
+  onDownload,
+}: {
+  query: string;
+  onQueryChange: (query: string) => void;
+  /** Each group's own search: null while closed. */
+  groupQueries: Record<string, string | null>;
+  onGroupQueryChange: (group: string, query: string | null) => void;
+  onEdit: (id: string) => void;
+  onDownload: () => void;
+}) {
   const models = useModels((st) => st.models);
   const [deleting, setDeleting] = useState<ModelEntry | null>(null);
-  const local = useMemo(() => models.filter((m) => m.source === 'local'), [models]);
-  const cloudGroups = useMemo(() => {
-    const map = new Map<string, ModelEntry[]>();
-    for (const m of models.filter((x) => x.source !== 'local')) {
-      const key = m.providerName ?? 'Cloud';
-      map.set(key, [...(map.get(key) ?? []), m]);
-    }
-    return [...map.entries()].map(([name, list]) => ({
-      name,
-      list: [...list].sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name)),
-    }));
-  }, [models]);
+  const groups = useMemo(() => groupModels(models), [models]);
+  const matched = useMemo(
+    () => groups.map((group) => ({ group, matches: filterModels(group.models, query) })),
+    [groups, query],
+  );
+  const searching = query.trim() !== '';
+  const nothingFound = searching && matched.every((g) => g.matches.length === 0);
 
   return (
-    <div className={s.scroll}>
-      <section className={s.section}>
-        <h3 className={s.sectionTitle}>On this computer</h3>
-        {local.length === 0 ? (
-          <div className={s.card}>
+    <>
+      <div className={styles.searchBar}>
+        <SearchField value={query} onChange={onQueryChange} placeholder="Search all models" />
+      </div>
+      <div className={s.scroll}>
+        {nothingFound && (
+          <div className={cx(s.section, s.card)}>
             <EmptyState
               compact
-              icon={Cpu}
-              title="No local models yet"
-              description="Download one to run privately on this computer, or add a folder that already has GGUF files."
-              action={
-                <Button variant="primary" icon={Download} onClick={onDownload}>
-                  Download a model
-                </Button>
-              }
+              icon={SearchX}
+              title={`No models match “${query.trim()}”`}
+              description="Check the spelling, or try fewer words."
+              className={styles.noMatch}
             />
           </div>
-        ) : (
-          <div className={s.rows}>
-            {local.map((m) => (
-              <ModelRow key={m.id} model={m} onEdit={() => onEdit(m.id)} onDelete={() => setDeleting(m)} />
-            ))}
-          </div>
         )}
-      </section>
 
-      {cloudGroups.map((group) => (
-        <section key={group.name} className={s.section}>
-          <h3 className={s.sectionTitle}>{group.name}</h3>
-          <div className={s.rows}>
-            {group.list.map((m) => (
-              <ModelRow key={m.id} model={m} onEdit={() => onEdit(m.id)} onDelete={() => undefined} />
-            ))}
-          </div>
-        </section>
-      ))}
+        {matched.map(({ group, matches }) => (
+          <ModelGroup
+            key={group.id}
+            group={group}
+            matches={matches}
+            searching={searching}
+            groupQuery={groupQueries[group.id] ?? null}
+            onGroupQueryChange={(value) => onGroupQueryChange(group.id, value)}
+            empty={group.id === LOCAL_GROUP && <NoLocalModels onDownload={onDownload} />}
+            onEdit={onEdit}
+            onDelete={setDeleting}
+          />
+        ))}
 
-      <Folders />
+        <Folders hidden={searching} />
 
-      <Dialog
-        open={deleting !== null}
-        onClose={() => setDeleting(null)}
-        title={`Delete ${deleting?.name}?`}
-        description={deleting?.size ? `This frees ${formatBytes(deleting.size)} of disk space.` : undefined}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setDeleting(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              icon={Trash2}
-              onClick={async () => {
-                const target = deleting;
-                setDeleting(null);
-                if (!target) return;
-                try {
-                  useModels.getState().setModels(await api.deleteModel(target.id));
-                  toast.success(`${target.name} was deleted`);
-                } catch (e) {
-                  toast.error('Could not delete the model', errorText(e));
-                }
-              }}
-            >
-              Delete
-            </Button>
-          </>
-        }
-      >
-        The model file is removed from your computer. You can download it again later.
-      </Dialog>
-    </div>
+        <Dialog
+          open={deleting !== null}
+          onClose={() => setDeleting(null)}
+          title={`Delete ${deleting?.name}?`}
+          description={deleting?.size ? `This frees ${formatBytes(deleting.size)} of disk space.` : undefined}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                icon={Trash2}
+                onClick={async () => {
+                  const target = deleting;
+                  setDeleting(null);
+                  if (!target) return;
+                  try {
+                    useModels.getState().setModels(await api.deleteModel(target.id));
+                    toast.success(`${target.name} was deleted`);
+                  } catch (e) {
+                    toast.error('Could not delete the model', errorText(e));
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          The model file is removed from your computer. You can download it again later.
+        </Dialog>
+      </div>
+    </>
   );
 }

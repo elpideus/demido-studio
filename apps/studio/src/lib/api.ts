@@ -72,6 +72,7 @@ export const api = {
   listModels: () => invoke<ModelEntry[]>('list_models'),
   rescanModels: () => invoke<ModelEntry[]>('rescan_models'),
   updateModel: (id: string, settings: ModelSettings) => invoke<ModelEntry>('update_model', { id, settings }),
+  setModelsEnabled: (ids: string[], enabled: boolean) => invoke<ModelEntry[]>('set_models_enabled', { ids, enabled }),
   importModelAvatar: (id: string, source: string) => invoke<ModelEntry>('import_model_avatar', { id, source }),
   setDefaultModel: (id: string) => invoke<ModelEntry[]>('set_default_model', { id }),
   deleteModel: (id: string) => invoke<ModelEntry[]>('delete_model', { id }),

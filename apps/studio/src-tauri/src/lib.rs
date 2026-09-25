@@ -234,6 +234,7 @@ pub fn run() {
             commands::models::list_models,
             commands::models::rescan_models,
             commands::models::update_model,
+            commands::models::set_models_enabled,
             commands::models::import_model_avatar,
             commands::models::set_default_model,
             commands::models::delete_model,

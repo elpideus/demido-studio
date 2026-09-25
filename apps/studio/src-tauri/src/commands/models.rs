@@ -42,6 +42,13 @@ pub fn update_model(state: St<'_>, id: String, settings: ModelSettings) -> CmdRe
         .ok_or_else(|| AppError::msg("That model is gone."))
 }
 
+/// Turns every listed model on or off, for the Models tab's "Activate all" and "Deactivate all".
+#[tauri::command]
+pub fn set_models_enabled(state: St<'_>, ids: Vec<String>, enabled: bool) -> CmdResult<Vec<ModelEntry>> {
+    state.models.set_enabled(&ids, enabled)?;
+    Ok(changed(&state))
+}
+
 #[tauri::command]
 pub fn import_model_avatar(state: St<'_>, id: String, source: String) -> CmdResult<ModelEntry> {
     let name = state.models.import_avatar(&PathBuf::from(source))?;
