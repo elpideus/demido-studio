@@ -159,7 +159,7 @@ function AssistantStep({
         <Markdown text={m.content} workspace={workspace} className={cx(streaming && styles.streamingText)} />
       )}
       {calls.map((c) => (
-        <ToolCard key={c.call.id} call={c.call} result={c.result} orphaned={c.orphaned} />
+        <ToolCard key={c.call.id} messageId={m.id} call={c.call} result={c.result} orphaned={c.orphaned} />
       ))}
       {streaming && pendingTool && m.toolCalls.length === 0 && (
         <div className={styles.preparing}>Preparing {pendingTool.replace(/_/g, ' ')}…</div>
@@ -213,7 +213,7 @@ const AssistantTurn = memo(function AssistantTurn({
         <OpenStateProvider>
           {blocks.map((block) =>
             block.kind === 'files' ? (
-              <FileBundle key={bundleKey(block.id)} id={block.id} steps={block.steps} />
+              <FileBundle key={bundleKey(block.id)} id={block.id} steps={block.steps} workspace={workspace} />
             ) : (
               <AssistantStep
                 key={block.step.message.id}

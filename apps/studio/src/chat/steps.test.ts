@@ -104,6 +104,22 @@ describe('turnBlocks', () => {
     expect(blocks[0]!.kind === 'files' && blocks[0]!.steps.map((s) => s.lead ?? false)).toEqual([false, false, false]);
   });
 
+  it('never folds away a question, a list, or the last words of the turn', () => {
+    const question = 'Do you also want a dark theme?';
+    const asking = [...step([write('index.html')]), ...step([write('style.css')], { content: question })];
+    const asked = turnBlocks([...asking, message({ content: '' })], false);
+    expect(asked.some((b) => b.kind === 'step' && b.step.message.content === question)).toBe(true);
+
+    const listed = turnBlocks(
+      [...step([write('a.js')], { content: 'I will create:\n- a.js\n- b.js' }), ...step([write('b.js')])],
+      false,
+    );
+    expect(kinds(listed)).toEqual(['step', 'files']);
+
+    const last = turnBlocks([...step([write('a.js')]), ...step([write('b.js')], { content: 'Here you go.' })], false);
+    expect(last.some((b) => b.kind === 'step' && b.step.message.content === 'Here you go.')).toBe(true);
+  });
+
   it('keeps a lone file call under the text that came with it', () => {
     const blocks = turnBlocks(step([write('b.js')], { content: 'Writing b.' }), false);
     expect(kinds(blocks)).toEqual(['step']);

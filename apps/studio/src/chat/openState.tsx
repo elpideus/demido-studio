@@ -11,7 +11,8 @@ interface OpenState {
 
 const OpenContext = createContext<OpenState | null>(null);
 
-export const callKey = (callId: string) => `call:${callId}`;
+// A call is named by its message too: some providers reuse call ids from one step to the next.
+export const callKey = (messageId: string, callId: string) => `call:${messageId}:${callId}`;
 export const thinkingKey = (messageId: string) => `thinking:${messageId}`;
 export const bundleKey = (bundleId: string) => `files:${bundleId}`;
 
@@ -37,6 +38,10 @@ const EMPTY: ReadonlyMap<string, boolean> = new Map();
 export function useOpenState(id: string, fallback = false): [boolean, (open: boolean) => void] {
   const context = useContext(OpenContext);
   const [local, setLocal] = useState<boolean | undefined>(undefined);
-  if (!context) return [local ?? fallback, setLocal];
-  return [context.open.get(id) ?? fallback, (value) => context.set(id, value)];
+  const setShared = context?.set;
+  const setOpen = useCallback(
+    (value: boolean) => (setShared ? setShared(id, value) : setLocal(value)),
+    [setShared, id],
+  );
+  return [(context ? context.open.get(id) : local) ?? fallback, setOpen];
 }

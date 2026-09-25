@@ -66,6 +66,8 @@ function Approval({ message, call }: { message: Message; call: ToolCall }) {
 }
 
 interface Props {
+  /** The assistant message that made the call. */
+  messageId: string;
   call: ToolCall;
   /** The tool message holding the call's status and result; absent until it starts. */
   result: Message | undefined;
@@ -76,8 +78,8 @@ interface Props {
 }
 
 /** One tool call: what it does, whether it ran, and what came back. */
-export function ToolCard({ call, result, orphaned, flat }: Props) {
-  const [open, setOpen] = useOpenState(callKey(call.id));
+export function ToolCard({ messageId, call, result, orphaned, flat }: Props) {
+  const [open, setOpen] = useOpenState(callKey(messageId, call.id));
   const Icon = ICONS[call.name] ?? Code2;
   const tr = result?.toolResult;
   const label = tr?.label ?? call.name;

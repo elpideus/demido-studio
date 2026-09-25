@@ -40,11 +40,13 @@ export function thoughtSeconds(message: Message): number | undefined {
  * Splits a turn's messages into what the chat draws. Two or more file calls in a row, from steps
  * that make no other calls, become one `files` block keyed by its first message, so it grows in
  * place while the model keeps going. A short line said along with the calls ("Now the styles.")
- * goes into the bundle with them; a step that says more keeps its text in the flow and its calls
- * start the run. `live` is whether the turn is still running.
+ * goes into the bundle with them; a step that says more, or the turn's last words, keeps its text
+ * in the flow and its calls start the run. `live` is whether the turn is still running.
  */
 export function turnBlocks(messages: Message[], live: boolean): Block[] {
   const blocks: Block[] = [];
+  // The last thing the model said this turn is its answer so far, never folded away.
+  const lastWords = messages.findLastIndex((m) => m.role === 'assistant' && m.content.trim() !== '');
   let run: Step[] = [];
   /** Where the lead step of the run is drawn, to hand its calls back if no bundle forms. */
   let head = -1;
@@ -77,7 +79,7 @@ export function turnBlocks(messages: Message[], live: boolean): Block[] {
     if (!onlyFileCalls(step)) {
       flush();
       blocks.push({ kind: 'step', step });
-    } else if (isNarration(m.content)) {
+    } else if (!m.content.trim() || (isNarration(m.content) && index !== lastWords)) {
       run.push(step);
     } else {
       flush();
@@ -90,12 +92,15 @@ export function turnBlocks(messages: Message[], live: boolean): Block[] {
 }
 
 /** Longest text that still reads as a line about the files rather than an answer. */
-const NARRATION_MAX = 200;
+const NARRATION_MAX = 160;
 
-/** Nothing, or a line that only says what the next files are, as opposed to an answer. */
+/**
+ * A single line that only says what the next files are ("Now the styles."). Anything longer, on
+ * several lines, or asking something is left in the chat where it cannot be missed.
+ */
 function isNarration(content: string): boolean {
   const text = content.trim();
-  return text.length <= NARRATION_MAX && !text.includes('\n\n') && !text.includes('```');
+  return text.length <= NARRATION_MAX && !/[\r\n?]/.test(text);
 }
 
 /** A step that only calls file tools, did not fail, and waits on nobody. */
