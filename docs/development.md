@@ -44,8 +44,9 @@ The webview accepts the Chrome DevTools Protocol when started with a debugging p
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm dev
 ```
 
-`scripts/drive.mjs` then clicks, types, drags, calls backend commands and takes screenshots,
-in the order given:
+`scripts/drive.mjs` then clicks, hovers, types, drags, calls backend commands and takes
+screenshots, in the order given (`--drag "selector|x,y|hold"` keeps the button down until
+`--release`, to capture a drag in progress):
 
 ```bash
 node scripts/drive.mjs --click '[aria-label="Settings"]' --wait 500 --screenshot settings.png

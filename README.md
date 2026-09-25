@@ -13,7 +13,8 @@ agentic work and transparency.
 - **Cloud when you want it.** Connect Google Gemini with an API key; its models appear next to
   the local ones.
 - **A desktop, not a web page.** The chat is always there; Settings, Market and the Inspector
-  are windows you can move, resize, maximize or pin to a side of the screen.
+  are windows you can move, resize, maximize or pin to a side, a corner, the top or the bottom,
+  like Windows 11's snap layouts.
 
 > Demido Studio is under active development. AI models can be wrong or be manipulated by
 > content they read. Review what the assistant does before letting it run code.

@@ -122,17 +122,22 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | Folder | What |
 |---|---|
 | `shell` | Activity bar (Chats, Market, Settings), the safety notice, toasts |
-| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking), composer, model and tools pickers |
-| `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `WindowLayer`, `TabbedLayout` (tab rail on the left). `geometry.ts` holds the pure math, unit tested |
+| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers |
+| `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
 | `settings` | Providers, Models (list, editor, download), Skills, General |
 | `market` | Symbol search, live chart (Lightweight Charts), timeframes, history paging |
 | `inspector` | A turn's traces: request, response, timings |
-| `stores` | App state per area; `windows.ts` holds window geometry, focus order, docking |
+| `stores` | App state per area; `windows.ts` holds window geometry, focus order, pinning |
 
-**Windows.** A window floats, maximizes, or docks to the left or right edge. Docked windows
-share the screen with the chat, which reflows beside them, and stay resizable along their inner
-edge. Dragging a docked or maximized window's title bar tears it off at its floating size.
-Windows cannot be minimized; closing is the way out.
+**Windows.** A window floats, maximizes, or is pinned to a slot, like Windows 11's snap layouts
+(hover Maximize, drag to an edge or corner, or right-click the title bar). A slot is a column on
+the left or right, whole or split into a top and a bottom half, or a row above or below the chat
+between the columns. Pinned windows share the screen with the chat, which reflows around them;
+they stay resizable along the edges that face the chat or their partner, and both halves of a
+column resize together. An empty half offers the other windows (snap assist). Dragging a pinned or
+maximized window's title bar tears it off at its floating size. Windows cannot be minimized; the
+navigation rail's button closes a window that is in plain view and brings a covered one forward.
+A closed window reopens where it was, pinned or not.
 
 ## Data
 
