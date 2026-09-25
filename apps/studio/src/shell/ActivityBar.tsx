@@ -2,6 +2,7 @@ import { CandlestickChart, MessagesSquare, Settings, type LucideIcon } from 'luc
 import { Logo, Tooltip, cx } from '@demido/ui';
 
 import { useApp } from '@/stores/app';
+import { useChats } from '@/stores/chats';
 import { type WindowKind, useWindows } from '@/stores/windows';
 import styles from './ActivityBar.module.css';
 
@@ -43,15 +44,22 @@ export function ActivityBar() {
   const chatListOpen = useApp((s) => s.settings?.chatListOpen ?? true);
   const patchSettings = useApp((s) => s.patchSettings);
   const windows = useWindows((s) => s.windows);
-  const open = useWindows((s) => s.open);
+  const toggle = useWindows((s) => s.toggle);
 
   const isOpen = (kind: WindowKind) => windows.some((w) => w.kind === kind);
 
   return (
     <nav className={styles.bar} aria-label="Main">
-      <div className={styles.brand}>
-        <Logo size={28} />
-      </div>
+      <Tooltip content="Home" placement="right" delay={250}>
+        <button
+          type="button"
+          aria-label="Home"
+          className={styles.brand}
+          onClick={() => void useChats.getState().open(null)}
+        >
+          <Logo size={28} />
+        </button>
+      </Tooltip>
       <div className={styles.group}>
         <Item
           icon={MessagesSquare}
@@ -60,7 +68,7 @@ export function ActivityBar() {
           active={chatListOpen}
           onClick={() => void patchSettings({ chatListOpen: !chatListOpen })}
         />
-        <Item icon={CandlestickChart} label="Market" active={isOpen('market')} onClick={() => open('market')} />
+        <Item icon={CandlestickChart} label="Market" active={isOpen('market')} onClick={() => toggle('market')} />
       </div>
       <div className={styles.spacer} />
       <div className={styles.group}>
@@ -69,7 +77,7 @@ export function ActivityBar() {
           label="Settings"
           shortcut="Ctrl+,"
           active={isOpen('settings')}
-          onClick={() => open('settings')}
+          onClick={() => toggle('settings')}
         />
       </div>
     </nav>

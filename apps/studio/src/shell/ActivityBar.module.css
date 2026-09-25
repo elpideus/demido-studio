@@ -13,8 +13,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 44px;
   height: 44px;
   margin-bottom: var(--space-2);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.brand:hover {
+  background: var(--surface-4);
+}
+
+.brand:active {
+  transform: scale(0.94);
 }
 
 .group {
