@@ -18,7 +18,7 @@ pub fn search_schema() -> Value {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Company, ticker or pair, e.g. \"apple\", \"EURUSD\", \"bitcoin\", \"S&P 500\""},
-            "type": {"type": "string", "enum": ["stock", "forex", "crypto", "index", "futures", "cfd", "fund"], "description": "Optional asset class filter"}
+            "type": {"type": "string", "enum": ["stock", "forex", "crypto", "index", "futures", "cfd", "fund", "etf", "mutual_fund", "bond"], "description": "Optional asset class filter. Gold, silver and oil are listed as cfd. fund covers ETFs and mutual funds; etf and mutual_fund narrow to one kind"}
         },
         "required": ["query"]
     })
@@ -68,7 +68,8 @@ async fn ensure_login(ctx: &ToolContext) -> Result<(), String> {
         return Ok(());
     }
     let rx = auth::begin(market).await?;
-    ctx.state.notice(&ctx.chat_id, "tradingviewLogin", "Sign in to TradingView to continue");
+    ctx.state
+        .notice(&ctx.chat_id, "tradingviewLogin", "Sign in to TradingView to continue");
     tokio::select! {
         _ = ctx.cancel.cancelled() => Err("Cancelled.".into()),
         outcome = auth::wait(rx, LOGIN_WAIT) => match outcome {
@@ -89,22 +90,49 @@ async fn call_live(ctx: &ToolContext, method: &str, params: Value, timeout: Dura
     match ctx.state.market.call(method, params.clone(), timeout).await {
         Err(e) if e.is_auth() => {
             ensure_login(ctx).await?;
-            ctx.state.market.call(method, params, timeout).await.map_err(|e| e.message)
+            ctx.state
+                .market
+                .call(method, params, timeout)
+                .await
+                .map_err(|e| e.message)
         }
         other => other.map_err(|e| e.message),
     }
 }
 
-pub async fn search(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
-    let query = require_str(args, "query")?;
-    let params = json!({"query": query, "type": arg_str(args, "type")});
+async fn search_symbols(ctx: &ToolContext, query: &str, kind: Option<&str>) -> Result<Vec<Value>, String> {
     let result = ctx
         .state
         .market
-        .call("search", params, Duration::from_secs(20))
+        .call("search", json!({"query": query, "type": kind}), Duration::from_secs(20))
         .await
         .map_err(|e| e.message)?;
-    let list: Vec<Value> = result.as_array().cloned().unwrap_or_default().into_iter().take(12).collect();
+    Ok(result
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .take(12)
+        .collect())
+}
+
+pub async fn search(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
+    let query = require_str(args, "query")?;
+    let kind = arg_str(args, "type");
+    let mut list = search_symbols(ctx, query, kind).await?;
+    let mut note = None;
+    if let Some(kind) = kind
+        && list.is_empty()
+    {
+        // Models often guess the asset class wrong: TradingView lists gold as a commodity CFD,
+        // not forex. Searching every class beats reporting nothing.
+        list = search_symbols(ctx, query, None).await?;
+        if !list.is_empty() {
+            note = Some(format!(
+                "Nothing matched as {kind}; these results cover every asset class."
+            ));
+        }
+    }
     if list.is_empty() {
         return Ok(ToolOutput::ok(
             json!({"results": [], "note": format!("No symbols match \"{query}\". Try another spelling or the ticker.")}).to_string(),
@@ -115,16 +143,29 @@ pub async fn search(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, Strin
         .iter()
         .map(|s| json!({"symbol": s["symbol"], "description": s["description"], "type": s["type"], "exchange": s["exchange"]}))
         .collect();
+    let mut content = json!({"results": compact});
+    if let Some(note) = note {
+        content["note"] = note.into();
+    }
     Ok(ToolOutput::ok(
-        json!({"results": compact}).to_string(),
+        content.to_string(),
         json!({"kind": "search", "query": query, "results": list}),
     ))
 }
 
 pub async fn quote(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
     let symbols: Vec<String> = match &args["symbols"] {
-        Value::Array(a) => a.iter().filter_map(Value::as_str).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
-        Value::String(s) => s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
+        Value::Array(a) => a
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Value::String(s) => s
+            .split(',')
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .collect(),
         _ => Vec::new(),
     };
     if symbols.is_empty() {
@@ -196,7 +237,12 @@ fn timeframe(args: &Value) -> Result<&'static str, String> {
             "4h" | "h4" | "240" => "4h",
             "1d" | "d" | "d1" | "daily" | "1day" => "1d",
             "1w" | "w" | "w1" | "weekly" | "1week" => "1w",
-            _ => return Err(format!("Unknown timeframe {raw}. Use one of {}.", TIMEFRAMES.join(", "))),
+            _ => {
+                return Err(format!(
+                    "Unknown timeframe {raw}. Use one of {}.",
+                    TIMEFRAMES.join(", ")
+                ));
+            }
         },
     };
     Ok(TIMEFRAMES.iter().find(|t| **t == normalized).copied().unwrap_or("1d"))
@@ -208,7 +254,9 @@ fn finish(ctx: &ToolContext, result: Value, requested: &str, timeframe: &str) ->
     let symbol = result["symbol"].as_str().unwrap_or(requested).to_string();
     let description = result["info"]["description"].as_str().unwrap_or_default().to_string();
     if bars.is_empty() {
-        return Err(format!("No candles were returned for {symbol} ({timeframe}). Check the symbol with market_search or pick another range."));
+        return Err(format!(
+            "No candles were returned for {symbol} ({timeframe}). Check the symbol with market_search or pick another range."
+        ));
     }
     let get = |b: &Value, k: &str| b[k].as_f64().unwrap_or(f64::NAN);
     let time = |b: &Value| {

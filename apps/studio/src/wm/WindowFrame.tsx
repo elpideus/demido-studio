@@ -1,26 +1,9 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import {
-  Copy,
-  Maximize2,
-  PanelLeft,
-  PanelRight,
-  Pin,
-  PinOff,
-  Square,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
+import { Copy, Maximize2, PanelLeft, PanelRight, Pin, PinOff, Square, X, type LucideIcon } from 'lucide-react';
 import { IconButton, Menu, cx, type MenuEntry } from '@demido/ui';
 
 import { WINDOW_SPECS, type WindowState, useWindows } from '@/stores/windows';
-import {
-  type Edge,
-  type SnapZone,
-  displayRect,
-  previewRect,
-  resizeRect,
-  snapZone,
-} from './geometry';
+import { type Edge, type SnapZone, displayRect, previewRect, resizeRect, snapZone } from './geometry';
 import styles from './WindowFrame.module.css';
 
 interface Props {
@@ -91,9 +74,7 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       wm().setRect(win.id, { ...origin, x: origin.x + (px - originPx), y: origin.y + (py - originPy) });
       zone = snapZone(px, py, wm().bounds);
       wm().setPreview(
-        zone
-          ? { rect: previewRect(zone, wm().bounds, win.dockWidth, zone === 'top' ? 0 : otherSide(zone)) }
-          : null,
+        zone ? { rect: previewRect(zone, wm().bounds, win.dockWidth, zone === 'top' ? 0 : otherSide(zone)) } : null,
       );
     };
     const onUp = () => {

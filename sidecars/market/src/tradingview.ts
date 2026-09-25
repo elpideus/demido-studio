@@ -272,10 +272,37 @@ export interface SymbolMatch {
   type: string;
 }
 
+/**
+ * The filters TradingView's search accepts, and the names people (and models) use for them:
+ * gold and oil are listed as `cfd`. `funds` returns ETFs and mutual funds together, `etf` and
+ * `mutual_fund` one kind each; `fund` is not a filter TradingView knows.
+ */
+const SEARCH_TYPES: Record<string, string> = {
+  stock: 'stock',
+  forex: 'forex',
+  crypto: 'crypto',
+  index: 'index',
+  futures: 'futures',
+  cfd: 'cfd',
+  commodity: 'cfd',
+  fund: 'funds',
+  funds: 'funds',
+  etf: 'etf',
+  mutual_fund: 'mutual_fund',
+  bond: 'bond',
+  economic: 'economic',
+};
+
+/** The TradingView search filter for an asset class name, or '' (every class) when there is none. */
+export function searchFilter(type?: string): string {
+  // An unknown filter makes TradingView answer with an error the library cannot read.
+  return (type && SEARCH_TYPES[type.toLowerCase()]) || '';
+}
+
 /** Symbol search. Works without signing in (it is a public endpoint). */
 export async function search(query: string, type?: string): Promise<SymbolMatch[]> {
   if (!query.trim()) return [];
-  const results = await TradingView.searchMarketV3(query.trim(), type ?? '');
+  const results = await TradingView.searchMarketV3(query.trim(), searchFilter(type));
   const seen = new Set<string>();
   const out: SymbolMatch[] = [];
   for (const r of results) {

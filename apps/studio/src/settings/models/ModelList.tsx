@@ -13,7 +13,18 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { Avatar, Badge, Button, Dialog, EmptyState, IconButton, Menu, Switch, formatBytes, type MenuEntry } from '@demido/ui';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Dialog,
+  EmptyState,
+  IconButton,
+  Menu,
+  Switch,
+  formatBytes,
+  type MenuEntry,
+} from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { fileUrl } from '@/lib/format';
@@ -40,7 +51,9 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
   const loading = runtime?.modelId === model.id && runtime.state === 'loading';
 
   const toggle = (enabled: boolean) =>
-    void api.updateModel(model.id, { ...model.settings, enabled }).catch((e) => toast.error('Could not update', errorText(e)));
+    void api
+      .updateModel(model.id, { ...model.settings, enabled })
+      .catch((e) => toast.error('Could not update', errorText(e)));
 
   const items: MenuEntry[] = [
     { id: 'edit', label: 'Edit', icon: Pencil, onSelect: onEdit },
@@ -61,7 +74,12 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
       onSelect: () => void api.loadModel(model.id).catch((e) => toast.error('Could not load the model', errorText(e))),
     });
     if (model.path) {
-      items.push({ id: 'reveal', label: 'Show in folder', icon: FolderOpen, onSelect: () => void api.revealPath(model.path!) });
+      items.push({
+        id: 'reveal',
+        label: 'Show in folder',
+        icon: FolderOpen,
+        onSelect: () => void api.revealPath(model.path!),
+      });
     }
     items.push('separator');
     items.push(
@@ -72,7 +90,13 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
   }
 
   return (
-    <div className={`${s.row} ${s.rowButton}`} onClick={onEdit} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onEdit()}>
+    <div
+      className={`${s.row} ${s.rowButton}`}
+      onClick={onEdit}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && onEdit()}
+    >
       <Avatar name={model.name} src={fileUrl(model.avatarPath)} size={34} />
       <div className={s.rowMain}>
         <div className={s.rowTitle}>
@@ -85,7 +109,14 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
       </div>
       <div className={s.rowActions} onClick={(e) => e.stopPropagation()}>
         <Switch checked={model.enabled} onChange={toggle} label={model.enabled ? 'Enabled' : 'Disabled'} />
-        <IconButton ref={anchor} icon={MoreHorizontal} label="More" size="sm" tooltip={false} onClick={() => setMenuOpen(true)} />
+        <IconButton
+          ref={anchor}
+          icon={MoreHorizontal}
+          label="More"
+          size="sm"
+          tooltip={false}
+          onClick={() => setMenuOpen(true)}
+        />
         <Menu open={menuOpen} onClose={() => setMenuOpen(false)} anchorRef={anchor} items={items} width={210} />
       </div>
     </div>

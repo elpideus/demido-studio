@@ -59,11 +59,7 @@ fn with_token(req: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::Req
     }
 }
 
-pub async fn search(
-    http: &reqwest::Client,
-    query: &str,
-    token: Option<&str>,
-) -> anyhow::Result<Vec<HfRepo>> {
+pub async fn search(http: &reqwest::Client, query: &str, token: Option<&str>) -> anyhow::Result<Vec<HfRepo>> {
     let req = http.get(format!("{API}/models")).query(&[
         ("search", query),
         ("filter", "gguf"),
@@ -119,8 +115,7 @@ pub async fn repo_files(
     .await?;
 
     let split = regex::Regex::new(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$").expect("valid regex");
-    let mut groups: std::collections::BTreeMap<String, Vec<(String, u64, Option<String>)>> =
-        Default::default();
+    let mut groups: std::collections::BTreeMap<String, Vec<(String, u64, Option<String>)>> = Default::default();
     for entry in &tree {
         if entry["type"] != "file" {
             continue;
@@ -147,10 +142,7 @@ pub async fn repo_files(
             Some(c) => format!("{}.gguf", &c[1]),
             None => path.to_string(),
         };
-        groups
-            .entry(key)
-            .or_default()
-            .push((path.to_string(), size, sha));
+        groups.entry(key).or_default().push((path.to_string(), size, sha));
     }
 
     let mut files: Vec<HfModelFile> = groups
@@ -180,7 +172,10 @@ pub async fn repo_files(
         .filter(|(_, f)| f.fit == Fit::Fits)
         .max_by_key(|(_, f)| {
             let dynamic = f.quant.as_deref().is_some_and(|q| q.starts_with("UD-"));
-            let not_huge = f.quant.as_deref().is_none_or(|q| !q.contains("BF16") && !q.contains("F32"));
+            let not_huge = f
+                .quant
+                .as_deref()
+                .is_none_or(|q| !q.contains("BF16") && !q.contains("F32"));
             (not_huge, f.size, dynamic)
         })
         .map(|(i, _)| i);

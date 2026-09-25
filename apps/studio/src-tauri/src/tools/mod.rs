@@ -151,10 +151,18 @@ const TOOLS: &[ToolDef] = &[
 ];
 
 const GROUPS: &[(&str, &str, &str)] = &[
-    ("market", "Market data", "Live prices from TradingView and history from Dukascopy"),
+    (
+        "market",
+        "Market data",
+        "Live prices from TradingView and history from Dukascopy",
+    ),
     ("python", "Python", "Run analysis code in the chat's workspace"),
     ("files", "Workspace files", "Read and write files in the chat's folder"),
-    ("skills", "Skill authoring", "Let the assistant save what it did as a skill"),
+    (
+        "skills",
+        "Skill authoring",
+        "Let the assistant save what it did as a skill",
+    ),
 ];
 
 fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
@@ -165,7 +173,10 @@ fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
         }
         "python" => match state.paths.python() {
             Some(_) => (true, None),
-            None => (false, Some("Python is not installed. Run the installer again to add it.".into())),
+            None => (
+                false,
+                Some("Python is not installed. Run the installer again to add it.".into()),
+            ),
         },
         _ => (true, None),
     }
@@ -209,11 +220,7 @@ pub fn exists(name: &str) -> bool {
 }
 
 pub fn needs_approval(name: &str, settings: &Settings) -> bool {
-    TOOLS
-        .iter()
-        .find(|t| t.name == name)
-        .is_some_and(|t| t.approval)
-        && !settings.always_allowed_tools.contains(name)
+    TOOLS.iter().find(|t| t.name == name).is_some_and(|t| t.approval) && !settings.always_allowed_tools.contains(name)
 }
 
 /// A short present-tense label for the UI, e.g. `Fetching FX:EURUSD 1h candles`.
@@ -289,7 +296,10 @@ pub fn workspace_path(workspace: &Path, rel: &str) -> Result<PathBuf, String> {
 }
 
 pub(crate) fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
+    args.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 pub(crate) fn require_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
@@ -317,7 +327,10 @@ mod tests {
     #[test]
     fn workspace_paths_stay_inside() {
         let ws = Path::new("/w");
-        assert_eq!(workspace_path(ws, "data/a.csv").unwrap(), PathBuf::from("/w/data/a.csv"));
+        assert_eq!(
+            workspace_path(ws, "data/a.csv").unwrap(),
+            PathBuf::from("/w/data/a.csv")
+        );
         assert_eq!(workspace_path(ws, "./x").unwrap(), PathBuf::from("/w/x"));
         assert!(workspace_path(ws, "../x").is_err());
         assert!(workspace_path(ws, "/etc/passwd").is_err());

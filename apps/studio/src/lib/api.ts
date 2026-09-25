@@ -44,8 +44,7 @@ export const api = {
   windowReady: () => invoke<void>('window_ready'),
   openPath: (path: string) => invoke<void>('open_path', { path }),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
-  readWorkspaceFile: (path: string, maxBytes?: number) =>
-    invoke<string>('read_workspace_file', { path, maxBytes }),
+  readWorkspaceFile: (path: string, maxBytes?: number) => invoke<string>('read_workspace_file', { path, maxBytes }),
   listToolGroups: () => invoke<ToolGroup[]>('list_tool_groups'),
   setToolGroup: (id: string, enabled: boolean) => invoke<ToolGroup[]>('set_tool_group', { id, enabled }),
   revokeToolPermission: (name: string) => invoke<Settings>('revoke_tool_permission', { name }),
@@ -110,10 +109,8 @@ export const api = {
   listProviders: () => invoke<ProviderView[]>('list_providers'),
   addProvider: (apiKey: string, name?: string) =>
     invoke<ProviderView>('add_provider', { kind: 'gemini', name: name ?? null, apiKey }),
-  updateProvider: (
-    id: string,
-    patch: { name?: string; enabled?: boolean; baseUrl?: string; apiKey?: string },
-  ) => invoke<ProviderView>('update_provider', { id, patch }),
+  updateProvider: (id: string, patch: { name?: string; enabled?: boolean; baseUrl?: string; apiKey?: string }) =>
+    invoke<ProviderView>('update_provider', { id, patch }),
   refreshProvider: (id: string) => invoke<ProviderView>('refresh_provider', { id }),
   removeProvider: (id: string) => invoke<void>('remove_provider', { id }),
 
@@ -132,8 +129,7 @@ export const api = {
   marketStatus: () => invoke<MarketStatus>('market_status'),
   marketLogin: () => invoke<void>('market_login'),
   marketLogout: () => invoke<MarketStatus>('market_logout'),
-  marketSearch: (query: string, kind?: string) =>
-    invoke<SymbolMatch[]>('market_search', { query, kind: kind ?? null }),
+  marketSearch: (query: string, kind?: string) => invoke<SymbolMatch[]>('market_search', { query, kind: kind ?? null }),
   marketQuote: (symbols: string[]) => invoke<Quote[]>('market_quote', { symbols }),
   marketOpenStream: (symbol: string, timeframe: string, bars?: number) =>
     invoke<{ id: string; info: ChartInfo; bars: Bar[] }>('market_open_stream', { symbol, timeframe, bars }),

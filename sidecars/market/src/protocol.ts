@@ -25,9 +25,7 @@ export function reply(id: number, result: unknown): void {
 
 export function fail(id: number, error: unknown): void {
   const e =
-    error instanceof RpcError
-      ? error
-      : new RpcError('ERROR', error instanceof Error ? error.message : String(error));
+    error instanceof RpcError ? error : new RpcError('ERROR', error instanceof Error ? error.message : String(error));
   write({ id, error: { code: e.code, message: e.message } });
 }
 

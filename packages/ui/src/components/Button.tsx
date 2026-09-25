@@ -39,22 +39,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       ref={ref}
       type={type}
-      className={cx(
-        styles.button,
-        styles[variant],
-        styles[size],
-        fullWidth && styles.fullWidth,
-        className,
-      )}
+      className={cx(styles.button, styles[variant], styles[size], fullWidth && styles.fullWidth, className)}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...rest}
     >
-      {loading ? (
-        <Spinner size={iconSize} />
-      ) : (
-        Icon && <Icon size={iconSize} strokeWidth={1.9} aria-hidden />
-      )}
+      {loading ? <Spinner size={iconSize} /> : Icon && <Icon size={iconSize} strokeWidth={1.9} aria-hidden />}
       {children !== undefined && <span className={styles.label}>{children}</span>}
       {IconRight && !loading && <IconRight size={iconSize} strokeWidth={1.9} aria-hidden />}
     </button>

@@ -208,7 +208,10 @@ export const useChats = create<ChatsStore>((set, get) => ({
         break;
       case 'notice':
         if (event.kind === 'tradingviewLogin') {
-          toast.warning('Sign in to TradingView', 'A sign-in window opened so the assistant can read live market data.');
+          toast.warning(
+            'Sign in to TradingView',
+            'A sign-in window opened so the assistant can read live market data.',
+          );
         } else {
           toast.info(event.text);
         }
@@ -223,7 +226,11 @@ export function currentModel(
   chat: Chat | undefined,
   picked: string | null,
 ): ModelEntry | undefined {
-  const usable = (id: string | null | undefined) =>
-    id ? models.find((m) => m.id === id && m.enabled) : undefined;
-  return usable(picked) ?? usable(chat?.modelId) ?? models.find((m) => m.isDefault && m.enabled) ?? models.find((m) => m.enabled);
+  const usable = (id: string | null | undefined) => (id ? models.find((m) => m.id === id && m.enabled) : undefined);
+  return (
+    usable(picked) ??
+    usable(chat?.modelId) ??
+    models.find((m) => m.isDefault && m.enabled) ??
+    models.find((m) => m.enabled)
+  );
 }

@@ -64,9 +64,9 @@ impl OpenAiClient {
                     }
                     msg
                 }
-                LlmMessage::Tool {
-                    call_id, content, ..
-                } => json!({"role": "tool", "tool_call_id": call_id, "content": content}),
+                LlmMessage::Tool { call_id, content, .. } => {
+                    json!({"role": "tool", "tool_call_id": call_id, "content": content})
+                }
             });
         }
 
@@ -194,17 +194,17 @@ fn apply_chunk(
     }
     if let Some(choice) = v.get("choices").and_then(|c| c.get(0)) {
         let delta = &choice["delta"];
-        if let Some(r) = delta.get("reasoning_content").and_then(Value::as_str) {
-            if !r.is_empty() {
-                out.reasoning.push_str(r);
-                on_event(StreamEvent::Reasoning(r.to_string()));
-            }
+        if let Some(r) = delta.get("reasoning_content").and_then(Value::as_str)
+            && !r.is_empty()
+        {
+            out.reasoning.push_str(r);
+            on_event(StreamEvent::Reasoning(r.to_string()));
         }
-        if let Some(c) = delta.get("content").and_then(Value::as_str) {
-            if !c.is_empty() {
-                out.content.push_str(c);
-                on_event(StreamEvent::Content(c.to_string()));
-            }
+        if let Some(c) = delta.get("content").and_then(Value::as_str)
+            && !c.is_empty()
+        {
+            out.content.push_str(c);
+            on_event(StreamEvent::Content(c.to_string()));
         }
         if let Some(list) = delta.get("tool_calls").and_then(Value::as_array) {
             for tc in list {
@@ -214,20 +214,21 @@ fn apply_chunk(
                     name: String::new(),
                     arguments: String::new(),
                 });
-                if let Some(id) = tc.get("id").and_then(Value::as_str) {
-                    if !id.is_empty() {
-                        entry.id = id.to_string();
-                    }
+                if let Some(id) = tc.get("id").and_then(Value::as_str)
+                    && !id.is_empty()
+                {
+                    entry.id = id.to_string();
                 }
                 if let Some(f) = tc.get("function") {
-                    if let Some(name) = f.get("name").and_then(Value::as_str) {
-                        if !name.is_empty() && entry.name.is_empty() {
-                            entry.name = name.to_string();
-                            on_event(StreamEvent::ToolCall {
-                                index,
-                                name: name.to_string(),
-                            });
-                        }
+                    if let Some(name) = f.get("name").and_then(Value::as_str)
+                        && !name.is_empty()
+                        && entry.name.is_empty()
+                    {
+                        entry.name = name.to_string();
+                        on_event(StreamEvent::ToolCall {
+                            index,
+                            name: name.to_string(),
+                        });
                     }
                     if let Some(args) = f.get("arguments").and_then(Value::as_str) {
                         entry.arguments.push_str(args);
@@ -243,12 +244,8 @@ fn apply_chunk(
         out.usage = Usage {
             prompt_tokens: u["prompt_tokens"].as_u64().unwrap_or(0),
             completion_tokens: u["completion_tokens"].as_u64().unwrap_or(0),
-            cached_tokens: u["prompt_tokens_details"]["cached_tokens"]
-                .as_u64()
-                .unwrap_or(0),
-            reasoning_tokens: u["completion_tokens_details"]["reasoning_tokens"]
-                .as_u64()
-                .unwrap_or(0),
+            cached_tokens: u["prompt_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0),
+            reasoning_tokens: u["completion_tokens_details"]["reasoning_tokens"].as_u64().unwrap_or(0),
         };
     }
     if let Some(t) = v.get("timings").filter(|t| t.is_object()) {
@@ -295,9 +292,7 @@ mod tests {
         let req = ChatRequest {
             system: "sys".into(),
             messages: vec![
-                LlmMessage::User {
-                    content: "hi".into(),
-                },
+                LlmMessage::User { content: "hi".into() },
                 LlmMessage::Assistant {
                     content: String::new(),
                     reasoning: Some("thinking".into()),

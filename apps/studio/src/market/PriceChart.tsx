@@ -46,7 +46,11 @@ function toCandle(b: Bar) {
 }
 
 function toVolume(b: Bar) {
-  return { time: b.t as UTCTimestamp, value: b.v, color: b.c >= b.o ? 'rgba(79, 207, 138, 0.28)' : 'rgba(239, 107, 107, 0.28)' };
+  return {
+    time: b.t as UTCTimestamp,
+    value: b.v,
+    color: b.c >= b.o ? 'rgba(79, 207, 138, 0.28)' : 'rgba(239, 107, 107, 0.28)',
+  };
 }
 
 /** Candlesticks and volume, in local time, drawn with TradingView's lightweight-charts. */
@@ -133,7 +137,9 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       volume.current?.setData(data.current.map(toVolume));
       chart.current?.timeScale().fitContent();
       if (data.current.length > 150) {
-        chart.current?.timeScale().setVisibleLogicalRange({ from: data.current.length - 150, to: data.current.length + 5 });
+        chart.current
+          ?.timeScale()
+          .setVisibleLogicalRange({ from: data.current.length - 150, to: data.current.length + 5 });
       }
     },
     prependBars: (older) => {
@@ -145,7 +151,9 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       candles.current?.setData(data.current.map(toCandle));
       volume.current?.setData(data.current.map(toVolume));
       if (range) {
-        chart.current.timeScale().setVisibleLogicalRange({ from: range.from + fresh.length, to: range.to + fresh.length });
+        chart.current
+          .timeScale()
+          .setVisibleLogicalRange({ from: range.from + fresh.length, to: range.to + fresh.length });
       }
     },
     updateBar: (bar) => {
@@ -164,11 +172,23 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       <div ref={container} className={styles.chart} />
       {shown && (
         <div className={styles.legend}>
-          <span>O <b>{formatPrice(shown.o, pricescale)}</b></span>
-          <span>H <b>{formatPrice(shown.h, pricescale)}</b></span>
-          <span>L <b>{formatPrice(shown.l, pricescale)}</b></span>
-          <span>C <b className={shown.c >= shown.o ? styles.up : styles.down}>{formatPrice(shown.c, pricescale)}</b></span>
-          {shown.v > 0 && <span>V <b>{shown.v.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b></span>}
+          <span>
+            O <b>{formatPrice(shown.o, pricescale)}</b>
+          </span>
+          <span>
+            H <b>{formatPrice(shown.h, pricescale)}</b>
+          </span>
+          <span>
+            L <b>{formatPrice(shown.l, pricescale)}</b>
+          </span>
+          <span>
+            C <b className={shown.c >= shown.o ? styles.up : styles.down}>{formatPrice(shown.c, pricescale)}</b>
+          </span>
+          {shown.v > 0 && (
+            <span>
+              V <b>{shown.v.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b>
+            </span>
+          )}
         </div>
       )}
     </div>

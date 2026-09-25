@@ -60,7 +60,12 @@ impl Agent {
     }
 
     /// Sends a message, creating the chat when `chat_id` is `None`, and starts the turn.
-    pub fn send(state: &Arc<AppState>, chat_id: Option<String>, text: String, model_id: String) -> CmdResult<SendResult> {
+    pub fn send(
+        state: &Arc<AppState>,
+        chat_id: Option<String>,
+        text: String,
+        model_id: String,
+    ) -> CmdResult<SendResult> {
         let text = text.trim().to_string();
         if text.is_empty() {
             bail_msg!("Write a message first.");
@@ -110,7 +115,13 @@ impl Agent {
     }
 
     /// Replaces a user message with new text and answers from there.
-    pub fn edit(state: &Arc<AppState>, chat_id: &str, message_id: &str, text: String, model_id: String) -> CmdResult<Message> {
+    pub fn edit(
+        state: &Arc<AppState>,
+        chat_id: &str,
+        message_id: &str,
+        text: String,
+        model_id: String,
+    ) -> CmdResult<Message> {
         if state.agent.turns.lock().contains_key(chat_id) {
             bail_msg!("Wait for the current answer to finish, or stop it.");
         }
@@ -156,11 +167,7 @@ impl Agent {
 
     fn start(state: &Arc<AppState>, chat_id: &str, model_id: String) {
         let cancel = CancellationToken::new();
-        state
-            .agent
-            .turns
-            .lock()
-            .insert(chat_id.to_string(), cancel.clone());
+        state.agent.turns.lock().insert(chat_id.to_string(), cancel.clone());
         let state = state.clone();
         let chat_id = chat_id.to_string();
         tauri::async_runtime::spawn(async move {
@@ -221,7 +228,10 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         bail_msg!("The selected model is no longer available. Pick another one.");
     };
     if !model.enabled {
-        bail_msg!("{} is disabled. Enable it in Settings, Models, or pick another model.", model.name);
+        bail_msg!(
+            "{} is disabled. Enable it in Settings, Models, or pick another model.",
+            model.name
+        );
     }
     let client = client_for(state, &model).await?;
     let workspace = state.paths.workspace(chat_id);
@@ -251,7 +261,11 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                 .iter()
                 .map(|t| prompt::estimate_tokens(&t.description) + prompt::estimate_tokens(&t.parameters.to_string()))
                 .sum::<usize>();
-        let reserve = params.max_tokens.map(|m| m as usize).unwrap_or(context_tokens / 4).max(1024);
+        let reserve = params
+            .max_tokens
+            .map(|m| m as usize)
+            .unwrap_or(context_tokens / 4)
+            .max(1024);
         let budget = context_tokens.saturating_sub(fixed + reserve).max(1024);
         let history = prompt::history(&state.db.list_messages(chat_id)?, budget);
         let request = ChatRequest {
@@ -324,18 +338,44 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             Ok(c) => c,
             Err(err) => {
                 let cancelled = matches!(err, LlmError::Cancelled);
+                let mut message = err.to_string();
+                if matches!(err, LlmError::Unavailable(_)) {
+                    // Keep a model the account cannot use out of the model picker.
+                    let mut settings = state.models.settings_of(&model.id);
+                    settings.enabled = Some(false);
+                    if state.models.set_settings(&model.id, settings).is_ok() {
+                        let _ = state.app.emit(crate::models::CHANGED_EVENT, state.models.list());
+                        message = format!(
+                            "{message}\n\n{} is now turned off. You can turn it back on in Settings, Models.",
+                            model.name
+                        );
+                    }
+                }
                 reply.content = streamed_content;
                 reply.reasoning = Some(streamed_reasoning).filter(|r| !r.is_empty());
-                reply.status = if cancelled { MessageStatus::Cancelled } else { MessageStatus::Error };
-                reply.error = (!cancelled).then(|| err.to_string());
+                reply.status = if cancelled {
+                    MessageStatus::Cancelled
+                } else {
+                    MessageStatus::Error
+                };
+                reply.error = (!cancelled).then(|| message.clone());
                 reply.stats = Some(json!({"durationMs": duration_ms, "model": model.name}));
                 state.db.save_message(&reply)?;
                 state.emit_chat(ChatEvent::Message {
                     chat_id: chat_id.to_string(),
                     message: reply.clone(),
                 });
-                save_trace(state, chat_id, &reply, &model, request_snapshot(&client, &request), None, duration_ms, Some(err.to_string()));
-                return if cancelled { Ok(()) } else { Err(AppError::msg(err.to_string())) };
+                save_trace(
+                    state,
+                    chat_id,
+                    &reply,
+                    &model,
+                    request_snapshot(&client, &request),
+                    None,
+                    duration_ms,
+                    Some(err.to_string()),
+                );
+                return if cancelled { Ok(()) } else { Err(AppError::msg(message)) };
             }
         };
 
@@ -359,7 +399,16 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             "usage": completion.usage,
             "timings": completion.timings,
         });
-        save_trace(state, chat_id, &reply, &model, completion.request_body.clone(), Some(response), duration_ms, None);
+        save_trace(
+            state,
+            chat_id,
+            &reply,
+            &model,
+            completion.request_body.clone(),
+            Some(response),
+            duration_ms,
+            None,
+        );
 
         if reply.tool_calls.is_empty() {
             return Ok(());
@@ -394,7 +443,15 @@ async fn run_tool_call(
     let args = match crate::llm::parse_arguments(&call.arguments) {
         Ok(v) => v,
         Err(e) => {
-            finish_tool(state, &mut row, false, json!({"error": e}).to_string(), json!({"error": e}), Value::Null, 0)?;
+            finish_tool(
+                state,
+                &mut row,
+                false,
+                json!({"error": e}).to_string(),
+                json!({"error": e}),
+                Value::Null,
+                0,
+            )?;
             return Ok(());
         }
     };
@@ -402,8 +459,19 @@ async fn run_tool_call(
     row.tool_result = Some(json!({"label": label, "args": args}));
 
     if !tools::exists(&call.name) {
-        let msg = format!("There is no tool called {}. Use only the tools you were given.", call.name);
-        finish_tool(state, &mut row, false, json!({"error": msg}).to_string(), json!({"error": msg}), args, 0)?;
+        let msg = format!(
+            "There is no tool called {}. Use only the tools you were given.",
+            call.name
+        );
+        finish_tool(
+            state,
+            &mut row,
+            false,
+            json!({"error": msg}).to_string(),
+            json!({"error": msg}),
+            args,
+            0,
+        )?;
         return Ok(());
     }
 
@@ -430,7 +498,15 @@ async fn run_tool_call(
         match decision {
             Approval::Deny => {
                 let msg = "The user declined to run this. Do not retry it; continue without it or ask the user how to proceed.";
-                finish_tool(state, &mut row, false, json!({"error": msg}).to_string(), json!({"denied": true}), args, 0)?;
+                finish_tool(
+                    state,
+                    &mut row,
+                    false,
+                    json!({"error": msg}).to_string(),
+                    json!({"denied": true}),
+                    args,
+                    0,
+                )?;
                 return Ok(());
             }
             Approval::Always => {
@@ -469,7 +545,15 @@ async fn run_tool_call(
         });
         return Ok(());
     }
-    finish_tool(state, &mut row, output.ok, output.content, output.display, args, elapsed)
+    finish_tool(
+        state,
+        &mut row,
+        output.ok,
+        output.content,
+        output.display,
+        args,
+        elapsed,
+    )
 }
 
 fn finish_tool(
@@ -584,12 +668,12 @@ pub fn title_from(text: &str) -> String {
         title = cleaned.chars().take(48).collect();
     }
     // A cut-off title should not end on a joining word.
-    const DANGLING: &[&str] = &["a", "an", "and", "the", "of", "for", "to", "in", "on", "with", "or", "at", "by"];
-    loop {
-        let Some((head, last)) = title.rsplit_once(' ') else { break };
-        if !DANGLING.contains(&last.to_ascii_lowercase().as_str()) {
-            break;
-        }
+    const DANGLING: &[&str] = &[
+        "a", "an", "and", "the", "of", "for", "to", "in", "on", "with", "or", "at", "by",
+    ];
+    while let Some((head, last)) = title.rsplit_once(' ')
+        && DANGLING.contains(&last.to_ascii_lowercase().as_str())
+    {
         title = head.to_string();
     }
     let title = title.trim_end_matches(['.', ',', ':', ';', '?', '!']).to_string();
@@ -620,7 +704,10 @@ mod tests {
 
     #[test]
     fn titles_are_short_and_clean() {
-        assert_eq!(title_from("what's the price of **EURUSD** right now?"), "What's the price of EURUSD right now");
+        assert_eq!(
+            title_from("what's the price of **EURUSD** right now?"),
+            "What's the price of EURUSD right now"
+        );
         assert_eq!(title_from("\n\n# Plan\nmore"), "Plan");
         assert_eq!(
             title_from("Fetch the last three months of hourly candles for gold and compute realised volatility"),

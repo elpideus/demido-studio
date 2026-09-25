@@ -51,13 +51,19 @@ pub fn app_info(state: St<'_>) -> AppInfo {
     AppInfo {
         version: demido_core::brand::VERSION.to_string(),
         data_dir: state.paths.data_dir.to_string_lossy().into_owned(),
-        install_dir: state.paths.install_dir.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        install_dir: state
+            .paths
+            .install_dir
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
         disclaimer_accepted: settings.disclaimer_accepted.as_deref() == Some(DISCLAIMER_VERSION),
         os: state.hardware.os_version.clone(),
         cpu: state.hardware.cpu.name.clone(),
         memory_gb: (state.hardware.total_memory_gb() * 10.0).round() / 10.0,
         gpu: gpu.map(|g| g.name.clone()),
-        vram_gb: gpu.filter(|g| !g.integrated).map(|g| (g.vram_gb() * 10.0).round() / 10.0),
+        vram_gb: gpu
+            .filter(|g| !g.integrated)
+            .map(|g| (g.vram_gb() * 10.0).round() / 10.0),
         backend: runtime.map(|r| r.backend.label().to_string()),
         components: vec![
             ComponentInfo {
@@ -66,9 +72,21 @@ pub fn app_info(state: St<'_>) -> AppInfo {
                 installed: state.paths.llama_server().is_some(),
                 detail: runtime.map(|r| r.backend.label().to_string()),
             },
-            tool("Python", manifest.and_then(|m| m.python.as_ref()), state.paths.python().is_some()),
-            tool("Node.js", manifest.and_then(|m| m.node.as_ref()), state.paths.node().is_some()),
-            tool("uv", manifest.and_then(|m| m.uv.as_ref()), manifest.and_then(|m| m.uv.as_ref()).is_some()),
+            tool(
+                "Python",
+                manifest.and_then(|m| m.python.as_ref()),
+                state.paths.python().is_some(),
+            ),
+            tool(
+                "Node.js",
+                manifest.and_then(|m| m.node.as_ref()),
+                state.paths.node().is_some(),
+            ),
+            tool(
+                "uv",
+                manifest.and_then(|m| m.uv.as_ref()),
+                manifest.and_then(|m| m.uv.as_ref()).is_some(),
+            ),
         ],
         dev: cfg!(debug_assertions),
     }
@@ -76,7 +94,9 @@ pub fn app_info(state: St<'_>) -> AppInfo {
 
 #[tauri::command]
 pub fn accept_disclaimer(state: St<'_>) -> CmdResult<()> {
-    state.settings.update(|s| s.disclaimer_accepted = Some(DISCLAIMER_VERSION.to_string()))?;
+    state
+        .settings
+        .update(|s| s.disclaimer_accepted = Some(DISCLAIMER_VERSION.to_string()))?;
     Ok(())
 }
 

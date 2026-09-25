@@ -29,21 +29,21 @@ export function Disclaimer() {
     >
       <ul className={styles.list}>
         <li>
-          <strong>AI can be wrong or be manipulated.</strong> Models can make mistakes, misbehave, or be
-          tricked by content they read (prompt injection) into doing things you did not ask for, such as
-          running code or writing files.
+          <strong>AI can be wrong or be manipulated.</strong> Models can make mistakes, misbehave, or be tricked by
+          content they read (prompt injection) into doing things you did not ask for, such as running code or writing
+          files.
         </li>
         <li>
-          <strong>Stay in control.</strong> Review what the assistant does, and only allow it to run code
-          you are comfortable with.
+          <strong>Stay in control.</strong> Review what the assistant does, and only allow it to run code you are
+          comfortable with.
         </li>
         <li>
-          <strong>Not advice.</strong> Market data and analysis are for information only. Do not rely on the
-          assistant for financial, medical, legal or other important decisions.
+          <strong>Not advice.</strong> Market data and analysis are for information only. Do not rely on the assistant
+          for financial, medical, legal or other important decisions.
         </li>
         <li>
-          <strong>No warranty.</strong> The software is provided as is. Its author accepts no responsibility
-          for any damage, loss or other consequence of its use.
+          <strong>No warranty.</strong> The software is provided as is. Its author accepts no responsibility for any
+          damage, loss or other consequence of its use.
         </li>
       </ul>
       <Checkbox

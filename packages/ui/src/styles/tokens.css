@@ -52,12 +52,13 @@
   --market-down: #ef6b6b;
 
   /* Type */
-  --font-ui: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', -apple-system,
-    BlinkMacSystemFont, 'Inter', 'Helvetica Neue', system-ui, sans-serif;
-  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', -apple-system,
-    BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
-  --font-mono: 'Cascadia Code', 'Cascadia Mono', 'JetBrains Mono', 'SF Mono', Consolas, Menlo,
-    monospace;
+  --font-ui:
+    'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Inter',
+    'Helvetica Neue', system-ui, sans-serif;
+  --font-display:
+    'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Inter', system-ui,
+    sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', 'JetBrains Mono', 'SF Mono', Consolas, Menlo, monospace;
   --text-2xs: 10px;
   --text-xs: 11px;
   --text-sm: 12px;

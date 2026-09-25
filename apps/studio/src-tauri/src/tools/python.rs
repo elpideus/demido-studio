@@ -47,7 +47,11 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
     };
     let script_args: Vec<String> = args["args"]
         .as_array()
-        .map(|a| a.iter().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     let before = snapshot(&ctx.workspace);
@@ -127,7 +131,11 @@ fn resolve_script(ctx: &ToolContext, file: &str) -> Result<PathBuf, String> {
             .split_once('/')
             .ok_or("Skill scripts are written as skill:<skill-id>/<file>.")?;
         match ctx.state.skills.find(skill) {
-            Some(found) => ctx.state.skills.resolve_file(&found.id, rel).map_err(|e| e.to_string())?,
+            Some(found) => ctx
+                .state
+                .skills
+                .resolve_file(&found.id, rel)
+                .map_err(|e| e.to_string())?,
             // A wrong skill id: the file name alone may still identify the script (below).
             None => ctx.workspace.join(".demido").join("missing"),
         }
@@ -154,8 +162,12 @@ fn resolve_script(ctx: &ToolContext, file: &str) -> Result<PathBuf, String> {
         .collect();
     match matches.as_slice() {
         [one] => Ok(one.clone()),
-        [] => Err(format!("{file} does not exist in the workspace or in any enabled skill.")),
-        _ => Err(format!("Several skills have a file called {wanted}; use skill:<skill-id>/{wanted}.")),
+        [] => Err(format!(
+            "{file} does not exist in the workspace or in any enabled skill."
+        )),
+        _ => Err(format!(
+            "Several skills have a file called {wanted}; use skill:<skill-id>/{wanted}."
+        )),
     }
 }
 

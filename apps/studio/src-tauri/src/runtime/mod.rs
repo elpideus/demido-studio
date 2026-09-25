@@ -125,10 +125,10 @@ impl LocalRuntime {
 
     /// Returns the `/v1` base URL of a server running `spec`, starting one if needed.
     pub async fn ensure(&self, spec: &LaunchSpec) -> Result<String, String> {
-        let server = self
-            .server
-            .clone()
-            .ok_or_else(|| "The local AI runtime is not installed. Run the Demido Studio installer again, or pick a cloud model.".to_string())?;
+        let server = self.server.clone().ok_or_else(|| {
+            "The local AI runtime is not installed. Run the Demido Studio installer again, or pick a cloud model."
+                .to_string()
+        })?;
         if !spec.path.is_file() {
             return Err(format!("The model file is missing: {}", spec.path.display()));
         }
@@ -216,10 +216,10 @@ impl LocalRuntime {
 
     /// Synchronous best-effort kill for app shutdown.
     pub fn kill_now(&self) {
-        if let Ok(mut running) = self.running.try_lock() {
-            if let Some(r) = running.as_mut() {
-                let _ = r.child.start_kill();
-            }
+        if let Ok(mut running) = self.running.try_lock()
+            && let Some(r) = running.as_mut()
+        {
+            let _ = r.child.start_kill();
         }
     }
 
@@ -268,14 +268,18 @@ impl LocalRuntime {
             server.display(),
             args.join(" ")
         ));
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("could not start llama-server: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| format!("could not start llama-server: {e}"))?;
         job::adopt(&child);
 
         for stream in [
-            child.stdout.take().map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
-            child.stderr.take().map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+            child
+                .stdout
+                .take()
+                .map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+            child
+                .stderr
+                .take()
+                .map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
         ]
         .into_iter()
         .flatten()
@@ -284,11 +288,7 @@ impl LocalRuntime {
             let file = self.log_file.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stream).lines();
-                let mut out = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&file)
-                    .ok();
+                let mut out = std::fs::OpenOptions::new().create(true).append(true).open(&file).ok();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Some(f) = out.as_mut() {
                         let _ = writeln!(f, "{line}");
@@ -311,10 +311,10 @@ impl LocalRuntime {
                     self.explain_failure()
                 ));
             }
-            if let Ok(resp) = self.http.get(&health).send().await {
-                if resp.status().is_success() {
-                    return Ok((child, port));
-                }
+            if let Ok(resp) = self.http.get(&health).send().await
+                && resp.status().is_success()
+            {
+                return Ok((child, port));
             }
             if Instant::now() > deadline {
                 let _ = child.kill().await;
@@ -346,8 +346,7 @@ impl LocalRuntime {
             .join("\n")
             .to_ascii_lowercase();
         if joined.contains("out of memory") || joined.contains("failed to allocate") {
-            " The model does not fit in memory: pick a smaller model or lower its context length."
-                .into()
+            " The model does not fit in memory: pick a smaller model or lower its context length.".into()
         } else if joined.contains("unknown model architecture") {
             " This model's architecture is not supported by the installed runtime.".into()
         } else if joined.contains("failed to load model") || joined.contains("invalid") {

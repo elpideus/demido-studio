@@ -49,12 +49,19 @@ function normalize(request: Json): Normalized {
         const results = parts.filter((p) => p.functionResponse).map((p) => JSON.stringify(p.functionResponse));
         return { role: String(c.role), text, extra: [...calls, ...results].join('\n') || undefined };
       }),
-      tools: decls.map((d) => ({ name: String(d.name), description: String(d.description ?? ''), parameters: d.parameters })),
+      tools: decls.map((d) => ({
+        name: String(d.name),
+        description: String(d.description ?? ''),
+        parameters: d.parameters,
+      })),
       params: (request.generationConfig as Json) ?? {},
     };
   }
   const messages = (request.messages as Json[] | undefined) ?? [];
-  const system = messages.filter((m) => m.role === 'system').map((m) => String(m.content ?? '')).join('\n');
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => String(m.content ?? ''))
+    .join('\n');
   const { messages: _m, tools: _t, ...params } = request;
   return {
     system,
@@ -63,7 +70,11 @@ function normalize(request: Json): Normalized {
       .map((m) => ({
         role: String(m.role),
         text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
-        extra: m.tool_calls ? JSON.stringify(m.tool_calls, null, 2) : m.tool_call_id ? `result of ${String(m.tool_call_id)}` : undefined,
+        extra: m.tool_calls
+          ? JSON.stringify(m.tool_calls, null, 2)
+          : m.tool_call_id
+            ? `result of ${String(m.tool_call_id)}`
+            : undefined,
       })),
     tools: ((request.tools as Json[] | undefined) ?? []).map((t) => {
       const f = t.function as Json;
@@ -134,8 +145,14 @@ export function InspectorWindow({ win }: { win: WindowState }) {
               <Stat label="Prompt tokens" value={usage.promptTokens as number} />
               <Stat label="Reused from cache" value={(timings.cache_n as number) ?? (usage.cachedTokens as number)} />
               <Stat label="Answer tokens" value={usage.completionTokens as number} />
-              <Stat label="Tokens per second" value={timings.predicted_per_second ? Number(timings.predicted_per_second).toFixed(1) : null} />
-              <Stat label="Prompt tokens per second" value={timings.prompt_per_second ? Math.round(Number(timings.prompt_per_second)) : null} />
+              <Stat
+                label="Tokens per second"
+                value={timings.predicted_per_second ? Number(timings.predicted_per_second).toFixed(1) : null}
+              />
+              <Stat
+                label="Prompt tokens per second"
+                value={timings.prompt_per_second ? Math.round(Number(timings.prompt_per_second)) : null}
+              />
               <Stat label="Total time" value={trace.durationMs ? `${(trace.durationMs / 1000).toFixed(2)}s` : null} />
               <Stat label="Finish reason" value={response.finishReason as string} />
               <Stat label="Messages sent" value={view.messages.length} />

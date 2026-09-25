@@ -54,8 +54,7 @@ impl Db {
 
     pub fn traces_for_chat(&self, chat_id: &str) -> rusqlite::Result<Vec<Trace>> {
         self.with(|c| {
-            let mut stmt =
-                c.prepare("SELECT * FROM traces WHERE chat_id = ?1 ORDER BY created_at")?;
+            let mut stmt = c.prepare("SELECT * FROM traces WHERE chat_id = ?1 ORDER BY created_at")?;
             let rows = stmt.query_map([chat_id], row_to_trace)?;
             rows.collect()
         })

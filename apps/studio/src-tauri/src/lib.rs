@@ -83,10 +83,10 @@ fn build_state(app: &tauri::AppHandle, paths: AppPaths) -> anyhow::Result<Arc<Ap
 
     let settings = Arc::new(SettingsStore::load(paths.settings_file.clone()));
     let db = Arc::new(Db::open(&paths.db_file)?);
-    if let Ok(n) = db.close_dangling_messages() {
-        if n > 0 {
-            tracing::info!("closed {n} messages left streaming by the previous session");
-        }
+    if let Ok(n) = db.close_dangling_messages()
+        && n > 0
+    {
+        tracing::info!("closed {n} messages left streaming by the previous session");
     }
     let secrets = Arc::new(Secrets::default());
     let providers = Arc::new(ProviderStore::load(
@@ -283,12 +283,12 @@ pub fn run() {
         .expect("error while building Demido Studio");
 
     app.run(|handle, event| {
-        if let RunEvent::Exit = event {
-            if let Some(state) = handle.try_state::<Arc<AppState>>() {
-                state.agent.stop_all();
-                state.runtime.kill_now();
-                state.market.kill_now();
-            }
+        if let RunEvent::Exit = event
+            && let Some(state) = handle.try_state::<Arc<AppState>>()
+        {
+            state.agent.stop_all();
+            state.runtime.kill_now();
+            state.market.kill_now();
         }
     });
 }

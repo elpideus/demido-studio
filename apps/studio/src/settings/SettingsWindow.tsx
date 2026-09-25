@@ -20,7 +20,11 @@ export function SettingsWindow({ win }: { win: WindowState }) {
   const setProps = useWindows((s) => s.setProps);
   const tab = (TABS.some((t) => t.id === win.props.tab) ? win.props.tab : 'models') as SettingsTab;
   return (
-    <TabbedLayout tabs={TABS} active={tab} onChange={(id) => setProps(win.id, { tab: id, view: undefined, skill: undefined })}>
+    <TabbedLayout
+      tabs={TABS}
+      active={tab}
+      onChange={(id) => setProps(win.id, { tab: id, view: undefined, skill: undefined })}
+    >
       {tab === 'providers' && <ProvidersTab />}
       {tab === 'models' && <ModelsTab win={win} />}
       {tab === 'skills' && <SkillsTab win={win} />}

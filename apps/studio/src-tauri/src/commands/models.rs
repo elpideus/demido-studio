@@ -36,7 +36,10 @@ pub async fn rescan_models(state: St<'_>) -> CmdResult<Vec<ModelEntry>> {
 pub fn update_model(state: St<'_>, id: String, settings: ModelSettings) -> CmdResult<ModelEntry> {
     state.models.set_settings(&id, settings)?;
     changed(&state);
-    state.models.get(&id).ok_or_else(|| AppError::msg("That model is gone."))
+    state
+        .models
+        .get(&id)
+        .ok_or_else(|| AppError::msg("That model is gone."))
 }
 
 #[tauri::command]
@@ -46,7 +49,10 @@ pub fn import_model_avatar(state: St<'_>, id: String, source: String) -> CmdResu
     settings.avatar = Some(name);
     state.models.set_settings(&id, settings)?;
     changed(&state);
-    state.models.get(&id).ok_or_else(|| AppError::msg("That model is gone."))
+    state
+        .models
+        .get(&id)
+        .ok_or_else(|| AppError::msg("That model is gone."))
 }
 
 #[tauri::command]
@@ -77,7 +83,10 @@ pub fn runtime_logs(state: St<'_>) -> Vec<String> {
 /// Loads a local model ahead of the first message.
 #[tauri::command]
 pub async fn load_model(state: St<'_>, id: String) -> CmdResult<RuntimeStatus> {
-    let entry = state.models.get(&id).ok_or_else(|| AppError::msg("That model is gone."))?;
+    let entry = state
+        .models
+        .get(&id)
+        .ok_or_else(|| AppError::msg("That model is gone."))?;
     if entry.source != ModelSource::Local {
         return Ok(state.runtime.status());
     }
@@ -148,12 +157,7 @@ pub fn recommended_models(state: St<'_>) -> Vec<Recommendation> {
         return Vec::new();
     };
     let rec = demido_catalog::recommend_models(choice, catalog);
-    let installed: Vec<String> = state
-        .models
-        .list()
-        .into_iter()
-        .filter_map(|m| m.path)
-        .collect();
+    let installed: Vec<String> = state.models.list().into_iter().filter_map(|m| m.path).collect();
     rec.picks
         .into_iter()
         .filter_map(|(family, pick)| {
@@ -176,10 +180,7 @@ pub fn recommended_models(state: St<'_>) -> Vec<Recommendation> {
 
 #[tauri::command]
 pub fn download_model(state: St<'_>, spec: DownloadSpec) -> CmdResult<DownloadJob> {
-    state
-        .downloads
-        .enqueue(spec)
-        .map_err(|e| AppError::msg(e.to_string()))
+    state.downloads.enqueue(spec).map_err(|e| AppError::msg(e.to_string()))
 }
 
 #[tauri::command]
@@ -259,11 +260,14 @@ pub fn suggested_model_folders(state: St<'_>) -> Vec<String> {
         return Vec::new();
     };
     let current = state.settings.get().extra_model_dirs;
-    [home.join(".lmstudio").join("models"), home.join(".cache").join("lm-studio").join("models")]
-        .into_iter()
-        .filter(|p| p.is_dir() && !current.contains(p))
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect()
+    [
+        home.join(".lmstudio").join("models"),
+        home.join(".cache").join("lm-studio").join("models"),
+    ]
+    .into_iter()
+    .filter(|p| p.is_dir() && !current.contains(p))
+    .map(|p| p.to_string_lossy().into_owned())
+    .collect()
 }
 
 fn dirs_home() -> Option<PathBuf> {

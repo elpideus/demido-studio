@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Download, HardDrive } from 'lucide-react';
-import { Badge, SegmentedControl } from '@demido/ui';
+import { SegmentedControl } from '@demido/ui';
 
 import { useModels } from '@/stores/models';
 import { type WindowState, useWindows } from '@/stores/windows';
@@ -56,11 +56,6 @@ export function ModelsTab({ win }: { win: WindowState }) {
         <ModelList onEdit={setEditing} onDownload={() => setProps(win.id, { view: 'download' })} />
       ) : (
         <DownloadView />
-      )}
-      {active > 0 && view === 'installed' && (
-        <div className={s.muted} style={{ padding: '0 24px 12px' }}>
-          <Badge tone="info">{active} downloading</Badge>
-        </div>
       )}
     </div>
   );

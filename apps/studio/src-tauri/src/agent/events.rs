@@ -5,6 +5,10 @@ use crate::db::{Chat, Message};
 pub const CHAT_EVENT: &str = "chat://event";
 
 /// Everything the chat UI needs to follow a conversation live.
+///
+/// Events are serialized the moment they are created and never stored, so the size of the
+/// `Message` variant costs nothing worth boxing it for.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatEvent {
@@ -32,10 +36,7 @@ pub enum ChatEvent {
     #[serde(rename_all = "camelCase")]
     TurnStarted { chat_id: String },
     #[serde(rename_all = "camelCase")]
-    TurnFinished {
-        chat_id: String,
-        error: Option<String>,
-    },
+    TurnFinished { chat_id: String, error: Option<String> },
     /// Chat metadata changed (title, model, recency).
     Chat { chat: Chat },
     /// Something the person should notice (for example: sign in to TradingView).

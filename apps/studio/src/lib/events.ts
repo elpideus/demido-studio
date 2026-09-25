@@ -2,15 +2,7 @@
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-import type {
-  Bar,
-  ChatEvent,
-  DownloadJob,
-  MarketStatus,
-  ModelEntry,
-  RuntimeStatus,
-  Skill,
-} from './types';
+import type { Bar, ChatEvent, DownloadJob, MarketStatus, ModelEntry, RuntimeStatus, Skill } from './types';
 
 export type MarketEvent =
   | { event: 'stream.update'; params: { id: string; bar: Bar } }
@@ -28,9 +20,6 @@ interface EventMap {
   'market://event': MarketEvent;
 }
 
-export function on<K extends keyof EventMap>(
-  name: K,
-  handler: (payload: EventMap[K]) => void,
-): Promise<UnlistenFn> {
+export function on<K extends keyof EventMap>(name: K, handler: (payload: EventMap[K]) => void): Promise<UnlistenFn> {
   return listen<EventMap[K]>(name, (e) => handler(e.payload));
 }

@@ -147,7 +147,10 @@ const AssistantTurn = memo(function AssistantTurn({
   const assistants = messages.filter((m) => m.role === 'assistant');
   const tools = messages.filter((m) => m.role === 'tool');
   const lastAssistant = assistants[assistants.length - 1];
-  const finalText = assistants.map((m) => m.content).filter(Boolean).join('\n\n');
+  const finalText = assistants
+    .map((m) => m.content)
+    .filter(Boolean)
+    .join('\n\n');
   const name = model?.name ?? lastAssistant?.stats?.model ?? 'Assistant';
   const liveTurn = isLast && running;
 

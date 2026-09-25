@@ -216,7 +216,10 @@ impl ModelRegistry {
                     provider_name: Some(provider.name.clone()),
                     name: s.name.clone().unwrap_or_else(|| m.display_name.clone()),
                     default_name: m.display_name.clone(),
-                    description: s.description.clone().or_else(|| Some(m.description.clone()).filter(|d| !d.is_empty())),
+                    description: s
+                        .description
+                        .clone()
+                        .or_else(|| Some(m.description.clone()).filter(|d| !d.is_empty())),
                     avatar_path: self.avatar_path(&s),
                     enabled,
                     is_default: false,
@@ -256,7 +259,11 @@ impl ModelRegistry {
         models
             .iter()
             .filter(|m| m.enabled)
-            .find(|m| starter.as_ref().is_some_and(|p| m.path.as_deref() == Some(&*p.to_string_lossy())))
+            .find(|m| {
+                starter
+                    .as_ref()
+                    .is_some_and(|p| m.path.as_deref() == Some(&*p.to_string_lossy()))
+            })
             .or_else(|| models.iter().find(|m| m.enabled && m.source == ModelSource::Local))
             .or_else(|| models.iter().find(|m| m.enabled))
             .map(|m| m.id.clone())
@@ -279,7 +286,13 @@ impl ModelRegistry {
             .is_some_and(|a| a.starts_with("qwen3") || a.starts_with("qwen4"));
         let managed = self.managed_dirs().iter().any(|d| f.path.starts_with(d));
         ModelEntry {
-            effective: effective(&s, ModelSource::Local, f.info.architecture.as_deref(), Some(f), self.memory_budget_gb),
+            effective: effective(
+                &s,
+                ModelSource::Local,
+                f.info.architecture.as_deref(),
+                Some(f),
+                self.memory_budget_gb,
+            ),
             id: f.id.clone(),
             source: ModelSource::Local,
             provider_id: None,
@@ -321,10 +334,11 @@ impl ModelRegistry {
     pub fn set_settings(&self, id: &str, settings: ModelSettings) -> CmdResult<()> {
         let mut map = self.overrides.write();
         let previous_avatar = map.get(id).and_then(|s| s.avatar.clone());
-        if previous_avatar.is_some() && previous_avatar != settings.avatar {
-            if let Some(old) = previous_avatar {
-                let _ = std::fs::remove_file(self.paths.avatars_dir.join(old));
-            }
+        if previous_avatar.is_some()
+            && previous_avatar != settings.avatar
+            && let Some(old) = previous_avatar
+        {
+            let _ = std::fs::remove_file(self.paths.avatars_dir.join(old));
         }
         if settings == ModelSettings::default() {
             map.remove(id);
@@ -485,11 +499,15 @@ fn scan_file(root: &Path, path: &Path) -> Option<LocalFile> {
     let components: Vec<&str> = rel_str.split('/').collect();
     let repo = (components.len() >= 3).then(|| format!("{}/{}", components[0], components[1]));
     let mmproj = path.parent().and_then(|dir| {
-        std::fs::read_dir(dir).ok()?.filter_map(Result::ok).map(|e| e.path()).find(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.to_ascii_lowercase().contains("mmproj") && n.ends_with(".gguf"))
-        })
+        std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .find(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.to_ascii_lowercase().contains("mmproj") && n.ends_with(".gguf"))
+            })
     });
     Some(LocalFile {
         id: format!("local:{rel_str}"),
@@ -506,17 +524,12 @@ fn scan_file(root: &Path, path: &Path) -> Option<LocalFile> {
 
 /// `Qwen3.5-9B-UD-Q6_K_XL.gguf` → `Qwen 3.5 9B`.
 fn pretty_name(f: &LocalFile) -> String {
-    let raw = f
-        .info
-        .name
-        .clone()
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or_else(|| {
-            f.path
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default()
-        });
+    let raw = f.info.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
+        f.path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default()
+    });
     let mut name = raw.replace(['_', '-'], " ");
     if let Some(q) = &f.quant {
         name = name.replace(&q.replace(['_', '-'], " "), "");
@@ -596,8 +609,7 @@ fn effective(
 
 /// Gemini lists dozens of versions; only the stable families are on by default.
 fn default_enabled_gemini(models: &[crate::llm::gemini::GeminiModel]) -> Vec<String> {
-    let stable = regex::Regex::new(r"^gemini-(\d+(\.\d+)?-)?(pro|flash|flash-lite)(-latest)?$")
-        .expect("valid regex");
+    let stable = regex::Regex::new(r"^gemini-(\d+(\.\d+)?-)?(pro|flash|flash-lite)(-latest)?$").expect("valid regex");
     let picked: Vec<String> = models
         .iter()
         .filter(|m| stable.is_match(&m.id))
@@ -635,9 +647,15 @@ mod tests {
 
     #[test]
     fn pretty_names_read_well() {
-        assert_eq!(pretty_name(&file("Qwen3.5-9B-UD-Q6_K_XL.gguf", None, Some("UD-Q6_K_XL"))), "Qwen 3.5 9B");
+        assert_eq!(
+            pretty_name(&file("Qwen3.5-9B-UD-Q6_K_XL.gguf", None, Some("UD-Q6_K_XL"))),
+            "Qwen 3.5 9B"
+        );
         assert_eq!(pretty_name(&file("x.gguf", Some("Qwen3.5-9B"), None)), "Qwen 3.5 9B");
-        assert_eq!(pretty_name(&file("gemma-4-12B-it-qat-UD-Q4_K_XL.gguf", None, Some("UD-Q4_K_XL"))), "Gemma 4 12B QAT");
+        assert_eq!(
+            pretty_name(&file("gemma-4-12B-it-qat-UD-Q4_K_XL.gguf", None, Some("UD-Q4_K_XL"))),
+            "Gemma 4 12B QAT"
+        );
     }
 
     #[test]
@@ -653,10 +671,22 @@ mod tests {
     #[test]
     fn context_follows_memory_headroom_and_training() {
         let f = file("m.gguf", None, None);
-        let e = effective(&ModelSettings::default(), ModelSource::Local, Some("qwen35"), Some(&f), 12.0);
+        let e = effective(
+            &ModelSettings::default(),
+            ModelSource::Local,
+            Some("qwen35"),
+            Some(&f),
+            12.0,
+        );
         assert_eq!(e.context_length, Some(32768));
         assert_eq!(e.temperature, Some(0.6));
-        let e = effective(&ModelSettings::default(), ModelSource::Local, Some("qwen35"), Some(&f), 6.0);
+        let e = effective(
+            &ModelSettings::default(),
+            ModelSource::Local,
+            Some("qwen35"),
+            Some(&f),
+            6.0,
+        );
         assert_eq!(e.context_length, Some(8192));
         let custom = ModelSettings {
             context_length: Some(65536),

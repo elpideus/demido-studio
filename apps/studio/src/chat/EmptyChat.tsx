@@ -35,7 +35,11 @@ export function EmptyChat({ model, onSuggest }: Props) {
           Download a model to run privately on this computer, or connect Google Gemini with an API key.
         </p>
         <div className={styles.actions}>
-          <Button variant="primary" icon={Download} onClick={() => openWindow('settings', { tab: 'models', view: 'download' })}>
+          <Button
+            variant="primary"
+            icon={Download}
+            onClick={() => openWindow('settings', { tab: 'models', view: 'download' })}
+          >
             Download a model
           </Button>
           <Button variant="secondary" icon={Cloud} onClick={() => openWindow('settings', { tab: 'providers' })}>

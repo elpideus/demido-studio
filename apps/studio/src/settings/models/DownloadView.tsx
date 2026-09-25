@@ -38,7 +38,11 @@ import styles from './Models.module.css';
 const FIT: Record<Fit, { tone: 'accent' | 'warning' | 'danger' | 'neutral'; label: string; title: string }> = {
   fits: { tone: 'accent', label: 'Fits', title: 'Fits in your GPU memory with room for conversation' },
   tight: { tone: 'warning', label: 'Tight', title: 'Fits, but leaves little room for long conversations' },
-  large: { tone: 'danger', label: 'Too large', title: 'Larger than your GPU memory: it will run partly on the CPU and slowly' },
+  large: {
+    tone: 'danger',
+    label: 'Too large',
+    title: 'Larger than your GPU memory: it will run partly on the CPU and slowly',
+  },
   unknown: { tone: 'neutral', label: '', title: '' },
 };
 
@@ -61,7 +65,11 @@ function Jobs() {
       <h3 className={s.sectionTitle}>
         Downloads
         {finished && (
-          <Button size="sm" variant="ghost" onClick={() => void api.clearDownloads().then(useModels.getState().setDownloads)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void api.clearDownloads().then(useModels.getState().setDownloads)}
+          >
             Clear finished
           </Button>
         )}
@@ -84,22 +92,33 @@ function JobRow({ job }: { job: DownloadJob }) {
         <div className={s.rowMain}>
           <div className={s.rowTitle}>
             {job.name}
-            {job.state === 'done' && <Badge tone="accent" icon={CheckCircle2}>Ready</Badge>}
+            {job.state === 'done' && (
+              <Badge tone="accent" icon={CheckCircle2}>
+                Ready
+              </Badge>
+            )}
             {job.state === 'paused' && <Badge>Paused</Badge>}
             {job.state === 'queued' && <Badge>Waiting</Badge>}
             {job.state === 'failed' && <Badge tone="danger">Failed</Badge>}
           </div>
           <div className={s.rowMeta}>{job.repo}</div>
         </div>
-        {job.state === 'downloading' && <IconButton icon={Pause} label="Pause" size="sm" onClick={() => void api.pauseDownload(job.id)} />}
+        {job.state === 'downloading' && (
+          <IconButton icon={Pause} label="Pause" size="sm" onClick={() => void api.pauseDownload(job.id)} />
+        )}
         {(job.state === 'paused' || job.state === 'failed') && (
           <IconButton icon={Play} label="Resume" size="sm" onClick={() => void api.resumeDownload(job.id)} />
         )}
-        {job.state !== 'done' && <IconButton icon={X} label="Cancel and delete" size="sm" onClick={() => void api.cancelDownload(job.id)} />}
+        {job.state !== 'done' && (
+          <IconButton icon={X} label="Cancel and delete" size="sm" onClick={() => void api.cancelDownload(job.id)} />
+        )}
       </div>
       {job.state !== 'done' && (
         <>
-          <ProgressBar value={job.state === 'queued' ? null : fraction} tone={job.state === 'failed' ? 'danger' : 'accent'} />
+          <ProgressBar
+            value={job.state === 'queued' ? null : fraction}
+            tone={job.state === 'failed' ? 'danger' : 'accent'}
+          />
           <div className={styles.jobStats}>
             <span>
               {formatBytes(job.downloaded)} of {formatBytes(job.total)}
@@ -107,7 +126,7 @@ function JobRow({ job }: { job: DownloadJob }) {
             <span>
               {job.state === 'downloading' && job.bytesPerSecond > 0
                 ? `${formatBytes(job.bytesPerSecond)}/s · ${eta ? formatDuration(eta) : ''} left`
-                : job.error ?? ''}
+                : (job.error ?? '')}
             </span>
           </div>
         </>
@@ -129,7 +148,9 @@ function Recommended() {
       <h3 className={s.sectionTitle}>Recommended for this computer</h3>
       <div className={styles.recoGrid}>
         {recs.map((r) => {
-          const downloading = jobs.some((j) => j.repo === r.repo && j.name === r.file && j.state !== 'done' && j.state !== 'failed');
+          const downloading = jobs.some(
+            (j) => j.repo === r.repo && j.name === r.file && j.state !== 'done' && j.state !== 'failed',
+          );
           return (
             <div key={r.family} className={styles.reco}>
               <div className={styles.recoHead}>
@@ -199,7 +220,9 @@ function RepoFiles({ repo, onBack }: { repo: string; onBack: () => void }) {
           This repository needs you to accept its terms on Hugging Face and a token with access (below).
         </Notice>
       )}
-      {data && data.files.length === 0 && <EmptyState compact title="No GGUF files here" description="Pick another repository." />}
+      {data && data.files.length === 0 && (
+        <EmptyState compact title="No GGUF files here" description="Pick another repository." />
+      )}
       {data && data.files.length > 0 && (
         <div className={s.rows}>
           {data.files.map((f) => {
@@ -226,7 +249,12 @@ function RepoFiles({ repo, onBack }: { repo: string; onBack: () => void }) {
                   </div>
                 </div>
                 <span className={s.muted}>{formatBytes(f.size)}</span>
-                <Button size="sm" variant={f.recommended ? 'primary' : 'secondary'} icon={Download} onClick={() => void startDownload(repo, f)}>
+                <Button
+                  size="sm"
+                  variant={f.recommended ? 'primary' : 'secondary'}
+                  icon={Download}
+                  onClick={() => void startDownload(repo, f)}
+                >
                   Download
                 </Button>
               </div>
@@ -253,15 +281,23 @@ function HfToken() {
           description="Only needed for gated or private repositories. Stored in your system's credential manager."
         >
           <div className={styles.searchRow}>
-            <TextField icon={KeyRound} type="password" placeholder="hf_…" value={value} onChange={(e) => setValue(e.target.value)} />
+            <TextField
+              icon={KeyRound}
+              type="password"
+              placeholder="hf_…"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
             <Button
               variant="secondary"
               disabled={!value.trim()}
-              onClick={() => void api.setHfToken(value).then(() => {
-                setHas(true);
-                setValue('');
-                toast.success('Token saved');
-              })}
+              onClick={() =>
+                void api.setHfToken(value).then(() => {
+                  setHas(true);
+                  setValue('');
+                  toast.success('Token saved');
+                })
+              }
             >
               Save
             </Button>
@@ -315,16 +351,29 @@ export function DownloadView() {
               onChange={(e) => setQuery(e.target.value)}
               trailing={searching ? <Spinner size={14} /> : undefined}
             />
-            {results && results.length === 0 && <EmptyState compact title="No GGUF models found" description="Try a shorter name." />}
+            {results && results.length === 0 && (
+              <EmptyState compact title="No GGUF models found" description="Try a shorter name." />
+            )}
             {results && results.length > 0 && (
               <div className={s.rows} style={{ marginTop: 12 }}>
                 {results.map((r) => (
-                  <div key={r.id} className={`${s.row} ${s.rowButton}`} role="button" tabIndex={0} onClick={() => setRepo(r.id)} onKeyDown={(e) => e.key === 'Enter' && setRepo(r.id)}>
+                  <div
+                    key={r.id}
+                    className={`${s.row} ${s.rowButton}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setRepo(r.id)}
+                    onKeyDown={(e) => e.key === 'Enter' && setRepo(r.id)}
+                  >
                     <div className={s.rowMain}>
                       <div className={s.rowTitle}>
                         {r.id}
                         {r.preferred && (
-                          <Badge tone="accent" icon={BadgeCheck} title="Quantized by unsloth, Demido's preferred publisher">
+                          <Badge
+                            tone="accent"
+                            icon={BadgeCheck}
+                            title="Quantized by unsloth, Demido's preferred publisher"
+                          >
                             unsloth
                           </Badge>
                         )}

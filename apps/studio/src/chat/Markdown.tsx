@@ -11,6 +11,7 @@ import 'katex/dist/katex.min.css';
 
 import { fileUrl } from '@/lib/format';
 import styles from './Markdown.module.css';
+import { prepareMath } from './mathText';
 
 const remarkPlugins = [remarkGfm, remarkMath];
 const rehypePlugins: ComponentProps<typeof ReactMarkdown>['rehypePlugins'] = [
@@ -108,12 +109,8 @@ interface Props {
 export const Markdown = memo(function Markdown({ text, workspace = null, className }: Props) {
   return (
     <div className={cx(styles.md, 'selectable', className)}>
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-        components={makeComponents(workspace)}
-      >
-        {text}
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={makeComponents(workspace)}>
+        {prepareMath(text)}
       </ReactMarkdown>
     </div>
   );

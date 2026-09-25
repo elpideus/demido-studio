@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
+import { ArrowLeft, Blocks, Bot, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import {
-  ArrowLeft,
-  Blocks,
-  Bot,
-  FileText,
-  FolderOpen,
-  Pencil,
-  Plus,
-  Save,
-  Trash2,
-} from 'lucide-react';
-import { Badge, Button, Dialog, EmptyState, Field, Notice, Switch, TextArea, TextField, cx, formatBytes } from '@demido/ui';
+  Badge,
+  Button,
+  Dialog,
+  EmptyState,
+  Field,
+  Notice,
+  Switch,
+  TextArea,
+  TextField,
+  cx,
+  formatBytes,
+} from '@demido/ui';
 
 import { Markdown } from '@/chat/Markdown';
 import { api, errorText } from '@/lib/api';
@@ -22,7 +24,15 @@ import { type WindowState, useWindows } from '@/stores/windows';
 import s from '../settings.module.css';
 import styles from './Skills.module.css';
 
-function NewSkillDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (s: Skill) => void }) {
+function NewSkillDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (s: Skill) => void;
+}) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [instructions, setInstructions] = useState('');
@@ -54,7 +64,12 @@ function NewSkillDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" loading={busy} disabled={!name.trim() || !instructions.trim()} onClick={() => void create()}>
+          <Button
+            variant="primary"
+            loading={busy}
+            disabled={!name.trim() || !instructions.trim()}
+            onClick={() => void create()}
+          >
             Create
           </Button>
         </>
@@ -62,10 +77,22 @@ function NewSkillDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
     >
       <div className={s.stack}>
         <Field label="Name">
-          <TextField value={name} placeholder="Weekly market recap" onChange={(e) => setName(e.target.value)} autoFocus />
+          <TextField
+            value={name}
+            placeholder="Weekly market recap"
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
         </Field>
-        <Field label="When to use it" description="One sentence. The assistant reads this to decide when the skill applies.">
-          <TextField value={description} placeholder="When the user asks for a weekly recap of a market" onChange={(e) => setDescription(e.target.value)} />
+        <Field
+          label="When to use it"
+          description="One sentence. The assistant reads this to decide when the skill applies."
+        >
+          <TextField
+            value={description}
+            placeholder="When the user asks for a weekly recap of a market"
+            onChange={(e) => setDescription(e.target.value)}
+          />
         </Field>
         <Field label="Instructions" description="Markdown. Numbered steps work best.">
           <TextArea
@@ -185,7 +212,12 @@ function SkillDetail({ skill, onBack }: { skill: Skill; onBack: () => void }) {
           </div>
           <div className={styles.viewerBody}>
             {editing ? (
-              <textarea className={styles.editor} value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
+              <textarea
+                className={styles.editor}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                spellCheck={false}
+              />
             ) : content === null ? null : isMarkdown ? (
               <Markdown text={content} />
             ) : (
@@ -240,7 +272,8 @@ export function SkillsTab({ win }: { win: WindowState }) {
         <div className={s.headerText}>
           <h2 className={s.title}>Skills</h2>
           <p className={s.subtitle}>
-            Saved procedures the assistant follows when a request matches. Enabled skills are part of every conversation.
+            Saved procedures the assistant follows when a request matches. Enabled skills are part of every
+            conversation.
           </p>
         </div>
         <div className={s.headerActions}>
@@ -296,7 +329,12 @@ export function SkillsTab({ win }: { win: WindowState }) {
                   {sk.files.length} {sk.files.length === 1 ? 'file' : 'files'}
                 </span>
                 <div className={s.rowActions} onClick={(e) => e.stopPropagation()}>
-                  <Switch checked={sk.enabled} disabled={!!sk.problem} onChange={(v) => void toggle(sk.id, v)} label={sk.name} />
+                  <Switch
+                    checked={sk.enabled}
+                    disabled={!!sk.problem}
+                    onChange={(v) => void toggle(sk.id, v)}
+                    label={sk.name}
+                  />
                 </div>
               </div>
             ))}
@@ -308,7 +346,11 @@ export function SkillsTab({ win }: { win: WindowState }) {
           here immediately.
         </Notice>
       </div>
-      <NewSkillDialog open={creating} onClose={() => setCreating(false)} onCreated={(sk) => setProps(win.id, { skill: sk.id })} />
+      <NewSkillDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(sk) => setProps(win.id, { skill: sk.id })}
+      />
     </div>
   );
 }

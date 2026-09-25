@@ -85,7 +85,10 @@ pub fn read(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
     let shown: String = text.lines().take(max_lines).collect::<Vec<_>>().join("\n");
     let mut content = clip(&shown, MAX_READ);
     if total_lines > max_lines {
-        content.push_str(&format!("\n… {} more lines (file has {total_lines} lines).", total_lines - max_lines));
+        content.push_str(&format!(
+            "\n… {} more lines (file has {total_lines} lines).",
+            total_lines - max_lines
+        ));
     }
     Ok(ToolOutput::ok(
         content,
@@ -95,7 +98,9 @@ pub fn read(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
 
 pub fn write(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
     let rel = require_str(args, "path")?;
-    let content = args["content"].as_str().ok_or("The \"content\" argument is required.")?;
+    let content = args["content"]
+        .as_str()
+        .ok_or("The \"content\" argument is required.")?;
     let path = workspace_path(&ctx.workspace, rel)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

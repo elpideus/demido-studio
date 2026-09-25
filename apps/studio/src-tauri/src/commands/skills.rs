@@ -36,12 +36,7 @@ pub fn write_skill_file(state: St<'_>, id: String, path: String, content: String
 }
 
 #[tauri::command]
-pub fn create_skill(
-    state: St<'_>,
-    name: String,
-    description: String,
-    instructions: String,
-) -> CmdResult<Skill> {
+pub fn create_skill(state: St<'_>, name: String, description: String, instructions: String) -> CmdResult<Skill> {
     state
         .skills
         .create(&name, &description, &instructions, &[], None, false)

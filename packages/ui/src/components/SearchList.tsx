@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -46,8 +38,7 @@ export interface SearchListProps {
 }
 
 type Row =
-  | { kind: 'group'; key: string; label: string }
-  | { kind: 'item'; key: string; item: SearchListItem; index: number };
+  { kind: 'group'; key: string; label: string } | { kind: 'item'; key: string; item: SearchListItem; index: number };
 
 /**
  * A search box over a keyboard-navigable list, with an optional pinned footer action.
@@ -104,9 +95,7 @@ export function SearchList({
   }, [autoFocus]);
 
   useEffect(() => {
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-index="${active}"]`)
-      ?.scrollIntoView({ block: 'nearest' });
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active]);
 
   const choose = (index: number) => {
@@ -150,13 +139,7 @@ export function SearchList({
         />
       </div>
       {header}
-      <div
-        ref={listRef}
-        id={`${id}-list`}
-        role="listbox"
-        className={styles.list}
-        style={{ maxHeight: maxListHeight }}
-      >
+      <div ref={listRef} id={`${id}-list`} role="listbox" className={styles.list} style={{ maxHeight: maxListHeight }}>
         {rows.length === 0 && <div className={styles.empty}>{emptyText}</div>}
         {rows.map((row) =>
           row.kind === 'group' ? (
@@ -183,9 +166,7 @@ export function SearchList({
               {row.item.leading && <span className={styles.leading}>{row.item.leading}</span>}
               <span className={styles.text}>
                 <span className={styles.label}>{row.item.label}</span>
-                {row.item.description && (
-                  <span className={styles.description}>{row.item.description}</span>
-                )}
+                {row.item.description && <span className={styles.description}>{row.item.description}</span>}
               </span>
               {row.item.trailing && <span className={styles.trailing}>{row.item.trailing}</span>}
             </div>
@@ -208,9 +189,7 @@ export function SearchList({
             </span>
             <span className={styles.text}>
               <span className={styles.label}>{footer.label}</span>
-              {footer.description && (
-                <span className={styles.description}>{footer.description}</span>
-              )}
+              {footer.description && <span className={styles.description}>{footer.description}</span>}
             </span>
           </div>
         </div>

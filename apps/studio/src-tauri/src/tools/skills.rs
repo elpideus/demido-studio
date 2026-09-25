@@ -79,9 +79,16 @@ pub fn create(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         if files.iter().any(|(p, _)| p == &rel || p.ends_with(&format!("/{rel}"))) {
             continue;
         }
-        let Ok(path) = super::workspace_path(&ctx.workspace, &rel) else { continue };
-        let Ok(content) = std::fs::read_to_string(&path) else { continue };
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(rel.clone());
+        let Ok(path) = super::workspace_path(&ctx.workspace, &rel) else {
+            continue;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or(rel.clone());
         if files.iter().any(|(p, _)| p == &name) {
             continue;
         }
@@ -148,11 +155,7 @@ pub fn read(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         .find(key)
         .ok_or_else(|| format!("There is no skill called {key}."))?;
     let path = arg_str(args, "path").unwrap_or(crate::skills::ENTRY_FILE);
-    let text = ctx
-        .state
-        .skills
-        .read_file(&skill.id, path)
-        .map_err(|e| e.to_string())?;
+    let text = ctx.state.skills.read_file(&skill.id, path).map_err(|e| e.to_string())?;
     Ok(ToolOutput::ok(
         clip(&text, 40_000),
         json!({"kind": "skillFile", "id": skill.id, "name": skill.name, "path": path}),
@@ -183,9 +186,13 @@ fn referenced_workspace_files(workspace: &Path, text: &str) -> Vec<String> {
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
     {
-        let Some(name) = entry.file_name().to_str() else { continue };
+        let Some(name) = entry.file_name().to_str() else {
+            continue;
+        };
         let lower = name.to_ascii_lowercase();
-        let reusable = [".py", ".md", ".txt", ".json", ".yaml", ".yml"].iter().any(|ext| lower.ends_with(ext));
+        let reusable = [".py", ".md", ".txt", ".json", ".yaml", ".yml"]
+            .iter()
+            .any(|ext| lower.ends_with(ext));
         if !reusable || !text.contains(name) {
             continue;
         }

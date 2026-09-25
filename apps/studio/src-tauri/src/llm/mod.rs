@@ -70,7 +70,10 @@ pub enum StreamEvent {
     Content(String),
     Reasoning(String),
     /// A tool call started streaming; its arguments follow.
-    ToolCall { index: usize, name: String },
+    ToolCall {
+        index: usize,
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -125,6 +128,10 @@ pub enum LlmError {
     Cancelled,
     #[error("{0}")]
     Provider(String),
+    /// The provider lists the model but will not run it for this account (for example a
+    /// model retired for new API keys).
+    #[error("{0}")]
+    Unavailable(String),
     #[error("could not reach the model: {0}")]
     Network(String),
 }

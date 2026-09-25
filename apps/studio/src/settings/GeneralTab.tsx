@@ -17,7 +17,13 @@ function RuntimeLogs({ open, onClose }: { open: boolean; onClose: () => void }) 
     if (open) void api.runtimeLogs().then(setLines);
   }, [open]);
   return (
-    <Dialog open={open} onClose={onClose} title="Runtime log" description="The last lines llama-server printed." width={760}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Runtime log"
+      description="The last lines llama-server printed."
+      width={760}
+    >
       <pre className={styles.logs}>{lines.length ? lines.join('\n') : 'Nothing logged yet.'}</pre>
     </Dialog>
   );
@@ -111,7 +117,9 @@ export function GeneralTab() {
                 )}
                 <div className={s.rowMain}>
                   <div className={s.rowTitle}>{c.name}</div>
-                  <div className={s.rowMeta}>{c.installed ? (c.version ?? 'Installed') : 'Not installed: run the installer again to add it.'}</div>
+                  <div className={s.rowMeta}>
+                    {c.installed ? (c.version ?? 'Installed') : 'Not installed: run the installer again to add it.'}
+                  </div>
                 </div>
               </div>
             ))}
@@ -157,7 +165,10 @@ export function GeneralTab() {
                     label="Ask again"
                     size="sm"
                     onClick={() =>
-                      void api.revokeToolPermission(tool).then(() => useApp.getState().init(), (e) => toast.error('Could not update', errorText(e)))
+                      void api.revokeToolPermission(tool).then(
+                        () => useApp.getState().init(),
+                        (e) => toast.error('Could not update', errorText(e)),
+                      )
                     }
                   />
                 </div>
@@ -184,7 +195,12 @@ export function GeneralTab() {
                   <div className={s.rowTitle}>Installation</div>
                   <div className={`${s.rowMeta} ${s.mono}`}>{info.installDir}</div>
                 </div>
-                <Button size="sm" variant="secondary" icon={FolderOpen} onClick={() => void api.openPath(info.installDir!)}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={FolderOpen}
+                  onClick={() => void api.openPath(info.installDir!)}
+                >
                   Open
                 </Button>
               </div>
@@ -197,7 +213,9 @@ export function GeneralTab() {
           <div className={`${s.card} ${s.cardPad} ${styles.about}`}>
             <div>
               <div className={s.rowTitle}>Demido Studio {info.version}</div>
-              <div className={s.rowMeta}>Free software under the GNU GPL v3 or later.{info.dev ? ' Development build.' : ''}</div>
+              <div className={s.rowMeta}>
+                Free software under the GNU GPL v3 or later.{info.dev ? ' Development build.' : ''}
+              </div>
             </div>
             <Button size="sm" variant="ghost" icon={ShieldAlert} onClick={() => setNoticeOpen(true)}>
               Safety notice
@@ -207,10 +225,10 @@ export function GeneralTab() {
       </div>
       <RuntimeLogs open={logsOpen} onClose={() => setLogsOpen(false)} />
       <Dialog open={noticeOpen} onClose={() => setNoticeOpen(false)} title="Safety notice" width={520}>
-        Demido Studio is still under development. AI models can be wrong, misbehave, or be manipulated by content
-        they read (prompt injection) into doing things you did not ask for. Review what the assistant does, and only
-        allow code you are comfortable with. Nothing here is financial or other professional advice. The software is
-        provided as is, without warranty, and its author accepts no responsibility for any consequence of its use.
+        Demido Studio is still under development. AI models can be wrong, misbehave, or be manipulated by content they
+        read (prompt injection) into doing things you did not ask for. Review what the assistant does, and only allow
+        code you are comfortable with. Nothing here is financial or other professional advice. The software is provided
+        as is, without warranty, and its author accepts no responsibility for any consequence of its use.
       </Dialog>
     </div>
   );

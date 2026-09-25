@@ -32,14 +32,14 @@ pub enum LoginState {
 /// settles when the flow ends.
 pub async fn begin(service: &Arc<MarketService>) -> Result<watch::Receiver<LoginState>, String> {
     let mut slot = service.login.lock().await;
-    if let Some(rx) = slot.as_ref() {
-        if *rx.borrow() == LoginState::Waiting {
-            if let Some(w) = service.app().get_webview_window(WINDOW_LABEL) {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-            return Ok(rx.clone());
+    if let Some(rx) = slot.as_ref()
+        && *rx.borrow() == LoginState::Waiting
+    {
+        if let Some(w) = service.app().get_webview_window(WINDOW_LABEL) {
+            let _ = w.unminimize();
+            let _ = w.set_focus();
         }
+        return Ok(rx.clone());
     }
 
     let app = service.app().clone();

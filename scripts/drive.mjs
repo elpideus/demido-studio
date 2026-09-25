@@ -30,7 +30,7 @@ async function pickTarget() {
   const pages = list.filter((t) => t.type === 'page');
   const match = targetMatch
     ? pages.find((t) => t.url.includes(targetMatch))
-    : pages.find((t) => /localhost:1420|tauri\.localhost|tauri:\/\//.test(t.url)) ?? pages[0];
+    : (pages.find((t) => /localhost:1420|tauri\.localhost|tauri:\/\//.test(t.url)) ?? pages[0]);
   if (!match) throw new Error(`no page target on port ${port}: ${pages.map((p) => p.url).join(', ')}`);
   return match;
 }
@@ -121,7 +121,9 @@ for (let i = 0; i < args.length; i += 1) {
       await mouse('mousePressed', start.x, start.y);
       const steps = 12;
       for (let s = 1; s <= steps; s += 1) {
-        await mouse('mouseMoved', start.x + ((tx - start.x) * s) / steps, start.y + ((ty - start.y) * s) / steps, { buttons: 1 });
+        await mouse('mouseMoved', start.x + ((tx - start.x) * s) / steps, start.y + ((ty - start.y) * s) / steps, {
+          buttons: 1,
+        });
       }
       await mouse('mouseReleased', tx, ty);
       break;
@@ -132,7 +134,12 @@ for (let i = 0; i < args.length; i += 1) {
     case '--key': {
       const key = next();
       const code = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowDown: 40, ArrowUp: 38 }[key] ?? 0;
-      await send('Input.dispatchKeyEvent', { type: 'keyDown', key, windowsVirtualKeyCode: code, text: key === 'Enter' ? '\r' : undefined });
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key,
+        windowsVirtualKeyCode: code,
+        text: key === 'Enter' ? '\r' : undefined,
+      });
       await send('Input.dispatchKeyEvent', { type: 'keyUp', key, windowsVirtualKeyCode: code });
       break;
     }

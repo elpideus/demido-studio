@@ -117,7 +117,10 @@ pub fn history(messages: &[Message], budget_tokens: usize) -> Vec<LlmMessage> {
                 }
                 let reasoning = if i > last_user { m.reasoning.clone() } else { None };
                 let tokens = estimate_tokens(&m.content)
-                    + m.tool_calls.iter().map(|c| estimate_tokens(&c.arguments) + 8).sum::<usize>();
+                    + m.tool_calls
+                        .iter()
+                        .map(|c| estimate_tokens(&c.arguments) + 8)
+                        .sum::<usize>();
                 converted.push((
                     turn,
                     LlmMessage::Assistant {
@@ -142,7 +145,9 @@ pub fn history(messages: &[Message], budget_tokens: usize) -> Vec<LlmMessage> {
                 }
             }
             Role::Tool => {
-                let Some(call_id) = m.tool_call_id.clone() else { continue };
+                let Some(call_id) = m.tool_call_id.clone() else {
+                    continue;
+                };
                 // Older tool output is shortened: the model already acted on it.
                 let limit = if i >= recent_from { 12_000 } else { 1_500 };
                 let content = if m.content.is_empty() {
@@ -176,12 +181,11 @@ pub fn history(messages: &[Message], budget_tokens: usize) -> Vec<LlmMessage> {
         .filter(|c| c.0 > drop_until)
         .map(|c| c.1)
         .collect();
-    if drop_until > 0 {
-        if let Some(LlmMessage::User { content }) = out.first_mut() {
-            *content = format!(
-                "(Earlier parts of this conversation were left out to fit the context window.)\n\n{content}"
-            );
-        }
+    if drop_until > 0
+        && let Some(LlmMessage::User { content }) = out.first_mut()
+    {
+        *content =
+            format!("(Earlier parts of this conversation were left out to fit the context window.)\n\n{content}");
     }
     out
 }
@@ -194,11 +198,7 @@ fn recent_turn_start(messages: &[Message]) -> usize {
         .filter(|(_, m)| m.role == Role::User)
         .map(|(i, _)| i)
         .collect();
-    if users.len() >= 2 {
-        users[users.len() - 2]
-    } else {
-        0
-    }
+    if users.len() >= 2 { users[users.len() - 2] } else { 0 }
 }
 
 #[cfg(test)]
@@ -234,7 +234,9 @@ mod tests {
             msg(Role::User, "third"),
         ];
         let h = history(&messages, 500);
-        assert!(matches!(&h[0], LlmMessage::User { content } if content.contains("left out") && content.ends_with("second")));
+        assert!(
+            matches!(&h[0], LlmMessage::User { content } if content.contains("left out") && content.ends_with("second"))
+        );
         assert_eq!(h.len(), 3);
     }
 

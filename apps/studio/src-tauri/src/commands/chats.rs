@@ -14,12 +14,7 @@ pub fn get_messages(state: St<'_>, chat_id: String) -> CmdResult<Vec<Message>> {
 }
 
 #[tauri::command]
-pub fn send_message(
-    state: St<'_>,
-    chat_id: Option<String>,
-    text: String,
-    model_id: String,
-) -> CmdResult<SendResult> {
+pub fn send_message(state: St<'_>, chat_id: Option<String>, text: String, model_id: String) -> CmdResult<SendResult> {
     Agent::send(&state, chat_id, text, model_id)
 }
 

@@ -42,7 +42,9 @@ export function ModelPicker({ model, onPick }: Props) {
           leading: <Avatar name={m.name} src={fileUrl(m.avatarPath)} size={26} />,
           trailing: (
             <>
-              {runtime?.state === 'ready' && runtime.modelId === m.id && <span className={styles.loadedTag}>Loaded</span>}
+              {runtime?.state === 'ready' && runtime.modelId === m.id && (
+                <span className={styles.loadedTag}>Loaded</span>
+              )}
               {m.source !== 'local' && <Cloud size={13} aria-hidden />}
               {m.id === model?.id && <Check size={15} className={styles.checkIcon} aria-label="Selected" />}
             </>
@@ -70,7 +72,14 @@ export function ModelPicker({ model, onPick }: Props) {
         <span className={styles.chipLabel}>{model?.name ?? 'Choose a model'}</span>
         <ChevronDown size={14} aria-hidden />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchor} placement="top-start" width={380} aria-label="Models">
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={anchor}
+        placement="top-start"
+        width={380}
+        aria-label="Models"
+      >
         <SearchList
           items={items}
           selectedId={model?.id}

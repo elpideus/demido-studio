@@ -83,7 +83,12 @@ export function ChatView() {
         )}
       </div>
       {showJump && (
-        <button type="button" className={styles.jump} onClick={() => scrollToBottom(true)} aria-label="Jump to the latest message">
+        <button
+          type="button"
+          className={styles.jump}
+          onClick={() => scrollToBottom(true)}
+          aria-label="Jump to the latest message"
+        >
           <ArrowDown size={16} aria-hidden />
         </button>
       )}

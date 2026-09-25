@@ -14,8 +14,25 @@ import styles from './MarketWindow.module.css';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'] as const;
 type Tf = (typeof TIMEFRAMES)[number];
-const TF_SECONDS: Record<Tf, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1w': 604800 };
-const POPULAR = ['FX:EURUSD', 'OANDA:XAUUSD', 'BINANCE:BTCUSDT', 'SP:SPX', 'NASDAQ:NDX', 'NASDAQ:AAPL', 'NASDAQ:NVDA', 'FX:GBPUSD'];
+const TF_SECONDS: Record<Tf, number> = {
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '1h': 3600,
+  '4h': 14400,
+  '1d': 86400,
+  '1w': 604800,
+};
+const POPULAR = [
+  'FX:EURUSD',
+  'OANDA:XAUUSD',
+  'BINANCE:BTCUSDT',
+  'SP:SPX',
+  'NASDAQ:NDX',
+  'NASDAQ:AAPL',
+  'NASDAQ:NVDA',
+  'FX:GBPUSD',
+];
 
 type Mode = 'loading' | 'live' | 'history' | 'signin' | 'error';
 
@@ -64,10 +81,26 @@ function SymbolSearch({ onPick }: { onPick: (symbol: string) => void }) {
         }}
         trailing={busy ? <Spinner size={12} /> : undefined}
       />
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchor} placement="bottom-start" width={380} maxHeight={380}>
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={anchor}
+        placement="bottom-start"
+        width={380}
+        maxHeight={380}
+      >
         <div className={styles.results}>
           {!query.trim() && <div className={styles.resultsTitle}>Popular</div>}
-          {(query.trim() ? results : POPULAR.map((p) => ({ symbol: p, ticker: p.split(':')[1] ?? p, description: '', exchange: p.split(':')[0] ?? '', type: '' })))
+          {(query.trim()
+            ? results
+            : POPULAR.map((p) => ({
+                symbol: p,
+                ticker: p.split(':')[1] ?? p,
+                description: '',
+                exchange: p.split(':')[0] ?? '',
+                type: '',
+              }))
+          )
             .slice(0, 14)
             .map((r) => (
               <button key={r.symbol} type="button" className={styles.result} onClick={() => pick(r.symbol)}>
@@ -76,7 +109,9 @@ function SymbolSearch({ onPick }: { onPick: (symbol: string) => void }) {
                 <span className={styles.resultMeta}>{r.type || r.exchange}</span>
               </button>
             ))}
-          {query.trim() && !busy && results.length === 0 && <div className={styles.resultsEmpty}>No symbols match.</div>}
+          {query.trim() && !busy && results.length === 0 && (
+            <div className={styles.resultsEmpty}>No symbols match.</div>
+          )}
         </div>
       </Popover>
     </div>
@@ -157,7 +192,10 @@ export function MarketWindow({ win }: { win: WindowState }) {
         earliest.current = res.bars[0]?.t ?? null;
         setLast(res.bars[res.bars.length - 1] ?? null);
         setMode('live');
-        api.marketQuote([symbol]).then(([q]) => !cancelled && q && !q.error && setQuote(q), () => undefined);
+        api.marketQuote([symbol]).then(
+          ([q]) => !cancelled && q && !q.error && setQuote(q),
+          () => undefined,
+        );
         return;
       }
       const resolved = await api.marketResolveDukascopy(symbol).catch(() => null);
@@ -215,7 +253,12 @@ export function MarketWindow({ win }: { win: WindowState }) {
       } else if (dukascopy.current) {
         const to = new Date(earliest.current * 1000);
         const from = new Date(to.getTime() - TF_SECONDS[timeframe] * 500 * 1000);
-        const res = await api.marketHistory(dukascopy.current, timeframe, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10));
+        const res = await api.marketHistory(
+          dukascopy.current,
+          timeframe,
+          from.toISOString().slice(0, 10),
+          to.toISOString().slice(0, 10),
+        );
         older = res.bars.filter((b) => b.t < earliest.current!);
         exhausted.current = older.length === 0;
       }
@@ -252,7 +295,10 @@ export function MarketWindow({ win }: { win: WindowState }) {
           </span>
         )}
         {mode === 'history' && (
-          <span className={styles.status} title="Historical data from Dukascopy. Sign in to TradingView for live prices.">
+          <span
+            className={styles.status}
+            title="Historical data from Dukascopy. Sign in to TradingView for live prices."
+          >
             <History size={13} aria-hidden /> History · Dukascopy
           </span>
         )}
@@ -269,7 +315,9 @@ export function MarketWindow({ win }: { win: WindowState }) {
           <div className={styles.priceBlock}>
             <div className={styles.price}>{formatPrice(price, pricescale)}</div>
             {change !== undefined && (
-              <div className={cx(styles.change, change >= 0 ? styles.up : styles.down)}>{formatPercent(change)} today</div>
+              <div className={cx(styles.change, change >= 0 ? styles.up : styles.down)}>
+                {formatPercent(change)} today
+              </div>
             )}
           </div>
         )}
@@ -288,7 +336,12 @@ export function MarketWindow({ win }: { win: WindowState }) {
               title="Sign in to TradingView to see this market"
               description="Live data comes from your TradingView account. Forex, metals, indices and large US stocks also have free history from Dukascopy."
               action={
-                <Button variant="primary" icon={LogIn} loading={status?.loginPending} onClick={() => void useMarket.getState().login()}>
+                <Button
+                  variant="primary"
+                  icon={LogIn}
+                  loading={status?.loginPending}
+                  onClick={() => void useMarket.getState().login()}
+                >
                   Sign in
                 </Button>
               }
@@ -312,7 +365,13 @@ export function MarketWindow({ win }: { win: WindowState }) {
       {mode === 'history' && status?.available && (
         <div className={styles.banner}>
           Showing history from Dukascopy. Sign in to TradingView for live prices.
-          <Button size="sm" variant="primary" icon={LogIn} loading={status.loginPending} onClick={() => void useMarket.getState().login()}>
+          <Button
+            size="sm"
+            variant="primary"
+            icon={LogIn}
+            loading={status.loginPending}
+            onClick={() => void useMarket.getState().login()}
+          >
             Sign in
           </Button>
         </div>

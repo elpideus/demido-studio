@@ -155,8 +155,7 @@ export const useWindows = create<WindowsStore>((set, get) => ({
     const win = windows.find((w) => w.id === id);
     if (win) remembered[win.kind] = { rect: win.rect, dockWidth: win.dockWidth };
     const rest = windows.filter((w) => w.id !== id);
-    const nextFocus =
-      focusedId === id ? ([...rest].sort((a, b) => b.z - a.z)[0]?.id ?? null) : focusedId;
+    const nextFocus = focusedId === id ? ([...rest].sort((a, b) => b.z - a.z)[0]?.id ?? null) : focusedId;
     set({ windows: rest, focusedId: nextFocus });
   },
 
@@ -238,7 +237,14 @@ export const useWindows = create<WindowsStore>((set, get) => ({
     set(({ windows, bounds }) => ({
       windows: windows.map((w) =>
         w.id === id && w.side
-          ? { ...w, dockWidth: clampDockWidth(width, bounds, otherDockWidth(windows, w.side === 'left' ? 'right' : 'left', id)) }
+          ? {
+              ...w,
+              dockWidth: clampDockWidth(
+                width,
+                bounds,
+                otherDockWidth(windows, w.side === 'left' ? 'right' : 'left', id),
+              ),
+            }
           : w,
       ),
     })),

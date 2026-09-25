@@ -5,7 +5,7 @@ import { Avatar, Badge, Button, Field, Select, Slider, Switch, TextArea, TextFie
 
 import { api, errorText } from '@/lib/api';
 import { fileUrl } from '@/lib/format';
-import type { ModelEntry, ModelSettings } from '@/lib/types';
+import type { ModelSettings } from '@/lib/types';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
@@ -13,12 +13,50 @@ import styles from './Models.module.css';
 
 type NumKey = 'temperature' | 'topP' | 'topK' | 'minP' | 'repeatPenalty';
 
-const PARAMS: Array<{ key: NumKey; label: string; hint: string; min: number; max: number; step: number; local?: boolean }> = [
-  { key: 'temperature', label: 'Temperature', hint: 'Higher is more creative, lower more focused', min: 0, max: 2, step: 0.05 },
-  { key: 'topP', label: 'Top P', hint: 'Keeps the most likely words that add up to this share', min: 0, max: 1, step: 0.01 },
+const PARAMS: Array<{
+  key: NumKey;
+  label: string;
+  hint: string;
+  min: number;
+  max: number;
+  step: number;
+  local?: boolean;
+}> = [
+  {
+    key: 'temperature',
+    label: 'Temperature',
+    hint: 'Higher is more creative, lower more focused',
+    min: 0,
+    max: 2,
+    step: 0.05,
+  },
+  {
+    key: 'topP',
+    label: 'Top P',
+    hint: 'Keeps the most likely words that add up to this share',
+    min: 0,
+    max: 1,
+    step: 0.01,
+  },
   { key: 'topK', label: 'Top K', hint: 'Considers only this many candidate words', min: 0, max: 200, step: 1 },
-  { key: 'minP', label: 'Min P', hint: 'Drops words far less likely than the best one', min: 0, max: 1, step: 0.01, local: true },
-  { key: 'repeatPenalty', label: 'Repeat penalty', hint: 'Discourages repeating the same words', min: 1, max: 2, step: 0.01, local: true },
+  {
+    key: 'minP',
+    label: 'Min P',
+    hint: 'Drops words far less likely than the best one',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    local: true,
+  },
+  {
+    key: 'repeatPenalty',
+    label: 'Repeat penalty',
+    hint: 'Discourages repeating the same words',
+    min: 1,
+    max: 2,
+    step: 0.01,
+    local: true,
+  },
 ];
 
 const CONTEXTS = [4096, 8192, 16384, 24576, 32768, 49152, 65536, 98304, 131072, 196608, 262144];
@@ -77,12 +115,14 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (model) setDraft(model.settings);
     // Reset only when switching models, not on every refresh of the list.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (model) setDraft(model.settings);
   }, [id]);
 
-  const dirty = useMemo(() => JSON.stringify(normalize(draft)) !== JSON.stringify(normalize(model?.settings ?? {})), [draft, model]);
+  const dirty = useMemo(
+    () => JSON.stringify(normalize(draft)) !== JSON.stringify(normalize(model?.settings ?? {})),
+    [draft, model],
+  );
 
   if (!model) {
     return (
@@ -135,14 +175,28 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
             <ArrowLeft size={14} aria-hidden /> Models
           </button>
           <div className={styles.editorHead}>
-            <button type="button" className={styles.avatarButton} onClick={() => void pickAvatar()} aria-label="Change picture">
+            <button
+              type="button"
+              className={styles.avatarButton}
+              onClick={() => void pickAvatar()}
+              aria-label="Change picture"
+            >
               <Avatar name={draft.name || model.defaultName} src={fileUrl(model.avatarPath)} size={52} />
             </button>
             <div>
               <h2 className={s.title}>{draft.name || model.defaultName}</h2>
               <p className={s.subtitle}>
-                {local ? [model.parameters, model.quant, model.size ? formatBytes(model.size) : null].filter(Boolean).join(' · ') : model.providerName}
-                {model.isDefault && <> · <Badge tone="accent">Default</Badge></>}
+                {local
+                  ? [model.parameters, model.quant, model.size ? formatBytes(model.size) : null]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : model.providerName}
+                {model.isDefault && (
+                  <>
+                    {' '}
+                    · <Badge tone="accent">Default</Badge>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -158,7 +212,11 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
           <div className={`${s.card} ${s.cardPad} ${s.stack}`}>
             <div className={s.grid2}>
               <Field label="Name">
-                <TextField value={draft.name ?? ''} placeholder={model.defaultName} onChange={(e) => set({ name: e.target.value || null })} />
+                <TextField
+                  value={draft.name ?? ''}
+                  placeholder={model.defaultName}
+                  onChange={(e) => set({ name: e.target.value || null })}
+                />
               </Field>
               <Field label="Picture">
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -174,7 +232,11 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
               </Field>
             </div>
             <Field label="Description" description="A note for yourself, shown nowhere else.">
-              <TextField value={draft.description ?? ''} placeholder="Optional" onChange={(e) => set({ description: e.target.value || null })} />
+              <TextField
+                value={draft.description ?? ''}
+                placeholder="Optional"
+                onChange={(e) => set({ description: e.target.value || null })}
+              />
             </Field>
           </div>
         </section>
@@ -182,7 +244,10 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
         <section className={s.section}>
           <h3 className={s.sectionTitle}>Instructions</h3>
           <div className={`${s.card} ${s.cardPad}`}>
-            <Field label="System prompt" description="Added to every conversation with this model: its role, tone, or rules to follow.">
+            <Field
+              label="System prompt"
+              description="Added to every conversation with this model: its role, tone, or rules to follow."
+            >
               <TextArea
                 autoSize={{ min: 4, max: 16 }}
                 value={draft.systemPrompt ?? ''}
@@ -215,7 +280,11 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
                 label="Think before answering"
                 description="Slower, but better at multi-step problems. The thinking is shown collapsed above the answer."
               >
-                <Switch checked={draft.thinking ?? model.effective.thinking ?? true} onChange={(v) => set({ thinking: v })} label="Thinking" />
+                <Switch
+                  checked={draft.thinking ?? model.effective.thinking ?? true}
+                  onChange={(v) => set({ thinking: v })}
+                  label="Thinking"
+                />
               </Field>
             )}
           </div>
@@ -253,7 +322,9 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
                     min={0}
                     value={draft.gpuLayers ?? ''}
                     placeholder="Auto"
-                    onChange={(e) => set({ gpuLayers: e.target.value === '' ? null : Math.max(0, Number(e.target.value)) })}
+                    onChange={(e) =>
+                      set({ gpuLayers: e.target.value === '' ? null : Math.max(0, Number(e.target.value)) })
+                    }
                   />
                 </Field>
               )}
@@ -287,7 +358,11 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
       </div>
 
       <div className={styles.footerBar}>
-        <Button variant="ghost" icon={RotateCcw} onClick={() => void save({ enabled: draft.enabled, avatar: draft.avatar })}>
+        <Button
+          variant="ghost"
+          icon={RotateCcw}
+          onClick={() => void save({ enabled: draft.enabled, avatar: draft.avatar })}
+        >
           Restore defaults
         </Button>
         <span className={styles.flex} />
@@ -309,5 +384,3 @@ function normalize(s: ModelSettings): ModelSettings {
     Object.entries(s).filter(([, v]) => v !== null && v !== undefined && v !== ''),
   ) as ModelSettings;
 }
-
-export type { ModelEntry };

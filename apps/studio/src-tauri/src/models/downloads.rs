@@ -102,9 +102,10 @@ impl DownloadManager {
     pub fn enqueue(self: &Arc<Self>, spec: DownloadSpec) -> anyhow::Result<DownloadJob> {
         anyhow::ensure!(!spec.paths.is_empty(), "nothing to download");
         let mut entries = self.entries.lock();
-        if let Some(existing) = entries.iter().find(|e| {
-            e.spec.repo == spec.repo && e.spec.paths == spec.paths && e.job.state != JobState::Failed
-        }) {
+        if let Some(existing) = entries
+            .iter()
+            .find(|e| e.spec.repo == spec.repo && e.spec.paths == spec.paths && e.job.state != JobState::Failed)
+        {
             return Ok(existing.job.clone());
         }
         let job = DownloadJob {
@@ -257,14 +258,14 @@ impl DownloadManager {
     pub fn resume(self: &Arc<Self>, id: &str) {
         {
             let mut entries = self.entries.lock();
-            if let Some(e) = entries.iter_mut().find(|e| e.job.id == id) {
-                if matches!(e.job.state, JobState::Paused | JobState::Failed) {
-                    e.job.state = JobState::Queued;
-                    e.job.error = None;
-                    let job = e.job.clone();
-                    drop(entries);
-                    self.emit(&job);
-                }
+            if let Some(e) = entries.iter_mut().find(|e| e.job.id == id)
+                && matches!(e.job.state, JobState::Paused | JobState::Failed)
+            {
+                e.job.state = JobState::Queued;
+                e.job.error = None;
+                let job = e.job.clone();
+                drop(entries);
+                self.emit(&job);
             }
         }
         self.pump();
@@ -297,14 +298,18 @@ impl DownloadManager {
 
     /// Removes finished jobs from the list.
     pub fn clear_finished(&self) {
-        self.entries
-            .lock()
-            .retain(|e| !matches!(e.job.state, JobState::Done));
+        self.entries.lock().retain(|e| !matches!(e.job.state, JobState::Done));
     }
 }
 
 fn sanitize(part: &str) -> String {
     part.chars()
-        .map(|c| if c.is_alphanumeric() || "._-+".contains(c) { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || "._-+".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }

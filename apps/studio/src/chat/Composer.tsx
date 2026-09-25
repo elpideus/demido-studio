@@ -83,7 +83,14 @@ export function Composer({ chatId, model, prefill }: Props) {
           <ToolsPicker />
           <span className={styles.spacer} />
           {running ? (
-            <IconButton icon={Square} label="Stop" variant="solid" size="md" className={styles.stop} onClick={() => void stop()} />
+            <IconButton
+              icon={Square}
+              label="Stop"
+              variant="solid"
+              size="md"
+              className={styles.stop}
+              onClick={() => void stop()}
+            />
           ) : (
             <IconButton
               icon={ArrowUp}

@@ -16,9 +16,7 @@ fn row_to_chat(r: &Row<'_>) -> rusqlite::Result<Chat> {
 impl Db {
     pub fn list_chats(&self) -> rusqlite::Result<Vec<Chat>> {
         self.with(|c| {
-            let mut stmt = c.prepare(
-                "SELECT * FROM chats ORDER BY pinned DESC, updated_at DESC LIMIT 500",
-            )?;
+            let mut stmt = c.prepare("SELECT * FROM chats ORDER BY pinned DESC, updated_at DESC LIMIT 500")?;
             let rows = stmt.query_map([], row_to_chat)?;
             rows.collect()
         })
@@ -52,22 +50,12 @@ impl Db {
     }
 
     pub fn rename_chat(&self, id: &str, title: &str) -> rusqlite::Result<()> {
-        self.with(|c| {
-            c.execute(
-                "UPDATE chats SET title = ?2 WHERE id = ?1",
-                params![id, title],
-            )
-        })?;
+        self.with(|c| c.execute("UPDATE chats SET title = ?2 WHERE id = ?1", params![id, title]))?;
         Ok(())
     }
 
     pub fn set_chat_pinned(&self, id: &str, pinned: bool) -> rusqlite::Result<()> {
-        self.with(|c| {
-            c.execute(
-                "UPDATE chats SET pinned = ?2 WHERE id = ?1",
-                params![id, pinned as i64],
-            )
-        })?;
+        self.with(|c| c.execute("UPDATE chats SET pinned = ?2 WHERE id = ?1", params![id, pinned as i64]))?;
         Ok(())
     }
 

@@ -18,12 +18,18 @@ const bounds = { w: 1400, h: 900 };
 
 describe('placement', () => {
   it('draws maximized windows over the whole desktop', () => {
-    const r = displayRect({ mode: 'maximized', side: null, rect: { x: 5, y: 5, w: 400, h: 300 }, dockWidth: 400 }, bounds);
+    const r = displayRect(
+      { mode: 'maximized', side: null, rect: { x: 5, y: 5, w: 400, h: 300 }, dockWidth: 400 },
+      bounds,
+    );
     expect(r).toEqual({ x: 0, y: 0, w: 1400, h: 900 });
   });
 
   it('docks to a side with the island gap', () => {
-    const r = displayRect({ mode: 'docked', side: 'right', rect: { x: 5, y: 5, w: 400, h: 300 }, dockWidth: 500 }, bounds);
+    const r = displayRect(
+      { mode: 'docked', side: 'right', rect: { x: 5, y: 5, w: 400, h: 300 }, dockWidth: 500 },
+      bounds,
+    );
     expect(r).toEqual({ x: 1400 - 500 - GAP, y: GAP, w: 500, h: 900 - 2 * GAP });
   });
 

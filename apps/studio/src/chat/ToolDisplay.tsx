@@ -2,7 +2,15 @@
 // its `kind` picks the renderer here.
 
 import { useState } from 'react';
-import { ExternalLink, FileImage, FileSpreadsheet, FileText, FolderOpen, Sparkles, File as FileIcon } from 'lucide-react';
+import {
+  ExternalLink,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FolderOpen,
+  Sparkles,
+  File as FileIcon,
+} from 'lucide-react';
 import { Button, cx, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
@@ -22,7 +30,8 @@ function openFile(path: string, reveal = false) {
 }
 
 export function FileChip({ path, name, size, kind }: { path: string; name: string; size?: number; kind?: string }) {
-  const Icon = kind === 'image' ? FileImage : kind === 'table' ? FileSpreadsheet : kind === 'text' ? FileText : FileIcon;
+  const Icon =
+    kind === 'image' ? FileImage : kind === 'table' ? FileSpreadsheet : kind === 'text' ? FileText : FileIcon;
   return (
     <span className={styles.chip}>
       <button type="button" className={styles.chipMain} onClick={() => openFile(path)} title={`Open ${name}`}>
@@ -45,12 +54,21 @@ export function Sparkline({ values, width = 220, height = 44 }: { values: number
   const max = Math.max(...clean);
   const span = max - min || 1;
   const points = clean
-    .map((v, i) => `${((i / (clean.length - 1)) * width).toFixed(1)},${(height - 3 - ((v - min) / span) * (height - 6)).toFixed(1)}`)
+    .map(
+      (v, i) =>
+        `${((i / (clean.length - 1)) * width).toFixed(1)},${(height - 3 - ((v - min) / span) * (height - 6)).toFixed(1)}`,
+    )
     .join(' ');
   const up = clean[clean.length - 1]! >= clean[0]!;
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={styles.spark} aria-hidden>
-      <polyline points={points} fill="none" stroke={up ? 'var(--market-up)' : 'var(--market-down)'} strokeWidth="1.6" strokeLinejoin="round" />
+      <polyline
+        points={points}
+        fill="none"
+        stroke={up ? 'var(--market-up)' : 'var(--market-down)'}
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -135,7 +153,12 @@ function Search({ d }: { d: Display }) {
 
 function Python({ d }: { d: Display }) {
   const [showCode, setShowCode] = useState(false);
-  const files = (Array.isArray(d.files) ? d.files : []) as Array<{ path: string; absolute: string; size: number; kind: string }>;
+  const files = (Array.isArray(d.files) ? d.files : []) as Array<{
+    path: string;
+    absolute: string;
+    size: number;
+    kind: string;
+  }>;
   const images = files.filter((f) => f.kind === 'image');
   const others = files.filter((f) => f.kind !== 'image');
   const stdout = str(d.stdout).trim();
@@ -153,10 +176,18 @@ function Python({ d }: { d: Display }) {
       {stdout && <pre className={cx(styles.output, 'selectable')}>{stdout}</pre>}
       {stderr && <pre className={cx(styles.output, styles.stderr, 'selectable')}>{stderr}</pre>}
       {failed && !stderr && (
-        <div className={styles.error}>{d.timedOut ? 'The script ran too long and was stopped.' : `Exited with code ${String(d.exitCode)}`}</div>
+        <div className={styles.error}>
+          {d.timedOut ? 'The script ran too long and was stopped.' : `Exited with code ${String(d.exitCode)}`}
+        </div>
       )}
       {images.map((f) => (
-        <button key={f.absolute} type="button" className={styles.imageButton} onClick={() => openFile(f.absolute)} title={f.path}>
+        <button
+          key={f.absolute}
+          type="button"
+          className={styles.imageButton}
+          onClick={() => openFile(f.absolute)}
+          title={f.path}
+        >
           <img src={fileUrl(f.absolute) ?? ''} alt={f.path} className={styles.image} />
         </button>
       ))}
@@ -180,7 +211,12 @@ function Skill({ d }: { d: Display }) {
         <div className={styles.symbol}>{str(d.name)}</div>
         <div className={styles.muted}>{str(d.description)}</div>
       </div>
-      <Button size="sm" variant="secondary" iconRight={ExternalLink} onClick={() => open('settings', { tab: 'skills', skill: str(d.id) })}>
+      <Button
+        size="sm"
+        variant="secondary"
+        iconRight={ExternalLink}
+        onClick={() => open('settings', { tab: 'skills', skill: str(d.id) })}
+      >
         Open
       </Button>
     </div>

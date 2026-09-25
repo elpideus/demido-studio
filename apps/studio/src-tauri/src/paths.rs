@@ -40,9 +40,7 @@ pub struct AppPaths {
 impl AppPaths {
     pub fn resolve() -> anyhow::Result<Self> {
         let install_dir = find_install_dir();
-        let manifest = install_dir
-            .as_deref()
-            .and_then(|d| InstallManifest::load(d).ok());
+        let manifest = install_dir.as_deref().and_then(|d| InstallManifest::load(d).ok());
         let data_dir = demido_core::paths::user_data_dir();
         let paths = AppPaths {
             resources_dir: find_resources_dir(),
@@ -99,10 +97,10 @@ impl AppPaths {
     /// Every folder scanned for GGUF models: the app's own, the installer's shared one.
     pub fn builtin_model_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = vec![self.models_dir.clone()];
-        if let Some(shared) = self.manifest.as_ref().and_then(|m| m.models_dir.clone()) {
-            if !dirs.contains(&shared) {
-                dirs.push(shared);
-            }
+        if let Some(shared) = self.manifest.as_ref().and_then(|m| m.models_dir.clone())
+            && !dirs.contains(&shared)
+        {
+            dirs.push(shared);
         }
         dirs
     }

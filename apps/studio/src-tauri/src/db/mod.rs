@@ -74,9 +74,7 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         migrate(&conn)?;
-        Ok(Self {
-            conn: Mutex::new(conn),
-        })
+        Ok(Self { conn: Mutex::new(conn) })
     }
 
     #[cfg(test)]
@@ -84,15 +82,10 @@ impl Db {
         let conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
         migrate(&conn).unwrap();
-        Self {
-            conn: Mutex::new(conn),
-        }
+        Self { conn: Mutex::new(conn) }
     }
 
-    pub(crate) fn with<T>(
-        &self,
-        f: impl FnOnce(&Connection) -> rusqlite::Result<T>,
-    ) -> rusqlite::Result<T> {
+    pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> rusqlite::Result<T> {
         f(&self.conn.lock())
     }
 }

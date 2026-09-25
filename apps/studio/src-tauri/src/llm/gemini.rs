@@ -4,6 +4,8 @@
 //! calling on thinking models depends on replaying each model turn's parts together with their
 //! thought signatures. Those parts are kept in the message's `provider_meta`.
 
+use std::time::Duration;
+
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -93,6 +95,9 @@ impl GeminiClient {
         body
     }
 
+    /// Streams one answer. When Gemini is busy or rate limited before anything was shown, the
+    /// request is sent again after a short wait, a few times, before the error reaches the
+    /// person.
     pub async fn stream(
         &self,
         req: &ChatRequest,
@@ -100,81 +105,170 @@ impl GeminiClient {
         mut on_event: impl FnMut(StreamEvent) + Send,
     ) -> Result<Completion, LlmError> {
         let body = self.body(req);
+        let mut attempt = 1;
+        loop {
+            let mut shown = false;
+            let result = self
+                .stream_once(&body, cancel, &mut |event| {
+                    shown = true;
+                    on_event(event);
+                })
+                .await;
+            match result {
+                Ok(completion) => return Ok(completion),
+                Err(Failure::Busy(message)) if !shown && attempt < ATTEMPTS => {
+                    let wait = RETRY_WAIT * 2u32.pow(attempt - 1);
+                    tracing::warn!(model = %self.model, attempt, ?wait, "Gemini is busy, trying again: {message}");
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+                        _ = tokio::time::sleep(wait) => {}
+                    }
+                    attempt += 1;
+                }
+                Err(Failure::Busy(message)) => return Err(LlmError::Provider(message)),
+                Err(Failure::Other(e)) => return Err(e),
+            }
+        }
+    }
+
+    async fn stream_once(
+        &self,
+        body: &Value,
+        cancel: &CancellationToken,
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
+    ) -> Result<Completion, Failure> {
         let url = format!(
             "{}/models/{}:streamGenerateContent?alt=sse",
             self.base_url.trim_end_matches('/'),
             self.model
         );
-        let request = self
-            .http
-            .post(url)
-            .header("x-goog-api-key", &self.api_key)
-            .json(&body);
+        let request = self.http.post(url).header("x-goog-api-key", &self.api_key).json(body);
         let response = tokio::select! {
-            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-            r = request.send() => r?,
+            _ = cancel.cancelled() => return Err(LlmError::Cancelled.into()),
+            r = request.send() => r.map_err(LlmError::from)?,
         };
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let text = response.text().await.unwrap_or_default();
-            return Err(LlmError::Provider(error_message(status, &text)));
+            return Err(Failure::from_status(status, error_message(status, &text)));
         }
 
         let mut out = Completion {
-            request_body: body,
+            request_body: body.clone(),
             ..Default::default()
         };
         let mut parts: Vec<Value> = Vec::new();
         let mut decoder = SseDecoder::default();
         let mut stream = response.bytes_stream();
+        let mut chunks = 0usize;
+        let mut last = String::new();
+        let mut blocked: Option<String> = None;
         loop {
             let chunk = tokio::select! {
-                _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+                _ = cancel.cancelled() => return Err(LlmError::Cancelled.into()),
                 c = stream.next() => c,
             };
             let (events, ended) = match chunk {
                 Some(Ok(bytes)) => (decoder.push(&bytes), false),
-                Some(Err(e)) => return Err(LlmError::Network(e.to_string())),
+                Some(Err(e)) => return Err(LlmError::Network(e.to_string()).into()),
                 None => (decoder.finish().into_iter().collect::<Vec<_>>(), true),
             };
             for data in events {
+                chunks += 1;
+                last = data.chars().take(2000).collect();
                 let Ok(v) = serde_json::from_str::<Value>(&data) else {
+                    tracing::warn!(model = %self.model, "Gemini sent a chunk that is not JSON: {last}");
                     continue;
                 };
                 if let Some(err) = v.get("error") {
-                    return Err(LlmError::Provider(
-                        err["message"]
-                            .as_str()
-                            .unwrap_or("Gemini returned an error")
-                            .to_string(),
-                    ));
+                    let message = err["message"].as_str().unwrap_or("Gemini returned an error");
+                    let code = err["code"].as_u64().unwrap_or_default() as u16;
+                    return Err(Failure::from_status(code, message.to_string()));
                 }
-                apply_chunk(&v, &mut out, &mut parts, &mut on_event);
+                apply_chunk(&v, &mut out, &mut parts, on_event);
+                // A refused prompt arrives as feedback with no candidates at all.
+                if let Some(reason) = v["promptFeedback"]["blockReason"].as_str() {
+                    blocked = Some(reason.to_string());
+                }
             }
             if ended {
                 break;
             }
         }
+        if out.finish_reason.is_none() || (out.content.is_empty() && out.tool_calls.is_empty()) {
+            tracing::warn!(
+                model = %self.model,
+                chunks,
+                finish = ?out.finish_reason,
+                ?blocked,
+                "Gemini's answer has no text or tool call. Last chunk: {last}"
+            );
+        }
+        // An answer with nothing in it would show as an empty message; say what happened instead.
         if out.content.is_empty() && out.tool_calls.is_empty() {
-            if let Some(reason) = out.finish_reason.as_deref() {
-                if reason != "STOP" {
-                    return Err(LlmError::Provider(format!(
-                        "Gemini stopped without answering ({reason})"
-                    )));
-                }
-            }
+            let message = empty_answer_message(out.finish_reason.as_deref(), blocked.as_deref());
+            return Err(LlmError::Provider(message).into());
         }
         out.provider_meta = Some(json!({ "gemini": { "parts": parts } }));
         Ok(out)
     }
 }
 
-fn apply_chunk(
-    v: &Value,
-    out: &mut Completion,
-    parts: &mut Vec<Value>,
-    on_event: &mut impl FnMut(StreamEvent),
-) {
+/// Tries per answer while Gemini says it is busy.
+const ATTEMPTS: u32 = 4;
+/// Wait before the first retry; it doubles each time (2, 4, 8 seconds).
+const RETRY_WAIT: Duration = if cfg!(test) {
+    Duration::from_millis(10)
+} else {
+    Duration::from_secs(2)
+};
+
+/// Why one attempt failed.
+enum Failure {
+    /// Rate limited or temporarily overloaded ("This model is currently experiencing high
+    /// demand"): worth another try.
+    Busy(String),
+    Other(LlmError),
+}
+
+impl Failure {
+    fn from_status(status: u16, message: String) -> Self {
+        match status {
+            429 | 500 | 502 | 503 | 504 => Failure::Busy(message),
+            // Listed but not served to this key, e.g. "no longer available to new users".
+            404 => Failure::Other(LlmError::Unavailable(message)),
+            _ if message.contains("no longer available") => Failure::Other(LlmError::Unavailable(message)),
+            _ => Failure::Other(LlmError::Provider(message)),
+        }
+    }
+}
+
+impl From<LlmError> for Failure {
+    fn from(e: LlmError) -> Self {
+        Failure::Other(e)
+    }
+}
+
+/// Explains an answer with no text and no tool call. `blocked` is the prompt's block reason.
+/// Trying again cannot get past a refusal, so those messages point at what can.
+fn empty_answer_message(finish_reason: Option<&str>, blocked: Option<&str>) -> String {
+    if let Some(reason) = blocked {
+        return format!("Gemini refused this request ({reason}). Rephrase it or pick another model.");
+    }
+    match finish_reason {
+        None => "Gemini's answer ended before it was complete. Try again.".to_string(),
+        Some("STOP") => "Gemini returned an empty answer. Try again.".to_string(),
+        Some(reason @ ("SAFETY" | "PROHIBITED_CONTENT" | "BLOCKLIST" | "SPII")) => {
+            format!("Gemini refused to answer ({reason}). Rephrase the request or pick another model.")
+        }
+        Some(reason @ "RECITATION") => {
+            format!("Gemini held back an answer that copied existing text ({reason}). Rephrase the request.")
+        }
+        Some(reason) => format!("Gemini stopped without answering ({reason})"),
+    }
+}
+
+fn apply_chunk(v: &Value, out: &mut Completion, parts: &mut Vec<Value>, on_event: &mut dyn FnMut(StreamEvent)) {
     if out.model.is_none() {
         out.model = v["modelVersion"].as_str().map(str::to_string);
     }
@@ -194,10 +288,7 @@ fn apply_chunk(
                             .map(str::to_string)
                             .unwrap_or_else(|| format!("gemini_call_{index}")),
                         name,
-                        arguments: call
-                            .get("args")
-                            .map(|a| a.to_string())
-                            .unwrap_or_else(|| "{}".into()),
+                        arguments: call.get("args").map(|a| a.to_string()).unwrap_or_else(|| "{}".into()),
                     });
                 } else if let Some(text) = part["text"].as_str() {
                     if part["thought"].as_bool().unwrap_or(false) {
@@ -233,21 +324,20 @@ fn apply_chunk(
 /// Appends a streamed part, merging plain text into the previous part of the same kind so the
 /// replayed history stays compact. Parts carrying a signature or a call are never merged.
 fn push_part(parts: &mut Vec<Value>, part: Value) {
-    let mergeable = |p: &Value| {
-        p.get("text").is_some() && p.get("thoughtSignature").is_none() && p.get("functionCall").is_none()
-    };
-    if mergeable(&part) {
-        if let Some(last) = parts.last_mut() {
-            if mergeable(last) && last["thought"] == part["thought"] {
-                let joined = format!(
-                    "{}{}",
-                    last["text"].as_str().unwrap_or_default(),
-                    part["text"].as_str().unwrap_or_default()
-                );
-                last["text"] = json!(joined);
-                return;
-            }
-        }
+    let mergeable =
+        |p: &Value| p.get("text").is_some() && p.get("thoughtSignature").is_none() && p.get("functionCall").is_none();
+    if mergeable(&part)
+        && let Some(last) = parts.last_mut()
+        && mergeable(last)
+        && last["thought"] == part["thought"]
+    {
+        let joined = format!(
+            "{}{}",
+            last["text"].as_str().unwrap_or_default(),
+            part["text"].as_str().unwrap_or_default()
+        );
+        last["text"] = json!(joined);
+        return;
     }
     parts.push(part);
 }
@@ -275,10 +365,7 @@ fn contents(messages: &[LlmMessage]) -> Vec<Value> {
                     // Thought text is not needed on replay; signatures are.
                     Some(parts) => parts
                         .iter()
-                        .filter(|p| {
-                            !(p["thought"].as_bool().unwrap_or(false)
-                                && p.get("thoughtSignature").is_none())
-                        })
+                        .filter(|p| !(p["thought"].as_bool().unwrap_or(false) && p.get("thoughtSignature").is_none()))
                         .cloned()
                         .collect(),
                     None => {
@@ -302,8 +389,7 @@ fn contents(messages: &[LlmMessage]) -> Vec<Value> {
                 }
             }
             LlmMessage::Tool { name, content, .. } => {
-                let result: Value =
-                    serde_json::from_str(content).unwrap_or_else(|_| json!(content));
+                let result: Value = serde_json::from_str(content).unwrap_or_else(|_| json!(content));
                 let part = json!({"functionResponse": {"name": name, "response": {"result": result}}});
                 // Responses to calls made in the same turn travel together.
                 let appended = out.last_mut().is_some_and(|last| {
@@ -332,12 +418,10 @@ pub fn sanitize_schema(schema: &Value) -> Value {
             let mut out = Map::new();
             for (k, v) in map {
                 match k.as_str() {
-                    "$schema" | "$id" | "additionalProperties" | "examples" | "default" | "const"
-                    | "title" => {}
+                    "$schema" | "$id" | "additionalProperties" | "examples" | "default" | "const" | "title" => {}
                     "type" => match v {
                         Value::Array(types) => {
-                            let non_null: Vec<&Value> =
-                                types.iter().filter(|t| t.as_str() != Some("null")).collect();
+                            let non_null: Vec<&Value> = types.iter().filter(|t| t.as_str() != Some("null")).collect();
                             if let Some(first) = non_null.first() {
                                 out.insert("type".into(), (*first).clone());
                             }
@@ -352,11 +436,7 @@ pub fn sanitize_schema(schema: &Value) -> Value {
                     "properties" => {
                         let props: Map<String, Value> = v
                             .as_object()
-                            .map(|o| {
-                                o.iter()
-                                    .map(|(name, s)| (name.clone(), sanitize_schema(s)))
-                                    .collect()
-                            })
+                            .map(|o| o.iter().map(|(name, s)| (name.clone(), sanitize_schema(s))).collect())
                             .unwrap_or_default();
                         out.insert(k.clone(), Value::Object(props));
                     }
@@ -373,11 +453,7 @@ pub fn sanitize_schema(schema: &Value) -> Value {
 }
 
 /// Lists the chat models an API key can use. Also serves as the connection test.
-pub async fn list_models(
-    http: &reqwest::Client,
-    base_url: &str,
-    api_key: &str,
-) -> Result<Vec<GeminiModel>, LlmError> {
+pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) -> Result<Vec<GeminiModel>, LlmError> {
     let mut models = Vec::new();
     let mut page_token: Option<String> = None;
     loop {
@@ -394,8 +470,7 @@ pub async fn list_models(
         if !(200..300).contains(&status) {
             return Err(LlmError::Provider(error_message(status, &text)));
         }
-        let v: Value =
-            serde_json::from_str(&text).map_err(|e| LlmError::Provider(e.to_string()))?;
+        let v: Value = serde_json::from_str(&text).map_err(|e| LlmError::Provider(e.to_string()))?;
         for m in v["models"].as_array().into_iter().flatten() {
             let name = m["name"].as_str().unwrap_or_default();
             let id = name.trim_start_matches("models/").to_string();
@@ -427,7 +502,14 @@ pub async fn list_models(
 fn is_chat_model(id: &str) -> bool {
     id.starts_with("gemini")
         && ![
-            "embedding", "aqa", "imagen", "tts", "image", "native-audio", "live", "computer-use",
+            "embedding",
+            "aqa",
+            "imagen",
+            "tts",
+            "image",
+            "native-audio",
+            "live",
+            "computer-use",
             "robotics",
         ]
         .iter()
@@ -437,13 +519,12 @@ fn is_chat_model(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::GenParams;
 
     #[test]
     fn tool_results_of_one_turn_are_grouped() {
         let history = vec![
-            LlmMessage::User {
-                content: "hi".into(),
-            },
+            LlmMessage::User { content: "hi".into() },
             LlmMessage::Assistant {
                 content: String::new(),
                 reasoning: None,
@@ -514,7 +595,10 @@ mod tests {
             "$schema": "x", "type": "object", "additionalProperties": false,
             "properties": {"a": {"type": ["string", "null"], "default": "q"}}
         }));
-        assert_eq!(s, json!({"type": "object", "properties": {"a": {"type": "string", "nullable": true}}}));
+        assert_eq!(
+            s,
+            json!({"type": "object", "properties": {"a": {"type": "string", "nullable": true}}})
+        );
     }
 
     #[test]
@@ -523,5 +607,210 @@ mod tests {
         assert!(!is_chat_model("gemini-embedding-001"));
         assert!(!is_chat_model("gemini-2.5-flash-preview-tts"));
         assert!(!is_chat_model("imagen-4.0"));
+    }
+
+    const BUSY: (&str, &str, &str) = (
+        "503 Service Unavailable",
+        "application/json",
+        r#"{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}"#,
+    );
+    const HELLO: (&str, &str, &str) = (
+        "200 OK",
+        "text/event-stream",
+        "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Hello\"}]},\"finishReason\":\"STOP\"}]}\r\n\r\n",
+    );
+    /// Thoughts, then the stream ends without the final chunk.
+    const CUT_OFF: (&str, &str, &str) = (
+        "200 OK",
+        "text/event-stream",
+        "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Planning\",\"thought\":true}]}}]}\r\n\r\n",
+    );
+    /// The prompt itself is refused: feedback and no candidates.
+    const PROMPT_BLOCKED: (&str, &str, &str) = (
+        "200 OK",
+        "text/event-stream",
+        "data: {\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}\r\n\r\n",
+    );
+    /// The answer is withheld: a candidate with a finish reason and no parts.
+    const ANSWER_BLOCKED: (&str, &str, &str) = (
+        "200 OK",
+        "text/event-stream",
+        "data: {\"candidates\":[{\"finishReason\":\"PROHIBITED_CONTENT\"}]}\r\n\r\n",
+    );
+
+    /// A local server that answers "busy" `busy` times, then streams one short answer.
+    async fn flaky_server(busy: usize) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        scripted_server(move |n| if n < busy { BUSY } else { HELLO }).await
+    }
+
+    /// A local server that gives the `n`th request the answer `answer(n)`.
+    async fn scripted_server(
+        answer: impl Fn(usize) -> (&'static str, &'static str, &'static str) + Send + 'static,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                // Read the whole request before answering.
+                let mut request = Vec::new();
+                let mut buf = [0u8; 8192];
+                loop {
+                    let read = socket.read(&mut buf).await.unwrap_or(0);
+                    request.extend_from_slice(&buf[..read]);
+                    let text = String::from_utf8_lossy(&request);
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let length = text[..end]
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(str::to_string)
+                            })
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                    if read == 0 {
+                        break;
+                    }
+                }
+                let (status, kind, body) = answer(n);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+        (base, hits)
+    }
+
+    fn hello_request() -> ChatRequest {
+        ChatRequest {
+            system: "sys".into(),
+            messages: vec![LlmMessage::User { content: "hi".into() }],
+            tools: vec![],
+            params: GenParams::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn busy_answers_are_retried() {
+        let (base, hits) = flaky_server(2).await;
+        let client = GeminiClient::new(reqwest::Client::new(), base, "key".into(), "m".into());
+        let mut text = String::new();
+        let done = client
+            .stream(&hello_request(), &CancellationToken::new(), |e| {
+                if let StreamEvent::Content(t) = e {
+                    text.push_str(&t);
+                }
+            })
+            .await
+            .expect("the third attempt answers");
+        assert_eq!(done.content, "Hello");
+        assert_eq!(text, "Hello");
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn a_model_that_stays_busy_reports_why() {
+        let (base, hits) = flaky_server(usize::MAX).await;
+        let client = GeminiClient::new(reqwest::Client::new(), base, "key".into(), "m".into());
+        let err = client
+            .stream(&hello_request(), &CancellationToken::new(), |_| {})
+            .await
+            .expect_err("every attempt is busy");
+        assert!(err.to_string().contains("high demand"), "{err}");
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), ATTEMPTS as usize);
+    }
+
+    #[tokio::test]
+    async fn an_answer_cut_off_after_thinking_is_an_error() {
+        let (base, _) = scripted_server(|_| CUT_OFF).await;
+        let client = GeminiClient::new(reqwest::Client::new(), base, "key".into(), "m".into());
+        let err = client
+            .stream(&hello_request(), &CancellationToken::new(), |_| {})
+            .await
+            .expect_err("nothing but thoughts arrived");
+        assert!(err.to_string().contains("ended before it was complete"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_blocked_prompt_says_it_was_refused() {
+        let (base, hits) = scripted_server(|_| PROMPT_BLOCKED).await;
+        let client = GeminiClient::new(reqwest::Client::new(), base, "key".into(), "m".into());
+        let err = client
+            .stream(&hello_request(), &CancellationToken::new(), |_| {})
+            .await
+            .expect_err("the prompt was refused");
+        assert_eq!(
+            err.to_string(),
+            LlmError::Provider("Gemini refused this request (SAFETY). Rephrase it or pick another model.".into())
+                .to_string()
+        );
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_withheld_answer_says_it_was_refused() {
+        let (base, _) = scripted_server(|_| ANSWER_BLOCKED).await;
+        let client = GeminiClient::new(reqwest::Client::new(), base, "key".into(), "m".into());
+        let err = client
+            .stream(&hello_request(), &CancellationToken::new(), |_| {})
+            .await
+            .expect_err("the answer was withheld");
+        assert!(
+            err.to_string().contains("refused to answer (PROHIBITED_CONTENT)"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn empty_answers_explain_why() {
+        let refused = empty_answer_message(None, Some("PROHIBITED_CONTENT"));
+        assert!(
+            refused.contains("refused this request (PROHIBITED_CONTENT)"),
+            "{refused}"
+        );
+        // The prompt's block reason wins over whatever the candidate said.
+        assert!(empty_answer_message(Some("STOP"), Some("SAFETY")).contains("refused this request"));
+        for reason in ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"] {
+            let message = empty_answer_message(Some(reason), None);
+            assert!(message.contains(&format!("refused to answer ({reason})")), "{message}");
+            assert!(!message.contains("Try again"), "{message}");
+        }
+        assert!(empty_answer_message(Some("RECITATION"), None).contains("copied existing text (RECITATION)"));
+        assert!(empty_answer_message(None, None).contains("ended before it was complete"));
+        assert!(empty_answer_message(Some("STOP"), None).contains("empty answer"));
+        assert_eq!(
+            empty_answer_message(Some("MAX_TOKENS"), None),
+            "Gemini stopped without answering (MAX_TOKENS)"
+        );
+    }
+
+    #[test]
+    fn models_the_key_cannot_use_are_unavailable() {
+        let retired = "This model models/gemini-2.5-flash is no longer available to new users.";
+        for status in [404, 400] {
+            assert!(matches!(
+                Failure::from_status(status, retired.into()),
+                Failure::Other(LlmError::Unavailable(_))
+            ));
+        }
+        assert!(matches!(Failure::from_status(503, "busy".into()), Failure::Busy(_)));
+        assert!(matches!(
+            Failure::from_status(400, "bad request".into()),
+            Failure::Other(LlmError::Provider(_))
+        ));
     }
 }

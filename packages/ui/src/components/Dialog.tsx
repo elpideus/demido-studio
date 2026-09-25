@@ -71,14 +71,7 @@ export function Dialog({
               {description && <p className={styles.description}>{description}</p>}
             </div>
             {dismissible && (
-              <IconButton
-                icon={X}
-                label="Close"
-                size="sm"
-                tooltip={false}
-                onClick={onClose}
-                data-dialog-close
-              />
+              <IconButton icon={X} label="Close" size="sm" tooltip={false} onClick={onClose} data-dialog-close />
             )}
           </div>
         )}

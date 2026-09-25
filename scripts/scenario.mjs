@@ -21,7 +21,8 @@ for (let i = 0; i < args.length; i += 1) {
 }
 mkdirSync(out, { recursive: true });
 
-const list = await fetch('http://127.0.0.1:9222/json').then((r) => r.json());
+const port = Number(process.env.CDP_PORT ?? 9222);
+const list = await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json());
 const target = list.find((t) => t.type === 'page' && /localhost:1420|tauri/.test(t.url));
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
@@ -77,7 +78,9 @@ for (const [index, prompt] of prompts.entries()) {
         console.log('  waiting for approval (run with --approve to click it)');
       }
       await shot(`${String(index + 1).padStart(2, '0')}-approval`);
-      await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Run once')?.click()`);
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Run once')?.click()`,
+      );
       await sleep(800);
       continue;
     }

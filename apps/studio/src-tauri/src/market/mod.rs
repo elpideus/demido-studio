@@ -111,13 +111,8 @@ impl MarketService {
         secrets: Arc<Secrets>,
     ) -> Arc<Self> {
         let reason = match (&node, script.is_file()) {
-            (None, _) => Some(
-                "Node.js is not installed. Run the Demido Studio installer again to add it.".to_string(),
-            ),
-            (_, false) => Some(format!(
-                "The market data service is missing ({}).",
-                script.display()
-            )),
+            (None, _) => Some("Node.js is not installed. Run the Demido Studio installer again to add it.".to_string()),
+            (_, false) => Some(format!("The market data service is missing ({}).", script.display())),
             _ => None,
         };
         let has_session = secrets.get(TRADINGVIEW_SESSION).is_some();
@@ -236,9 +231,9 @@ impl MarketService {
         }
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000);
-        let mut child = cmd.spawn().map_err(|e| {
-            RpcError::new("UNAVAILABLE", format!("could not start the market service: {e}"))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| RpcError::new("UNAVAILABLE", format!("could not start the market service: {e}")))?;
         crate::runtime::job::adopt(&child);
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
@@ -351,10 +346,10 @@ impl MarketService {
 
     /// Starts the service at launch when a session is saved, so the status is confirmed early.
     pub async fn warm_up(&self) {
-        if self.saved_session().is_some() {
-            if let Err(e) = self.ensure_started().await {
-                tracing::warn!("market service did not start: {e}");
-            }
+        if self.saved_session().is_some()
+            && let Err(e) = self.ensure_started().await
+        {
+            tracing::warn!("market service did not start: {e}");
         }
     }
 
@@ -368,10 +363,10 @@ impl MarketService {
     }
 
     pub fn kill_now(&self) {
-        if let Ok(mut proc) = self.proc.try_lock() {
-            if let Some(p) = proc.as_mut() {
-                let _ = p.child.start_kill();
-            }
+        if let Ok(mut proc) = self.proc.try_lock()
+            && let Some(p) = proc.as_mut()
+        {
+            let _ = p.child.start_kill();
         }
     }
 

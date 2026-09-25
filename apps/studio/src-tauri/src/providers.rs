@@ -171,7 +171,11 @@ impl ProviderStore {
             bail_msg!("That provider no longer exists.");
         };
         if let Some(key) = patch.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
-            let base = patch.base_url.clone().filter(|u| !u.trim().is_empty()).unwrap_or_else(|| config.base_url());
+            let base = patch
+                .base_url
+                .clone()
+                .filter(|u| !u.trim().is_empty())
+                .unwrap_or_else(|| config.base_url());
             config.models = self.fetch_models(config.kind, &base, key).await?;
             config.models_fetched_at = Some(now_ms());
             self.secrets.set(&provider_key(id), key);

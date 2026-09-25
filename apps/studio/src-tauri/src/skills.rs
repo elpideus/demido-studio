@@ -98,11 +98,11 @@ impl SkillRegistry {
                 continue;
             }
             let target = self.dir.join(&id);
-            if !target.exists() {
-                if let Err(e) = copy_dir(&entry.path(), &target) {
-                    tracing::warn!("could not install bundled skill {id}: {e}");
-                    continue;
-                }
+            if !target.exists()
+                && let Err(e) = copy_dir(&entry.path(), &target)
+            {
+                tracing::warn!("could not install bundled skill {id}: {e}");
+                continue;
             }
             state.seeded.push(id);
         }
@@ -112,17 +112,13 @@ impl SkillRegistry {
     /// Watches the skills folder and rescans on every change.
     pub fn watch(self: &Arc<Self>) {
         let me = Arc::downgrade(self);
-        let debouncer = new_debouncer(
-            Duration::from_millis(350),
-            None,
-            move |result: DebounceEventResult| {
-                if result.is_ok() {
-                    if let Some(me) = me.upgrade() {
-                        me.rescan();
-                    }
-                }
-            },
-        );
+        let debouncer = new_debouncer(Duration::from_millis(350), None, move |result: DebounceEventResult| {
+            if result.is_ok()
+                && let Some(me) = me.upgrade()
+            {
+                me.rescan();
+            }
+        });
         match debouncer {
             Ok(mut d) => {
                 if let Err(e) = d.watch(&self.dir, RecursiveMode::Recursive) {
@@ -147,7 +143,11 @@ impl SkillRegistry {
                 if id.starts_with('.') {
                     continue;
                 }
-                found.push(load_skill(&entry.path(), &id, state.enabled.get(&id).copied().unwrap_or(true)));
+                found.push(load_skill(
+                    &entry.path(),
+                    &id,
+                    state.enabled.get(&id).copied().unwrap_or(true),
+                ));
             }
         }
         drop(state);
@@ -364,7 +364,11 @@ fn load_skill(folder: &Path, id: &str, enabled: bool) -> Skill {
             })
         })
         .collect();
-    files.sort_by(|a, b| (a.path != ENTRY_FILE).cmp(&(b.path != ENTRY_FILE)).then(a.path.cmp(&b.path)));
+    files.sort_by(|a, b| {
+        (a.path != ENTRY_FILE)
+            .cmp(&(b.path != ENTRY_FILE))
+            .then(a.path.cmp(&b.path))
+    });
     let updated_at = walkdir::WalkDir::new(folder)
         .into_iter()
         .filter_map(Result::ok)
@@ -384,7 +388,11 @@ fn load_skill(folder: &Path, id: &str, enabled: bool) -> Skill {
     };
     Skill {
         id: id.to_string(),
-        name: meta.get("name").cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| id.replace(['-', '_'], " ")),
+        name: meta
+            .get("name")
+            .cloned()
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| id.replace(['-', '_'], " ")),
         description: meta.get("description").cloned().unwrap_or_else(|| first_line(&body)),
         enabled,
         folder: folder.to_string_lossy().into_owned(),
@@ -411,7 +419,10 @@ pub fn split_frontmatter(text: &str) -> (BTreeMap<String, String>, &str) {
     let body = rest[end + 4..].trim_start_matches(['-', '\r', '\n']);
     let mut current: Option<String> = None;
     for line in header.lines() {
-        if let Some((k, v)) = line.split_once(':').filter(|(k, _)| !k.starts_with(' ') && !k.trim().is_empty()) {
+        if let Some((k, v)) = line
+            .split_once(':')
+            .filter(|(k, _)| !k.starts_with(' ') && !k.trim().is_empty())
+        {
             let key = k.trim().to_string();
             let value = v.trim();
             if value == ">" || value == "|" || value.is_empty() {
@@ -469,7 +480,12 @@ pub fn slug(name: &str) -> String {
             out.push('-');
         }
     }
-    out.trim_matches('-').chars().take(48).collect::<String>().trim_matches('-').to_string()
+    out.trim_matches('-')
+        .chars()
+        .take(48)
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 /// Lexically resolves `.` and `..` without touching the filesystem.

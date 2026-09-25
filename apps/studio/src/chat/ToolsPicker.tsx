@@ -57,7 +57,13 @@ export function ToolsPicker() {
         disabled: !!s.problem,
         leading: <BookMarked size={16} strokeWidth={1.8} aria-hidden />,
         trailing: (
-          <Switch size="sm" checked={s.enabled} disabled={!!s.problem} onChange={(v) => void toggleSkill(s.id, v)} label={s.name} />
+          <Switch
+            size="sm"
+            checked={s.enabled}
+            disabled={!!s.problem}
+            onChange={(v) => void toggleSkill(s.id, v)}
+            label={s.name}
+          />
         ),
       })),
     ],
@@ -79,7 +85,14 @@ export function ToolsPicker() {
         <span className={styles.chipLabel}>Tools</span>
         {active > 0 && <span className={styles.count}>{active}</span>}
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchor} placement="top-start" width={380} aria-label="Tools">
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={anchor}
+        placement="top-start"
+        width={380}
+        aria-label="Tools"
+      >
         <SearchList
           items={items}
           placeholder="Search tools and skills"

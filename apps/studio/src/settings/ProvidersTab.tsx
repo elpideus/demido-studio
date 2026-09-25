@@ -43,7 +43,13 @@ function KeyForm({
         description={
           <>
             Create a free key in Google AI Studio.{' '}
-            <a href={KEY_URL} onClick={(e) => { e.preventDefault(); void openUrl(KEY_URL); }}>
+            <a
+              href={KEY_URL}
+              onClick={(e) => {
+                e.preventDefault();
+                void openUrl(KEY_URL);
+              }}
+            >
               Get a key <ExternalLink size={11} />
             </a>
           </>
@@ -99,7 +105,9 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
           checked={provider.enabled}
           label="Enabled"
           onChange={(enabled) =>
-            void api.updateProvider(provider.id, { enabled }).then(onChange, (e) => toast.error('Could not update', errorText(e)))
+            void api
+              .updateProvider(provider.id, { enabled })
+              .then(onChange, (e) => toast.error('Could not update', errorText(e)))
           }
         />
       </div>
@@ -130,10 +138,13 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
               setRefreshing(true);
               api
                 .refreshProvider(provider.id)
-                .then(() => {
-                  toast.success('Model list refreshed');
-                  onChange();
-                }, (e) => toast.error('Could not refresh', errorText(e)))
+                .then(
+                  () => {
+                    toast.success('Model list refreshed');
+                    onChange();
+                  },
+                  (e) => toast.error('Could not refresh', errorText(e)),
+                )
                 .finally(() => setRefreshing(false));
             }}
           >
@@ -196,7 +207,9 @@ export function ProvidersTab() {
       </header>
       <div className={s.scroll}>
         <div className={s.stack}>
-          {providers?.map((p) => <ProviderCard key={p.id} provider={p} onChange={load} />)}
+          {providers?.map((p) => (
+            <ProviderCard key={p.id} provider={p} onChange={load} />
+          ))}
           {providers && (providers.length === 0 || adding) && (
             <div className={s.card}>
               <div className={s.cardPad}>

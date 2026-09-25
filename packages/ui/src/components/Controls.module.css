@@ -189,6 +189,11 @@
   user-select: text;
 }
 
+/* The field's border shows focus; a ring on the inner input would stick out of its corners. */
+.input:focus-visible {
+  box-shadow: none;
+}
+
 .fieldIcon + .input {
   padding-left: 34px;
 }

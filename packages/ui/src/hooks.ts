@@ -1,11 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
 /** Calls `handler` on a pointer press outside every element in `refs`. */
-export function useClickOutside(
-  refs: Array<RefObject<HTMLElement | null>>,
-  handler: () => void,
-  enabled = true,
-): void {
+export function useClickOutside(refs: Array<RefObject<HTMLElement | null>>, handler: () => void, enabled = true): void {
   const latest = useRef(handler);
   latest.current = handler;
   useEffect(() => {
@@ -39,15 +35,7 @@ export function useEscape(handler: () => void, enabled = true): void {
 }
 
 export type Placement =
-  | 'top-start'
-  | 'top-end'
-  | 'top'
-  | 'bottom-start'
-  | 'bottom-end'
-  | 'bottom'
-  | 'right'
-  | 'right-start'
-  | 'left';
+  'top-start' | 'top-end' | 'top' | 'bottom-start' | 'bottom-end' | 'bottom' | 'right' | 'right-start' | 'left';
 
 interface Position {
   top: number;
@@ -85,11 +73,7 @@ export function useAnchoredPosition(
       const side = p.split('-')[0];
       if (side === 'top' && a.top - f.height - GAP < MARGIN && a.bottom + f.height + GAP < vh) {
         p = p.replace('top', 'bottom') as Placement;
-      } else if (
-        side === 'bottom' &&
-        a.bottom + f.height + GAP > vh - MARGIN &&
-        a.top - f.height - GAP > MARGIN
-      ) {
+      } else if (side === 'bottom' && a.bottom + f.height + GAP > vh - MARGIN && a.top - f.height - GAP > MARGIN) {
         p = p.replace('bottom', 'top') as Placement;
       }
       let top = 0;
@@ -135,9 +119,7 @@ export function useAnchoredPosition(
       top = Math.max(MARGIN, Math.min(top, vh - f.height - MARGIN));
       left = Math.max(MARGIN, Math.min(left, vw - f.width - MARGIN));
       setPos((prev) =>
-        prev && prev.top === top && prev.left === left && prev.placement === p
-          ? prev
-          : { top, left, placement: p },
+        prev && prev.top === top && prev.left === left && prev.placement === p ? prev : { top, left, placement: p },
       );
     };
     update();

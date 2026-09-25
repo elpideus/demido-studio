@@ -33,10 +33,7 @@ declare module '@mathieuc/tradingview' {
   export interface ChartSession {
     readonly periods: PricePeriod[];
     readonly infos: MarketInfos;
-    setMarket(
-      symbol: string,
-      options?: { timeframe?: string; range?: number; to?: number; session?: string },
-    ): void;
+    setMarket(symbol: string, options?: { timeframe?: string; range?: number; to?: number; session?: string }): void;
     setSeries(timeframe?: string, range?: number, reference?: number | null): void;
     fetchMore(count?: number): void;
     onSymbolLoaded(cb: () => void): void;
@@ -58,13 +55,7 @@ declare module '@mathieuc/tradingview' {
   }
 
   export class Client {
-    constructor(options?: {
-      token?: string;
-      signature?: string;
-      server?: string;
-      location?: string;
-      DEBUG?: boolean;
-    });
+    constructor(options?: { token?: string; signature?: string; server?: string; location?: string; DEBUG?: boolean });
     readonly isOpen: boolean;
     readonly isLogged: boolean;
     onConnected(cb: () => void): void;

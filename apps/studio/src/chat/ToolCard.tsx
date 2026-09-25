@@ -36,7 +36,8 @@ const ICONS: Record<string, LucideIcon> = {
 function Approval({ message, call }: { message: Message; call: ToolCall }) {
   const [busy, setBusy] = useState(false);
   const args = (message.toolResult?.args ?? {}) as Record<string, unknown>;
-  const code = typeof args.code === 'string' ? args.code : typeof args.file === 'string' ? `# runs ${args.file}` : call.arguments;
+  const code =
+    typeof args.code === 'string' ? args.code : typeof args.file === 'string' ? `# runs ${args.file}` : call.arguments;
   const decide = async (decision: 'once' | 'always' | 'deny') => {
     setBusy(true);
     await api.resolveApproval(message.id, decision);
@@ -99,7 +100,10 @@ export function ToolCard({ call, result, orphaned }: Props) {
           <StatusIcon
             size={14}
             strokeWidth={2.2}
-            className={cx(styles.status, failed ? styles.statusFailed : cancelled ? styles.statusMuted : styles.statusOk)}
+            className={cx(
+              styles.status,
+              failed ? styles.statusFailed : cancelled ? styles.statusMuted : styles.statusOk,
+            )}
             aria-label={failed ? 'Failed' : cancelled ? 'Stopped' : 'Done'}
           />
         )}
