@@ -13,8 +13,20 @@
   gap: 2px;
   width: var(--tab-rail-width);
   padding: var(--space-1) var(--space-2) var(--space-3);
+  overflow-x: hidden;
   overflow-y: auto;
   background: var(--surface-3);
+}
+
+/* Just wide enough for 36px square tabs. */
+.collapsed {
+  width: 52px;
+}
+
+/* Beats the tooltip's own inline-flex anchor whatever the stylesheet order, so the tab still fills the rail. */
+.rail > .anchor {
+  display: flex;
+  flex-direction: column;
 }
 
 .tab {
@@ -24,6 +36,7 @@
   gap: var(--space-3);
   height: 36px;
   padding: 0 var(--space-3);
+  overflow: hidden;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
@@ -33,6 +46,11 @@
   transition:
     background-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out);
+}
+
+/* Centers the 16px icon in the square. */
+.collapsed .tab {
+  padding: 0 10px;
 }
 
 .tab:hover {
@@ -58,6 +76,10 @@
   transform: translateY(-50%);
 }
 
+.icon {
+  flex: none;
+}
+
 .label {
   flex: 1;
   overflow: hidden;
@@ -66,6 +88,68 @@
 }
 
 .badge {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.collapsed .label,
+.collapsed .badge {
+  opacity: 0;
+}
+
+/* Stands in for the badge on the icon's corner while collapsed. */
+.dot {
+  position: absolute;
+  top: 8px;
+  left: 22px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface-3);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tab:hover .dot {
+  box-shadow: 0 0 0 2px var(--surface-4);
+}
+
+.active .dot,
+.active:hover .dot {
+  box-shadow: 0 0 0 2px var(--surface-5);
+}
+
+.collapsed .dot {
+  opacity: 1;
+}
+
+/* Motion starts after the first measure, so a window that opens narrow does not animate. */
+.animated {
+  transition: width var(--duration) var(--ease-out);
+}
+
+.animated .tab {
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    padding var(--duration) var(--ease-out);
+}
+
+.animated .label,
+.animated .badge,
+.animated .dot {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.tip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tipBadge {
   color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
