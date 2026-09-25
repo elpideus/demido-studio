@@ -920,6 +920,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "demido-setup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "demido-catalog",
+ "demido-core",
+ "demido-fetch",
+ "demido-hardware",
+ "demido-provision",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "windows-registry",
+]
+
+[[package]]
 name = "demido-setup-cli"
 version = "0.1.0"
 dependencies = [
@@ -933,6 +956,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]

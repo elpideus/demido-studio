@@ -1,0 +1,36 @@
+[package]
+name = "demido-setup"
+description = "Demido Studio's installer: detects the hardware, fetches the runtime, Python, Node.js and a model, and installs the app."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "demido_setup_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+demido-core.workspace = true
+demido-catalog.workspace = true
+demido-hardware.workspace = true
+demido-provision.workspace = true
+demido-fetch.workspace = true
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-opener.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+parking_lot.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-registry.workspace = true

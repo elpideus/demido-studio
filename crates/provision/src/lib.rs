@@ -10,6 +10,7 @@
 //! [`InstallManifest`]: demido_core::InstallManifest
 
 mod events;
+pub mod folder;
 mod plan;
 mod process;
 mod runner;

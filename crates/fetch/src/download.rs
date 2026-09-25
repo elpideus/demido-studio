@@ -24,11 +24,7 @@ pub enum FetchError {
         actual: String,
     },
     #[error("size mismatch for {file}: expected {expected} bytes, got {actual}")]
-    Size {
-        file: String,
-        expected: u64,
-        actual: u64,
-    },
+    Size { file: String, expected: u64, actual: u64 },
     #[error("the server rejected the resume point; starting over")]
     Restart,
     #[error(transparent)]
@@ -42,9 +38,7 @@ impl FetchError {
     fn is_transient(&self) -> bool {
         match self {
             FetchError::Http(e) => e.is_timeout() || e.is_connect() || e.is_body() || e.is_request(),
-            FetchError::Status { status, .. } => {
-                status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
-            }
+            FetchError::Status { status, .. } => status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS,
             FetchError::Restart => true,
             _ => false,
         }
@@ -106,11 +100,7 @@ impl DownloadRequest {
     }
 
     fn part_path(&self) -> PathBuf {
-        let mut name = self
-            .dest
-            .file_name()
-            .map(|n| n.to_os_string())
-            .unwrap_or_default();
+        let mut name = self.dest.file_name().map(|n| n.to_os_string()).unwrap_or_default();
         name.push(".part");
         self.dest.with_file_name(name)
     }
@@ -176,15 +166,15 @@ impl Downloader {
 
         let file = display_name(&req.dest);
         let size = tokio::fs::metadata(&part).await?.len();
-        if let Some(expected) = req.expected_size {
-            if size != expected {
-                let _ = tokio::fs::remove_file(&part).await;
-                return Err(FetchError::Size {
-                    file,
-                    expected,
-                    actual: size,
-                });
-            }
+        if let Some(expected) = req.expected_size
+            && size != expected
+        {
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(FetchError::Size {
+                file,
+                expected,
+                actual: size,
+            });
         }
         if let Some(expected) = &req.sha256 {
             let actual = sha256_file(&part).await?;
@@ -308,10 +298,10 @@ async fn already_complete(req: &DownloadRequest) -> Result<bool, FetchError> {
     let Ok(meta) = tokio::fs::metadata(&req.dest).await else {
         return Ok(false);
     };
-    if let Some(size) = req.expected_size {
-        if meta.len() != size {
-            return Ok(false);
-        }
+    if let Some(size) = req.expected_size
+        && meta.len() != size
+    {
+        return Ok(false);
     }
     match &req.sha256 {
         Some(expected) => Ok(&sha256_file(&req.dest).await? == expected),

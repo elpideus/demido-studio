@@ -40,8 +40,7 @@ pub fn extract(archive: &Path, dest: &Path) -> anyhow::Result<()> {
                 std::fs::remove_file(&target)?;
             }
         }
-        std::fs::rename(entry.path(), &target)
-            .with_context(|| format!("moving {} into place", target.display()))?;
+        std::fs::rename(entry.path(), &target).with_context(|| format!("moving {} into place", target.display()))?;
     }
     std::fs::remove_dir_all(&staging)?;
     Ok(())
@@ -141,10 +140,7 @@ mod tests {
     fn strips_a_single_root_folder() {
         let dir = tempfile::tempdir().unwrap();
         let archive = dir.path().join("node.zip");
-        make_zip(
-            &archive,
-            &[("node-v1/node.exe", "bin"), ("node-v1/lib/x.js", "js")],
-        );
+        make_zip(&archive, &[("node-v1/node.exe", "bin"), ("node-v1/lib/x.js", "js")]);
         let dest = dir.path().join("out");
         extract(&archive, &dest).unwrap();
         assert!(dest.join("node.exe").is_file());

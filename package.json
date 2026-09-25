@@ -10,7 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @demido/studio tauri dev",
+    "dev": "node scripts/dev-resources.mjs && pnpm --filter @demido/studio tauri dev",
     "dev:installer": "pnpm --filter @demido/installer tauri dev",
     "dev:runtime": "cargo run -p demido-setup-cli --release -- --dev",
     "build": "node scripts/build-release.mjs",

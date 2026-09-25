@@ -51,11 +51,8 @@ pub fn backend_choices(report: &HardwareReport, catalog: &Catalog) -> Vec<Backen
     let mut choices: Vec<BackendChoice> = Backend::ALL
         .iter()
         .map(|&backend| {
-            let candidates: Vec<&RuntimeVariant> = variants_here
-                .iter()
-                .copied()
-                .filter(|v| v.backend == backend)
-                .collect();
+            let candidates: Vec<&RuntimeVariant> =
+                variants_here.iter().copied().filter(|v| v.backend == backend).collect();
             let mut choice = BackendChoice {
                 backend,
                 available: false,
@@ -98,15 +95,13 @@ pub fn backend_choices(report: &HardwareReport, catalog: &Catalog) -> Vec<Backen
                         choice.note = if gpu.rocm_supported() {
                             format!("Runs on your {} through AMD ROCm.", short_name(gpu))
                         } else {
-                            "Your card is not officially supported by ROCm; Vulkan is safer."
-                                .into()
+                            "Your card is not officially supported by ROCm; Vulkan is safer.".into()
                         };
                     }
                 },
                 Backend::Metal => {
                     if report.is_apple_silicon() {
-                        if let Some(gpu) = report.gpus.iter().find(|g| g.vendor == GpuVendor::Apple)
-                        {
+                        if let Some(gpu) = report.gpus.iter().find(|g| g.vendor == GpuVendor::Apple) {
                             use_gpu(&mut choice, gpu, candidates[0]);
                         } else {
                             choice.available = true;
@@ -142,7 +137,11 @@ pub fn backend_choices(report: &HardwareReport, catalog: &Catalog) -> Vec<Backen
                     choice.memory_budget_gb = ram_gb;
                     choice.uses_system_memory = true;
                     choice.device = Some(report.cpu.name.clone());
-                    choice.note = "Works on any computer, but answers arrive much more slowly.".into();
+                    choice.note = format!(
+                        "Runs on your {} with {:.0} GB of memory.",
+                        short_cpu_name(&report.cpu.name),
+                        ram_gb
+                    );
                 }
             }
             choice
@@ -154,12 +153,16 @@ pub fn backend_choices(report: &HardwareReport, catalog: &Catalog) -> Vec<Backen
     let preferred = [
         (Backend::Cuda, true),
         (Backend::Metal, true),
-        (Backend::Rocm, discrete(GpuVendor::Amd).is_some_and(GpuInfo::rocm_supported)),
+        (
+            Backend::Rocm,
+            discrete(GpuVendor::Amd).is_some_and(GpuInfo::rocm_supported),
+        ),
         (Backend::Vulkan, true),
     ];
-    if let Some(&(winner, _)) = preferred.iter().find(|(b, extra)| {
-        *extra && choices.iter().any(|c| c.backend == *b && c.available)
-    }) {
+    if let Some(&(winner, _)) = preferred
+        .iter()
+        .find(|(b, extra)| *extra && choices.iter().any(|c| c.backend == *b && c.available))
+    {
         for c in &mut choices {
             c.recommended = c.backend == winner;
         }
@@ -199,11 +202,7 @@ pub fn recommend_models(choice: &BackendChoice, catalog: &Catalog) -> ModelRecom
             .expect("catalog has CPU tiers");
         (t.id.clone(), t.context_length, &t.models)
     } else {
-        match models
-            .tiers
-            .iter()
-            .find(|t| choice.memory_budget_gb >= t.min_vram_gb)
-        {
+        match models.tiers.iter().find(|t| choice.memory_budget_gb >= t.min_vram_gb) {
             Some(t) => (t.id.clone(), t.context_length, &t.models),
             None => {
                 let t = models.cpu_tiers.last().expect("catalog has CPU tiers");
@@ -241,10 +240,10 @@ fn satisfies(variant: &RuntimeVariant, gpu: &GpuInfo) -> bool {
             _ => return false,
         }
     }
-    if let (Some(min), Some(have)) = (req.compute_capability_min, gpu.compute_capability) {
-        if have + 1e-6 < min {
-            return false;
-        }
+    if let (Some(min), Some(have)) = (req.compute_capability_min, gpu.compute_capability)
+        && have + 1e-6 < min
+    {
+        return false;
     }
     true
 }
@@ -288,6 +287,16 @@ fn short_name(gpu: &GpuInfo) -> String {
         .trim_start_matches("NVIDIA ")
         .trim_start_matches("AMD ")
         .to_string()
+}
+
+/// `12th Gen Intel(R) Core(TM) i7-12700K` → `12th Gen Intel Core i7-12700K`.
+fn short_cpu_name(name: &str) -> String {
+    name.replace("(R)", "")
+        .replace("(TM)", "")
+        .replace("(tm)", "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -359,10 +368,7 @@ mod tests {
             16,
         );
         let choices = backend_choices(&r, crate::catalog());
-        assert_eq!(
-            find(&choices, Backend::Cuda).variant.as_deref(),
-            Some("windows-cuda12")
-        );
+        assert_eq!(find(&choices, Backend::Cuda).variant.as_deref(), Some("windows-cuda12"));
     }
 
     #[test]
@@ -403,6 +409,18 @@ mod tests {
         assert_eq!(default_backend(&choices), Backend::Cpu);
         let rec = recommend_models(find(&choices, Backend::Cpu), crate::catalog());
         assert_eq!(rec.tier, "cpu-tight");
+    }
+
+    #[test]
+    fn cpu_names_lose_their_trademark_signs() {
+        assert_eq!(
+            short_cpu_name("12th Gen Intel(R) Core(TM) i7-12700K"),
+            "12th Gen Intel Core i7-12700K"
+        );
+        assert_eq!(
+            short_cpu_name("AMD Ryzen 9 7950X 16-Core Processor"),
+            "AMD Ryzen 9 7950X 16-Core Processor"
+        );
     }
 
     #[test]

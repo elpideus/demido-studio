@@ -11,10 +11,7 @@ use crate::plan::StepId;
 use crate::process::{self, Run};
 use crate::runner::Ctx;
 
-pub(crate) async fn install_node(
-    ctx: &Ctx<'_>,
-    existing: Option<&ToolInfo>,
-) -> anyhow::Result<ToolInfo> {
+pub(crate) async fn install_node(ctx: &Ctx<'_>, existing: Option<&ToolInfo>) -> anyhow::Result<ToolInfo> {
     install(
         ctx,
         StepId::Node,
@@ -26,10 +23,7 @@ pub(crate) async fn install_node(
     .await
 }
 
-pub(crate) async fn install_uv(
-    ctx: &Ctx<'_>,
-    existing: Option<&ToolInfo>,
-) -> anyhow::Result<ToolInfo> {
+pub(crate) async fn install_uv(ctx: &Ctx<'_>, existing: Option<&ToolInfo>) -> anyhow::Result<ToolInfo> {
     install(
         ctx,
         StepId::Uv,
@@ -54,12 +48,13 @@ async fn install(
         .with_context(|| format!("{folder} has no build for this platform"))?;
     let target = ctx.install_dir().join("runtime").join(folder);
 
-    if let Some(info) = existing {
-        if info.version == dist.version && ctx.install_dir().join(&info.exe).is_file() {
-            ctx.log(step, format!("{folder} {} is already installed", dist.version));
-            ctx.progress(step, asset.size, Some(asset.size), 0.0, "Already installed");
-            return Ok(info.clone());
-        }
+    if let Some(info) = existing
+        && info.version == dist.version
+        && ctx.install_dir().join(&info.exe).is_file()
+    {
+        ctx.log(step, format!("{folder} {} is already installed", dist.version));
+        ctx.progress(step, asset.size, Some(asset.size), 0.0, "Already installed");
+        return Ok(info.clone());
     }
 
     let archive = super::fetch(ctx, step, &asset.url, asset.size, &asset.sha256, 0, asset.size).await?;

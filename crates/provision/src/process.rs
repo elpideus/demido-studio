@@ -87,11 +87,7 @@ pub(crate) async fn run(
     if !status.success() {
         let tail: Vec<&str> = output.lines().rev().take(8).collect();
         let tail: Vec<&str> = tail.into_iter().rev().collect();
-        bail!(
-            "{} exited with {status}:\n{}",
-            spec.program.display(),
-            tail.join("\n")
-        );
+        bail!("{} exited with {status}:\n{}", spec.program.display(), tail.join("\n"));
     }
     Ok(output)
 }

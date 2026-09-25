@@ -9,9 +9,7 @@ mod data;
 pub mod plan;
 
 pub use data::*;
-pub use plan::{
-    BackendChoice, ModelRecommendation, backend_choices, default_backend, recommend_models,
-};
+pub use plan::{BackendChoice, ModelRecommendation, backend_choices, default_backend, recommend_models};
 
 use std::sync::OnceLock;
 

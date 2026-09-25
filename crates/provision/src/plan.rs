@@ -98,37 +98,37 @@ impl InstallPlan {
             });
         }
         let (os, arch) = (demido_core::Os::current(), demido_core::Arch::current());
-        if self.node {
-            if let Some(asset) = rt.node.for_platform(os, arch) {
-                steps.push(StepInfo {
-                    id: StepId::Node,
-                    label: "Node.js".into(),
-                    detail: format!("Version {} · runs the market data service", rt.node.version),
-                    size: asset.size,
-                });
-            }
+        if self.node
+            && let Some(asset) = rt.node.for_platform(os, arch)
+        {
+            steps.push(StepInfo {
+                id: StepId::Node,
+                label: "Node.js".into(),
+                detail: format!("Version {} · runs the market data service", rt.node.version),
+                size: asset.size,
+            });
         }
-        if self.python {
-            if let Some(asset) = rt.uv.for_platform(os, arch) {
-                steps.push(StepInfo {
-                    id: StepId::Uv,
-                    label: "uv".into(),
-                    detail: format!("Version {} · manages Python", rt.uv.version),
-                    size: asset.size,
-                });
-                steps.push(StepInfo {
-                    id: StepId::Python,
-                    label: format!("Python {}", rt.python.version),
-                    detail: "Lets the assistant run analysis code".into(),
-                    size: rt.python.estimated_size,
-                });
-                steps.push(StepInfo {
-                    id: StepId::PythonPackages,
-                    label: "Data packages".into(),
-                    detail: rt.python.packages.join(", "),
-                    size: rt.python.estimated_packages_size,
-                });
-            }
+        if self.python
+            && let Some(asset) = rt.uv.for_platform(os, arch)
+        {
+            steps.push(StepInfo {
+                id: StepId::Uv,
+                label: "uv".into(),
+                detail: format!("Version {} · manages Python", rt.uv.version),
+                size: asset.size,
+            });
+            steps.push(StepInfo {
+                id: StepId::Python,
+                label: format!("Python {}", rt.python.version),
+                detail: "Lets the assistant run analysis code".into(),
+                size: rt.python.estimated_size,
+            });
+            steps.push(StepInfo {
+                id: StepId::PythonPackages,
+                label: "Data packages".into(),
+                detail: rt.python.packages.join(", "),
+                size: rt.python.estimated_packages_size,
+            });
         }
         if let Some(model) = &self.model {
             steps.push(StepInfo {

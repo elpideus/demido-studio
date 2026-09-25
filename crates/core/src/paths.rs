@@ -15,7 +15,8 @@ pub const DATA_DIR_ENV: &str = "DEMIDO_DATA_DIR";
 /// (used in development, where the binary lives in `target/`).
 pub const INSTALL_DIR_ENV: &str = "DEMIDO_INSTALL_DIR";
 
-/// Default install folder for a scope.
+/// Default install folder for a scope. Never in or around [`user_data_dir`]: setup refuses an
+/// install folder that overlaps the person's data.
 pub fn default_install_dir(scope: InstallScope) -> PathBuf {
     #[cfg(windows)]
     {
@@ -41,7 +42,8 @@ pub fn default_install_dir(scope: InstallScope) -> PathBuf {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         match scope {
-            InstallScope::User => home().join(".local/share").join(crate::brand::APP_SLUG).join("app"),
+            // The per-user counterpart of /opt, beside ~/.local/share rather than in it.
+            InstallScope::User => home().join(".local/opt").join(crate::brand::APP_SLUG),
             InstallScope::Machine => PathBuf::from("/opt").join(crate::brand::APP_SLUG),
         }
     }
@@ -54,9 +56,7 @@ pub fn user_data_dir() -> PathBuf {
     }
     #[cfg(windows)]
     {
-        dirs::data_local_dir()
-            .unwrap_or_else(home)
-            .join(APP_NAME)
+        dirs::data_local_dir().unwrap_or_else(home).join(APP_NAME)
     }
     #[cfg(target_os = "macos")]
     {
@@ -110,6 +110,20 @@ mod tests {
             default_install_dir(InstallScope::User),
             default_install_dir(InstallScope::Machine)
         );
+    }
+
+    #[test]
+    fn install_folders_stay_out_of_the_user_data_folder() {
+        let data = user_data_dir();
+        for scope in [InstallScope::User, InstallScope::Machine] {
+            let dir = default_install_dir(scope);
+            assert!(
+                !dir.starts_with(&data) && !data.starts_with(&dir),
+                "{} overlaps {}",
+                dir.display(),
+                data.display()
+            );
+        }
     }
 
     #[test]

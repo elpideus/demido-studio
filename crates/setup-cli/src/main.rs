@@ -5,6 +5,7 @@
 //! demido-setup-cli --dev                    provision .dev/install for `pnpm dev`
 //!     [--dir PATH] [--backend cuda|rocm|metal|vulkan|cpu]
 //!     [--model qwen|gemma|smoke|none] [--no-python] [--no-node]
+//! demido-setup-cli --pack DIR OUT.zip        zip a folder (the installer's app payload)
 //! ```
 
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ use demido_provision::{InstallPlan, ProvisionEvent, StepState};
 
 struct Args {
     detect: bool,
+    pack: Option<(PathBuf, PathBuf)>,
     dev: bool,
     dir: Option<PathBuf>,
     backend: Option<Backend>,
@@ -27,6 +29,7 @@ struct Args {
 fn parse() -> anyhow::Result<Args> {
     let mut args = Args {
         detect: false,
+        pack: None,
         dev: false,
         dir: None,
         backend: None,
@@ -38,18 +41,32 @@ fn parse() -> anyhow::Result<Args> {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--detect" => args.detect = true,
+            "--pack" => {
+                let dir = PathBuf::from(it.next().context("--pack needs a folder")?);
+                let out = PathBuf::from(it.next().context("--pack needs an output file")?);
+                args.pack = Some((dir, out));
+            }
             "--dev" => args.dev = true,
             "--dir" => args.dir = Some(PathBuf::from(it.next().context("--dir needs a path")?)),
             "--backend" => {
                 let b = it.next().context("--backend needs a value")?;
-                args.backend = Some(serde_json::from_str(&format!("\"{b}\""))
-                    .with_context(|| format!("unknown backend {b}"))?);
+                args.backend =
+                    Some(serde_json::from_str(&format!("\"{b}\"")).with_context(|| format!("unknown backend {b}"))?);
             }
             "--model" => args.model = it.next().context("--model needs a value")?,
             "--no-python" => args.python = false,
             "--no-node" => args.node = false,
             "-h" | "--help" => {
-                println!("{}", include_str!("main.rs").lines().take(9).skip(2).map(|l| l.trim_start_matches("//! ")).collect::<Vec<_>>().join("\n"));
+                println!(
+                    "{}",
+                    include_str!("main.rs")
+                        .lines()
+                        .take(9)
+                        .skip(2)
+                        .map(|l| l.trim_start_matches("//! "))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                );
                 std::process::exit(0);
             }
             other => bail!("unknown argument {other}"),
@@ -62,13 +79,16 @@ fn parse() -> anyhow::Result<Args> {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_str(
-                &std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()),
-            )
-            .unwrap_or_default(),
+            tracing_subscriber::EnvFilter::from_str(&std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()))
+                .unwrap_or_default(),
         )
         .init();
     let args = parse()?;
+    if let Some((dir, out)) = &args.pack {
+        let (files, bytes) = pack(dir, out)?;
+        println!("packed {files} files ({bytes} bytes) into {}", out.display());
+        return Ok(());
+    }
     let catalog = demido_catalog::catalog();
     let report = tokio::task::spawn_blocking(demido_hardware::detect).await?;
     let choices = demido_catalog::backend_choices(&report, catalog);
@@ -90,7 +110,12 @@ async fn main() -> anyhow::Result<()> {
         let rec = demido_catalog::recommend_models(choice, catalog);
         println!("\nPreselected: {} -> tier {}", chosen.label(), rec.tier);
         for (family, pick) in &rec.picks {
-            println!("  {family}: {} {} ({:.2} GB)", pick.name, pick.quant, pick.size as f64 / 1e9);
+            println!(
+                "  {family}: {} {} ({:.2} GB)",
+                pick.name,
+                pick.quant,
+                pick.size as f64 / 1e9
+            );
         }
         return Ok(());
     }
@@ -165,7 +190,13 @@ async fn main() -> anyhow::Result<()> {
             };
             println!("{mark} {id:?}{}", message.map(|m| format!(": {m}")).unwrap_or_default());
         }
-        ProvisionEvent::Progress { id, done, total, bytes_per_second, .. } => {
+        ProvisionEvent::Progress {
+            id,
+            done,
+            total,
+            bytes_per_second,
+            ..
+        } => {
             if let Some(total) = total.filter(|t| *t > 1) {
                 let pct = (done * 100 / total).min(100);
                 let mut map = last_pct.lock().unwrap();
@@ -186,6 +217,42 @@ async fn main() -> anyhow::Result<()> {
     let manifest = demido_provision::run(&plan, catalog, demido_fetch::CancellationToken::new(), &emit).await?;
     println!("{}", serde_json::to_string_pretty(&manifest)?);
     Ok(())
+}
+
+/// Zips every file under `dir` (paths relative to it, forward slashes), deflate-compressed.
+fn pack(dir: &std::path::Path, out: &std::path::Path) -> anyhow::Result<(usize, u64)> {
+    use std::io::Write;
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = std::fs::File::create(out)?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o755);
+    let mut count = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    let mut entries = Vec::new();
+    while let Some(d) = stack.pop() {
+        for entry in std::fs::read_dir(&d)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                entries.push(path);
+            }
+        }
+    }
+    entries.sort();
+    for path in entries {
+        let rel = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
+        zip.start_file(rel, options)?;
+        zip.write_all(&std::fs::read(&path)?)?;
+        count += 1;
+    }
+    zip.finish()?;
+    let bytes = std::fs::metadata(out)?.len();
+    Ok((count, bytes))
 }
 
 fn human(bytes: u64) -> String {

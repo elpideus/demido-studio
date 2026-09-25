@@ -12,10 +12,7 @@ use crate::runner::Ctx;
 
 const STEP: StepId = StepId::Runtime;
 
-pub(crate) async fn install(
-    ctx: &Ctx<'_>,
-    existing: Option<&RuntimeInfo>,
-) -> anyhow::Result<RuntimeInfo> {
+pub(crate) async fn install(ctx: &Ctx<'_>, existing: Option<&RuntimeInfo>) -> anyhow::Result<RuntimeInfo> {
     let llama = &ctx.catalog.runtimes.llama_cpp;
     let variant = llama
         .variant(&ctx.plan.variant)

@@ -1,9 +1,7 @@
 //! Every display adapter on Windows through DXGI. Unlike WMI's `AdapterRAM`, which is a 32-bit
 //! field capped at 4 GB, DXGI reports dedicated memory as a full 64-bit size.
 
-use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, IDXGIAdapter1, IDXGIFactory1,
-};
+use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, IDXGIAdapter1, IDXGIFactory1};
 
 use crate::gpu::{GpuInfo, GpuVendor};
 
@@ -40,9 +38,7 @@ fn enumerate() -> windows::core::Result<Vec<GpuInfo>> {
             .iter()
             .position(|&c| c == 0)
             .unwrap_or(desc.Description.len());
-        let name = String::from_utf16_lossy(&desc.Description[..len])
-            .trim()
-            .to_string();
+        let name = String::from_utf16_lossy(&desc.Description[..len]).trim().to_string();
         let vendor = GpuVendor::from_pci_id(desc.VendorId);
         if vendor == GpuVendor::Other && name.contains("Microsoft Basic") {
             continue;

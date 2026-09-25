@@ -40,12 +40,12 @@ pub(crate) mod platform {
     use demido_core::brand::{APP_NAME, PUBLISHER, STUDIO_BIN, UNINSTALL_KEY, UNINSTALLER_BIN, VERSION};
     use demido_core::platform::exe;
     use windows::Win32::System::Com::{
-        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
-        CoTaskMemFree, CoUninitialize, IPersistFile,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+        CoUninitialize, IPersistFile,
     };
     use windows::Win32::UI::Shell::{
-        FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_Programs, FOLDERID_PublicDesktop,
-        IShellLinkW, KF_FLAG_DEFAULT, SHGetKnownFolderPath, ShellLink,
+        FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_Programs, FOLDERID_PublicDesktop, IShellLinkW,
+        KF_FLAG_DEFAULT, SHGetKnownFolderPath, ShellLink,
     };
     use windows::core::{GUID, HSTRING, Interface};
 
@@ -102,9 +102,7 @@ pub(crate) mod platform {
                 let shell: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
                 shell.SetPath(&HSTRING::from(target.as_os_str()))?;
                 shell.SetWorkingDirectory(&HSTRING::from(workdir.as_os_str()))?;
-                shell.SetDescription(&HSTRING::from(
-                    "An easy to use, powerful AI harness",
-                ))?;
+                shell.SetDescription(&HSTRING::from("An easy to use, powerful AI harness"))?;
                 shell.SetIconLocation(&HSTRING::from(target.as_os_str()), 0)?;
                 let file: IPersistFile = shell.cast()?;
                 file.Save(&HSTRING::from(link.as_os_str()), true)?;
@@ -123,6 +121,9 @@ pub(crate) mod platform {
             InstallScope::User => windows_registry::CURRENT_USER,
             InstallScope::Machine => windows_registry::LOCAL_MACHINE,
         };
+        // Start from an empty key so nothing an earlier install wrote (another uninstaller, an
+        // old icon) survives next to the new values.
+        unregister(plan.scope).context("clearing the previous uninstall registry key")?;
         let key = root
             .create(format!(r"{UNINSTALL_ROOT}\{UNINSTALL_KEY}"))
             .context("opening the uninstall registry key")?;
@@ -134,18 +135,12 @@ pub(crate) mod platform {
         key.set_string("Publisher", PUBLISHER)?;
         key.set_string("InstallLocation", &dir)?;
         key.set_string("DisplayIcon", app.to_string_lossy().as_ref())?;
-        key.set_string(
-            "UninstallString",
-            &format!("\"{}\" --uninstall", uninstaller.display()),
-        )?;
+        key.set_string("UninstallString", format!("\"{}\" --uninstall", uninstaller.display()))?;
         key.set_string(
             "QuietUninstallString",
-            &format!("\"{}\" --uninstall --quiet", uninstaller.display()),
+            format!("\"{}\" --uninstall --quiet", uninstaller.display()),
         )?;
-        key.set_string(
-            "InstallDate",
-            &chrono::Local::now().format("%Y%m%d").to_string(),
-        )?;
+        key.set_string("InstallDate", chrono::Local::now().format("%Y%m%d").to_string())?;
         key.set_u32("NoModify", 1)?;
         key.set_u32("NoRepair", 1)?;
         key.set_u32("EstimatedSize", (size / 1024).min(u32::MAX as u64) as u32)?;

@@ -5,10 +5,10 @@
 //! GPU entry only means we fall back to a safer runtime, never that setup cannot continue.
 
 mod cpu;
-mod gpu;
-mod nvidia;
 #[cfg(windows)]
 mod dxgi;
+mod gpu;
+mod nvidia;
 #[cfg(target_os = "linux")]
 mod sysfs;
 

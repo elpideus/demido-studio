@@ -73,6 +73,11 @@ pub struct InstallManifest {
     /// Hardware as seen at install time, kept for diagnostics only.
     #[serde(default)]
     pub hardware: serde_json::Value,
+    /// Top-level names setup created in the install folder. The uninstaller removes only these,
+    /// so nothing else that shares the folder is touched. `None` only in manifests from builds
+    /// that were never released; setup treats those like an `install.json` it cannot read.
+    #[serde(default)]
+    pub created: Option<Vec<String>>,
 }
 
 impl InstallManifest {
@@ -92,12 +97,25 @@ impl InstallManifest {
             models_dir: None,
             starter_model: None,
             hardware: serde_json::Value::Null,
+            created: Some(Vec::new()),
         }
     }
 
-    /// Reads `install.json` from `install_dir`.
+    /// Reads `install.json` from `install_dir`. One a newer setup wrote for a later schema fails
+    /// like a damaged one, even when it parses: its fields may not mean what this build takes
+    /// them to, so neither an update nor the uninstaller may act on it.
     pub fn load(install_dir: &Path) -> anyhow::Result<Self> {
-        crate::fsx::read_json(&install_dir.join(Self::FILE_NAME))
+        let path = install_dir.join(Self::FILE_NAME);
+        let manifest: Self = crate::fsx::read_json(&path)?;
+        if manifest.schema > Self::SCHEMA {
+            anyhow::bail!(
+                "{} has schema {}, newer than the {} this build reads",
+                path.display(),
+                manifest.schema,
+                Self::SCHEMA
+            );
+        }
+        Ok(manifest)
     }
 
     /// Writes `install.json` into `install_dir`.
@@ -135,6 +153,41 @@ mod tests {
         assert_eq!(back, m);
         let raw = std::fs::read_to_string(dir.path().join("install.json")).unwrap();
         assert!(raw.contains("\"backend\": \"cuda\""));
+    }
+
+    #[test]
+    fn records_what_setup_created() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut m = InstallManifest::new(InstallScope::User);
+        m.created = Some(vec!["runtime".into(), "install.json".into()]);
+        m.save(dir.path()).unwrap();
+        let back = InstallManifest::load(dir.path()).unwrap();
+        assert_eq!(back.created, m.created);
+    }
+
+    #[test]
+    fn manifests_from_before_created_was_recorded_still_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut value = serde_json::to_value(InstallManifest::new(InstallScope::Machine)).unwrap();
+        value.as_object_mut().unwrap().remove("created");
+        std::fs::write(dir.path().join("install.json"), value.to_string()).unwrap();
+        let back = InstallManifest::load(dir.path()).unwrap();
+        assert_eq!(back.created, None);
+        assert_eq!(back.scope, InstallScope::Machine);
+    }
+
+    #[test]
+    fn a_newer_schema_does_not_load_and_older_ones_do() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut m = InstallManifest::new(InstallScope::User);
+        m.schema = InstallManifest::SCHEMA + 1;
+        m.save(dir.path()).unwrap();
+        assert!(InstallManifest::load(dir.path()).is_err());
+        for schema in [0, InstallManifest::SCHEMA] {
+            m.schema = schema;
+            m.save(dir.path()).unwrap();
+            assert_eq!(InstallManifest::load(dir.path()).unwrap(), m);
+        }
     }
 
     #[test]

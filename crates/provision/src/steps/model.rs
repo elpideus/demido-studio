@@ -17,7 +17,13 @@ pub(crate) async fn download(ctx: &Ctx<'_>) -> anyhow::Result<StarterModel> {
     let req = DownloadRequest::new(pick.url(), &dest)
         .size(pick.size)
         .sha256(&pick.sha256);
-    ctx.log(StepId::Model, format!("Downloading {} to {}", pick.url(), dest.display()));
+    // A reinstall finds the model already there; it is checked instead of downloaded again.
+    let action = if dest.is_file() {
+        format!("Checking the copy already at {}", dest.display())
+    } else {
+        format!("Downloading {} to {}", pick.url(), dest.display())
+    };
+    ctx.log(StepId::Model, action);
     ctx.downloader
         .download(&req, ctx.cancel, |p| {
             ctx.progress(

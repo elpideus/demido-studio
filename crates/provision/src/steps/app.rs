@@ -4,15 +4,29 @@ use std::io::Cursor;
 
 use anyhow::{Context, bail};
 
-use crate::plan::StepId;
+use crate::folder::Claim;
+use crate::plan::{AppPayload, StepId};
 use crate::runner::Ctx;
 
-pub(crate) async fn install(ctx: &Ctx<'_>) -> anyhow::Result<()> {
+/// The top-level names [`install`] creates in the install folder: the payload's, then the
+/// uninstaller.
+pub(crate) fn entries(payload: &AppPayload) -> anyhow::Result<Vec<String>> {
+    let mut names = crate::folder::payload_entries(&payload.zip)?;
+    if payload.uninstaller_source.is_some() {
+        names.push(demido_core::platform::exe(demido_core::brand::UNINSTALLER_BIN));
+    }
+    Ok(names)
+}
+
+/// Unpacks the app and copies the uninstaller. `entries` are the top-level names that creates.
+pub(crate) async fn install(ctx: &Ctx<'_>, claim: &mut Claim, entries: &[String]) -> anyhow::Result<()> {
     let payload = ctx.plan.payload.clone().context("no app payload")?;
     let running = crate::system::running_app_pids(ctx.install_dir());
     if !running.is_empty() {
         bail!("Demido Studio is running from this folder. Close it and retry.");
     }
+    // Unpacking overwrites what it finds, so none of it may be in another program's way.
+    claim.take(entries)?;
     let dir = ctx.install_dir().to_path_buf();
     let total = payload.zip.len() as u64;
     ctx.progress(StepId::App, 0, Some(total), 0.0, "Unpacking Demido Studio");
@@ -35,8 +49,7 @@ pub(crate) async fn install(ctx: &Ctx<'_>) -> anyhow::Result<()> {
             if let Some(parent) = out.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let mut file = std::fs::File::create(&out)
-                .with_context(|| format!("writing {}", out.display()))?;
+            let mut file = std::fs::File::create(&out).with_context(|| format!("writing {}", out.display()))?;
             std::io::copy(&mut entry, &mut file)?;
             #[cfg(unix)]
             if let Some(mode) = entry.unix_mode() {
@@ -51,10 +64,10 @@ pub(crate) async fn install(ctx: &Ctx<'_>) -> anyhow::Result<()> {
     ctx.log(StepId::App, format!("Unpacked {files} files into {}", dir.display()));
 
     if let Some(source) = &payload.uninstaller_source {
-        let dest = dir.join(demido_core::platform::exe(demido_core::brand::UNINSTALLER_BIN));
+        let name = demido_core::platform::exe(demido_core::brand::UNINSTALLER_BIN);
+        let dest = dir.join(&name);
         if source != &dest {
-            std::fs::copy(source, &dest)
-                .with_context(|| format!("copying the uninstaller to {}", dest.display()))?;
+            std::fs::copy(source, &dest).with_context(|| format!("copying the uninstaller to {}", dest.display()))?;
         }
     }
     ctx.progress(StepId::App, total, Some(total), 0.0, "Unpacked");

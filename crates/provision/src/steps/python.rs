@@ -16,24 +16,28 @@ pub(crate) async fn install_python(ctx: &Ctx<'_>, uv: &ToolInfo) -> anyhow::Resu
     let venv = ctx.install_dir().join("runtime").join("pyenv");
     let python = venv_python(&venv);
 
-    if python.is_file() {
-        if let Ok(version) = python_version(ctx, &python).await {
-            if version.starts_with(&spec.version) {
-                ctx.log(StepId::Python, format!("Python {version} is already installed"));
-                ctx.progress(StepId::Python, 1, Some(1), 0.0, "Already installed");
-                return Ok(ToolInfo {
-                    version,
-                    exe: super::relative(ctx, &python),
-                });
-            }
-        }
+    if python.is_file()
+        && let Ok(version) = python_version(ctx, &python).await
+        && version.starts_with(&spec.version)
+    {
+        ctx.log(StepId::Python, format!("Python {version} is already installed"));
+        ctx.progress(StepId::Python, 1, Some(1), 0.0, "Already installed");
+        return Ok(ToolInfo {
+            version,
+            exe: super::relative(ctx, &python),
+        });
     }
     if venv.exists() {
-        std::fs::remove_dir_all(&venv)
-            .with_context(|| format!("clearing {}", venv.display()))?;
+        std::fs::remove_dir_all(&venv).with_context(|| format!("clearing {}", venv.display()))?;
     }
 
-    ctx.progress(StepId::Python, 0, None, 0.0, format!("Installing Python {}", spec.version));
+    ctx.progress(
+        StepId::Python,
+        0,
+        None,
+        0.0,
+        format!("Installing Python {}", spec.version),
+    );
     let uv_exe = ctx.install_dir().join(&uv.exe);
     process::run(
         Run {
@@ -70,11 +74,7 @@ pub(crate) async fn install_python(ctx: &Ctx<'_>, uv: &ToolInfo) -> anyhow::Resu
     })
 }
 
-pub(crate) async fn install_packages(
-    ctx: &Ctx<'_>,
-    uv: &ToolInfo,
-    python: &ToolInfo,
-) -> anyhow::Result<()> {
+pub(crate) async fn install_packages(ctx: &Ctx<'_>, uv: &ToolInfo, python: &ToolInfo) -> anyhow::Result<()> {
     let spec = &ctx.catalog.runtimes.python;
     let uv_exe = ctx.install_dir().join(&uv.exe);
     let python_exe = ctx.install_dir().join(&python.exe);
@@ -164,10 +164,7 @@ async fn python_version(ctx: &Ctx<'_>, python: &Path) -> anyhow::Result<String> 
     let out = process::run(
         Run {
             program: python,
-            args: vec![
-                "-c".into(),
-                "import platform; print(platform.python_version())".into(),
-            ],
+            args: vec!["-c".into(), "import platform; print(platform.python_version())".into()],
             envs: vec![],
             cwd: None,
             timeout: Duration::from_secs(60),
