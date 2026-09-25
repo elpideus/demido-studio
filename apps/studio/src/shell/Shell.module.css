@@ -20,5 +20,12 @@
   min-height: 0;
   transition:
     padding-left var(--duration-slow) var(--ease-out),
-    padding-right var(--duration-slow) var(--ease-out);
+    padding-right var(--duration-slow) var(--ease-out),
+    padding-top var(--duration-slow) var(--ease-out),
+    padding-bottom var(--duration-slow) var(--ease-out);
+}
+
+/* The chat follows a docked window's edge while it is dragged. */
+.resizing {
+  transition: none;
 }

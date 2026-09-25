@@ -11,52 +11,79 @@ export interface Rect extends Size {
   y: number;
 }
 
-export type Side = 'left' | 'right';
+export type Column = 'left' | 'right';
+export type Row = 'top' | 'bottom';
+/**
+ * Where a pinned window sits. A column runs down one side of the desktop, whole or split into a
+ * top and a bottom half; a row sits above or below the chat, between the columns. The chat takes
+ * whatever is left.
+ */
+export type Slot = Column | Row | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type Mode = 'floating' | 'maximized' | 'docked';
-export type SnapZone = Side | 'top';
+export type SnapZone = Slot | 'maximize';
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+export const SLOTS: Slot[] = ['left', 'right', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
 /** Gap between docked windows and the desktop edges, matching the island look. */
 export const GAP = 8;
-/** The chat keeps at least this much width when windows are docked beside it. */
+/** The chat keeps at least this much room when windows are docked around it. */
 export const MIN_CHAT_WIDTH = 440;
+export const MIN_CHAT_HEIGHT = 260;
 export const MIN_DOCK_WIDTH = 340;
+export const MIN_DOCK_HEIGHT = 200;
+/** Smallest half of a split column. */
+export const MIN_HALF_HEIGHT = 150;
 /** How close to an edge the pointer must be for a drag to snap. */
 export const SNAP_DISTANCE = 14;
+/** How far along an edge from a corner still counts as that corner. */
+export const CORNER_REACH = 110;
 export const TITLE_BAR_HEIGHT = 38;
 /** Part of a floating window that must stay on screen so it can always be grabbed. */
 const KEEP_VISIBLE = 96;
 
 export interface Placement {
   mode: Mode;
-  side: Side | null;
+  slot: Slot | null;
   rect: Rect;
   dockWidth: number;
+  dockHeight: number;
 }
 
-/** Where a window is drawn inside the desktop. */
-export function displayRect(p: Placement, bounds: Size): Rect {
-  switch (p.mode) {
-    case 'maximized':
-      return { x: 0, y: 0, w: bounds.w, h: bounds.h };
-    case 'docked':
-      return dockedRect(p.side ?? 'right', p.dockWidth, bounds);
-    default:
-      return p.rect;
-  }
+/** Share of a split column its top half takes, per column. */
+export type Splits = Record<Column, number>;
+
+export const EVEN_SPLITS: Splits = { left: 0.5, right: 0.5 };
+
+/** The sizes of everything pinned: 0 for a column or row nobody is pinned to. */
+export interface DockLayout {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  splits: Splits;
 }
 
-export function dockedRect(side: Side, width: number, bounds: Size): Rect {
-  const w = Math.max(0, Math.min(width, bounds.w - 2 * GAP));
-  return {
-    x: side === 'left' ? GAP : bounds.w - w - GAP,
-    y: GAP,
-    w,
-    h: Math.max(0, bounds.h - 2 * GAP),
-  };
+export function columnOf(slot: Slot): Column | null {
+  if (slot === 'left' || slot === 'top-left' || slot === 'bottom-left') return 'left';
+  if (slot === 'right' || slot === 'top-right' || slot === 'bottom-right') return 'right';
+  return null;
 }
 
-/** Widest a docked window may be, given the width docked on the other side. */
+export function isRow(slot: Slot): slot is Row {
+  return slot === 'top' || slot === 'bottom';
+}
+
+/** Whether two slots cover some of the same space, so they cannot both hold a window. */
+export function slotsOverlap(a: Slot, b: Slot): boolean {
+  if (a === b) return true;
+  const col = columnOf(a);
+  if (!col || col !== columnOf(b)) return false;
+  // Halves of one column only collide with the whole column.
+  return a === col || b === col;
+}
+
+/** Widest a docked column may be, given the width docked on the other side. */
 export function maxDockWidth(bounds: Size, otherSide: number): number {
   const reservedOther = otherSide > 0 ? otherSide + GAP : 0;
   return Math.max(MIN_DOCK_WIDTH, bounds.w - MIN_CHAT_WIDTH - reservedOther - 3 * GAP);
@@ -66,16 +93,211 @@ export function clampDockWidth(width: number, bounds: Size, otherSide: number): 
   return Math.round(Math.min(Math.max(width, MIN_DOCK_WIDTH), maxDockWidth(bounds, otherSide)));
 }
 
-/** Space the chat must leave free on each side for docked windows. */
-export function chatInsets(placements: Placement[]): { left: number; right: number } {
-  let left = 0;
-  let right = 0;
+/** Tallest a docked row may be, given the height docked in the other row. */
+export function maxDockHeight(bounds: Size, otherRow: number): number {
+  const reservedOther = otherRow > 0 ? otherRow + GAP : 0;
+  return Math.max(MIN_DOCK_HEIGHT, bounds.h - MIN_CHAT_HEIGHT - reservedOther - 3 * GAP);
+}
+
+export function clampDockHeight(height: number, bounds: Size, otherRow: number): number {
+  return Math.round(Math.min(Math.max(height, MIN_DOCK_HEIGHT), maxDockHeight(bounds, otherRow)));
+}
+
+/** Keeps both halves of a split column at least `MIN_HALF_HEIGHT` tall. */
+export function clampSplit(split: number, bounds: Size): number {
+  const usable = bounds.h - 3 * GAP;
+  if (usable <= 2 * MIN_HALF_HEIGHT) return 0.5;
+  const min = MIN_HALF_HEIGHT / usable;
+  return Math.min(Math.max(split, min), 1 - min);
+}
+
+/** Measures the columns and rows from the windows pinned to them. */
+export function dockLayout(placements: Placement[], splits: Splits = EVEN_SPLITS): DockLayout {
+  const layout: DockLayout = { left: 0, right: 0, top: 0, bottom: 0, splits };
   for (const p of placements) {
-    if (p.mode !== 'docked') continue;
-    if (p.side === 'left') left = Math.max(left, p.dockWidth + GAP);
-    else right = Math.max(right, p.dockWidth + GAP);
+    if (p.mode !== 'docked' || !p.slot) continue;
+    const col = columnOf(p.slot);
+    if (col) layout[col] = Math.max(layout[col], p.dockWidth);
+    else if (isRow(p.slot)) layout[p.slot] = Math.max(layout[p.slot], p.dockHeight);
   }
-  return { left, right };
+  return layout;
+}
+
+/** The rectangle a slot covers in a layout. */
+export function slotRect(slot: Slot, layout: DockLayout, bounds: Size): Rect {
+  const height = Math.max(0, bounds.h - 2 * GAP);
+  const col = columnOf(slot);
+  if (col) {
+    const w = Math.max(0, Math.min(layout[col], bounds.w - 2 * GAP));
+    const x = col === 'left' ? GAP : bounds.w - w - GAP;
+    if (slot === col) return { x, y: GAP, w, h: height };
+    const top = Math.round((height - GAP) * layout.splits[col]);
+    return slot.startsWith('top')
+      ? { x, y: GAP, w, h: top }
+      : { x, y: GAP + top + GAP, w, h: Math.max(0, height - top - GAP) };
+  }
+  // Rows span the space between the columns.
+  const x = layout.left > 0 ? layout.left + 2 * GAP : GAP;
+  const end = layout.right > 0 ? bounds.w - layout.right - 2 * GAP : bounds.w - GAP;
+  const h = Math.max(0, Math.min(layout[slot as Row], height));
+  return { x, y: slot === 'top' ? GAP : bounds.h - GAP - h, w: Math.max(0, end - x), h };
+}
+
+/** Where a window is drawn inside the desktop. */
+export function displayRect(p: Placement, bounds: Size, layout: DockLayout): Rect {
+  switch (p.mode) {
+    case 'maximized':
+      return { x: 0, y: 0, w: bounds.w, h: bounds.h };
+    case 'docked':
+      return slotRect(p.slot ?? 'right', layout, bounds);
+    default:
+      return p.rect;
+  }
+}
+
+/** Space the chat must leave free on each side for pinned windows. */
+export function chatInsets(layout: DockLayout): { left: number; right: number; top: number; bottom: number } {
+  const inset = (size: number) => (size > 0 ? size + GAP : 0);
+  return { left: inset(layout.left), right: inset(layout.right), top: inset(layout.top), bottom: inset(layout.bottom) };
+}
+
+/** A window as the pinning rules need it. */
+export interface Pinnable extends Placement {
+  id: string;
+}
+
+/** The two columns across the chat share its width; the two rows share its height. */
+interface Axis {
+  sides: [Column, Column] | [Row, Row];
+  key: 'dockWidth' | 'dockHeight';
+  total: number;
+  minChat: number;
+  minDock: number;
+}
+
+function axisOf(slot: Slot, bounds: Size): Axis {
+  return columnOf(slot)
+    ? { sides: ['left', 'right'], key: 'dockWidth', total: bounds.w, minChat: MIN_CHAT_WIDTH, minDock: MIN_DOCK_WIDTH }
+    : {
+        sides: ['top', 'bottom'],
+        key: 'dockHeight',
+        total: bounds.h,
+        minChat: MIN_CHAT_HEIGHT,
+        minDock: MIN_DOCK_HEIGHT,
+      };
+}
+
+/** The column or row a slot is part of. */
+function sideOf(slot: Slot): Column | Row {
+  return columnOf(slot) ?? (slot as Row);
+}
+
+function onSide(w: Placement, side: Column | Row): boolean {
+  return w.mode === 'docked' && w.slot !== null && sideOf(w.slot) === side;
+}
+
+/** How wide a column (or tall a row) is, leaving out one window. */
+function sideSize(windows: Pinnable[], side: Column | Row, axis: Axis, exceptId?: string): number {
+  return windows.filter((w) => w.id !== exceptId && onSide(w, side)).reduce((m, w) => Math.max(m, w[axis.key]), 0);
+}
+
+/** What the docks on one axis may share once the chat has its minimum and the gaps are paid. */
+function dockRoom(axis: Axis, both: boolean): number {
+  return axis.total - axis.minChat - 3 * GAP - (both ? GAP : 0);
+}
+
+function resizeSide<T extends Pinnable>(windows: T[], side: Column | Row, axis: Axis, size: number): T[] {
+  return windows.map((w) => (onSide(w, side) ? { ...w, [axis.key]: size } : w));
+}
+
+/**
+ * Pins a window to a slot. Windows already in a slot that overlaps it float back to where they
+ * were; a window joining the other half of a column takes that column's width. If the chat would
+ * get less than its minimum, the column or row across from it gives way first, down to its own
+ * minimum, and floats back when even that does not fit.
+ */
+export function pinWindow<T extends Pinnable>(windows: T[], id: string, slot: Slot, bounds: Size): T[] {
+  const win = windows.find((w) => w.id === id);
+  if (!win) return windows;
+  const axis = axisOf(slot, bounds);
+  const side = sideOf(slot);
+  const across = axis.sides[0] === side ? axis.sides[1] : axis.sides[0];
+  let next = windows.map((w) =>
+    w.id !== id && w.mode === 'docked' && w.slot && slotsOverlap(w.slot, slot)
+      ? { ...w, mode: 'floating' as const, slot: null }
+      : w,
+  );
+  const acrossSize = sideSize(next, across, axis, id);
+  const room = dockRoom(axis, acrossSize > 0);
+  const wanted = sideSize(next, side, axis, id) || win[axis.key];
+  const size = Math.round(
+    Math.min(Math.max(wanted, axis.minDock), Math.max(axis.minDock, room - (acrossSize > 0 ? axis.minDock : 0))),
+  );
+  if (acrossSize > 0 && size + axis.minDock > room) {
+    next = next.map((w) => (onSide(w, across) ? { ...w, mode: 'floating' as const, slot: null } : w));
+  } else if (acrossSize > 0) {
+    next = resizeSide(next, across, axis, Math.min(acrossSize, room - size));
+  }
+  next = next.map((w) => (w.id === id ? { ...w, mode: 'docked' as const, slot } : w));
+  return resizeSide(next, side, axis, size);
+}
+
+/** Resizes the column or row a docked window is in; both halves of a column move together. */
+export function resizeDock<T extends Pinnable>(windows: T[], id: string, size: number, bounds: Size): T[] {
+  const win = windows.find((w) => w.id === id);
+  if (!win || win.mode !== 'docked' || !win.slot) return windows;
+  const axis = axisOf(win.slot, bounds);
+  const side = sideOf(win.slot);
+  const across = sideSize(windows, axis.sides[0] === side ? axis.sides[1] : axis.sides[0], axis);
+  const max = Math.max(axis.minDock, dockRoom(axis, across > 0) - across);
+  return resizeSide(windows, side, axis, Math.round(Math.min(Math.max(size, axis.minDock), max)));
+}
+
+/** Re-fits every column and row after the desktop changed size, shrinking both sides alike. */
+export function refitDocks<T extends Pinnable>(windows: T[], bounds: Size): T[] {
+  let next = windows;
+  for (const axis of [axisOf('left', bounds), axisOf('top', bounds)]) {
+    const [first, second] = axis.sides;
+    const a = sideSize(next, first, axis);
+    const b = sideSize(next, second, axis);
+    const room = dockRoom(axis, a > 0 && b > 0);
+    const scale = a + b > room ? room / (a + b) : 1;
+    let fitA = Math.max(axis.minDock, Math.round(a * scale));
+    let fitB = Math.max(axis.minDock, Math.round(b * scale));
+    // A side held at its minimum leaves the other one only what remains.
+    if (a > 0 && b > 0 && fitA + fitB > room) {
+      if (fitA === axis.minDock) fitB = Math.max(axis.minDock, room - fitA);
+      else fitA = Math.max(axis.minDock, room - fitB);
+    }
+    if (a > 0) next = resizeSide(next, first, axis, fitA);
+    if (b > 0) next = resizeSide(next, second, axis, fitB);
+  }
+  return next;
+}
+
+/** Share of a window, from 0 to 1, that windows drawn above it hide. Measured on a grid of points. */
+export function coveredShare<T extends Pinnable & { z: number }>(
+  windows: T[],
+  id: string,
+  bounds: Size,
+  splits: Splits,
+): number {
+  const target = windows.find((w) => w.id === id);
+  if (!target) return 0;
+  const layout = dockLayout(windows, splits);
+  const a = displayRect(target, bounds, layout);
+  const above = windows.filter((w) => w.id !== id && w.z > target.z).map((w) => displayRect(w, bounds, layout));
+  if (above.length === 0 || a.w <= 0 || a.h <= 0) return 0;
+  const steps = 16;
+  let hidden = 0;
+  for (let i = 0; i < steps; i += 1) {
+    for (let j = 0; j < steps; j += 1) {
+      const x = a.x + ((i + 0.5) * a.w) / steps;
+      const y = a.y + ((j + 0.5) * a.h) / steps;
+      if (above.some((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)) hidden += 1;
+    }
+  }
+  return hidden / (steps * steps);
 }
 
 /** Keeps a floating window within reach: its title bar stays grabbable. */
@@ -87,18 +309,42 @@ export function clampRect(r: Rect, bounds: Size, min: Size): Rect {
   return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
 }
 
-/** The snap target under the pointer while dragging, if any. */
+/**
+ * The snap target under the pointer while dragging, if any. Like Windows: a side edge pins to
+ * that column, a corner to that quarter, the top edge maximizes. The bottom edge pins below the chat.
+ */
 export function snapZone(px: number, py: number, bounds: Size): SnapZone | null {
-  if (px <= SNAP_DISTANCE) return 'left';
-  if (px >= bounds.w - SNAP_DISTANCE) return 'right';
-  if (py <= SNAP_DISTANCE / 2) return 'top';
+  const nearLeft = px <= SNAP_DISTANCE;
+  const nearRight = px >= bounds.w - SNAP_DISTANCE;
+  const nearTop = py <= SNAP_DISTANCE / 2;
+  const nearBottom = py >= bounds.h - SNAP_DISTANCE / 2;
+  const topCorner = py <= CORNER_REACH;
+  const bottomCorner = py >= bounds.h - CORNER_REACH;
+  if (nearLeft) return topCorner ? 'top-left' : bottomCorner ? 'bottom-left' : 'left';
+  if (nearRight) return topCorner ? 'top-right' : bottomCorner ? 'bottom-right' : 'right';
+  if (nearTop) {
+    if (px <= CORNER_REACH) return 'top-left';
+    if (px >= bounds.w - CORNER_REACH) return 'top-right';
+    return 'maximize';
+  }
+  if (nearBottom) {
+    if (px <= CORNER_REACH) return 'bottom-left';
+    if (px >= bounds.w - CORNER_REACH) return 'bottom-right';
+    return 'bottom';
+  }
   return null;
 }
 
-/** The outline shown while a drag would snap. */
-export function previewRect(zone: SnapZone, bounds: Size, dockWidth: number, otherSide: number): Rect {
-  if (zone === 'top') return { x: 0, y: 0, w: bounds.w, h: bounds.h };
-  return dockedRect(zone, clampDockWidth(dockWidth, bounds, otherSide), bounds);
+/** The outline shown while a drag would snap: exactly where the window would land. */
+export function previewRect<T extends Pinnable>(
+  zone: SnapZone,
+  windows: T[],
+  id: string,
+  bounds: Size,
+  splits: Splits,
+): Rect {
+  if (zone === 'maximize') return { x: 0, y: 0, w: bounds.w, h: bounds.h };
+  return slotRect(zone, dockLayout(pinWindow(windows, id, zone, bounds), splits), bounds);
 }
 
 /**
@@ -131,6 +377,28 @@ export function resizeRect(start: Rect, edge: Edge, dx: number, dy: number, min:
     y = ny;
   }
   return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+}
+
+/** The edges a docked window can be resized from: the ones that face the chat or its partner. */
+export function dockedHandles(slot: Slot): Edge[] {
+  switch (slot) {
+    case 'left':
+      return ['e'];
+    case 'right':
+      return ['w'];
+    case 'top':
+      return ['s'];
+    case 'bottom':
+      return ['n'];
+    case 'top-left':
+      return ['e', 's'];
+    case 'bottom-left':
+      return ['e', 'n'];
+    case 'top-right':
+      return ['w', 's'];
+    case 'bottom-right':
+      return ['w', 'n'];
+  }
 }
 
 /** Where a newly opened window goes: centered, stepped down from windows already there. */

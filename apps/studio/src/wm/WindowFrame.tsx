@@ -1,9 +1,22 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Copy, Maximize2, PanelLeft, PanelRight, Pin, PinOff, Square, X, type LucideIcon } from 'lucide-react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { Copy, LayoutGrid, Maximize2, PinOff, Square, X, type LucideIcon } from 'lucide-react';
 import { IconButton, Menu, cx, type MenuEntry } from '@demido/ui';
 
 import { WINDOW_SPECS, type WindowState, useWindows } from '@/stores/windows';
-import { type Edge, type SnapZone, displayRect, previewRect, resizeRect, snapZone } from './geometry';
+import {
+  type Edge,
+  type SnapZone,
+  GAP,
+  columnOf,
+  displayRect,
+  dockLayout,
+  dockedHandles,
+  isRow,
+  previewRect,
+  resizeRect,
+  snapZone,
+} from './geometry';
+import { SnapLayouts } from './SnapLayouts';
 import styles from './WindowFrame.module.css';
 
 interface Props {
@@ -15,6 +28,9 @@ interface Props {
 }
 
 const EDGES: Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+/** Hover time on Maximize before the snap layouts open, and grace time after the pointer leaves. */
+const FLYOUT_OPEN_DELAY = 380;
+const FLYOUT_CLOSE_DELAY = 260;
 
 function layerBox(el: Element): DOMRect {
   return (el.closest('[data-window-layer]') ?? document.body).getBoundingClientRect();
@@ -24,23 +40,42 @@ function layerBox(el: Element): DOMRect {
 export function WindowFrame({ win, focused, icon: Icon, title, children }: Props) {
   const bounds = useWindows((s) => s.bounds);
   const windows = useWindows((s) => s.windows);
+  const splits = useWindows((s) => s.splits);
+  const resizing = useWindows((s) => s.resizing);
   const wm = useWindows.getState;
   const [interacting, setInteracting] = useState(false);
-  const [menu, setMenu] = useState<'pin' | 'context' | null>(null);
-  const pinRef = useRef<HTMLButtonElement>(null);
+  const [menu, setMenu] = useState(false);
+  const [flyout, setFlyout] = useState<'hover' | 'keyboard' | null>(null);
+  const flyoutTimer = useRef<number | undefined>(undefined);
+  const maxRef = useRef<HTMLButtonElement>(null);
   const contextAnchor = useRef<HTMLSpanElement>(null);
   const [contextPos, setContextPos] = useState({ x: 0, y: 0 });
 
-  const rect = displayRect(win, bounds);
+  useEffect(() => () => window.clearTimeout(flyoutTimer.current), []);
+
+  const rect = displayRect(win, bounds, dockLayout(windows, splits));
   const spec = WINDOW_SPECS[win.kind];
-  const otherSide = (side: 'left' | 'right') =>
-    windows
-      .filter((w) => w.id !== win.id && w.mode === 'docked' && w.side === (side === 'left' ? 'right' : 'left'))
-      .reduce((m, w) => Math.max(m, w.dockWidth), 0);
+
+  const hoverFlyout = (show: boolean) => {
+    window.clearTimeout(flyoutTimer.current);
+    if (show && interacting) return;
+    if (show && flyout) return;
+    flyoutTimer.current = window.setTimeout(
+      () => setFlyout(show ? 'hover' : null),
+      show ? FLYOUT_OPEN_DELAY : FLYOUT_CLOSE_DELAY,
+    );
+  };
+  const closeFlyout = () => {
+    window.clearTimeout(flyoutTimer.current);
+    // Opened from the keyboard, focus goes back where it came from instead of to the page.
+    if (flyout === 'keyboard') maxRef.current?.focus();
+    setFlyout(null);
+  };
 
   const onTitlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest('button, input, [data-no-drag]')) return;
     wm().focus(win.id);
+    closeFlyout();
     const box = layerBox(e.currentTarget);
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
@@ -72,10 +107,9 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
         return;
       }
       wm().setRect(win.id, { ...origin, x: origin.x + (px - originPx), y: origin.y + (py - originPy) });
-      zone = snapZone(px, py, wm().bounds);
-      wm().setPreview(
-        zone ? { rect: previewRect(zone, wm().bounds, win.dockWidth, zone === 'top' ? 0 : otherSide(zone)) } : null,
-      );
+      const state = wm();
+      zone = snapZone(px, py, state.bounds);
+      state.setPreview(zone ? { rect: previewRect(zone, state.windows, win.id, state.bounds, state.splits) } : null);
     };
     const onUp = () => {
       target.removeEventListener('pointermove', onMove);
@@ -84,7 +118,7 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       wm().setPreview(null);
       setInteracting(false);
       if (!zone) return;
-      if (zone === 'top') wm().toggleMaximize(win.id);
+      if (zone === 'maximize') wm().toggleMaximize(win.id);
       else wm().dock(win.id, zone);
     };
     target.addEventListener('pointermove', onMove);
@@ -101,15 +135,25 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
     const sx = e.clientX;
     const sy = e.clientY;
     const startRect = { ...win.rect };
-    const startWidth = win.dockWidth;
+    const startShown = { ...rect };
+    const column = win.slot ? columnOf(win.slot) : null;
+    // Height of a split column's top half; the edge between the halves moves where it splits.
+    const usable = bounds.h - 3 * GAP;
+    const startTop = edge === 's' ? startShown.h : usable * splits[column ?? 'left'];
+    const docked = win.mode === 'docked';
     setInteracting(true);
+    if (docked) wm().setResizing(true);
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - sx;
       const dy = ev.clientY - sy;
-      if (win.mode === 'docked') {
-        wm().setDockWidth(win.id, win.side === 'left' ? startWidth + dx : startWidth - dx);
-      } else {
+      if (win.mode !== 'docked' || !win.slot) {
         wm().setRect(win.id, resizeRect(startRect, edge, dx, dy, spec.minSize, wm().bounds));
+      } else if (edge === 'e' || edge === 'w') {
+        wm().setDockSize(win.id, edge === 'e' ? startShown.w + dx : startShown.w - dx);
+      } else if (isRow(win.slot)) {
+        wm().setDockSize(win.id, edge === 's' ? startShown.h + dy : startShown.h - dy);
+      } else if (column) {
+        wm().setSplit(column, (startTop + dy) / usable);
       }
     };
     const onUp = () => {
@@ -117,45 +161,33 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       target.removeEventListener('pointerup', onUp);
       target.removeEventListener('pointercancel', onUp);
       setInteracting(false);
+      if (docked) wm().setResizing(false);
     };
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
     target.addEventListener('pointercancel', onUp);
   };
 
-  const handles: Edge[] =
-    win.mode === 'floating' ? EDGES : win.mode === 'docked' ? [win.side === 'left' ? 'e' : 'w'] : [];
-
   const maximized = win.mode === 'maximized';
-  const docked = win.mode === 'docked';
-  const pinItems: MenuEntry[] = [
-    {
-      id: 'left',
-      label: 'Pin to the left',
-      icon: PanelLeft,
-      checked: docked && win.side === 'left',
-      onSelect: () => wm().dock(win.id, 'left'),
-    },
-    {
-      id: 'right',
-      label: 'Pin to the right',
-      icon: PanelRight,
-      checked: docked && win.side === 'right',
-      onSelect: () => wm().dock(win.id, 'right'),
-    },
-    ...(docked
-      ? ([{ id: 'unpin', label: 'Unpin', icon: PinOff, onSelect: () => wm().float(win.id) }] as MenuEntry[])
-      : []),
-  ];
+  const docked = win.mode === 'docked' && win.slot !== null;
+  const handles: Edge[] = win.mode === 'floating' ? EDGES : docked && win.slot ? dockedHandles(win.slot) : [];
+
   const contextItems: MenuEntry[] = [
-    ...pinItems,
-    'separator',
     {
       id: 'max',
       label: maximized ? 'Restore' : 'Maximize',
       icon: maximized ? Copy : Square,
       onSelect: () => wm().toggleMaximize(win.id),
     },
+    {
+      id: 'snap',
+      label: 'Pin to…',
+      icon: LayoutGrid,
+      onSelect: () => window.setTimeout(() => setFlyout('keyboard'), 0),
+    },
+    ...(docked
+      ? ([{ id: 'unpin', label: 'Unpin', icon: PinOff, onSelect: () => wm().float(win.id) }] as MenuEntry[])
+      : []),
     'separator',
     { id: 'close', label: 'Close', icon: X, danger: true, onSelect: () => wm().close(win.id) },
   ];
@@ -165,7 +197,7 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       className={cx(
         styles.frame,
         focused && styles.focused,
-        interacting && styles.interacting,
+        (interacting || resizing) && styles.interacting,
         maximized && styles.maximized,
       )}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: win.z }}
@@ -173,6 +205,8 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       aria-label={title}
       role="dialog"
       data-window={win.kind}
+      data-mode={win.mode}
+      data-slot={win.slot ?? undefined}
     >
       <div
         className={styles.titleBar}
@@ -184,7 +218,7 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
           e.preventDefault();
           const box = e.currentTarget.getBoundingClientRect();
           setContextPos({ x: e.clientX - box.left, y: e.clientY - box.top });
-          setMenu('context');
+          setMenu(true);
         }}
       >
         <span className={styles.titleIcon}>
@@ -193,22 +227,32 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
         <span className={styles.title}>{title}</span>
         <span ref={contextAnchor} className={styles.contextAnchor} style={{ left: contextPos.x, top: contextPos.y }} />
         <div className={styles.captions}>
-          <IconButton
-            ref={pinRef}
-            icon={docked ? Pin : Pin}
-            label={docked ? 'Pinned' : 'Pin to a side'}
-            size="sm"
-            active={docked}
-            onClick={() => setMenu(menu === 'pin' ? null : 'pin')}
-            tooltipPlacement="bottom"
-          />
-          <IconButton
-            icon={maximized ? Copy : Maximize2}
-            label={maximized ? 'Restore' : 'Maximize'}
-            size="sm"
-            onClick={() => wm().toggleMaximize(win.id)}
-            tooltipPlacement="bottom"
-          />
+          <span
+            className={styles.maxWrap}
+            onPointerEnter={(e) => e.pointerType === 'mouse' && hoverFlyout(true)}
+            onPointerLeave={(e) => e.pointerType === 'mouse' && flyout !== 'keyboard' && hoverFlyout(false)}
+          >
+            <IconButton
+              ref={maxRef}
+              icon={maximized ? Copy : Maximize2}
+              label={maximized ? 'Restore' : 'Maximize'}
+              size="sm"
+              tooltip={false}
+              aria-haspopup="dialog"
+              aria-expanded={flyout !== null}
+              aria-keyshortcuts="ArrowDown"
+              onClick={() => {
+                closeFlyout();
+                wm().toggleMaximize(win.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setFlyout('keyboard');
+                }
+              }}
+            />
+          </span>
           <IconButton
             icon={X}
             label="Close"
@@ -223,10 +267,20 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       {handles.map((edge) => (
         <div key={edge} className={cx(styles.handle, styles[`h-${edge}`])} onPointerDown={onResizeDown(edge)} />
       ))}
-      <Menu open={menu === 'pin'} onClose={() => setMenu(null)} anchorRef={pinRef} items={pinItems} width={190} />
+      <SnapLayouts
+        open={flyout !== null}
+        onClose={closeFlyout}
+        anchorRef={maxRef}
+        current={docked ? win.slot : null}
+        autoFocus={flyout === 'keyboard'}
+        onPick={(slot) => wm().dock(win.id, slot)}
+        onUnpin={() => wm().float(win.id)}
+        onPointerEnter={() => flyout === 'hover' && hoverFlyout(true)}
+        onPointerLeave={() => flyout === 'hover' && hoverFlyout(false)}
+      />
       <Menu
-        open={menu === 'context'}
-        onClose={() => setMenu(null)}
+        open={menu}
+        onClose={() => setMenu(false)}
         anchorRef={contextAnchor}
         items={contextItems}
         placement="bottom-start"

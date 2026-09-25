@@ -86,6 +86,10 @@
   gap: 2px;
 }
 
+.maxWrap {
+  display: inline-flex;
+}
+
 .close:hover:not(:disabled) {
   background: #c42b1c;
   color: #fff;

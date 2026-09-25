@@ -12,6 +12,7 @@
 //   node scripts/drive.mjs --screenshot out.png
 //   node scripts/drive.mjs --click '[aria-label="Settings"]' --wait 500 --screenshot s.png
 //   node scripts/drive.mjs --type "hello" --key Enter
+//   node scripts/drive.mjs --hover '[aria-label="Maximize"]' --wait 600 --screenshot flyout.png
 //
 // Steps run in the order given, over one connection. --target picks the page whose URL
 // contains the text (default: the app page on localhost:1420 or tauri.localhost).
@@ -84,6 +85,9 @@ async function mouse(type, x, y, extra = {}) {
   await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1, ...extra });
 }
 
+/** Where the last --drag ended, for --release. */
+let held = { x: 0, y: 0 };
+
 for (let i = 0; i < args.length; i += 1) {
   const a = args[i];
   const next = () => args[++i];
@@ -112,9 +116,19 @@ for (let i = 0; i < args.length; i += 1) {
       await mouse('mouseReleased', x, y);
       break;
     }
+    case '--hover': {
+      // --hover selector moves the pointer onto an element; --hover x,y onto a point.
+      const target = next();
+      const point = /^\d+(\.\d+)?,\d+(\.\d+)?$/.test(target)
+        ? Object.fromEntries(target.split(',').map((v, n) => [n ? 'y' : 'x', Number(v)]))
+        : await center(target);
+      await mouse('mouseMoved', point.x, point.y, { button: 'none' });
+      break;
+    }
     case '--drag': {
-      // --drag "fromSelector|toX,toY" drags from an element's center to a point.
-      const [from, to] = next().split('|');
+      // --drag "fromSelector|toX,toY" drags from an element's center to a point. A third part,
+      // "|hold", keeps the button down (to screenshot mid-drag) until --release.
+      const [from, to, hold] = next().split('|');
       const start = await center(from);
       const [tx, ty] = to.split(',').map(Number);
       await mouse('mouseMoved', start.x, start.y);
@@ -125,9 +139,13 @@ for (let i = 0; i < args.length; i += 1) {
           buttons: 1,
         });
       }
-      await mouse('mouseReleased', tx, ty);
+      held = { x: tx, y: ty };
+      if (hold !== 'hold') await mouse('mouseReleased', tx, ty);
       break;
     }
+    case '--release':
+      await mouse('mouseReleased', held.x, held.y);
+      break;
     case '--type':
       await send('Input.insertText', { text: next() });
       break;

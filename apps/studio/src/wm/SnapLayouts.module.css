@@ -1,0 +1,148 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.layouts {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* One layout: a miniature desktop whose zones are the slots, with the chat in the middle. */
+.layout {
+  display: grid;
+  gap: 3px;
+  width: 108px;
+  height: 70px;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.sides {
+  grid-template-areas: 'left chat right';
+  grid-template-columns: 1fr 1.25fr 1fr;
+}
+
+.corners {
+  grid-template-areas:
+    'top-left chat top-right'
+    'bottom-left chat bottom-right';
+  grid-template-columns: 1fr 1.25fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.rows {
+  grid-template-areas:
+    'top'
+    'chat'
+    'bottom';
+  grid-template-rows: 1fr 1.15fr 1fr;
+}
+
+.zone {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-5);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.zone:hover,
+.zone:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-muted-strong);
+  outline: none;
+}
+
+.current {
+  border-color: var(--accent-border);
+  background: var(--accent-muted);
+}
+
+.zone-left {
+  grid-area: left;
+}
+
+.zone-right {
+  grid-area: right;
+}
+
+.zone-top {
+  grid-area: top;
+}
+
+.zone-bottom {
+  grid-area: bottom;
+}
+
+.zone-top-left {
+  grid-area: top-left;
+}
+
+.zone-top-right {
+  grid-area: top-right;
+}
+
+.zone-bottom-left {
+  grid-area: bottom-left;
+}
+
+.zone-bottom-right {
+  grid-area: bottom-right;
+}
+
+/* The chat keeps whatever the pinned windows leave free; it is not a place to pin to. */
+.chat {
+  display: flex;
+  grid-area: chat;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-disabled);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 22px;
+  padding: 0 2px;
+}
+
+.caption {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unpin {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.unpin:hover {
+  background: var(--surface-4);
+  color: var(--text-primary);
+}

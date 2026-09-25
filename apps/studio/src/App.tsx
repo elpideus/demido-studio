@@ -77,7 +77,7 @@ function usePersistLayout(ready: boolean) {
     if (!ready) return undefined;
     let timer: number | undefined;
     const unsubscribe = useWindows.subscribe((state, prev) => {
-      if (state.windows === prev.windows) return;
+      if (state.windows === prev.windows && state.splits === prev.splits) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         void api.updateSettings({ windowLayout: useWindows.getState().snapshot() });

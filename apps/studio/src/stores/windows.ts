@@ -4,14 +4,23 @@
 import { create } from 'zustand';
 
 import {
+  EVEN_SPLITS,
+  type Column,
   type Mode,
   type Rect,
-  type Side,
   type Size,
-  clampDockWidth,
+  type Slot,
+  type Splits,
+  SLOTS,
   clampRect,
+  clampSplit,
+  coveredShare,
   initialRect,
+  pinWindow,
+  refitDocks,
+  resizeDock,
   restoreUnderPointer,
+  slotsOverlap,
 } from '@/wm/geometry';
 
 export type WindowKind = 'settings' | 'market' | 'inspector';
@@ -23,6 +32,7 @@ export interface WindowSpec {
   /** Only one window of this kind can be open. */
   singleton: boolean;
   defaultDockWidth: number;
+  defaultDockHeight: number;
 }
 
 export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
@@ -32,6 +42,7 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     minSize: { w: 560, h: 420 },
     singleton: true,
     defaultDockWidth: 560,
+    defaultDockHeight: 380,
   },
   market: {
     title: 'Market',
@@ -39,6 +50,7 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     minSize: { w: 520, h: 380 },
     singleton: true,
     defaultDockWidth: 620,
+    defaultDockHeight: 400,
   },
   inspector: {
     title: 'Inspector',
@@ -46,6 +58,7 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     minSize: { w: 480, h: 360 },
     singleton: true,
     defaultDockWidth: 560,
+    defaultDockHeight: 360,
   },
 };
 
@@ -56,8 +69,9 @@ export interface WindowState {
   /** Floating geometry, kept while maximized or docked so the window can go back to it. */
   rect: Rect;
   mode: Mode;
-  side: Side | null;
+  slot: Slot | null;
   dockWidth: number;
+  dockHeight: number;
   z: number;
 }
 
@@ -70,39 +84,54 @@ interface WindowsStore {
   focusedId: string | null;
   bounds: Size;
   zTop: number;
+  /** Share of each split column its top half takes. */
+  splits: Splits;
   preview: SnapPreview | null;
+  /** A docked window's edge is being dragged: every window follows it without animating. */
+  resizing: boolean;
   open: (kind: WindowKind, props?: Record<string, unknown>) => string;
+  /** The navigation rail's button: opens the window, brings a mostly hidden one forward, else closes it. */
+  toggle: (kind: WindowKind, props?: Record<string, unknown>) => void;
   close: (id: string) => void;
   focus: (id: string) => void;
   setBounds: (bounds: Size) => void;
   setRect: (id: string, rect: Rect) => void;
   toggleMaximize: (id: string) => void;
-  dock: (id: string, side: Side) => void;
+  dock: (id: string, slot: Slot) => void;
   float: (id: string) => void;
   /** Leaves maximized/docked mode because the title bar was dragged. */
   tearOff: (id: string, px: number, py: number, grabRatio: number) => void;
-  setDockWidth: (id: string, width: number) => void;
+  /** Width of a docked window's column, or height of its row. */
+  setDockSize: (id: string, size: number) => void;
+  setSplit: (column: Column, split: number) => void;
   setProps: (id: string, props: Record<string, unknown>) => void;
   setPreview: (preview: SnapPreview | null) => void;
+  setResizing: (resizing: boolean) => void;
   /** Serializable layout for settings.json. */
   snapshot: () => SavedLayout;
   restore: (layout: unknown) => void;
 }
 
+type SavedWindow = Pick<WindowState, 'kind' | 'props' | 'rect' | 'mode' | 'slot' | 'dockWidth' | 'dockHeight'>;
+type Remembered = Pick<WindowState, 'rect' | 'dockWidth' | 'dockHeight'> & Partial<Pick<WindowState, 'mode' | 'slot'>>;
+
 export interface SavedLayout {
-  windows: Array<Pick<WindowState, 'kind' | 'props' | 'rect' | 'mode' | 'side' | 'dockWidth'>>;
-  geometry: Partial<Record<WindowKind, Pick<WindowState, 'rect' | 'dockWidth'>>>;
+  windows: SavedWindow[];
+  geometry: Partial<Record<WindowKind, Remembered>>;
+  splits?: Splits;
 }
 
-/** Last geometry per kind, so a reopened window comes back where it was. */
-const remembered: Partial<Record<WindowKind, Pick<WindowState, 'rect' | 'dockWidth'>>> = {};
+/** Last geometry per kind, so a reopened window comes back where it was, pinned or not. */
+const remembered: Partial<Record<WindowKind, Remembered>> = {};
+
+function remember(w: WindowState): void {
+  remembered[w.kind] = { rect: w.rect, dockWidth: w.dockWidth, dockHeight: w.dockHeight, mode: w.mode, slot: w.slot };
+}
 
 let counter = 0;
 
-function otherDockWidth(windows: WindowState[], side: Side, exceptId: string): number {
-  return windows
-    .filter((w) => w.id !== exceptId && w.mode === 'docked' && w.side === side)
-    .reduce((m, w) => Math.max(m, w.dockWidth), 0);
+function isSlot(value: unknown): value is Slot {
+  return SLOTS.includes(value as Slot);
 }
 
 export const useWindows = create<WindowsStore>((set, get) => ({
@@ -110,7 +139,9 @@ export const useWindows = create<WindowsStore>((set, get) => ({
   focusedId: null,
   bounds: { w: 1280, h: 800 },
   zTop: 10,
+  splits: EVEN_SPLITS,
   preview: null,
+  resizing: false,
 
   open: (kind, props = {}) => {
     const spec = WINDOW_SPECS[kind];
@@ -141,19 +172,35 @@ export const useWindows = create<WindowsStore>((set, get) => ({
       kind,
       props,
       rect,
-      mode: 'floating',
-      side: null,
+      mode: saved?.mode === 'maximized' ? 'maximized' : 'floating',
+      slot: null,
       dockWidth: saved?.dockWidth ?? spec.defaultDockWidth,
+      dockHeight: saved?.dockHeight ?? spec.defaultDockHeight,
       z: zTop + 1,
     };
-    set({ windows: [...windows, win], focusedId: id, zTop: zTop + 1 });
+    let next = [...windows, win];
+    // Back into the slot it was pinned to, unless another window has taken that space since.
+    const slot = saved?.mode === 'docked' ? saved.slot : null;
+    if (slot && !windows.some((w) => w.mode === 'docked' && w.slot && slotsOverlap(w.slot, slot))) {
+      next = pinWindow(next, id, slot, bounds);
+    }
+    set({ windows: next, focusedId: id, zTop: zTop + 1 });
     return id;
+  },
+
+  toggle: (kind, props) => {
+    const { windows, bounds, splits } = get();
+    const win = windows.find((w) => w.kind === kind);
+    if (!win) get().open(kind, props);
+    // Mostly hidden behind other windows: the click is taken as "show me", not "close".
+    else if (coveredShare(windows, win.id, bounds, splits) > 0.5) get().focus(win.id);
+    else get().close(win.id);
   },
 
   close: (id) => {
     const { windows, focusedId } = get();
     const win = windows.find((w) => w.id === id);
-    if (win) remembered[win.kind] = { rect: win.rect, dockWidth: win.dockWidth };
+    if (win) remember(win);
     const rest = windows.filter((w) => w.id !== id);
     const nextFocus = focusedId === id ? ([...rest].sort((a, b) => b.z - a.z)[0]?.id ?? null) : focusedId;
     set({ windows: rest, focusedId: nextFocus });
@@ -172,16 +219,13 @@ export const useWindows = create<WindowsStore>((set, get) => ({
 
   setBounds: (bounds) => {
     if (bounds.w <= 0 || bounds.h <= 0) return;
-    set(({ windows }) => ({
+    set(({ windows, splits }) => ({
       bounds,
-      windows: windows.map((w) => ({
-        ...w,
-        rect: clampRect(w.rect, bounds, WINDOW_SPECS[w.kind].minSize),
-        dockWidth:
-          w.mode === 'docked' && w.side
-            ? clampDockWidth(w.dockWidth, bounds, otherDockWidth(windows, w.side === 'left' ? 'right' : 'left', w.id))
-            : w.dockWidth,
-      })),
+      splits: { left: clampSplit(splits.left, bounds), right: clampSplit(splits.right, bounds) },
+      windows: refitDocks(
+        windows.map((w) => ({ ...w, rect: clampRect(w.rect, bounds, WINDOW_SPECS[w.kind].minSize) })),
+        bounds,
+      ),
     }));
   },
 
@@ -195,28 +239,15 @@ export const useWindows = create<WindowsStore>((set, get) => ({
   toggleMaximize: (id) =>
     set(({ windows }) => ({
       windows: windows.map((w) =>
-        w.id === id ? { ...w, mode: w.mode === 'maximized' ? 'floating' : 'maximized', side: null } : w,
+        w.id === id ? { ...w, mode: w.mode === 'maximized' ? 'floating' : 'maximized', slot: null } : w,
       ),
     })),
 
-  dock: (id, side) =>
-    set(({ windows, bounds }) => {
-      const other = otherDockWidth(windows, side === 'left' ? 'right' : 'left', id);
-      return {
-        windows: windows.map((w) => {
-          if (w.id === id) {
-            return { ...w, mode: 'docked', side, dockWidth: clampDockWidth(w.dockWidth, bounds, other) };
-          }
-          // One window per side: the one already there floats back to where it was.
-          if (w.mode === 'docked' && w.side === side) return { ...w, mode: 'floating', side: null };
-          return w;
-        }),
-      };
-    }),
+  dock: (id, slot) => set(({ windows, bounds }) => ({ windows: pinWindow(windows, id, slot, bounds) })),
 
   float: (id) =>
     set(({ windows }) => ({
-      windows: windows.map((w) => (w.id === id ? { ...w, mode: 'floating', side: null } : w)),
+      windows: windows.map((w) => (w.id === id ? { ...w, mode: 'floating', slot: null } : w)),
     })),
 
   tearOff: (id, px, py, grabRatio) =>
@@ -226,28 +257,17 @@ export const useWindows = create<WindowsStore>((set, get) => ({
           ? {
               ...w,
               mode: 'floating',
-              side: null,
+              slot: null,
               rect: clampRect(restoreUnderPointer(w.rect, px, py, grabRatio), bounds, WINDOW_SPECS[w.kind].minSize),
             }
           : w,
       ),
     })),
 
-  setDockWidth: (id, width) =>
-    set(({ windows, bounds }) => ({
-      windows: windows.map((w) =>
-        w.id === id && w.side
-          ? {
-              ...w,
-              dockWidth: clampDockWidth(
-                width,
-                bounds,
-                otherDockWidth(windows, w.side === 'left' ? 'right' : 'left', id),
-              ),
-            }
-          : w,
-      ),
-    })),
+  setDockSize: (id, size) => set(({ windows, bounds }) => ({ windows: resizeDock(windows, id, size, bounds) })),
+
+  setSplit: (column, split) =>
+    set(({ splits, bounds }) => ({ splits: { ...splits, [column]: clampSplit(split, bounds) } })),
 
   setProps: (id, props) =>
     set(({ windows }) => ({
@@ -256,23 +276,44 @@ export const useWindows = create<WindowsStore>((set, get) => ({
 
   setPreview: (preview) => set({ preview }),
 
+  setResizing: (resizing) => set({ resizing }),
+
   snapshot: () => {
-    const { windows } = get();
-    for (const w of windows) remembered[w.kind] = { rect: w.rect, dockWidth: w.dockWidth };
+    const { windows, splits } = get();
+    for (const w of windows) remember(w);
     return {
       windows: [...windows]
         .sort((a, b) => a.z - b.z)
         // The inspector shows one message's trace; reopening it after a restart would be noise.
         .filter((w) => w.kind !== 'inspector')
-        .map(({ kind, props, rect, mode, side, dockWidth }) => ({ kind, props, rect, mode, side, dockWidth })),
+        .map(({ kind, props, rect, mode, slot, dockWidth, dockHeight }) => ({
+          kind,
+          props,
+          rect,
+          mode,
+          slot,
+          dockWidth,
+          dockHeight,
+        })),
       geometry: { ...remembered },
+      splits,
     };
   },
 
   restore: (layout) => {
     if (!layout || typeof layout !== 'object') return;
     const saved = layout as Partial<SavedLayout>;
-    Object.assign(remembered, saved.geometry ?? {});
+    for (const [kind, geometry] of Object.entries(saved.geometry ?? {})) {
+      if (!(kind in WINDOW_SPECS) || !geometry) continue;
+      const spec = WINDOW_SPECS[kind as WindowKind];
+      remembered[kind as WindowKind] = {
+        rect: geometry.rect,
+        dockWidth: geometry.dockWidth ?? spec.defaultDockWidth,
+        dockHeight: geometry.dockHeight ?? spec.defaultDockHeight,
+        mode: geometry.mode,
+        slot: isSlot(geometry.slot) ? geometry.slot : null,
+      };
+    }
     const { bounds } = get();
     let z = 10;
     const windows: WindowState[] = (saved.windows ?? [])
@@ -280,17 +321,25 @@ export const useWindows = create<WindowsStore>((set, get) => ({
       .map((w) => {
         counter += 1;
         z += 1;
+        const spec = WINDOW_SPECS[w.kind];
+        // Layouts saved before slots existed call the slot `side`.
+        const slot = [w.slot, (w as { side?: unknown }).side].find(isSlot) ?? null;
+        const mode = w.mode === 'docked' && !slot ? 'floating' : (w.mode ?? 'floating');
         return {
           id: `${w.kind}-${counter}`,
           kind: w.kind,
           props: w.props ?? {},
-          rect: clampRect(w.rect, bounds, WINDOW_SPECS[w.kind].minSize),
-          mode: w.mode ?? 'floating',
-          side: w.side ?? null,
-          dockWidth: w.dockWidth ?? WINDOW_SPECS[w.kind].defaultDockWidth,
+          rect: clampRect(w.rect, bounds, spec.minSize),
+          mode,
+          slot: mode === 'docked' ? slot : null,
+          dockWidth: w.dockWidth ?? spec.defaultDockWidth,
+          dockHeight: w.dockHeight ?? spec.defaultDockHeight,
           z,
         };
       });
-    set({ windows, zTop: z, focusedId: windows[windows.length - 1]?.id ?? null });
+    const split = (value: unknown) => (typeof value === 'number' && value > 0 && value < 1 ? value : 0.5);
+    const splits = { left: split(saved.splits?.left), right: split(saved.splits?.right) };
+    // Docked sizes and splits are fitted by setBounds once the desktop has measured itself.
+    set({ windows, splits, zTop: z, focusedId: windows[windows.length - 1]?.id ?? null });
   },
 }));
