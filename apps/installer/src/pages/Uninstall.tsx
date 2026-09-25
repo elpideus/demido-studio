@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Check, Orbit, Trash2 } from 'lucide-react';
-import { Button, Checkbox, Notice } from '@demido/ui';
+import { Check, Trash2 } from 'lucide-react';
+import { Button, Checkbox, Logo, Notice } from '@demido/ui';
 
 import type { Context } from '../types';
 import styles from '../Setup.module.css';
@@ -31,7 +31,13 @@ export function UninstallFlow({ ctx }: { ctx: Context }) {
         <div className={styles.page}>
           <div className={styles.pageBody}>
             <div className={styles.hero}>
-              <span className={styles.heroIcon}>{done ? <Check size={28} /> : <Orbit size={28} />}</span>
+              {done ? (
+                <span className={styles.heroIcon}>
+                  <Check size={28} />
+                </span>
+              ) : (
+                <Logo size={56} className={styles.heroLogo} />
+              )}
               <h1 className={styles.title}>{done ? 'Demido Studio was removed' : 'Uninstall Demido Studio'}</h1>
               <p className={styles.lead}>
                 {done

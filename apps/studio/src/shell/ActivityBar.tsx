@@ -1,9 +1,8 @@
 import { CandlestickChart, MessagesSquare, Settings, type LucideIcon } from 'lucide-react';
-import { Tooltip, cx } from '@demido/ui';
+import { Logo, Tooltip, cx } from '@demido/ui';
 
 import { useApp } from '@/stores/app';
 import { type WindowKind, useWindows } from '@/stores/windows';
-import { Logo } from './Logo';
 import styles from './ActivityBar.module.css';
 
 interface ItemProps {

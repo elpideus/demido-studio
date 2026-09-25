@@ -1,5 +1,5 @@
-import { ArrowRight, Orbit } from 'lucide-react';
-import { Button, Notice } from '@demido/ui';
+import { ArrowRight } from 'lucide-react';
+import { Button, Logo, Notice } from '@demido/ui';
 
 import type { Context } from '../types';
 import styles from '../Setup.module.css';
@@ -9,9 +9,7 @@ export function WelcomePage({ ctx, onNext }: { ctx: Context; onNext: () => void 
     <div className={styles.page}>
       <div className={styles.pageBody}>
         <div className={styles.hero}>
-          <span className={styles.heroIcon}>
-            <Orbit size={30} strokeWidth={2.1} />
-          </span>
+          <Logo size={56} className={styles.heroLogo} />
           <h1 className={styles.title}>Welcome to Demido Studio</h1>
           <p className={styles.lead}>
             An AI workspace that runs on your own computer. Setup downloads everything it needs and picks what fits your

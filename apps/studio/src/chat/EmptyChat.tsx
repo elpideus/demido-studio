@@ -1,7 +1,6 @@
 import { Cloud, Download, LineChart, Lightbulb, Sparkles, Terminal } from 'lucide-react';
-import { Button } from '@demido/ui';
+import { Button, Logo } from '@demido/ui';
 
-import { Logo } from '@/shell/Logo';
 import type { ModelEntry } from '@/lib/types';
 import { useSkills } from '@/stores/skills';
 import { useWindows } from '@/stores/windows';

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Check, Orbit } from 'lucide-react';
-import { Spinner, cx } from '@demido/ui';
+import { Check } from 'lucide-react';
+import { Logo, Spinner, cx } from '@demido/ui';
 
 import { DonePage, InstallPage, useInstall } from './pages/Install';
 import { LocationPage } from './pages/Location';
@@ -131,9 +131,7 @@ export function Setup() {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <span className={styles.logo}>
-            <Orbit size={20} strokeWidth={2.2} />
-          </span>
+          <Logo size={34} />
           <div>
             <div className={styles.brandName}>Demido Studio</div>
             <div className={styles.brandVersion}>Setup · {ctx.version}</div>

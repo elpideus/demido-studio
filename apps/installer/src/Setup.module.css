@@ -21,17 +21,6 @@
   padding: 0 var(--space-2);
 }
 
-.logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #7ee0a3 0%, #34a262 100%);
-  color: #082612;
-}
-
 .brandName {
   font-size: var(--text-base);
   font-weight: var(--weight-semibold);
@@ -436,6 +425,10 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
+}
+
+.heroLogo {
+  margin-bottom: var(--space-3);
 }
 
 .heroIcon {

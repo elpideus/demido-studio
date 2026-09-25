@@ -1,6 +1,7 @@
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './components/Button';
 export { IconButton, type IconButtonProps } from './components/IconButton';
 export { Spinner } from './components/Spinner';
+export { Logo } from './components/Logo';
 export { Tooltip, type TooltipProps, type TooltipPlacement } from './components/Tooltip';
 export { Popover, type PopoverProps } from './components/Popover';
 export { Menu, type MenuEntry, type MenuProps } from './components/Menu';

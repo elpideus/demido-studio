@@ -10,7 +10,7 @@ its source distribution.
 |---|---|---|
 | [Tauri](https://tauri.app) | MIT or Apache-2.0 | Desktop shell |
 | [React](https://react.dev) | MIT | User interface |
-| [Lucide](https://lucide.dev) | ISC | Icons, and the glyph of the app icon ("orbit") |
+| [Lucide](https://lucide.dev) | ISC | Icons |
 | [Lightweight Charts](https://github.com/tradingview/lightweight-charts) by TradingView | Apache-2.0 | Price charts |
 | [TradingView-API](https://github.com/Mathieu2301/TradingView-API) by Mathieu Colmon | ISC | Real-time market data |
 | [dukascopy-node](https://github.com/Leo4815162342/dukascopy-node) by Leonid Pyrlia | MIT | Historical market data |

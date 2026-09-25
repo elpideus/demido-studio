@@ -15,6 +15,7 @@
     "dev:runtime": "cargo run -p demido-setup-cli --release -- --dev",
     "build": "node scripts/build-release.mjs",
     "build:sidecar": "pnpm --filter @demido/market-sidecar build",
+    "icons": "node scripts/icons.mjs",
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "pnpm -r --parallel test && cargo test --workspace",
     "test:web": "pnpm -r --parallel test",

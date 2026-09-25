@@ -71,6 +71,12 @@ app, zips it (`setup-cli --pack`) and builds the installer with the zip compiled
 (`DEMIDO_PAYLOAD`). The version is the one in the root `package.json`; keep the Tauri configs
 and `Cargo.toml` in step with it.
 
+## Changing the logo
+
+`design/logo.svg` is the mark. `pnpm icons` builds the app icon from it (`design/app-icon.svg`,
+the mark on a dark disc, and `app-icon.png`) and regenerates the icon files of both apps. The
+windows draw the mark with `Logo` from `@demido/ui`, which holds a copy of the same paths.
+
 ## Changing what gets installed
 
 The runtimes, tools and starter models are pinned in `catalog/`. See [catalog.md](catalog.md)
