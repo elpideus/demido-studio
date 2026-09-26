@@ -1,0 +1,39 @@
+diff --git a/dist/cli/index.js b/dist/cli/index.js
+index f29ce62c17f8981815e52882cd2737471c94295b..0007cb08c6cfec89cee292cb6e7487c7e25174c1 100644
+--- a/dist/cli/index.js
++++ b/dist/cli/index.js	
+@@ -15921,7 +15921,7 @@ function normalise({ data, timeframe, volumes, volumeUnits }) {
+ function getOHLC({
+   input,
+   filterFlats = true,
+-  startTs = input[0][0],
++  startTs = input[0]?.[0],
+   volumes
+ }) {
+   if (filterFlats) {
+diff --git a/dist/esm/chunk-AE2OB7KM.js b/dist/esm/chunk-AE2OB7KM.js
+index d67fe6f513b0f9992c2716e064517eb259f5d0fe..f3e762c7fd50513ded13fd6ffd5a48c46b5e2953 100644
+--- a/dist/esm/chunk-AE2OB7KM.js
++++ b/dist/esm/chunk-AE2OB7KM.js	
+@@ -15696,7 +15696,7 @@ function normalise({ data, timeframe, volumes, volumeUnits }) {
+ function getOHLC({
+   input,
+   filterFlats = true,
+-  startTs = input[0][0],
++  startTs = input[0]?.[0],
+   volumes
+ }) {
+   if (filterFlats) {
+diff --git a/dist/index.js b/dist/index.js
+index 9bcf3a8aea85039f1d47c84af656a25f4ad773ed..5b5ad779fb60a66d1add7d27dd9018e0cb9061a2 100644
+--- a/dist/index.js
++++ b/dist/index.js	
+@@ -15709,7 +15709,7 @@ function normalise({ data, timeframe, volumes, volumeUnits }) {
+ function getOHLC({
+   input,
+   filterFlats = true,
+-  startTs = input[0][0],
++  startTs = input[0]?.[0],
+   volumes
+ }) {
+   if (filterFlats) {

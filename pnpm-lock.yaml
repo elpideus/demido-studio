@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  dukascopy-node@1.50.0: 4ad1ce54d6fbbef29b3242d520618fde62d924d0ad44fa8d6a1abaaf5ff8ed20
+
 importers:
 
   .:
@@ -165,7 +168,7 @@ importers:
         version: 3.5.2
       dukascopy-node:
         specifier: 1.50.0
-        version: 1.50.0
+        version: 1.50.0(patch_hash=4ad1ce54d6fbbef29b3242d520618fde62d924d0ad44fa8d6a1abaaf5ff8ed20)
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -2082,7 +2085,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  dukascopy-node@1.50.0:
+  dukascopy-node@1.50.0(patch_hash=4ad1ce54d6fbbef29b3242d520618fde62d924d0ad44fa8d6a1abaaf5ff8ed20):
     dependencies:
       chalk: 3.0.0
       cli-progress: 3.10.0
