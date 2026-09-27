@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, CircleAlert, Cpu, FolderOpen, Power, ScrollText, ShieldAlert, X } from 'lucide-react';
-import { Badge, Button, Dialog, Field, IconButton, Spinner, Switch } from '@demido/ui';
+import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { useApp } from '@/stores/app';
@@ -10,6 +10,21 @@ import s from './settings.module.css';
 import styles from './GeneralTab.module.css';
 
 const TOOL_LABELS: Record<string, string> = { run_python: 'Run Python code' };
+
+const APPROVAL_CHOICES: Array<{ value: string; label: string }> = [
+  { value: '30', label: '30 s' },
+  { value: '60', label: '1 min' },
+  { value: '120', label: '2 min' },
+  { value: '300', label: '5 min' },
+];
+
+/** The fixed choices, plus the saved value when it was set to something else (by hand in settings.json). */
+function approvalOptions(current: number): Array<{ value: string; label: string }> {
+  if (APPROVAL_CHOICES.some((c) => c.value === String(current))) return APPROVAL_CHOICES;
+  return [...APPROVAL_CHOICES, { value: String(current), label: `${current} s` }].sort(
+    (a, b) => Number(a.value) - Number(b.value),
+  );
+}
 
 function RuntimeLogs({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [lines, setLines] = useState<string[]>([]);
@@ -38,6 +53,8 @@ export function GeneralTab() {
   const [noticeOpen, setNoticeOpen] = useState(false);
 
   if (!info || !settings) return null;
+  // A backend from before this setting sends none; 60 s is its default.
+  const approvalSeconds = settings.downloadApprovalSeconds ?? 60;
   const runtimeBadge = {
     idle: <Badge>Idle</Badge>,
     loading: <Badge tone="info">Loading</Badge>,
@@ -145,35 +162,52 @@ export function GeneralTab() {
 
         <section className={s.section}>
           <h3 className={s.sectionTitle}>Permissions</h3>
-          <div className={s.rows}>
-            {settings.alwaysAllowedTools.length === 0 ? (
-              <div className={s.row}>
-                <div className={s.rowMain}>
-                  <div className={s.rowTitle}>The assistant asks before running code</div>
-                  <div className={s.rowMeta}>Choosing “Always allow” on a request adds it here.</div>
-                </div>
-              </div>
-            ) : (
-              settings.alwaysAllowedTools.map((tool) => (
-                <div key={tool} className={s.row}>
+          <div className={s.stack}>
+            <div className={s.rows}>
+              {settings.alwaysAllowedTools.length === 0 ? (
+                <div className={s.row}>
                   <div className={s.rowMain}>
-                    <div className={s.rowTitle}>{TOOL_LABELS[tool] ?? tool}</div>
-                    <div className={s.rowMeta}>Runs without asking</div>
+                    <div className={s.rowTitle}>The assistant asks before running code</div>
+                    <div className={s.rowMeta}>Choosing “Always allow” on a request adds it here.</div>
                   </div>
-                  <IconButton
-                    icon={X}
-                    label="Ask again"
-                    size="sm"
-                    onClick={() =>
-                      void api.revokeToolPermission(tool).then(
-                        () => useApp.getState().init(),
-                        (e) => toast.error('Could not update', errorText(e)),
-                      )
-                    }
-                  />
                 </div>
-              ))
-            )}
+              ) : (
+                settings.alwaysAllowedTools.map((tool) => (
+                  <div key={tool} className={s.row}>
+                    <div className={s.rowMain}>
+                      <div className={s.rowTitle}>{TOOL_LABELS[tool] ?? tool}</div>
+                      <div className={s.rowMeta}>Runs without asking</div>
+                    </div>
+                    <IconButton
+                      icon={X}
+                      label="Ask again"
+                      size="sm"
+                      onClick={() =>
+                        void api.revokeToolPermission(tool).then(
+                          () => useApp.getState().init(),
+                          (e) => toast.error('Could not update', errorText(e)),
+                        )
+                      }
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+            <div className={`${s.card} ${s.cardPad}`}>
+              <Field
+                layout="inline"
+                label="Ask before downloads longer than"
+                description="For a longer market data download, the assistant shows the estimate and waits for your OK."
+              >
+                <Select
+                  size="sm"
+                  aria-label="Ask before downloads longer than"
+                  value={String(approvalSeconds)}
+                  onChange={(e) => void patch({ downloadApprovalSeconds: Number(e.target.value) })}
+                  options={approvalOptions(approvalSeconds)}
+                />
+              </Field>
+            </div>
           </div>
         </section>
 

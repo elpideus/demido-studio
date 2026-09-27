@@ -4,6 +4,8 @@ import {
   ChevronRight,
   CircleSlash,
   Code2,
+  Database,
+  Download,
   FileText,
   LineChart,
   Search,
@@ -15,8 +17,10 @@ import {
 } from 'lucide-react';
 import { Button, Spinner, cx, formatDuration } from '@demido/ui';
 
-import { api } from '@/lib/api';
-import type { Message, ToolCall } from '@/lib/types';
+import { api, errorText } from '@/lib/api';
+import type { ApprovalDecision, Message, ToolApproval, ToolCall } from '@/lib/types';
+import { planDetail, planLine, planSummary } from '@/market/DownloadProgress';
+import { toast } from '@/stores/toasts';
 import { callKey, useOpenState } from './openState';
 import { ToolDisplay, isProminent } from './ToolDisplay';
 import styles from './ToolCard.module.css';
@@ -26,6 +30,8 @@ const ICONS: Record<string, LucideIcon> = {
   market_quote: LineChart,
   market_candles: LineChart,
   market_history: LineChart,
+  market_download: Download,
+  market_data_status: Database,
   run_python: Terminal,
   list_files: FileText,
   read_file: FileText,
@@ -59,6 +65,61 @@ function Approval({ message, call }: { message: Message; call: ToolCall }) {
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
           Don’t run
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** A download estimated to take longer than the person's limit: every detail, only what it needs, or nothing. */
+function DownloadApproval({ message, card }: { message: Message; card: ToolApproval }) {
+  const [busy, setBusy] = useState(false);
+  const args = message.toolResult?.args ?? {};
+  const timeframe = card.timeframe ?? (typeof args.timeframe === 'string' ? args.timeframe : null);
+  // A card this UI cannot read still gets the three choices, just without the estimate.
+  const known = typeof card.plan?.requests === 'number';
+  // Only worth offering when it saves requests.
+  const minimal =
+    known && typeof card.minimal?.requests === 'number' && card.minimal.requests < card.plan.requests
+      ? card.minimal
+      : null;
+  const onlyLabel = timeframe ? `Only ${timeframe}` : 'Only what this needs';
+  const decide = async (decision: ApprovalDecision) => {
+    setBusy(true);
+    // The tool keeps waiting if the answer did not arrive, so the choices must stay usable.
+    try {
+      await api.resolveApproval(message.id, decision);
+    } catch (e) {
+      setBusy(false);
+      toast.error('Could not answer', errorText(e));
+    }
+  };
+  return (
+    <div className={styles.approval}>
+      <div className={styles.approvalTitle}>
+        <Download size={16} aria-hidden />
+        The assistant wants to download market data
+      </div>
+      <div className={styles.plan}>
+        <div className={styles.planLine}>{known ? planLine(card.plan) : 'Market data for this request'}</div>
+        {minimal && (
+          <div className={styles.planAlt}>
+            {onlyLabel}: {planSummary(minimal)} · {planDetail(minimal)}
+          </div>
+        )}
+        <div className={styles.planAlt}>It runs in the background and is kept for every chart and chat.</div>
+      </div>
+      <div className={styles.approvalActions}>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
+          Download
+        </Button>
+        {minimal && (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('minimal')}>
+            {onlyLabel}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
+          Don’t download
         </Button>
       </div>
     </div>
@@ -117,15 +178,21 @@ export function ToolCard({ messageId, call, result, orphaned, flat }: Props) {
         )}
         <ChevronRight size={14} className={cx(styles.chevron, open && styles.chevronOpen)} aria-hidden />
       </button>
-      {awaiting && result && <Approval message={result} call={call} />}
+      {awaiting &&
+        result &&
+        (tr?.approval?.kind === 'download' ? (
+          <DownloadApproval message={result} card={tr.approval} />
+        ) : (
+          <Approval message={result} call={call} />
+        ))}
       {!awaiting && (prominent || open) && tr?.display && (
         <div className={styles.body}>
-          <ToolDisplay display={tr.display} />
+          <ToolDisplay display={tr.display} message={result} />
         </div>
       )}
       {!awaiting && !prominent && !open && failed && tr?.display?.error && (
         <div className={styles.body}>
-          <ToolDisplay display={tr.display} />
+          <ToolDisplay display={tr.display} message={result} />
         </div>
       )}
       {open && (

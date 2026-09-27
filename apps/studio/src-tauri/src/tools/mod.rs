@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+use crate::agent::{Approval, Cancelled, ToolRow};
 use crate::llm::ToolSpec;
 use crate::settings::Settings;
 use crate::state::AppState;
@@ -38,6 +39,20 @@ pub struct ToolContext {
     pub chat_id: String,
     pub workspace: PathBuf,
     pub cancel: CancellationToken,
+    /// The call's chat row, shared with the agent loop.
+    pub row: ToolRow,
+}
+
+impl ToolContext {
+    /// Shows `display` on the call's card while the tool keeps running.
+    pub fn set_display(&self, display: Value) {
+        self.row.set_display(display);
+    }
+
+    /// Asks the person mid-run with `card` (see `agent::row`); `Err` when the turn is stopped.
+    pub async fn request_approval(&self, card: Value) -> Result<Approval, Cancelled> {
+        self.row.request_approval(Some(card), &self.cancel).await
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -95,15 +110,29 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "market_candles",
         group: "market",
-        description: "Get OHLCV candles for a symbol. Recent and live data come from TradingView; older data is filled in from Dukascopy when TradingView's history runs out. All rows are saved as a CSV file in the workspace; the result is a summary with the file path.",
+        description: "Get OHLCV candles for a symbol (needs a TradingView sign-in). Recent and live data come from TradingView; older data comes from the stored Dukascopy history, and history that is not stored yet is downloaded first (a long download asks the user). All rows are saved as a CSV file in the workspace with a source column; the result is a summary with the file path.",
         parameters: market::candles_schema,
         approval: false,
     },
     ToolDef {
         name: "market_history",
         group: "market",
-        description: "Download historical candles from Dukascopy, no sign-in needed: forex pairs, metals, major indices, many US stocks and crypto, years back. Saves a CSV file in the workspace and returns a summary with the file path.",
+        description: "Historical candles without signing in: forex pairs, metals, commodities, indices and crypto from Dukascopy, years back (stocks come from stored TradingView data). Reads the local store and first downloads what is missing at the best detail, which then serves every timeframe; a long download asks the user. Check market_data_status first to see what is stored. Saves a CSV file in the workspace and returns a summary with the file path.",
         parameters: market::history_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "market_download",
+        group: "market",
+        description: "Download a symbol's price history into the local store at the best detail available (1-minute candles where they exist), so every timeframe is served from it afterwards without downloading again. Without from/to it fetches all the history the source has. Check market_data_status first: stored data is never downloaded twice. A download estimated to take long asks the user first. The tool waits up to 90 seconds; a longer download continues in the background with a progress bar in the chat.",
+        parameters: market::download_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "market_data_status",
+        group: "market",
+        description: "Show which market history is stored locally: for each market and source (Dukascopy or TradingView), the covered date ranges and gaps per detail level, the size on disk and any running downloads. Use it before downloading.",
+        parameters: market::data_status_schema,
         approval: false,
     },
     ToolDef {
@@ -236,7 +265,17 @@ pub fn describe(name: &str, args: &Value) -> String {
             format!("Getting live prices for {}", symbols.join(", "))
         }
         "market_candles" => format!("Fetching {} {} candles", s("symbol"), s("timeframe")),
-        "market_history" => format!("Downloading {} {} history", s("instrument"), s("timeframe")),
+        "market_history" => format!("Reading {} {} history", s("instrument"), s("timeframe")),
+        "market_download" => match (s("from"), s("to")) {
+            (from, to) if from.is_empty() && to.is_empty() => format!("Downloading all {} history", s("symbol")),
+            (from, to) if to.is_empty() => format!("Downloading {} history from {from}", s("symbol")),
+            (from, to) if from.is_empty() => format!("Downloading {} history up to {to}", s("symbol")),
+            (from, to) => format!("Downloading {} history {from} → {to}", s("symbol")),
+        },
+        "market_data_status" => match s("symbol") {
+            symbol if symbol.is_empty() => "Checking stored market data".into(),
+            symbol => format!("Checking stored data for {symbol}"),
+        },
         "run_python" => {
             if s("file").is_empty() {
                 "Running Python".into()
@@ -262,6 +301,8 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "market_quote" => market::quote(ctx, &args).await,
         "market_candles" => market::candles(ctx, &args).await,
         "market_history" => market::history(ctx, &args).await,
+        "market_download" => market::download(ctx, &args).await,
+        "market_data_status" => market::data_status(ctx, &args).await,
         "run_python" => python::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
         "read_file" => files::read(ctx, &args),

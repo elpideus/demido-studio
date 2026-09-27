@@ -10,6 +10,7 @@ import {
   MIN_HALF_HEIGHT,
   type Pinnable,
   type Slot,
+  capDocks,
   chatInsets,
   clampDockHeight,
   clampDockWidth,
@@ -33,7 +34,11 @@ import {
 const bounds = { w: 1400, h: 900 };
 const rect = { x: 5, y: 5, w: 400, h: 300 };
 
-function win(id: string, slot: Slot | null, extra: Partial<Pinnable & { z: number }> = {}): Pinnable & { z: number } {
+function win(
+  id: string,
+  slot: Slot | null,
+  extra: Partial<Pinnable & { z: number; sizedAt: number }> = {},
+): Pinnable & { z: number; sizedAt?: number } {
   return {
     id,
     mode: slot ? 'docked' : 'floating',
@@ -160,6 +165,34 @@ describe('pinning', () => {
     expect(c!.dockWidth + d!.dockWidth).toBe(room);
   });
 
+  it('keeps the width of the column sized most recently when two no longer fit', () => {
+    const narrow = { w: 1300, h: 900 };
+    const room = narrow.w - MIN_CHAT_WIDTH - 4 * GAP;
+    const [a, b] = refitDocks(
+      [win('a', 'left', { dockWidth: 600, sizedAt: 1 }), win('b', 'right', { dockWidth: 400, sizedAt: 2 })],
+      narrow,
+    );
+    expect(b!.dockWidth).toBe(400);
+    expect(a!.dockWidth).toBe(room - 400);
+    // Even the column sized last leaves the other its minimum.
+    const [c, d] = refitDocks(
+      [win('c', 'left', { dockWidth: 900, sizedAt: 2 }), win('d', 'right', { dockWidth: 400, sizedAt: 1 })],
+      narrow,
+    );
+    expect(d!.dockWidth).toBe(MIN_DOCK_WIDTH);
+    expect(c!.dockWidth).toBe(room - MIN_DOCK_WIDTH);
+  });
+
+  it('floats the column sized least recently when not even two minimum widths fit', () => {
+    const tiny = { w: 908, h: 700 };
+    const [a, b] = refitDocks(
+      [win('a', 'left', { dockWidth: 560, z: 5, sizedAt: 1 }), win('b', 'right', { dockWidth: 620, z: 3, sizedAt: 2 })],
+      tiny,
+    );
+    expect(a).toMatchObject({ mode: 'floating', slot: null });
+    expect(b).toMatchObject({ mode: 'docked', slot: 'right' });
+  });
+
   it('previews exactly where the window would land', () => {
     const windows = [win('a', 'left', { dockWidth: 420 }), win('b', null)];
     expect(previewRect('bottom-left', windows, 'b', bounds, EVEN_SPLITS)).toEqual(
@@ -186,6 +219,20 @@ describe('docking sizes', () => {
 
   it('accounts for a window docked on the other side', () => {
     expect(clampDockWidth(5000, bounds, 400)).toBeLessThan(clampDockWidth(5000, bounds, 0));
+  });
+
+  it('keeps a column within the smallest maximum width of the windows in it', () => {
+    const maxOf = (w: Pinnable) => (w.id === 'a' ? { w: 700, h: 600 } : { w: 900, h: 600 });
+    const windows = [
+      win('a', 'top-right', { dockWidth: 850 }),
+      win('b', 'bottom-right', { dockWidth: 850 }),
+      win('c', 'left', { dockWidth: 850 }),
+      win('d', 'bottom', { dockHeight: 750 }),
+      win('e', null, { dockWidth: 5000 }),
+    ];
+    const after = capDocks(windows, maxOf);
+    expect(after.map((w) => w.dockWidth)).toEqual([700, 700, 850, 500, 5000]);
+    expect(after.find((w) => w.id === 'd')?.dockHeight).toBe(600);
   });
 
   it('keeps both halves of a split column usable', () => {
@@ -257,6 +304,22 @@ describe('floating rects', () => {
     const r = resizeRect({ x: 200, y: 100, w: 600, h: 400 }, 'se', -1000, -1000, { w: 300, h: 200 }, bounds);
     expect(r.w).toBe(300);
     expect(r.h).toBe(200);
+  });
+
+  it('stops resizing at the maximum size, from any edge', () => {
+    const start = { x: 400, y: 300, w: 600, h: 400 };
+    const min = { w: 300, h: 200 };
+    const max = { w: 800, h: 500 };
+    expect(resizeRect(start, 'se', 5000, 5000, min, bounds, max)).toMatchObject({ x: 400, y: 300, w: 800, h: 500 });
+    const nw = resizeRect(start, 'nw', -5000, -5000, min, bounds, max);
+    expect(nw).toMatchObject({ w: 800, h: 500 });
+    expect(nw.x + nw.w).toBe(start.x + start.w);
+    expect(nw.y + nw.h).toBe(start.y + start.h);
+  });
+
+  it('shrinks a rect larger than its maximum, such as one saved before the limit existed', () => {
+    const r = clampRect({ x: 20, y: 20, w: 1300, h: 880 }, bounds, { w: 300, h: 200 }, { w: 1000, h: 700 });
+    expect(r).toEqual({ x: 20, y: 20, w: 1000, h: 700 });
   });
 
   it('steps new windows away from existing ones', () => {

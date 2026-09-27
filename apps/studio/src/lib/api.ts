@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 import type {
   AppInfo,
+  ApprovalDecision,
   Bar,
   Chat,
   ChartInfo,
@@ -12,6 +13,14 @@ import type {
   HfRepo,
   HfRepoFiles,
   HfModelFile,
+  MarketBarsPage,
+  MarketCacheSummary,
+  MarketJob,
+  MarketKeys,
+  MarketLatestBars,
+  MarketOrigin,
+  MarketPlan,
+  MarketRange,
   MarketStatus,
   Message,
   ModelEntry,
@@ -59,7 +68,7 @@ export const api = {
     invoke<Message>('edit_message', { chatId, messageId, text, modelId }),
   stopTurn: (chatId: string) => invoke<void>('stop_turn', { chatId }),
   runningTurns: () => invoke<string[]>('running_turns'),
-  resolveApproval: (messageId: string, decision: 'once' | 'always' | 'deny') =>
+  resolveApproval: (messageId: string, decision: ApprovalDecision) =>
     invoke<boolean>('resolve_approval', { messageId, decision }),
   renameChat: (chatId: string, title: string) => invoke<Chat>('rename_chat', { chatId, title }),
   pinChat: (chatId: string, pinned: boolean) => invoke<Chat>('pin_chat', { chatId, pinned }),
@@ -132,24 +141,50 @@ export const api = {
   marketLogout: () => invoke<MarketStatus>('market_logout'),
   marketSearch: (query: string, kind?: string) => invoke<SymbolMatch[]>('market_search', { query, kind: kind ?? null }),
   marketQuote: (symbols: string[]) => invoke<Quote[]>('market_quote', { symbols }),
+  /** `keys` names the store keys the stream records into (what `store.updated` and jobs match on). */
   marketOpenStream: (symbol: string, timeframe: string, bars?: number) =>
-    invoke<{ id: string; info: ChartInfo; bars: Bar[] }>('market_open_stream', { symbol, timeframe, bars }),
-  marketStreamMore: (streamId: string, count: number, before: number | null) =>
-    invoke<{ bars: Bar[]; source: string; exhausted: boolean }>('market_stream_more', {
-      streamId,
-      count,
-      before,
+    invoke<{ id: string; info: ChartInfo; bars: Bar[]; keys?: MarketKeys }>('market_open_stream', {
+      symbol,
+      timeframe,
+      bars,
     }),
   marketCloseStream: (streamId: string) => invoke<void>('market_close_stream', { streamId }),
-  marketHistory: (instrument: string, timeframe: string, from: string, to?: string) =>
-    invoke<{ symbol: string; info: ChartInfo; bars: Bar[] }>('market_history', {
-      instrument,
-      timeframe,
-      from,
-      to: to ?? null,
-    }),
-  marketResolveDukascopy: (symbol: string) =>
-    invoke<{ instrument: string; name: string; description: string } | null>('market_resolve_dukascopy', {
+
+  // Market data store: bars read from what is stored, downloads that fill it, and what it holds.
+  // Times are seconds. `bars.older` never touches the network.
+  marketBarsLatest: (symbol: string, timeframe: string, count: number) =>
+    invoke<MarketLatestBars>('market_bars_latest', { symbol, timeframe, count }),
+  marketBarsOlder: (symbol: string, timeframe: string, before: number, count: number) =>
+    invoke<MarketBarsPage>('market_bars_older', { symbol, timeframe, before, count }),
+  marketBarsFreshen: (symbol: string, timeframe: string) =>
+    invoke<{ requests: number }>('market_bars_freshen', { symbol, timeframe }),
+  marketPlanDownload: (symbol: string, range: MarketRange = {}) =>
+    invoke<MarketPlan>('market_download_plan', {
       symbol,
+      from: range.from ?? null,
+      to: range.to ?? null,
+      tiers: range.tiers ?? null,
     }),
+  /** Starts (or joins) a download; `plan` is for the work this call adds. */
+  marketStartDownload: (symbol: string, range: MarketRange, origin: MarketOrigin) =>
+    invoke<{ jobId: string; plan: MarketPlan }>('market_download_start', {
+      symbol,
+      from: range.from ?? null,
+      to: range.to ?? null,
+      tiers: range.tiers ?? null,
+      origin,
+    }),
+  marketPauseDownload: (jobId: string) => invoke<void>('market_download_pause', { jobId }),
+  marketResumeDownload: (jobId: string) => invoke<void>('market_download_resume', { jobId }),
+  /** Removes the job record; the data it fetched stays. */
+  marketCancelDownload: (jobId: string) => invoke<void>('market_download_cancel', { jobId }),
+  /** Null once the job was cancelled or removed. */
+  marketGetDownload: (jobId: string) => invoke<MarketJob | null>('market_download_status', { jobId }),
+  marketListDownloads: (symbol?: string) => invoke<MarketJob[]>('market_download_list', { symbol: symbol ?? null }),
+  marketCacheSummary: (symbol?: string) =>
+    invoke<MarketCacheSummary>('market_cache_summary', { symbol: symbol ?? null }),
+  /** Refused while a job for the market runs. */
+  marketCacheDelete: (market: string) => invoke<{ bytes: number }>('market_cache_delete', { market }),
+  /** Forgets learned starts and "unavailable" answers, so older data is looked for again. */
+  marketCacheRecheck: (market: string) => invoke<void>('market_cache_recheck', { market }),
 };

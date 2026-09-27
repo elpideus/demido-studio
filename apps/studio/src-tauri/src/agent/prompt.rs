@@ -50,6 +50,13 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
                  analyse it with run_python instead of reading it all.\n",
             );
         }
+        if has("market_data_status") {
+            s.push_str(
+                "- Price history is stored locally and downloaded once at 1-minute detail, which serves every timeframe. \
+                 market_data_status shows what is stored; the history tools download what is missing and ask the user \
+                 first when that would take long.\n",
+            );
+        }
         if has("run_python") {
             s.push_str(
                 "- Python runs in this chat's workspace folder with numpy, pandas and matplotlib. Open data files by their \

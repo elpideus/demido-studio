@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { Copy, LayoutGrid, Maximize2, PinOff, Square, X, type LucideIcon } from 'lucide-react';
 import { IconButton, Menu, cx, type MenuEntry } from '@demido/ui';
 
-import { WINDOW_SPECS, type WindowState, useWindows } from '@/stores/windows';
+import { WINDOW_SPECS, type WindowState, pinPreview, useWindows } from '@/stores/windows';
 import {
   type Edge,
   type SnapZone,
@@ -118,7 +118,9 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       wm().setRect(win.id, { ...origin, x: origin.x + (px - originPx), y: origin.y + (py - originPy) });
       const state = wm();
       zone = snapZone(px, py, state.bounds);
-      state.setPreview(zone ? { rect: previewRect(zone, state.windows, win.id, state.bounds, state.splits) } : null);
+      state.setPreview(
+        zone ? { rect: previewRect(zone, state.windows, win.id, state.bounds, state.splits, pinPreview) } : null,
+      );
     };
     const detach = () => {
       target.removeEventListener('pointermove', onMove);
@@ -163,7 +165,7 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       const dx = ev.clientX - sx;
       const dy = ev.clientY - sy;
       if (win.mode !== 'docked' || !win.slot) {
-        wm().setRect(win.id, resizeRect(startRect, edge, dx, dy, spec.minSize, wm().bounds));
+        wm().setRect(win.id, resizeRect(startRect, edge, dx, dy, spec.minSize, wm().bounds, spec.maxSize));
       } else if (edge === 'e' || edge === 'w') {
         wm().setDockSize(win.id, edge === 'e' ? startShown.w + dx : startShown.w - dx);
       } else if (isRow(win.slot)) {
@@ -229,7 +231,7 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       role="dialog"
       data-window={win.kind}
       data-mode={win.mode}
-      data-slot={win.slot ?? undefined}
+      data-slot={(docked && win.slot) || undefined}
     >
       <div
         className={styles.titleBar}

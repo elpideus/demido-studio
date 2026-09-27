@@ -31,6 +31,8 @@ pub struct Settings {
     /// Window layout owned by the UI (open windows and their geometry).
     pub window_layout: serde_json::Value,
     pub last_chat_id: Option<String>,
+    /// A market download the assistant starts asks first when its estimate exceeds this.
+    pub download_approval_seconds: u32,
 }
 
 impl Default for Settings {
@@ -49,6 +51,7 @@ impl Default for Settings {
             chat_list_open: true,
             window_layout: serde_json::Value::Null,
             last_chat_id: None,
+            download_approval_seconds: 60,
         }
     }
 }
@@ -135,5 +138,16 @@ mod tests {
         assert_eq!(reloaded.default_model.as_deref(), Some("local:x"));
         assert!(!reloaded.tool_group_enabled("python"));
         assert!(reloaded.tool_group_enabled("market"));
+    }
+
+    #[test]
+    fn files_from_before_a_setting_get_its_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"defaultModel": "local:x", "chatListOpen": false}"#).unwrap();
+        let loaded = SettingsStore::load(path).get();
+        assert_eq!(loaded.download_approval_seconds, 60);
+        assert_eq!(loaded.default_model.as_deref(), Some("local:x"));
+        assert!(!loaded.chat_list_open);
     }
 }

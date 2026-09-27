@@ -42,14 +42,24 @@ delete them.
 | Chat with local or cloud models, streaming, thinking, tool calls | The main screen |
 | Model picker and tools/skills picker | The composer |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
-| Live charts from TradingView, history from Dukascopy | Market window |
+| Live charts from TradingView, history from Dukascopy | Market window, Chart tab |
+| What history is stored, per market and detail level, where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
+| History downloads with a progress bar you can pause and resume, from a chart, the Data tab or the chat | Chart, Data tab, chat cards |
+| Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, General |
 | Exact request and response of any answer | Inspector (from an answer's toolbar) |
 
 **Market data.** Real-time data comes from TradingView through
 [TradingView-API](https://github.com/Mathieu2301/Tradingview-API); sign in once in the window
 Demido opens (your password never passes through Demido). History comes from Dukascopy's public
-feed without any account. When both exist, older Dukascopy candles extend TradingView's history
-without overlapping it.
+feed without any account (forex, metals, indices, commodities, crypto; stocks and ETFs come from
+TradingView, since Dukascopy's are not split-adjusted). Downloaded history is kept on your
+computer and never fetched twice: a download takes the finest detail Dukascopy has (1-minute
+candles, plus hourly and daily ones reaching further back), so one download serves every
+timeframe. Downloads run in the background, resume after a restart and slow down on their own
+before Dukascopy would refuse them. Charts page back through what is stored and offer to download
+more where it ends; where TradingView's candles are stored they are shown, and Dukascopy's fill the
+rest. The assistant downloads what it needs the same way, and asks first when the estimate is
+longer than your limit, offering a smaller download with only the detail the question needs.
 
 **Skills** are folders with a `SKILL.md` (a short frontmatter with `name` and `description`,
 then instructions) and any files it refers to. Enabled skills are part of every conversation.

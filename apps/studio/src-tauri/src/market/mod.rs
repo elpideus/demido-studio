@@ -1,18 +1,20 @@
 //! Market data.
 //!
 //! The data itself comes from a small Node service (`sidecars/market`) that wraps
-//! [TradingView-API](https://github.com/Mathieu2301/Tradingview-API) for real-time data and
-//! `dukascopy-node` for history. This module starts that service on first use, speaks JSON lines
-//! with it over stdio, forwards its live updates to the UI, and owns the TradingView session:
-//! the person signs in once in a pop-up window whose cookies are captured (see [`auth`]).
+//! [TradingView-API](https://github.com/Mathieu2301/Tradingview-API) for real-time data and keeps
+//! a local store of history downloaded from Dukascopy (and cached from TradingView). This module
+//! starts that service on first use (or at launch when a download was left running), speaks JSON
+//! lines with it over stdio, forwards its live updates to the UI, asks it to flush on exit, and
+//! owns the TradingView session: the person signs in once in a pop-up window whose cookies are
+//! captured (see [`auth`]).
 
 pub mod auth;
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -94,6 +96,8 @@ pub struct MarketService {
     proc: tokio::sync::Mutex<Option<Proc>>,
     pending: Pending,
     next_id: AtomicU64,
+    /// The app is exiting: a late call must not start a new service.
+    closing: AtomicBool,
     status: RwLock<MarketStatus>,
     /// The sign-in flow in progress, shared by everyone waiting on it.
     pub(crate) login: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<auth::LoginState>>>,
@@ -137,6 +141,7 @@ impl MarketService {
             proc: tokio::sync::Mutex::new(None),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),
+            closing: AtomicBool::new(false),
             login: tokio::sync::Mutex::new(None),
             me: me.clone(),
         })
@@ -207,6 +212,9 @@ impl MarketService {
                 return Ok(());
             }
             *proc = None;
+        }
+        if self.closing.load(Ordering::Relaxed) {
+            return Err(RpcError::new("UNAVAILABLE", "the app is closing"));
         }
         let status = self.status();
         let Some(node) = self.node.clone().filter(|_| status.available) else {
@@ -344,13 +352,43 @@ impl MarketService {
         });
     }
 
-    /// Starts the service at launch when a session is saved, so the status is confirmed early.
+    /// Starts the service at launch when a session is saved, so the status is confirmed early,
+    /// or when a download was still going at the last exit, so it resumes without waiting for
+    /// the person to open a chart.
     pub async fn warm_up(&self) {
-        if self.saved_session().is_some()
-            && let Err(e) = self.ensure_started().await
-        {
+        let wanted = self.saved_session().is_some() || has_unfinished_jobs(&self.cache_dir.join("jobs"));
+        if wanted && let Err(e) = self.ensure_started().await {
             tracing::warn!("market service did not start: {e}");
         }
+    }
+
+    /// Asks the service to flush and exit (the `shutdown` call, then closing its input), waiting
+    /// at most `grace`, and keeps it from starting again. The caller kills whatever is left.
+    pub async fn shutdown(&self, grace: Duration) {
+        self.closing.store(true, Ordering::Relaxed);
+        let deadline = tokio::time::Instant::now() + grace;
+        // A call stuck writing to a hung service holds the lock; exiting must not wait on it.
+        let Ok(mut proc) = tokio::time::timeout_at(deadline, self.proc.lock()).await else {
+            return;
+        };
+        let Some(mut p) = proc.take() else {
+            return;
+        };
+        drop(proc);
+        if !matches!(p.child.try_wait(), Ok(None)) {
+            return;
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let line = format!("{}\n", json!({"id": id, "method": "shutdown", "params": {}}));
+        let _ = tokio::time::timeout_at(deadline, async {
+            let _ = p.stdin.write_all(line.as_bytes()).await;
+            let _ = p.stdin.flush().await;
+            // A closed input is the service's other signal to flush and exit.
+            drop(p.stdin);
+            p.child.wait().await
+        })
+        .await;
+        let _ = p.child.start_kill();
     }
 
     /// Signs out: forgets the session and clears the sign-in window's cookies.
@@ -375,8 +413,45 @@ impl MarketService {
     }
 }
 
+/// Whether `<cache>/market/jobs/*.json` holds a download that was running, queued or waiting.
+fn has_unfinished_jobs(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        path.extension().is_some_and(|e| e == "json")
+            && std::fs::read(&path)
+                .ok()
+                .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+                .is_some_and(|job| matches!(job["status"].as_str(), Some("running" | "queued" | "waiting")))
+    })
+}
+
 fn append_log(path: &PathBuf, line: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{} {line}", chrono::Local::now().format("%H:%M:%S"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_unfinished_jobs_start_the_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let jobs = dir.path().join("jobs");
+        assert!(!has_unfinished_jobs(&jobs), "no folder yet");
+        std::fs::create_dir_all(&jobs).unwrap();
+        std::fs::write(jobs.join("a.json"), r#"{"id": "a", "status": "done"}"#).unwrap();
+        std::fs::write(jobs.join("b.json"), r#"{"id": "b", "status": "paused"}"#).unwrap();
+        std::fs::write(jobs.join("c.json.tmp"), r#"{"id": "c", "status": "running"}"#).unwrap();
+        std::fs::write(jobs.join("d.json"), "not json").unwrap();
+        assert!(!has_unfinished_jobs(&jobs));
+        for status in ["running", "queued", "waiting"] {
+            std::fs::write(jobs.join("e.json"), format!(r#"{{"id": "e", "status": "{status}"}}"#)).unwrap();
+            assert!(has_unfinished_jobs(&jobs), "{status}");
+        }
     }
 }

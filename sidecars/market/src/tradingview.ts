@@ -9,6 +9,7 @@ import TradingView, { type ChartSession, type Client, type MarketInfos } from '@
 import miscRequests from '@mathieuc/tradingview/src/miscRequests.js';
 
 import { type Bar, RpcError, emit, log } from './protocol.ts';
+import { type TvStore, coverOf } from './store/tv-store.ts';
 import { TIMEFRAMES, type Timeframe } from './timeframes.ts';
 
 interface Credentials {
@@ -23,6 +24,13 @@ let client: Client | null = null;
 let authPending: Promise<unknown> | null = null;
 
 const PAGE = 5000;
+
+/** Where every bar TradingView sends is kept (set by main.ts; tests run without one). */
+let store: TvStore | null = null;
+
+export function useStore(s: TvStore | null): void {
+  store = s;
+}
 
 export function isLoggedIn(): boolean {
   return credentials !== null;
@@ -411,13 +419,32 @@ export async function quote(symbols: string[]): Promise<Quote[]> {
   }
 }
 
-function toBar(p: { time: number; open: number; max: number; min: number; close: number; volume: number }): Bar {
-  return { t: p.time, o: p.open, h: p.max, l: p.min, c: p.close, v: p.volume };
+function toBar(p: { time: number; open: number; max: number; min: number; close: number; volume: number | null }): Bar {
+  // Some brokers (Saxo forex CFDs, for one) report no volume at all — as NaN, not null or
+  // undefined, so `??` doesn't catch it; it then serializes to JSON `null` and the chart's
+  // histogram series throws on that. Treat anything non-finite as "no data" (zero).
+  return { t: p.time, o: p.open, h: p.max, l: p.min, c: p.close, v: Number.isFinite(p.volume) ? p.volume! : 0 };
 }
 
 /** Bars of a chart session, oldest first. */
 function barsOf(chart: ChartSession): Bar[] {
   return chart.periods.map(toBar).sort((a, b) => a.t - b.t);
+}
+
+const nowSec = () => Math.floor(Date.now() / 1000);
+
+/** Keeps what a chart session returned, and which symbol it answered for. */
+function keep(
+  asked: string,
+  info: ChartInfo,
+  tf: Timeframe,
+  bars: readonly Bar[],
+  cover: [number, number] | null,
+): void {
+  if (!store) return;
+  store.setAlias(asked, info.symbol);
+  store.setInfo(info.symbol, info);
+  store.record(info.symbol, tf, bars, cover);
 }
 
 export interface ChartInfo {
@@ -505,10 +532,121 @@ export async function candles(
       bars = barsOf(chart);
       if (bars.length <= before) break; // History exhausted.
     }
-    return { info: infoOf(chart.infos, symbol), bars: bars.slice(-count) };
+    const info = infoOf(chart.infos, symbol);
+    // Everything the session fetched is contiguous and worth keeping, not just what was asked for.
+    keep(symbol, info, tf, bars, coverOf(bars, tf, nowSec()));
+    return { info, bars: bars.slice(-count) };
   } finally {
     chart.delete();
   }
+}
+
+/**
+ * Pages back through TradingView's whole history for one timeframe (a download job), storing every
+ * page as it lands. Stops after two consecutive empty pages (the start of TradingView's history,
+ * recorded as `reachedStart`) or when `signal` aborts. `to` starts the walk at an older bar; `stopAt` ends it
+ * where the pages reach back to stored bars (a hole's lower edge; see walkBack).
+ */
+export async function pageHistory(
+  symbol: string,
+  tf: Timeframe,
+  opts: {
+    to?: number;
+    /** Stop once the pages reach back to this time (a hole's lower edge, where stored bars go on). */
+    stopAt?: number;
+    signal?: AbortSignal;
+    onPage?: (bars: number, seconds: number) => void;
+  } = {},
+): Promise<{ info: ChartInfo; reachedStart: boolean; oldest: number | null }> {
+  const c = await requireClient();
+  const chart = new c.Session.Chart();
+  try {
+    const started = Date.now();
+    const ready = settle(chart, 30_000);
+    chart.setMarket(symbol.trim().toUpperCase(), {
+      timeframe: TIMEFRAMES[tf].tradingview,
+      range: PAGE,
+      ...(opts.to ? { to: opts.to } : {}),
+    });
+    await ready.catch((error: unknown) => {
+      dropIfDead(c);
+      throw error;
+    });
+    const info = infoOf(chart.infos, symbol);
+    const walked = await walkBack(
+      {
+        first: barsOf(chart),
+        firstSeconds: (Date.now() - started) / 1000,
+        async more() {
+          const more = settle(chart, 10_000);
+          chart.fetchMore(PAGE);
+          await more.catch(() => undefined);
+          return barsOf(chart);
+        },
+      },
+      tf,
+      { ...opts, keep: (bars, cover) => keep(symbol, info, tf, bars, cover) },
+    );
+    if (walked.reachedStart && store) store.setReachedStart(info.symbol, tf, walked.oldest ?? nowSec());
+    return { info, ...walked };
+  } finally {
+    chart.delete();
+  }
+}
+
+/** A chart session seen as pages: its first answer, and every bar it holds after one more page. */
+export interface PageSource {
+  first: readonly Bar[];
+  firstSeconds: number;
+  more(): Promise<readonly Bar[]>;
+}
+
+/**
+ * The paging walk of pageHistory: stores each page (as one contiguous covered run with the page
+ * above it) and stops after two consecutive empty pages (`reachedStart`), once a page reaches back
+ * to `stopAt`, or when `signal` aborts. A walk with `stopAt` never reports a start: running dry
+ * above a hole's lower edge only means TradingView serves nothing older from there.
+ * A walk started at `to` covers its first page up to `to`: TradingView serves the bars before `to`
+ * (exclusive), so nothing lies between the page's last bar and `to`, even across a market closure the
+ * gap tolerance does not know (a stock's night), and the page joins the run stored above it.
+ */
+export async function walkBack(
+  source: PageSource,
+  tf: Timeframe,
+  opts: {
+    to?: number;
+    stopAt?: number;
+    signal?: AbortSignal;
+    onPage?: (bars: number, seconds: number) => void;
+    keep: (bars: readonly Bar[], cover: [number, number] | null) => void;
+  },
+): Promise<{ reachedStart: boolean; oldest: number | null }> {
+  const first = source.first;
+  const now = nowSec();
+  const cover = coverOf(first, tf, now);
+  const top = opts.to !== undefined && opts.to <= now && first[0] && opts.to > first[0].t ? opts.to : null;
+  opts.keep(first, top !== null ? [first[0]!.t, Math.max(cover?.[1] ?? top, top)] : cover);
+  opts.onPage?.(first.length, source.firstSeconds);
+  let oldest = first[0]?.t ?? null;
+  let empties = 0;
+  const met = () => opts.stopAt !== undefined && oldest !== null && oldest <= opts.stopAt;
+  while (empties < 2 && !met() && !opts.signal?.aborted) {
+    const started = Date.now();
+    const all = await source.more();
+    if (opts.signal?.aborted) break;
+    const older = oldest === null ? [...all] : all.filter((b) => b.t < oldest!);
+    if (older.length === 0) {
+      empties += 1;
+    } else {
+      empties = 0;
+      // Contiguous with the page before it, so the whole walk is one covered run.
+      const end = oldest ?? coverOf(older, tf, nowSec())?.[1] ?? older[older.length - 1]!.t;
+      opts.keep(older, [older[0]!.t, end]);
+      oldest = older[0]!.t;
+    }
+    opts.onPage?.(older.length, (Date.now() - started) / 1000);
+  }
+  return { reachedStart: empties >= 2 && opts.stopAt === undefined, oldest };
 }
 
 interface Stream {
@@ -516,6 +654,10 @@ interface Stream {
   symbol: string;
   tf: Timeframe;
   lastSent: string;
+  /** First bar of the opening snapshot: a live stream covers everything from there on. */
+  coveredFrom: number | null;
+  /** Time of the newest bar seen, to notice a rollover. */
+  lastT: number | null;
 }
 
 const streams = new Map<string, Stream>();
@@ -541,8 +683,20 @@ export async function openStream(
     dropIfDead(c);
     throw error;
   }
+  const info = infoOf(chart.infos, symbol);
+  const bars = barsOf(chart);
+  keep(symbol, info, tf, bars, coverOf(bars, tf, nowSec()));
   const id = `s${nextStream++}`;
-  const stream: Stream = { chart, symbol, tf, lastSent: '' };
+  // The canonical symbol (not whatever spelling the caller used) keys the store, so re-opening the
+  // same chart from a different alias still finds what was stored.
+  const stream: Stream = {
+    chart,
+    symbol: info.symbol,
+    tf,
+    lastSent: '',
+    coveredFrom: bars[0]?.t ?? null,
+    lastT: bars[bars.length - 1]?.t ?? null,
+  };
   streams.set(id, stream);
   let pending: ReturnType<typeof setTimeout> | undefined;
   chart.onUpdate(() => {
@@ -554,34 +708,29 @@ export async function openStream(
       const latest = chart.periods[0];
       if (!latest) return;
       const bar = toBar(latest);
+      if (stream.lastT !== null && bar.t > stream.lastT) {
+        // Rollover: the bar that just closed may have ticked in the last 200 ms; keep its final state.
+        const closed = chart.periods[1] ? toBar(chart.periods[1]) : null;
+        if (closed && closed.t === stream.lastT) {
+          store?.live(stream.symbol, tf, closed);
+          emit('stream.update', { id, bar: closed });
+        }
+        stream.coveredFrom ??= stream.lastT;
+        store?.cover(stream.symbol, tf, stream.coveredFrom, bar.t);
+      }
+      stream.coveredFrom ??= bar.t;
+      stream.lastT = Math.max(stream.lastT ?? bar.t, bar.t);
       const key = JSON.stringify(bar);
       if (key === stream.lastSent) return;
       stream.lastSent = key;
+      store?.live(stream.symbol, tf, bar);
       emit('stream.update', { id, bar });
     }, 200);
   });
   chart.onError((...err: unknown[]) => {
     emit('stream.error', { id, message: err.map(String).join(' ') });
   });
-  return { id, info: infoOf(chart.infos, symbol), bars: barsOf(chart) };
-}
-
-/** Older bars for a stream. Empty when TradingView has no more history. */
-export async function moreHistory(id: string, count: number): Promise<{ bars: Bar[]; exhausted: boolean }> {
-  const stream = streams.get(id);
-  if (!stream) throw new RpcError('NOT_FOUND', 'That chart is closed.');
-  const before = barsOf(stream.chart);
-  const earliest = before[0]?.t ?? Number.MAX_SAFE_INTEGER;
-  const more = settle(stream.chart, 20_000);
-  stream.chart.fetchMore(Math.min(PAGE, Math.max(1, count)));
-  await more.catch(() => undefined);
-  const older = barsOf(stream.chart).filter((b) => b.t < earliest);
-  return { bars: older, exhausted: older.length === 0 };
-}
-
-export function streamInfo(id: string): { symbol: string; tf: Timeframe } | null {
-  const s = streams.get(id);
-  return s ? { symbol: s.symbol, tf: s.tf } : null;
+  return { id, info, bars };
 }
 
 export function closeStream(id: string, reason?: string): void {
@@ -593,6 +742,7 @@ export function closeStream(id: string, reason?: string): void {
   } catch {
     // the socket is already gone
   }
+  void store?.flush().catch(() => undefined);
   if (reason) emit('stream.closed', { id, reason });
 }
 

@@ -1,25 +1,18 @@
-// Historical candles from Dukascopy's public data feed (no account needed), through
-// dukascopy-node. Also maps TradingView symbols to Dukascopy instruments, which is how history
-// from both sources is joined into one series.
-
-import path from 'node:path';
+// Maps TradingView symbols to Dukascopy instruments, which is how history from both sources is
+// joined into one series, and decides which source a symbol's history comes from. Every request to
+// Dukascopy itself goes through store/fetcher.ts.
 
 import dukascopy from 'dukascopy-node';
 
-import { type Bar, RpcError } from './protocol.ts';
-import { TIMEFRAMES, type Timeframe } from './timeframes.ts';
+import { type Bar } from './protocol.ts';
 
-const { getHistoricalRates, instrumentMetaData } = dukascopy as unknown as {
-  getHistoricalRates: (config: Record<string, unknown>) => Promise<unknown>;
+const { instrumentMetaData } = dukascopy as unknown as {
   instrumentMetaData: Record<string, InstrumentMeta>;
 };
 
 interface InstrumentMeta {
   name: string;
   description: string;
-  startDayForMinuteCandles: string;
-  startMonthForHourlyCandles: string;
-  startYearForDailyCandles: string;
 }
 
 /** Common index, commodity and alias tickers, as TradingView and brokers spell them. */
@@ -79,16 +72,15 @@ const ALIASES: Record<string, string> = {
 };
 
 const US_EXCHANGES = new Set(['NASDAQ', 'NYSE', 'AMEX', 'NYSEARCA', 'ARCA', 'BATS', 'CBOE', 'CBOEEU']);
+/** Equity venues: a ticker there is a stock or an ETF (NASDAQ:DAX is an ETF, NYSE:WTI a stock), never
+ *  the index or commodity an alias names. CBOE is not one: it publishes VIX and SPX itself. */
+const STOCK_EXCHANGES = new Set(['NASDAQ', 'NYSE', 'AMEX', 'NYSEARCA', 'ARCA', 'BATS', 'CBOEEU']);
+/** Indices a stock exchange publishes under its own prefix. */
+const EXCHANGE_INDICES = new Set(['NASDAQ:NDX']);
 const CRYPTO_QUOTES = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'USD'];
 
-let cacheDir: string | null = null;
-
-export function setCacheDir(dir: string): void {
-  cacheDir = path.join(dir, 'dukascopy');
-}
-
 function known(key: string): string | null {
-  return key in instrumentMetaData ? key : null;
+  return Object.hasOwn(instrumentMetaData, key) ? key : null;
 }
 
 /**
@@ -105,7 +97,7 @@ export function resolveInstrument(symbol: string): string | null {
 
   const direct = known(t.toLowerCase().replace(/[^a-z0-9]/g, ''));
   if (direct) return direct;
-  if (ALIASES[t]) return known(ALIASES[t]);
+  if (ALIASES[t] && (!STOCK_EXCHANGES.has(ex) || EXCHANGE_INDICES.has(`${ex}:${t}`))) return known(ALIASES[t]);
 
   // Crypto pairs quoted in stablecoins trade like the USD pair.
   const plain = t.replace(/\.P$/, '').replace(/PERP$/, '');
@@ -125,86 +117,23 @@ export function resolveInstrument(symbol: string): string | null {
 }
 
 export function instrumentInfo(key: string): { name: string; description: string } {
-  const meta = instrumentMetaData[key];
+  const meta = known(key) ? instrumentMetaData[key] : undefined;
   return { name: meta?.name ?? key, description: meta?.description ?? key };
 }
 
-interface JsonCandle {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume?: number;
+/**
+ * Stock and ETF CFDs (`AAPL.US/USD`, `AAL.GB/GBX`): Dukascopy's prices for them are not
+ * split-adjusted and their volumes are in other units than TradingView's, so they are never a
+ * history source.
+ */
+export function isStockCfd(key: string): boolean {
+  return /\.[A-Z]{2}\//.test(instrumentInfo(key).name);
 }
 
-/** Candles between two instants (seconds). Weekly candles are built from daily ones. */
-export async function history(
-  instrumentOrSymbol: string,
-  tf: Timeframe,
-  from: number,
-  to: number,
-): Promise<{ instrument: string; bars: Bar[] }> {
-  const instrument = resolveInstrument(instrumentOrSymbol);
-  if (!instrument) {
-    throw new RpcError(
-      'NOT_FOUND',
-      `Dukascopy has no instrument for "${instrumentOrSymbol}". It covers forex pairs, metals, major indices (US500, NAS100, GER40...), large US stocks and major crypto.`,
-    );
-  }
-  if (to <= from) throw new RpcError('BAD_REQUEST', 'The start date must be before the end date.');
-  const spec = TIMEFRAMES[tf];
-  const days = (to - from) / 86400;
-  if (days > spec.maxDays) {
-    throw new RpcError(
-      'TOO_LARGE',
-      `That range is too long for ${tf} candles (at most ${spec.maxDays} days). Use a larger timeframe or a shorter range.`,
-    );
-  }
-  const now = Math.floor(Date.now() / 1000);
-  const end = Math.min(to, now);
-  const config = {
-    instrument,
-    dates: { from: new Date(from * 1000), to: new Date(end * 1000) },
-    timeframe: spec.dukascopy ?? 'd1',
-    format: 'json',
-    priceType: 'bid',
-    volumes: true,
-    ignoreFlats: true,
-    // Dukascopy answers 429 to bursts: few files at a time, with pauses and retries.
-    batchSize: 4,
-    pauseBetweenBatchesMs: 400,
-    retryCount: 5,
-    pauseBetweenRetriesMs: 1200,
-    retryOnEmpty: true,
-    useCache: cacheDir !== null,
-    ...(cacheDir ? { cacheFolderPath: cacheDir } : {}),
-  };
-  let raw: JsonCandle[] = [];
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      raw = (await getHistoricalRates(config)) as JsonCandle[];
-      break;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (attempt >= 4 || !/429|ECONNRESET|ETIMEDOUT|socket hang up/i.test(message)) {
-        throw new RpcError('NETWORK', `Dukascopy did not answer: ${message}`);
-      }
-      await new Promise((r) => setTimeout(r, 2000 * attempt));
-    }
-  }
-  let bars: Bar[] = raw
-    .filter((c) => Number.isFinite(c.close))
-    .map((c) => ({
-      t: Math.floor(c.timestamp / 1000),
-      o: c.open,
-      h: c.high,
-      l: c.low,
-      c: c.close,
-      v: c.volume ?? 0,
-    }));
-  if (tf === '1w') bars = weekly(bars);
-  return { instrument, bars };
+/** The Dukascopy instrument a symbol's history comes from, or null when TradingView is the source. */
+export function historyInstrument(symbol: string): string | null {
+  const key = resolveInstrument(symbol);
+  return key && !isStockCfd(key) ? key : null;
 }
 
 /** Groups daily candles into weeks starting on Monday (UTC). */

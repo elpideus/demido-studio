@@ -275,10 +275,20 @@ pub fn run() {
             commands::market::market_search,
             commands::market::market_quote,
             commands::market::market_open_stream,
-            commands::market::market_stream_more,
             commands::market::market_close_stream,
-            commands::market::market_history,
-            commands::market::market_resolve_dukascopy,
+            commands::market::market_bars_latest,
+            commands::market::market_bars_older,
+            commands::market::market_bars_freshen,
+            commands::market::market_download_plan,
+            commands::market::market_download_start,
+            commands::market::market_download_pause,
+            commands::market::market_download_resume,
+            commands::market::market_download_cancel,
+            commands::market::market_download_status,
+            commands::market::market_download_list,
+            commands::market::market_cache_summary,
+            commands::market::market_cache_delete,
+            commands::market::market_cache_recheck,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Demido Studio");
@@ -289,6 +299,10 @@ pub fn run() {
         {
             state.agent.stop_all();
             state.runtime.kill_now();
+            // The market service flushes its store and job records on `shutdown`; a download
+            // left unflushed would redo its last second of work next time.
+            let market = state.market.clone();
+            tauri::async_runtime::block_on(market.shutdown(std::time::Duration::from_secs(2)));
             state.market.kill_now();
         }
     });

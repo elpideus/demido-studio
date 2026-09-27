@@ -6,6 +6,7 @@
 
 pub mod events;
 pub mod prompt;
+pub mod row;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 pub use events::{CHAT_EVENT, ChatEvent};
+pub use row::{Cancelled, ToolRow};
 
 use crate::bail_msg;
 use crate::db::{Chat, Message, MessageStatus, Role, Trace, new_id, now_ms};
@@ -39,6 +41,8 @@ pub enum Approval {
     Once,
     Always,
     Deny,
+    /// A download approval's third choice: only the detail the requested timeframe needs.
+    Minimal,
 }
 
 #[derive(Default)]
@@ -165,6 +169,19 @@ impl Agent {
         }
     }
 
+    /// Waits for the person to answer the approval shown on row `row_id`.
+    pub(crate) async fn wait_approval(&self, row_id: &str, cancel: &CancellationToken) -> Result<Approval, Cancelled> {
+        let (tx, rx) = oneshot::channel();
+        self.approvals.lock().insert(row_id.to_string(), tx);
+        tokio::select! {
+            d = rx => Ok(d.unwrap_or(Approval::Deny)),
+            _ = cancel.cancelled() => {
+                self.approvals.lock().remove(row_id);
+                Err(Cancelled)
+            }
+        }
+    }
+
     fn start(state: &Arc<AppState>, chat_id: &str, model_id: String) {
         let cancel = CancellationToken::new();
         state.agent.turns.lock().insert(chat_id.to_string(), cancel.clone());
@@ -233,7 +250,6 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             model.name
         );
     }
-    let client = client_for(state, &model).await?;
     let workspace = state.paths.workspace(chat_id);
     let context_tokens = model
         .effective
@@ -248,6 +264,9 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         if cancel.is_cancelled() {
             return Ok(());
         }
+        // Resolved every step: a long tool call or approval wait may outlive the local runtime
+        // (unloaded, restarted on another port), and this brings it back.
+        let client = client_for(state, &model).await?;
         let settings = state.settings.get();
         let tools = tools::specs(state, &settings);
         let system = prompt::system_prompt(&prompt::PromptInputs {
@@ -434,80 +453,40 @@ async fn run_tool_call(
     cancel: &CancellationToken,
     call: &crate::db::ToolCall,
 ) -> CmdResult<()> {
-    let mut row = Message::new(chat_id, state.db.next_seq(chat_id)?, Role::Tool, "");
-    row.tool_call_id = Some(call.id.clone());
-    row.tool_name = Some(call.name.clone());
-    row.model_id = Some(model.id.clone());
-    row.status = MessageStatus::Running;
+    let mut first = Message::new(chat_id, state.db.next_seq(chat_id)?, Role::Tool, "");
+    first.tool_call_id = Some(call.id.clone());
+    first.tool_name = Some(call.name.clone());
+    first.model_id = Some(model.id.clone());
+    first.status = MessageStatus::Running;
 
     let args = match crate::llm::parse_arguments(&call.arguments) {
         Ok(v) => v,
         Err(e) => {
-            finish_tool(
-                state,
-                &mut row,
-                false,
-                json!({"error": e}).to_string(),
-                json!({"error": e}),
-                Value::Null,
-                0,
-            )?;
-            return Ok(());
+            let row = ToolRow::new(state.clone(), first);
+            return row.finish(false, json!({"error": e}).to_string(), json!({"error": e}), 0);
         }
     };
-    let label = tools::describe(&call.name, &args);
-    row.tool_result = Some(json!({"label": label, "args": args}));
+    first.tool_result = Some(json!({"label": tools::describe(&call.name, &args), "args": args}));
+    let row = ToolRow::new(state.clone(), first);
 
     if !tools::exists(&call.name) {
         let msg = format!(
             "There is no tool called {}. Use only the tools you were given.",
             call.name
         );
-        finish_tool(
-            state,
-            &mut row,
-            false,
-            json!({"error": msg}).to_string(),
-            json!({"error": msg}),
-            args,
-            0,
-        )?;
-        return Ok(());
+        return row.finish(false, json!({"error": msg}).to_string(), json!({"error": msg}), 0);
     }
 
     let settings = state.settings.get();
     if tools::needs_approval(&call.name, &settings) {
-        row.status = MessageStatus::AwaitingApproval;
-        state.db.save_message(&row)?;
-        state.emit_chat(ChatEvent::Message {
-            chat_id: chat_id.to_string(),
-            message: row.clone(),
-        });
-        let (tx, rx) = oneshot::channel();
-        state.agent.approvals.lock().insert(row.id.clone(), tx);
-        let decision = tokio::select! {
-            d = rx => d.unwrap_or(Approval::Deny),
-            _ = cancel.cancelled() => {
-                state.agent.approvals.lock().remove(&row.id);
-                row.status = MessageStatus::Cancelled;
-                state.db.save_message(&row)?;
-                state.emit_chat(ChatEvent::Message { chat_id: chat_id.to_string(), message: row.clone() });
-                return Ok(());
-            }
+        let decision = match row.request_approval(None, cancel).await {
+            Ok(d) => d,
+            Err(Cancelled) => return row.cancel(),
         };
         match decision {
             Approval::Deny => {
                 let msg = "The user declined to run this. Do not retry it; continue without it or ask the user how to proceed.";
-                finish_tool(
-                    state,
-                    &mut row,
-                    false,
-                    json!({"error": msg}).to_string(),
-                    json!({"denied": true}),
-                    args,
-                    0,
-                )?;
-                return Ok(());
+                return row.finish(false, json!({"error": msg}).to_string(), json!({"denied": true}), 0);
             }
             Approval::Always => {
                 let name = call.name.clone();
@@ -515,76 +494,25 @@ async fn run_tool_call(
                     s.always_allowed_tools.insert(name);
                 });
             }
-            Approval::Once => {}
+            Approval::Once | Approval::Minimal => {}
         }
     }
 
-    row.status = MessageStatus::Running;
-    state.db.save_message(&row)?;
-    state.emit_chat(ChatEvent::Message {
-        chat_id: chat_id.to_string(),
-        message: row.clone(),
-    });
-
+    row.update(|m| m.status = MessageStatus::Running)?;
     let ctx = ToolContext {
         state: state.clone(),
         chat_id: chat_id.to_string(),
         workspace: workspace.to_path_buf(),
         cancel: cancel.clone(),
+        row: row.clone(),
     };
     let started = Instant::now();
-    let output = tools::run(&call.name, args.clone(), &ctx).await;
+    let output = tools::run(&call.name, args, &ctx).await;
     let elapsed = started.elapsed().as_millis() as i64;
     if cancel.is_cancelled() && !output.ok {
-        row.status = MessageStatus::Cancelled;
-        row.content = json!({"error": "Stopped by the user."}).to_string();
-        state.db.save_message(&row)?;
-        state.emit_chat(ChatEvent::Message {
-            chat_id: chat_id.to_string(),
-            message: row.clone(),
-        });
-        return Ok(());
+        return row.cancel();
     }
-    finish_tool(
-        state,
-        &mut row,
-        output.ok,
-        output.content,
-        output.display,
-        args,
-        elapsed,
-    )
-}
-
-fn finish_tool(
-    state: &Arc<AppState>,
-    row: &mut Message,
-    ok: bool,
-    content: String,
-    display: Value,
-    args: Value,
-    elapsed_ms: i64,
-) -> CmdResult<()> {
-    let label = row
-        .tool_result
-        .as_ref()
-        .and_then(|r| r.get("label").cloned())
-        .unwrap_or_else(|| json!(row.tool_name));
-    row.content = content;
-    row.status = MessageStatus::Done;
-    row.tool_result = Some(json!({
-        "label": label,
-        "args": args,
-        "ok": ok,
-        "display": display,
-        "durationMs": elapsed_ms,
-    }));
-    state.db.save_message(row)?;
-    state.emit_chat(ChatEvent::Message {
-        chat_id: row.chat_id.clone(),
-        message: row.clone(),
-    });
-    Ok(())
+    row.finish(output.ok, output.content, output.display, elapsed)
 }
 
 fn stats(c: &crate::llm::Completion, model: &ModelEntry, duration_ms: i64, ttft_ms: Option<i64>) -> Value {
@@ -700,7 +628,47 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use super::title_from;
+    use super::*;
+
+    #[tokio::test]
+    async fn approvals_reach_the_waiting_tool() {
+        let agent = Arc::new(Agent::default());
+        let cancel = CancellationToken::new();
+        let waiter = {
+            let (agent, cancel) = (agent.clone(), cancel.clone());
+            tokio::spawn(async move { agent.wait_approval("row-1", &cancel).await })
+        };
+        while !agent.resolve_approval("row-1", Approval::Minimal) {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(waiter.await.unwrap(), Ok(Approval::Minimal));
+        assert!(
+            !agent.resolve_approval("row-1", Approval::Once),
+            "an answered approval is gone"
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_the_turn_ends_an_approval_wait() {
+        let agent = Agent::default();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert_eq!(agent.wait_approval("row-2", &cancel).await, Err(Cancelled));
+        assert!(agent.approvals.lock().is_empty());
+    }
+
+    #[test]
+    fn the_minimal_choice_is_spelled_minimal() {
+        assert_eq!(serde_json::to_value(Approval::Minimal).unwrap(), "minimal");
+        assert_eq!(
+            serde_json::from_value::<Approval>(json!("minimal")).unwrap(),
+            Approval::Minimal
+        );
+        assert_eq!(
+            serde_json::from_value::<Approval>(json!("once")).unwrap(),
+            Approval::Once
+        );
+    }
 
     #[test]
     fn titles_are_short_and_clean() {

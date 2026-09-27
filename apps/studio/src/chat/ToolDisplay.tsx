@@ -15,9 +15,14 @@ import { Button, cx, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { fileUrl, formatPercent, formatPrice } from '@/lib/format';
-import type { Quote, ToolDisplay as Display } from '@/lib/types';
+import type { Message, Quote, ToolDisplay as Display } from '@/lib/types';
+import { DownloadProgress } from '@/market/DownloadProgress';
+import { currentModel, useChats } from '@/stores/chats';
+import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import { useWindows } from '@/stores/windows';
+import { DataStatus } from './DataStatus';
+import { downloadView } from './downloadView';
 import styles from './ToolDisplay.module.css';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -73,11 +78,62 @@ export function Sparkline({ values, width = 220, height = 44 }: { values: number
   );
 }
 
-function Candles({ d }: { d: Display }) {
+const CONTINUE_TEXT = 'The download finished — please continue with my request.';
+
+/**
+ * "Continue" for a finished download: sends the follow-up in the chat the card is in, while that
+ * chat is on screen, idle, and nothing was said after this call.
+ */
+function useContinue(message: Message | undefined): (() => void) | undefined {
+  const chatId = message?.chatId ?? null;
+  const seq = message?.seq ?? Infinity;
+  const onScreen = useChats((s) => chatId !== null && s.activeId === chatId);
+  const running = useChats((s) => chatId !== null && !!s.running[chatId]);
+  const answered = useChats((s) =>
+    chatId === null ? true : (s.messages[chatId] ?? []).some((m) => m.role === 'user' && m.seq > seq),
+  );
+  const chat = useChats((s) => s.chats.find((c) => c.id === chatId));
+  const picked = useChats((s) => s.pickedModelId);
+  const send = useChats((s) => s.send);
+  const models = useModels((s) => s.models);
+  const model = currentModel(models, chat, picked);
+  if (!onScreen || running || answered || !model) return undefined;
+  return () => void send(CONTINUE_TEXT, model.id);
+}
+
+/** A download a tool started: its live progress, and why it stopped if it failed. */
+function DownloadBlock({ d, message }: { d: Display; message: Message | undefined }) {
+  const onContinue = useContinue(message);
+  const view = downloadView(d);
+  const jobError = str(d.jobError);
+  return (
+    <div className={styles.download}>
+      {view.kind === 'progress' && (
+        <DownloadProgress jobId={view.jobId} plan={view.plan} onContinue={view.continuable ? onContinue : undefined} />
+      )}
+      {view.kind === 'note' && <div className={styles.muted}>{view.text}</div>}
+      {jobError && <div className={styles.error}>{jobError}</div>}
+    </div>
+  );
+}
+
+/** Rows per source, from the read's spans (or an older result's per-source counts). */
+function sourceCounts(d: Display): Array<{ source: string; count: number }> {
+  if (Array.isArray(d.sources)) return d.sources as Array<{ source: string; count: number }>;
+  if (!Array.isArray(d.spans)) return [];
+  const counts = new Map<string, number>();
+  for (const span of d.spans as Array<{ source: string; count: number }>) {
+    counts.set(span.source, (counts.get(span.source) ?? 0) + span.count);
+  }
+  return [...counts].map(([source, count]) => ({ source, count }));
+}
+
+function Candles({ d, message }: { d: Display; message: Message | undefined }) {
   const change = num(d.changePercent);
-  const sources = Array.isArray(d.sources) ? (d.sources as Array<{ source: string; count: number }>) : [];
+  const sources = sourceCounts(d);
   const path = str(d.path);
   const file = str(d.file);
+  const download = d.download && typeof d.download === 'object' ? (d.download as Display) : null;
   return (
     <div className={styles.candles}>
       <div className={styles.candlesHead}>
@@ -100,11 +156,23 @@ function Candles({ d }: { d: Display }) {
         </span>
         {sources.map((s) => (
           <span key={s.source} className={styles.source}>
-            {s.source === 'tradingview' ? 'TradingView' : 'Dukascopy'} · {s.count}
+            {s.source === 'tradingview' ? 'TradingView' : 'Dukascopy'} · {num(s.count)?.toLocaleString()}
           </span>
         ))}
       </div>
       {path && <FileChip path={path} name={file.split('/').pop() ?? file} kind="table" />}
+      {str(d.note) ? (
+        <div className={styles.muted}>{str(d.note)}</div>
+      ) : (
+        d.denied === true && (
+          <div className={styles.muted}>You chose not to download more, so this is only what was already stored.</div>
+        )
+      )}
+      {download ? (
+        <DownloadBlock d={{ jobError: d.jobError, ...download }} message={message} />
+      ) : (
+        str(d.jobError) && <div className={styles.error}>{str(d.jobError)}</div>
+      )}
     </div>
   );
 }
@@ -238,14 +306,24 @@ function Files({ d }: { d: Display }) {
   );
 }
 
-/** The result area of a tool card. Returns null when there is nothing worth showing. */
-export function ToolDisplay({ display }: { display: Display | undefined }) {
+/**
+ * The result area of a tool card. Returns null when there is nothing worth showing. `message` is
+ * the tool message the display belongs to, for actions that answer in its chat.
+ */
+export function ToolDisplay({ display, message }: { display: Display | undefined; message?: Message }) {
   if (!display) return null;
-  if (display.denied) return <div className={styles.muted}>You declined this.</div>;
+  // A declined download still has cached candles or a job worth showing.
+  if (display.denied && display.kind !== 'candles' && display.kind !== 'download') {
+    return <div className={styles.muted}>You declined this.</div>;
+  }
   if (display.error) return <div className={styles.error}>{String(display.error)}</div>;
   switch (display.kind) {
     case 'candles':
-      return <Candles d={display} />;
+      return <Candles d={display} message={message} />;
+    case 'download':
+      return <DownloadBlock d={display} message={message} />;
+    case 'dataStatus':
+      return <DataStatus d={display} />;
     case 'quotes':
       return <Quotes d={display} />;
     case 'search':
@@ -271,5 +349,9 @@ export function ToolDisplay({ display }: { display: Display | undefined }) {
 
 /** Whether a result is shown without expanding the card. */
 export function isProminent(display: Display | undefined): boolean {
-  return !!display && !display.error && ['candles', 'quotes', 'python', 'skill'].includes(String(display.kind));
+  return (
+    !!display &&
+    !display.error &&
+    ['candles', 'quotes', 'python', 'skill', 'download', 'dataStatus'].includes(String(display.kind))
+  );
 }

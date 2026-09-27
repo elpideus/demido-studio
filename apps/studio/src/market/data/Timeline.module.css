@@ -1,0 +1,203 @@
+/* Coverage timelines in a market's Data row. Every row shares one grid, so the tracks line up. */
+
+.timelines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  container-type: inline-size;
+}
+
+.row,
+.axisRow {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 40px 60px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sourceHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.sourceHead:first-child {
+  margin-top: 0;
+}
+
+.sourceBytes {
+  color: var(--text-tertiary);
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The whole domain; taller than the bar so it is easy to hover. */
+.track {
+  position: relative;
+  height: 16px;
+}
+
+/* What this tier could hold. Its own background is the blank of "not downloaded". */
+/* At least a sliver, so a few days of 1-minute bars on a 50-year axis still show. */
+.span {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--track);
+}
+
+/* Filled by the palette's fill classes. */
+.seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 1px;
+}
+
+/* Drawn over its neighbours so a gap narrower than a pixel still shows as a notch. */
+.gap {
+  z-index: 1;
+}
+
+.learned {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--warning);
+}
+
+.cursor {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text-primary);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.nothing {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.share,
+.bytes {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.share {
+  color: var(--text-secondary);
+}
+
+.axis {
+  position: relative;
+  height: 16px;
+  grid-column: 2;
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.tick::before {
+  content: '';
+  display: block;
+  width: 1px;
+  height: 4px;
+  margin: 0 auto 1px;
+  background: var(--border-strong);
+}
+
+@container (max-width: 440px) {
+  .row,
+  .axisRow {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .share,
+  .bytes {
+    display: none;
+  }
+}
+
+/* Follows the pointer; portalled to the body so the scrolling page can't clip it. */
+.readout {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  max-width: 300px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #303030;
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  pointer-events: none;
+}
+
+.above {
+  transform: translateY(-100%);
+}
+
+.readoutTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--weight-semibold);
+}
+
+.readoutBody {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.key {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* The readout's own background is close to the blank, so blank keys get an outline. */
+.keyBlank {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.keyLearned {
+  width: 3px;
+  border-radius: 1px;
+  background: var(--warning);
+}

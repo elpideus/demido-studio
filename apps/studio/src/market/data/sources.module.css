@@ -1,0 +1,47 @@
+/*
+ * The two source colours of the Data tab: Demido green for Dukascopy, blue for TradingView. They
+ * differ in hue (not just lightness), so they stay apart for red-green colour blindness, and both
+ * clear 3:1 against the dark surfaces. Set on every root that draws them: the tab's page and the
+ * hover readout, which is portalled out of it.
+ */
+.palette {
+  --source-dukascopy: var(--accent);
+  --source-tradingview: var(--info);
+  /* The blank of "not downloaded", opaque so a gap drawn over stored data reads as the same blank. */
+  --track: var(--surface-5);
+  /* Stripes over the blank for "no data at source". */
+  --hatch: rgba(255, 255, 255, 0.3);
+}
+
+.palette[data-source='dukascopy'],
+.palette [data-source='dukascopy'] {
+  --source: var(--source-dukascopy);
+}
+
+.palette[data-source='tradingview'],
+.palette [data-source='tradingview'] {
+  --source: var(--source-tradingview);
+}
+
+/* A small swatch in the element's source colour, for badges and legends. */
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--source);
+}
+
+/* The three fills a timeline uses, shared by the timelines, the legend and the hover readout. */
+.fillData {
+  background: var(--source);
+}
+
+.fillEmpty {
+  background: repeating-linear-gradient(-45deg, var(--hatch) 0 1px, transparent 1px 4px), var(--track);
+}
+
+.fillGap {
+  background: var(--track);
+}

@@ -188,7 +188,7 @@ function axisOf(slot: Slot, bounds: Size): Axis {
 }
 
 /** The column or row a slot is part of. */
-function sideOf(slot: Slot): Column | Row {
+export function sideOf(slot: Slot): Column | Row {
   return columnOf(slot) ?? (slot as Row);
 }
 
@@ -256,32 +256,71 @@ export function resizeDock<T extends Pinnable>(windows: T[], id: string, size: n
 }
 
 /**
- * Re-fits every column and row after the desktop changed size, shrinking both sides alike. When
- * even two minimum sizes no longer fit, the side whose windows were used least recently floats.
+ * Keeps every column no wider, and every row no taller, than the smallest maximum among the
+ * windows in it: its other side is set by the desktop, but the one that can be dragged has a limit.
  */
-export function refitDocks<T extends Pinnable & { z?: number }>(windows: T[], bounds: Size): T[] {
+export function capDocks<T extends Pinnable>(windows: T[], maxOf: (w: T) => Size): T[] {
+  let next = windows;
+  for (const side of ['left', 'right', 'top', 'bottom'] as const) {
+    const members = next.filter((w) => onSide(w, side));
+    if (!members.length) continue;
+    const vertical = side === 'top' || side === 'bottom';
+    const key = vertical ? 'dockHeight' : 'dockWidth';
+    const max = Math.min(...members.map((w) => (vertical ? maxOf(w).h : maxOf(w).w)));
+    if (members.some((w) => w[key] > max)) {
+      next = next.map((w) => (onSide(w, side) && w[key] > max ? { ...w, [key]: max } : w));
+    }
+  }
+  return next;
+}
+
+/**
+ * Fits every column and row into the desktop. When two sides across from each other no longer
+ * both fit, the one sized most recently (`sizedAt`: pinned or dragged) keeps its size, down to
+ * what leaves the other its minimum, and the other takes what remains; sides never sized shrink
+ * alike. When even two minimum sizes do not fit, the side sized, or else used, least recently floats.
+ */
+export function refitDocks<T extends Pinnable & { z?: number; sizedAt?: number }>(windows: T[], bounds: Size): T[] {
   let next = windows;
   for (const axis of [axisOf('left', bounds), axisOf('top', bounds)]) {
     const [first, second] = axis.sides;
+    const latest = (side: Column | Row, key: 'sizedAt' | 'z') =>
+      Math.max(0, ...next.filter((w) => onSide(w, side)).map((w) => w[key] ?? 0));
+    const sizedFirst = latest(first, 'sizedAt');
+    const sizedSecond = latest(second, 'sizedAt');
     if (
       sideSize(next, first, axis) > 0 &&
       sideSize(next, second, axis) > 0 &&
       dockRoom(axis, true) < 2 * axis.minDock
     ) {
-      const top = (side: Column | Row) => Math.max(...next.filter((w) => onSide(w, side)).map((w) => w.z ?? 0));
-      const older = top(first) < top(second) ? first : second;
+      const firstNewer =
+        sizedFirst !== sizedSecond ? sizedFirst > sizedSecond : latest(first, 'z') >= latest(second, 'z');
+      const older = firstNewer ? second : first;
       next = next.map((w) => (onSide(w, older) ? { ...w, mode: 'floating' as const, slot: null } : w));
     }
     const a = sideSize(next, first, axis);
     const b = sideSize(next, second, axis);
     const room = dockRoom(axis, a > 0 && b > 0);
-    const scale = a + b > room ? room / (a + b) : 1;
-    let fitA = Math.max(axis.minDock, Math.round(a * scale));
-    let fitB = Math.max(axis.minDock, Math.round(b * scale));
-    // A side held at its minimum leaves the other one only what remains.
-    if (a > 0 && b > 0 && fitA + fitB > room) {
-      if (fitA === axis.minDock) fitB = Math.max(axis.minDock, room - fitA);
-      else fitA = Math.max(axis.minDock, room - fitB);
+    const within = (size: number, space: number) => Math.round(Math.max(axis.minDock, Math.min(size, space)));
+    let fitA = within(a, room);
+    let fitB = within(b, room);
+    if (a > 0 && b > 0 && a + b > room) {
+      if (sizedFirst > sizedSecond) {
+        fitA = within(a, room - axis.minDock);
+        fitB = within(b, room - fitA);
+      } else if (sizedSecond > sizedFirst) {
+        fitB = within(b, room - axis.minDock);
+        fitA = within(a, room - fitB);
+      } else {
+        const scale = room / (a + b);
+        fitA = within(a * scale, room);
+        fitB = within(b * scale, room);
+        // A side held at its minimum leaves the other one only what remains.
+        if (fitA + fitB > room) {
+          if (fitA === axis.minDock) fitB = within(b, room - fitA);
+          else fitA = within(a, room - fitB);
+        }
+      }
     }
     if (a > 0) next = resizeSide(next, first, axis, fitA);
     if (b > 0) next = resizeSide(next, second, axis, fitB);
@@ -318,10 +357,12 @@ export function coveredShare<T extends Pinnable & { z: number }>(
   return hidden / (steps * steps);
 }
 
-/** Keeps a floating window within reach: its title bar stays grabbable. */
-export function clampRect(r: Rect, bounds: Size, min: Size): Rect {
-  const w = Math.max(min.w, Math.min(r.w, bounds.w));
-  const h = Math.max(min.h, Math.min(r.h, bounds.h));
+const NO_MAX: Size = { w: Infinity, h: Infinity };
+
+/** Keeps a floating window within reach (its title bar stays grabbable) and within its size limits. */
+export function clampRect(r: Rect, bounds: Size, min: Size, max: Size = NO_MAX): Rect {
+  const w = Math.max(min.w, Math.min(r.w, bounds.w, max.w));
+  const h = Math.max(min.h, Math.min(r.h, bounds.h, max.h));
   const x = Math.min(Math.max(r.x, KEEP_VISIBLE - w), bounds.w - KEEP_VISIBLE);
   const y = Math.min(Math.max(r.y, 0), Math.max(0, bounds.h - TITLE_BAR_HEIGHT));
   return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
@@ -353,16 +394,20 @@ export function snapZone(px: number, py: number, bounds: Size): SnapZone | null 
   return null;
 }
 
-/** The outline shown while a drag would snap: exactly where the window would land. */
+/**
+ * The outline shown while a drag would snap: exactly where the window would land, pinned by `pin`
+ * (the window store's own pinning, when it differs from `pinWindow`).
+ */
 export function previewRect<T extends Pinnable>(
   zone: SnapZone,
   windows: T[],
   id: string,
   bounds: Size,
   splits: Splits,
+  pin: (windows: T[], id: string, slot: Slot, bounds: Size) => T[] = pinWindow,
 ): Rect {
   if (zone === 'maximize') return { x: 0, y: 0, w: bounds.w, h: bounds.h };
-  return slotRect(zone, dockLayout(pinWindow(windows, id, zone, bounds), splits), bounds);
+  return slotRect(zone, dockLayout(pin(windows, id, zone, bounds), splits), bounds);
 }
 
 /**
@@ -379,19 +424,29 @@ export function restoreUnderPointer(floating: Rect, px: number, py: number, grab
   };
 }
 
-/** Resizes a floating rect from an edge by a pointer delta, respecting the minimum size. */
-export function resizeRect(start: Rect, edge: Edge, dx: number, dy: number, min: Size, bounds: Size): Rect {
+/** Resizes a floating rect from an edge by a pointer delta, between the minimum and maximum size. */
+export function resizeRect(
+  start: Rect,
+  edge: Edge,
+  dx: number,
+  dy: number,
+  min: Size,
+  bounds: Size,
+  max: Size = NO_MAX,
+): Rect {
   let { x, y, w, h } = start;
-  if (edge.includes('e')) w = Math.min(Math.max(start.w + dx, min.w), bounds.w - start.x);
-  if (edge.includes('s')) h = Math.min(Math.max(start.h + dy, min.h), bounds.h - start.y);
+  if (edge.includes('e')) w = Math.min(Math.max(start.w + dx, min.w), max.w, bounds.w - start.x);
+  if (edge.includes('s')) h = Math.min(Math.max(start.h + dy, min.h), max.h, bounds.h - start.y);
   if (edge.includes('w')) {
-    const nx = Math.min(Math.max(start.x + dx, 0), start.x + start.w - min.w);
-    w = start.w + (start.x - nx);
+    const right = start.x + start.w;
+    const nx = Math.min(Math.max(start.x + dx, 0, right - max.w), right - min.w);
+    w = right - nx;
     x = nx;
   }
   if (edge.includes('n')) {
-    const ny = Math.min(Math.max(start.y + dy, 0), start.y + start.h - min.h);
-    h = start.h + (start.y - ny);
+    const bottom = start.y + start.h;
+    const ny = Math.min(Math.max(start.y + dy, 0, bottom - max.h), bottom - min.h);
+    h = bottom - ny;
     y = ny;
   }
   return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };

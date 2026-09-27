@@ -1,0 +1,143 @@
+/* The chat's view of what market data is stored; laid out like a small Data tab. */
+
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.summary {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.markets {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.market {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.market:last-child {
+  border-bottom: none;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-right: var(--space-3);
+}
+
+.head:hover {
+  background: var(--surface-3);
+}
+
+.toggle {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) 0 var(--space-2) var(--space-2);
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.chevron {
+  flex: none;
+  color: var(--text-tertiary);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.name {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--source) 13%, transparent);
+  color: var(--source);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.meta {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.size {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lined up with the name, past the chevron. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3) var(--space-3) calc(var(--space-2) + 14px + var(--space-2));
+}
+
+/* One grid for every tier's line, so the ranges start in one column. */
+.gaps {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.gaps > .muted {
+  grid-column: 1 / -1;
+}
+
+.gapRow {
+  display: contents;
+}
+
+.gapTier {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.gapText {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.job {
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+.muted {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}

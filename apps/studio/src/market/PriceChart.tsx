@@ -12,22 +12,33 @@ import {
 } from 'lightweight-charts';
 
 import { formatPrice } from '@/lib/format';
-import type { Bar } from '@/lib/types';
+import type { Bar, MarketSource, MarketSpan } from '@/lib/types';
+import { mergeSpans, sourceAt, sourcesOf } from './chartData';
+import { SOURCE_NAMES } from './DownloadProgress';
 import styles from './MarketWindow.module.css';
 
 export interface PriceChartHandle {
-  /** Replaces all data and fits it. */
-  setBars: (bars: Bar[]) => void;
-  /** Adds older bars on the left without moving the view. */
-  prependBars: (older: Bar[]) => void;
-  /** Applies a live update of the last (or a new) bar. */
+  /** Replaces all data and fits it, prices included. `spans` say which source each bar came from. */
+  setBars: (bars: Bar[], spans: MarketSpan[]) => void;
+  /** Adds older bars on the left without moving the view. Returns how many were older than the
+   *  chart's oldest bar and so were actually added. */
+  prependBars: (older: Bar[], spans: MarketSpan[]) => number;
+  /** Applies a live update of the last (or a new) bar; it belongs to the newest bar's source. */
   updateBar: (bar: Bar) => void;
+  /** Whether the view shows (or nearly shows) the oldest loaded bar. */
+  nearOldest: () => boolean;
 }
+
+/** How close (in bars) the view's left edge gets to the oldest bar before more are asked for. */
+const NEAR_OLDEST = 15;
 
 interface Props {
   pricescale: number;
   /** Called when the view nears the oldest bar, to load more history. */
   onNeedMore: () => void;
+  /** The oldest loaded bar's screen position, recomputed on every pan/zoom (null when there is
+   *  no data or it is off-screen) — lets an overlay track that edge as the chart moves. */
+  onEdgeAnchor?: (pos: { x: number; y: number } | null) => void;
 }
 
 const UP = '#4fcf8a';
@@ -45,7 +56,10 @@ function toCandle(b: Bar) {
   return { time: b.t as UTCTimestamp, open: b.o, high: b.h, low: b.l, close: b.c };
 }
 
-function toVolume(b: Bar) {
+// Volume units differ between sources (Dukascopy counts differently from TradingView), so only bars
+// from the newest bar's source get a column; the rest are left blank rather than drawn misleadingly.
+function toVolume(b: Bar, shown: boolean) {
+  if (!shown) return { time: b.t as UTCTimestamp };
   return {
     time: b.t as UTCTimestamp,
     value: b.v,
@@ -53,15 +67,27 @@ function toVolume(b: Bar) {
   };
 }
 
+function volumes(bars: Bar[], spans: MarketSpan[]) {
+  const sources = sourcesOf(bars, spans);
+  const newest = sources[sources.length - 1] ?? null;
+  return bars.map((b, i) => toVolume(b, sources[i] === newest));
+}
+
 /** Candlesticks and volume, in local time, drawn with TradingView's lightweight-charts. */
-export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart({ pricescale, onNeedMore }, ref) {
+export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart(
+  { pricescale, onNeedMore, onEdgeAnchor },
+  ref,
+) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volume = useRef<ISeriesApi<'Histogram'> | null>(null);
   const data = useRef<Bar[]>([]);
+  const spans = useRef<MarketSpan[]>([]);
   const needMore = useRef(onNeedMore);
   needMore.current = onNeedMore;
+  const edgeAnchor = useRef(onEdgeAnchor);
+  edgeAnchor.current = onEdgeAnchor;
   const [legend, setLegend] = useState<Bar | null>(null);
 
   useEffect(() => {
@@ -105,7 +131,11 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     const vs = c.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' });
     vs.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     c.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      if (range && range.from < 15 && data.current.length > 0) needMore.current();
+      if (range && range.from < NEAR_OLDEST && data.current.length > 0) needMore.current();
+      const oldest = data.current[0];
+      const x = oldest ? c.timeScale().timeToCoordinate(oldest.t as UTCTimestamp) : null;
+      const y = oldest ? (candles.current?.priceToCoordinate(oldest.c) ?? null) : null;
+      edgeAnchor.current?.(x !== null && y !== null ? { x, y } : null);
     });
     c.subscribeCrosshairMove((param) => {
       if (!param.time) {
@@ -131,30 +161,39 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
   }, [pricescale]);
 
   useImperativeHandle(ref, () => ({
-    setBars: (bars) => {
+    setBars: (bars, sourceSpans) => {
       data.current = [...bars].sort((a, b) => a.t - b.t);
+      spans.current = mergeSpans([], sourceSpans);
+      // Dragging the price axis or the chart turns auto-scaling off, which would keep the old
+      // symbol's price range on screen: another symbol can sit thousands of times higher.
+      candles.current?.priceScale().applyOptions({ autoScale: true });
+      volume.current?.priceScale().applyOptions({ autoScale: true });
       candles.current?.setData(data.current.map(toCandle));
-      volume.current?.setData(data.current.map(toVolume));
+      volume.current?.setData(volumes(data.current, spans.current));
       chart.current?.timeScale().fitContent();
       if (data.current.length > 150) {
         chart.current
           ?.timeScale()
           .setVisibleLogicalRange({ from: data.current.length - 150, to: data.current.length + 5 });
       }
+      setLegend(null);
     },
-    prependBars: (older) => {
+    prependBars: (older, sourceSpans) => {
       const first = data.current[0]?.t ?? Number.MAX_SAFE_INTEGER;
       const fresh = older.filter((b) => b.t < first).sort((a, b) => a.t - b.t);
-      if (!fresh.length || !chart.current) return;
+      if (!fresh.length || !chart.current) return 0;
       const range = chart.current.timeScale().getVisibleLogicalRange();
       data.current = [...fresh, ...data.current];
+      // Spans reaching into bars the chart already had describe those bars too; they agree.
+      spans.current = mergeSpans(spans.current, sourceSpans);
       candles.current?.setData(data.current.map(toCandle));
-      volume.current?.setData(data.current.map(toVolume));
+      volume.current?.setData(volumes(data.current, spans.current));
       if (range) {
         chart.current
           .timeScale()
           .setVisibleLogicalRange({ from: range.from + fresh.length, to: range.to + fresh.length });
       }
+      return fresh.length;
     },
     updateBar: (bar) => {
       const last = data.current[data.current.length - 1];
@@ -162,11 +201,16 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       if (last && bar.t === last.t) data.current[data.current.length - 1] = bar;
       else data.current.push(bar);
       candles.current?.update(toCandle(bar));
-      volume.current?.update(toVolume(bar));
+      volume.current?.update(toVolume(bar, true));
+    },
+    nearOldest: () => {
+      const range = chart.current?.timeScale().getVisibleLogicalRange();
+      return !!range && data.current.length > 0 && range.from < NEAR_OLDEST;
     },
   }));
 
   const shown = legend ?? data.current[data.current.length - 1] ?? null;
+  const source: MarketSource | null = shown ? sourceAt(spans.current, shown.t) : null;
   return (
     <div className={styles.chartWrap}>
       <div ref={container} className={styles.chart} />
@@ -189,6 +233,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
               V <b>{shown.v.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b>
             </span>
           )}
+          {source && <span className={styles.legendSource}>{SOURCE_NAMES[source]}</span>}
         </div>
       )}
     </div>

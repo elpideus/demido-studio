@@ -61,6 +61,25 @@ with a screenshot after each and a list of the tools every turn called:
 node scripts/scenario.mjs --out .dev/scenario --approve "Price of EUR/USD now?" "Chart gold, 4h, 3 months"
 ```
 
+## The market data service
+
+`sidecars/market` runs on its own with Node 22 (type stripping, no build step), speaking JSON lines
+on stdin and stdout (`src/protocol.ts`):
+
+```bash
+DEMIDO_CACHE_DIR=/tmp/market-copy node sidecars/market/src/main.ts
+{"id":1,"method":"bars.older","params":{"symbol":"FX:EURUSD","timeframe":"1h","before":1704067200,"count":500}}
+```
+
+Without `DEMIDO_CACHE_DIR` it keeps its store in the system temp folder. Point it at a **copy** of
+`%LOCALAPPDATA%\Demido Studio\cache\market`, never the real one: the first start migrates the old
+flat Dukascopy cache and TradingView files into the new layout and deletes the originals. Its tests
+(`pnpm --filter @demido/market-sidecar test`) use temp folders and a fake fetcher; they never reach
+Dukascopy. For a manual check against Dukascopy, keep to a few requests, spaced out: it answers
+bursts with 429. To drive the bundled service end to end without any traffic, preload a module
+that replaces `globalThis.fetch` with one answering the candle URLs locally (`node --import
+<module> .dev/resources/sidecars/market.mjs`): the service captures `fetch` when it loads.
+
 ## Release
 
 ```bash
@@ -88,7 +107,9 @@ for the format and how to move to a new llama.cpp build or model.
 1. Describe it in `apps/studio/src-tauri/src/tools/mod.rs` (`TOOLS`): name, group, description,
    JSON schema, and whether it needs approval.
 2. Implement it in the group's file (`tools/market.rs`, `tools/python.rs` ...) and route it in
-   `tools::run`.
+   `tools::run`. A tool that must ask while it runs (the market tools before a long download)
+   calls `ctx.request_approval(card)`, and `ctx.set_display(...)` shows progress on its card
+   before it finishes.
 3. Give it a label in `tools::describe` and, if its result deserves more than JSON, a view in
    `apps/studio/src/chat/ToolDisplay.tsx`.
 

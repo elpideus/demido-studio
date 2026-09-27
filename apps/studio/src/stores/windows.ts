@@ -12,6 +12,7 @@ import {
   type Slot,
   type Splits,
   SLOTS,
+  capDocks,
   clampRect,
   clampSplit,
   coveredShare,
@@ -20,6 +21,7 @@ import {
   refitDocks,
   resizeDock,
   restoreUnderPointer,
+  sideOf,
 } from '@/wm/geometry';
 
 export type WindowKind = 'settings' | 'market' | 'inspector';
@@ -28,6 +30,8 @@ export interface WindowSpec {
   title: string;
   defaultSize: Size;
   minSize: Size;
+  /** Largest it can be resized to, floating or pinned: past this its content stretches apart. */
+  maxSize: Size;
   /** Only one window of this kind can be open. */
   singleton: boolean;
   defaultDockWidth: number;
@@ -39,6 +43,7 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     title: 'Settings',
     defaultSize: { w: 980, h: 680 },
     minSize: { w: 560, h: 420 },
+    maxSize: { w: 1280, h: 960 },
     singleton: true,
     defaultDockWidth: 560,
     defaultDockHeight: 380,
@@ -47,6 +52,7 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     title: 'Market',
     defaultSize: { w: 1040, h: 660 },
     minSize: { w: 520, h: 380 },
+    maxSize: { w: 1920, h: 1200 },
     singleton: true,
     defaultDockWidth: 620,
     defaultDockHeight: 400,
@@ -55,6 +61,7 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     title: 'Inspector',
     defaultSize: { w: 860, h: 640 },
     minSize: { w: 480, h: 360 },
+    maxSize: { w: 1400, h: 1080 },
     singleton: true,
     defaultDockWidth: 560,
     defaultDockHeight: 360,
@@ -68,11 +75,25 @@ export interface WindowState {
   /** Floating geometry, kept while maximized or docked so the window can go back to it. */
   rect: Rect;
   mode: Mode;
+  /** Where it is pinned; kept while maximized from a pin, so Restore can go back to it. */
   slot: Slot | null;
   dockWidth: number;
   dockHeight: number;
+  /**
+   * The geometry the person gave it. `rect` and the dock sizes are fitted into the desktop from
+   * this, so a desktop that is smaller for a moment (the app window before it is maximized or
+   * snapped) squeezes the window without losing its size. Only what the person does changes it.
+   */
+  wanted: Geometry;
+  /**
+   * When its column or row was last sized, by pinning it or dragging its edge (0: not yet). Of two
+   * sides that no longer both fit, the one sized last keeps its size.
+   */
+  sizedAt: number;
   z: number;
 }
+
+export type Geometry = Pick<WindowState, 'rect' | 'dockWidth' | 'dockHeight'>;
 
 export interface SnapPreview {
   rect: Rect;
@@ -85,6 +106,8 @@ interface WindowsStore {
   zTop: number;
   /** Share of each split column its top half takes. */
   splits: Splits;
+  /** The shares the person set, which `splits` is fitted from like a window's `wanted`. */
+  wantedSplits: Splits;
   preview: SnapPreview | null;
   /** A docked window's edge is being dragged: every window follows it without animating. */
   resizing: boolean;
@@ -128,13 +151,73 @@ export interface SavedLayout {
 const remembered: Partial<Record<WindowKind, Remembered>> = {};
 
 function remember(w: WindowState): void {
-  remembered[w.kind] = { rect: w.rect, dockWidth: w.dockWidth, dockHeight: w.dockHeight, mode: w.mode, slot: w.slot };
+  remembered[w.kind] = { ...w.wanted, mode: w.mode, slot: w.slot };
 }
 
 let counter = 0;
 
 function samePlacement(a: WindowState, b: WindowState): boolean {
   return a.mode === b.mode && a.slot === b.slot && a.dockWidth === b.dockWidth && a.dockHeight === b.dockHeight;
+}
+
+const maxOf = (w: WindowState) => WINDOW_SPECS[w.kind].maxSize;
+
+/** No desktop to fit into: only a kind's own size limits apply. */
+const ANY_DESKTOP: Size = { w: Infinity, h: Infinity };
+
+/** A floating rect kept on the desktop and within its kind's size limits. */
+function fitRect(kind: WindowKind, rect: Rect, bounds: Size): Rect {
+  return clampRect(rect, bounds, WINDOW_SPECS[kind].minSize, WINDOW_SPECS[kind].maxSize);
+}
+
+/**
+ * What every window shows: its `wanted` geometry fitted into the desktop. Every action that
+ * changes a placement ends here, so what is on screen is always this function of what is wanted
+ * and a smaller desktop takes nothing away for good.
+ */
+function fitToDesktop(windows: WindowState[], bounds: Size): WindowState[] {
+  const wanted = windows.map((w) => ({ ...w, ...w.wanted, rect: fitRect(w.kind, w.wanted.rect, bounds) }));
+  return capDocks(refitDocks(wanted, bounds), maxOf);
+}
+
+/**
+ * The rect a window wants once the person has moved or resized it to `rect` (as shown): each of
+ * its position and size they changed, and what it wanted before for the rest, since a size the
+ * desktop is squeezing for now is not one they chose.
+ */
+function wantRect(w: WindowState, rect: Rect): Rect {
+  const keep = (key: keyof Rect) => (rect[key] === w.rect[key] ? w.wanted.rect[key] : rect[key]);
+  return { x: keep('x'), y: keep('y'), w: keep('w'), h: keep('h') };
+}
+
+/** Bumped each time a column or row is sized, by pinning or dragging (see `WindowState.sizedAt`). */
+let sizing = 0;
+
+/**
+ * Pins a window. The pin is worked out on what the windows want, on a desktop with room for all
+ * of it: a window joining a column wants the column's width, and the others keep what they want.
+ * Fitting that into the real desktop is what makes the column across give way, for now.
+ */
+function pin(windows: WindowState[], id: string, slot: Slot, bounds: Size, sizedAt = sizing + 1): WindowState[] {
+  const wanted = windows.map((w) => ({ ...w, dockWidth: w.wanted.dockWidth, dockHeight: w.wanted.dockHeight }));
+  const pinned = capDocks(pinWindow(wanted, id, slot, ANY_DESKTOP), maxOf).map((w) => ({
+    ...w,
+    wanted: { ...w.wanted, dockWidth: w.dockWidth, dockHeight: w.dockHeight },
+    sizedAt: w.id === id ? sizedAt : w.sizedAt,
+  }));
+  return fitToDesktop(pinned, bounds);
+}
+
+/** The layout a pin would give, for the outline shown while a drag would snap. */
+export function pinPreview(windows: WindowState[], id: string, slot: Slot, bounds: Size): WindowState[] {
+  return pin(windows, id, slot, bounds);
+}
+
+/** Pins a window unless that would move, shrink or unpin another one; then leaves it as it is. */
+function pinUndisturbed(windows: WindowState[], id: string, slot: Slot, bounds: Size): WindowState[] {
+  sizing += 1;
+  const pinned = pin(windows, id, slot, bounds, sizing);
+  return pinned.every((w, i) => w.id === id || samePlacement(w, windows[i]!)) ? pinned : windows;
 }
 
 function isSlot(value: unknown): value is Slot {
@@ -147,6 +230,7 @@ export const useWindows = create<WindowsStore>((set, get) => ({
   bounds: { w: 1280, h: 800 },
   zTop: 10,
   splits: EVEN_SPLITS,
+  wantedSplits: EVEN_SPLITS,
   preview: null,
   resizing: false,
 
@@ -158,16 +242,17 @@ export const useWindows = create<WindowsStore>((set, get) => ({
       const raised = windows.map((w) =>
         w.id === existing.id ? { ...w, props: { ...w.props, ...props }, z: zTop + 1 } : w,
       );
+      if (slot) sizing += 1;
       set({
-        windows: slot ? pinWindow(raised, existing.id, slot, bounds) : raised,
+        windows: slot ? pin(raised, existing.id, slot, bounds, sizing) : raised,
         focusedId: existing.id,
         zTop: zTop + 1,
       });
       return existing.id;
     }
     const saved = remembered[kind];
-    const rect = saved
-      ? clampRect(saved.rect, bounds, spec.minSize)
+    const wantedRect = saved
+      ? fitRect(kind, saved.rect, ANY_DESKTOP)
       : initialRect(
           spec.defaultSize,
           bounds,
@@ -175,27 +260,30 @@ export const useWindows = create<WindowsStore>((set, get) => ({
         );
     counter += 1;
     const id = `${kind}-${counter}`;
+    const dockWidth = saved?.dockWidth ?? spec.defaultDockWidth;
+    const dockHeight = saved?.dockHeight ?? spec.defaultDockHeight;
     const win: WindowState = {
       id,
       kind,
       props,
-      rect,
+      rect: fitRect(kind, wantedRect, bounds),
       mode: saved?.mode === 'maximized' ? 'maximized' : 'floating',
-      slot: null,
-      dockWidth: saved?.dockWidth ?? spec.defaultDockWidth,
-      dockHeight: saved?.dockHeight ?? spec.defaultDockHeight,
+      slot: saved?.mode === 'maximized' ? (saved.slot ?? null) : null,
+      dockWidth,
+      dockHeight,
+      wanted: { rect: wantedRect, dockWidth, dockHeight },
+      sizedAt: 0,
       z: zTop + 1,
     };
     let next = [...windows, win];
     if (slot) {
-      next = pinWindow(next, id, slot, bounds);
+      sizing += 1;
+      next = pin(next, id, slot, bounds, sizing);
     } else if (saved?.mode === 'docked' && saved.slot) {
       // Back into the slot it was pinned to, unless that would move or shrink another window.
-      const pinned = pinWindow(next, id, saved.slot, bounds);
-      const undisturbed = pinned.every((w, i) => w.id === id || samePlacement(w, next[i]!));
-      if (undisturbed) next = pinned;
+      next = pinUndisturbed(next, id, saved.slot, bounds);
     }
-    set({ windows: next, focusedId: id, zTop: zTop + 1 });
+    set({ windows: fitToDesktop(next, bounds), focusedId: id, zTop: zTop + 1 });
     return id;
   },
 
@@ -215,7 +303,8 @@ export const useWindows = create<WindowsStore>((set, get) => ({
     if (win) remember(win);
     const rest = windows.filter((w) => w.id !== id);
     const nextFocus = focusedId === id ? ([...rest].sort((a, b) => b.z - a.z)[0]?.id ?? null) : focusedId;
-    set({ windows: rest, focusedId: nextFocus });
+    // A column it was squeezing gets its room back.
+    set({ windows: fitToDesktop(rest, get().bounds), focusedId: nextFocus });
   },
 
   focus: (id) => {
@@ -231,55 +320,94 @@ export const useWindows = create<WindowsStore>((set, get) => ({
 
   setBounds: (bounds) => {
     if (bounds.w <= 0 || bounds.h <= 0) return;
-    set(({ windows, splits }) => ({
+    set(({ windows, wantedSplits }) => ({
       bounds,
-      splits: { left: clampSplit(splits.left, bounds), right: clampSplit(splits.right, bounds) },
-      windows: refitDocks(
-        windows.map((w) => ({ ...w, rect: clampRect(w.rect, bounds, WINDOW_SPECS[w.kind].minSize) })),
-        bounds,
-      ),
+      splits: { left: clampSplit(wantedSplits.left, bounds), right: clampSplit(wantedSplits.right, bounds) },
+      windows: fitToDesktop(windows, bounds),
     }));
   },
 
   setRect: (id, rect) =>
     set(({ windows, bounds }) => ({
-      windows: windows.map((w) =>
-        w.id === id ? { ...w, rect: clampRect(rect, bounds, WINDOW_SPECS[w.kind].minSize) } : w,
+      windows: fitToDesktop(
+        windows.map((w) =>
+          w.id === id ? { ...w, wanted: { ...w.wanted, rect: wantRect(w, fitRect(w.kind, rect, bounds)) } } : w,
+        ),
+        bounds,
       ),
     })),
 
   toggleMaximize: (id) =>
-    set(({ windows }) => ({
-      windows: windows.map((w) =>
-        w.id === id ? { ...w, mode: w.mode === 'maximized' ? 'floating' : 'maximized', slot: null } : w,
-      ),
-    })),
+    set(({ windows, bounds }) => {
+      const win = windows.find((w) => w.id === id);
+      if (!win) return {};
+      if (win.mode !== 'maximized') {
+        // A pinned window keeps its slot while maximized, so Restore puts it back there.
+        const slot = win.mode === 'docked' ? win.slot : null;
+        const maximized = windows.map((w) => (w.id === id ? { ...w, mode: 'maximized' as const, slot } : w));
+        return { windows: fitToDesktop(maximized, bounds) };
+      }
+      const floating = windows.map((w) => (w.id === id ? { ...w, mode: 'floating' as const, slot: null } : w));
+      // Back into its slot, or floating when another window has been pinned there meanwhile.
+      return { windows: fitToDesktop(win.slot ? pinUndisturbed(floating, id, win.slot, bounds) : floating, bounds) };
+    }),
 
-  dock: (id, slot) => set(({ windows, bounds }) => ({ windows: pinWindow(windows, id, slot, bounds) })),
+  dock: (id, slot) =>
+    set(({ windows, bounds }) => {
+      sizing += 1;
+      return { windows: pin(windows, id, slot, bounds, sizing) };
+    }),
 
   float: (id) =>
-    set(({ windows }) => ({
-      windows: windows.map((w) => (w.id === id ? { ...w, mode: 'floating', slot: null } : w)),
+    set(({ windows, bounds }) => ({
+      windows: fitToDesktop(
+        windows.map((w) => (w.id === id ? { ...w, mode: 'floating', slot: null } : w)),
+        bounds,
+      ),
     })),
 
   tearOff: (id, px, py, grabRatio) =>
     set(({ windows, bounds }) => ({
-      windows: windows.map((w) =>
-        w.id === id
-          ? {
-              ...w,
-              mode: 'floating',
-              slot: null,
-              rect: clampRect(restoreUnderPointer(w.rect, px, py, grabRatio), bounds, WINDOW_SPECS[w.kind].minSize),
-            }
-          : w,
+      windows: fitToDesktop(
+        windows.map((w) =>
+          w.id === id
+            ? {
+                ...w,
+                mode: 'floating',
+                slot: null,
+                wanted: {
+                  ...w.wanted,
+                  rect: wantRect(w, fitRect(w.kind, restoreUnderPointer(w.rect, px, py, grabRatio), bounds)),
+                },
+              }
+            : w,
+        ),
+        bounds,
       ),
     })),
 
-  setDockSize: (id, size) => set(({ windows, bounds }) => ({ windows: resizeDock(windows, id, size, bounds) })),
+  setDockSize: (id, size) =>
+    set(({ windows, bounds }) => {
+      const win = windows.find((w) => w.id === id);
+      if (!win || win.mode !== 'docked' || !win.slot) return {};
+      // The edge moves as far as the column or row across leaves room for, as shown.
+      const side = sideOf(win.slot);
+      const resized = capDocks(resizeDock(windows, id, size, bounds), maxOf).find((w) => w.id === id)!;
+      const key = side === 'top' || side === 'bottom' ? 'dockHeight' : 'dockWidth';
+      sizing += 1;
+      const next = windows.map((w) =>
+        w.mode === 'docked' && w.slot && sideOf(w.slot) === side
+          ? { ...w, wanted: { ...w.wanted, [key]: resized[key] }, sizedAt: sizing }
+          : w,
+      );
+      return { windows: fitToDesktop(next, bounds) };
+    }),
 
   setSplit: (column, split) =>
-    set(({ splits, bounds }) => ({ splits: { ...splits, [column]: clampSplit(split, bounds) } })),
+    set(({ splits, wantedSplits, bounds }) => {
+      const share = clampSplit(split, bounds);
+      return { splits: { ...splits, [column]: share }, wantedSplits: { ...wantedSplits, [column]: share } };
+    }),
 
   setProps: (id, props) =>
     set(({ windows }) => ({
@@ -291,24 +419,17 @@ export const useWindows = create<WindowsStore>((set, get) => ({
   setResizing: (resizing) => set({ resizing }),
 
   snapshot: () => {
-    const { windows, splits } = get();
+    const { windows, wantedSplits } = get();
     for (const w of windows) remember(w);
     return {
       windows: [...windows]
         .sort((a, b) => a.z - b.z)
         // The inspector shows one message's trace; reopening it after a restart would be noise.
         .filter((w) => w.kind !== 'inspector')
-        .map(({ kind, props, rect, mode, slot, dockWidth, dockHeight }) => ({
-          kind,
-          props,
-          rect,
-          mode,
-          slot,
-          dockWidth,
-          dockHeight,
-        })),
+        // What each window wants is saved, not what a small desktop has squeezed it to.
+        .map(({ kind, props, mode, slot, wanted }) => ({ kind, props, mode, slot, ...wanted })),
       geometry: { ...remembered },
-      splits,
+      splits: wantedSplits,
     };
   },
 
@@ -326,7 +447,6 @@ export const useWindows = create<WindowsStore>((set, get) => ({
         slot: isSlot(geometry.slot) ? geometry.slot : null,
       };
     }
-    const { bounds } = get();
     let z = 10;
     const windows: WindowState[] = (saved.windows ?? [])
       .filter((w) => w && w.kind in WINDOW_SPECS)
@@ -337,21 +457,34 @@ export const useWindows = create<WindowsStore>((set, get) => ({
         // Layouts saved before slots existed call the slot `side`.
         const slot = [w.slot, (w as { side?: unknown }).side].find(isSlot) ?? null;
         const mode = w.mode === 'docked' && !slot ? 'floating' : (w.mode ?? 'floating');
+        const wanted: Geometry = {
+          rect: fitRect(w.kind, w.rect, ANY_DESKTOP),
+          dockWidth: w.dockWidth ?? spec.defaultDockWidth,
+          dockHeight: w.dockHeight ?? spec.defaultDockHeight,
+        };
         return {
           id: `${w.kind}-${counter}`,
           kind: w.kind,
           props: w.props ?? {},
-          rect: clampRect(w.rect, bounds, spec.minSize),
+          ...wanted,
           mode,
-          slot: mode === 'docked' ? slot : null,
-          dockWidth: w.dockWidth ?? spec.defaultDockWidth,
-          dockHeight: w.dockHeight ?? spec.defaultDockHeight,
+          slot: mode === 'docked' || mode === 'maximized' ? slot : null,
+          wanted,
+          sizedAt: 0,
           z,
         };
       });
     const split = (value: unknown) => (typeof value === 'number' && value > 0 && value < 1 ? value : 0.5);
-    const splits = { left: split(saved.splits?.left), right: split(saved.splits?.right) };
-    // Docked sizes and splits are fitted by setBounds once the desktop has measured itself.
-    set({ windows, splits, zTop: z, focusedId: windows[windows.length - 1]?.id ?? null });
+    const wantedSplits = { left: split(saved.splits?.left), right: split(saved.splits?.right) };
+    // The desktop may not have measured itself yet, its size still a placeholder: fitting into it
+    // costs nothing, as setBounds fits again from what the windows want once it has.
+    const { bounds } = get();
+    set({
+      windows: fitToDesktop(windows, bounds),
+      splits: { left: clampSplit(wantedSplits.left, bounds), right: clampSplit(wantedSplits.right, bounds) },
+      wantedSplits,
+      zTop: z,
+      focusedId: windows[windows.length - 1]?.id ?? null,
+    });
   },
 }));

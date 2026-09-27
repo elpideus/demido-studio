@@ -25,7 +25,24 @@ export interface ToolResult {
   ok?: boolean;
   display?: ToolDisplay;
   durationMs?: number;
+  /** What a running tool is waiting for the person to decide (set only while `awaitingApproval`). */
+  approval?: ToolApproval;
 }
+
+/**
+ * A tool asking mid-run. The only kind so far is a market download estimated to take longer than
+ * `Settings.downloadApprovalSeconds`: `plan` is every detail, `minimal` only what the timeframe needs.
+ */
+export interface ToolApproval {
+  kind: 'download';
+  plan: MarketPlan;
+  minimal?: MarketPlan | null;
+  /** The timeframe the tool reads; absent for a plain download. */
+  timeframe?: string | null;
+}
+
+/** `minimal` answers a download approval with "only what this timeframe needs". */
+export type ApprovalDecision = 'once' | 'always' | 'deny' | 'minimal';
 
 /** What a tool returned for the UI; `kind` says how to draw it. */
 export type ToolDisplay = { kind?: string; error?: string; denied?: boolean } & Record<string, unknown>;
@@ -306,6 +323,8 @@ export interface Settings {
   chatListOpen: boolean;
   windowLayout: unknown;
   lastChatId: string | null;
+  /** The assistant asks before a market download estimated to take longer than this. */
+  downloadApprovalSeconds: number;
 }
 
 export interface Bar {
@@ -353,4 +372,146 @@ export interface Quote {
   type?: string;
   time?: string;
   error?: string;
+}
+
+// The market data store (sidecars/market/src/store). Every time is in seconds. Dukascopy data is
+// kept at three tiers (`m1`, `h1`, `d1`); TradingView data per chart timeframe.
+
+export type MarketSource = 'dukascopy' | 'tradingview';
+
+/** The store keys a symbol reads from; charts match `store.updated` events against them. */
+export interface MarketKeys {
+  dukascopy?: string;
+  tradingview?: string;
+}
+
+/** A contiguous run of returned bars from one source; `from`/`to` are the first and last bar times. */
+export interface MarketSpan {
+  source: MarketSource;
+  from: number;
+  to: number;
+  count: number;
+}
+
+/** Uncovered but available time right before the oldest returned bar. */
+export interface MarketGap {
+  from: number;
+  to: number;
+  source: MarketSource;
+}
+
+export type MarketJobStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'done' | 'error';
+export type MarketOrigin = 'chart' | 'chat' | 'data';
+
+/** One tier's (or TradingView timeframe's) share of a job or plan. */
+export interface MarketTierProgress {
+  tier: string;
+  total: number;
+  done: number;
+}
+
+/** A background download of one requested range. Counts are requests (files); TradingView: pages. */
+export interface MarketJob {
+  id: string;
+  source: MarketSource;
+  key: string;
+  symbol: string;
+  name: string;
+  from: number;
+  to: number;
+  tiers: string[];
+  status: MarketJobStatus;
+  total: number;
+  done: number;
+  bytes: number;
+  /** Files left out because the source has no data that far back (a learned start); not in `total`. */
+  skipped?: number;
+  etaSeconds: number | null;
+  rate: number;
+  inFlight: number;
+  perTier: MarketTierProgress[];
+  origin: MarketOrigin;
+  createdAt: number;
+  updatedAt: number;
+  message?: string;
+}
+
+/** What a download would fetch, without fetching anything. */
+export interface MarketPlan {
+  source: MarketSource;
+  key: string;
+  name: string;
+  from: number;
+  to: number;
+  tiers: string[];
+  requests: number;
+  bytes: number;
+  seconds: number;
+  queuedAhead: number;
+  complete: boolean;
+  approximate: boolean;
+  perTier: Array<{ tier: string; from: number; to: number; requests: number }>;
+  /** An unfinished job already covering this range. */
+  job: { id: string; status: MarketJobStatus } | null;
+}
+
+export interface MarketTierCoverage {
+  tier: string;
+  /** Covered `[from, to)` ranges. */
+  intervals: Array<[number, number]>;
+  /** Fetched, but the source has no data there. */
+  empty?: Array<[number, number]>;
+  available: [number, number] | null;
+  learnedStart?: number | null;
+  bytes: number;
+}
+
+/** What is stored for one market (a Dukascopy key, else a TradingView symbol). */
+export interface MarketCoverageItem {
+  market: string;
+  name: string;
+  symbols: string[];
+  sources: Array<{ source: MarketSource; key: string; bytes: number; tiers: MarketTierCoverage[] }>;
+  /** Unfinished jobs for this market. */
+  jobs: MarketJob[];
+}
+
+export interface MarketCacheSummary {
+  bytes: number;
+  items: MarketCoverageItem[];
+}
+
+/** `cached`: more stored data right before the oldest bar; `gap`: nothing stored but more exists. */
+export type MarketMore = 'cached' | 'gap' | 'none';
+
+export interface MarketBarsPage {
+  bars: Bar[];
+  spans: MarketSpan[];
+  more: MarketMore;
+  gap?: MarketGap;
+  keys: MarketKeys;
+}
+
+export interface MarketLatestBars extends MarketBarsPage {
+  symbol: string;
+  info: ChartInfo;
+  timeframe: string;
+  /** Served from the store without a live source (a TradingView-routed symbol while signed out). */
+  stale?: boolean;
+  /** Why fetching the newest bars failed (offline, throttled), when it did; `bars` is what was stored. */
+  fetchError?: string;
+}
+
+/** Optional bounds of a download: seconds, and tiers to restrict it to. */
+export interface MarketRange {
+  from?: number;
+  to?: number;
+  tiers?: string[];
+}
+
+export interface MarketStoreUpdate {
+  source: MarketSource;
+  key: string;
+  from: number;
+  to: number;
 }
