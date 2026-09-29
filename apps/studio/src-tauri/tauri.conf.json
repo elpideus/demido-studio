@@ -2,7 +2,7 @@
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Demido Studio",
   "mainBinaryName": "demido-studio",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "identifier": "app.demido.studio",
   "build": {
     "beforeDevCommand": "pnpm dev",

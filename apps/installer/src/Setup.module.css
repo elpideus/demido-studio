@@ -452,3 +452,43 @@
   color: var(--text-secondary);
   line-height: var(--leading);
 }
+
+/* The installation setup found, on the welcome page */
+.installed {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-lg);
+  background: var(--accent-muted);
+}
+
+.installedText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.installedTitle {
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.installedNote {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  line-height: var(--leading);
+}
+
+.installedWarning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-1);
+  color: var(--warning);
+  font-size: var(--text-md);
+}

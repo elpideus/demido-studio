@@ -2,8 +2,9 @@
 //!
 //! `run` builds the app: it resolves where things live ([`paths`]), opens storage ([`db`],
 //! [`settings`]), starts the long-lived services (local model runtime, skills watcher, market
-//! data service) and registers the [`commands`] the UI calls. Startup never blocks on a
-//! service: one that fails is logged and the app still opens.
+//! data service, [`updater`]) and registers the [`commands`] the UI calls. Startup never blocks
+//! on a service: one that fails is logged and the app still opens. The one thing that runs
+//! before them is installing an update downloaded earlier, in automatic mode.
 
 mod agent;
 mod commands;
@@ -20,6 +21,7 @@ mod settings;
 mod skills;
 mod state;
 mod tools;
+mod updater;
 
 use std::sync::Arc;
 
@@ -40,8 +42,9 @@ use crate::secrets::{HF_TOKEN, Secrets};
 use crate::settings::SettingsStore;
 use crate::skills::SkillRegistry;
 use crate::state::AppState;
+use crate::updater::Updater;
 
-struct LogGuard(#[allow(dead_code)] parking_lot::Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>);
+struct LogGuard(parking_lot::Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>);
 
 fn init_logging(paths: &AppPaths) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let filter = EnvFilter::try_from_env("DEMIDO_LOG")
@@ -61,7 +64,12 @@ fn init_logging(paths: &AppPaths) -> Option<tracing_appender::non_blocking::Work
     result.ok().map(|_| guard)
 }
 
-fn build_state(app: &tauri::AppHandle, paths: AppPaths) -> anyhow::Result<Arc<AppState>> {
+fn build_state(
+    app: &tauri::AppHandle,
+    paths: AppPaths,
+    settings: Arc<SettingsStore>,
+    launch: updater::Launch,
+) -> anyhow::Result<Arc<AppState>> {
     let hardware = demido_hardware::detect();
     tracing::info!(
         data = %paths.data_dir.display(),
@@ -81,7 +89,6 @@ fn build_state(app: &tauri::AppHandle, paths: AppPaths) -> anyhow::Result<Arc<Ap
         .build()?;
     let local_http = reqwest::Client::builder().no_proxy().build()?;
 
-    let settings = Arc::new(SettingsStore::load(paths.settings_file.clone()));
     let db = Arc::new(Db::open(&paths.db_file)?);
     if let Ok(n) = db.close_dangling_messages()
         && n > 0
@@ -137,6 +144,8 @@ fn build_state(app: &tauri::AppHandle, paths: AppPaths) -> anyhow::Result<Arc<Ap
         }),
     )?;
 
+    let updater = Updater::new(app.clone(), http.clone(), settings.clone(), &paths, launch)?;
+
     Ok(Arc::new(AppState {
         app: app.clone(),
         paths,
@@ -150,6 +159,7 @@ fn build_state(app: &tauri::AppHandle, paths: AppPaths) -> anyhow::Result<Arc<Ap
         runtime,
         skills,
         market,
+        updater,
         agent: Agent::default(),
         http,
         local_http,
@@ -157,8 +167,9 @@ fn build_state(app: &tauri::AppHandle, paths: AppPaths) -> anyhow::Result<Arc<Ap
 }
 
 /// Background work after the window is up: preload the default model and restore the market
-/// session, so the first question does not pay for either.
+/// session, so the first question does not pay for either, and start checking for updates.
 fn after_start(state: Arc<AppState>) {
+    state.updater.spawn_scheduler();
     tauri::async_runtime::spawn(async move {
         let market = state.market.clone();
         tauri::async_runtime::spawn(async move { market.warm_up().await });
@@ -200,7 +211,20 @@ pub fn run() {
             let paths = AppPaths::resolve()?;
             // Keeps the log writer flushing for the app's lifetime.
             app.manage(LogGuard(parking_lot::Mutex::new(init_logging(&paths))));
-            let state = build_state(app.handle(), paths)?;
+            if updater::setup_is_running() {
+                // Setup is replacing the app's files right now and opens the app when it is done.
+                tracing::info!("setup is installing or updating Demido Studio; not opening now");
+                drop(app.state::<LogGuard>().0.lock().take());
+                std::process::exit(0);
+            }
+            let settings = Arc::new(SettingsStore::load(paths.settings_file.clone()));
+            let Some(launch) = updater::at_launch(&paths, &settings.get()) else {
+                // The installer is starting and waits for this process to end; it opens the
+                // updated app when it is done. Flush the log first: `exit` skips destructors.
+                drop(app.state::<LogGuard>().0.lock().take());
+                std::process::exit(0);
+            };
+            let state = build_state(app.handle(), paths, settings, launch)?;
             app.manage(state.clone());
             after_start(state);
             Ok(())
@@ -289,6 +313,11 @@ pub fn run() {
             commands::market::market_cache_summary,
             commands::market::market_cache_delete,
             commands::market::market_cache_recheck,
+            commands::updates::update_status,
+            commands::updates::check_for_updates,
+            commands::updates::apply_update,
+            commands::updates::cancel_update,
+            commands::updates::set_update_preferences,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Demido Studio");

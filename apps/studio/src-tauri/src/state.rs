@@ -16,6 +16,7 @@ use crate::runtime::LocalRuntime;
 use crate::secrets::Secrets;
 use crate::settings::SettingsStore;
 use crate::skills::SkillRegistry;
+use crate::updater::Updater;
 
 pub struct AppState {
     pub app: AppHandle,
@@ -30,6 +31,7 @@ pub struct AppState {
     pub runtime: Arc<LocalRuntime>,
     pub skills: Arc<SkillRegistry>,
     pub market: Arc<MarketService>,
+    pub updater: Arc<Updater>,
     pub agent: Agent,
     /// Client for the internet (Hugging Face, Gemini).
     pub http: reqwest::Client,

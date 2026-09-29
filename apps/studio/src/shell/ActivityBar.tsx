@@ -1,8 +1,10 @@
-import { CandlestickChart, MessagesSquare, Settings, type LucideIcon } from 'lucide-react';
+import { CandlestickChart, CircleArrowDown, MessagesSquare, Settings, type LucideIcon } from 'lucide-react';
 import { Logo, Tooltip, cx } from '@demido/ui';
 
+import { updateButton } from '@/settings/updateView';
 import { useApp } from '@/stores/app';
 import { useChats } from '@/stores/chats';
+import { useUpdates } from '@/stores/updates';
 import { type WindowKind, useWindows } from '@/stores/windows';
 import styles from './ActivityBar.module.css';
 
@@ -34,6 +36,29 @@ function Item({ icon: Icon, label, active, onClick, shortcut }: ItemProps) {
         onClick={onClick}
       >
         <Icon size={22} strokeWidth={1.7} aria-hidden />
+      </button>
+    </Tooltip>
+  );
+}
+
+/**
+ * Shown while there is an update to get: a click installs a ready one (the app restarts) and
+ * otherwise opens the Updates tab.
+ */
+function UpdateItem() {
+  const status = useUpdates((s) => s.status);
+  const restart = useUpdates((s) => s.restart);
+  const button = updateButton(status);
+  if (!button) return null;
+  return (
+    <Tooltip content={button.tooltip} placement="right" delay={250}>
+      <button
+        type="button"
+        aria-label={button.tooltip}
+        className={cx(styles.item, styles.update)}
+        onClick={() => (button.restart ? restart() : useWindows.getState().open('settings', { tab: 'updates' }))}
+      >
+        <CircleArrowDown size={22} strokeWidth={1.7} aria-hidden />
       </button>
     </Tooltip>
   );
@@ -72,6 +97,7 @@ export function ActivityBar() {
       </div>
       <div className={styles.spacer} />
       <div className={styles.group}>
+        <UpdateItem />
         <Item
           icon={Settings}
           label="Settings"

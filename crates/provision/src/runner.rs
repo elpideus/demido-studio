@@ -172,6 +172,7 @@ async fn run_claimed(
                 id,
                 state: StepState::Skipped,
                 message: Some(format!("Skipped because {dep} could not be installed.")),
+                incomplete: false,
             });
             continue;
         }
@@ -180,6 +181,7 @@ async fn run_claimed(
             id,
             state: StepState::Running,
             message: None,
+            incomplete: false,
         });
         let result = run_step(&ctx, id, &mut manifest, claim, app, failed.is_empty()).await;
         match result {
@@ -187,10 +189,14 @@ async fn run_claimed(
                 id,
                 state: StepState::Done,
                 message: None,
+                incomplete: false,
             }),
             Err(err) => {
                 let cancelled = cancel.is_cancelled();
-                let message = if cancelled {
+                // The app step's swap could not be undone: the folder holds part of each version,
+                // which the window must not call the previous one, cancelled or not.
+                let incomplete = err.downcast_ref::<steps::app::SwapIncomplete>().is_some();
+                let message = if cancelled && !incomplete {
                     "Cancelled.".to_string()
                 } else {
                     format!("{err:#}")
@@ -200,6 +206,7 @@ async fn run_claimed(
                     id,
                     state: StepState::Failed,
                     message: Some(message),
+                    incomplete,
                 });
                 failed.push(id);
                 unusable.insert(id);
@@ -345,6 +352,7 @@ mod tests {
             payload: Some(crate::AppPayload {
                 zip: std::sync::Arc::from(bytes),
                 uninstaller_source: None,
+                signature_required: false,
             }),
             ..plan(InstallScope::User)
         }
@@ -379,6 +387,25 @@ mod tests {
         };
         let result = run(plan, demido_catalog::catalog(), CancellationToken::new(), &note).await;
         (result, failures.into_inner().unwrap())
+    }
+
+    /// Runs `plan`, returning its result and, for each step that failed, its id and whether it
+    /// says it left the folder incomplete.
+    async fn install_noting_failed_steps(plan: &InstallPlan) -> (anyhow::Result<InstallManifest>, Vec<(StepId, bool)>) {
+        let failed = Mutex::new(Vec::new());
+        let note = |event: ProvisionEvent| {
+            if let ProvisionEvent::Step {
+                id,
+                state: StepState::Failed,
+                incomplete,
+                ..
+            } = event
+            {
+                failed.lock().unwrap().push((id, incomplete));
+            }
+        };
+        let result = run(plan, demido_catalog::catalog(), CancellationToken::new(), &note).await;
+        (result, failed.into_inner().unwrap())
     }
 
     /// Runs `plan`, calling `on_start` with the run's cancellation token as each step starts.
@@ -450,12 +477,13 @@ mod tests {
     async fn a_retry_takes_over_what_an_unfinished_install_left() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join("Demido Studio");
-        // Unpacking stops at an entry that would leave the folder, which fails the install.
+        // Unpacking stops at an entry that would leave the folder, which fails the install. The
+        // app is unpacked aside first, so none of it reaches the folder; the log does.
         let broken = unpack_only(&dir, &["demido-studio.exe", "resources/a.md", "../escape", "LICENSE"]);
         assert!(install(&broken).await.is_err());
         assert!(!dir.join(InstallManifest::FILE_NAME).exists());
         assert!(dir.join(MARKER).is_file());
-        assert!(dir.join("demido-studio.exe").is_file());
+        assert_eq!(listing(&dir), [MARKER, "logs"]);
         // The wizard lets the person pick the folder again.
         assert_eq!(crate::folder::check(&dir, &root.path().join("data")).problem(), None);
 
@@ -594,14 +622,50 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join("Demido Studio");
         install(&unpack_only(&dir, &APP)).await.unwrap();
-        // The new version brings a `locales` folder, and unpacking fails after it.
+        // The new version brings a `locales` folder, and unpacking fails after it: it is unpacked
+        // aside, so none of it reaches the folder, and the previous version stays as it was.
         let update = unpack_only(&dir, &["demido-studio.exe", "locales/en.pak", "../escape", "LICENSE"]);
         assert!(install(&update).await.is_err());
-        assert!(dir.join("locales").join("en.pak").is_file());
+        assert!(dir.join(MARKER).is_file());
+        assert_eq!(
+            listing(&dir),
+            [
+                MARKER,
+                "LICENSE",
+                "demido-studio.exe",
+                "install.json",
+                "logs",
+                "resources"
+            ]
+        );
         let manifest = InstallManifest::load(&dir).unwrap();
         assert!(!has(&manifest.created.unwrap(), "locales"));
 
-        // The uninstaller takes it too, and with it the folder.
+        // The uninstaller takes everything, the marker too, and with it the folder.
+        assert_eq!(uninstall(&dir), Vec::<String>::new());
+        assert!(!dir.exists());
+    }
+
+    /// A swap that fails and cannot be fully undone leaves the previous version's entry in the
+    /// backup folder, which the record keeps, so the uninstaller or the next run removes it.
+    #[tokio::test]
+    async fn a_swap_that_cannot_be_undone_still_leaves_a_record() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Demido Studio");
+        install(&unpack_only(&dir, &APP)).await.unwrap();
+        // Putting the new `resources` in place fails, and so does putting the old one back.
+        crate::steps::app::fail_rename_into(&dir.join("resources"));
+        crate::steps::app::fail_rename_into(&dir.join("resources"));
+        let (result, failed) = install_noting_failed_steps(&unpack_only(&dir, &APP)).await;
+        let err = format!("{:#}", result.unwrap_err());
+        assert!(err.contains("Setup could not undo its changes to resources"), "{err}");
+        // The window hears that the folder is not the previous version any more.
+        assert_eq!(failed, [(StepId::App, true)]);
+        assert!(dir.join(BACKUP).join("resources").join("skills").join("a.md").is_file());
+        let removable = crate::folder::removable_entries(&dir, crate::folder::installation(&dir).as_ref());
+        assert!(has(&removable, BACKUP), "{removable:?}");
+        assert!(!has(&removable, STAGING), "{removable:?}");
+
         assert_eq!(uninstall(&dir), Vec::<String>::new());
         assert!(!dir.exists());
     }
@@ -777,8 +841,9 @@ mod tests {
         assert_theirs(&dir, &["locales/en.pak"]);
     }
 
-    /// Unpacking claims every name the payload brings before it starts. What a failed update never
-    /// unpacked is not setup's, so another program may take the name.
+    /// Unpacking claims every name the payload brings, and the scratch folders, before it starts.
+    /// What a failed update never put in the folder is not setup's, so another program may take
+    /// the name.
     #[tokio::test]
     async fn a_failed_update_forgets_what_it_never_unpacked() {
         let root = tempfile::tempdir().unwrap();
@@ -790,15 +855,239 @@ mod tests {
             &["demido-studio.exe", "locales/en.pak", "../escape", "swiftshader/vk.dll"],
         );
         assert!(install(&update).await.is_err());
-        assert!(dir.join("locales").join("en.pak").is_file());
-        assert!(!dir.join("swiftshader").exists());
         let removable = crate::folder::removable_entries(&dir, crate::folder::installation(&dir).as_ref());
-        assert!(has(&removable, "locales"), "{removable:?}");
-        assert!(!has(&removable, "swiftshader"), "{removable:?}");
+        for name in ["locales", "swiftshader", STAGING, BACKUP] {
+            assert!(!dir.join(name).exists(), "{name} is in the folder");
+            assert!(!has(&removable, name), "{name} in {removable:?}");
+        }
 
-        put_theirs(&dir, &["swiftshader/theirs.dll"]);
-        assert_eq!(uninstall(&dir), ["swiftshader"]);
-        assert_theirs(&dir, &["swiftshader/theirs.dll"]);
+        let theirs = [
+            "locales/theirs.pak",
+            "swiftshader/theirs.dll",
+            ".update-new/theirs.bin",
+            ".update-old/theirs.bin",
+        ];
+        put_theirs(&dir, &theirs);
+        assert_eq!(
+            uninstall(&dir),
+            [".update-new", ".update-old", "locales", "swiftshader"]
+        );
+        assert_theirs(&dir, &theirs);
+    }
+
+    /// An app made of `files`, each with its contents, to unpack into `dir`.
+    fn app_with(dir: &std::path::Path, files: &[(&str, &str)]) -> InstallPlan {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, content) in files {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(content.as_bytes()).unwrap();
+        }
+        let bytes = zip.finish().unwrap().into_inner();
+        InstallPlan {
+            payload: Some(crate::AppPayload {
+                zip: std::sync::Arc::from(bytes),
+                uninstaller_source: None,
+                signature_required: false,
+            }),
+            ..unpack_only(dir, &[])
+        }
+    }
+
+    /// Every file under `dir`'s `entries`, by its path relative to `dir`, with its contents.
+    fn files(dir: &std::path::Path, entries: &[&str]) -> std::collections::BTreeMap<String, String> {
+        let mut found = std::collections::BTreeMap::new();
+        let mut stack: Vec<std::path::PathBuf> = entries.iter().map(|e| dir.join(e)).collect();
+        while let Some(path) = stack.pop() {
+            if path.is_dir() {
+                stack.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+            } else if path.is_file() {
+                let rel = path.strip_prefix(dir).unwrap().to_string_lossy().replace('\\', "/");
+                found.insert(rel, std::fs::read_to_string(&path).unwrap());
+            }
+        }
+        found
+    }
+
+    const STAGING: &str = crate::steps::app::STAGING;
+    const BACKUP: &str = crate::steps::app::BACKUP;
+
+    const V1: [(&str, &str); 4] = [
+        ("demido-studio.exe", "v1"),
+        ("resources/skills/a.md", "v1"),
+        ("resources/old.md", "v1"),
+        ("LICENSE", "v1"),
+    ];
+
+    /// The next version: `old.md` is gone, `new.md` and a `locales` folder are new.
+    const V2: [(&str, &str); 5] = [
+        ("demido-studio.exe", "v2"),
+        ("resources/skills/a.md", "v2"),
+        ("resources/new.md", "v2"),
+        ("locales/en.pak", "v2"),
+        ("LICENSE", "v2"),
+    ];
+
+    const APP_ENTRIES: [&str; 4] = ["LICENSE", "demido-studio.exe", "locales", "resources"];
+
+    #[tokio::test]
+    async fn an_update_replaces_the_app_and_drops_what_the_new_version_no_longer_ships() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Demido Studio");
+        install(&app_with(&dir, &V1)).await.unwrap();
+        put_theirs(&dir, &["notes.txt", "Other App/other.exe"]);
+
+        let created = install(&app_with(&dir, &V2)).await.unwrap().created.unwrap();
+        let expected: std::collections::BTreeMap<String, String> =
+            V2.iter().map(|(f, c)| (f.to_string(), c.to_string())).collect();
+        assert_eq!(files(&dir, &APP_ENTRIES), expected);
+        assert_eq!(
+            created,
+            [
+                MARKER,
+                "LICENSE",
+                "demido-studio.exe",
+                "install.json",
+                "locales",
+                "logs",
+                "resources",
+            ]
+        );
+        assert_eq!(
+            listing(&dir),
+            [
+                "LICENSE",
+                "Other App",
+                "demido-studio.exe",
+                "install.json",
+                "locales",
+                "logs",
+                "notes.txt",
+                "resources",
+            ]
+        );
+        assert_theirs(&dir, &["notes.txt", "Other App/other.exe"]);
+
+        // Uninstalling afterwards removes exactly setup's entries.
+        assert_eq!(uninstall(&dir), ["Other App", "notes.txt"]);
+        assert_theirs(&dir, &["notes.txt", "Other App/other.exe"]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_swap_restores_the_previous_version_exactly() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Demido Studio");
+        install(&app_with(&dir, &V1)).await.unwrap();
+        put_theirs(&dir, &["notes.txt"]);
+        let before = files(&dir, &APP_ENTRIES);
+        let manifest = std::fs::read(dir.join(InstallManifest::FILE_NAME)).unwrap();
+
+        // `LICENSE`, the app and the new `locales` are in place when `resources` fails.
+        crate::steps::app::fail_rename_into(&dir.join("resources"));
+        let (result, failures) = install_noting_failures(&app_with(&dir, &V2)).await;
+        assert!(result.is_err());
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(
+            failures[0].starts_with(&format!("Could not replace {}: ", dir.join("resources").display())),
+            "{failures:?}"
+        );
+        assert_eq!(files(&dir, &APP_ENTRIES), before);
+        // Everything went back, and the failed step says so by not saying it is incomplete.
+        crate::steps::app::fail_rename_into(&dir.join("resources"));
+        let (_, failed) = install_noting_failed_steps(&app_with(&dir, &V2)).await;
+        assert_eq!(failed, [(StepId::App, false)]);
+        assert_eq!(files(&dir, &APP_ENTRIES), before);
+        assert!(!dir.join("locales").exists());
+        assert!(!dir.join(STAGING).exists());
+        assert!(!dir.join(BACKUP).exists());
+        assert_eq!(std::fs::read(dir.join(InstallManifest::FILE_NAME)).unwrap(), manifest);
+        assert_theirs(&dir, &["notes.txt"]);
+
+        // The uninstaller still removes exactly setup's entries, and a retry finishes the update.
+        let removable = crate::folder::removable_entries(&dir, crate::folder::installation(&dir).as_ref());
+        for name in ["locales", STAGING, BACKUP] {
+            assert!(!has(&removable, name), "{name} in {removable:?}");
+        }
+        install(&app_with(&dir, &V2)).await.unwrap();
+        assert_eq!(files(&dir, &["demido-studio.exe"])["demido-studio.exe"], "v2");
+        assert_eq!(uninstall(&dir), ["notes.txt"]);
+        assert_theirs(&dir, &["notes.txt"]);
+    }
+
+    /// Setup elevated for an update the app started copies itself from the app's updates folder,
+    /// which the user can write to. Without the signature that vouches for the copy, the update
+    /// stops before anything in the folder changes.
+    #[tokio::test]
+    async fn an_uninstaller_without_its_required_signature_stops_the_update_before_the_swap() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Demido Studio");
+        install(&app_with(&dir, &V1)).await.unwrap();
+        let before = files(&dir, &APP_ENTRIES);
+        let setup = root.path().join("updates").join("Demido-Studio-Setup-9.9.9.exe");
+        std::fs::create_dir_all(setup.parent().unwrap()).unwrap();
+        std::fs::write(&setup, b"setup").unwrap();
+        let mut update = app_with(&dir, &V2);
+        let payload = update.payload.as_mut().unwrap();
+        payload.uninstaller_source = Some(setup.clone());
+        payload.signature_required = true;
+
+        let (result, failures) = install_noting_failures(&update).await;
+        assert!(result.is_err());
+        assert_eq!(failures, [crate::steps::app::SETUP_CHANGED]);
+        assert_eq!(files(&dir, &APP_ENTRIES), before);
+        let uninstaller = demido_core::platform::exe(demido_core::brand::UNINSTALLER_BIN);
+        for name in [uninstaller.as_str(), STAGING, BACKUP] {
+            assert!(!dir.join(name).exists(), "{name} is in the folder");
+        }
+
+        // Not required (an installer someone opened themselves), the same file is copied.
+        update.payload.as_mut().unwrap().signature_required = false;
+        install(&update).await.unwrap();
+        assert_eq!(std::fs::read(dir.join(&uninstaller)).unwrap(), b"setup");
+        assert_eq!(files(&dir, &["demido-studio.exe"])["demido-studio.exe"], "v2");
+    }
+
+    /// A run that stopped in the middle of the swap (the computer lost power, say) leaves both
+    /// scratch folders, recorded in its marker. The next run clears them before it starts.
+    #[tokio::test]
+    async fn an_update_clears_what_an_interrupted_one_left() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Demido Studio");
+        install(&app_with(&dir, &V1)).await.unwrap();
+        std::fs::create_dir_all(dir.join(STAGING).join("locales")).unwrap();
+        std::fs::write(dir.join(STAGING).join("locales").join("en.pak"), b"half").unwrap();
+        std::fs::create_dir_all(dir.join(BACKUP).join("resources")).unwrap();
+        std::fs::write(dir.join(BACKUP).join("resources").join("old.md"), b"v1").unwrap();
+        std::fs::write(
+            dir.join(MARKER),
+            br#"{"created": [".demido-setup", ".update-new", ".update-old"]}"#,
+        )
+        .unwrap();
+
+        let created = install(&app_with(&dir, &V2)).await.unwrap().created.unwrap();
+        assert!(!has(&created, STAGING) && !has(&created, BACKUP), "{created:?}");
+        assert!(!dir.join(STAGING).exists());
+        assert!(!dir.join(BACKUP).exists());
+        assert_eq!(files(&dir, &["locales"])["locales/en.pak"], "v2");
+    }
+
+    /// Setup never writes into a scratch folder another program made.
+    #[tokio::test]
+    async fn an_update_never_uses_another_programs_scratch_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Demido Studio");
+        install(&app_with(&dir, &V1)).await.unwrap();
+        put_theirs(&dir, &[".update-old/theirs.bin"]);
+        let err = format!("{:#}", install(&app_with(&dir, &V2)).await.unwrap_err());
+        assert!(
+            err.contains(&format!(
+                "Setup did not create {} and will not change it.",
+                dir.join(BACKUP).display()
+            )),
+            "{err}"
+        );
+        assert_theirs(&dir, &[".update-old/theirs.bin"]);
+        assert_eq!(files(&dir, &["demido-studio.exe"])["demido-studio.exe"], "v1");
+        assert_eq!(uninstall(&dir), [BACKUP]);
     }
 
     /// The runtime step claims `runtime` before it downloads. Cancelled before creating it, the

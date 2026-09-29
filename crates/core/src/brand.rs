@@ -17,3 +17,16 @@ pub const UNINSTALL_KEY: &str = "Demido Studio";
 pub const APP_ID: &str = "app.demido.studio";
 /// Version of this build, shared by the installer and the app.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Name of the lock setup holds while it installs or updates (a named mutex on Windows). A second
+/// setup does not start changing the same files, and the app does not open halfway through an
+/// update.
+pub const SETUP_LOCK: &str = "Local\\DemidoStudioSetup";
+
+/// GitHub repository that publishes the releases the app updates from (`owner/name`).
+pub const RELEASES_REPO: &str = "elpideus/demido-studio";
+
+/// File name of the installer for `version`, as the release build writes it and each release
+/// publishes it: `Demido-Studio-Setup-0.4.0.exe`.
+pub fn setup_file_name(version: &str) -> String {
+    crate::platform::exe(&format!("Demido-Studio-Setup-{version}"))
+}

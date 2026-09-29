@@ -844,7 +844,7 @@ dependencies = [
 
 [[package]]
 name = "demido-catalog"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "demido-core",
  "demido-hardware",
@@ -855,11 +855,13 @@ dependencies = [
 
 [[package]]
 name = "demido-core"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "dirs",
+ "minisign-verify",
  "serde",
  "serde_json",
  "tempfile",
@@ -867,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "demido-fetch"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "flate2",
@@ -886,7 +888,7 @@ dependencies = [
 
 [[package]]
 name = "demido-hardware"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "demido-core",
  "serde",
@@ -898,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "demido-provision"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -921,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "demido-setup"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "demido-catalog",
@@ -930,12 +932,14 @@ dependencies = [
  "demido-hardware",
  "demido-provision",
  "parking_lot",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -944,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "demido-setup-cli"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "demido-catalog",
@@ -961,7 +965,7 @@ dependencies = [
 
 [[package]]
 name = "demido-studio"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -973,12 +977,14 @@ dependencies = [
  "futures-util",
  "hex",
  "keyring",
+ "minisign-verify",
  "notify",
  "notify-debouncer-full",
  "parking_lot",
  "regex",
  "reqwest",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -2658,6 +2664,12 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "minisign-verify"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22f9645cb765ea72b8111f36c522475d2daa0d22c957a9826437e97534bc4e9e"
 
 [[package]]
 name = "miniz_oxide"

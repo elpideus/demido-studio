@@ -11,6 +11,8 @@ pub mod fsx;
 pub mod manifest;
 pub mod paths;
 pub mod platform;
+pub mod setup_args;
+pub mod signature;
 
 pub use backend::Backend;
 pub use manifest::{InstallManifest, InstallScope};

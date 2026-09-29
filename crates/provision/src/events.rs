@@ -26,6 +26,11 @@ pub enum ProvisionEvent {
         /// Failure reason, or a short note for skipped steps.
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
+        /// On the app step's failure: its swap could not be undone, so the install folder holds
+        /// part of each version, not the previous one whole. Running setup again finishes the
+        /// update. Left out when false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        incomplete: bool,
     },
     Progress {
         id: StepId,
@@ -65,5 +70,31 @@ mod tests {
         assert_eq!(json["id"], "model");
         assert_eq!(json["bytesPerSecond"], 2.5);
         assert_eq!(json["activity"], "Downloading");
+    }
+
+    /// `incomplete` is only there when it is true, which only a failed app step sends.
+    #[test]
+    fn a_step_says_it_is_incomplete_only_when_it_is() {
+        let step = |incomplete| ProvisionEvent::Step {
+            id: StepId::App,
+            state: StepState::Failed,
+            message: Some("Could not replace resources.".into()),
+            incomplete,
+        };
+        assert_eq!(
+            serde_json::to_value(step(false)).unwrap(),
+            serde_json::json!({
+                "type": "step",
+                "id": "app",
+                "state": "failed",
+                "message": "Could not replace resources.",
+            })
+        );
+        let json = serde_json::to_value(step(true)).unwrap();
+        assert_eq!(json["incomplete"], true);
+        // Read back, with or without it.
+        assert_eq!(serde_json::from_value::<ProvisionEvent>(json).unwrap(), step(true));
+        let without = serde_json::json!({ "type": "step", "id": "app", "state": "failed", "message": "Could not replace resources." });
+        assert_eq!(serde_json::from_value::<ProvisionEvent>(without).unwrap(), step(false));
     }
 }

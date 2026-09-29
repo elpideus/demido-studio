@@ -3,7 +3,8 @@
 Demido Studio is two desktop programs built from one workspace: the **installer**, which puts a
 working AI stack on the machine, and the **app**, which uses it. Nothing is installed from inside
 the app; everything it needs is laid down by the installer (or by `pnpm dev:runtime` in
-development) and described in `install.json`.
+development) and described in `install.json`. Updates keep to that: the app only downloads the new
+installer and hands over to it.
 
 ```
 installer ──(catalog + hardware)──► install folder ──(install.json)──► app
@@ -55,6 +56,49 @@ overwrites or deletes it. Uninstall removes only the recorded entries, keeps `in
 until everything else is gone, and deletes the folder only when it ends up empty; the
 uninstaller removes itself after it exits.
 
+**Updating.** Setup also updates an installation to the app it carries, keeping every choice made
+when it was installed (scope, runtime, models folder), which it reads back from `install.json`.
+There are two ways in:
+
+- A person runs Setup where an installation exists: the Welcome page offers **Update** instead of
+  the full wizard. This is how installations older than 0.4.0, which have no updater, move on.
+- The app starts it with the update command line (`demido_core::setup_args`):
+  `--update --dir <install folder> --wait-pid <app pid> --relaunch`. Only a small "Updating Demido
+  Studio" window shows.
+
+Setup first waits for the app to exit, and for anything else still running from the install
+folder. The update plan then runs the app files, the runtime and the tools (each skipped when the
+version the catalog pins is already installed, so an update downloads only what changed; a
+runtime build the catalog no longer has is replaced by the same backend's current build), the
+entry in Installed apps (new version and size) and the manifest. It downloads no starter model and
+makes no shortcut again, so one the person deleted stays deleted. The app files are swapped, never
+overwritten in place: the payload is unpacked into a scratch folder inside the install folder,
+then each top-level entry takes the place of the old one, which moves into a backup folder. When a
+move fails, everything moves back, so an update that cannot finish leaves the previous version
+whole rather than a mix of both. A machine-wide installation relaunches Setup elevated, as a
+system-wide install does. With `--relaunch`, the updated app starts again at the end.
+
+Setup also copies itself into the install folder as the uninstaller. The copy, not the file it
+came from, is checked against the release signature the app keeps next to every installer it
+stages (`<installer>.sig`), whenever one is there. Setup running elevated for an update the app
+started requires it: it then runs from the app's updates folder, which the user can write to, and
+puts its copy where only administrators can, so a copy that does not match the signature stops
+the update before anything is swapped ("The setup file changed while it ran").
+
+When an update fails, the window says what happened, and whether the previous version is still
+whole (a swap that could not move everything back says so; running Setup again finishes it).
+**Open Demido Studio** starts the app with `--skip-update` (`setup_args::SKIP_UPDATE`), so it
+opens instead of installing the same update again at once (see [Updates](#updates)). Closing the
+window never ends Setup halfway through a run: the window hides and the process ends with the run.
+A run the person started stops between steps, as with Cancel; an update the app started finishes
+out of sight and starts the updated app, as its window would have.
+
+**One setup at a time.** From the moment it starts changing an installation until that run ends,
+Setup holds a lock (`brand::SETUP_LOCK`, a named mutex, `provision::system::SetupLock`). A second
+Setup refuses to install or update while it is held (a second `--update` just exits: the first one
+opens the app when it is done), and the app exits at startup while it is held
+(`updater::setup_is_running`), so it never opens from files that are being replaced.
+
 ## The app
 
 ### Backend (`apps/studio/src-tauri`)
@@ -75,6 +119,7 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `tools` | Market data, Python, workspace files, skills. Grouped for the Tools menu |
 | `skills` | Skill folders, enable/disable, and a file watcher that updates the UI live |
 | `market` | The Node sidecar's lifecycle and protocol, TradingView sign-in |
+| `updater` | The releases feed, downloading and verifying a new installer, staging it, handing over to it (see [Updates](#updates)) |
 | `commands` | The functions the UI calls, one file per area |
 
 **A turn.** `agent::run_turn` builds the system prompt (identity, date, enabled skills, tool
@@ -164,7 +209,7 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | `shell` | Activity bar (Chats, Market, Settings), the safety notice, toasts |
 | `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
-| `settings` | Providers, Models (list, editor, download), Skills, General |
+| `settings` | Providers, Models (list, editor, download), Skills, General, Updates |
 | `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends. Data (`data/`): what is stored per market, source and detail level on a timeline, downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
 | `inspector` | A turn's traces: request, response, timings |
 | `stores` | App state per area; `windows.ts` holds window geometry, focus order, pinning |
@@ -186,6 +231,60 @@ without losing their size, and the saved layout keeps what they were given. When
 navigation rail's button closes a window that is in plain view and brings a covered one forward.
 A closed window reopens where it was, pinned or not.
 
+### Updates
+
+The app updates itself from the GitHub Releases of `elpideus/demido-studio`
+(`src-tauri/src/updater`, the Updates tab in Settings). Every release carries two files: the
+installer people download, `Demido-Studio-Setup-<version>.exe`, and its signature, the same name
+plus `.sig`. The release workflow builds the installer and signs it in a separate job (see
+[development.md](development.md#releases)).
+
+- **Feed and channels.** The updater reads the list of releases from GitHub's API
+  (`DEMIDO_UPDATE_FEED` names another base URL, for testing; the app leaves it out of the
+  installer's environment, so the app the installer starts again is back on GitHub's feed). The
+  Release channel offers the newest stable release newer than the running version; Pre-release
+  offers the newest of stable releases and pre-releases. A release counts only with both files at a
+  GitHub address; the running version and older ones are never offered. Moving to the Release
+  channel drops a pre-release that was found, is downloading or is staged, and a pre-release never
+  installs on the Release channel, however it came to be staged.
+- **Verification.** The `.sig` is a minisign signature made with the project's update key, whose
+  public half is compiled into the app and into Setup (`demido_core::signature`). Its trusted
+  comment, which the signature covers, names the
+  file and the version (`tauri signer sign --app-version`), and the app accepts a signature only
+  for the exact file and version it was offered, so a validly signed older installer cannot be
+  passed off as a newer one. When GitHub lists an asset's SHA-256, the download is checked against
+  it too. A staged installer is verified again right before it runs.
+- **Staging.** A download goes into the data folder's `updates/`, resuming from a `.part` file
+  after an interruption. Once the signature checks out, it is written next to the installer as
+  `<installer>.sig` (setup checks the uninstaller it copies against it, see
+  [Updating](#the-installer)) and `pending.json` records the update as ready. At every launch the
+  app tidies the folder: an update that is now the running version has its files removed, and one
+  that is no longer newer, or no longer verifies, is deleted; an installer and its `.sig` stay or
+  go together. A development build shares the data folder with the installed app but keeps its
+  updates in `<repo>/.dev/updates`, so it never tidies, fills or deletes the installed app's.
+- **Automatic mode** (the default) works like Discord: a quiet check shortly after launch and then
+  every hour, the download straight away, and the install at the next launch, before the window
+  opens, or at once with **Restart and update**. Only per-user installations install at launch: a
+  machine-wide one would raise a Windows permission prompt out of nowhere, so it waits for a
+  click. Each launch that starts the installer counts as an attempt. When the update fails,
+  setup's **Open Demido Studio** starts the app with `--skip-update`, and that launch installs
+  nothing, so the app opens. A later ordinary launch may try once more; after two attempts in all
+  the update waits for a click, so a broken installer cannot keep the app from opening.
+- **Manual mode.** **Check for updates**, then **Update** downloads and verifies the new version;
+  once it is ready, the app restarts to install it, asking first while a reply is still being
+  written. Declining leaves the update ready for a click.
+- **Installing** starts the verified installer with the update command line from
+  `demido_core::setup_args` and exits; the installer takes it from there (see
+  [Updating](#the-installer) above):
+
+  ```
+  Demido-Studio-Setup-<version>.exe --update --dir "<install folder>" --wait-pid <app pid> --relaunch
+  ```
+
+  Only an installation made by Setup can update itself: the installer needs its `install.json`,
+  and the running executable must be the one in that installation. A development build checks and
+  downloads (into `.dev/updates`) but never installs.
+
 ## Data
 
 Everything a person makes is in the data folder, never in the install folder:
@@ -202,6 +301,7 @@ Everything a person makes is in the data folder, never in the install folder:
 | `cache/market/dukascopy/` | Downloaded Dukascopy history: `<instrument>/<tier>/<year>/<bucket>.json.gz` and a `manifest.json` per instrument; `stats.json` holds the learned request rate |
 | `cache/market/tradingview/` | TradingView bars stored from charts and downloads, one file per symbol and timeframe, and `index.json` with what they cover |
 | `cache/market/jobs/` | One file per history download, so downloads resume after a restart and chat cards find them |
+| `updates/` | A downloaded update: the installer (a `.part` file while it downloads), then its `.sig` and `pending.json` once its signature is verified. Emptied once the update is installed. A development build uses `<repo>/.dev/updates` instead |
 | `logs/` | App log, rotated daily |
 
 Secrets are never in files: the Gemini API key, a Hugging Face token and the TradingView session

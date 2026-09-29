@@ -35,6 +35,8 @@ import type {
   SymbolMatch,
   ToolGroup,
   Trace,
+  UpdateChannel,
+  UpdateStatus,
 } from './types';
 
 /** Error message of a failed command. */
@@ -187,4 +189,14 @@ export const api = {
   marketCacheDelete: (market: string) => invoke<{ bytes: number }>('market_cache_delete', { market }),
   /** Forgets learned starts and "unavailable" answers, so older data is looked for again. */
   marketCacheRecheck: (market: string) => invoke<void>('market_cache_recheck', { market }),
+
+  // Updates
+  updateStatus: () => invoke<UpdateStatus>('update_status'),
+  /** Resolves once the check is done; a failure shows in the status, not as a rejection. */
+  checkForUpdates: () => invoke<UpdateStatus>('check_for_updates'),
+  /** "Update" / "Restart and update": installs what is ready, or downloads what was found (never installing it by itself). */
+  applyUpdate: () => invoke<UpdateStatus>('apply_update'),
+  cancelUpdate: () => invoke<UpdateStatus>('cancel_update'),
+  setUpdatePreferences: (prefs: { channel?: UpdateChannel; auto?: boolean }) =>
+    invoke<UpdateStatus>('set_update_preferences', { channel: prefs.channel ?? null, auto: prefs.auto ?? null }),
 };

@@ -12,6 +12,7 @@ import type {
   ModelEntry,
   RuntimeStatus,
   Skill,
+  UpdateStatus,
 } from './types';
 
 export type MarketEvent =
@@ -35,6 +36,7 @@ interface EventMap {
   'skills://changed': Skill[];
   'market://status': MarketStatus;
   'market://event': MarketEvent;
+  'updater://status': UpdateStatus;
 }
 
 export function on<K extends keyof EventMap>(name: K, handler: (payload: EventMap[K]) => void): Promise<UnlistenFn> {

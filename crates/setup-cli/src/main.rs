@@ -180,7 +180,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("  - {:<22} {:>9}  {}", s.label, human(s.size), s.detail);
             }
         }
-        ProvisionEvent::Step { id, state, message } => {
+        ProvisionEvent::Step { id, state, message, .. } => {
             let mark = match state {
                 StepState::Running => "…",
                 StepState::Done => "✓",

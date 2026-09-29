@@ -11,6 +11,17 @@ use crate::error::CmdResult;
 /// Version of the safety notice. Bumping it shows the notice again to everyone.
 pub const DISCLAIMER_VERSION: &str = "2026-09";
 
+/// Which releases the updater offers.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    /// Stable releases only.
+    #[default]
+    Release,
+    /// Stable releases and pre-releases, whichever is newest.
+    Prerelease,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -33,6 +44,10 @@ pub struct Settings {
     pub last_chat_id: Option<String>,
     /// A market download the assistant starts asks first when its estimate exceeds this.
     pub download_approval_seconds: u32,
+    /// Which releases the updater offers.
+    pub update_channel: UpdateChannel,
+    /// Download new versions in the background and install them the next time the app starts.
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -52,6 +67,8 @@ impl Default for Settings {
             window_layout: serde_json::Value::Null,
             last_chat_id: None,
             download_approval_seconds: 60,
+            update_channel: UpdateChannel::Release,
+            auto_update: true,
         }
     }
 }
@@ -149,5 +166,21 @@ mod tests {
         assert_eq!(loaded.download_approval_seconds, 60);
         assert_eq!(loaded.default_model.as_deref(), Some("local:x"));
         assert!(!loaded.chat_list_open);
+    }
+
+    #[test]
+    fn files_from_before_the_updater_update_automatically_from_releases() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"defaultModel": "local:x", "downloadApprovalSeconds": 30}"#).unwrap();
+        let loaded = SettingsStore::load(path.clone()).get();
+        assert_eq!(loaded.update_channel, UpdateChannel::Release);
+        assert!(loaded.auto_update);
+        assert_eq!(loaded.download_approval_seconds, 30);
+
+        std::fs::write(&path, r#"{"updateChannel": "prerelease", "autoUpdate": false}"#).unwrap();
+        let loaded = SettingsStore::load(path).get();
+        assert_eq!(loaded.update_channel, UpdateChannel::Prerelease);
+        assert!(!loaded.auto_update);
     }
 }

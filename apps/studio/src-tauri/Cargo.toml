@@ -46,6 +46,8 @@ url.workspace = true
 walkdir.workspace = true
 sha2.workspace = true
 hex.workspace = true
+semver.workspace = true
+minisign-verify.workspace = true
 rusqlite = { version = "0.37", features = ["bundled"] }
 notify = "8"
 notify-debouncer-full = "0.6"

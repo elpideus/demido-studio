@@ -1,0 +1,88 @@
+# Checks every push to main and every pull request: versions, formatting, types, tests and clippy.
+# The release workflow runs the same checks on a tag before it publishes it (workflow_call).
+# Every action is pinned to a commit, with its tag in a comment, as in release.yml.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request replaces its run in progress. Runs on main and on release tags
+# always finish. The event is part of the group because a call from the release workflow has
+# the release's event and ref.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Node before pnpm: on a Node older than 22.13, pnpm/action-setup installs pnpm as a lone
+      # pnpm.exe, without the pnpm.cmd that scripts/build-release.mjs runs.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # The pnpm version is packageManager in package.json. pnpm caches its own store: it is not
+      # on the PATH yet when setup-node runs.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          cache: true
+
+      # The stable branch installs the latest stable Rust.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Pull requests reuse main's cache instead of each filling the repository's quota.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Versions agree
+        run: node scripts/version.mjs --check
+
+      - name: Formatting
+        run: pnpm format:check
+
+      # The Tauri crates embed their frontend when they compile, so clippy and the Rust tests
+      # need both built first.
+      - name: Build the frontends
+        run: |
+          pnpm --filter @demido/studio build
+          pnpm --filter @demido/installer build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Web tests
+        run: pnpm test:web
+
+      - name: Release script tests
+        run: pnpm test:scripts
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace --locked

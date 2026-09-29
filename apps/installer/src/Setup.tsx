@@ -9,6 +9,7 @@ import { ModelPage } from './pages/Model';
 import { ReviewPage } from './pages/Review';
 import { RuntimePage } from './pages/Runtime';
 import { UninstallFlow } from './pages/Uninstall';
+import { UpdateFlow, UpdateMissing } from './pages/Update';
 import { WelcomePage } from './pages/Welcome';
 import type { Context, WizardState } from './types';
 import styles from './Setup.module.css';
@@ -34,6 +35,8 @@ export function Setup() {
   const [ctx, setCtx] = useState<Context | null>(null);
   const [state, setState] = useState<WizardState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The installation the person chose to update as it is, from the welcome page. */
+  const [updateDir, setUpdateDir] = useState<string | null>(null);
   const install = useInstall();
 
   useEffect(() => {
@@ -78,10 +81,29 @@ export function Setup() {
 
   if (ctx.mode === 'uninstall') return <UninstallFlow ctx={ctx} />;
 
+  // Started by the app, or by setup itself restarting with administrator rights.
+  if (ctx.mode === 'update') {
+    const launch = ctx.updateLaunch;
+    if (!launch || !ctx.existing) return <UpdateMissing dir={launch?.dir ?? ctx.defaultDirs.user} />;
+    return <UpdateFlow ctx={ctx} existing={ctx.existing} dir={launch.dir} auto={launch.relaunch} install={install} />;
+  }
+  if (updateDir && ctx.existing) {
+    return (
+      <UpdateFlow
+        ctx={ctx}
+        existing={ctx.existing}
+        dir={updateDir}
+        auto={false}
+        install={install}
+        onBack={() => setUpdateDir(null)}
+      />
+    );
+  }
+
   const page = (() => {
     switch (state.step) {
       case 0:
-        return <WelcomePage ctx={ctx} onNext={() => go(1)} />;
+        return <WelcomePage ctx={ctx} onNext={() => go(1)} onUpdate={setUpdateDir} />;
       case 1:
         return (
           <RuntimePage

@@ -81,6 +81,14 @@
   color: var(--text-primary);
 }
 
+.update {
+  color: var(--accent);
+}
+
+.update:hover {
+  color: var(--accent-hover);
+}
+
 .active::before {
   height: 20px;
 }

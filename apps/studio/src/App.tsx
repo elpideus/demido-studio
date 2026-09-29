@@ -4,6 +4,7 @@ import { Spinner } from '@demido/ui';
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
 import { Disclaimer } from '@/shell/Disclaimer';
+import { RestartDialog } from '@/shell/RestartDialog';
 import { Shell } from '@/shell/Shell';
 import { Toaster } from '@/shell/Toaster';
 import { useApp } from '@/stores/app';
@@ -12,6 +13,7 @@ import { useMarket } from '@/stores/market';
 import { useModels } from '@/stores/models';
 import { useSkills } from '@/stores/skills';
 import { toast } from '@/stores/toasts';
+import { useUpdates } from '@/stores/updates';
 import { useWindows } from '@/stores/windows';
 import styles from './App.module.css';
 
@@ -39,6 +41,7 @@ function subscribe(): Array<Promise<() => void>> {
       useMarket.getState().set(status);
       if (status.loggedIn && !before?.loggedIn) toast.success('Signed in to TradingView', status.username ?? undefined);
     }),
+    on('updater://status', (status) => useUpdates.getState().receive(status)),
   ];
 }
 
@@ -103,6 +106,7 @@ export function App() {
         useSkills.getState().load(),
         useMarket.getState().load(),
         useChats.getState().loadChats(),
+        useUpdates.getState().load(),
       ]);
       for (const r of results) {
         if (r.status === 'rejected') toast.error('Part of the app did not load', errorText(r.reason));
@@ -143,6 +147,7 @@ export function App() {
       <Shell />
       <Disclaimer />
       <Toaster />
+      <RestartDialog />
     </>
   );
 }

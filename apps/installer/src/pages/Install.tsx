@@ -7,13 +7,15 @@ import { Button, Checkbox, Notice, ProgressBar, Spinner, cx, formatBytes, format
 import type { ProvisionEvent, StepId, StepInfo, StepState, WizardState } from '../types';
 import styles from '../Setup.module.css';
 
-interface StepView extends StepInfo {
+export interface StepView extends StepInfo {
   state: StepState;
   done: number;
   total: number | null;
   speed: number;
   activity: string;
   message?: string;
+  /** See the `step` event's `incomplete`. */
+  incomplete?: boolean;
 }
 
 export interface InstallModel {
@@ -22,11 +24,27 @@ export interface InstallModel {
   fatal: string | null;
   log: string[];
   installDir: string | null;
+  /** Installs what the wizard chose. */
   start: (state: WizardState) => Promise<void>;
+  /** Updates the installation in `dir`, keeping every choice made when it was installed. */
+  update: (dir: string) => Promise<void>;
   cancel: () => void;
 }
 
-/** Follows the installation engine's events. */
+/** How far the whole run is, from 0 to 1, each step weighted by its size; `null` before the plan arrives. */
+export function overallProgress(steps: StepView[]): number | null {
+  if (!steps.length) return null;
+  const total = steps.reduce((sum, s) => sum + Math.max(s.size, 1), 0);
+  const done = steps.reduce((sum, s) => {
+    const weight = Math.max(s.size, 1);
+    if (s.state === 'done' || s.state === 'skipped' || s.state === 'failed') return sum + weight;
+    if (s.state === 'running' && s.total) return sum + weight * Math.min(1, s.done / s.total);
+    return sum;
+  }, 0);
+  return done / total;
+}
+
+/** Follows the installation engine's events, for an install or an update alike. */
 export function useInstall(): InstallModel {
   const [steps, setSteps] = useState<StepView[]>([]);
   const [finished, setFinished] = useState<InstallModel['finished']>(null);
@@ -43,7 +61,11 @@ export function useInstall(): InstallModel {
           );
           break;
         case 'step':
-          setSteps((list) => list.map((s) => (s.id === e.id ? { ...s, state: e.state, message: e.message } : s)));
+          setSteps((list) =>
+            list.map((s) =>
+              s.id === e.id ? { ...s, state: e.state, message: e.message, incomplete: e.incomplete } : s,
+            ),
+          );
           break;
         case 'progress':
           setSteps((list) =>
@@ -72,14 +94,24 @@ export function useInstall(): InstallModel {
     };
   }, []);
 
-  const start = useCallback(async (state: WizardState) => {
+  /** Starts a run in `dir` with `command`; the engine's events report the rest. */
+  const run = useCallback(async (dir: string, command: string, args: Record<string, unknown>) => {
     setFinished(null);
     setFatal(null);
     setLog([]);
     setSteps([]);
-    setInstallDir(state.installDir);
+    setInstallDir(dir);
     try {
-      await invoke('start_install', {
+      await invoke(command, args);
+    } catch (e) {
+      setFatal(String(e));
+      setFinished({ success: false, failed: [] });
+    }
+  }, []);
+
+  const start = useCallback(
+    (state: WizardState) =>
+      run(state.installDir, 'start_install', {
         request: {
           scope: state.scope,
           installDir: state.installDir,
@@ -87,17 +119,16 @@ export function useInstall(): InstallModel {
           family: state.family,
           shortcuts: state.shortcuts,
         },
-      });
-    } catch (e) {
-      setFatal(String(e));
-      setFinished({ success: false, failed: [] });
-    }
-  }, []);
+      }),
+    [run],
+  );
 
-  return { steps, finished, fatal, log, installDir, start, cancel: () => void invoke('cancel_install') };
+  const update = useCallback((dir: string) => run(dir, 'start_update', { dir }), [run]);
+
+  return { steps, finished, fatal, log, installDir, start, update, cancel: () => void invoke('cancel_install') };
 }
 
-function StepRow({ step }: { step: StepView }) {
+export function StepRow({ step }: { step: StepView }) {
   const active = step.state === 'running';
   const fraction = step.total && step.total > 1 ? Math.min(1, step.done / step.total) : null;
   const remaining = step.speed > 0 && step.total ? (step.total - step.done) / step.speed : null;
@@ -139,13 +170,7 @@ function StepRow({ step }: { step: StepView }) {
 export function InstallPage({ install, onDone }: { install: InstallModel; onDone: () => void }) {
   const [showLog, setShowLog] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
-  const total = install.steps.reduce((sum, s) => sum + Math.max(s.size, 1), 0);
-  const done = install.steps.reduce((sum, s) => {
-    const weight = Math.max(s.size, 1);
-    if (s.state === 'done' || s.state === 'skipped' || s.state === 'failed') return sum + weight;
-    if (s.state === 'running' && s.total) return sum + weight * Math.min(1, s.done / s.total);
-    return sum;
-  }, 0);
+  const progress = overallProgress(install.steps);
 
   useEffect(() => {
     if (install.finished) onDone();
@@ -164,10 +189,10 @@ export function InstallPage({ install, onDone }: { install: InstallModel; onDone
         </p>
         <div className={styles.overall}>
           <div className={styles.overallTop}>
-            <span>{install.steps.length ? `${Math.round((done / total) * 100)}%` : 'Preparing…'}</span>
+            <span>{progress !== null ? `${Math.round(progress * 100)}%` : 'Preparing…'}</span>
             <span>{install.steps.find((s) => s.state === 'running')?.label ?? ''}</span>
           </div>
-          <ProgressBar value={install.steps.length ? done / total : null} size="md" />
+          <ProgressBar value={progress} size="md" />
         </div>
         <div className={styles.jobList}>
           {install.steps.map((s) => (

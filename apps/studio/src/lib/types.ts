@@ -325,6 +325,54 @@ export interface Settings {
   lastChatId: string | null;
   /** The assistant asks before a market download estimated to take longer than this. */
   downloadApprovalSeconds: number;
+  /** Change through `api.setUpdatePreferences`, which also acts on the change. */
+  updateChannel: UpdateChannel;
+  autoUpdate: boolean;
+}
+
+export type UpdateChannel = 'release' | 'prerelease';
+
+export type UpdatePhase =
+  'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'ready' | 'installing' | 'error';
+
+/** A newer version of Demido Studio, as its GitHub release describes it. */
+export interface UpdateRelease {
+  version: string;
+  /** Markdown. */
+  notes: string;
+  publishedAt: string | null;
+  /** The release's page on GitHub. */
+  url: string;
+  /** Installer size in bytes. */
+  size: number;
+  prerelease: boolean;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+  bytesPerSecond: number;
+}
+
+/** The updater's state, sent on every change as `updater://status`. */
+export interface UpdateStatus {
+  currentVersion: string;
+  channel: UpdateChannel;
+  auto: boolean;
+  phase: UpdatePhase;
+  /** The newer version found, downloading or ready to install. */
+  release: UpdateRelease | null;
+  progress: UpdateProgress | null;
+  /** RFC 3339. */
+  lastChecked: string | null;
+  /** Set with phase `error`. */
+  error: string | null;
+  /** Why this copy cannot install updates itself (checking still works); null when it can. */
+  unsupported: string | null;
+  /** A machine-wide installation: Windows asks for administrator permission to install. */
+  needsAdmin: boolean;
+  /** The installer already ran once for the ready update and did not finish. */
+  failedAttempt: boolean;
 }
 
 export interface Bar {

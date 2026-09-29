@@ -35,6 +35,9 @@ pub struct AppPaths {
     pub cache_dir: PathBuf,
     /// Isolated browser profile for the TradingView sign-in window.
     pub tradingview_profile_dir: PathBuf,
+    /// Downloaded updates waiting to be installed (see `updater::staging`). A development build
+    /// has its own, see [`updates_dir`].
+    pub updates_dir: PathBuf,
 }
 
 impl AppPaths {
@@ -56,6 +59,7 @@ impl AppPaths {
             logs_dir: data_dir.join("logs"),
             cache_dir: data_dir.join("cache"),
             tradingview_profile_dir: data_dir.join("webview-tradingview"),
+            updates_dir: updates_dir(cfg!(debug_assertions), &data_dir, &repo_root()),
             data_dir,
             install_dir,
             manifest,
@@ -152,6 +156,19 @@ fn find_resources_dir() -> PathBuf {
     if dev.is_dir() { dev } else { repo_root() }
 }
 
+/// Where updates are downloaded: `<data>/updates`, except in a development (`debug`) build,
+/// which uses `<repo>/.dev/updates`. A development build shares the data folder with the
+/// installed app but still checks, downloads and verifies updates to test the Updates tab; in its
+/// own folder its launch tidy-up never deletes what the installed app has staged, and its
+/// downloads never replace it.
+fn updates_dir(debug: bool, data_dir: &Path, repo: &Path) -> PathBuf {
+    if debug {
+        repo.join(".dev").join("updates")
+    } else {
+        data_dir.join("updates")
+    }
+}
+
 /// Repository root at compile time (development builds only).
 pub fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -159,4 +176,23 @@ pub fn repo_root() -> PathBuf {
         .nth(3)
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_development_build_keeps_its_updates_out_of_the_installed_apps_folder() {
+        let data = Path::new("C:\\Users\\me\\AppData\\Local\\Demido Studio");
+        let repo = Path::new("S:\\demido-studio");
+        assert_eq!(updates_dir(false, data, repo), data.join("updates"));
+        assert_eq!(updates_dir(true, data, repo), repo.join(".dev").join("updates"));
+    }
+
+    #[test]
+    fn the_repository_root_holds_the_workspace() {
+        assert!(repo_root().join("Cargo.toml").is_file());
+        assert!(repo_root().join("apps").join("studio").is_dir());
+    }
 }

@@ -52,9 +52,25 @@ export interface Family {
   recommended: boolean;
 }
 
+/** How the installed version compares to this setup's: `older` means this setup updates it. */
+export type Relation = 'older' | 'same' | 'newer';
+
+export interface ExistingInstall {
+  dir: string;
+  scope: Scope;
+  version: string;
+  relation: Relation;
+}
+
+/** What `--update` asked for: the installation to update, and whether to start the app afterwards. */
+export interface UpdateLaunch {
+  dir: string;
+  relaunch: boolean;
+}
+
 export interface Context {
   version: string;
-  mode: 'install' | 'uninstall';
+  mode: 'install' | 'uninstall' | 'update';
   hasPayload: boolean;
   hardware: Hardware;
   choices: BackendChoice[];
@@ -63,10 +79,12 @@ export interface Context {
   recommendations: Record<string, Recommendation>;
   defaultDirs: Record<Scope, string>;
   elevated: boolean;
-  existing: { dir: string; scope: Scope; version: string } | null;
+  /** In update mode, the installation at `updateLaunch.dir`, if there is one. */
+  existing: ExistingInstall | null;
   resume: WizardState | null;
   fixedSizes: Record<string, number>;
   uninstallDir: string | null;
+  updateLaunch: UpdateLaunch | null;
 }
 
 export interface DirInfo {
@@ -115,7 +133,15 @@ export interface StepInfo {
 
 export type ProvisionEvent =
   | { type: 'plan'; steps: StepInfo[] }
-  | { type: 'step'; id: StepId; state: StepState; message?: string }
+  | {
+      type: 'step';
+      id: StepId;
+      state: StepState;
+      message?: string;
+      /** On the app step's failure: it could not undo all its changes, so the install folder holds
+       * part of each version. Running setup again finishes the update. */
+      incomplete?: boolean;
+    }
   | { type: 'progress'; id: StepId; done: number; total: number | null; bytesPerSecond: number; activity: string }
   | { type: 'log'; id: StepId; line: string }
   | { type: 'finished'; success: boolean; failed: StepId[] };

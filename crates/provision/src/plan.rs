@@ -1,8 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use demido_catalog::{Catalog, ModelPick};
-use demido_core::{Backend, InstallScope};
+use demido_catalog::{BackendChoice, Catalog, ModelPick};
+use demido_core::{Backend, InstallManifest, InstallScope};
+use demido_hardware::HardwareReport;
 use serde::{Deserialize, Serialize};
 
 /// The app itself, as a zip archive embedded in the installer.
@@ -11,6 +12,13 @@ pub struct AppPayload {
     pub zip: Arc<[u8]>,
     /// The installer executable, copied into the install folder as the uninstaller.
     pub uninstaller_source: Option<PathBuf>,
+    /// The copied uninstaller must match the release signature next to `uninstaller_source`
+    /// (`<source>.sig`, which the app writes next to every installer it stages). Set when setup
+    /// runs elevated for an update the app started: it then runs from the app's updates folder,
+    /// where the file can be replaced while setup runs, and copies itself where only
+    /// administrators can write. Otherwise a signature there is checked when there is one, and
+    /// none is fine: an installer someone downloads and opens has none next to it.
+    pub signature_required: bool,
 }
 
 impl std::fmt::Debug for AppPayload {
@@ -18,6 +26,7 @@ impl std::fmt::Debug for AppPayload {
         f.debug_struct("AppPayload")
             .field("zip_bytes", &self.zip.len())
             .field("uninstaller_source", &self.uninstaller_source)
+            .field("signature_required", &self.signature_required)
             .finish()
     }
 }
@@ -77,6 +86,66 @@ pub struct StepInfo {
 }
 
 impl InstallPlan {
+    /// The plan that updates the installation in `install_dir`, whose `install.json` is
+    /// `manifest`, to the app in `payload`, keeping what was chosen when it was installed: its
+    /// scope, its runtime and its models folder. When the catalog no longer has the installed
+    /// runtime build, the same backend's build for this machine takes its place, or failing that
+    /// the one setup would pick today. The runtime and tool steps skip what is already installed
+    /// at the version the catalog pins, so an update downloads only what changed.
+    ///
+    /// No starter model is downloaded, and no shortcut is made again: they point at the same
+    /// executable, and one the person deleted stays deleted. The entry in Installed apps is
+    /// written again, so it shows the new version and size.
+    pub fn for_update(
+        install_dir: &Path,
+        manifest: &InstallManifest,
+        hardware: &HardwareReport,
+        catalog: &Catalog,
+        payload: Option<AppPayload>,
+    ) -> Self {
+        let choices = demido_catalog::backend_choices(hardware, catalog);
+        let usable = |backend: Backend| {
+            choices
+                .iter()
+                .find(|c| c.backend == backend && c.available)
+                .and_then(|c| Some((c.backend, c.variant.clone()?)))
+        };
+        let default = demido_catalog::default_backend(&choices);
+        let fallback = || usable(default).unwrap_or((default, String::new()));
+        let (backend, variant) = match &manifest.runtime {
+            Some(r) if catalog.runtimes.llama_cpp.variant(&r.variant).is_some() => (r.backend, r.variant.clone()),
+            Some(r) => usable(r.backend).unwrap_or_else(fallback),
+            None => fallback(),
+        };
+        // Only a starter model uses it, and an update downloads none; kept sensible all the same.
+        let recommended = |c: &BackendChoice| demido_catalog::recommend_models(c, catalog).context_length;
+        let model_context = choices
+            .iter()
+            .find(|c| c.backend == backend && c.available)
+            .map(recommended)
+            .or_else(|| manifest.starter_model.as_ref().map(|m| m.context_length))
+            .or_else(|| choices.iter().find(|c| c.backend == default).map(recommended))
+            .unwrap_or(4096);
+        InstallPlan {
+            scope: manifest.scope,
+            install_dir: install_dir.to_path_buf(),
+            backend,
+            variant,
+            model: None,
+            model_context,
+            models_dir: manifest
+                .models_dir
+                .clone()
+                .unwrap_or_else(|| demido_core::paths::starter_models_dir(manifest.scope)),
+            python: true,
+            node: true,
+            shortcuts: false,
+            register: payload.is_some(),
+            payload,
+            hardware: serde_json::to_value(hardware).unwrap_or_default(),
+        }
+    }
+
     /// The ordered steps this plan runs.
     pub fn steps(&self, catalog: &Catalog) -> Vec<StepInfo> {
         let rt = &catalog.runtimes;
@@ -158,5 +227,143 @@ impl InstallPlan {
     /// Total bytes the plan downloads or unpacks.
     pub fn total_size(&self, catalog: &Catalog) -> u64 {
         self.steps(catalog).iter().map(|s| s.size).sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use demido_core::manifest::RuntimeInfo;
+    use demido_core::{Arch, Os};
+    use demido_hardware::{CpuInfo, GIB, GpuInfo, GpuVendor};
+
+    use super::*;
+
+    /// A Windows PC with `gpus`, where the catalog's Windows builds apply.
+    fn pc(gpus: Vec<GpuInfo>) -> HardwareReport {
+        HardwareReport {
+            os: Os::Windows,
+            arch: Arch::X86_64,
+            os_version: "test".into(),
+            cpu: CpuInfo {
+                name: "Test CPU".into(),
+                physical_cores: 8,
+                logical_cores: 16,
+                avx2: true,
+                avx512: false,
+            },
+            total_memory: 32 * GIB,
+            available_memory: 16 * GIB,
+            gpus,
+        }
+    }
+
+    /// A card CUDA 13 runs on.
+    fn rtx_3060() -> GpuInfo {
+        GpuInfo {
+            vendor: GpuVendor::Nvidia,
+            name: "NVIDIA GeForce RTX 3060".into(),
+            vram: 12 * GIB,
+            integrated: false,
+            driver_version: Some("596.49".into()),
+            compute_capability: Some(8.6),
+            source: "test".into(),
+        }
+    }
+
+    fn installed(scope: InstallScope, runtime: Option<(Backend, &str)>) -> InstallManifest {
+        let mut m = InstallManifest::new(scope);
+        m.runtime = runtime.map(|(backend, variant)| RuntimeInfo {
+            backend,
+            variant: variant.into(),
+            release: "b1".into(),
+            dir: "runtime/llama".into(),
+            server: "runtime/llama/llama-server.exe".into(),
+        });
+        m
+    }
+
+    fn update(manifest: &InstallManifest, hardware: &HardwareReport) -> InstallPlan {
+        InstallPlan::for_update(
+            Path::new(r"C:\Apps\Demido Studio"),
+            manifest,
+            hardware,
+            demido_catalog::catalog(),
+            None,
+        )
+    }
+
+    #[test]
+    fn an_update_keeps_the_installed_runtime_build() {
+        // CUDA 13 would be picked today; the CUDA 12 build is still in the catalog.
+        let plan = update(
+            &installed(InstallScope::User, Some((Backend::Cuda, "windows-cuda12"))),
+            &pc(vec![rtx_3060()]),
+        );
+        assert_eq!((plan.backend, plan.variant.as_str()), (Backend::Cuda, "windows-cuda12"));
+    }
+
+    #[test]
+    fn a_build_the_catalog_dropped_gives_way_to_the_same_backends() {
+        let plan = update(
+            &installed(InstallScope::User, Some((Backend::Cuda, "windows-cuda11"))),
+            &pc(vec![rtx_3060()]),
+        );
+        assert_eq!((plan.backend, plan.variant.as_str()), (Backend::Cuda, "windows-cuda13"));
+    }
+
+    #[test]
+    fn a_dropped_build_whose_backend_no_longer_runs_gives_way_to_the_default() {
+        let plan = update(
+            &installed(InstallScope::User, Some((Backend::Rocm, "windows-rocm5"))),
+            &pc(vec![]),
+        );
+        assert_eq!((plan.backend, plan.variant.as_str()), (Backend::Cpu, "windows-cpu"));
+    }
+
+    #[test]
+    fn without_a_runtime_an_update_installs_the_default_one() {
+        let plan = update(&installed(InstallScope::User, None), &pc(vec![rtx_3060()]));
+        assert_eq!((plan.backend, plan.variant.as_str()), (Backend::Cuda, "windows-cuda13"));
+        let plan = update(&installed(InstallScope::User, None), &pc(vec![]));
+        assert_eq!((plan.backend, plan.variant.as_str()), (Backend::Cpu, "windows-cpu"));
+    }
+
+    #[test]
+    fn an_update_keeps_the_scope_and_models_folder_and_adds_nothing_new() {
+        let hardware = pc(vec![rtx_3060()]);
+        let mut manifest = installed(InstallScope::Machine, Some((Backend::Cuda, "windows-cuda13")));
+        manifest.models_dir = Some(PathBuf::from(r"D:\Models"));
+        let payload = AppPayload {
+            zip: Arc::from(Vec::new()),
+            uninstaller_source: None,
+            signature_required: false,
+        };
+        let plan = InstallPlan::for_update(
+            Path::new(r"C:\Program Files\Demido Studio"),
+            &manifest,
+            &hardware,
+            demido_catalog::catalog(),
+            Some(payload),
+        );
+        assert_eq!(plan.scope, InstallScope::Machine);
+        assert_eq!(plan.install_dir, Path::new(r"C:\Program Files\Demido Studio"));
+        assert_eq!(plan.models_dir, Path::new(r"D:\Models"));
+        assert!(plan.model.is_none(), "an update never downloads a starter model");
+        assert!(!plan.shortcuts, "an update never makes shortcuts again");
+        assert!(plan.register, "the Installed apps entry shows the new version");
+        assert!(plan.python && plan.node);
+        assert!(plan.model_context > 0);
+        assert_eq!(plan.hardware["gpus"][0]["name"], "NVIDIA GeForce RTX 3060");
+        let steps: Vec<StepId> = plan.steps(demido_catalog::catalog()).iter().map(|s| s.id).collect();
+        assert!(!steps.contains(&StepId::Model), "{steps:?}");
+
+        // Without a recorded models folder, the scope's; without an app, nothing to register.
+        manifest.models_dir = None;
+        let plan = update(&manifest, &hardware);
+        assert_eq!(
+            plan.models_dir,
+            demido_core::paths::starter_models_dir(InstallScope::Machine)
+        );
+        assert!(!plan.register);
     }
 }

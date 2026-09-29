@@ -21,7 +21,9 @@ agentic work and transparency.
 
 ## Install
 
-Download `Demido-Studio-Setup-<version>.exe` and run it. Setup walks you through:
+Download `Demido-Studio-Setup-<version>.exe` from
+[Releases](https://github.com/elpideus/demido-studio/releases) and run it. Setup walks you
+through:
 
 1. **AI runtime.** The best option for your hardware is preselected, with a note on each choice.
 2. **Just me or everyone.** A per-user install needs no administrator rights (default).
@@ -32,8 +34,23 @@ Download `Demido-Studio-Setup-<version>.exe` and run it. Setup walks you through
    if the connection drops.
 6. **Run Demido Studio.**
 
+Run Setup where Demido Studio is already installed and it offers **Update** instead of the
+wizard: it replaces the app in place and keeps every choice made when it was installed (just me
+or everyone, the runtime, the models folder), along with your chats, models and settings. This is
+also how an installation older than 0.4.0 gets a new version.
+
 Uninstall from Windows' Installed apps. Your chats and models are kept unless you choose to
 delete them.
+
+**Updates.** From 0.4.0 on, Demido Studio updates itself. In Settings, Updates you pick the
+channel (Release, or Pre-release for early versions) and whether it updates automatically. That is
+on by default and works like Discord: a new version downloads in the background and is installed
+the next time the app starts, or at once with **Restart and update**. With it off, **Check for
+updates**, then **Update** downloads the new version and restarts the app to install it, asking
+first if a reply is still being written. Every download is checked against the release's signature
+before it runs. If an automatic update fails, Setup says so and **Open Demido Studio** opens the
+app without trying it again; a later start tries once more, and after that the update waits for a
+click in Settings, Updates.
 
 ## What is inside
 
@@ -46,6 +63,7 @@ delete them.
 | What history is stored, per market and detail level, where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
 | History downloads with a progress bar you can pause and resume, from a chart, the Data tab or the chat | Chart, Data tab, chat cards |
 | Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, General |
+| Updates: Release or Pre-release channel, automatic in the background or checked by hand | Settings, Updates |
 | Exact request and response of any answer | Inspector (from an answer's toolbar) |
 
 **Market data.** Real-time data comes from TradingView through
@@ -87,10 +105,12 @@ Checks:
 ```bash
 cargo test --workspace          # Rust unit tests
 pnpm test:web                   # window geometry and market service tests
+pnpm test:scripts               # release scripts and workflows
 pnpm typecheck                  # TypeScript
 ```
 
-Driving the running app (screenshots, scripted conversations) is documented in
+Driving the running app (screenshots, scripted conversations), cutting a release
+(`pnpm release <version>`), CI and the update signing key are documented in
 [`docs/development.md`](docs/development.md).
 
 ## Layout
