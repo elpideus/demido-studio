@@ -1,7 +1,7 @@
 {
   "name": "@demido/market-sidecar",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Market data service for Demido Studio: TradingView-API for real time, Dukascopy for history.",
   "license": "GPL-3.0-or-later",
   "type": "module",

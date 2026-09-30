@@ -1,7 +1,7 @@
 {
   "name": "demido-studio-monorepo",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Demido Studio: an easy to use, powerful LLM harness focused on optimization, agentic capabilities and transparency.",
   "license": "GPL-3.0-or-later",
   "type": "module",

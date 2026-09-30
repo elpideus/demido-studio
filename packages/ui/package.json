@@ -1,7 +1,7 @@
 {
   "name": "@demido/ui",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Demido Studio's design tokens and React components, shared by the app and the installer.",
   "license": "GPL-3.0-or-later",
   "type": "module",
