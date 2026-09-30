@@ -1,17 +1,22 @@
 //! Every model the person can talk to: GGUF files on disk and the models of configured cloud
 //! providers, merged with the person's own settings for each (name, picture, system prompt,
-//! sampling, context length, enabled).
+//! sampling, context length, enabled) and with what each can do ([`capabilities`]).
 
+pub mod capabilities;
 pub mod downloads;
 pub mod gguf;
 pub mod hf;
+mod probe;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Instant, UNIX_EPOCH};
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
+use tokio::sync::{MutexGuard, Notify};
+use tokio_util::sync::CancellationToken;
 
 use crate::bail_msg;
 use crate::error::CmdResult;
@@ -20,6 +25,7 @@ use crate::paths::AppPaths;
 use crate::providers::{ProviderKind, ProviderStore};
 use crate::runtime::LaunchSpec;
 use crate::settings::SettingsStore;
+use capabilities::{Capabilities, CloudCatalog, LocalChecks, LocalKey};
 
 pub const CHANGED_EVENT: &str = "models://changed";
 
@@ -89,8 +95,9 @@ pub struct ModelEntry {
     pub repo: Option<String>,
     /// Lives in a folder Demido manages, so it can be deleted from the app.
     pub removable: bool,
-    pub has_vision: bool,
-    pub supports_thinking: bool,
+    pub capabilities: Capabilities,
+    /// llama.cpp has yet to say what this local model can do.
+    pub checking_capabilities: bool,
     pub settings: ModelSettings,
     pub effective: Effective,
 }
@@ -104,6 +111,8 @@ struct LocalFile {
     parts: Vec<PathBuf>,
     root: PathBuf,
     size: u64,
+    /// Seconds since the Unix epoch.
+    modified: Option<u64>,
     info: gguf::GgufInfo,
     quant: Option<String>,
     repo: Option<String>,
@@ -124,6 +133,14 @@ pub struct ModelRegistry {
     local: RwLock<Vec<LocalFile>>,
     /// VRAM of the primary GPU (or budget), for default context lengths.
     memory_budget_gb: f64,
+    local_checks: RwLock<LocalChecks>,
+    cloud_catalog: RwLock<CloudCatalog>,
+    /// Wakes [`Self::check_capabilities`] after a rescan.
+    rescanned: Notify,
+    /// Held while llama.cpp is asked about a model, and by [`Self::pause_checks`].
+    check_lock: tokio::sync::Mutex<()>,
+    /// Stops the check running now.
+    check_cancel: Mutex<Option<CancellationToken>>,
 }
 
 impl ModelRegistry {
@@ -137,6 +154,8 @@ impl ModelRegistry {
         let overrides = demido_core::fsx::read_json::<ModelsFile>(&file)
             .map(|f| f.models)
             .unwrap_or_default();
+        let local_checks = LocalChecks::load(paths.cache_dir.join("capabilities.json"));
+        let cloud_catalog = CloudCatalog::load(paths.cache_dir.join("models-dev.json"));
         Self {
             paths,
             settings,
@@ -145,6 +164,11 @@ impl ModelRegistry {
             overrides: RwLock::new(overrides),
             local: RwLock::new(Vec::new()),
             memory_budget_gb,
+            local_checks: RwLock::new(local_checks),
+            cloud_catalog: RwLock::new(cloud_catalog),
+            rescanned: Notify::new(),
+            check_lock: tokio::sync::Mutex::new(()),
+            check_cancel: Mutex::new(None),
         }
     }
 
@@ -187,18 +211,21 @@ impl ModelRegistry {
         }
         found.sort_by(|a, b| a.id.cmp(&b.id));
         *self.local.write() = found;
+        self.rescanned.notify_one();
     }
 
     pub fn list(&self) -> Vec<ModelEntry> {
         let default = self.settings.get().default_model;
         let overrides = self.overrides.read().clone();
+        let runtime = self.runtime_build();
         let mut out: Vec<ModelEntry> = self
             .local
             .read()
             .iter()
-            .map(|f| self.local_entry(f, overrides.get(&f.id).cloned().unwrap_or_default()))
+            .map(|f| self.local_entry(f, overrides.get(&f.id).cloned().unwrap_or_default(), runtime.as_deref()))
             .collect();
 
+        let catalog = self.cloud_catalog.read();
         for provider in self.providers.configs() {
             if !provider.enabled {
                 continue;
@@ -231,12 +258,13 @@ impl ModelRegistry {
                     max_context: Some(m.input_token_limit),
                     repo: None,
                     removable: false,
-                    has_vision: true,
-                    supports_thinking: m.thinking,
+                    capabilities: catalog.gemini(&m.id, m.thinking),
+                    checking_capabilities: false,
                     settings: s,
                 });
             }
         }
+        drop(catalog);
 
         let default_id = default
             .filter(|d| out.iter().any(|m| &m.id == d && m.enabled))
@@ -277,13 +305,10 @@ impl ModelRegistry {
         self.list().into_iter().find(|m| m.is_default)
     }
 
-    fn local_entry(&self, f: &LocalFile, s: ModelSettings) -> ModelEntry {
+    /// `runtime` is the llama.cpp build that answers capability checks, if there is one.
+    fn local_entry(&self, f: &LocalFile, s: ModelSettings, runtime: Option<&str>) -> ModelEntry {
         let default_name = pretty_name(f);
-        let supports_thinking = f
-            .info
-            .architecture
-            .as_deref()
-            .is_some_and(|a| a.starts_with("qwen3") || a.starts_with("qwen4"));
+        let checked = runtime.and_then(|r| self.local_checks.read().get(&f.path, &local_key(f, r)));
         let managed = self.managed_dirs().iter().any(|d| f.path.starts_with(d));
         ModelEntry {
             effective: effective(
@@ -311,9 +336,90 @@ impl ModelRegistry {
             max_context: f.info.context_length,
             repo: f.repo.clone(),
             removable: managed,
-            has_vision: f.mmproj.is_some(),
-            supports_thinking,
+            capabilities: checked.unwrap_or_default(),
+            checking_capabilities: runtime.is_some() && checked.is_none(),
             settings: s,
+        }
+    }
+
+    /// The llama.cpp build that answers capability checks, when the runtime is installed.
+    fn runtime_build(&self) -> Option<String> {
+        self.paths.llama_server()?;
+        let runtime = self.paths.manifest.as_ref()?.runtime.as_ref()?;
+        Some(runtime.release.clone())
+    }
+
+    /// Asks llama.cpp what each new or changed local model can do, one model at a time, and
+    /// hands the updated list to `changed` after every answer. Runs as long as the app does;
+    /// without a local runtime it returns at once.
+    pub async fn check_capabilities(self: Arc<Self>, changed: impl Fn(Vec<ModelEntry>)) {
+        let (Some(server), Some(runtime)) = (self.paths.llama_server(), self.runtime_build()) else {
+            return;
+        };
+        loop {
+            let guard = self.check_lock.lock().await;
+            let next = self.local.read().iter().find_map(|f| {
+                let key = local_key(f, &runtime);
+                (!self.local_checks.read().is_current(&f.path, &key)).then(|| (f.clone(), key))
+            });
+            let Some((file, key)) = next else {
+                let present: Vec<PathBuf> = self.local.read().iter().map(|f| f.path.clone()).collect();
+                self.local_checks.write().forget_missing(&present);
+                drop(guard);
+                self.rescanned.notified().await;
+                continue;
+            };
+
+            let cancel = CancellationToken::new();
+            *self.check_cancel.lock() = Some(cancel.clone());
+            let started = Instant::now();
+            let result = probe::run(&server, &file.path, file.mmproj.as_deref(), &cancel).await;
+            *self.check_cancel.lock() = None;
+            drop(guard);
+            if cancel.is_cancelled() {
+                continue; // Asked again once whatever paused the checks is done.
+            }
+            match &result {
+                Ok(c) => tracing::info!(
+                    model = %file.id,
+                    "llama.cpp reports {c:?} in {:.1}s",
+                    started.elapsed().as_secs_f64()
+                ),
+                Err(e) => tracing::warn!(model = %file.id, "llama.cpp could not say what the model can do: {e}"),
+            }
+            let present: Vec<PathBuf> = self.local.read().iter().map(|f| f.path.clone()).collect();
+            self.local_checks.write().record(&file.path, key, result, &present);
+            changed(self.list());
+        }
+    }
+
+    /// Stops the capability check running now, if any, and starts no other until the guard is
+    /// dropped, so a model file can be deleted: Windows refuses while llama.cpp has it open.
+    pub async fn pause_checks(&self) -> MutexGuard<'_, ()> {
+        if let Some(cancel) = self.check_cancel.lock().as_ref() {
+            cancel.cancel();
+        }
+        self.check_lock.lock().await
+    }
+
+    /// Reads models.dev again when a cloud provider is set up and the copy kept is a week old,
+    /// or at once with `force` (an unchanged catalog is not downloaded twice). Returns whether
+    /// what cloud models can do may have changed.
+    pub async fn refresh_cloud_catalog(&self, http: &reqwest::Client, force: bool) -> bool {
+        if self.providers.configs().is_empty() || !(force || self.cloud_catalog.read().is_stale()) {
+            return false;
+        }
+        let etag = self.cloud_catalog.read().etag();
+        match capabilities::fetch_catalog(http, etag.as_deref()).await {
+            Ok(fetched) => {
+                let changed = fetched.is_some();
+                self.cloud_catalog.write().update(fetched);
+                changed
+            }
+            Err(e) => {
+                tracing::warn!("could not read models.dev: {e}");
+                false
+            }
         }
     }
 
@@ -449,10 +555,10 @@ impl ModelRegistry {
             repeat_penalty: e.repeat_penalty,
             max_tokens: e.max_tokens,
             seed: None,
-            thinking: if entry.supports_thinking || entry.source == ModelSource::Gemini {
-                e.thinking
-            } else {
+            thinking: if entry.capabilities.thinking == Some(false) {
                 None
+            } else {
+                e.thinking
             },
         }
     }
@@ -506,6 +612,11 @@ fn scan_file(root: &Path, path: &Path) -> Option<LocalFile> {
         .filter_map(|p| std::fs::metadata(p).ok())
         .map(|m| m.len())
         .sum();
+    let modified = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
     let components: Vec<&str> = rel_str.split('/').collect();
     let repo = (components.len() >= 3).then(|| format!("{}/{}", components[0], components[1]));
     let mmproj = path.parent().and_then(|dir| {
@@ -525,11 +636,22 @@ fn scan_file(root: &Path, path: &Path) -> Option<LocalFile> {
         parts,
         root: root.to_path_buf(),
         size,
+        modified,
         quant: gguf::quant_label(&name, info.file_type),
         info,
         repo,
         mmproj,
     })
+}
+
+/// What llama.cpp's answer about `f` depends on.
+fn local_key(f: &LocalFile, runtime: &str) -> LocalKey {
+    LocalKey {
+        size: f.size,
+        modified: f.modified,
+        projector: f.mmproj.clone(),
+        runtime: runtime.to_string(),
+    }
 }
 
 /// `Qwen3.5-9B-UD-Q6_K_XL.gguf` → `Qwen 3.5 9B`.
@@ -667,6 +789,7 @@ mod tests {
             parts: vec![],
             root: PathBuf::new(),
             size: 5_000_000_000,
+            modified: None,
             info: gguf::GgufInfo {
                 name: gguf_name.map(str::to_string),
                 architecture: Some("qwen35".into()),

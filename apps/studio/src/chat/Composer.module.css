@@ -137,3 +137,7 @@
   font-size: var(--text-xs);
   text-align: center;
 }
+
+.toolsNotice {
+  margin: var(--space-2) var(--space-2) 0;
+}

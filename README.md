@@ -58,6 +58,7 @@ click in Settings, Updates.
 |---|---|
 | Chat with local or cloud models, streaming, thinking, tool calls | The main screen |
 | Model picker and tools/skills picker | The composer |
+| What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |
 | What history is stored per market (one timeline: every timeframe reads the same 1-minute history), where it came from, and what is missing; download missing parts, delete | Market window, Data tab |

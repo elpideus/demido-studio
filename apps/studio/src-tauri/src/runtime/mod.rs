@@ -366,7 +366,7 @@ fn base_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/v1")
 }
 
-fn free_port() -> std::io::Result<u16> {
+pub(crate) fn free_port() -> std::io::Result<u16> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
     Ok(listener.local_addr()?.port())
 }

@@ -80,7 +80,7 @@ export function Composer({ chatId, model, prefill }: Props) {
         />
         <div className={styles.toolbar}>
           <ModelPicker model={model} onPick={pickModel} />
-          <ToolsPicker />
+          <ToolsPicker model={model} />
           <span className={styles.spacer} />
           {running ? (
             <IconButton

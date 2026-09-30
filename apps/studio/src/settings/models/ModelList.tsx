@@ -38,6 +38,7 @@ import type { ModelEntry, ModelFolder } from '@/lib/types';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
+import { CapabilityIcons } from './Capabilities';
 import { LOCAL_GROUP, filterModels, groupModels, type ModelGroupData } from './modelGroups';
 import styles from './Models.module.css';
 
@@ -111,6 +112,7 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
           {model.isDefault && <Badge tone="accent">Default</Badge>}
           {loaded && <Badge tone="info">Loaded</Badge>}
           {loading && <Badge tone="info">Loading</Badge>}
+          <CapabilityIcons model={model} />
         </div>
         <div className={s.rowMeta}>{meta(model)}</div>
       </div>

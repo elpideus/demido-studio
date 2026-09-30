@@ -112,7 +112,7 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `db` | SQLite (WAL): chats, messages, and a trace per model call. Numbered migrations |
 | `settings`, `secrets` | `settings.json`; API keys and the TradingView session in the OS credential store |
 | `runtime` | One `llama-server` process at a time, restarted only when the launch settings change |
-| `models` | GGUF discovery (built-in folder, extra folders, LM Studio), GGUF metadata, cloud models, per-model overrides, Hugging Face search and downloads |
+| `models` | GGUF discovery (built-in folder, extra folders, LM Studio), GGUF metadata, cloud models, per-model overrides, what each model can do, Hugging Face search and downloads |
 | `providers` | Gemini configuration and model listing |
 | `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE) or Gemini (native SSE); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
@@ -138,6 +138,26 @@ its cache instead of re-reading the conversation.
 from the answer, and llama.cpp's automatic fitting to split layers between GPU and CPU when
 the model does not fit in VRAM. On Windows every child
 process is in a job object that kills it when the app exits, however the app exits.
+
+**What models can do.** Every model carries its capabilities (`models/capabilities.rs`): vision,
+audio, tools and thinking, each yes, no or unknown. The UI shows them as icons in the model picker
+and the Models tab, the full list in the model editor, and the Tools picker says when the chosen
+model cannot use tools. Nothing is guessed from names or templates:
+
+- A local model is asked of llama.cpp once it is on disk (`models/probe.rs`). A background task
+  starts `llama-server` with the model and its projector on the CPU only (`--device none`, no
+  warmup, no prefetch of the file, below-normal priority), reads `modalities` and
+  `chat_template_caps` from `/props` and the thinking verdict llama.cpp logs at start, then stops
+  it: a few seconds per model, one model at a time, no GPU memory. The answer is kept in
+  `cache/capabilities.json` for that file, projector and llama.cpp build, so it is asked again
+  only when one of them changes; a model that does not load is asked again at the next start.
+  Deleting a model pauses the checks first, since Windows refuses to delete a file llama.cpp has
+  open. Chats still load a model without its projector: the chat cannot attach images yet.
+- A Gemini model's thinking comes from Google's model list; tools and image and audio input come
+  from [models.dev](https://models.dev), an open database of model specifications. Its Google
+  entries are kept in `cache/models-dev.json`, refreshed weekly (and when a provider is added or
+  its models refreshed), with an ETag so an unchanged catalog is not downloaded again. A model
+  models.dev does not list keeps only what Google says.
 
 **Gemini.** Answers that fail as "busy" (429 or 5xx, before anything was shown) are retried up
 to four times with growing waits. A model the API key cannot use is turned off, with a note in
@@ -216,7 +236,7 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | `shell` | Activity bar (Chats, Market, Settings), the safety notice, toasts |
 | `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
-| `settings` | Providers, Models (list, editor, download), Skills, General, Updates |
+| `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, General, Updates |
 | `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
 | `inspector` | A turn's traces: request, response, timings |
 | `stores` | App state per area; `windows.ts` holds window geometry, focus order, pinning |

@@ -130,6 +130,18 @@ export interface EffectiveSettings {
   thinking: boolean | null;
 }
 
+/** What a model can do; null while nobody has said. */
+export interface ModelCapabilities {
+  /** Reads images. */
+  vision: boolean | null;
+  /** Reads sound. */
+  audio: boolean | null;
+  /** Calls tools. */
+  tools: boolean | null;
+  /** Thinks before answering. */
+  thinking: boolean | null;
+}
+
 export interface ModelEntry {
   id: string;
   source: ModelSource;
@@ -149,8 +161,9 @@ export interface ModelEntry {
   maxContext: number | null;
   repo: string | null;
   removable: boolean;
-  hasVision: boolean;
-  supportsThinking: boolean;
+  capabilities: ModelCapabilities;
+  /** llama.cpp has yet to say what this local model can do. */
+  checkingCapabilities: boolean;
   settings: ModelSettings;
   effective: EffectiveSettings;
 }

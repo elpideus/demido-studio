@@ -24,6 +24,12 @@ its source distribution.
 
 Lightweight Charts shows TradingView's attribution logo on every chart, as its license asks.
 
+## Read while the app runs
+
+| Component | License | Use |
+|---|---|---|
+| [models.dev](https://models.dev) | MIT | What Gemini models can do (tools, images, audio) |
+
 ## Downloaded by the installer
 
 These are not part of the installer. Setup downloads them from their official sources onto the

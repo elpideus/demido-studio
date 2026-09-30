@@ -1,0 +1,99 @@
+.icons {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+}
+
+.icon {
+  display: inline-flex;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 760px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text-tertiary);
+}
+
+.itemIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+}
+
+.has .itemIcon {
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
+
+.itemText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.itemLabel {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.has .itemLabel {
+  color: var(--text-primary);
+}
+
+.itemMeaning {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  display: inline-flex;
+  flex: none;
+  font-size: var(--text-sm);
+}
+
+.has .status {
+  color: var(--accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.source {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}

@@ -1,7 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
-import { BookMarked, FileText, LineChart, Settings2, Sparkles, Terminal, Wrench, type LucideIcon } from 'lucide-react';
-import { Popover, SearchList, Switch, type SearchListItem } from '@demido/ui';
+import {
+  BookMarked,
+  FileText,
+  LineChart,
+  Settings2,
+  Sparkles,
+  Terminal,
+  Wrench,
+  WrenchOff,
+  type LucideIcon,
+} from 'lucide-react';
+import { Notice, Popover, SearchList, Switch, type SearchListItem } from '@demido/ui';
 
+import type { ModelEntry } from '@/lib/types';
 import { useSkills } from '@/stores/skills';
 import { useWindows } from '@/stores/windows';
 import styles from './Composer.module.css';
@@ -13,8 +24,11 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   skills: Sparkles,
 };
 
-/** The composer's Tools button: switch tool groups and skills on and off. */
-export function ToolsPicker() {
+/**
+ * The composer's Tools button: switch tool groups and skills on and off. It says so when the
+ * chosen model cannot use tools.
+ */
+export function ToolsPicker({ model }: { model: ModelEntry | undefined }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const groups = useSkills((s) => s.groups);
@@ -95,6 +109,18 @@ export function ToolsPicker() {
       >
         <SearchList
           items={items}
+          header={
+            model?.capabilities.tools === false && (
+              <Notice
+                tone="warning"
+                icon={WrenchOff}
+                title={`${model.name} can’t use tools`}
+                className={styles.toolsNotice}
+              >
+                They stay unused while you talk to it. Models that can use them show a wrench in the model list.
+              </Notice>
+            )
+          }
           placeholder="Search tools and skills"
           emptyText="No tools or skills match."
           onSelect={(item) => {

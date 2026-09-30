@@ -73,7 +73,9 @@ pub async fn delete_model(state: St<'_>, id: String) -> CmdResult<Vec<ModelEntry
     if state.runtime.loaded_model().await.as_deref() == Some(id.as_str()) {
         state.runtime.stop().await;
     }
+    let paused = state.models.pause_checks().await;
     state.models.delete_local(&id)?;
+    drop(paused);
     Ok(changed(&state))
 }
 

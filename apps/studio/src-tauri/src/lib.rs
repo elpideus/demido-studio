@@ -167,9 +167,22 @@ fn build_state(
 }
 
 /// Background work after the window is up: preload the default model and restore the market
-/// session, so the first question does not pay for either, and start checking for updates.
+/// session, so the first question does not pay for either, start checking for updates, and
+/// find out what each model can do.
 fn after_start(state: Arc<AppState>) {
+    use tauri::Emitter;
+
     state.updater.spawn_scheduler();
+    let app = state.app.clone();
+    tauri::async_runtime::spawn(state.models.clone().check_capabilities(move |list| {
+        let _ = app.emit(models::CHANGED_EVENT, list);
+    }));
+    let catalog = state.clone();
+    tauri::async_runtime::spawn(async move {
+        if catalog.models.refresh_cloud_catalog(&catalog.http, false).await {
+            let _ = catalog.app.emit(models::CHANGED_EVENT, catalog.models.list());
+        }
+    });
     tauri::async_runtime::spawn(async move {
         let market = state.market.clone();
         tauri::async_runtime::spawn(async move { market.warm_up().await });

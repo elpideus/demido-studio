@@ -15,6 +15,16 @@ fn view(state: &St<'_>, id: &str) -> CmdResult<ProviderView> {
         .ok_or_else(|| AppError::msg("That provider no longer exists."))
 }
 
+/// Reads models.dev in the background (what cloud models can do), then shows the result.
+fn refresh_capabilities(state: &St<'_>) {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        if state.models.refresh_cloud_catalog(&state.http, true).await {
+            let _ = state.app.emit(CHANGED_EVENT, state.models.list());
+        }
+    });
+}
+
 #[tauri::command]
 pub fn list_providers(state: St<'_>) -> Vec<ProviderView> {
     state.providers.views()
@@ -28,6 +38,7 @@ pub async fn add_provider(
     api_key: String,
 ) -> CmdResult<ProviderView> {
     let config = state.providers.add(kind, name, api_key).await?;
+    refresh_capabilities(&state);
     view(&state, &config.id)
 }
 
@@ -40,6 +51,7 @@ pub async fn update_provider(state: St<'_>, id: String, patch: ProviderPatch) ->
 #[tauri::command]
 pub async fn refresh_provider(state: St<'_>, id: String) -> CmdResult<ProviderView> {
     state.providers.refresh_models(&id).await?;
+    refresh_capabilities(&state);
     view(&state, &id)
 }
 

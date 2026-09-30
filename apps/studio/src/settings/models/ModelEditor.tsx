@@ -9,6 +9,7 @@ import type { ModelSettings } from '@/lib/types';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
+import { CapabilityList } from './Capabilities';
 import styles from './Models.module.css';
 
 type NumKey = 'temperature' | 'topP' | 'topK' | 'minP' | 'repeatPenalty';
@@ -208,6 +209,13 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
 
       <div className={s.scroll}>
         <section className={s.section}>
+          <h3 className={s.sectionTitle}>Capabilities</h3>
+          <div className={`${s.card} ${s.cardPad}`}>
+            <CapabilityList model={model} />
+          </div>
+        </section>
+
+        <section className={s.section}>
           <h3 className={s.sectionTitle}>Identity</h3>
           <div className={`${s.card} ${s.cardPad} ${s.stack}`}>
             <div className={s.grid2}>
@@ -274,7 +282,7 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
                 onChange={(v) => set({ [p.key]: v } as Partial<ModelSettings>)}
               />
             ))}
-            {model.supportsThinking && (
+            {model.capabilities.thinking === true && (
               <Field
                 layout="inline"
                 label="Think before answering"

@@ -4,6 +4,7 @@ import { Avatar, Popover, SearchList, formatBytes, type SearchListItem } from '@
 
 import { fileUrl } from '@/lib/format';
 import type { ModelEntry } from '@/lib/types';
+import { CapabilityIcons } from '@/settings/models/Capabilities';
 import { useModels } from '@/stores/models';
 import { useWindows } from '@/stores/windows';
 import styles from './Composer.module.css';
@@ -42,6 +43,7 @@ export function ModelPicker({ model, onPick }: Props) {
           leading: <Avatar name={m.name} src={fileUrl(m.avatarPath)} size={26} />,
           trailing: (
             <>
+              <CapabilityIcons model={m} />
               {runtime?.state === 'ready' && runtime.modelId === m.id && (
                 <span className={styles.loadedTag}>Loaded</span>
               )}

@@ -29,6 +29,12 @@ Update `release`, `baseUrl` and each variant's asset `name`, `size` and `sha256`
 without its `sha256:` prefix), then run `cargo test -p demido-catalog`, which checks that every
 variant has assets and every asset a size and a checksum.
 
+The app asks llama.cpp what each local model can do (`models/probe.rs`), and asks again for every
+model once the build changes. Check that the new build still reports what it reads: `modalities`
+and `chat_template_caps.supports_tool_calls` in `GET /props`, and the trace line
+`chat template, thinking = 1` at start with `--log-verbosity 4`. When one is gone, the model shows
+that capability as unknown rather than wrong.
+
 ## models.json
 
 | Key | What |
