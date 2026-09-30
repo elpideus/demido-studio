@@ -47,6 +47,8 @@ pub enum Approval {
 pub struct Agent {
     turns: Mutex<HashMap<String, CancellationToken>>,
     approvals: Mutex<HashMap<String, oneshot::Sender<Approval>>>,
+    /// Running tool calls by row id, for ending one early while its turn goes on.
+    tool_stops: Mutex<HashMap<String, CancellationToken>>,
 }
 
 #[derive(Serialize)]
@@ -167,6 +169,18 @@ impl Agent {
         }
     }
 
+    /// Ends a running tool call early (a command's Stop button); the tool hands the model what
+    /// it has so far and the turn goes on. False when the call is not running.
+    pub fn stop_tool(&self, row_id: &str) -> bool {
+        match self.tool_stops.lock().get(row_id) {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Waits for the person to answer the approval shown on row `row_id`.
     pub(crate) async fn wait_approval(&self, row_id: &str, cancel: &CancellationToken) -> Result<Approval, Cancelled> {
         let (tx, rx) = oneshot::channel();
@@ -257,6 +271,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         .unwrap_or(32_768)
         .min(1_000_000);
     let params = ModelRegistry::gen_params(&model);
+    tools::prepare(&state.settings.get()).await;
 
     for step in 0..MAX_STEPS {
         if cancel.is_cancelled() {
@@ -272,6 +287,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             tools: &tools,
             skills: &state.skills,
             context_tokens,
+            shell: crate::shell::current().map(|s| s.name.as_str()),
         });
         let fixed = prompt::estimate_tokens(&system)
             + tools
@@ -497,15 +513,19 @@ async fn run_tool_call(
     }
 
     row.update(|m| m.status = MessageStatus::Running)?;
+    let stop = CancellationToken::new();
+    state.agent.tool_stops.lock().insert(row.id(), stop.clone());
     let ctx = ToolContext {
         state: state.clone(),
         chat_id: chat_id.to_string(),
         workspace: workspace.to_path_buf(),
         cancel: cancel.clone(),
+        stop,
         row: row.clone(),
     };
     let started = Instant::now();
     let output = tools::run(&call.name, args, &ctx).await;
+    state.agent.tool_stops.lock().remove(&row.id());
     let elapsed = started.elapsed().as_millis() as i64;
     if cancel.is_cancelled() && !output.ok {
         return row.cancel();

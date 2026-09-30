@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use super::python::file_kind;
+use super::changes::file_kind;
 use super::{ToolContext, ToolOutput, arg_str, clip, require_str, workspace_path};
 
 const MAX_READ: usize = 60_000;

@@ -5,6 +5,7 @@ import {
   LineChart,
   Settings2,
   Sparkles,
+  SquareTerminal,
   Terminal,
   Wrench,
   WrenchOff,
@@ -20,6 +21,7 @@ import styles from './Composer.module.css';
 const GROUP_ICONS: Record<string, LucideIcon> = {
   market: LineChart,
   python: Terminal,
+  terminal: SquareTerminal,
   files: FileText,
   skills: Sparkles,
 };

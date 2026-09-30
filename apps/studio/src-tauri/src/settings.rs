@@ -52,7 +52,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let tool_groups = ["market", "python", "files", "skills"]
+        let tool_groups = ["market", "python", "terminal", "files", "skills"]
             .into_iter()
             .map(|g| (g.to_string(), true))
             .collect();

@@ -1,9 +1,12 @@
 //! The assistant's tools.
 //!
 //! Tools come in groups the person can switch on and off from the composer's Tools menu:
-//! market data, Python, workspace files and skill authoring. Every call runs in the context of
-//! one chat, whose workspace folder holds the files tools produce (market data CSVs, charts).
+//! market data, Python, the terminal, workspace files and skill authoring. Every call runs in the
+//! context of one chat, whose workspace folder holds the files tools produce (market data CSVs,
+//! charts, downloads).
 
+mod changes;
+mod command;
 mod files;
 mod market;
 mod python;
@@ -39,6 +42,8 @@ pub struct ToolContext {
     pub chat_id: String,
     pub workspace: PathBuf,
     pub cancel: CancellationToken,
+    /// Set when the person ends this call early; a tool that can stop keeps what it has.
+    pub stop: CancellationToken,
     /// The call's chat row, shared with the agent loop.
     pub row: ToolRow,
 }
@@ -143,6 +148,13 @@ const TOOLS: &[ToolDef] = &[
         approval: true,
     },
     ToolDef {
+        name: "run_command",
+        group: "terminal",
+        description: "Run a command line on the user's computer in their own shell (PowerShell on Windows) and get what it printed and its exit code. Use it for programs the user has installed (yt-dlp, ffmpeg, git, ping, winget and others) and for questions about the computer itself. The user approves each command. It runs in the chat's workspace folder unless directory is given, and is stopped after timeout seconds.",
+        parameters: command::schema,
+        approval: true,
+    },
+    ToolDef {
         name: "list_files",
         group: "files",
         description: "List the files in the chat's workspace folder.",
@@ -186,6 +198,7 @@ const GROUPS: &[(&str, &str, &str)] = &[
         "Live prices from TradingView and history from Dukascopy",
     ),
     ("python", "Python", "Run analysis code in the chat's workspace"),
+    ("terminal", "Terminal", "Run the programs installed on this computer"),
     ("files", "Workspace files", "Read and write files in the chat's folder"),
     (
         "skills",
@@ -207,6 +220,8 @@ fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
                 Some("Python is not installed. Run the installer again to add it.".into()),
             ),
         },
+        // Offered until the search for a shell (at startup) finds none.
+        "terminal" if crate::shell::missing() => (false, Some("No shell was found on this computer.".into())),
         _ => (true, None),
     }
 }
@@ -242,6 +257,14 @@ pub fn specs(state: &AppState, settings: &Settings) -> Vec<ToolSpec> {
             parameters: (t.parameters)(),
         })
         .collect()
+}
+
+/// Finds what the system prompt says about the tools: which shell commands run in. The first
+/// time, on Windows, that takes a second or two.
+pub async fn prepare(settings: &Settings) {
+    if settings.tool_group_enabled("terminal") {
+        let _ = tokio::task::spawn_blocking(crate::shell::detect).await;
+    }
 }
 
 pub fn exists(name: &str) -> bool {
@@ -283,6 +306,7 @@ pub fn describe(name: &str, args: &Value) -> String {
                 format!("Running {}", s("file"))
             }
         }
+        "run_command" => format!("Running {}", command::one_line(&s("command"), 60)),
         "list_files" => "Listing workspace files".into(),
         "read_file" => format!("Reading {}", s("path")),
         "write_file" => format!("Writing {}", s("path")),
@@ -304,6 +328,7 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "market_download" => market::download(ctx, &args).await,
         "market_data_status" => market::data_status(ctx, &args).await,
         "run_python" => python::run(ctx, &args).await,
+        "run_command" => command::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
         "read_file" => files::read(ctx, &args),
         "write_file" => files::write(ctx, &args),

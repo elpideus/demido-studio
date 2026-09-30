@@ -7,7 +7,8 @@ agentic work and transparency.
   runtime (NVIDIA CUDA, AMD ROCm, Apple Silicon, Vulkan or CPU), and downloads a Qwen or Gemma
   model sized for your memory. No manual hunting for runtimes, models or plugins.
 - **Agentic tools that work together.** Live and historical market data, Python for analysis and
-  charts, workspace files, and skills the assistant can write for itself.
+  charts, the programs already on your computer (yt-dlp, ffmpeg, git, ping ...) through your own
+  PowerShell, workspace files, and skills the assistant can write for itself.
 - **Transparent.** Every answer records exactly what was sent to the model and what came back,
   with token counts and speed. Open any answer in the Inspector.
 - **Cloud when you want it.** Connect Google Gemini with an API key; its models appear next to
@@ -58,6 +59,7 @@ click in Settings, Updates.
 |---|---|
 | Chat with local or cloud models, streaming, thinking, tool calls | The main screen |
 | Model picker and tools/skills picker | The composer |
+| Commands in your own shell (PowerShell 7 when installed, else Windows PowerShell), shown live like a terminal with a Stop button; each one asks first | The chat (Terminal in the Tools menu) |
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |

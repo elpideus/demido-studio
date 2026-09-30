@@ -9,7 +9,7 @@ import { toast } from '@/stores/toasts';
 import s from './settings.module.css';
 import styles from './GeneralTab.module.css';
 
-const TOOL_LABELS: Record<string, string> = { run_python: 'Run Python code' };
+const TOOL_LABELS: Record<string, string> = { run_python: 'Run Python code', run_command: 'Run commands' };
 
 const APPROVAL_CHOICES: Array<{ value: string; label: string }> = [
   { value: '30', label: '30 s' },

@@ -72,6 +72,8 @@ export const api = {
   runningTurns: () => invoke<string[]>('running_turns'),
   resolveApproval: (messageId: string, decision: ApprovalDecision) =>
     invoke<boolean>('resolve_approval', { messageId, decision }),
+  /** Ends a running tool call early (a command's Stop); the turn goes on with what it printed. */
+  stopTool: (messageId: string) => invoke<boolean>('stop_tool', { messageId }),
   renameChat: (chatId: string, title: string) => invoke<Chat>('rename_chat', { chatId, title }),
   pinChat: (chatId: string, pinned: boolean) => invoke<Chat>('pin_chat', { chatId, pinned }),
   deleteChat: (chatId: string) => invoke<void>('delete_chat', { chatId }),

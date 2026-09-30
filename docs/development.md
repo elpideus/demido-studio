@@ -263,7 +263,8 @@ for the format and how to move to a new llama.cpp build or model.
 2. Implement it in the group's file (`tools/market.rs`, `tools/python.rs` ...) and route it in
    `tools::run`. A tool that must ask while it runs (the market tools before a long download)
    calls `ctx.request_approval(card)`, and `ctx.set_display(...)` shows progress on its card
-   before it finishes.
+   before it finishes. `ctx.stop` is cancelled when the person ends the call early from its card
+   (a command's Stop): a tool that honours it returns what it has so far.
 3. Give it a label in `tools::describe` and, if its result deserves more than JSON, a view in
    `apps/studio/src/chat/ToolDisplay.tsx`.
 

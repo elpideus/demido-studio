@@ -116,7 +116,8 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `providers` | Gemini configuration and model listing |
 | `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE) or Gemini (native SSE); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
-| `tools` | Market data, Python, workspace files, skills. Grouped for the Tools menu |
+| `tools` | Market data, Python, terminal commands, workspace files, skills. Grouped for the Tools menu |
+| `shell` | The person's own shell, found once; a command run in a pseudo-terminal and read back as the screen shows it |
 | `skills` | Skill folders, enable/disable, and a file watcher that updates the UI live |
 | `market` | The Node sidecar's lifecycle and protocol, TradingView sign-in |
 | `updater` | The releases feed, downloading and verifying a new installer, staging it, handing over to it (see [Updates](#updates)) |
@@ -125,8 +126,8 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 **A turn.** `agent::run_turn` builds the system prompt (identity, date, enabled skills, tool
 guidance) and fits the history into the model's context window, newest first. The model's
 answer streams to the UI as `ChatEvent`s while it is written to the database, so a crash loses
-nothing that was shown. Tool calls run one by one; `run_python` asks for approval first unless
-the person chose "always allow". Each model call is saved as a trace (exact request, response,
+nothing that was shown. Tool calls run one by one; `run_python` and `run_command` ask for approval first
+unless the person chose "always allow". Each model call is saved as a trace (exact request, response,
 token counts, speed) that the Inspector window shows.
 
 **Prompt cache.** The system prompt contains the date but not the time, and tools are listed in
@@ -219,6 +220,24 @@ TradingView's sign-in page, the `sessionid` cookies are read from that profile, 
 sidecar, and saved in the credential store. When a market tool needs a session and there is none,
 the sign-in window opens; if the person does not sign in within the timeout, the tool result tells
 the model to ask them to.
+
+**Commands.** `run_command` runs a command line in the person's own shell (`shell/`): PowerShell
+7 when it is installed (on the PATH, where the Microsoft Store puts an app execution alias, or in
+Program Files; each candidate is asked its version once, at startup), Windows PowerShell 5.1
+otherwise, the login shell on macOS and Linux. The environment is the one a new terminal window
+gets, read from the registry, so a program installed while the app runs is found. The command runs
+in a 160×40 pseudo-terminal (ConPTY through `portable-pty`), so programs print what they print for
+a person, and a terminal emulator (`avt`) turns the output into what the screen shows: a redrawn
+progress bar is its last state, colours are gone, a full-screen program such as btop is its current
+screen. The model reads that text (clipped, keeping both ends) and the exit code; the chat shows it
+live, with a Stop button (`stop_tool`) that ends the command and lets the turn go on with what it
+printed. PowerShell gets the command base64-encoded (`-EncodedCommand`, with `-NoProfile
+-NonInteractive -ExecutionPolicy Bypass`) after one line that makes its output UTF-8, and exits
+with the failing program's own exit code. A command ends at its timeout (120 s unless the model
+asks for up to an hour); ending it ends every process it started (a job object on Windows, the
+process group elsewhere), while a command that finishes by itself leaves a program it opened in a
+window of its own running. It starts in the chat's workspace unless the model names a folder, and
+files it creates there show on its card.
 
 **Skills.** A skill is a folder with `SKILL.md` (frontmatter `name`, `description`) and any
 files it mentions. Enabled skills' instructions go into the system prompt; their other files are
@@ -322,7 +341,7 @@ Everything a person makes is in the data folder, never in the install folder:
 | `settings.json`, `models.json`, `providers.json`, `skills.json` | Preferences and overrides |
 | `skills/` | Skills (default ones are copied here on first run) |
 | `models/` | Downloaded models (per-user installs) |
-| `workspaces/<chat>/` | Files tools produce for a chat: data CSVs, charts, scripts |
+| `workspaces/<chat>/` | Files tools produce for a chat: data CSVs, charts, scripts, what commands download |
 | `avatars/` | Model pictures |
 | `webview-tradingview/` | The TradingView sign-in browser profile |
 | `cache/market/dukascopy/` | Downloaded Dukascopy history, 1-minute candles: `<instrument>/m1/<year>/<day>.json.gz` and a `manifest.json` per instrument; `stats.json` holds the learned request rate |

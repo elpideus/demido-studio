@@ -18,6 +18,7 @@ mod providers;
 mod runtime;
 mod secrets;
 mod settings;
+mod shell;
 mod skills;
 mod state;
 mod tools;
@@ -166,13 +167,17 @@ fn build_state(
     }))
 }
 
-/// Background work after the window is up: preload the default model and restore the market
-/// session, so the first question does not pay for either, start checking for updates, and
-/// find out what each model can do.
+/// Background work after the window is up: preload the default model, restore the market
+/// session and find the shell, so the first question does not pay for them, start checking for
+/// updates, and find out what each model can do.
 fn after_start(state: Arc<AppState>) {
     use tauri::Emitter;
 
     state.updater.spawn_scheduler();
+    // Find the shell commands run in now, so neither the first command nor the Tools menu waits.
+    tauri::async_runtime::spawn_blocking(|| {
+        shell::detect();
+    });
     let app = state.app.clone();
     tauri::async_runtime::spawn(state.models.clone().check_capabilities(move |list| {
         let _ = app.emit(models::CHANGED_EVENT, list);
@@ -262,6 +267,7 @@ pub fn run() {
             commands::chats::stop_turn,
             commands::chats::running_turns,
             commands::chats::resolve_approval,
+            commands::chats::stop_tool,
             commands::chats::rename_chat,
             commands::chats::pin_chat,
             commands::chats::delete_chat,

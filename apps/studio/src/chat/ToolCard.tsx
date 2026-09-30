@@ -11,6 +11,7 @@ import {
   Search,
   ShieldQuestion,
   Sparkles,
+  SquareTerminal,
   Terminal,
   X,
   type LucideIcon,
@@ -33,6 +34,7 @@ const ICONS: Record<string, LucideIcon> = {
   market_download: Download,
   market_data_status: Database,
   run_python: Terminal,
+  run_command: SquareTerminal,
   list_files: FileText,
   read_file: FileText,
   write_file: FileText,
@@ -44,7 +46,13 @@ function Approval({ message, call }: { message: Message; call: ToolCall }) {
   const [busy, setBusy] = useState(false);
   const args = (message.toolResult?.args ?? {}) as Record<string, unknown>;
   const code =
-    typeof args.code === 'string' ? args.code : typeof args.file === 'string' ? `# runs ${args.file}` : call.arguments;
+    typeof args.command === 'string'
+      ? args.command
+      : typeof args.code === 'string'
+        ? args.code
+        : typeof args.file === 'string'
+          ? `# runs ${args.file}`
+          : call.arguments;
   const decide = async (decision: 'once' | 'always' | 'deny') => {
     setBusy(true);
     await api.resolveApproval(message.id, decision);
@@ -56,6 +64,7 @@ function Approval({ message, call }: { message: Message; call: ToolCall }) {
         The assistant wants to run this on your computer
       </div>
       <pre className={cx(styles.code, 'selectable')}>{code}</pre>
+      {typeof args.directory === 'string' && <div className={styles.planAlt}>In {args.directory}</div>}
       <div className={styles.approvalActions}>
         <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
           Run once

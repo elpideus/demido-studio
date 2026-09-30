@@ -1,4 +1,4 @@
-import { Cloud, Download, LineChart, Lightbulb, Sparkles, Terminal } from 'lucide-react';
+import { Cloud, Download, LineChart, Lightbulb, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
 import { Button, Logo } from '@demido/ui';
 
 import type { ModelEntry } from '@/lib/types';
@@ -61,17 +61,25 @@ export function EmptyChat({ model, onSuggest }: Props) {
         title: 'Analyse data',
         text: 'Get the last 3 months of daily gold (XAUUSD) candles, plot the closing price with a 20-day moving average, and describe the trend.',
       },
-    {
-      icon: Lightbulb,
-      title: 'Explain a concept',
-      text: 'Explain what a moving average crossover is, with a simple example.',
+    on('terminal') && {
+      icon: SquareTerminal,
+      title: 'Use your programs',
+      text: 'Ping google.com four times and tell me the average response time.',
     },
     on('skills') && {
       icon: Sparkles,
       title: 'Teach it a skill',
       text: 'Create a skill that summarises any market symbol: its latest price, the change over the last week, and a one-paragraph outlook.',
     },
-  ].filter(Boolean) as Array<{ icon: typeof Lightbulb; title: string; text: string }>;
+    {
+      icon: Lightbulb,
+      title: 'Explain a concept',
+      text: 'Explain what a moving average crossover is, with a simple example.',
+    },
+  ]
+    .filter(Boolean)
+    // Two rows of two.
+    .slice(0, 4) as Array<{ icon: typeof Lightbulb; title: string; text: string }>;
 
   return (
     <div className={styles.empty}>

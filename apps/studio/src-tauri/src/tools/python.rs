@@ -1,14 +1,14 @@
 //! `run_python`: the installed Python, run in the chat's workspace.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
+use super::changes::{changed_files, snapshot};
 use super::{ToolContext, ToolOutput, arg_str, clip};
 
 const TIMEOUT: Duration = Duration::from_secs(180);
@@ -185,53 +185,4 @@ async fn read_capped(reader: &mut (impl AsyncReadExt + Unpin)) -> String {
         }
     }
     String::from_utf8_lossy(&buf).replace("\r\n", "\n")
-}
-
-fn snapshot(dir: &Path) -> HashMap<PathBuf, (u64, SystemTime)> {
-    walkdir::WalkDir::new(dir)
-        .max_depth(6)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|e| {
-            let m = e.metadata().ok()?;
-            Some((e.path().to_path_buf(), (m.len(), m.modified().ok()?)))
-        })
-        .collect()
-}
-
-fn changed_files(dir: &Path, before: &HashMap<PathBuf, (u64, SystemTime)>) -> Vec<Value> {
-    let mut out: Vec<Value> = snapshot(dir)
-        .into_iter()
-        .filter(|(p, meta)| before.get(p) != Some(meta))
-        .filter_map(|(p, (size, _))| {
-            let rel = p.strip_prefix(dir).ok()?.to_string_lossy().replace('\\', "/");
-            if rel.starts_with(".demido") {
-                return None;
-            }
-            Some(json!({
-                "path": rel,
-                "absolute": p.to_string_lossy(),
-                "size": size,
-                "kind": file_kind(&p),
-            }))
-        })
-        .collect();
-    out.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
-    out.truncate(40);
-    out
-}
-
-pub fn file_kind(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg") => "image",
-        Some("csv" | "tsv") => "table",
-        Some("json" | "md" | "txt" | "py" | "log" | "yaml" | "yml" | "html" | "xml") => "text",
-        _ => "other",
-    }
 }

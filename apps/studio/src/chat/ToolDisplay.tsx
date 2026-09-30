@@ -1,7 +1,7 @@
 // How each tool's result looks in the chat. The `display` object comes from the backend tool;
 // its `kind` picks the renderer here.
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import {
   ExternalLink,
   FileImage,
@@ -9,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   Sparkles,
+  CircleStop,
   File as FileIcon,
 } from 'lucide-react';
 import { Button, cx, formatBytes } from '@demido/ui';
@@ -270,6 +271,83 @@ function Python({ d }: { d: Display }) {
   );
 }
 
+/** How a command ended, when that needs saying. */
+function commandEnding(d: Display): { text: string; failed: boolean } | null {
+  if (d.ending === 'timedOut') return { text: `Stopped at its time limit of ${num(d.timeout)} s`, failed: false };
+  if (d.ending === 'stopped') return { text: 'You stopped it', failed: false };
+  const code = num(d.exitCode);
+  return code !== undefined && code !== 0 ? { text: `Exited with code ${code}`, failed: true } : null;
+}
+
+/** A command in the terminal: its prompt line and what it printed, live while it runs. */
+function Command({ d, message }: { d: Display; message: Message | undefined }) {
+  const output = str(d.output);
+  const running = d.running === true;
+  const screen = useRef<HTMLPreElement>(null);
+  // Follows the newest output, unless the person scrolled up to read.
+  const follow = useRef(true);
+  const [stopping, setStopping] = useState(false);
+  useLayoutEffect(() => {
+    const el = screen.current;
+    if (el && follow.current) el.scrollTop = el.scrollHeight;
+  }, [output]);
+  const files = (Array.isArray(d.files) ? d.files : []) as Array<{
+    path: string;
+    absolute: string;
+    size: number;
+    kind: string;
+  }>;
+  const ending = commandEnding(d);
+  const stop = () => {
+    if (!message) return;
+    setStopping(true);
+    api.stopTool(message.id).catch((e) => {
+      setStopping(false);
+      toast.error('Could not stop the command', errorText(e));
+    });
+  };
+  return (
+    <div className={styles.command}>
+      <pre
+        ref={screen}
+        className={cx(styles.terminal, d.fullScreen === true && styles.fullScreen, 'selectable')}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
+        <span className={styles.prompt}>{d.powershell === true ? `PS ${str(d.directory)}>` : '$'}</span>{' '}
+        <span className={styles.commandLine}>{str(d.command)}</span>
+        {output && `\n${output}`}
+        {running && <span className={styles.cursor} aria-hidden />}
+      </pre>
+      <div className={styles.commandFoot}>
+        <span className={styles.shell}>{str(d.shell)}</span>
+        {ending && <span className={ending.failed ? styles.error : styles.muted}>{ending.text}</span>}
+        {running && message && (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={CircleStop}
+            disabled={stopping}
+            onClick={stop}
+            className={styles.stop}
+          >
+            Stop
+          </Button>
+        )}
+      </div>
+      {files.length > 0 && (
+        <div className={styles.chips}>
+          {files.map((f) => (
+            <FileChip key={f.absolute} path={f.absolute} name={f.path} size={f.size} kind={f.kind} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Skill({ d }: { d: Display }) {
   const open = useWindows((s) => s.open);
   return (
@@ -330,6 +408,8 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <Search d={display} />;
     case 'python':
       return <Python d={display} />;
+    case 'command':
+      return <Command d={display} message={message} />;
     case 'skill':
       return <Skill d={display} />;
     case 'files':
@@ -352,6 +432,6 @@ export function isProminent(display: Display | undefined): boolean {
   return (
     !!display &&
     !display.error &&
-    ['candles', 'quotes', 'python', 'skill', 'download', 'dataStatus'].includes(String(display.kind))
+    ['candles', 'quotes', 'python', 'command', 'skill', 'download', 'dataStatus'].includes(String(display.kind))
   );
 }

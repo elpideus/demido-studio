@@ -20,6 +20,7 @@ its source distribution.
 | [zustand](https://github.com/pmndrs/zustand) | MIT | State |
 | [axios](https://axios-http.com), [ws](https://github.com/websockets/ws), [jszip](https://stuk.github.io/jszip/) | MIT (jszip: MIT or GPL-3.0) | Used by TradingView-API |
 | [SQLite](https://sqlite.org) via rusqlite | Public domain, MIT | Chat storage |
+| [portable-pty](https://github.com/wezterm/wezterm) from WezTerm, [avt](https://github.com/asciinema/avt) from asciinema | MIT; Apache-2.0 | The terminal the assistant's commands run in, and reading its screen |
 | Rust crates (tokio, serde, reqwest, notify, keyring, sysinfo, zip, sha2 and others) | MIT or Apache-2.0 | Backend |
 
 Lightweight Charts shows TradingView's attribution logo on every chart, as its license asks.

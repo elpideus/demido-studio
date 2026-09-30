@@ -21,6 +21,8 @@ pub struct PromptInputs<'a> {
     pub tools: &'a [ToolSpec],
     pub skills: &'a SkillRegistry,
     pub context_tokens: usize,
+    /// The shell `run_command` uses, such as "PowerShell 7.6.6".
+    pub shell: Option<&'a str>,
 }
 
 pub fn system_prompt(p: &PromptInputs<'_>) -> String {
@@ -63,6 +65,22 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
                  relative path (for example pd.read_csv('data/FX_EURUSD_1h_20260101_20260201.csv')). Print the numbers you \
                  need. Save charts with plt.savefig('chart.png'); they are shown to the user.\n",
             );
+        }
+        if has("run_command") {
+            let shell = p.shell.unwrap_or("the user's shell");
+            // Windows PowerShell 5.1 is the one without && and ||, which models reach for.
+            let chaining = if shell.starts_with("Windows PowerShell") {
+                " It has no && or ||: separate commands with ;."
+            } else {
+                ""
+            };
+            s.push_str(&format!(
+                "- run_command runs a command in {shell} on the user's computer.{chaining} The programs they installed \
+                 (yt-dlp, ffmpeg, git and others) are available, and they approve each command. It starts in this chat's \
+                 workspace folder unless you pass directory, so downloads land there. Give downloads and other long jobs a \
+                 longer timeout. Full-screen programs such as btop or top run until the timeout: give them 3 to 5 seconds \
+                 and read the screen they showed.\n",
+            ));
         }
         if has("create_skill") {
             s.push_str(

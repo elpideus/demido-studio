@@ -52,6 +52,8 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 notify = "8"
 notify-debouncer-full = "0.6"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent", "crypto-rust"] }
+portable-pty = "0.9"
+avt = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
@@ -60,6 +62,9 @@ windows = { workspace = true, features = [
   "Win32_System_Threading",
   "Win32_Security",
 ] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile.workspace = true

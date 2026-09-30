@@ -50,6 +50,11 @@ pub fn resolve_approval(state: St<'_>, message_id: String, decision: Approval) -
 }
 
 #[tauri::command]
+pub fn stop_tool(state: St<'_>, message_id: String) -> bool {
+    state.agent.stop_tool(&message_id)
+}
+
+#[tauri::command]
 pub fn rename_chat(state: St<'_>, chat_id: String, title: String) -> CmdResult<Chat> {
     let title = title.trim();
     if !title.is_empty() {
