@@ -1,12 +1,13 @@
-// A market_data_status result: what is stored per market, source and tier, what is still missing,
-// and the downloads filling it. Drawn with the Data tab's timelines, so both read the same.
+// A market_data_status result: what is stored per market and where it came from, what is still
+// missing, and the downloads filling it. Drawn with the Data tab's timeline, so both read the same:
+// one per market, since every timeframe is built from the same 1-minute history.
 
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { cx, formatBytes } from '@demido/ui';
 
 import type { MarketCoverageItem, ToolDisplay } from '@/lib/types';
-import { DownloadProgress, SOURCE_NAMES, tierLabel } from '@/market/DownloadProgress';
+import { DownloadProgress, SOURCE_NAMES } from '@/market/DownloadProgress';
 import {
   isUnfinished,
   leadJob,
@@ -15,10 +16,9 @@ import {
   monthRangeText,
   sortMarkets,
   sortSources,
-  sortTiers,
   storedExtent,
 } from '@/market/data/coverage';
-import { TierTimeline, TimelineAxis } from '@/market/data/TierTimeline';
+import { MarketTimeline, TimelineAxis } from '@/market/data/MarketTimeline';
 import palette from '@/market/data/sources.module.css';
 import timeline from '@/market/data/Timeline.module.css';
 import { dataStatusView, gapsText, marketGaps } from './dataStatusView';
@@ -27,15 +27,11 @@ import styles from './DataStatus.module.css';
 function StatusMarket({ item, open, onToggle }: { item: MarketCoverageItem; open: boolean; onToggle: () => void }) {
   const domain = useMemo(() => marketDomain(item), [item]);
   const extent = useMemo(() => storedExtent(item), [item]);
-  const sources = useMemo(
-    () => sortSources(item.sources).map((s) => ({ ...s, tiers: sortTiers(s.source, s.tiers) })),
-    [item],
-  );
-  const gaps = useMemo(() => marketGaps({ ...item, sources }), [item, sources]);
+  const sources = useMemo(() => sortSources(item.sources), [item]);
+  const gaps = useMemo(() => marketGaps(item), [item]);
   const sourceNames = [...new Set(sources.map((s) => s.source))];
   const jobs = item.jobs.filter((j) => isUnfinished(j.status));
   const lead = leadJob(jobs);
-  const both = sourceNames.length > 1;
 
   return (
     <div className={styles.market}>
@@ -58,20 +54,18 @@ function StatusMarket({ item, open, onToggle }: { item: MarketCoverageItem; open
         <div className={styles.body}>
           {domain ? (
             <div className={timeline.timelines}>
-              {sources.map((s) => (
-                <Fragment key={`${s.source}:${s.key}`}>
-                  <div className={timeline.sourceHead} data-source={s.source}>
+              <div className={timeline.sourceHead}>
+                {sources.map((s) => (
+                  <span key={`${s.source}:${s.key}`} className={timeline.sourceItem} data-source={s.source}>
                     <span className={palette.dot} aria-hidden />
                     {SOURCE_NAMES[s.source]}
                     <span className={timeline.sourceBytes}>
                       {s.key} · {formatBytes(s.bytes)}
                     </span>
-                  </div>
-                  {s.tiers.map((t) => (
-                    <TierTimeline key={t.tier} source={s.source} tier={t} domain={domain} />
-                  ))}
-                </Fragment>
-              ))}
+                  </span>
+                ))}
+              </div>
+              <MarketTimeline item={item} domain={domain} />
               <TimelineAxis domain={domain} />
             </div>
           ) : (
@@ -82,15 +76,9 @@ function StatusMarket({ item, open, onToggle }: { item: MarketCoverageItem; open
               {gaps.length === 0 ? (
                 <span className={styles.muted}>No gaps: everything the sources offer is stored.</span>
               ) : (
-                gaps.map((g) => (
-                  <div key={`${g.source}:${g.tier}`} className={styles.gapRow}>
-                    <span className={styles.gapTier}>
-                      {both ? `${SOURCE_NAMES[g.source]} ` : ''}
-                      {tierLabel(g.tier)}
-                    </span>
-                    <span className={styles.gapText}>{gapsText(g.gaps)}</span>
-                  </div>
-                ))
+                <div className={styles.gapRow}>
+                  <span className={styles.gapText}>{gapsText(gaps)}</span>
+                </div>
               )}
             </div>
           )}

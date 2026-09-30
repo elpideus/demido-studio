@@ -65,13 +65,14 @@ describe('estimateText', () => {
 describe('plan text', () => {
   it('names the source, the size and the detail', () => {
     expect(planLine(plan())).toBe(
-      `EUR/USD from Dukascopy · ~${n(8400)} files · ~${formatBytes(75_000_000)} · about 40 min · every timeframe at 1-minute detail`,
+      `EUR/USD from Dukascopy · ~${n(8400)} files · ~${formatBytes(75_000_000)} · about 40 min · 1-minute candles for every timeframe`,
     );
   });
 
-  it('describes a plan restricted to coarser tiers', () => {
-    expect(planDetail(plan({ tiers: ['h1', 'd1'] }))).toBe('hourly detail');
-    expect(planDetail(plan({ tiers: ['d1'] }))).toBe('daily detail');
+  it('says every Dukascopy download is 1-minute candles, whatever tiers an older plan named', () => {
+    for (const tiers of [['m1'], ['m1', 'h1', 'd1'], ['d1']]) {
+      expect(planDetail(plan({ tiers }))).toBe('1-minute candles for every timeframe');
+    }
   });
 
   it('counts TradingView pages', () => {

@@ -85,10 +85,20 @@ fn secs(t: f64) -> i64 {
 }
 
 /// `{symbol, ...}` plus the optional range fields that are set; unset ones are left out.
-fn range_params(symbol: String, from: Option<f64>, to: Option<f64>, tiers: Option<Vec<String>>) -> Value {
+/// A download's range: `from`, or `back` ("month" / "year": that much more than the stored
+/// 1-minute history), up to `to` or now.
+fn range_params(
+    symbol: String,
+    from: Option<f64>,
+    back: Option<String>,
+    to: Option<f64>,
+    tiers: Option<Vec<String>>,
+) -> Value {
     let mut params = json!({"symbol": symbol});
     if let Some(from) = from {
         params["from"] = secs(from).into();
+    } else if let Some(back) = back.filter(|b| b == "month" || b == "year") {
+        params["back"] = back.into();
     }
     if let Some(to) = to {
         params["to"] = secs(to).into();
@@ -139,10 +149,11 @@ pub async fn market_download_plan(
     state: St<'_>,
     symbol: String,
     from: Option<f64>,
+    back: Option<String>,
     to: Option<f64>,
     tiers: Option<Vec<String>>,
 ) -> CmdResult<Value> {
-    store_call(&state, "download.plan", range_params(symbol, from, to, tiers), 60).await
+    store_call(&state, "download.plan", range_params(symbol, from, back, to, tiers), 60).await
 }
 
 /// Starts (or joins) a download. Progress arrives as `market://event` events
@@ -152,11 +163,12 @@ pub async fn market_download_start(
     state: St<'_>,
     symbol: String,
     from: Option<f64>,
+    back: Option<String>,
     to: Option<f64>,
     tiers: Option<Vec<String>>,
     origin: String,
 ) -> CmdResult<Value> {
-    let mut params = range_params(symbol, from, to, tiers);
+    let mut params = range_params(symbol, from, back, to, tiers);
     params["origin"] = origin.into();
     store_call(&state, "download.start", params, 60).await
 }
@@ -224,27 +236,55 @@ mod tests {
     #[test]
     fn unset_range_fields_are_left_out() {
         assert_eq!(
-            range_params("EURUSD".into(), None, None, None),
+            range_params("EURUSD".into(), None, None, None, None),
             json!({"symbol": "EURUSD"})
         );
         assert_eq!(
-            range_params("EURUSD".into(), None, None, Some(vec![])),
+            range_params("EURUSD".into(), None, None, None, Some(vec![])),
             json!({"symbol": "EURUSD"})
         );
         assert_eq!(
             range_params(
                 "EURUSD".into(),
                 Some(10.0),
+                None,
                 Some(20.0),
-                Some(vec!["h1".into(), "m1".into()])
+                Some(vec!["1h".into(), "1d".into()])
             ),
-            json!({"symbol": "EURUSD", "from": 10, "to": 20, "tiers": ["h1", "m1"]})
+            json!({"symbol": "EURUSD", "from": 10, "to": 20, "tiers": ["1h", "1d"]})
+        );
+    }
+
+    #[test]
+    fn back_counts_from_the_stored_history_unless_a_date_is_given() {
+        assert_eq!(
+            range_params("EURUSD".into(), None, Some("month".into()), None, None),
+            json!({"symbol": "EURUSD", "back": "month"})
+        );
+        assert_eq!(
+            range_params("EURUSD".into(), None, Some("year".into()), None, None),
+            json!({"symbol": "EURUSD", "back": "year"})
+        );
+        // A date wins; anything but a month or a year is ignored.
+        assert_eq!(
+            range_params("EURUSD".into(), Some(10.0), Some("year".into()), None, None),
+            json!({"symbol": "EURUSD", "from": 10})
+        );
+        assert_eq!(
+            range_params("EURUSD".into(), None, Some("decade".into()), None, None),
+            json!({"symbol": "EURUSD"})
         );
     }
 
     #[test]
     fn fractional_seconds_become_whole() {
-        let params = range_params("EURUSD".into(), Some(1_700_000_000.75), Some(1_800_000_000.0), None);
+        let params = range_params(
+            "EURUSD".into(),
+            Some(1_700_000_000.75),
+            None,
+            Some(1_800_000_000.0),
+            None,
+        );
         assert_eq!(
             params,
             json!({"symbol": "EURUSD", "from": 1_700_000_000, "to": 1_800_000_000})

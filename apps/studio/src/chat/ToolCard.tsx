@@ -19,7 +19,7 @@ import { Button, Spinner, cx, formatDuration } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import type { ApprovalDecision, Message, ToolApproval, ToolCall } from '@/lib/types';
-import { planDetail, planLine, planSummary } from '@/market/DownloadProgress';
+import { planLine } from '@/market/DownloadProgress';
 import { toast } from '@/stores/toasts';
 import { callKey, useOpenState } from './openState';
 import { ToolDisplay, isProminent } from './ToolDisplay';
@@ -71,19 +71,12 @@ function Approval({ message, call }: { message: Message; call: ToolCall }) {
   );
 }
 
-/** A download estimated to take longer than the person's limit: every detail, only what it needs, or nothing. */
+/** A download estimated to take longer than the person's limit: download it, or not. It is 1-minute
+ *  candles, which every timeframe is built from, so there is no smaller choice to offer. */
 function DownloadApproval({ message, card }: { message: Message; card: ToolApproval }) {
   const [busy, setBusy] = useState(false);
-  const args = message.toolResult?.args ?? {};
-  const timeframe = card.timeframe ?? (typeof args.timeframe === 'string' ? args.timeframe : null);
-  // A card this UI cannot read still gets the three choices, just without the estimate.
+  // A card this UI cannot read still gets the choices, just without the estimate.
   const known = typeof card.plan?.requests === 'number';
-  // Only worth offering when it saves requests.
-  const minimal =
-    known && typeof card.minimal?.requests === 'number' && card.minimal.requests < card.plan.requests
-      ? card.minimal
-      : null;
-  const onlyLabel = timeframe ? `Only ${timeframe}` : 'Only what this needs';
   const decide = async (decision: ApprovalDecision) => {
     setBusy(true);
     // The tool keeps waiting if the answer did not arrive, so the choices must stay usable.
@@ -102,22 +95,12 @@ function DownloadApproval({ message, card }: { message: Message; card: ToolAppro
       </div>
       <div className={styles.plan}>
         <div className={styles.planLine}>{known ? planLine(card.plan) : 'Market data for this request'}</div>
-        {minimal && (
-          <div className={styles.planAlt}>
-            {onlyLabel}: {planSummary(minimal)} · {planDetail(minimal)}
-          </div>
-        )}
-        <div className={styles.planAlt}>It runs in the background and is kept for every chart and chat.</div>
+        <div className={styles.planAlt}>It runs in the background and is kept for every timeframe, chart and chat.</div>
       </div>
       <div className={styles.approvalActions}>
         <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
           Download
         </Button>
-        {minimal && (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('minimal')}>
-            {onlyLabel}
-          </Button>
-        )}
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
           Don’t download
         </Button>

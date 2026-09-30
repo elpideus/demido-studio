@@ -1,5 +1,5 @@
-// What reads fetch before they read: bars.latest walking back over closed markets, tool reads
-// refreshing the due provisional buckets they show, and the sweep. Real store, planner and series in
+// What reads fetch before they read: bars.latest fetching the same recent week of 1-minute days
+// whatever the timeframe, tool reads refreshing the due provisional days they show, and the sweep. Real store, planner and series in
 // a temp dir; the fetcher double answers from synthetic forex sessions (no network).
 
 import assert from 'node:assert/strict';
@@ -50,10 +50,17 @@ const asked = (fetcher: FakeFetcher) =>
 
 const SUNDAY = s('2026-09-27T05:15:00Z');
 
-test('bars.latest on a Sunday walks back over the empty weekend to Friday (empty cache)', async () => {
+/** The days from `last` back to `first`, newest first, as `asked` lists them. */
+const daysBack = (last: string, first: string) => {
+  const out: string[] = [];
+  for (let d = s(`${last}T00:00:00Z`); d >= s(`${first}T00:00:00Z`); d -= DAY) out.push(`m1 ${iso(d).slice(0, 10)}`);
+  return out;
+};
+
+test('bars.latest fetches the last week of 1-minute days, the same at every timeframe (empty cache, Sunday)', async () => {
   const h = harness(SUNDAY);
   const read = await h.reads.latest('FX:EURUSD', '1m', 500);
-  assert.deepEqual(asked(h.fetcher), ['m1 2026-09-27', 'm1 2026-09-26', 'm1 2026-09-25']);
+  assert.deepEqual(asked(h.fetcher), daysBack('2026-09-27', '2026-09-20'));
   assert.equal(read.bars.length, 500);
   assert.equal(iso(read.bars.at(-1)!.t), '2026-09-25T20:59:00.000Z');
   assert.equal(read.more, 'cached');
@@ -63,15 +70,23 @@ test('bars.latest on a Sunday walks back over the empty weekend to Friday (empty
   const again = await h.reads.latest('FX:EURUSD', '1m', 500);
   assert.deepEqual(h.fetcher.requests, []);
   assert.deepEqual(again.bars, read.bars);
+
+  // Any timeframe asks for the same days: its bars are built from them.
+  for (const tf of ['1h', '1d'] as const) {
+    const other = harness(SUNDAY);
+    const bars = await other.reads.latest('FX:EURUSD', tf, 500);
+    assert.deepEqual(asked(other.fetcher), daysBack('2026-09-27', '2026-09-20'), tf);
+    assert.ok(bars.bars.length > 0, tf);
+  }
 });
 
-test('bars.latest on a Sunday fetches Friday between stored history and the fetched weekend', async () => {
+test('bars.latest fills the recent week around stored history, never more', async () => {
   const h = harness(SUNDAY);
   for (let d = s('2026-09-21T00:00:00Z'); d < s('2026-09-25T00:00:00Z'); d += DAY) {
     await putBucket(h.store, 'eurusd', 'm1', d, bucketBars('m1', d));
   }
   const read = await h.reads.latest('FX:EURUSD', '1m', 500);
-  assert.deepEqual(asked(h.fetcher), ['m1 2026-09-27', 'm1 2026-09-26', 'm1 2026-09-25']);
+  assert.deepEqual(asked(h.fetcher), ['m1 2026-09-27', 'm1 2026-09-26', 'm1 2026-09-25', 'm1 2026-09-20']);
   assert.equal(read.bars.length, 500);
   assert.equal(iso(read.bars.at(-1)!.t), '2026-09-25T20:59:00.000Z');
 });
@@ -84,27 +99,33 @@ test('bars.latest serves what is stored when Dukascopy cannot be reached', async
     await putBucket(h.store, 'eurusd', 'm1', d, bucketBars('m1', d));
   }
   const read = await h.reads.latest('FX:EURUSD', '1m', 500);
-  // The first window failed: no walk back after it.
-  assert.deepEqual(asked(h.fetcher), ['m1 2026-09-27', 'm1 2026-09-26']);
+  // One round: its requests failed, so nothing is asked for again.
+  assert.deepEqual(asked(h.fetcher), ['m1 2026-09-27', 'm1 2026-09-26', 'm1 2026-09-25', 'm1 2026-09-20']);
   assert.equal(read.bars.length, 500);
   assert.equal(iso(read.bars.at(-1)!.t), '2026-09-24T23:59:00.000Z');
 });
 
-test('bars.latest on a weekday asks only for the window the newest bars span', async () => {
+test('bars.latest on a weekday asks for the last week, whatever the timeframe', async () => {
+  for (const tf of ['1m', '4h'] as const) {
+    const h = harness(s('2026-09-23T12:00:00Z'));
+    const read = await h.reads.latest('FX:EURUSD', tf, 500);
+    assert.deepEqual(asked(h.fetcher), daysBack('2026-09-23', '2026-09-16'), tf);
+    assert.ok(read.bars.length > 0, tf);
+  }
   const h = harness(s('2026-09-23T12:00:00Z'));
   const read = await h.reads.latest('FX:EURUSD', '1m', 500);
-  assert.deepEqual(asked(h.fetcher), ['m1 2026-09-23', 'm1 2026-09-22']);
   assert.equal(read.bars.length, 500);
   assert.equal(iso(read.bars.at(-1)!.t), '2026-09-23T11:59:00.000Z');
 });
 
-test('bars.latest stops at the request budget when nothing has bars', async () => {
+test('bars.latest asks for the recent week only, even when nothing has bars', async () => {
   const h = harness(SUNDAY, () => []);
   const read = await h.reads.latest('FX:EURUSD', '1m', 500);
   assert.equal(read.bars.length, 0);
   assert.equal(read.more, 'gap');
-  assert.ok(h.fetcher.requests.length > 10, 'it walked back');
-  assert.ok(h.fetcher.requests.length <= INTERACTIVE_BUDGET, `${h.fetcher.requests.length} requests`);
+  // No walk back: older history is an explicit download.
+  assert.deepEqual(asked(h.fetcher), daysBack('2026-09-27', '2026-09-20'));
+  assert.ok(h.fetcher.requests.length <= INTERACTIVE_BUDGET);
 });
 
 test('a tool read re-fetches the due provisional buckets it shows, never missing ones', async () => {
@@ -129,11 +150,8 @@ test('a tool read re-fetches the due provisional buckets it shows, never missing
   assert.equal(await h.reads.refreshDue('EURUSD', '1m', thu, to), 0);
 });
 
-test('a tool read at 1h re-fetches the h1 month it reads, not the m1 days under it', async () => {
+test('a tool read at 1h re-fetches the 1-minute day it reads, like any timeframe', async () => {
   const h = harness(s('2026-08-31T15:00:00Z'));
-  const aug = s('2026-08-01T00:00:00Z');
-  const month = bucketBars('h1', aug, { to: h.clock.now });
-  await h.store.put('eurusd', 'h1', aug, bucketBody('h1', aug, month), { builtAt: h.clock.now, final: false });
   const day = s('2026-08-31T00:00:00Z');
   await h.store.put('eurusd', 'm1', day, bucketBody('m1', day, bucketBars('m1', day, { to: h.clock.now })), {
     builtAt: h.clock.now,
@@ -141,7 +159,7 @@ test('a tool read at 1h re-fetches the h1 month it reads, not the m1 days under 
   });
   h.clock.now = s('2026-09-02T10:00:00Z');
   assert.equal(await h.reads.refreshDue('EURUSD', '1h', day, day + DAY - 1), 1);
-  assert.deepEqual(asked(h.fetcher), ['h1 2026-08-01']);
+  assert.deepEqual(asked(h.fetcher), ['m1 2026-08-31']);
   const read = await h.series.read({ symbol: 'EURUSD', tf: '1h', from: day, to: day + DAY - 1 });
   assert.equal(iso(read.bars.at(-1)!.t), '2026-08-31T23:00:00.000Z');
 });
@@ -189,33 +207,35 @@ test('a page that ran out of bars reports the gap it stopped at, not "cached"', 
   assert.ok(read.missing.length > 0 && read.missing[0]![1] === s('2026-09-26T00:00:00Z'));
 });
 
-test('bars.latest at 15m on a Saturday fills its count from the weeks before', async () => {
+test('bars.latest at 15m on a Saturday fetches the same week as any timeframe', async () => {
   const h = harness(s('2026-09-26T23:00:00Z'));
   const read = await h.reads.latest('FX:EURUSD', '15m', 500);
-  assert.equal(read.bars.length, 500, `${read.bars.length} bars, more=${read.more}`);
+  assert.deepEqual(asked(h.fetcher), daysBack('2026-09-26', '2026-09-19'));
+  // Sunday's evening and Monday to Friday: the week holds 480 bars; nothing older is fetched.
+  assert.equal(read.bars.length, 480, `${read.bars.length} bars, more=${read.more}`);
+  assert.equal(read.more, 'gap');
+  assert.equal(iso(read.bars[0]!.t), '2026-09-20T21:00:00.000Z');
   assert.equal(iso(read.bars.at(-1)!.t), '2026-09-25T20:45:00.000Z');
-  // Paging back from the oldest bar finds stored bars or a real gap, never a false "cached".
+  // Nothing older is stored: paging back from the oldest bar finds nothing.
   const older = await h.series.read({ symbol: 'FX:EURUSD', tf: '15m', count: 1, before: read.bars[0]!.t });
-  assert.ok(read.more !== 'cached' || older.bars.length === 1, `more=${read.more} but nothing older is stored`);
+  assert.equal(older.bars.length, 0);
 });
 
-test('a tool read re-fetches a stale open month it reads past its last fetch', async () => {
-  // Thursday 15:00: a 1h chart stored the open September month (bars up to 14:00).
+test('a tool read re-fetches the open day it reads past its last fetch', async () => {
+  // Thursday 15:00: a chart stored the open day (bars up to 14:59).
   const h = harness(s('2026-09-24T15:00:00Z'));
-  const sep = s('2026-09-01T00:00:00Z');
-  await h.store.put('eurusd', 'h1', sep, bucketBody('h1', sep, bucketBars('h1', sep, { to: h.clock.now })), {
+  const thu = s('2026-09-24T00:00:00Z');
+  await h.store.put('eurusd', 'm1', thu, bucketBody('m1', thu, bucketBars('m1', thu, { to: h.clock.now })), {
     builtAt: h.clock.now,
     final: false,
   });
-  h.clock.now = s('2026-09-25T10:00:00Z');
-  const thu = s('2026-09-24T00:00:00Z');
-  // Days before its fetch: nothing to refresh.
-  assert.equal(await h.reads.refreshDue('EURUSD', '1h', s('2026-09-10T00:00:00Z'), s('2026-09-11T00:00:00Z')), 0);
-  assert.equal(await h.reads.refreshDue('EURUSD', '1h', thu, thu + DAY - 1), 1);
-  assert.deepEqual(asked(h.fetcher), ['h1 2026-09-01']);
-  const read = await h.series.read({ symbol: 'EURUSD', tf: '1h', from: thu, to: thu + DAY - 1 });
-  assert.equal(read.bars.length, 24);
-  assert.equal(iso(read.bars.at(-1)!.t), '2026-09-24T23:00:00.000Z');
+  h.clock.now = s('2026-09-24T18:00:00Z');
+  // Hours before its fetch: nothing to refresh.
+  assert.equal(await h.reads.refreshDue('EURUSD', '1h', s('2026-09-24T09:00:00Z'), s('2026-09-24T10:59:59Z')), 0);
+  assert.equal(await h.reads.refreshDue('EURUSD', '1h', thu, h.clock.now), 1);
+  assert.deepEqual(asked(h.fetcher), ['m1 2026-09-24']);
+  const read = await h.series.read({ symbol: 'EURUSD', tf: '1h', from: thu, to: h.clock.now });
+  assert.equal(iso(read.bars.at(-1)!.t), '2026-09-24T17:00:00.000Z');
 });
 
 test('bars.latest says Dukascopy could not be reached only when nothing is stored and a fetch failed', async () => {

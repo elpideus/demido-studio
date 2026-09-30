@@ -70,7 +70,7 @@ export function tierSpan(tier: MarketTierCoverage): Range | null {
   return first && last ? [first[0], last[1]] : null;
 }
 
-/** One axis for every timeline of a market, so tiers line up: the union of their spans. */
+/** The axis of a market's timeline: the union of what every source could hold and holds. */
 export function marketDomain(item: MarketCoverageItem): Range | null {
   let from = Infinity;
   let to = -Infinity;
@@ -108,6 +108,8 @@ export interface Segment {
   kind: SegmentKind;
   from: number;
   to: number;
+  /** Whose bars a `data` segment holds, when a timeline shows more than one source. */
+  source?: MarketSource;
 }
 
 /** Consecutive segments tiling `span` exactly. The source may or may not count empties as covered. */
@@ -140,7 +142,7 @@ export function simplify(segments: readonly Segment[], minLength: number): Segme
   const out: Segment[] = [];
   const push = (seg: Segment) => {
     const last = out[out.length - 1];
-    if (last && last.kind === seg.kind && last.to === seg.from) last.to = seg.to;
+    if (last && last.kind === seg.kind && last.source === seg.source && last.to === seg.from) last.to = seg.to;
     else out.push({ ...seg });
   };
   let group: Segment[] = [];
@@ -158,11 +160,18 @@ export function simplify(segments: readonly Segment[], minLength: number): Segme
     }
     let data = 0;
     let empty = 0;
+    // Stored time per source, so a folded run keeps the colour of whoever holds most of it.
+    const bySource = new Map<MarketSource | undefined, number>();
     for (const seg of run) {
-      if (seg.kind === 'data') data += seg.to - seg.from;
-      else empty += seg.to - seg.from;
+      if (seg.kind === 'data') {
+        data += seg.to - seg.from;
+        bySource.set(seg.source, (bySource.get(seg.source) ?? 0) + seg.to - seg.from);
+      } else empty += seg.to - seg.from;
     }
-    push({ kind: data >= empty ? 'data' : 'empty', from: first.from, to: last.to });
+    if (data >= empty) {
+      const [source] = [...bySource].sort((a, b) => b[1] - a[1])[0]!;
+      push({ kind: 'data', from: first.from, to: last.to, ...(source ? { source } : {}) });
+    } else push({ kind: 'empty', from: first.from, to: last.to });
   };
   for (const seg of segments) {
     if (seg.kind === 'gap' || seg.to - seg.from >= minLength) {
@@ -175,6 +184,78 @@ export function simplify(segments: readonly Segment[], minLength: number): Segme
   }
   flush();
   return out;
+}
+
+/** A market's Dukascopy 1-minute coverage, the history every timeframe is built from (none for a
+ *  market only TradingView serves). */
+export function minuteTier(item: MarketCoverageItem): MarketTierCoverage | null {
+  return item.sources.find((s) => s.source === 'dukascopy')?.tiers.find((t) => t.tier === 'm1') ?? null;
+}
+
+/** Everything TradingView has stored for a market, whatever the timeframe. */
+export function tradingViewRanges(item: MarketCoverageItem): Range[] {
+  return normalize(
+    item.sources.filter((s) => s.source === 'tradingview').flatMap((s) => s.tiers.flatMap((t) => t.intervals)),
+  );
+}
+
+/**
+ * One timeline for a whole market, tiling `span`: its Dukascopy 1-minute history (stored, no data at
+ * the source, not downloaded), and where that is not downloaded but TradingView has bars stored,
+ * TradingView's. Never one row per timeframe: every timeframe is built from the same history.
+ */
+export function marketSegments(item: MarketCoverageItem, span: Range): Segment[] {
+  const minute = minuteTier(item);
+  const base: Segment[] = minute
+    ? segmentsOf(minute, span).map((seg) => (seg.kind === 'data' ? { ...seg, source: 'dukascopy' as const } : seg))
+    : [{ kind: 'gap', from: span[0], to: span[1] }];
+  const tv = tradingViewRanges(item);
+  if (!tv.length) return base;
+  const out: Segment[] = [];
+  for (const seg of base) {
+    if (seg.kind !== 'gap') {
+      out.push(seg);
+      continue;
+    }
+    const inside = clip(tv, seg.from, seg.to);
+    let at = seg.from;
+    for (const [f, t] of inside) {
+      if (f > at) out.push({ kind: 'gap', from: at, to: f });
+      out.push({ kind: 'data', from: f, to: t, source: 'tradingview' });
+      at = t;
+    }
+    if (at < seg.to) out.push({ kind: 'gap', from: at, to: seg.to });
+  }
+  return out;
+}
+
+/**
+ * A market's whole history as one coverage: Dukascopy's 1-minute days (what they hold, what the
+ * source has nothing for, where it has data at all) plus what TradingView has stored. Its gaps are
+ * what a download would still fill, whatever timeframe is looked at. Null when nothing is known.
+ */
+export function marketCoverage(item: MarketCoverageItem): MarketTierCoverage | null {
+  const minute = minuteTier(item);
+  const tv = tradingViewRanges(item);
+  if (!minute && !tv.length) return null;
+  let available = minute?.available ?? null;
+  if (!available) {
+    // Only TradingView: from where its stored timelines start.
+    const spans = item.sources
+      .filter((s) => s.source === 'tradingview')
+      .flatMap((s) => s.tiers)
+      .map(tierSpan)
+      .filter((r): r is Range => r !== null);
+    if (spans.length) available = [Math.min(...spans.map((r) => r[0])), Math.max(...spans.map((r) => r[1]))];
+  }
+  return {
+    tier: 'history',
+    intervals: normalize([...(minute?.intervals ?? []), ...tv]),
+    empty: minute?.empty ?? [],
+    available,
+    learnedStart: minute?.learnedStart ?? null,
+    bytes: marketBytes(item),
+  };
 }
 
 /** The segment under time `t`, if any. */

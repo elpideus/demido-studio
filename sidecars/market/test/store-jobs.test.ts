@@ -67,7 +67,8 @@ test('a resumed job re-plans from the manifest and never fetches a bucket twice'
     origin: 'chat' as const,
   };
   const { jobId, plan } = await a.jobs.start(range);
-  assert.equal(plan.requests, 1 + 1 + 31, 'h1 March, d1 2024 and every m1 day (h1 is not there yet to infer from)');
+  assert.deepEqual(plan.tiers, ['m1']);
+  assert.equal(plan.requests, 31, 'every 1-minute day of March, weekends included');
   for (let i = 0; i < 12; i += 1) {
     await until(() => a.fetcher.held > 0, 5000, 'a held request');
     a.fetcher.release(1);
@@ -90,8 +91,9 @@ test('a resumed job re-plans from the manifest and never fetches a bucket twice'
   assert.ok(b.fetcher.requests.length > 0);
   const job = b.jobs.get(jobId)!;
   assert.equal(job.done, job.total);
-  // Saturdays were inferred from the h1 month instead of asked for.
-  assert.ok(!all.some((k) => k.includes('/m1/') && new Date(Number(k.split('/')[2]) * 1000).getUTCDay() === 6));
+  // Only 1-minute days, Saturdays included (nothing coarser is fetched to infer them from).
+  assert.ok(all.every((k) => k.includes('/m1/')));
+  assert.ok(all.some((k) => new Date(Number(k.split('/')[2]) * 1000).getUTCDay() === 6));
   assert.deepEqual(b.series.missing('EURUSD', '1m', range.from, range.to - 1), []);
   assert.ok(b.events.some((e) => e.event === 'download.done' && e.job.id === jobId));
   assert.equal((await b.planner.plan(range)).complete, true);
@@ -175,34 +177,40 @@ test('pause and cancel purge queued work; cancel removes the record', async () =
   assert.equal(jobs.get(jobId), null);
 });
 
-test('an empty streak with no older coarser data records the learned start and stops', async () => {
+test('an empty streak probed monthly down to the start records the learned start and skips older days', async () => {
   const start = s('2024-03-04T00:00:00Z');
-  // m1 and h1 data only from Monday 2024-03-04 (the metadata says 2003).
-  const data: Data = (_i, tier, b) => bucketBars(tier, b, { every: tier === 'm1' ? 3600 : undefined, from: start });
+  // 1-minute data only from Monday 2024-03-04 (the metadata says 2003).
+  const data: Data = (_i, tier, b) => bucketBars(tier, b, { every: 3600, from: start });
   const { store, jobs, fetcher, planner } = harness(data);
-  const range = {
-    symbol: 'EURUSD',
-    from: s('2024-01-01T00:00:00Z'),
-    to: s('2024-04-01T00:00:00Z'),
-    tiers: ['m1', 'h1'],
-  };
-  const { jobId } = await jobs.start({ ...range, origin: 'chat' });
-  await until(() => status(jobs, jobId) === 'done', 10_000, 'the job to finish');
+  // Everything: from the metadata's start in 2003 up to now.
+  const { jobId, plan } = await jobs.start({ symbol: 'EURUSD', origin: 'chat' });
+  assert.equal(plan.from, s('2003-05-04T19:00:00Z'));
+  await until(() => status(jobs, jobId) === 'done', 30_000, 'the job to finish');
   const learned = store.learnedStart('eurusd', 'm1');
   assert.equal(learned?.t, start);
-  assert.equal((learned!.evidence as { reason: string }).reason, 'empty streak');
-  assert.equal(store.learnedStart('eurusd', 'h1'), null, 'two empty h1 months are not a streak');
-  const m1 = fetcher.requests.filter((k) => k.includes('/m1/'));
-  assert.ok(!m1.some((k) => day(k) < '2024-01-25'), `stopped soon after the streak: ${m1.map(day).join(' ')}`);
+  assert.equal((learned!.evidence as { reason: string }).reason, 'no data in monthly probes down to the start');
+  // Below the streak (and the few days already asked for when it was noticed) only probes were asked
+  // for: one weekday a month from December 2023 back to May 2003, not every day for 20 years.
+  const old = fetcher.requests.filter((k) => day(k) < '2024-01-01');
+  assert.equal(old.length, 248, `${old.length} probes`);
+  assert.ok(
+    old.every((k) => isProbe('m1', Number(k.split('/')[2]))),
+    old.map(day).join(' '),
+  );
+  assert.ok(
+    fetcher.requests.every((k) => k.includes('/m1/')),
+    'nothing coarser is fetched',
+  );
   const job = jobs.get(jobId)!;
   assert.equal(job.done, job.total);
-  // The learned start moves the tier's start: nothing is left to plan.
+  assert.ok(job.skipped > 5000, `${job.skipped} days skipped`);
+  // The learned start moves the history's start: nothing is left to plan.
   assert.equal(store.effectiveStart('eurusd', 'm1'), start);
-  assert.equal((await planner.plan({ ...range, tiers: ['m1'] })).requests, 0);
+  assert.equal((await planner.plan({ symbol: 'EURUSD' })).requests, 0);
 });
 
-test('an empty streak with older coarser data is a hole: probe sparsely, walk densely where data is', async () => {
-  // m1 has nothing from 2023-12-01 to 2024-02-29; h1 has data throughout.
+test('an empty streak with older data below it is a hole: probe sparsely, walk densely where data is', async () => {
+  // Nothing from 2023-12-01 to 2024-02-29; data before and after.
   const data: Data = (_i, tier, b) =>
     tier === 'm1' && b >= s('2023-12-01T00:00:00Z') && b < s('2024-03-01T00:00:00Z')
       ? []
@@ -239,20 +247,17 @@ test('an empty streak with older coarser data is a hole: probe sparsely, walk de
   assert.equal(fetcher.requests.length, before);
 });
 
-test('an m1-only job checks an empty streak against h1 it fetches first, not an unfetched tier', async () => {
-  // A six-week m1 hole; h1 has data throughout but this job never walks h1.
+test('a six-week hole is found by the monthly probes alone: nothing coarser is fetched', async () => {
   const data: Data = (_i, tier, b) =>
-    tier === 'm1' && b >= s('2023-12-01T00:00:00Z') && b < s('2024-01-15T00:00:00Z')
-      ? []
-      : bucketBars(tier, b, { every: tier === 'm1' ? 3600 : undefined });
+    b >= s('2023-12-01T00:00:00Z') && b < s('2024-01-15T00:00:00Z') ? [] : bucketBars(tier, b, { every: 3600 });
   const { store, jobs, fetcher, series, planner } = harness(data);
-  const range = { symbol: 'EURUSD', from: s('2023-10-01T00:00:00Z'), to: s('2024-02-01T00:00:00Z'), tiers: ['m1'] };
+  const range = { symbol: 'EURUSD', from: s('2023-10-01T00:00:00Z'), to: s('2024-02-01T00:00:00Z') };
   const { jobId } = await jobs.start({ ...range, origin: 'chat' });
   await until(() => status(jobs, jobId) === 'done', 10_000, 'the job to finish');
-  assert.equal(store.learnedStart('eurusd', 'm1'), null, 'a hole, not the start of m1');
+  assert.equal(store.learnedStart('eurusd', 'm1'), null, 'a hole, not the start of the history');
   assert.ok(
-    fetcher.requests.some((k) => k.includes('/h1/')),
-    'the h1 months next to the streak were fetched',
+    fetcher.requests.every((k) => k.includes('/m1/')),
+    fetcher.requests.join(' '),
   );
   assert.ok(new Set(fetcher.requests.map(day)).has('2023-11-20'));
   assert.deepEqual(series.missing('EURUSD', '1m', range.from, range.to - 1), []);
@@ -261,24 +266,20 @@ test('an m1-only job checks an empty streak against h1 it fetches first, not an 
   assert.equal(job.done, job.total);
 });
 
-test('d1 is walked before h1, so an h1 streak is checked against fetched d1 data', async () => {
-  // h1 has nothing from January to April 2020; d1 is full.
-  const data: Data = (_i, tier, b) =>
-    tier === 'h1' && b >= s('2020-01-01T00:00:00Z') && b < s('2020-05-01T00:00:00Z') ? [] : bucketBars(tier, b);
-  const { store, jobs, fetcher } = harness(data);
-  const { jobId } = await jobs.start({
-    symbol: 'EURUSD',
-    from: s('2019-06-01T00:00:00Z'),
-    to: s('2020-09-01T00:00:00Z'),
-    tiers: ['h1', 'd1'],
-    origin: 'chat',
-  });
+test('a download asking for hourly or daily candles downloads 1-minute days', async () => {
+  const { jobs, fetcher, series } = harness();
+  const range = { symbol: 'EURUSD', from: s('2024-03-01T00:00:00Z'), to: s('2024-03-15T00:00:00Z') };
+  const { jobId, plan } = await jobs.start({ ...range, tiers: ['h1', 'd1'], origin: 'chat' });
+  assert.deepEqual(plan.tiers, ['m1']);
+  assert.equal(plan.requests, 14);
   await until(() => status(jobs, jobId) === 'done', 10_000, 'the job to finish');
-  const firstD1 = fetcher.requests.findIndex((k) => k.includes('/d1/'));
-  const firstH1 = fetcher.requests.findIndex((k) => k.includes('/h1/'));
-  assert.ok(firstD1 >= 0 && firstD1 < firstH1, `d1 first: ${fetcher.requests.join(' ')}`);
-  assert.equal(store.learnedStart('eurusd', 'h1'), null);
-  assert.ok(fetcher.requests.includes(`eurusd/h1/${s('2019-12-01T00:00:00Z')}`), 'h1 below the hole was fetched');
+  assert.deepEqual(jobs.get(jobId)!.tiers, ['m1']);
+  assert.equal(fetcher.requests.length, 14);
+  assert.ok(fetcher.requests.every((k) => k.includes('/m1/')));
+  // Every timeframe reads them.
+  for (const tf of ['1m', '1h', '1d'] as const) {
+    assert.deepEqual(series.missing('EURUSD', tf, range.from, range.to - 1), [], tf);
+  }
 });
 
 test('a job re-fetches a day stored while still open once it is due', async () => {
@@ -313,7 +314,7 @@ test('every planned bucket covered while a job runs counts for it with its bytes
   fetcher.release();
   await until(() => status(jobs, jobId) === 'done', 10_000, 'the job to finish');
   const job = jobs.get(jobId)!;
-  // Nothing leaves the plan: the chart's days count as done, and so do the Saturdays h1 shows empty.
+  // Nothing leaves the plan: the chart's days count as done.
   assert.equal(job.total, plan.requests, 'the total shrank below the plan');
   assert.equal(job.done, job.total);
   assert.equal(job.skipped, 0);
@@ -344,9 +345,9 @@ test('a boost counts for the job waited on; a whole-job wait does not boost', as
   fetcher.release();
   assert.equal((await waiting).covered, true);
   const boosts = fetcher.calls.filter((c) => c.startsWith('waiting '));
-  // 1h reads h1 (m1 only where h1 is empty): never d1, and every boost names the job.
+  // Every boost is a 1-minute day (1h is built from them) and names the job.
   assert.ok(
-    boosts.every((c) => c.startsWith(`waiting ${jobId} `) && !c.includes('/d1/')),
+    boosts.every((c) => c.startsWith(`waiting ${jobId} `) && c.includes('/m1/')),
     boosts.join(' | '),
   );
   await until(() => status(jobs, jobId) === 'done', 10_000, 'the job to finish');
@@ -379,10 +380,11 @@ test('running jobs wait while the fetcher breaker is open', async () => {
 test('download.wait: covered, stopped jobs and timeouts; the waited range rides the waiting lane', async () => {
   const { jobs, fetcher } = harness();
   const range = { symbol: 'EURUSD', tf: '1h' as const, from: s('2024-03-04T00:00:00Z'), to: s('2024-03-08T00:00:00Z') };
-  // Nothing stored, no job: the wait itself fetches what the range needs (h1 March).
+  // Nothing stored, no job: the wait itself fetches what the range needs (its 1-minute days).
   const covered = await jobs.wait({ ...range, timeoutMs: 5000 });
   assert.deepEqual(covered, { covered: true, status: null });
-  assert.ok(fetcher.lanes.some((l) => l.startsWith('waiting eurusd/h1/')));
+  assert.ok(fetcher.lanes.some((l) => l.startsWith('waiting eurusd/m1/')));
+  assert.ok(fetcher.lanes.every((l) => l.includes('/m1/')));
 
   fetcher.hold = true;
   const { jobId } = await jobs.start({
@@ -455,7 +457,7 @@ test('TradingView jobs need a session, and page every timeframe until its start'
 
 test('download.wait ends at `to` (exclusive), and cancel announces the removal', async () => {
   const { jobs, fetcher, events } = harness();
-  // Exactly the h1 March bucket: nothing after it is asked for.
+  // Exactly the 1-minute days of March, newest first: nothing after them is asked for.
   const covered = await jobs.wait({
     symbol: 'EURUSD',
     tf: '1h',
@@ -464,7 +466,10 @@ test('download.wait ends at `to` (exclusive), and cancel announces the removal',
     timeoutMs: 5000,
   });
   assert.deepEqual(covered, { covered: true, status: null });
-  assert.deepEqual(fetcher.lanes, [`waiting eurusd/h1/${s('2024-03-01T00:00:00Z')}`]);
+  const march: string[] = [];
+  for (let d = s('2024-03-31T00:00:00Z'); d >= s('2024-03-01T00:00:00Z'); d -= DAY)
+    march.push(`waiting eurusd/m1/${d}`);
+  assert.deepEqual(fetcher.lanes, march);
 
   fetcher.hold = true;
   const { jobId } = await jobs.start({
@@ -615,42 +620,84 @@ test('a TradingView hole it serves nothing for is recorded as covered, so plans 
   assert.equal(calls.length, before);
 });
 
-test('an m1-only job learns no start while h1 is empty next to the streak but has older data', async () => {
-  // m1 and h1 both have nothing from 2023-11-01 to 2024-02-01; both have data before and after.
-  const data: Data = (_i, tier, b) =>
-    (tier === 'm1' || tier === 'h1') && b >= s('2023-11-01T00:00:00Z') && b < s('2024-02-01T00:00:00Z')
-      ? []
-      : bucketBars(tier, b, { every: tier === 'm1' ? 3600 : undefined });
-  const { store, jobs, fetcher, series } = harness(data);
-  const range = { symbol: 'EURUSD', from: s('2023-06-01T00:00:00Z'), to: s('2024-03-01T00:00:00Z'), tiers: ['m1'] };
+test('a range that ends above the start fetches what the probes passed over, and learns no start', async () => {
+  // 1-minute data only from 2024-03-04; the range asks for a year from June 2023.
+  const start = s('2024-03-04T00:00:00Z');
+  const data: Data = (_i, tier, b) => bucketBars(tier, b, { every: 3600, from: start });
+  const { store, jobs, series } = harness(data);
+  const range = { symbol: 'EURUSD', from: s('2023-06-01T00:00:00Z'), to: s('2024-06-01T00:00:00Z') };
   const { jobId } = await jobs.start({ ...range, origin: 'chat' });
   await until(() => status(jobs, jobId) === 'done', 20_000, 'the job to finish');
-  assert.equal(store.learnedStart('eurusd', 'm1'), null, 'h1 was walked back to its October data: a hole');
-  assert.ok(fetcher.requests.includes(`eurusd/h1/${s('2023-10-01T00:00:00Z')}`));
-  assert.deepEqual(series.missing('EURUSD', '1m', range.from, range.to - 1), [], 'June to October 2023 fetched');
+  assert.equal(store.learnedStart('eurusd', 'm1'), null, 'the walk never reached the history start');
+  assert.deepEqual(series.missing('EURUSD', '1m', range.from, range.to - 1), [], 'every day asked for is stored');
   const job = jobs.get(jobId)!;
   assert.equal(job.skipped, 0);
   assert.equal(job.done, job.total);
 });
 
-test('a streak learns its start only once the coarser tier is known empty down to its own start', async () => {
-  // m1 and h1 both start 2024-03-04 in truth; the metadata says years earlier.
-  const start = s('2024-03-04T00:00:00Z');
-  const data: Data = (_i, tier, b) =>
-    tier === 'd1' ? [] : bucketBars(tier, b, { every: tier === 'm1' ? 3600 : undefined, from: start });
-  const { store, jobs, fetcher } = harness(data);
-  store.setLearnedStart('eurusd', 'h1', { t: s('2023-06-01T00:00:00Z'), evidence: { reason: 'test' } });
-  const range = { symbol: 'EURUSD', from: s('2024-01-01T00:00:00Z'), to: s('2024-04-01T00:00:00Z'), tiers: ['m1'] };
-  const { jobId } = await jobs.start({ ...range, origin: 'chat' });
-  await until(() => status(jobs, jobId) === 'done', 20_000, 'the job to finish');
-  // Every h1 month from the streak down to h1's start was asked for before concluding.
-  for (
-    let m = s('2023-06-01T00:00:00Z');
-    m < s('2024-02-01T00:00:00Z');
-    m = s(`${iso(m + 32 * DAY).slice(0, 7)}-01T00:00:00Z`)
-  )
-    assert.ok(fetcher.requests.includes(`eurusd/h1/${m}`), `h1 ${iso(m).slice(0, 7)} was fetched`);
-  assert.equal(store.learnedStart('eurusd', 'm1')?.t, start);
+test('an old record naming hourly and daily tiers goes on with its 1-minute part only', async () => {
+  const cache = tempDir();
+  const dir = path.join(cache, 'jobs');
+  fs.mkdirSync(dir, { recursive: true });
+  const record = (id: string, tiers: string[], perTier: Array<{ tier: string; total: number; done: number }>) => ({
+    version: 1,
+    id,
+    source: 'dukascopy',
+    key: 'eurusd',
+    symbol: 'EURUSD',
+    name: 'EUR/USD',
+    from: s('2024-03-01T00:00:00Z'),
+    to: s('2024-04-01T00:00:00Z'),
+    tiers,
+    status: 'paused',
+    total: perTier.reduce((n, t) => n + t.total, 0),
+    done: perTier.reduce((n, t) => n + t.done, 0),
+    skipped: 0,
+    bytes: 0,
+    etaSeconds: null,
+    rate: 0,
+    inFlight: 0,
+    perTier,
+    origin: 'chat',
+    createdAt: NOW * 1000,
+    updatedAt: NOW * 1000,
+    openEnd: false,
+    failed: 0,
+  });
+  fs.writeFileSync(
+    path.join(dir, 'every.json'),
+    JSON.stringify(
+      record(
+        'every',
+        ['m1', 'h1', 'd1'],
+        [
+          { tier: 'm1', total: 31, done: 10 },
+          { tier: 'h1', total: 1, done: 1 },
+          { tier: 'd1', total: 1, done: 1 },
+        ],
+      ),
+    ),
+  );
+  fs.writeFileSync(
+    path.join(dir, 'daily.json'),
+    JSON.stringify(record('daily', ['d1'], [{ tier: 'd1', total: 1, done: 0 }])),
+  );
+  const { jobs, fetcher } = harness(fx, { cache });
+  await jobs.load();
+  const every = jobs.get('every')!;
+  assert.deepEqual(every.tiers, ['m1']);
+  assert.deepEqual(
+    every.perTier.map((t) => [t.tier, t.total, t.done]),
+    [['m1', 31, 10]],
+  );
+  assert.deepEqual([every.total, every.done, every.status], [31, 10, 'paused']);
+  // A daily-only download has nothing left: it ends, saying why.
+  const daily = jobs.get('daily')!;
+  assert.equal(daily.status, 'done');
+  assert.match(daily.message ?? '', /1-minute/);
+  jobs.resume('every');
+  await until(() => status(jobs, 'every') === 'done', 10_000, 'the resumed job to finish');
+  assert.ok(fetcher.requests.every((k) => k.includes('/m1/')));
 });
 
 test('a paused job counts what others covered meanwhile when it resumes', async () => {

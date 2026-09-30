@@ -251,15 +251,15 @@ test('a synthetic flat cache: empties, provisional by mtime, strays left, old jo
   assert.deepEqual(report.dukascopy.unknown, ['candles%2Fhour%2FNOPE-NOPE%2FBID%2F2020%2F1.json']);
   assert.equal(flatNames(cache).length, 3);
 
-  assert.equal(store.status('eurusd', 'h1', march), 'final');
   assert.equal(store.status('eurusd', 'm1', sat), 'final');
   assert.ok(store.sets('eurusd', 'm1').empty.contains(sat));
-  assert.equal(store.status('eurusd', 'd1', y2019), 'final');
   assert.equal(store.status('gbpchf', 'm1', recent), 'provisional');
-  assert.equal(
-    (await store.readNative('eurusd', 'h1', march, nextBucket('h1', march))).length,
-    bucketBars('h1', march).length,
-  );
+  // The hourly and daily buckets moved with the rest, then went: history is 1-minute candles.
+  assert.equal(store.status('eurusd', 'h1', march), 'missing');
+  assert.equal(store.status('eurusd', 'd1', y2019), 'missing');
+  assert.equal(report.coarse.tiers, 2);
+  assert.ok(!fs.existsSync(path.join(cache, 'dukascopy', 'eurusd', 'h1')));
+  assert.ok(!fs.existsSync(path.join(cache, 'dukascopy', 'eurusd', 'd1')));
 
   const cov = tv.coverage('FX_IDC:AUDCHF', '1h');
   assert.deepEqual(cov.intervals.toJSON(), [
@@ -277,4 +277,42 @@ test('a synthetic flat cache: empties, provisional by mtime, strays left, old jo
   assert.equal(jobs[0].symbol, 'SAXO:GBPCHF');
   assert.equal(report.jobs.dropped, 1);
   assert.equal(fs.existsSync(path.join(cache, 'downloads')), false);
+});
+
+test("a store's hourly and daily tiers are deleted at start; its 1-minute days stay; a second run finds nothing", async () => {
+  const cache = tempDir('demido-migrate-');
+  const first = open(cache);
+  const march = s('2024-03-01T00:00:00Z');
+  const day = s('2024-03-04T00:00:00Z');
+  await first.store.put('eurusd', 'm1', day, bucketBody('m1', day, bucketBars('m1', day)), {
+    builtAt: day + 2 * DAY,
+    final: true,
+  });
+  await first.store.put('eurusd', 'h1', march, bucketBody('h1', march, bucketBars('h1', march)), {
+    builtAt: march + 40 * DAY,
+    final: true,
+  });
+  await first.store.put('eurusd', 'd1', s('2023-01-01T00:00:00Z'), null, {
+    builtAt: s('2024-02-01T00:00:00Z'),
+    final: true,
+  });
+  first.store.setLearnedStart('gbpchf', 'h1', { t: s('2013-01-01T00:00:00Z'), evidence: 'test' });
+  await first.store.close();
+
+  const { store, deps } = open(cache);
+  const report = await migrate(deps);
+  assert.equal(report.coarse.tiers, 3, 'eurusd h1 and d1, gbpchf h1');
+  assert.ok(report.coarse.bytes > 0);
+  assert.equal(store.status('eurusd', 'm1', day), 'final');
+  assert.equal((await store.readNative('eurusd', 'm1', day, day + DAY)).length, bucketBars('m1', day).length);
+  assert.equal(store.status('eurusd', 'h1', march), 'missing');
+  assert.equal(store.status('eurusd', 'd1', s('2023-01-01T00:00:00Z')), 'missing');
+  assert.equal(store.learnedStart('gbpchf', 'h1'), null);
+  assert.ok(!fs.existsSync(path.join(cache, 'dukascopy', 'eurusd', 'h1')));
+  await store.flush();
+  // The manifest no longer records them either, so a restart does not bring them back.
+  const manifest = JSON.parse(fs.readFileSync(path.join(cache, 'dukascopy', 'eurusd', 'manifest.json'), 'utf8'));
+  assert.deepEqual(manifest.tiers.h1.fetched, []);
+  assert.deepEqual(manifest.tiers.d1.empty, []);
+  assert.equal((await migrate(deps)).coarse.tiers, 0);
 });

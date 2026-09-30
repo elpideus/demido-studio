@@ -41,8 +41,6 @@ pub enum Approval {
     Once,
     Always,
     Deny,
-    /// A download approval's third choice: only the detail the requested timeframe needs.
-    Minimal,
 }
 
 #[derive(Default)]
@@ -494,7 +492,7 @@ async fn run_tool_call(
                     s.always_allowed_tools.insert(name);
                 });
             }
-            Approval::Once | Approval::Minimal => {}
+            Approval::Once => {}
         }
     }
 
@@ -638,10 +636,10 @@ mod tests {
             let (agent, cancel) = (agent.clone(), cancel.clone());
             tokio::spawn(async move { agent.wait_approval("row-1", &cancel).await })
         };
-        while !agent.resolve_approval("row-1", Approval::Minimal) {
+        while !agent.resolve_approval("row-1", Approval::Once) {
             tokio::task::yield_now().await;
         }
-        assert_eq!(waiter.await.unwrap(), Ok(Approval::Minimal));
+        assert_eq!(waiter.await.unwrap(), Ok(Approval::Once));
         assert!(
             !agent.resolve_approval("row-1", Approval::Once),
             "an answered approval is gone"
@@ -658,16 +656,14 @@ mod tests {
     }
 
     #[test]
-    fn the_minimal_choice_is_spelled_minimal() {
-        assert_eq!(serde_json::to_value(Approval::Minimal).unwrap(), "minimal");
-        assert_eq!(
-            serde_json::from_value::<Approval>(json!("minimal")).unwrap(),
-            Approval::Minimal
-        );
+    fn approvals_are_spelled_in_camel_case() {
+        assert_eq!(serde_json::to_value(Approval::Always).unwrap(), "always");
         assert_eq!(
             serde_json::from_value::<Approval>(json!("once")).unwrap(),
             Approval::Once
         );
+        // The smaller "only this timeframe" download is gone: every download is 1-minute candles.
+        assert!(serde_json::from_value::<Approval>(json!("minimal")).is_err());
     }
 
     #[test]

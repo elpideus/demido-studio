@@ -25,7 +25,7 @@ interface Props {
   symbol: string;
   /** Where older history comes from: Dukascopy offers ranges, TradingView only "everything". */
   source: MarketSource;
-  /** The chart's oldest bar; "more" ranges end there. */
+  /** The chart's oldest bar (where the card sits); null when the chart has no bars. */
   oldest: number | null;
   /** The uncovered stretch right before the oldest bar, when the store knows it. */
   gap: MarketGap | null;
@@ -41,7 +41,9 @@ interface Props {
 }
 
 /** A small card at the edge of the stored history offering an explicit download, since paging the
- *  chart back only ever reads what is stored. Never starts a download on its own. */
+ *  chart back only ever reads what is stored. Never starts a download on its own. What it downloads
+ *  does not depend on the chart's timeframe: history is 1-minute candles, which every timeframe is
+ *  built from, and every choice reaches today, so one download leaves the whole stretch stored. */
 export function DownloadPopup({
   anchor,
   symbol,
@@ -105,7 +107,7 @@ export function DownloadPopup({
   // The chart guesses the source from its keys, which a stream may not have named yet; a plan knows.
   const [planSource, setPlanSource] = useState<MarketSource | null>(null);
   const tradingView = (planSource ?? source) === 'tradingview';
-  const range: MarketRange | null = tradingView ? {} : optionRange(option, { oldest, gap, fromDate, now });
+  const range: MarketRange | null = tradingView ? {} : optionRange(option, { gap, fromDate, now });
   // A stable string, so the plan is asked for again only when the range really changes.
   const rangeKey = range ? JSON.stringify(range) : null;
   const following = job?.id ?? started?.jobId ?? null;
@@ -156,7 +158,6 @@ export function DownloadPopup({
     }
   };
 
-  const end = oldest ?? now;
   const options: Array<{ id: HistoryOption; label: string }> = [
     { id: 'month', label: '1 more month' },
     { id: 'year', label: '1 more year' },
@@ -169,16 +170,19 @@ export function DownloadPopup({
   // Nothing to request: all stored, or (with `plan.job`) the rest is queued by a download that starting
   // this would only join, so that case keeps its button.
   const nothingToDo = !!plan && (plan.complete || (plan.requests === 0 && !plan.job));
-  // "~8,400 files · ~75 MB · about 40 min · every timeframe at 1-minute detail".
+  // "From 1 Aug 2025 · ~31 files · ~280 KB · less than a minute · 1-minute candles for every timeframe".
   let estimate: string | null = null;
-  if (range === null) estimate = option === 'from' ? `Pick a date before ${shortDate(end)}.` : null;
+  if (range === null) estimate = option === 'from' ? 'Pick a date before today.' : null;
   else if (plan && !nothingToDo && plan.requests === 0) estimate = 'Already being downloaded';
   else if (plan) {
-    const parts = [planSummary(plan)];
+    const parts = tradingView || nothingToDo ? [] : [`From ${shortDate(plan.from)}`];
+    parts.push(planSummary(plan));
     if (!nothingToDo) parts.push(planDetail(plan));
     if (plan.approximate && !nothingToDo) parts.push('approximate');
     estimate = parts.join(' · ');
   } else if (planning) estimate = 'Estimating…';
+  // Where the stored 1-minute history starts, which "1 more month / year" count back from.
+  const stored = !tradingView && plan && plan.storedFrom != null ? plan.storedFrom : null;
 
   return (
     <div
@@ -206,7 +210,11 @@ export function DownloadPopup({
               <DownloadProgress key={line.id} jobId={line.id} initialJob={line} inline />
             </div>
           )}
-          {oldest === null && <div className={styles.note}>Nothing is stored for this market near today yet.</div>}
+          {stored !== null ? (
+            <div className={styles.note}>1-minute history is stored from {shortDate(stored)}, for every timeframe.</div>
+          ) : (
+            oldest === null && <div className={styles.note}>Nothing is stored for this market near today yet.</div>
+          )}
           {tradingView ? (
             <div className={styles.only}>Everything TradingView allows (all timeframes)</div>
           ) : (
@@ -236,7 +244,7 @@ export function DownloadPopup({
               aria-label="Download from"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              max={formatDay(end - DAY)}
+              max={formatDay(now - DAY)}
             />
           )}
           <div className={styles.estimate}>{estimate}</div>

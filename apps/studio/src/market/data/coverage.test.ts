@@ -9,7 +9,9 @@ import {
   coveredShare,
   jobsFor,
   leadJob,
+  marketCoverage,
   marketDomain,
+  marketSegments,
   normalize,
   planIdle,
   rangeText,
@@ -390,5 +392,94 @@ describe('tier gaps', () => {
 
   it('has nothing to say without an available range', () => {
     expect(tierGaps(tier({ intervals: [[utc(2003), utc(2004)]] }))).toEqual([]);
+  });
+});
+
+describe('one timeline per market', () => {
+  const minute = tier({
+    intervals: [
+      [utc(2020), utc(2021)],
+      [utc(2023), utc(2024)],
+    ],
+    empty: [[utc(2023, 6), utc(2023, 7)]],
+    available: [utc(2019), utc(2024)],
+    learnedStart: null,
+    bytes: 900,
+  });
+  const eurusd = item({
+    sources: [
+      // An hourly tier an older summary still sends is never drawn: every timeframe reads 1-minute data.
+      { source: 'dukascopy', key: 'eurusd', bytes: 1000, tiers: [minute, tier({ tier: 'h1', intervals: [[0, 1]] })] },
+      {
+        source: 'tradingview',
+        key: 'FX:EURUSD',
+        bytes: 50,
+        tiers: [
+          tier({ tier: '1h', intervals: [[utc(2021), utc(2021, 7)]] }),
+          tier({ tier: '1d', intervals: [[utc(2021, 5), utc(2022)]] }),
+        ],
+      },
+    ],
+  });
+
+  it('colours Dukascopy 1-minute data, and TradingView bars only where Dukascopy has not downloaded', () => {
+    const segs = marketSegments(eurusd, [utc(2019), utc(2024)]);
+    expect(segs.map((seg) => [seg.kind, seg.source ?? null, seg.from, seg.to])).toEqual([
+      ['gap', null, utc(2019), utc(2020)],
+      ['data', 'dukascopy', utc(2020), utc(2021)],
+      // Both TradingView timeframes, merged: timeframes are not separate rows.
+      ['data', 'tradingview', utc(2021), utc(2022)],
+      ['gap', null, utc(2022), utc(2023)],
+      ['data', 'dukascopy', utc(2023), utc(2023, 6)],
+      ['empty', null, utc(2023, 6), utc(2023, 7)],
+      ['data', 'dukascopy', utc(2023, 7), utc(2024)],
+    ]);
+  });
+
+  it('folds tiny runs by the source holding most of them, never mixing sources in one segment', () => {
+    const tiny: Segment[] = [
+      { kind: 'data', from: 0, to: 3, source: 'dukascopy' },
+      { kind: 'data', from: 3, to: 4, source: 'tradingview' },
+      { kind: 'empty', from: 4, to: 5 },
+      { kind: 'data', from: 5, to: 100, source: 'tradingview' },
+    ];
+    expect(simplify(tiny, 10)).toEqual([
+      { kind: 'data', from: 0, to: 5, source: 'dukascopy' },
+      { kind: 'data', from: 5, to: 100, source: 'tradingview' },
+    ]);
+  });
+
+  it("measures a market's gaps on its whole history", () => {
+    const cov = marketCoverage(eurusd)!;
+    expect(cov.available).toEqual([utc(2019), utc(2024)]);
+    expect(tierGaps(cov)).toEqual([
+      [utc(2019), utc(2020)],
+      [utc(2022), utc(2023)],
+    ]);
+    expect(cov.bytes).toBe(1050);
+  });
+
+  it('draws a market only TradingView serves from where its stored timelines start', () => {
+    const aapl = item({
+      market: 'NASDAQ:AAPL',
+      sources: [
+        {
+          source: 'tradingview',
+          key: 'NASDAQ:AAPL',
+          bytes: 70,
+          tiers: [
+            tier({ tier: '1m', intervals: [[utc(2026, 9), utc(2026, 10)]], available: [utc(2026, 9), utc(2026, 10)] }),
+            tier({ tier: '1d', intervals: [[utc(2006), utc(2026, 10)]], available: [utc(2006), utc(2026, 10)] }),
+          ],
+        },
+      ],
+    });
+    const cov = marketCoverage(aapl)!;
+    expect(cov.available).toEqual([utc(2006), utc(2026, 10)]);
+    expect(tierGaps(cov)).toEqual([]);
+    expect(marketSegments(aapl, [utc(2006), utc(2026, 10)])).toEqual([
+      { kind: 'data', from: utc(2006), to: utc(2026, 10), source: 'tradingview' },
+    ]);
+    expect(marketCoverage(item())).toBeNull();
   });
 });

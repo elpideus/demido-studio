@@ -2,7 +2,7 @@
 // items}`, `items` being the store's summary as it was when the tool ran (see MarketCoverageItem).
 
 import type { MarketCoverageItem, MarketJob, MarketSource, MarketTierCoverage, ToolDisplay } from '@/lib/types';
-import { rangeText, tierGaps, type Range } from '@/market/data/coverage';
+import { marketCoverage, rangeText, tierGaps, type Range } from '@/market/data/coverage';
 
 export interface DataStatusView {
   /** The market asked about; null when the tool listed everything. */
@@ -66,18 +66,11 @@ export function dataStatusView(d: ToolDisplay): DataStatusView {
   };
 }
 
-/** One tier's missing stretches, for the line under a market's timelines. */
-export interface TierGaps {
-  source: MarketSource;
-  tier: string;
-  gaps: Range[];
-}
-
-/** Every tier of a market that has stretches left to download, in the market's source order. */
-export function marketGaps(item: MarketCoverageItem): TierGaps[] {
-  return item.sources.flatMap((s) =>
-    s.tiers.map((t) => ({ source: s.source, tier: t.tier, gaps: tierGaps(t) })).filter((t) => t.gaps.length > 0),
-  );
+/** The stretches a market has left to download, for the line under its timeline. Every timeframe is
+ *  built from the same 1-minute history, so they are the same whatever timeframe is looked at. */
+export function marketGaps(item: MarketCoverageItem): Range[] {
+  const coverage = marketCoverage(item);
+  return coverage ? tierGaps(coverage) : [];
 }
 
 /** "2 gaps: 4 May 2003 – 24 Sep 2025, 1 Feb 2013 – 28 Feb 2013"; past `max` ranges, "and 3 more". */

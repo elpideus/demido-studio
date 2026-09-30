@@ -3,28 +3,30 @@
 //
 // Routing: a symbol's history comes from Dukascopy when it maps to a Dukascopy instrument that is not
 // a stock/ETF CFD, else from TradingView.
-// Dukascopy plans count, per tier, the buckets in [max(from, effective start), min(to, now)) that are
-// missing: not fetched, not provisional, not unavailable, and not queued by another running job
-// (those are `queuedAhead`). m1 weekend days with no h1 bars inside a non-empty final h1 month are
-// inferred empty without a request. A provisional copy due for its one re-fetch (a day stored while
-// still open) is missing too, as a job counts it; an active bucket and a provisional one not yet due
-// count as covered. Estimates use the fetcher's learned rate and rolling bytes per bucket.
+// Dukascopy history is 1-minute candles only (every timeframe is built from them, see series.ts), so a
+// Dukascopy plan is always the m1 tier, whatever timeframe asked. It counts the days in
+// [max(from, m1's effective start), min(to, now)) that are missing: not fetched, not provisional, not
+// unavailable, and not queued by another running job (those are `queuedAhead`). A provisional copy
+// due for its one re-fetch (a day stored while still open) is missing too, as a job counts it; an
+// active bucket and a provisional one not yet due count as covered. Estimates use the fetcher's
+// learned rate and rolling bytes per bucket. `back` ('month' | 'year') sets `from` to that much before
+// the stored 1-minute history (where its newest stretch starts, gaps shorter than two months bridged:
+// the download fills them anyway; now when nothing is stored): the chart's "1 more month / year", the
+// same whatever timeframe the chart shows.
 // TradingView plans are pages per timeframe until TradingView's history runs out, and for a timeframe
 // that reached its start once, pages for the holes between its stored runs: approximate.
 //
 // API (class Planner):
-//   plan({symbol, from?, to?, tiers?}, {exclude?}) -> Plan
-//   inferableDays(instrument, days) -> the m1 days (starts) that are known empty from h1
-//   recordInferred(instrument, days)       stores them as fetched-empty m1 buckets
-//   interactive(symbol, tf, from, to, max) -> [{tier, start}] newest first: what a read of [from, to)
-//       needs fetched to be covered for tf (coarsest usable tier first), plus stale/due buckets of the
-//       tier it reads; inferable weekend days are recorded instead of returned
+//   plan({symbol, from?, back?, to?, tiers?}, {exclude?}) -> Plan   (tiers only matter to TradingView)
+//   storedFrom(instrument) -> start of the newest stretch of stored 1-minute history, or null
+//   interactive(symbol, tf, from, to, max) -> [{tier, start}] newest first: the m1 days a read of
+//       [from, to) needs fetched to be covered, plus its stale or due ones
 //   containing(source, key, from, to, tiers, exclude?) -> the unfinished job covering that range (a
 //       TradingView job covers any `from`: it pages back to TradingView's start)
 // Also exported: TV_TIMEFRAMES, isWeekendDay, tvHoles(series, tv, key, tf) (holes between stored runs).
 
 import { TIMEFRAMES, type Timeframe } from '../timeframes.ts';
-import { TIERS, type Tier, bucketStart, bucketsIn, isActive, isTier, nextBucket } from './buckets.ts';
+import { type Tier, bucketStart, bucketsIn, isActive } from './buckets.ts';
 import { type DukascopyStore } from './dukascopy-store.ts';
 import { type Fetcher } from './fetcher.ts';
 import { IntervalSet, type Range } from './intervals.ts';
@@ -40,13 +42,19 @@ const TV_BYTES_PER_PAGE = TV_PAGE_BARS * 70;
 /** A weekend m1 day that still has to be asked for is nearly always an empty answer. */
 const WEEKEND_BYTES = 140;
 const DAY = 86400;
+/** Gaps in the stored history shorter than this do not end its newest stretch (see storedFrom). */
+export const BRIDGE_SECONDS = 60 * DAY;
 const FAR = 1e11;
 
 export type JobStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'done' | 'error';
 
+export type Back = 'month' | 'year';
+
 export interface PlanParams {
   symbol: string;
   from?: number;
+  /** Instead of `from`: this much before the stored 1-minute history (Dukascopy only). */
+  back?: Back;
   to?: number;
   tiers?: string[];
 }
@@ -73,6 +81,8 @@ export interface Plan {
   approximate: boolean;
   perTier: PlanTier[];
   job: { id: string; status: JobStatus } | null;
+  /** Dukascopy: where the newest stretch of stored 1-minute history starts (null: nothing stored). */
+  storedFrom: number | null;
 }
 
 /** What the planner needs to know about unfinished jobs. */
@@ -103,6 +113,18 @@ export interface PlannerDeps {
   /** Unfinished jobs (every status but done). */
   jobs?: () => JobView[];
   now?: () => number;
+}
+
+/** The UTC day `back` before `t` (a month or a year earlier, the same day of the month when it exists). */
+export function backFrom(t: number, back: Back): number {
+  const d = new Date(Math.floor(t / DAY) * DAY * 1000);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  if (back === 'year') d.setUTCFullYear(d.getUTCFullYear() - 1);
+  else d.setUTCMonth(d.getUTCMonth() - 1);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return Math.floor(d.getTime() / 1000);
 }
 
 const weekday = (t: number) => (((Math.floor(t / DAY) + 4) % 7) + 7) % 7;
@@ -159,41 +181,48 @@ export class Planner {
       : this.#tradingview(route.key, p, opts.exclude);
   }
 
+  /** Where the newest stretch of stored 1-minute history starts: fetched days (empty ones included)
+   *  and days the source refuses, back from the newest one, over gaps shorter than BRIDGE_SECONDS (a
+   *  day the chart fetched today after a few weeks away does not make the history start today). Null
+   *  when nothing is stored. */
+  storedFrom(instrument: string): number | null {
+    const sets = this.#d.store.sets(instrument, 'm1');
+    const runs = [...sets.covered.union(sets.unavailable)];
+    let i = runs.length - 1;
+    if (i < 0) return null;
+    while (i > 0 && runs[i]![0] - runs[i - 1]![1] < BRIDGE_SECONDS) i -= 1;
+    return runs[i]![0];
+  }
+
   async #dukascopy(instrument: string, name: string, p: PlanParams, exclude?: string): Promise<Plan> {
     const { store, fetcher } = this.#d;
     const now = this.#now();
-    const asked = (p.tiers ?? []).filter(isTier);
-    const tiers = asked.length ? TIERS.filter((t) => asked.includes(t)) : [...TIERS];
-    const starts = tiers.map((t) => store.effectiveStart(instrument, t)).filter((t): t is number => t !== null);
-    const planFrom = p.from ?? (starts.length ? Math.min(...starts) : now);
+    const tier: Tier = 'm1';
+    const eff = store.effectiveStart(instrument, tier);
+    const storedFrom = this.storedFrom(instrument);
+    let planFrom = p.from ?? (p.back ? backFrom(storedFrom ?? now, p.back) : (eff ?? now));
+    if (p.back && eff !== null) planFrom = Math.max(planFrom, eff);
     const planTo = Math.min(p.to ?? now, now);
     // Buckets other moving jobs will fetch anyway.
     const others = this.#jobs().filter(
       (j) => j.id !== exclude && j.source === 'dukascopy' && j.key === instrument && MOVING.has(j.status),
     );
-    const perTier: PlanTier[] = [];
     let requests = 0;
     let queuedAhead = 0;
     let bytes = 0;
-    for (const tier of tiers) {
-      const eff = store.effectiveStart(instrument, tier);
-      const from = Math.max(planFrom, eff ?? FAR);
-      const to = planTo;
-      if (eff === null || !(to > from)) {
-        perTier.push({ tier, from: Math.min(from, to), to, requests: 0 });
-        continue;
-      }
+    const from = Math.max(planFrom, eff ?? FAR);
+    const to = planTo;
+    let perTier: PlanTier;
+    if (eff === null || !(to > from)) {
+      perTier = { tier, from: Math.min(from, to), to, requests: 0 };
+    } else {
       const queued = new IntervalSet();
       for (const j of others) {
         if (j.tiers.includes(tier)) queued.add(j.from, j.openEnd ? Math.max(j.to, now) : j.to);
       }
       let missing = store.missingBuckets(instrument, tier, from, to);
-      if (tier === 'm1') {
-        const inferred = await this.inferableDays(instrument, missing);
-        missing = missing.filter((b) => !inferred.has(b));
-      }
       // Due provisional copies are work too (jobs.ts plans them the same way): until re-fetched the
-      // bucket stays partial, so the range is not complete.
+      // day stays partial, so the range is not complete.
       const first = bucketStart(tier, from);
       for (const b of store.dueBuckets(instrument, tier, now)) {
         if (b >= first && b < to && !isActive(tier, b, now)) missing.push(b);
@@ -201,32 +230,33 @@ export class Planner {
       const ahead = missing.filter((b) => queued.contains(b));
       missing = missing.filter((b) => !queued.contains(b));
       const perBucket = fetcher.tierStats(tier).bytesPerBucket;
-      for (const b of missing) bytes += tier === 'm1' && isWeekendDay(b) ? WEEKEND_BYTES : perBucket;
-      requests += missing.length;
-      queuedAhead += ahead.length;
-      perTier.push({ tier, from, to, requests: missing.length });
+      for (const b of missing) bytes += isWeekendDay(b) ? WEEKEND_BYTES : perBucket;
+      requests = missing.length;
+      queuedAhead = ahead.length;
+      perTier = { tier, from, to, requests };
     }
     const backlog = Math.max(
       fetcher.backlog('bulk'),
       others.reduce((sum, j) => sum + j.remaining, 0),
     );
     const rate = Math.max(fetcher.effectiveRate(), 0.01);
-    const job = this.containing('dukascopy', instrument, planFrom, planTo, tiers, exclude);
+    const job = this.containing('dukascopy', instrument, planFrom, planTo, [tier], exclude);
     return {
       source: 'dukascopy',
       key: instrument,
       name,
       from: planFrom,
       to: planTo,
-      tiers,
+      tiers: [tier],
       requests,
       bytes: Math.round(bytes),
       seconds: requests === 0 ? 0 : Math.ceil((requests + backlog) / rate),
       queuedAhead,
       complete: requests === 0 && queuedAhead === 0,
       approximate: false,
-      perTier,
+      perTier: [perTier],
       job: job ? { id: job.id, status: job.status } : null,
+      storedFrom,
     };
   }
 
@@ -273,44 +303,8 @@ export class Planner {
       approximate: true,
       perTier,
       job: job ? { id: job.id, status: job.status } : null,
+      storedFrom: null,
     };
-  }
-
-  /** m1 weekend days with no h1 bars inside a final, non-empty h1 month: known empty without asking. */
-  async inferableDays(instrument: string, days: readonly number[]): Promise<Set<number>> {
-    const { store } = this.#d;
-    const out = new Set<number>();
-    const byMonth = new Map<number, number[]>();
-    for (const day of days) {
-      if (!isWeekendDay(day)) continue;
-      const month = bucketStart('h1', day);
-      const list = byMonth.get(month);
-      if (list) list.push(day);
-      else byMonth.set(month, [day]);
-    }
-    if (byMonth.size === 0) return out;
-    const h1 = store.sets(instrument, 'h1');
-    for (const [month, list] of byMonth) {
-      // Never from an empty h1 month (coarse tiers have holes), nor a provisional one (days after its
-      // build would look empty).
-      if (!h1.fetched.contains(month) || h1.empty.contains(month)) continue;
-      const bars = await store.readNative(instrument, 'h1', month, nextBucket('h1', month));
-      if (bars.length === 0) continue;
-      const traded = new Set(bars.map((b) => Math.floor(b.t / DAY)));
-      for (const day of list) if (!traded.has(Math.floor(day / DAY))) out.add(day);
-    }
-    return out;
-  }
-
-  async recordInferred(instrument: string, days: Iterable<number>): Promise<number> {
-    const now = this.#now();
-    let n = 0;
-    for (const day of days) {
-      if (this.#d.store.status(instrument, 'm1', day) !== 'missing') continue;
-      await this.#d.store.put(instrument, 'm1', day, null, { builtAt: now, final: true });
-      n += 1;
-    }
-    return n;
   }
 
   /** What reading [from, to) at tf needs fetched: see the header. */
@@ -345,15 +339,7 @@ export class Planner {
         for (const b of bucketsIn(tier, f, t))
           if (!sets.covered.contains(b) && !sets.unavailable.contains(b)) missing.push(b);
       }
-      let ask = missing;
-      if (tier === 'm1') {
-        const inferred = await this.inferableDays(instrument, missing);
-        if (inferred.size) {
-          await this.recordInferred(instrument, inferred);
-          ask = missing.filter((b) => !inferred.has(b));
-        }
-      }
-      for (const b of ask) push(tier, b);
+      for (const b of missing) push(tier, b);
       uncovered = uncovered.minus(want);
     }
     // Refresh what the read will show: stale active and due provisional buckets of the tier it reads.

@@ -168,17 +168,17 @@ describe('downloads in the toolbar and popup', () => {
   const strip = { from: utc('2025-07-27T00:00:00Z'), to: utc('2025-09-25T00:00:00Z'), source: 'dukascopy' as const };
 
   it('keeps the picker and the Download button while the only download is paused', () => {
-    const view = chartJobs([paused], gap, '1m', 60);
+    const view = chartJobs([paused], gap, '1m');
     expect(view).toEqual({ lead: paused, moving: false, covering: null, other: paused });
     // Even a paused job that does contain the gap fills nothing until resumed.
-    expect(chartJobs([paused], strip, '1m', 60).covering).toBeNull();
+    expect(chartJobs([paused], strip, '1m').covering).toBeNull();
     const failed = job({ ...gbpchf, id: 'e', status: 'error', from: 0, to: gap.to + 1 });
-    expect(chartJobs([failed], gap, '1m', 60)).toMatchObject({ moving: false, covering: null, other: failed });
+    expect(chartJobs([failed], gap, '1m')).toMatchObject({ moving: false, covering: null, other: failed });
   });
 
   it('lets a moving download replace the picker only when it already fetches the whole gap', () => {
     const everything = job({ ...gbpchf, id: 'all', status: 'running', from: gap.from, to: gap.to + hour });
-    expect(chartJobs([everything], gap, '1m', 60)).toEqual({
+    expect(chartJobs([everything], gap, '1m')).toEqual({
       lead: everything,
       moving: true,
       covering: everything,
@@ -186,26 +186,22 @@ describe('downloads in the toolbar and popup', () => {
     });
     // Over another range: it moves (the toolbar shows it) but the picker stays, with the job above it.
     const running = { ...paused, id: 'r', status: 'running' as const };
-    expect(chartJobs([running], gap, '1m', 60)).toEqual({
+    expect(chartJobs([running], gap, '1m')).toEqual({
       lead: running,
       moving: true,
       covering: null,
       other: running,
     });
-    expect(coveringJob([running], null, '1m', 60)).toBeNull();
+    expect(coveringJob([running], null, '1m')).toBeNull();
   });
 
-  it('counts only the detail that serves the timeframe', () => {
-    const hourly = job({ id: 'h', status: 'running', tiers: ['h1'], from: gap.from, to: gap.to });
-    expect(coveringJob([hourly], gap, '1m', 60)).toBeNull();
-    expect(coveringJob([hourly], gap, '4h', 4 * hour)?.id).toBe('h');
-    const daily = job({ id: 'd', status: 'queued', tiers: ['d1'], from: gap.from, to: gap.to });
-    expect(coveringJob([daily], gap, '1h', hour)).toBeNull();
-    expect(coveringJob([daily], gap, '1d', 86_400)?.id).toBe('d');
+  it('a Dukascopy download serves every timeframe; a TradingView one only the timeframes it pages', () => {
+    const minutes = job({ id: 'm', status: 'running', tiers: ['m1'], from: gap.from, to: gap.to });
+    for (const tf of ['1m', '1h', '4h', '1d']) expect(coveringJob([minutes], gap, tf)?.id).toBe('m');
     const tv = job({ id: 't', source: 'tradingview', status: 'running', tiers: ['1h'], from: 0, to: gap.to });
-    expect(coveringJob([tv], gap, '1h', hour)).toBeNull();
-    expect(coveringJob([tv], { ...gap, source: 'tradingview' }, '1h', hour)?.id).toBe('t');
-    expect(coveringJob([tv], { ...gap, source: 'tradingview' }, '1d', 86_400)).toBeNull();
+    expect(coveringJob([tv], gap, '1h')).toBeNull();
+    expect(coveringJob([tv], { ...gap, source: 'tradingview' }, '1h')?.id).toBe('t');
+    expect(coveringJob([tv], { ...gap, source: 'tradingview' }, '1d')).toBeNull();
   });
 });
 
@@ -239,7 +235,7 @@ describe('latestView', () => {
 describe('popup ranges', () => {
   const oldest = utc('2024-03-31T00:00:00Z');
   const now = utc('2026-09-26T12:00:00Z');
-  const ctx = { oldest, gap: null, fromDate: '', now };
+  const ctx = { gap: null, fromDate: '', now };
 
   it('moves by calendar months in UTC, clamping to the month end', () => {
     expect(shiftMonths(oldest, -1)).toBe(utc('2024-02-29T00:00:00Z'));
@@ -247,30 +243,27 @@ describe('popup ranges', () => {
     expect(shiftMonths(utc('2024-01-15T06:30:00Z'), -1)).toBe(utc('2023-12-15T06:30:00Z'));
   });
 
-  it('ends month, year and from-date at the oldest bar; Everything has no bounds', () => {
-    expect(optionRange('month', ctx)).toEqual({ from: utc('2024-02-29T00:00:00Z'), to: oldest });
-    expect(optionRange('year', ctx)).toEqual({ from: utc('2023-03-31T00:00:00Z'), to: oldest });
+  it('reach now and never depend on the chart: month and year count from the stored 1-minute history', () => {
+    expect(optionRange('month', ctx)).toEqual({ back: 'month' });
+    expect(optionRange('year', ctx)).toEqual({ back: 'year' });
     expect(optionRange('all', ctx)).toEqual({});
-    expect(optionRange('from', { ...ctx, fromDate: '2020-01-01' })).toEqual({
-      from: utc('2020-01-01T00:00:00Z'),
-      to: oldest,
-    });
+    expect(optionRange('from', { ...ctx, fromDate: '2020-01-01' })).toEqual({ from: utc('2020-01-01T00:00:00Z') });
+    // No range has an end: the download reaches today, filling whatever is missing on the way.
+    for (const option of ['month', 'year', 'all', 'from'] as const) {
+      expect(optionRange(option, { ...ctx, fromDate: '2020-01-01' })?.to).toBeUndefined();
+    }
   });
 
-  it('refuses a from-date that is missing or not before the oldest bar', () => {
+  it('refuses a from-date that is missing or not in the past', () => {
     expect(optionRange('from', ctx)).toBeNull();
-    expect(optionRange('from', { ...ctx, fromDate: '2024-04-02' })).toBeNull();
+    expect(optionRange('from', { ...ctx, fromDate: '2026-09-27' })).toBeNull();
     expect(optionRange('from', { ...ctx, fromDate: 'soon' })).toBeNull();
   });
 
-  it('fills exactly the gap when the store knows it', () => {
+  it('fills the gap and everything after it up to now', () => {
     const gap = { from: utc('2019-03-12T00:00:00Z'), to: oldest, source: 'dukascopy' as const };
-    expect(optionRange('gap', { ...ctx, gap })).toEqual({ from: gap.from, to: gap.to });
+    expect(optionRange('gap', { ...ctx, gap })).toEqual({ from: gap.from });
     expect(optionRange('gap', ctx)).toBeNull();
-  });
-
-  it('counts back from now when the chart has no bars', () => {
-    expect(optionRange('month', { ...ctx, oldest: null })).toEqual({ from: shiftMonths(now, -1), to: now });
   });
 
   it('reads and writes UTC days', () => {

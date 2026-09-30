@@ -1,25 +1,30 @@
-// One tier's timeline in a market's Data row: stored time in the source's colour, time the source
-// has nothing for hatched, time not downloaded blank. Hovering reads out the dates under the pointer.
+// A market's history on one timeline, in the Data tab and in the assistant's data-status card.
+// History is 1-minute candles and every timeframe is built from them, so there is one row per market,
+// never one per timeframe: stored time in its source's colour (Dukascopy, or TradingView where only
+// TradingView has bars), time the source has nothing for hatched, time not downloaded blank.
+// Hovering reads out the dates under the pointer.
 
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { cx, formatBytes } from '@demido/ui';
 
-import type { MarketSource, MarketTierCoverage } from '@/lib/types';
-import { SOURCE_NAMES, tierLabel } from '../DownloadProgress';
+import type { MarketCoverageItem, MarketSource } from '@/lib/types';
+import { SOURCE_NAMES } from '../DownloadProgress';
 import {
   axisTicks,
   coveredShare,
   formatDay,
+  marketCoverage,
+  marketSegments,
+  minuteTier,
   pct,
   rangeText,
   segmentAt,
-  segmentsOf,
   shareText,
   simplify,
   tierSpan,
   type Range,
-  type SegmentKind,
+  type Segment,
 } from './coverage';
 import palette from './sources.module.css';
 import styles from './Timeline.module.css';
@@ -30,14 +35,13 @@ const RESOLUTION = 480;
 // How near (px) the pointer has to be to the learned-start marker for the readout to explain it.
 const MARKER_SLOP = 5;
 
-const KIND_TEXT: Record<SegmentKind, string> = { data: 'Stored', empty: 'No data at source', gap: 'Not downloaded' };
-const FILL: Record<SegmentKind, string | undefined> = {
+const FILL: Record<Segment['kind'], string | undefined> = {
   data: palette.fillData,
   empty: palette.fillEmpty,
   gap: palette.fillGap,
 };
 
-type ReadoutKind = SegmentKind | 'learned' | 'outside';
+type ReadoutKind = Segment['kind'] | 'learned' | 'outside';
 
 interface Hover {
   /** Pointer position inside the track, px. */
@@ -50,6 +54,7 @@ interface Hover {
 
 interface ReadoutText {
   kind: ReadoutKind;
+  source?: MarketSource;
   title: string;
   body: string;
 }
@@ -59,24 +64,26 @@ const place = (from: number, to: number, within: Range): CSSProperties => ({
   width: `${pct(to, within) - pct(from, within)}%`,
 });
 
-export interface TierTimelineProps {
-  source: MarketSource;
-  tier: MarketTierCoverage;
-  /** The market's shared axis. */
+export interface MarketTimelineProps {
+  item: MarketCoverageItem;
+  /** The axis, shared with the row's TimelineAxis. */
   domain: Range;
 }
 
-export function TierTimeline({ source, tier, domain }: TierTimelineProps) {
+export function MarketTimeline({ item, domain }: MarketTimelineProps) {
   const [hover, setHover] = useState<Hover | null>(null);
-  const span = useMemo(() => tierSpan(tier), [tier]);
+  const coverage = useMemo(() => marketCoverage(item), [item]);
+  const span = useMemo(() => (coverage ? tierSpan(coverage) : null), [coverage]);
   const segments = useMemo(
-    () => (span ? simplify(segmentsOf(tier, span), (domain[1] - domain[0]) / RESOLUTION) : []),
-    [tier, span, domain],
+    () => (span ? simplify(marketSegments(item, span), (domain[1] - domain[0]) / RESOLUTION) : []),
+    [item, span, domain],
   );
-  const label = tierLabel(tier.tier);
-  const share = span ? coveredShare(tier, span) : 0;
+  const minute = minuteTier(item);
+  // Where the history comes from is Dukascopy's 1-minute candles, else TradingView's bars.
+  const label = minute ? '1-minute' : 'TradingView';
+  const share = coverage && span ? coveredShare(coverage, span) : 0;
   // Learned starts exist only for Dukascopy: its metadata can claim older data than it serves.
-  const learned = source === 'dukascopy' && typeof tier.learnedStart === 'number' ? tier.learnedStart : null;
+  const learned = typeof minute?.learnedStart === 'number' ? minute.learnedStart : null;
 
   const readout = (h: Hover): ReadoutText => {
     const t = domain[0] + (h.x / h.width) * (domain[1] - domain[0]);
@@ -84,35 +91,47 @@ export function TierTimeline({ source, tier, domain }: TierTimelineProps) {
       return {
         kind: 'learned',
         title: 'Data seems to start here',
-        body: `${formatDay(learned)}. Older ${label} files came back empty, so they were skipped.`,
+        body: `${formatDay(learned)}. Older 1-minute files came back empty, so they were skipped.`,
       };
     }
-    if (!span) return { kind: 'outside', title: 'Nothing stored', body: `${SOURCE_NAMES[source]} ${label}` };
+    if (!span) return { kind: 'outside', title: 'Nothing stored', body: item.name };
     if (t < span[0]) {
       return {
         kind: 'outside',
-        title: `Before the ${label} data`,
-        body:
-          source === 'dukascopy'
-            ? `Dukascopy has ${label} data from ${formatDay(span[0])}`
-            : `The TradingView ${label} timeline starts ${formatDay(span[0])}`,
+        title: 'Before the history',
+        body: minute
+          ? `Dukascopy has 1-minute data from ${formatDay(span[0])}`
+          : `TradingView's stored history starts ${formatDay(span[0])}`,
       };
     }
     const seg = segmentAt(segments, t);
     if (!seg) return { kind: 'outside', title: 'Nothing later yet', body: `Up to ${formatDay(span[1] - 1)}` };
-    return { kind: seg.kind, title: KIND_TEXT[seg.kind], body: rangeText(seg.from, seg.to) };
+    if (seg.kind === 'data') {
+      const source = seg.source ?? (minute ? 'dukascopy' : 'tradingview');
+      return {
+        kind: 'data',
+        source,
+        title: `Stored · ${SOURCE_NAMES[source]}`,
+        body: rangeText(seg.from, seg.to),
+      };
+    }
+    return {
+      kind: seg.kind,
+      title: seg.kind === 'empty' ? 'No data at source' : 'Not downloaded',
+      body: rangeText(seg.from, seg.to),
+    };
   };
 
   return (
-    <div className={styles.row} data-source={source}>
-      <span className={styles.label} title={`${SOURCE_NAMES[source]} ${label}`}>
+    <div className={styles.row}>
+      <span className={styles.label} title={minute ? '1-minute history: every timeframe is built from it' : label}>
         {label}
       </span>
       {span ? (
         <div
           className={styles.track}
           role="img"
-          aria-label={`${label}: ${shareText(share)} downloaded between ${rangeText(span[0], span[1])}`}
+          aria-label={`${item.name}: ${shareText(share)} downloaded between ${rangeText(span[0], span[1])}`}
           onPointerMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             if (r.width <= 0) return;
@@ -127,6 +146,7 @@ export function TierTimeline({ source, tier, domain }: TierTimelineProps) {
             {segments.map((seg) => (
               <div
                 key={seg.from}
+                data-source={seg.kind === 'data' ? (seg.source ?? (minute ? 'dukascopy' : 'tradingview')) : undefined}
                 className={cx(styles.seg, FILL[seg.kind], seg.kind === 'gap' && styles.gap)}
                 style={place(seg.from, seg.to, span)}
               />
@@ -136,7 +156,7 @@ export function TierTimeline({ source, tier, domain }: TierTimelineProps) {
           {hover && (
             <>
               <div className={styles.cursor} style={{ left: hover.x }} />
-              <Readout hover={hover} source={source} text={readout(hover)} />
+              <Readout hover={hover} text={readout(hover)} />
             </>
           )}
         </div>
@@ -144,12 +164,12 @@ export function TierTimeline({ source, tier, domain }: TierTimelineProps) {
         <span className={styles.nothing}>Nothing stored</span>
       )}
       <span className={styles.share}>{span ? shareText(share) : ''}</span>
-      <span className={styles.bytes}>{tier.bytes > 0 ? formatBytes(tier.bytes) : ''}</span>
+      <span className={styles.bytes}>{coverage && coverage.bytes > 0 ? formatBytes(coverage.bytes) : ''}</span>
     </div>
   );
 }
 
-/** Round dates under the tracks of one market. */
+/** Round dates under a market's timeline. */
 export function TimelineAxis({ domain }: { domain: Range }) {
   // Labels right at an edge would hang out of the axis.
   const ticks = axisTicks(domain[0], domain[1]).filter((t) => {
@@ -176,7 +196,7 @@ function keyClass(kind: ReadoutKind): string | undefined {
 }
 
 // Above the track, or below it near the top of the screen; kept inside the window horizontally.
-function Readout({ hover, source, text }: { hover: Hover; source: MarketSource; text: ReadoutText }) {
+function Readout({ hover, text }: { hover: Hover; text: ReadoutText }) {
   const ref = useRef<HTMLDivElement>(null);
   const [left, setLeft] = useState<number | null>(null);
   const below = hover.top < 72;
@@ -190,7 +210,7 @@ function Readout({ hover, source, text }: { hover: Hover; source: MarketSource; 
     <div
       ref={ref}
       role="tooltip"
-      data-source={source}
+      data-source={text.source}
       className={cx(palette.palette, styles.readout, !below && styles.above)}
       style={{ top: below ? hover.bottom + 6 : hover.top - 6, left: left ?? -9999 }}
     >

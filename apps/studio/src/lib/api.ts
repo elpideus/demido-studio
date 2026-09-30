@@ -164,6 +164,7 @@ export const api = {
     invoke<MarketPlan>('market_download_plan', {
       symbol,
       from: range.from ?? null,
+      back: range.back ?? null,
       to: range.to ?? null,
       tiers: range.tiers ?? null,
     }),
@@ -172,6 +173,7 @@ export const api = {
     invoke<{ jobId: string; plan: MarketPlan }>('market_download_start', {
       symbol,
       from: range.from ?? null,
+      back: range.back ?? null,
       to: range.to ?? null,
       tiers: range.tiers ?? null,
       origin,

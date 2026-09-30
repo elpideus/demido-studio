@@ -1,27 +1,28 @@
-// One market in the Data tab: its sources and size, expanding to a coverage timeline per tier and
-// the actions that fill or clear it.
+// One market in the Data tab: its sources and size, expanding to its coverage timeline (one for the
+// whole market: every timeframe is built from the same 1-minute history) and the actions that fill
+// or clear it.
 
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChartCandlestick, ChevronRight, Download, History, Trash2 } from 'lucide-react';
 import { Button, Dialog, Notice, cx, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
-import type { MarketCoverageItem, MarketJob, MarketPlan, MarketTierCoverage } from '@/lib/types';
+import type { MarketCoverageItem, MarketJob, MarketPlan } from '@/lib/types';
 import { toast } from '@/stores/toasts';
-import { DownloadProgress, SOURCE_NAMES, tierLabel } from '../DownloadProgress';
+import { DownloadProgress, SOURCE_NAMES } from '../DownloadProgress';
 import {
   chartSymbol,
   formatDay,
   leadJob,
   marketBytes,
   marketDomain,
+  minuteTier,
   monthRangeText,
   sortSources,
-  sortTiers,
   storedExtent,
 } from './coverage';
+import { MarketTimeline, TimelineAxis } from './MarketTimeline';
 import { PlanPanel } from './PlanPanel';
-import { TierTimeline, TimelineAxis } from './TierTimeline';
 import palette from './sources.module.css';
 import styles from './DataTab.module.css';
 import timeline from './Timeline.module.css';
@@ -55,20 +56,15 @@ export function MarketRow({ item, jobs, expanded, onToggle, onOpenChart, onChang
 
   const domain = useMemo(() => marketDomain(item), [item]);
   const extent = useMemo(() => storedExtent(item), [item]);
-  const sources = useMemo(
-    () => sortSources(item.sources).map((s) => ({ ...s, tiers: sortTiers(s.source, s.tiers) })),
-    [item],
-  );
+  const sources = useMemo(() => sortSources(item.sources), [item]);
   // A market can hold several TradingView symbols (FX:EURUSD, OANDA:EURUSD); name each source once.
   const sourceNames = [...new Set(sources.map((s) => s.source))];
   const bytes = marketBytes(item);
   const lead = leadJob(jobs);
   const moving = jobs.some((j) => j.status === 'running' || j.status === 'queued' || j.status === 'waiting');
   const symbol = chartSymbol(item);
-  const learned = sources
-    .filter((s) => s.source === 'dukascopy')
-    .flatMap((s) => s.tiers)
-    .filter((t): t is MarketTierCoverage & { learnedStart: number } => typeof t.learnedStart === 'number');
+  const minute = minuteTier(item);
+  const learned = typeof minute?.learnedStart === 'number' ? minute.learnedStart : null;
   const meta = [
     item.symbols.join(', ') || item.market,
     extent ? monthRangeText(extent[0], extent[1]) : 'Nothing stored yet',
@@ -90,7 +86,7 @@ export function MarketRow({ item, jobs, expanded, onToggle, onOpenChart, onChang
     setStarting(true);
     setActionError(null);
     try {
-      // The same request as the plan: everything, every tier. Its progress shows under Downloads.
+      // The same request as the plan: everything, as 1-minute candles. Its progress shows under Downloads.
       const res = await api.marketStartDownload(symbol, {}, 'data');
       // Starting resumes a paused job that covers the range; one stopped by an error needs asking.
       if (plan?.job?.status === 'error' && res.jobId === plan.job.id) await api.marketResumeDownload(res.jobId);
@@ -169,33 +165,34 @@ export function MarketRow({ item, jobs, expanded, onToggle, onOpenChart, onChang
         <div className={styles.marketBody}>
           {domain ? (
             <div className={timeline.timelines}>
-              {sources.map((s) => (
-                <Fragment key={`${s.source}:${s.key}`}>
-                  <div className={timeline.sourceHead} data-source={s.source}>
+              <div className={timeline.sourceHead}>
+                {sources.map((s) => (
+                  <span key={`${s.source}:${s.key}`} className={timeline.sourceItem} data-source={s.source}>
                     <span className={palette.dot} aria-hidden />
                     {SOURCE_NAMES[s.source]}
                     <span className={timeline.sourceBytes}>
                       {s.key} · {formatBytes(s.bytes)}
                     </span>
-                  </div>
-                  {s.tiers.map((t) => (
-                    <TierTimeline key={t.tier} source={s.source} tier={t} domain={domain} />
-                  ))}
-                </Fragment>
-              ))}
+                  </span>
+                ))}
+              </div>
+              <MarketTimeline item={item} domain={domain} />
               <TimelineAxis domain={domain} />
+              {!minute && (
+                <p className={timeline.timelineNote}>
+                  TradingView keeps 1-minute bars for recent weeks only; older history is kept at the detail it has.
+                </p>
+              )}
             </div>
           ) : (
             <p className={styles.muted}>Nothing is stored for this market yet.</p>
           )}
 
-          {learned.length > 0 && (
+          {learned !== null && (
             <div className={styles.learnedNote}>
               <span className={styles.learnedMark} aria-hidden />
               <span className={styles.learnedText}>
-                Dukascopy seemed to have no{' '}
-                {learned.map((t) => `${tierLabel(t.tier)} data before ${formatDay(t.learnedStart)}`).join(' and no ')},
-                so older files are skipped.
+                Dukascopy seemed to have no 1-minute data before {formatDay(learned)}, so older files are skipped.
               </span>
               <Button size="sm" variant="ghost" icon={History} loading={rechecking} onClick={() => void recheck()}>
                 Check for older data

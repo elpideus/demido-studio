@@ -2,25 +2,21 @@
 // several jobs may share a key, and the fetcher's bucket-level dedupe fetches a bucket once for
 // every job that wants it.
 //
-// - Dukascopy jobs re-plan from the manifest on every (re)start, so a resume never re-fetches, and
-//   feed the fetcher lazily (a window of 2 x in-flight of their next buckets, bulk lane). Order: d1,
-//   then h1 for the whole range (cheap; each is the coarser tier the next one's empty-streak check
-//   reads, and h1 makes m1 weekends inferable), then m1, newest first throughout.
-// - A run's plan is the buckets of its range the manifest lacks, plus provisional copies due for
-//   their one re-fetch (a day stored while it was still open). Every planned bucket that becomes
-//   covered while the job runs counts as done with its bytes, whoever fetched it (a boost, a chart,
-//   another job). m1 weekend days known empty from h1 leave the plan (they are not work), and buckets
-//   below a learned start are `skipped` (reported apart from `total`); nothing else leaves it undone.
-// - Empty streak (a backstop for bad metadata), armed once the tier returned a non-empty bucket in
-//   this walk: 20 consecutive empty weekday m1 buckets (h1: 3 months; d1: never) are checked against
-//   the coarser tier (h1 for m1, d1 for h1), walked back from the streak (fetching what nobody has)
-//   until it shows older data or reaches its own start. If it has data older than the streak, it is a
-//   hole: probe sparsely (one weekday a month; h1: one month a year). Where a probe finds data, walk
-//   densely again from just below the streak, so nothing the probes passed over is left out. If the
-//   probes reach the tier's start without data, the tier starts after the hole (learned start); if
-//   the range ends before that, or the coarser tier could not be read, the passed-over buckets are
-//   fetched after all. With the coarser tier known empty down to its start, the learned start is
-//   recorded with the evidence and older buckets are skipped.
+// - Dukascopy jobs download 1-minute candles only (the m1 tier: one bucket per UTC day), whatever
+//   timeframe asked for them: every timeframe is built from them, so one download serves them all.
+//   They re-plan from the manifest on every (re)start, so a resume never re-fetches, and feed the
+//   fetcher lazily (a window of 2 x in-flight of their next days, bulk lane), newest first.
+// - A run's plan is the days of its range the manifest lacks, plus provisional copies due for their
+//   one re-fetch (a day stored while it was still open). Every planned day that becomes covered while
+//   the job runs counts as done with its bytes, whoever fetched it (a boost, a chart, another job).
+//   Days below a learned start are `skipped` (reported apart from `total`); nothing else leaves the
+//   plan undone.
+// - Empty streak (a backstop for bad metadata), armed once the walk returned a non-empty day: 20
+//   consecutive empty weekdays start a sparse walk that asks for one weekday a month (the probes).
+//   Where a probe finds data, walk densely again from just below the streak, so nothing the probes
+//   passed over is left out. If the probes reach the tier's own start without data, history starts
+//   after the streak: the learned start is recorded with the evidence and older days are skipped. If
+//   the range ends before the tier's start, the passed-over days are fetched after all, as asked.
 // - TradingView jobs page back through every timeframe (one chart session each) until two
 //   consecutive empty pages, writing into the TradingView store as they go. A timeframe that already
 //   reached TradingView's start pages only its holes: from the run above each hole back until the
@@ -32,7 +28,7 @@
 //   must still resolve; `cancel` removes one (event `download.removed {jobId}`). Progress events at
 //   most 4 per second per job.
 //
-// API (class Jobs): load(), start({symbol, from?, to?, tiers?, origin}) -> {jobId, plan},
+// API (class Jobs): load(), start({symbol, from?, back?, to?, tiers?, origin}) -> {jobId, plan},
 //   pause(id), resume(id), cancel(id), get(id), list(symbol?), views() (for the planner),
 //   wait({symbol, tf, from, to, jobId?, timeoutMs, boost?}) -> {covered, status}, busy(market), close()
 
@@ -45,7 +41,7 @@ import { TIERS, type Tier, bucketKey, bucketStart, bucketsIn, isActive, nextBuck
 import { type DukascopyStore, type StoreChange, writeAtomic } from './dukascopy-store.ts';
 import { type FetchResult, type Fetcher, MAX_IN_FLIGHT } from './fetcher.ts';
 import { type Range } from './intervals.ts';
-import { type JobStatus, type JobView, type Plan, type Planner, TV_TIMEFRAMES, tvHoles } from './planner.ts';
+import { type Back, type JobStatus, type JobView, type Plan, type Planner, TV_TIMEFRAMES, tvHoles } from './planner.ts';
 import { type Series, type Source } from './series.ts';
 import { type TvStore } from './tv-store.ts';
 
@@ -119,6 +115,8 @@ export interface JobsDeps {
 export interface StartParams {
   symbol: string;
   from?: number;
+  /** Instead of `from`: that much before the stored 1-minute history (see planner.ts). */
+  back?: Back;
   to?: number;
   tiers?: string[];
   origin: Origin;
@@ -137,19 +135,17 @@ export interface WaitParams {
 }
 
 export const WINDOW = 2 * MAX_IN_FLIGHT;
-/** Consecutive empty weekday buckets (m1) or months (h1) that make the empty-streak check. */
-export const STREAK: Partial<Record<Tier, number>> = { m1: 20, h1: 3 };
+/** Consecutive empty weekdays that make the empty-streak check. */
+export const STREAK: Partial<Record<Tier, number>> = { m1: 20 };
 const PROGRESS_MS = 250;
 const RATE_WINDOW_MS = 30_000;
 const DAY = 86400;
-const FAR = 1e11;
 /** Shortest bucket length per tier, to tell a one-bucket store change from a wide one. */
 const MIN_BUCKET_SECONDS: Record<Tier, number> = { m1: DAY, h1: 28 * DAY, d1: 365 * DAY };
 const MOVING: ReadonlySet<JobStatus> = new Set(['queued', 'running', 'waiting']);
 
 const weekday = (t: number) => (((Math.floor(t / DAY) + 4) % 7) + 7) % 7;
 const isWeekday = (t: number) => weekday(t) !== 0 && weekday(t) !== 6;
-const coarserOf = (tier: Tier): Tier => (tier === 'm1' ? 'h1' : 'd1');
 const iso = (t: number) => new Date(t * 1000).toISOString();
 
 /** The one bucket per month (m1: the third-week Wednesday) or per year (h1: July) a sparse walk asks for. */
@@ -160,6 +156,23 @@ export function isProbe(tier: Tier, start: number): boolean {
 }
 
 const previousBucket = (tier: Tier, start: number) => bucketStart(tier, start - 1);
+
+/** A Dukascopy record from an earlier version may name hourly and daily tiers, which are no longer
+ *  kept: only its m1 part goes on. One that named no m1 has nothing left to do. */
+export function keepMinuteTier(r: JobRecord): void {
+  if (r.tiers.every((t) => t === 'm1')) return;
+  const coarse = r.perTier.filter((t) => t.tier !== 'm1');
+  r.tiers = r.tiers.filter((t) => t === 'm1');
+  r.perTier = r.perTier.filter((t) => t.tier === 'm1');
+  if (r.pending) r.pending = r.pending.m1 ? { m1: r.pending.m1 } : undefined;
+  r.total = Math.max(0, r.total - coarse.reduce((n, t) => n + t.total, 0));
+  r.done = Math.max(0, Math.min(r.total, r.done - coarse.reduce((n, t) => n + t.done, 0)));
+  if (r.tiers.length === 0 && r.status !== 'done') {
+    r.status = 'done';
+    r.message = 'Hourly and daily history are no longer kept: every timeframe is built from 1-minute candles.';
+    delete r.pending;
+  }
+}
 
 function publicJob(r: JobRecord): Job {
   const {
@@ -217,10 +230,6 @@ interface Run {
 }
 
 type Outcome = 'data' | 'empty' | 'skip' | 'aborted';
-
-/** What the coarser tier says about an empty streak: older data (a hole), none (the tier's start),
- *  or it could not be read. */
-type Verdict = 'hole' | 'start' | 'unknown';
 
 interface Pending {
   start: number;
@@ -282,6 +291,7 @@ export class Jobs {
         r.failed = 0;
         r.skipped = typeof r.skipped === 'number' ? r.skipped : 0;
         r.perTier ??= [];
+        if (r.source === 'dukascopy') keepMinuteTier(r);
         this.#jobs.set(r.id, r);
       } catch (error) {
         this.#log('warn', `Skipped the unreadable download record ${name}: ${(error as Error).message}`);
@@ -428,7 +438,7 @@ export class Jobs {
     if (route.source === 'tradingview' && !this.#d.tvSession?.loggedIn()) {
       throw new RpcError('NOT_LOGGED_IN', 'Sign in to TradingView to download its history.');
     }
-    const plan = await this.#d.planner.plan({ symbol: p.symbol, from: p.from, to: p.to, tiers: p.tiers });
+    const plan = await this.#d.planner.plan({ symbol: p.symbol, from: p.from, back: p.back, to: p.to, tiers: p.tiers });
     if (plan.job) {
       const existing = this.#jobs.get(plan.job.id);
       if (existing) {
@@ -643,7 +653,7 @@ export class Jobs {
     this.#progress(r);
   }
 
-  /** Work the plan did not know of (a bucket that became missing, a coarser bucket a check needs). */
+  /** Work the plan did not know of (a bucket that became missing after planning). */
   #grow(r: JobRecord, tier: string): void {
     this.#entry(r, tier).total += 1;
     r.total += 1;
@@ -736,38 +746,31 @@ export class Jobs {
   // -------------------------------------------------------------------------------------------
   // Dukascopy
 
-  /** The buckets of one tier a Dukascopy job still has to fetch, per the manifest, and (m1) the missing
-   *  weekend days h1 already shows empty. */
-  async #remaining(r: JobRecord, tier: Tier): Promise<TierPlan & { inferred: Set<number> }> {
-    const { store, planner } = this.#d;
+  /** The buckets of one tier a Dukascopy job still has to fetch, per the manifest. */
+  async #remaining(r: JobRecord, tier: Tier): Promise<TierPlan> {
+    const { store } = this.#d;
     const eff = store.effectiveStart(r.key, tier);
     const now = this.#now();
     const lo = Math.max(r.from, eff ?? Infinity);
     const hi = Math.min(r.openEnd ? now : r.to, now);
-    const inferred = new Set<number>();
-    if (eff === null || !(hi > lo)) return { lo, hi, buckets: new Set(), inferred };
-    let missing = store.missingBuckets(r.key, tier, lo, hi);
-    if (tier === 'm1') {
-      for (const b of await planner.inferableDays(r.key, missing)) inferred.add(b);
-      missing = missing.filter((b) => !inferred.has(b));
-    }
-    const buckets = new Set(missing);
+    if (eff === null || !(hi > lo)) return { lo, hi, buckets: new Set() };
+    const buckets = new Set(store.missingBuckets(r.key, tier, lo, hi));
     // A provisional copy due for its one re-fetch (a day stored while still open) is work too. The
     // active bucket is not: reads keep it fresh, and it cannot be final yet.
     const first = bucketStart(tier, lo);
     for (const b of store.dueBuckets(r.key, tier, now)) {
       if (b >= first && b < hi && !isActive(tier, b, now)) buckets.add(b);
     }
-    return { lo, hi, buckets, inferred };
+    return { lo, hi, buckets };
   }
 
   async #runDukascopy(r: JobRecord, run: Run): Promise<void> {
     const signal = run.controller.signal;
     r.failed = 0;
     delete r.message;
-    // Coarse to fine: each tier is the coarser one the next one's empty-streak check reads, and h1
-    // makes m1 weekends inferable.
-    const tiers = (['d1', 'h1', 'm1'] as const).filter((t) => r.tiers.includes(t));
+    // 1-minute candles only; a record from an earlier version may name coarser tiers too (load()
+    // keeps only m1 of them).
+    const tiers = (['m1'] as const).filter((t) => r.tiers.includes(t));
     const saved = r.pending;
     for (const tier of tiers) {
       if (saved) {
@@ -805,10 +808,10 @@ export class Jobs {
     this.#finish(r, run);
   }
 
-  /** Right before a tier's walk: the tiers just walked may make m1 weekends inferable, the range may
-   *  have grown (an open end), and buckets may have been covered meanwhile (they count). */
+  /** Right before a tier's walk: the range may have grown (an open end), and buckets may have been
+   *  covered meanwhile (they count). */
   async #replan(r: JobRecord, run: Run, tier: Tier): Promise<void> {
-    const { store, planner } = this.#d;
+    const { store } = this.#d;
     const fresh = await this.#remaining(r, tier);
     if (run.controller.signal.aborted) return;
     const plan = this.#plan(run, tier);
@@ -816,10 +819,7 @@ export class Jobs {
     plan.hi = fresh.hi;
     for (const b of [...plan.buckets]) {
       if (fresh.buckets.has(b)) continue;
-      if (fresh.inferred.has(b)) {
-        // Known empty from h1 without asking: answered, with no bytes (recorded below).
-        this.#settle(r, run, tier, b, 0);
-      } else if (store.status(r.key, tier, b) !== 'missing') {
+      if (store.status(r.key, tier, b) !== 'missing') {
         this.#settle(r, run, tier, b, 'disk');
       } else {
         // Below the tier's start now (another job learned it): nothing to fetch there.
@@ -832,7 +832,6 @@ export class Jobs {
       plan.buckets.add(b);
       this.#grow(r, tier);
     }
-    if (fresh.inferred.size) await planner.recordInferred(r.key, fresh.inferred);
   }
 
   #emptyAt(instrument: string, tier: Tier, start: number): boolean {
@@ -871,57 +870,9 @@ export class Jobs {
     }
   }
 
-  /** Whether a tier holds bars before t, per its stored buckets (the one holding t is read). */
-  async #dataBefore(instrument: string, tier: Tier, t: number): Promise<boolean> {
-    const data = this.#d.store.sets(instrument, tier).data;
-    const own = bucketStart(tier, t);
-    if (!data.clip(-FAR, own).isEmpty) return true;
-    if (own >= t || !data.contains(own)) return false;
-    return (await this.#d.store.readNative(instrument, tier, own, t)).length > 0;
-  }
-
-  /** What the coarser tier says about an empty streak whose oldest bucket starts at `t`. 'start' needs
-   *  the coarser tier known empty from `t` all the way down to its own start: its buckets are walked
-   *  back from the one holding `t`, fetching the ones nobody has, until one shows older data (a hole).
-   *  A tier that was never fetched shows no data, which is no evidence of a start; a coarser bucket
-   *  that cannot be read, or no known coarser start, makes the verdict 'unknown'. */
-  async #coarserVerdict(r: JobRecord, run: Run, tier: Tier, t: number): Promise<Verdict> {
-    const { store } = this.#d;
-    const coarser = coarserOf(tier);
-    const signal = run.controller.signal;
-    if (await this.#dataBefore(r.key, coarser, t)) return 'hole';
-    const eff = store.effectiveStart(r.key, coarser);
-    if (eff === null) return 'unknown';
-    const floor = bucketStart(coarser, eff);
-    let b = bucketStart(coarser, t);
-    while (b >= floor) {
-      // A window at a time, newest first: usually the coarser tier's data (or start) is close.
-      const batch: number[] = [];
-      for (; batch.length < WINDOW && b >= floor; b = previousBucket(coarser, b)) batch.push(b);
-      const plan = this.#plan(run, coarser);
-      const fetches = batch
-        .filter((x) => store.status(r.key, coarser, x) === 'missing')
-        .map((x) => {
-          if (!plan.buckets.has(x)) {
-            plan.buckets.add(x);
-            this.#grow(r, coarser);
-          }
-          return this.#fetch(r, run, coarser, x, signal);
-        });
-      await Promise.all(fetches);
-      if (signal.aborted) return 'unknown';
-      for (const x of batch) {
-        const status = store.status(r.key, coarser, x);
-        if (status === 'missing' || status === 'unavailable') return 'unknown';
-      }
-      if (await this.#dataBefore(r.key, coarser, t)) return 'hole';
-    }
-    return 'start';
-  }
-
   /** Walks one tier newest first. See the header for the empty-streak rules. */
   async #walk(r: JobRecord, run: Run, tier: Tier, plan: TierPlan): Promise<void> {
-    const { store, planner } = this.#d;
+    const { store } = this.#d;
     const signal = run.controller.signal;
     if (!(plan.hi > plan.lo)) return;
     const first = bucketStart(tier, plan.lo);
@@ -941,7 +892,7 @@ export class Jobs {
     // walked densely again: its empty buckets start no streak.
     let sparse = false;
     let sparseFrom = first;
-    let evidence: Verdict = 'unknown';
+    let probes = 0;
     let quietDownTo: number | null = null;
     const limit = STREAK[tier];
 
@@ -973,15 +924,6 @@ export class Jobs {
       run.inFlight += 1;
       const outcome = (async (): Promise<Outcome> => {
         try {
-          if (tier === 'm1' && status === 'missing' && !isWeekday(start)) {
-            const inferred = await planner.inferableDays(r.key, [start]);
-            if (inferred.has(start)) {
-              // Known empty without a request: answered, with no bytes, whoever infers it first.
-              this.#settle(r, run, tier, start, 0);
-              await planner.recordInferred(r.key, [start]);
-              return 'empty';
-            }
-          }
           if (controller.signal.aborted) return 'aborted';
           return await this.#fetch(r, run, tier, start, controller.signal);
         } finally {
@@ -997,8 +939,6 @@ export class Jobs {
       pending = [];
     };
 
-    const coarserFirst = () => store.sets(r.key, coarserOf(tier)).data.first();
-
     const learn = (reason: string) => {
       stopped = true;
       if (lastData === null) return;
@@ -1009,8 +949,7 @@ export class Jobs {
           emptyFrom: runOldest,
           emptyTo: runNewest === null ? null : nextBucket(tier, runNewest),
           emptyBuckets: emptyRun,
-          coarser: coarserOf(tier),
-          coarserFirst: coarserFirst(),
+          probes,
           job: r.id,
           at: this.#now(),
         },
@@ -1031,18 +970,20 @@ export class Jobs {
         const start = next;
         next = previousBucket(tier, start);
         if (sparse && !isProbe(tier, start)) continue;
+        if (sparse) probes += 1;
         pending.push(dispatch(start));
       }
       const item = pending.shift();
       if (!item) {
         if (!sparse || stopped) break;
-        // The probes reached the first bucket without finding data again.
-        if (toTierStart && evidence === 'hole') {
-          learn('no data after a hole');
+        // The probes reached the tier's own start without finding data again: history starts above
+        // the streak.
+        if (toTierStart) {
+          learn('no data in monthly probes down to the start');
           break;
         }
-        // Nothing says the tier starts here (the range ends above its start, or the coarser tier could
-        // not be read): what the probes passed over is fetched after all, as asked.
+        // The range ends above the tier's start, so nothing says history starts here: what the probes
+        // passed over is fetched after all, as asked.
         sparse = false;
         quietDownTo = first;
         next = sparseFrom;
@@ -1075,17 +1016,9 @@ export class Jobs {
       runOldest = item.start;
       runNewest ??= item.start;
       if (emptyRun < limit) continue;
-      const verdict = await this.#coarserVerdict(r, run, tier, runOldest);
-      if (signal.aborted) continue;
-      if (verdict === 'start') {
-        learn('empty streak');
-        dropPending();
-        continue;
-      }
-      // Older coarser data (a hole in this tier), or no way to tell: probe on.
+      // A hole, or where history starts: the probes (one weekday a month) tell.
       sparse = true;
       sparseFrom = previousBucket(tier, runOldest);
-      evidence = verdict;
       emptyRun = 0;
     }
   }
@@ -1245,7 +1178,7 @@ export function convertedJob(
   const from = typeof old.from === 'number' ? old.from : null;
   const to = typeof old.to === 'number' ? old.to : null;
   if (from === null || to === null || !(to > from)) return null;
-  const tiers = route.source === 'dukascopy' ? [...TIERS] : [...TV_TIMEFRAMES];
+  const tiers = route.source === 'dukascopy' ? ['m1'] : [...TV_TIMEFRAMES];
   return {
     version: 1,
     id: `j${now.toString(36)}${Math.random().toString(36).slice(2, 7)}`,

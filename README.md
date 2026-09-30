@@ -60,7 +60,7 @@ click in Settings, Updates.
 | Model picker and tools/skills picker | The composer |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |
-| What history is stored, per market and detail level, where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
+| What history is stored per market (one timeline: every timeframe reads the same 1-minute history), where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
 | History downloads with a progress bar you can pause and resume, from a chart, the Data tab or the chat | Chart, Data tab, chat cards |
 | Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, General |
 | Updates: Release or Pre-release channel, automatic in the background or checked by hand | Settings, Updates |
@@ -71,13 +71,14 @@ click in Settings, Updates.
 Demido opens (your password never passes through Demido). History comes from Dukascopy's public
 feed without any account (forex, metals, indices, commodities, crypto; stocks and ETFs come from
 TradingView, since Dukascopy's are not split-adjusted). Downloaded history is kept on your
-computer and never fetched twice: a download takes the finest detail Dukascopy has (1-minute
-candles, plus hourly and daily ones reaching further back), so one download serves every
-timeframe. Downloads run in the background, resume after a restart and slow down on their own
-before Dukascopy would refuse them. Charts page back through what is stored and offer to download
-more where it ends; where TradingView's candles are stored they are shown, and Dukascopy's fill the
-rest. The assistant downloads what it needs the same way, and asks first when the estimate is
-longer than your limit, offering a smaller download with only the detail the question needs.
+computer and never fetched twice. It is always 1-minute candles, whatever timeframe the chart shows:
+every timeframe is built from them, so one download serves them all and no timeframe ever needs a
+download of its own. Downloads run in the background, resume after a restart and slow down on their
+own before Dukascopy would refuse them. Charts page back through what is stored and offer to
+download more where it ends: one more month or year than the stored 1-minute history, everything
+from a date, or all of it, each up to today, so one download leaves the whole stretch stored. Where
+TradingView's candles are stored they are shown, and Dukascopy's fill the rest. The assistant
+downloads what it needs the same way, and asks first when the estimate is longer than your limit.
 
 **Skills** are folders with a `SKILL.md` (a short frontmatter with `name` and `description`,
 then instructions) and any files it refers to. Enabled skills are part of every conversation.

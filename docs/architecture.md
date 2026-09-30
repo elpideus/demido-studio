@@ -150,39 +150,46 @@ public candle API supplies deep history without an account, for everything but s
 CFDs (not split-adjusted), whose history comes from TradingView. History lives in a local store
 (`src/store/`) and is never requested twice:
 
-- `dukascopy-store` keeps each raw API bucket gzipped, at three tiers (`m1` a UTC day of 1-minute
-  candles, `h1` a month of hourly ones, `d1` a year of daily ones), with a manifest per instrument
-  of what was fetched, what came back empty, what is provisional (a copy built before its bucket was
-  complete, served meanwhile and fetched once more when a complete one can exist: CloudFront keeps
-  a copy for 7 days) and what Dukascopy does not have.
+- History is 1-minute candles, whatever timeframe asks: every timeframe is built from them, so one
+  download serves them all and every timeframe shows the same coverage and the same gaps.
+  `dukascopy-store` keeps each raw API bucket gzipped (`m1`: a UTC day of 1-minute candles; the
+  store can hold `h1` and `d1` buckets too, but nothing fetches or reads them, and the ones earlier
+  versions downloaded are deleted at start), with a manifest per instrument of what was fetched,
+  what came back empty, what is provisional (a copy built before its day was complete, served
+  meanwhile and fetched once more when a complete one can exist: CloudFront keeps a copy for 7 days)
+  and what Dukascopy does not have.
   `tv-store` keeps TradingView bars per symbol and timeframe with the time ranges they cover.
-- `series` is the one read path, from the store only. A timeframe is built from the coarsest tier
-  with data for each stretch of time (a fetched-empty coarse bucket is not coverage while the finer
-  tier there is unfetched), merged and aggregated once; TradingView wins wherever it has coverage.
+- `series` is the one read path, from the store only. A timeframe is built by aggregating the
+  stretch's 1-minute candles once; TradingView wins wherever it has coverage for that timeframe.
   Reads return the bars, `spans` (which source each run of bars came from), and whether more is
-  stored before the oldest bar, or a gap to download. `reads` fetches what a read needs first: the
-  newest bars walk back over a closed market (a weekend, a holiday) to the last trading ones, and a
-  tool read re-fetches the provisional copies it would show once complete ones exist; a sweep does
-  the same for every due copy at start-up and every half hour.
+  stored before the oldest bar, or a gap to download. `reads` fetches what a chart shows by itself:
+  the same recent stretch whatever the timeframe (from the newest stored data up to now, and at least
+  the last week; anything older is an explicit download), and a tool read re-fetches the provisional
+  copies it would show once complete ones exist; a sweep does the same for every due copy at
+  start-up and every half hour.
 - `fetcher` is the single queue every Dukascopy request goes through: deduplicated per bucket,
   lanes (chart and tool reads, then buckets a tool waits on, then background downloads), a token
   bucket that adapts to 429s and remembers the rate that was safe (a 429 at or below it lowers
   both), a circuit breaker for outages. An answer is stored only under the bucket it belongs to, and
   "From time is too late" just after a close is retried, not recorded as missing.
-- `planner` estimates a download (requests, bytes, time) from what is missing, counting a due
-  provisional copy as missing; `jobs` runs downloads of every tier for a range, coarsest tier first
-  and newest first, resumable across restarts and shared between overlapping requests. Every planned
-  file stored while a job runs or waits paused counts for it with its bytes, whoever fetched it, so
-  its total holds; files the source has nothing for (before a learned start) are counted apart as
-  `skipped`. A start is learned from an empty stretch only once the coarser tier is known empty down
-  to its own start. A TradingView download that reached the start fills the holes between stored
-  runs afterwards. The old flat cache is migrated once by `migrate` before anything is served.
+- `planner` estimates a download (requests, bytes, time) from the 1-minute days that are missing,
+  counting a due provisional copy as missing; a range starts at a date, at the history's start, or
+  `back` a month or a year before the stored 1-minute history (the chart's "1 more month / year"),
+  and reaches now unless it names an end. `jobs` runs downloads newest first, resumable across
+  restarts and shared between overlapping requests. Every planned day stored while a job runs or
+  waits paused counts for it with its bytes, whoever fetched it, so its total holds; days the
+  source has nothing for (before a learned start) are counted apart as `skipped`. After 20 empty
+  weekdays a job probes one weekday a month; if the probes reach the history's start without data,
+  that start is learned and older days are skipped. A TradingView download (stocks and ETFs, which
+  TradingView serves per timeframe) pages every timeframe back to its start and fills the holes
+  between stored runs afterwards. The old flat cache is migrated once by `migrate` before anything
+  is served.
 
 The backend's `commands::market` passes the store's calls through for the chart and the Data tab.
-The assistant's market tools share `ensure_downloaded`: plan what is missing, ask the person when
-the estimate is over their limit (`ToolContext::request_approval`, with a smaller "only this
-timeframe" choice, and an earlier "only" job is reused without asking again), start or join a job,
-show its progress on the tool's card and wait up to 90 s before letting it finish in the background.
+The assistant's market tools share `ensure_downloaded`: plan the 1-minute history that is missing,
+ask the person when the estimate is over their limit (`ToolContext::request_approval`), start or
+join a job, show its progress on the tool's card and wait up to 90 s before letting it finish in the
+background.
 A wait for one timeframe pushes that timeframe's files ahead of the rest (`download.wait` with
 `boost`); a wait for the whole job only watches. When the person pauses or cancels, or the job
 fails, the tool result says so plainly with the job's own counts. At launch the service starts
@@ -210,7 +217,7 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
 | `settings` | Providers, Models (list, editor, download), Skills, General, Updates |
-| `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends. Data (`data/`): what is stored per market, source and detail level on a timeline, downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
+| `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
 | `inspector` | A turn's traces: request, response, timings |
 | `stores` | App state per area; `windows.ts` holds window geometry, focus order, pinning |
 
@@ -298,7 +305,7 @@ Everything a person makes is in the data folder, never in the install folder:
 | `workspaces/<chat>/` | Files tools produce for a chat: data CSVs, charts, scripts |
 | `avatars/` | Model pictures |
 | `webview-tradingview/` | The TradingView sign-in browser profile |
-| `cache/market/dukascopy/` | Downloaded Dukascopy history: `<instrument>/<tier>/<year>/<bucket>.json.gz` and a `manifest.json` per instrument; `stats.json` holds the learned request rate |
+| `cache/market/dukascopy/` | Downloaded Dukascopy history, 1-minute candles: `<instrument>/m1/<year>/<day>.json.gz` and a `manifest.json` per instrument; `stats.json` holds the learned request rate |
 | `cache/market/tradingview/` | TradingView bars stored from charts and downloads, one file per symbol and timeframe, and `index.json` with what they cover |
 | `cache/market/jobs/` | One file per history download, so downloads resume after a restart and chat cards find them |
 | `updates/` | A downloaded update: the installer (a `.part` file while it downloads), then its `.sig` and `pending.json` once its signature is verified. Emptied once the update is installed. A development build uses `<repo>/.dev/updates` instead |

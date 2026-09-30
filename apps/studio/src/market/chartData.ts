@@ -94,14 +94,13 @@ export function pickJob(jobs: MarketJob[]): MarketJob | null {
   return best;
 }
 
-const HOUR = 3600;
 const DAY = 86_400;
 
-/** Whether what a job fetches serves a chart timeframe: 1-minute data serves every timeframe, hourly
- *  from 1h up, daily from 1d up; a TradingView job only the timeframes it pages. */
-function servesTimeframe(job: MarketJob, timeframe: string, tfSeconds: number): boolean {
+/** Whether what a job fetches serves a chart timeframe: a Dukascopy download is 1-minute candles, which
+ *  serve every timeframe; a TradingView job only the timeframes it pages. */
+function servesTimeframe(job: MarketJob, timeframe: string): boolean {
   if (job.source === 'tradingview') return job.tiers.includes(timeframe);
-  return job.tiers.some((t) => t === 'm1' || (t === 'h1' && tfSeconds >= HOUR) || (t === 'd1' && tfSeconds >= DAY));
+  return job.tiers.includes('m1');
 }
 
 /**
@@ -109,17 +108,12 @@ function servesTimeframe(job: MarketJob, timeframe: string, tfSeconds: number): 
  * progress instead of the picker, since every choice there would only wait for it. A paused or failed
  * job, or one over another range or detail, never hides the picker: it would leave the gap unfilled.
  */
-export function coveringJob(
-  jobs: readonly MarketJob[],
-  gap: MarketGap | null,
-  timeframe: string,
-  tfSeconds: number,
-): MarketJob | null {
+export function coveringJob(jobs: readonly MarketJob[], gap: MarketGap | null, timeframe: string): MarketJob | null {
   if (!gap) return null;
   let best: MarketJob | null = null;
   for (const job of jobs) {
     if (!isMoving(job.status) || job.source !== gap.source) continue;
-    if (job.from > gap.from || job.to < gap.to || !servesTimeframe(job, timeframe, tfSeconds)) continue;
+    if (job.from > gap.from || job.to < gap.to || !servesTimeframe(job, timeframe)) continue;
     if (!best || job.updatedAt > best.updatedAt) best = job;
   }
   return best;
@@ -137,9 +131,9 @@ export interface ChartJobs {
   other: MarketJob | null;
 }
 
-export function chartJobs(jobs: MarketJob[], gap: MarketGap | null, timeframe: string, tfSeconds: number): ChartJobs {
+export function chartJobs(jobs: MarketJob[], gap: MarketGap | null, timeframe: string): ChartJobs {
   const lead = pickJob(jobs);
-  const covering = coveringJob(jobs, gap, timeframe, tfSeconds);
+  const covering = coveringJob(jobs, gap, timeframe);
   return { lead, moving: !!lead && isMoving(lead.status), covering, other: covering ? null : lead };
 }
 
@@ -206,8 +200,6 @@ export function shiftMonths(t: number, months: number): number {
 export type HistoryOption = 'month' | 'year' | 'all' | 'from' | 'gap';
 
 export interface OptionContext {
-  /** The chart's oldest bar; "more" options end there. Null when the chart has no bars. */
-  oldest: number | null;
   gap: MarketGap | null;
   /** The "From date…" pick, `YYYY-MM-DD` (UTC). */
   fromDate: string;
@@ -226,23 +218,27 @@ export function formatDay(t: number): string {
   return new Date(t * 1000).toISOString().slice(0, 10);
 }
 
-/** The range a popup option downloads, or null when it cannot be downloaded as picked. Month, year
- *  and from-date end at the chart's oldest bar; Everything is the whole history up to now. */
+/**
+ * The range a popup option downloads, or null when it cannot be downloaded as picked. Every range
+ * reaches now, so one download leaves the whole history from its start to today stored, and none of
+ * them depends on the chart's timeframe: history is 1-minute candles, which every timeframe is built
+ * from. "1 more month / year" count from the stored 1-minute history (the store knows where it starts),
+ * "From date" and "Fill the gap" start at their date, Everything at the source's first data.
+ */
 export function optionRange(option: HistoryOption, ctx: OptionContext): MarketRange | null {
-  const end = ctx.oldest ?? ctx.now;
   switch (option) {
     case 'month':
-      return { from: shiftMonths(end, -1), to: end };
+      return { back: 'month' };
     case 'year':
-      return { from: shiftMonths(end, -12), to: end };
+      return { back: 'year' };
     case 'all':
       return {};
     case 'from': {
       const from = parseDay(ctx.fromDate);
-      return from !== null && from < end ? { from, to: end } : null;
+      return from !== null && from < ctx.now ? { from } : null;
     }
     case 'gap':
-      return ctx.gap && ctx.gap.from < ctx.gap.to ? { from: ctx.gap.from, to: ctx.gap.to } : null;
+      return ctx.gap && ctx.gap.from < ctx.gap.to ? { from: ctx.gap.from } : null;
   }
 }
 

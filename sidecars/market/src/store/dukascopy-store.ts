@@ -34,7 +34,8 @@
 //   missingBuckets(instr, tier, from, to)   starts neither covered nor unavailable
 //   dueBuckets(instr, tier, now?)    provisional buckets due for their one re-fetch
 //   refreshedAt(instr, tier, start)  when a provisional copy was last asked for (null otherwise)
-//   summary(instr), instruments(), remove(instr) -> bytes freed, flush(), close()
+//   summary(instr), instruments(), remove(instr) -> bytes freed, dropTier(instr, tier) -> bytes freed,
+//   flush(), close()
 //   subscribe(listener)              {instrument, tier, from, to} after every change (store.updated)
 // Also exported: writeAtomic (unique temp + rename with retries), provisionalDue, decodeBucket (a
 // response's bars, refusing another bucket's answer; reads heal such a file like a corrupt one), constants.
@@ -801,6 +802,31 @@ export class DukascopyStore {
   }
 
   /** "Check for older data" / "check again": forget learned starts and permanent 400/404s. */
+  /** Forgets one tier of an instrument: its files, then what the manifest records of it. Returns the
+   *  bytes freed; 0 when the tier held nothing. */
+  async dropTier(instrument: string, tier: Tier): Promise<number> {
+    await this.#removing.get(instrument);
+    const state = this.#state(instrument);
+    const prefix = `${instrument}/${tier}/`;
+    await Promise.allSettled([...this.#chains].filter(([key]) => key.startsWith(prefix)).map(([, p]) => p));
+    const s = state[tier];
+    const dir = path.join(this.#dir(instrument), tier);
+    const bytes = await diskUsage(dir);
+    const recorded =
+      !s.fetched.isEmpty || !s.empty.isEmpty || s.provisional.size > 0 || !s.unavailable.isEmpty || s.learnedStart;
+    if (bytes === 0 && !recorded && !fs.existsSync(dir)) return 0;
+    // Files first, the manifest after (see the invariants above): a crash in between leaves records
+    // whose files are gone, which reads heal and the next drop clears.
+    await fsp.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    if (this.#states.get(instrument) !== state) return bytes;
+    state[tier] = emptyTier();
+    for (const key of [...this.#lru.keys()]) if (key.startsWith(prefix)) this.#lru.delete(key);
+    for (const key of [...this.#versions.keys()]) if (key.startsWith(prefix)) this.#bump(key);
+    this.#markDirty(instrument);
+    this.#emit({ instrument, tier, from: SANE_FROM, to: saneTo(this.#nowSec()) });
+    return bytes;
+  }
+
   recheck(instrument: string): void {
     this.clearUnavailable(instrument);
     for (const tier of TIERS) if (this.learnedStart(instrument, tier)) this.setLearnedStart(instrument, tier, null);

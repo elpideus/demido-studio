@@ -278,7 +278,7 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
 
   // The toolbar shows the lead download; only a moving one takes the Download button's place, and
   // only a moving one that already fetches the gap takes the popup's picker.
-  const { lead, moving, covering, other } = chartJobs(jobs, gap, timeframe, TF_SECONDS[timeframe]);
+  const { lead, moving, covering, other } = chartJobs(jobs, gap, timeframe);
   popupJob.current = popup ? (covering?.id ?? popupStarted.current) : null;
 
   const showKeys = (next: MarketKeys) => {

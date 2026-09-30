@@ -15,12 +15,12 @@ import './net.ts';
 import './http.ts';
 import * as dukascopy from './dukascopy.ts';
 import { type Bar, RpcError, emit, fail, log, reply } from './protocol.ts';
-import { TIERS, instrumentMeta } from './store/buckets.ts';
+import { instrumentMeta } from './store/buckets.ts';
 import { DukascopyStore } from './store/dukascopy-store.ts';
 import { Fetcher } from './store/fetcher.ts';
 import { type Origin, Jobs } from './store/jobs.ts';
 import { migrate } from './store/migrate.ts';
-import { Planner } from './store/planner.ts';
+import { type Back, Planner } from './store/planner.ts';
 import { IntervalSet, type Range } from './store/intervals.ts';
 import { INTERACTIVE_BUDGET, Reads } from './store/reads.ts';
 import { type ExportSummary, type ReadResult, Series, type Source } from './store/series.ts';
@@ -133,6 +133,11 @@ function time(params: Params, key: string, endOfDay = false): number | undefined
 function tiers(params: Params): string[] | undefined {
   const v = params.tiers;
   return Array.isArray(v) && v.length ? v.map(String) : undefined;
+}
+
+/** `back`: a download of one more month or year of 1-minute history before what is stored. */
+function back(params: Params): Back | undefined {
+  return params.back === 'month' || params.back === 'year' ? params.back : undefined;
 }
 
 function origin(value: unknown): Origin {
@@ -260,7 +265,8 @@ async function summary(symbol?: string): Promise<{ bytes: number; items: Coverag
   };
   for (const instrument of store.instruments()) {
     const s = store.summary(instrument);
-    const tiersOut: TierCoverage[] = TIERS.map((tier) => {
+    // History is 1-minute candles: the one tier a market's Dukascopy coverage is about.
+    const tiersOut: TierCoverage[] = (['m1'] as const).map((tier) => {
       const t = s.tiers[tier];
       // A permanent 400/404 is "no data at the source" too.
       const unavailable = new IntervalSet(t.unavailable);
@@ -407,10 +413,9 @@ const handlers: Record<string, (params: Params) => Promise<unknown> | unknown> =
     const instrument = series.route(symbol).instrument;
     if (!instrument) return { requests: 0 };
     const now = nowSec();
-    const window = now - Math.ceil(500 * TIMEFRAMES[tf].seconds * 1.5);
-    const { covered } = series.coverage(symbol, tf);
-    const run = covered.rangeAt(now - 1);
-    const from = run ? Math.max(run[0], window) : (covered.clip(-FAR, now).last() ?? window);
+    // The same stretch whatever the timeframe (see reads.recentFrom): history is 1-minute candles,
+    // and anything older than the newest stored data is an explicit download.
+    const from = reads.recentFrom(symbol, now);
     const needs = await planner.interactive(symbol, tf, from, now + TIMEFRAMES[tf].seconds, INTERACTIVE_BUDGET);
     for (const n of needs) {
       fetcher.request({ instrument, tier: n.tier, start: n.start, lane: 'interactive' }).catch(() => undefined);
@@ -420,7 +425,13 @@ const handlers: Record<string, (params: Params) => Promise<unknown> | unknown> =
 
   'download.plan': async (p) => {
     await ready;
-    return planner.plan({ symbol: str(p, 'symbol'), from: time(p, 'from'), to: time(p, 'to', true), tiers: tiers(p) });
+    return planner.plan({
+      symbol: str(p, 'symbol'),
+      from: time(p, 'from'),
+      back: back(p),
+      to: time(p, 'to', true),
+      tiers: tiers(p),
+    });
   },
 
   'download.start': async (p) => {
@@ -428,6 +439,7 @@ const handlers: Record<string, (params: Params) => Promise<unknown> | unknown> =
     return jobList.start({
       symbol: str(p, 'symbol'),
       from: time(p, 'from'),
+      back: back(p),
       to: time(p, 'to', true),
       tiers: tiers(p),
       origin: origin(p.origin),

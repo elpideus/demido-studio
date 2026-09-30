@@ -45,17 +45,16 @@ export function planSummary(plan: MarketPlan): string {
   return parts.join(' · ');
 }
 
-/** What the data will serve: "every timeframe at 1-minute detail". */
+/** What the data will serve. Dukascopy history is 1-minute candles, which every timeframe is built
+ *  from; TradingView's comes per timeframe. */
 export function planDetail(plan: MarketPlan): string {
   if (plan.source === 'tradingview') {
     return plan.tiers.length === 1 ? `${plan.tiers[0]} only` : 'every timeframe TradingView allows';
   }
-  if (plan.tiers.includes('m1')) return 'every timeframe at 1-minute detail';
-  if (plan.tiers.includes('h1')) return 'hourly detail';
-  return 'daily detail';
+  return '1-minute candles for every timeframe';
 }
 
-/** "EUR/USD from Dukascopy · ~8,400 files · ~75 MB · about 40 min · every timeframe at 1-minute detail". */
+/** "EUR/USD from Dukascopy · ~8,400 files · ~75 MB · about 40 min · 1-minute candles for every timeframe". */
 export function planLine(plan: MarketPlan): string {
   return `${plan.name} from ${SOURCE_NAMES[plan.source]} · ${planSummary(plan)} · ${planDetail(plan)}`;
 }
@@ -397,21 +396,23 @@ export function DownloadProgress({ jobId, initialJob, plan, compact, inline, onC
           <div className={styles.range}>
             {day(job.from)} → {day(job.to)}
           </div>
-          {job.perTier.map((t) => (
-            <div key={t.tier} className={styles.tier}>
-              <span className={styles.tierName}>{tierLabel(t.tier)}</span>
-              <ProgressBar
-                value={t.total > 0 ? t.done / t.total : job.status === 'done' ? 1 : 0}
-                tone={TONES[job.status]}
-                size="xs"
-                className={styles.tierBar}
-                label={tierLabel(t.tier)}
-              />
-              <span className={styles.tierCount}>
-                {t.done.toLocaleString()} / {t.total.toLocaleString()}
-              </span>
-            </div>
-          ))}
+          {job.source === 'dukascopy' && <div className={styles.note}>1-minute candles for every timeframe</div>}
+          {job.source === 'tradingview' &&
+            job.perTier.map((t) => (
+              <div key={t.tier} className={styles.tier}>
+                <span className={styles.tierName}>{tierLabel(t.tier)}</span>
+                <ProgressBar
+                  value={t.total > 0 ? t.done / t.total : job.status === 'done' ? 1 : 0}
+                  tone={TONES[job.status]}
+                  size="xs"
+                  className={styles.tierBar}
+                  label={tierLabel(t.tier)}
+                />
+                <span className={styles.tierCount}>
+                  {t.done.toLocaleString()} / {t.total.toLocaleString()}
+                </span>
+              </div>
+            ))}
         </div>
       )}
       {job.status === 'done' && onContinue && (

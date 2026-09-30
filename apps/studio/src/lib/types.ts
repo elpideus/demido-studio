@@ -31,18 +31,14 @@ export interface ToolResult {
 
 /**
  * A tool asking mid-run. The only kind so far is a market download estimated to take longer than
- * `Settings.downloadApprovalSeconds`: `plan` is every detail, `minimal` only what the timeframe needs.
+ * `Settings.downloadApprovalSeconds`: 1-minute candles, which serve every timeframe.
  */
 export interface ToolApproval {
   kind: 'download';
   plan: MarketPlan;
-  minimal?: MarketPlan | null;
-  /** The timeframe the tool reads; absent for a plain download. */
-  timeframe?: string | null;
 }
 
-/** `minimal` answers a download approval with "only what this timeframe needs". */
-export type ApprovalDecision = 'once' | 'always' | 'deny' | 'minimal';
+export type ApprovalDecision = 'once' | 'always' | 'deny';
 
 /** What a tool returned for the UI; `kind` says how to draw it. */
 export type ToolDisplay = { kind?: string; error?: string; denied?: boolean } & Record<string, unknown>;
@@ -501,6 +497,8 @@ export interface MarketPlan {
   perTier: Array<{ tier: string; from: number; to: number; requests: number }>;
   /** An unfinished job already covering this range. */
   job: { id: string; status: MarketJobStatus } | null;
+  /** Dukascopy: where the newest run of stored 1-minute history starts (null: nothing stored). */
+  storedFrom?: number | null;
 }
 
 export interface MarketTierCoverage {
@@ -551,9 +549,14 @@ export interface MarketLatestBars extends MarketBarsPage {
 }
 
 /** Optional bounds of a download: seconds, and tiers to restrict it to. */
+/** A download's range, up to `to` or now. History is 1-minute candles, so there is nothing to pick
+ *  per timeframe; `back` counts from the stored 1-minute history instead of a date. */
 export interface MarketRange {
   from?: number;
+  /** One more month or year than the stored 1-minute history (instead of `from`). */
+  back?: 'month' | 'year';
   to?: number;
+  /** TradingView only: which of its timeframes to page. */
   tiers?: string[];
 }
 

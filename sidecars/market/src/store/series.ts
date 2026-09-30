@@ -1,16 +1,13 @@
 // The one read path for candles, from the store only (it never touches the network). Charts, tools
 // and the Data tab all read through here, so every caller sees the same bars and the same gaps.
 //
-// Dukascopy (store/dukascopy-store) holds three tiers; timeframe T may be built from m1 (always), h1
-// (T >= 1h) and d1 (T >= 1d). Coverage for T at time t (the core rule):
-//   - some eligible tier has data at t, or
-//   - the finest eligible tier available at t (t >= its effective start) has fetched t, empty
-//     included (weekends); unavailable (400/404) buckets count as fetched with nothing in them.
-// So a fetched-empty h1 month is not coverage while m1 for it is unfetched and available. T is
-// available from the earliest effective start of its tiers. Dukascopy gaps are exact.
-// Reading uses the coarsest tier with data per stretch, merges every stretch's native bars into
-// one stream and aggregates once; a T bucket not fully covered is dropped (its time is a gap),
-// except the bucket containing now.
+// Dukascopy history is 1-minute candles (the store's m1 tier): every timeframe is built from them, so
+// one download serves them all and every timeframe shows the same coverage. Coverage at time t: m1
+// has data at t, or has fetched t (empty included: weekends); unavailable (400/404) buckets count as
+// fetched with nothing in them. History is available from m1's effective start. Dukascopy gaps are
+// exact. Reading aggregates the stretch's 1-minute bars once; a T bucket not fully covered is dropped
+// (its time is a gap), except the bucket containing now. (The store can hold coarser tiers; nothing
+// reads them.)
 //
 // TradingView (store/tv-store) holds bars per timeframe with interval coverage. TradingView wins
 // wherever its coverage for T includes a time; Dukascopy fills the rest. A stretch between two
@@ -28,7 +25,7 @@
 //       newest `limit` bars, default 20 000, truncated when capped)
 //   exportCsv({symbol, tf, from, to, path, limit?}) -> summary; streams up to 2 000 000 rows of
 //       time,open,high,low,close,volume,source without holding them
-//   eligibleTiers(tf) (coarsest first)
+//   eligibleTiers(tf) (the tiers a timeframe is built from: m1, whatever the timeframe)
 
 import fs from 'node:fs';
 
@@ -140,14 +137,9 @@ interface Context {
   start: number | null;
 }
 
-/** Tiers that can build timeframe T, coarsest first. */
-export function eligibleTiers(tf: Timeframe): Tier[] {
-  const seconds = TIMEFRAMES[tf].seconds;
-  const out: Tier[] = [];
-  if (seconds >= 86400) out.push('d1');
-  if (seconds >= 3600) out.push('h1');
-  out.push('m1');
-  return out;
+/** The tiers timeframe T is built from: 1-minute candles, whatever T is. */
+export function eligibleTiers(_tf: Timeframe): Tier[] {
+  return ['m1'];
 }
 
 /** First index whose bar is at or after t. */

@@ -5,7 +5,7 @@ import { afterEach, test } from 'node:test';
 
 import { nextBucket } from '../src/store/buckets.ts';
 import { DukascopyStore } from '../src/store/dukascopy-store.ts';
-import { type JobView, Planner } from '../src/store/planner.ts';
+import { type JobView, Planner, backFrom } from '../src/store/planner.ts';
 import { Series } from '../src/store/series.ts';
 import { TvStore } from '../src/store/tv-store.ts';
 import { DAY, FakeFetcher, bucketBars, bucketBody, cleanup, putBucket, s, tempDir } from './store-helpers.ts';
@@ -72,39 +72,63 @@ test('final, provisional (not yet due), unavailable and queued buckets are never
   assert.ok(plan.bytes > 0);
 });
 
-test('weekend m1 days with no h1 bars in a final, non-empty h1 month are inferred empty', async () => {
+test('a Dukascopy plan is 1-minute days, whatever detail it asks for', async () => {
   const { store, planner } = harness(NOW);
   const march = s('2024-03-01T00:00:00Z');
-  const range = { symbol: 'EURUSD', from: march, to: nextBucket('h1', march), tiers: ['m1'] };
-  assert.equal((await planner.plan(range)).requests, 31, 'nothing inferred without h1');
-
-  // Provisional h1: days after its build would look empty, so nothing is inferred.
-  await putBucket(store, 'eurusd', 'h1', march, bucketBars('h1', march), false);
-  assert.equal((await planner.plan(range)).requests, 31);
-
-  await putBucket(store, 'eurusd', 'h1', march, bucketBars('h1', march), true);
-  // Saturdays have no h1 bars; Sundays trade from 21:00, so they are still asked for.
-  const saturdays = [2, 9, 16, 23, 30].map((d) => march + (d - 1) * DAY);
-  const inferred = await planner.inferableDays(
-    'eurusd',
-    [...Array(31).keys()].map((i) => march + i * DAY),
-  );
-  assert.deepEqual([...inferred].sort(), saturdays);
-  assert.equal((await planner.plan(range)).requests, 31 - 5);
-
-  // Never from an empty h1 month.
-  const feb = s('2024-02-01T00:00:00Z');
-  await putBucket(store, 'eurusd', 'h1', feb, null);
-  assert.equal((await planner.inferableDays('eurusd', [s('2024-02-03T00:00:00Z')])).size, 0);
-
-  // Recording them makes them fetched-empty m1 buckets: covered, never requested.
-  await planner.recordInferred('eurusd', inferred);
-  assert.equal(store.status('eurusd', 'm1', saturdays[0]!), 'final');
-  assert.ok(store.sets('eurusd', 'm1').empty.contains(saturdays[0]!));
-  assert.equal((await planner.plan(range)).requests, 31 - 5);
+  const april = nextBucket('h1', march);
+  for (const tiers of [undefined, ['m1'], ['h1'], ['d1'], ['h1', 'd1']]) {
+    const plan = await planner.plan({ symbol: 'EURUSD', from: march, to: april, tiers });
+    assert.deepEqual(plan.tiers, ['m1'], `tiers ${tiers}`);
+    // Every day, weekends included: nothing is inferred from coarser data.
+    assert.equal(plan.requests, 31, `tiers ${tiers}`);
+    assert.deepEqual(
+      plan.perTier.map((t) => [t.tier, t.requests]),
+      [['m1', 31]],
+    );
+  }
+  // Hourly buckets an earlier version stored change nothing.
+  await putBucket(store, 'eurusd', 'h1', march, bucketBars('h1', march));
+  assert.equal((await planner.plan({ symbol: 'EURUSD', from: march, to: april })).requests, 31);
 });
 
-test('the tiers filter restricts the plan; complete when only provisional and active buckets remain', async () => {
+test('back: a month or a year more than the stored 1-minute history, up to now', async () => {
+  const { store, planner } = harness(NOW);
+  // Nothing stored: counted back from now.
+  let plan = await planner.plan({ symbol: 'EURUSD', back: 'month' });
+  assert.equal(plan.storedFrom, null);
+  assert.equal(plan.from, s('2024-05-01T00:00:00Z'));
+  assert.equal(plan.to, NOW);
+
+  // May is stored: a month more starts in April, and the download reaches now.
+  for (let d = s('2024-05-01T00:00:00Z'); d < s('2024-06-01T00:00:00Z'); d += DAY) {
+    await putBucket(store, 'eurusd', 'm1', d, bucketBars('m1', d, { every: 3600 }));
+  }
+  plan = await planner.plan({ symbol: 'EURUSD', back: 'month' });
+  assert.equal(plan.storedFrom, s('2024-05-01T00:00:00Z'));
+  assert.equal(plan.from, s('2024-04-01T00:00:00Z'));
+  assert.equal(plan.to, NOW);
+  // April's 30 days and today's.
+  assert.equal(plan.requests, 31);
+  plan = await planner.plan({ symbol: 'EURUSD', back: 'year' });
+  assert.equal(plan.from, s('2023-05-01T00:00:00Z'));
+  assert.equal(plan.requests, 366 + 1);
+
+  // Never before the history's start.
+  store.setLearnedStart('eurusd', 'm1', { t: s('2024-04-15T00:00:00Z'), evidence: 'test' });
+  plan = await planner.plan({ symbol: 'EURUSD', back: 'year' });
+  assert.equal(plan.from, s('2024-04-15T00:00:00Z'));
+  assert.equal(plan.requests, 16 + 1);
+
+  // TradingView symbols have no 1-minute history to count from.
+  assert.equal((await planner.plan({ symbol: 'NASDAQ:AAPL', back: 'month' })).storedFrom, null);
+
+  // Calendar months: the same day of the month, or the last one it has.
+  assert.equal(backFrom(s('2024-03-31T00:00:00Z'), 'month'), s('2024-02-29T00:00:00Z'));
+  assert.equal(backFrom(s('2024-02-29T00:00:00Z'), 'year'), s('2023-02-28T00:00:00Z'));
+  assert.equal(backFrom(s('2024-01-15T13:30:00Z'), 'month'), s('2023-12-15T00:00:00Z'));
+});
+
+test('complete when only provisional (not yet due) and active days remain; everything starts at the 1-minute start', async () => {
   const { store, planner } = harness(NOW);
   const from = s('2024-05-29T00:00:00Z');
   await putBucket(store, 'eurusd', 'm1', from, bucketBars('m1', from));
@@ -113,25 +137,20 @@ test('the tiers filter restricts the plan; complete when only provisional and ac
   await putBucket(store, 'eurusd', 'm1', from + 2 * DAY, bucketBars('m1', from + 2 * DAY));
   // The active bucket, stored a while ago: stale but covered.
   await store.put('eurusd', 'm1', from + 3 * DAY, null, { builtAt: NOW - 600, final: false });
-  const plan = await planner.plan({ symbol: 'EURUSD', from, tiers: ['m1'] });
+  const plan = await planner.plan({ symbol: 'EURUSD', from });
   assert.equal(plan.requests, 0);
   assert.equal(plan.complete, true);
   assert.equal(plan.seconds, 0);
   assert.equal(plan.to, NOW);
 
-  const h1 = await planner.plan({ symbol: 'EURUSD', from, tiers: ['h1'] });
-  assert.deepEqual(h1.tiers, ['h1']);
-  assert.deepEqual(
-    h1.perTier.map((t) => [t.tier, t.requests]),
-    [['h1', 2]],
-  );
-  assert.equal(h1.complete, false);
-
-  // Everything, by default: every tier from its effective start.
+  // Everything, by default: 1-minute days from their start.
   const all = await planner.plan({ symbol: 'EURUSD' });
-  assert.deepEqual(all.tiers, ['m1', 'h1', 'd1']);
-  assert.equal(all.from, s('1973-03-01T00:00:00Z'));
-  assert.equal(all.perTier.find((t) => t.tier === 'h1')!.from, s('2003-05-04T19:00:00Z'));
+  assert.deepEqual(all.tiers, ['m1']);
+  assert.equal(all.from, s('2003-05-04T19:00:00Z'));
+  assert.deepEqual(
+    all.perTier.map((t) => t.tier),
+    ['m1'],
+  );
 });
 
 test('a plan names the unfinished job that already covers its range', async () => {
@@ -161,27 +180,28 @@ test('TradingView plans are approximate and complete once every timeframe reache
   assert.deepEqual(one.tiers, ['1d']);
 });
 
-test('interactive needs: the coarsest usable tier first, finer where it is known empty', async () => {
+test('interactive needs are the 1-minute days a read lacks, newest first, at any timeframe', async () => {
   const { store, planner } = harness(s('2013-03-10T00:00:00Z'));
   const feb = s('2013-02-01T00:00:00Z');
   const march = s('2013-03-01T00:00:00Z');
-  await putBucket(store, 'gbpchf', 'h1', march, bucketBars('h1', march), false);
-  let needs = await planner.interactive('GBPCHF', '1h', feb, march, 60);
-  assert.deepEqual(needs, [{ tier: 'h1', start: feb }]);
-
-  // The h1 month came back empty: m1 has to answer for it (nothing inferred from an empty month).
-  await putBucket(store, 'gbpchf', 'h1', feb, null);
-  needs = await planner.interactive('GBPCHF', '1h', feb, march, 60);
-  assert.equal(needs.length, 28);
-  assert.ok(needs.every((n) => n.tier === 'm1'));
-  assert.equal(needs[0]!.start, march - DAY, 'newest first');
+  // An hourly March from an earlier version: not read, so it covers nothing.
+  await putBucket(store, 'gbpchf', 'h1', march, bucketBars('h1', march));
+  for (const tf of ['5m', '1h', '1d'] as const) {
+    const needs = await planner.interactive('GBPCHF', tf, feb, march, 60);
+    assert.equal(needs.length, 28, tf);
+    assert.ok(
+      needs.every((n) => n.tier === 'm1'),
+      tf,
+    );
+    assert.equal(needs[0]!.start, march - DAY, `${tf}: newest first`);
+  }
   assert.equal((await planner.interactive('GBPCHF', '1h', feb, march, 10)).length, 10);
 
-  // A 5m chart only has m1; Saturdays of a final, non-empty h1 month are recorded, not requested.
-  await putBucket(store, 'gbpchf', 'h1', s('2013-01-01T00:00:00Z'), bucketBars('h1', s('2013-01-01T00:00:00Z')));
-  needs = await planner.interactive('GBPCHF', '5m', s('2013-01-01T00:00:00Z'), s('2013-01-08T00:00:00Z'), 60);
-  assert.equal(needs.length, 6);
-  assert.equal(store.status('gbpchf', 'm1', s('2013-01-05T00:00:00Z')), 'final');
+  // A day fetched empty (a weekend) is covered: never asked for again.
+  await putBucket(store, 'gbpchf', 'm1', s('2013-02-02T00:00:00Z'), null);
+  const needs = await planner.interactive('GBPCHF', '1d', feb, march, 60);
+  assert.equal(needs.length, 27);
+  assert.ok(!needs.some((n) => n.start === s('2013-02-02T00:00:00Z')));
 
   // A stock CFD routes to TradingView: nothing to fetch from Dukascopy.
   assert.deepEqual(await planner.interactive('NASDAQ:AAPL', '1h', feb, march, 60), []);
@@ -211,7 +231,8 @@ test("a TradingView job covers any from: it pages back to TradingView's start wh
 });
 
 test('a day stored while still open is planned once its re-fetch is due, so the range is not complete', async () => {
-  // Fri 10:00: Thursday's m1 day, this month's h1 and this year's d1 were stored Thu 15:00.
+  // Fri 10:00: Thursday's m1 day (and, from an earlier version, this month's h1 and this year's d1)
+  // were stored Thu 15:00.
   const now = s('2026-09-25T10:00:00Z');
   const thu = s('2026-09-24T00:00:00Z');
   const { store, planner } = harness(now);
@@ -227,7 +248,31 @@ test('a day stored while still open is planned once its re-fetch is due, so the 
     const plan = await planner.plan({ symbol: 'EURUSD', from: thu, to: thu + DAY, tiers });
     assert.equal(plan.complete, false, `tiers ${tiers}`);
     assert.equal(plan.perTier.find((t) => t.tier === 'm1')!.requests, 1);
-    // The open h1 month and d1 year are not due: reads keep them fresh.
+    // Only the 1-minute day: coarser buckets are never planned.
     assert.equal(plan.requests, 1);
   }
+});
+
+test("the stored history's newest stretch bridges gaps shorter than two months", async () => {
+  // July 1: May is stored, and the chart fetched today after a month away.
+  const { store, planner } = harness(s('2024-07-01T12:00:00Z'));
+  for (let d = s('2024-05-01T00:00:00Z'); d < s('2024-06-01T00:00:00Z'); d += DAY) {
+    await putBucket(store, 'eurusd', 'm1', d, bucketBars('m1', d, { every: 3600 }));
+  }
+  await store.put('eurusd', 'm1', s('2024-07-01T00:00:00Z'), null, {
+    builtAt: s('2024-07-01T12:00:00Z'),
+    final: false,
+  });
+  // Today's day does not make the history start today: the June gap is bridged (the download fills it).
+  assert.equal(planner.storedFrom('eurusd'), s('2024-05-01T00:00:00Z'));
+  const plan = await planner.plan({ symbol: 'EURUSD', back: 'month' });
+  assert.equal(plan.from, s('2024-04-01T00:00:00Z'));
+  // April and June: one download leaves April to today stored.
+  assert.equal(plan.requests, 30 + 30);
+  // A stretch behind a longer gap is another one.
+  await putBucket(store, 'eurusd', 'm1', s('2024-02-01T00:00:00Z'), bucketBars('m1', s('2024-02-01T00:00:00Z')));
+  assert.equal(planner.storedFrom('eurusd'), s('2024-05-01T00:00:00Z'));
+  // Gaps under two months chain back: 41 days to May, 47 back to February.
+  await putBucket(store, 'eurusd', 'm1', s('2024-03-20T00:00:00Z'), bucketBars('m1', s('2024-03-20T00:00:00Z')));
+  assert.equal(planner.storedFrom('eurusd'), s('2024-02-01T00:00:00Z'));
 });

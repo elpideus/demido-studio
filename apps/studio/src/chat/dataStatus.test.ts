@@ -92,9 +92,25 @@ describe('dataStatusView', () => {
 });
 
 describe('gaps', () => {
-  it('lists each tier with time left to download, per source', () => {
-    const gaps = marketGaps(eurusd);
-    expect(gaps).toEqual([{ source: 'dukascopy', tier: 'm1', gaps: [[utc(2010, 2), utc(2012)]] }]);
+  it('lists the stretches the market has left to download, whatever the timeframe', () => {
+    // The hourly tier an older summary still carries does not count: only 1-minute history does.
+    expect(marketGaps(eurusd)).toEqual([[utc(2010, 2), utc(2012)]]);
+  });
+
+  it('counts what TradingView has stored as downloaded', () => {
+    const covered: MarketCoverageItem = {
+      ...eurusd,
+      sources: [
+        eurusd.sources[0]!,
+        {
+          source: 'tradingview',
+          key: 'FX:EURUSD',
+          bytes: 50_000,
+          tiers: [{ tier: '1d', intervals: [[utc(2009), utc(2013)]], available: [utc(2009), now], bytes: 50_000 }],
+        },
+      ],
+    };
+    expect(marketGaps(covered)).toEqual([]);
   });
 
   it('names a few ranges and counts the rest', () => {

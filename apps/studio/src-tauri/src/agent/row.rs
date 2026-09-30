@@ -163,7 +163,7 @@ mod tests {
     fn approval_shows_its_card_then_goes_away() {
         let mut m = running_row();
         set_display(&mut m, json!({"kind": "download", "jobId": null}));
-        begin_approval(&mut m, Some(json!({"kind": "download", "plan": {}, "minimal": null})));
+        begin_approval(&mut m, Some(json!({"kind": "download", "plan": {}})));
         assert_eq!(m.status, MessageStatus::AwaitingApproval);
         assert_eq!(m.tool_result.as_ref().unwrap()["approval"]["kind"], "download");
         end_approval(&mut m);

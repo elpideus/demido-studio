@@ -81,8 +81,7 @@ pub fn download_schema() -> Value {
         "properties": {
             "symbol": {"type": "string", "description": "Dukascopy instrument (EURUSD, XAUUSD, US500) or TradingView symbol (FX:EURUSD, NASDAQ:AAPL)"},
             "from": {"type": "string", "description": "Optional start date, YYYY-MM-DD (default: the earliest data the source has)"},
-            "to": {"type": "string", "description": "Optional end date, YYYY-MM-DD (default: now)"},
-            "timeframe": {"type": "string", "enum": TIMEFRAMES, "description": "Optional: the timeframe the user needs. Lets them choose a smaller download with only the detail it needs."}
+            "to": {"type": "string", "description": "Optional end date, YYYY-MM-DD (default: now)"}
         },
         "required": ["symbol"]
     })
@@ -279,15 +278,12 @@ pub async fn history(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, Stri
     read_and_fill(ctx, Read::History(params), instrument, timeframe, file).await
 }
 
-/// Downloads history into the store at the best detail, waiting up to 90 s for it.
+/// Downloads history into the store as 1-minute candles (every timeframe is built from them),
+/// waiting up to 90 s for it.
 pub async fn download(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
     let symbol = require_str(args, "symbol")?;
-    let timeframe = match arg_str(args, "timeframe") {
-        Some(_) => Some(timeframe(args)?),
-        None => None,
-    };
     let (from, to) = parse_range(args)?;
-    let d = ensure_downloaded(ctx, symbol, timeframe, from, to, true).await?;
+    let d = ensure_downloaded(ctx, symbol, None, from, to, true).await?;
     let (ok, content) = download_result(symbol, &d);
     Ok(ToolOutput {
         ok,
@@ -307,9 +303,6 @@ fn download_result(symbol: &str, d: &Downloaded) -> (bool, Value) {
         "from": iso(&plan["from"]),
         "to": iso(&plan["to"]),
     });
-    if let Some(tf) = d.only {
-        content["detail"] = format!("only what {tf} and larger timeframes need").into();
-    }
     if d.denied {
         content["status"] = "declined".into();
         content["note"] = "The user chose not to download this. Do not retry it; continue with what is stored (market_data_status shows it) or ask the user.".into();
@@ -317,13 +310,7 @@ fn download_result(symbol: &str, d: &Downloaded) -> (bool, Value) {
     }
     let Some(job_id) = &d.job_id else {
         content["status"] = "done".into();
-        content["note"] = match d.only {
-            Some(tf) => format!(
-                "Everything {tf} needs in this range is already stored; nothing was downloaded. Read it with market_history or market_candles at {tf} or a larger timeframe (smaller ones need the full download)."
-            ),
-            None => "Everything in this range is already stored; nothing was downloaded. Read it with market_history or market_candles at any timeframe.".into(),
-        }
-        .into();
+        content["note"] = "Everything in this range is already stored; nothing was downloaded. Read it with market_history or market_candles at any timeframe.".into();
         return (true, content);
     };
     content["jobId"] = job_id.as_str().into();
@@ -335,12 +322,9 @@ fn download_result(symbol: &str, d: &Downloaded) -> (bool, Value) {
     }
     content["note"] = match (d.stopped_note(), status) {
         (Some(note), _) => note,
-        (None, "done") => match d.only {
-            Some(tf) => format!(
-                "The download finished: everything {tf} needs is stored. Read it with market_history or market_candles at {tf} or a larger timeframe."
-            ),
-            None => "The download finished: the history is stored. Read it with market_history or market_candles at any timeframe.".into(),
-        },
+        (None, "done") => {
+            "The download finished: the history is stored. Read it with market_history or market_candles at any timeframe.".into()
+        }
         (None, _) => {
             content["etaSeconds"] = json!(d.eta_seconds);
             background_note(d.eta_seconds)
@@ -408,45 +392,7 @@ fn next_step(plan: &Value, approval_seconds: u32) -> Next {
     }
 }
 
-/// A full download long enough to ask about may already be settled by the smaller "only this
-/// timeframe" plan: stored for that timeframe (`Covered`), or fetched by an unfinished job, the one
-/// the person started by choosing "Only {timeframe}" earlier (`Reuse`). That job was approved, so
-/// asking again would offer only the full download they turned down, or nothing.
-fn settled_by(minimal: &Value) -> Option<Next> {
-    match next_step(minimal, u32::MAX) {
-        step @ (Next::Covered | Next::Reuse { .. }) => Some(step),
-        Next::Ask | Next::Start => None,
-    }
-}
-
-/// The "only this timeframe" choice is worth showing when it saves real work (a tenth or more).
-/// Buckets another job already queued count as work: they are what this timeframe waits on.
-fn offer_minimal(full: &Value, minimal: &Value) -> bool {
-    let work = |plan: &Value| num(plan, "requests") + num(plan, "queuedAhead");
-    minimal["complete"].as_bool() != Some(true) && work(minimal) > 0.0 && work(minimal) <= work(full) * 0.9
-}
-
-/// The timeframes a TradingView download fetches (the chart's).
-const TV_DOWNLOAD_TIMEFRAMES: &[&str] = &["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
-
-/// What "only this timeframe" downloads: the coarsest Dukascopy tier that serves it, or the
-/// TradingView timeframe itself. One-minute data would serve it too, but a list including it
-/// costs as much as the full download, so below an hour there is no smaller choice.
-fn minimal_tiers(source: &str, timeframe: &str) -> Option<Vec<&'static str>> {
-    if source == "tradingview" {
-        return TV_DOWNLOAD_TIMEFRAMES
-            .iter()
-            .find(|t| **t == timeframe)
-            .map(|t| vec![*t]);
-    }
-    match timeframe {
-        "1d" | "1w" | "1M" => Some(vec!["d1"]),
-        "1h" | "4h" => Some(vec!["h1"]),
-        _ => None,
-    }
-}
-
-fn range_params(symbol: &str, from: Option<i64>, to: Option<i64>, tiers: Option<&[&str]>) -> Value {
+fn range_params(symbol: &str, from: Option<i64>, to: Option<i64>) -> Value {
     let mut params = json!({"symbol": symbol});
     if let Some(from) = from {
         params["from"] = from.into();
@@ -454,19 +400,14 @@ fn range_params(symbol: &str, from: Option<i64>, to: Option<i64>, tiers: Option<
     if let Some(to) = to {
         params["to"] = to.into();
     }
-    if let Some(tiers) = tiers {
-        params["tiers"] = json!(tiers);
-    }
     params
 }
 
 /// What [`ensure_downloaded`] did.
 #[derive(Debug, Default)]
 struct Downloaded {
-    /// The plan shown and started (the smaller one when the person chose it).
+    /// The plan shown and started.
     plan: Value,
-    /// The timeframe whose smaller download `plan` is (chosen, reused or already stored).
-    only: Option<&'static str>,
     job_id: Option<String>,
     /// The range is stored for the timeframe that was waited on.
     covered: bool,
@@ -584,11 +525,7 @@ impl Downloaded {
             d["denied"] = true.into();
             d["note"] = "You chose not to download this.".into();
         } else if already_stored {
-            d["note"] = match self.only {
-                Some(tf) => format!("Everything {tf} needs is already stored: nothing to download."),
-                None => "Already stored: nothing to download.".into(),
-            }
-            .into();
+            d["note"] = "Already stored: nothing to download.".into();
         }
         d
     }
@@ -634,12 +571,11 @@ fn background_note(eta_seconds: Option<f64>) -> String {
     }
 }
 
-/// Makes sure `[from, to)` of `symbol` is in the store: plan it (all tiers), sign in when the
-/// data comes from TradingView, reuse an unfinished job (also one fetching just what `timeframe`
-/// needs) or ask when the estimate is over the person's limit, start, show the job on the card
-/// and wait. `whole_job` waits for the whole
-/// download instead of just `timeframe`'s data. Once a job exists, failures are reported in
-/// `job_error` rather than as an error, so the card keeps its progress bar.
+/// Makes sure `[from, to)` of `symbol` is in the store as 1-minute candles, which serve every
+/// timeframe: plan it, sign in when the data comes from TradingView, reuse an unfinished job or ask
+/// when the estimate is over the person's limit, start, show the job on the card and wait until
+/// `timeframe`'s data is stored (`whole_job`: the whole download). Once a job exists, failures are
+/// reported in `job_error` rather than as an error, so the card keeps its progress bar.
 async fn ensure_downloaded(
     ctx: &ToolContext,
     symbol: &str,
@@ -648,31 +584,13 @@ async fn ensure_downloaded(
     to: Option<i64>,
     whole_job: bool,
 ) -> Result<Downloaded, String> {
-    let plan = store(ctx, "download.plan", range_params(symbol, from, to, None)).await?;
+    let plan = store(ctx, "download.plan", range_params(symbol, from, to)).await?;
     let source = plan["source"].as_str().unwrap_or("dukascopy").to_string();
     let mut out = Downloaded {
         plan: plan.clone(),
         ..Downloaded::default()
     };
-    let mut next = next_step(&plan, ctx.state.settings.get().download_approval_seconds);
-    let smaller = timeframe.and_then(|tf| minimal_tiers(&source, tf));
-    let mut tiers = None;
-    let mut offer = None;
-    // Before asking about the full download, see whether the smaller one settles it.
-    if next == Next::Ask
-        && let Some(list) = &smaller
-    {
-        let minimal = store(ctx, "download.plan", range_params(symbol, from, to, Some(list))).await?;
-        match settled_by(&minimal) {
-            Some(step) => {
-                next = step;
-                tiers = smaller.clone();
-                out.plan = minimal;
-                out.only = timeframe;
-            }
-            None => offer = Some(minimal).filter(|m| offer_minimal(&plan, m)),
-        }
-    }
+    let next = next_step(&plan, ctx.state.settings.get().download_approval_seconds);
     if next == Next::Covered {
         out.covered = true;
         return Ok(out);
@@ -689,31 +607,24 @@ async fn ensure_downloaded(
         }
         next => {
             if next == Next::Ask {
-                let card = json!({"kind": "download", "plan": plan, "minimal": offer, "timeframe": timeframe});
+                let card = json!({"kind": "download", "plan": plan});
                 match ctx.request_approval(card).await {
                     Err(Cancelled) => return Err("Cancelled.".into()),
                     Ok(Approval::Deny) => {
                         out.denied = true;
                         return Ok(out);
                     }
-                    Ok(Approval::Minimal) => {
-                        // Only offered with a smaller plan; an answer without one gets everything.
-                        if let Some(minimal) = offer {
-                            tiers = smaller;
-                            out.plan = minimal;
-                            out.only = timeframe;
-                        }
-                    }
                     Ok(Approval::Once | Approval::Always) => {}
                 }
             }
-            start_download(ctx, symbol, from, to, tiers.as_deref()).await?
+            start_download(ctx, symbol, from, to).await?
         }
     };
     out.job_id = Some(job_id.clone());
     ctx.set_display(out.display());
-    // A download of every tier is complete once its finest detail is.
-    let wait_on = match (whole_job && tiers.is_none(), timeframe) {
+    // Every timeframe is built from the 1-minute candles: a read waits for its own timeframe's
+    // bars (from them, or TradingView's where it has them), a whole download for all of them.
+    let wait_on = match (whole_job, timeframe) {
         (false, Some(tf)) => tf,
         _ => "1m",
     };
@@ -721,14 +632,8 @@ async fn ensure_downloaded(
     Ok(out)
 }
 
-async fn start_download(
-    ctx: &ToolContext,
-    symbol: &str,
-    from: Option<i64>,
-    to: Option<i64>,
-    tiers: Option<&[&str]>,
-) -> Result<String, String> {
-    let mut params = range_params(symbol, from, to, tiers);
+async fn start_download(ctx: &ToolContext, symbol: &str, from: Option<i64>, to: Option<i64>) -> Result<String, String> {
+    let mut params = range_params(symbol, from, to);
     params["origin"] = "chat".into();
     let started = match ctx
         .state
@@ -1637,60 +1542,6 @@ mod tests {
     }
 
     #[test]
-    fn the_smaller_download_is_offered_only_when_it_saves_work() {
-        let full = json!({"requests": 8400, "complete": false});
-        assert!(offer_minimal(&full, &json!({"requests": 280, "complete": false})));
-        assert!(!offer_minimal(&full, &json!({"requests": 8400, "complete": false})));
-        assert!(
-            !offer_minimal(&full, &json!({"requests": 8350, "complete": false})),
-            "a sliver is not worth a button"
-        );
-        assert!(!offer_minimal(&full, &json!({"requests": 0, "complete": true})));
-        // Everything this timeframe needs is already queued by another job: still the cheaper
-        // choice, and picking it joins that work instead of fetching 1-minute data.
-        assert!(offer_minimal(
-            &full,
-            &json!({"requests": 0, "queuedAhead": 201, "complete": false})
-        ));
-        assert!(!offer_minimal(
-            &json!({"requests": 100, "queuedAhead": 0, "complete": false}),
-            &json!({"requests": 0, "queuedAhead": 95, "complete": false})
-        ));
-    }
-
-    #[test]
-    fn an_only_this_timeframe_job_is_reused_instead_of_asking_again() {
-        // "Only 1h" started the h1-only job j1. The next ask for the same range plans every tier:
-        // no job contains that, so it would ask, while j1 already has every h1 bucket queued.
-        let full = json!({"complete": false, "seconds": 2111, "requests": 6100, "queuedAhead": 201, "job": null});
-        assert_eq!(next_step(&full, 60), Next::Ask);
-        let minimal = |status: &str| json!({"complete": false, "seconds": 0, "requests": 0, "queuedAhead": 201, "job": {"id": "j1", "status": status}});
-        for (status, resume) in [
-            ("running", false),
-            ("waiting", false),
-            ("paused", true),
-            ("error", true),
-        ] {
-            assert_eq!(
-                settled_by(&minimal(status)),
-                Some(Next::Reuse {
-                    job_id: "j1".into(),
-                    resume
-                }),
-                "{status}"
-            );
-        }
-        let stored = json!({"complete": true, "seconds": 0, "requests": 0, "queuedAhead": 0, "job": null});
-        assert_eq!(settled_by(&stored), Some(Next::Covered));
-        let fresh = json!({"complete": false, "seconds": 99_999, "requests": 129, "queuedAhead": 0, "job": null});
-        assert_eq!(
-            settled_by(&fresh),
-            None,
-            "a smaller download still to start is offered, not started"
-        );
-    }
-
-    #[test]
     fn whole_job_waits_leave_the_job_order_alone() {
         let whole = wait_params("EURUSD", "1m", (0, 100), "j1", true);
         assert_eq!(whole["boost"], false);
@@ -1822,37 +1673,6 @@ mod tests {
     }
 
     #[test]
-    fn the_smaller_download_says_what_it_covers() {
-        let stored = Downloaded {
-            plan: plan(),
-            only: Some("1h"),
-            covered: true,
-            ..Downloaded::default()
-        };
-        let (ok, c) = download_result("EURUSD", &stored);
-        assert!(ok);
-        assert_eq!(c["status"], "done");
-        let note = c["note"].as_str().unwrap();
-        assert!(
-            note.contains("Everything 1h needs") && !note.contains("any timeframe"),
-            "{note}"
-        );
-        assert!(stored.display()["note"].as_str().unwrap().contains("1h"));
-
-        let mut finished = Downloaded {
-            only: Some("1d"),
-            ..job("j1")
-        };
-        finished.note_job(&json!({"status": "done", "done": 24, "total": 24}));
-        let (_, c) = download_result("EURUSD", &finished);
-        let note = c["note"].as_str().unwrap();
-        assert!(
-            note.contains("everything 1d needs is stored") && !note.contains("any timeframe"),
-            "{note}"
-        );
-    }
-
-    #[test]
     fn a_paused_download_reaches_the_read_summary() {
         let dir = tempfile::tempdir().unwrap();
         let result = json!({
@@ -1869,25 +1689,6 @@ mod tests {
         assert_eq!(
             out.display["download"]["status"], "paused",
             "the card keeps its Resume button"
-        );
-    }
-
-    #[test]
-    fn only_this_timeframe_means_its_coarsest_tier() {
-        assert_eq!(minimal_tiers("dukascopy", "1h"), Some(vec!["h1"]));
-        assert_eq!(minimal_tiers("dukascopy", "4h"), Some(vec!["h1"]));
-        assert_eq!(minimal_tiers("dukascopy", "1d"), Some(vec!["d1"]));
-        assert_eq!(minimal_tiers("dukascopy", "1M"), Some(vec!["d1"]));
-        assert_eq!(
-            minimal_tiers("dukascopy", "15m"),
-            None,
-            "minute data is the whole cost anyway"
-        );
-        assert_eq!(minimal_tiers("tradingview", "1h"), Some(vec!["1h"]));
-        assert_eq!(
-            minimal_tiers("tradingview", "30m"),
-            None,
-            "not a timeframe TradingView downloads"
         );
     }
 

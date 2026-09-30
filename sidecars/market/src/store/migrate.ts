@@ -13,6 +13,9 @@
 //   only lends its symbol spellings, and is deleted after.
 // - Jobs: unfinished old downloads (<cache>/downloads/*.json, status error/paused/running) become
 //   new paused jobs over their range; finished ones are dropped; downloads/ is deleted after.
+// - Coarse tiers: history is 1-minute candles only, every timeframe built from them. The hourly and
+//   daily buckets earlier versions downloaded beside them are no longer read, so they are deleted,
+//   with what the manifests record of them.
 //
 // API: migrate({cacheDir, store, tv, route, log?, now?}) -> MigrationReport
 
@@ -43,6 +46,8 @@ export interface MigrationReport {
   };
   tradingview: { series: number };
   jobs: { converted: number; dropped: number };
+  /** Hourly and daily tiers deleted, and the bytes that freed. */
+  coarse: { tiers: number; bytes: number };
 }
 
 export interface MigrateDeps {
@@ -122,6 +127,7 @@ export async function migrate(deps: MigrateDeps): Promise<MigrationReport> {
     },
     tradingview: { series: 0 },
     jobs: { converted: 0, dropped: 0 },
+    coarse: { tiers: 0, bytes: 0 },
   };
 
   // ---------------------------------------------------------------------------------------------
@@ -302,6 +308,34 @@ export async function migrate(deps: MigrateDeps): Promise<MigrationReport> {
   if (fs.existsSync(coveragePath)) await fsp.rm(coveragePath, { force: true }).catch(() => {});
   if (jobsConverted && fs.existsSync(oldJobs)) {
     await fsp.rm(oldJobs, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Phase 3: only 1-minute candles are history now; hourly and daily tiers go.
+
+  let dropped = false;
+  for (const instrument of store.instruments()) {
+    for (const tier of ['h1', 'd1'] as const) {
+      try {
+        const sets = store.sets(instrument, tier);
+        const recorded =
+          !sets.covered.isEmpty || !sets.unavailable.isEmpty || store.learnedStart(instrument, tier) !== null;
+        const bytes = await store.dropTier(instrument, tier);
+        if (bytes === 0 && !recorded) continue;
+        report.coarse.tiers += 1;
+        report.coarse.bytes += bytes;
+        dropped = true;
+      } catch (error) {
+        log('warn', `Migration: could not delete the ${tier} history of ${instrument}: ${(error as Error).message}`);
+      }
+    }
+  }
+  if (dropped) {
+    await store.flush();
+    log(
+      'info',
+      `Migration: deleted ${report.coarse.tiers} hourly/daily tier(s) (${report.coarse.bytes} bytes); history is 1-minute candles`,
+    );
   }
 
   const d = report.dukascopy;
