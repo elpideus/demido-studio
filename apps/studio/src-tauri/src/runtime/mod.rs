@@ -2,7 +2,8 @@
 //!
 //! [`LocalRuntime::ensure`] is the only entry point that matters: it returns the base URL of a
 //! server running exactly the requested launch settings, starting or restarting the process when
-//! needed. One model is resident at a time, because a second one would compete for the GPU.
+//! needed. One model is resident at a time, because a second one would compete for the GPU. The
+//! search model makes room while one loads (see `attachments::meaning`).
 
 pub mod job;
 
@@ -18,6 +19,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+
+use crate::attachments::meaning::Embedder;
 
 pub const STATUS_EVENT: &str = "runtime://status";
 const LOG_LINES: usize = 400;
@@ -71,6 +74,8 @@ struct Running {
 
 pub struct LocalRuntime {
     app: AppHandle,
+    /// The search model, which stops for a chat model to load.
+    search: Arc<Embedder>,
     server: Option<PathBuf>,
     log_file: PathBuf,
     http: reqwest::Client,
@@ -80,7 +85,7 @@ pub struct LocalRuntime {
 }
 
 impl LocalRuntime {
-    pub fn new(app: AppHandle, server: Option<PathBuf>, logs_dir: PathBuf) -> Self {
+    pub fn new(app: AppHandle, search: Arc<Embedder>, server: Option<PathBuf>, logs_dir: PathBuf) -> Self {
         job::init();
         let state = if server.is_some() {
             RuntimeState::Idle
@@ -89,6 +94,7 @@ impl LocalRuntime {
         };
         Self {
             app,
+            search,
             server,
             log_file: logs_dir.join("llama-server.log"),
             http: reqwest::Client::builder()
@@ -143,6 +149,8 @@ impl LocalRuntime {
                 return Ok(base_url(r.port));
             }
         }
+        // The chat model comes first: the search model stops, and stays stopped while it loads.
+        let _room = self.search.make_room().await;
         if let Some(mut old) = running.take() {
             let _ = old.child.kill().await;
             let _ = old.child.wait().await;

@@ -4,7 +4,6 @@ use serde::Serialize;
 use tauri::Emitter;
 
 use super::St;
-use crate::attachments::meaning::SearchStatus;
 use crate::bail_msg;
 use crate::error::{AppError, CmdResult};
 use crate::models::downloads::{DownloadJob, DownloadSpec};
@@ -191,30 +190,6 @@ pub fn recommended_models(state: St<'_>) -> Vec<Recommendation> {
 #[tauri::command]
 pub fn download_model(state: St<'_>, spec: DownloadSpec) -> CmdResult<DownloadJob> {
     state.downloads.enqueue(spec).map_err(|e| AppError::msg(e.to_string()))
-}
-
-/// How far the search model has indexed attached files, and which model it is.
-#[tauri::command]
-pub fn search_status(state: St<'_>) -> SearchStatus {
-    state.embedder.status()
-}
-
-/// Downloads the search model this computer should use (installations from before it came
-/// with setup have none).
-#[tauri::command]
-pub fn download_search_model(state: St<'_>) -> CmdResult<DownloadJob> {
-    let m = state.embedder.preferred();
-    state
-        .downloads
-        .enqueue(DownloadSpec {
-            repo: m.repo.clone(),
-            name: m.name.clone(),
-            quant: Some(m.quant.clone()),
-            paths: vec![m.file.clone()],
-            sizes: vec![m.size],
-            sha256: vec![Some(m.sha256.clone())],
-        })
-        .map_err(|e| AppError::msg(e.to_string()))
 }
 
 #[tauri::command]

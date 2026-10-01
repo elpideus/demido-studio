@@ -13,6 +13,13 @@
 //! file's first, so a file is usually searchable by meaning before its question is asked. The
 //! larger model is used when the GPU has the memory for it, the small one otherwise; vectors of
 //! one cannot be compared with the other's, so a change of model indexes every file again.
+//!
+//! The chat model comes first. Before a local chat model loads, the search model finishes the
+//! request in hand and stops ([`Embedder::make_room`]), and it cannot start again until the chat
+//! model has loaded: the chat model gets the GPU memory it would get alone. Started again when
+//! next needed, the search model is fitted by llama.cpp into what is left, on the CPU when
+//! nothing is. Which search model is used does not change with the chat model: that would index
+//! every file again.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -22,18 +29,18 @@ use std::time::{Duration, Instant};
 
 use demido_catalog::SearchModel;
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use serde::Deserialize;
 use tokio::process::{Child, Command};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::db::{Db, Passage};
 use crate::models::ModelRegistry;
 
-pub const STATUS_EVENT: &str = "search://status";
 /// Passages embedded per request.
 const BATCH: usize = 8;
+/// Tokens of the server's one slot: a passage is about 650, and one of a dense script up to 2000.
+const SLOT_TOKENS: u32 = 2048;
 /// The server stops after this long without work, freeing its memory.
 const IDLE_STOP: Duration = Duration::from_secs(180);
 const LOAD_TIMEOUT: Duration = Duration::from_secs(120);
@@ -67,40 +74,6 @@ pub struct QueryVector {
     pub relevance: f32,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchModelInfo {
-    pub id: String,
-    pub name: String,
-    pub repo: String,
-    pub size: u64,
-}
-
-impl From<&SearchModel> for SearchModelInfo {
-    fn from(m: &SearchModel) -> Self {
-        Self {
-            id: m.id.clone(),
-            name: m.name.clone(),
-            repo: m.repo.clone(),
-            size: m.size,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchStatus {
-    /// The model files are searched with; `None` when none is installed.
-    pub model: Option<SearchModelInfo>,
-    /// The model for this computer, offered for download when none is installed.
-    pub suggested: SearchModelInfo,
-    /// Passages with a vector of `model`, and passages in all.
-    pub indexed: u64,
-    pub total: u64,
-    /// Why the model could not run, last time it was tried.
-    pub error: Option<String>,
-}
-
 struct Server {
     model_id: String,
     port: u16,
@@ -108,7 +81,6 @@ struct Server {
 }
 
 pub struct Embedder {
-    app: AppHandle,
     db: Arc<Db>,
     models: Arc<ModelRegistry>,
     /// The llama-server executable; `None` without a local runtime.
@@ -118,16 +90,16 @@ pub struct Embedder {
     preferred: SearchModel,
     http: reqwest::Client,
     running: tokio::sync::Mutex<Option<Server>>,
+    /// Read while the model starts or answers; written by a chat model loading
+    /// ([`Self::make_room`]), which then has the GPU to itself.
+    gate: Arc<RwLock<()>>,
     last_used: Mutex<Instant>,
     retry_at: Mutex<Option<Instant>>,
-    status: Mutex<Option<SearchStatus>>,
-    error: Mutex<Option<String>>,
     wake: Notify,
 }
 
 impl Embedder {
     pub fn new(
-        app: AppHandle,
         db: Arc<Db>,
         models: Arc<ModelRegistry>,
         server: Option<PathBuf>,
@@ -135,7 +107,6 @@ impl Embedder {
         preferred: SearchModel,
     ) -> Arc<Self> {
         Arc::new(Self {
-            app,
             db,
             models,
             server,
@@ -147,10 +118,9 @@ impl Embedder {
                 .build()
                 .unwrap_or_default(),
             running: tokio::sync::Mutex::new(None),
+            gate: Arc::new(RwLock::new(())),
             last_used: Mutex::new(Instant::now()),
             retry_at: Mutex::new(None),
-            status: Mutex::new(None),
-            error: Mutex::new(None),
             wake: Notify::new(),
         })
     }
@@ -169,38 +139,21 @@ impl Embedder {
         })
     }
 
-    pub fn preferred(&self) -> &SearchModel {
-        &self.preferred
-    }
-
     /// Asks the indexer to look for work now: a file was attached, or a search model arrived.
     pub fn wake(&self) {
         self.wake.notify_one();
     }
 
-    pub fn status(&self) -> SearchStatus {
-        let installed = self.installed();
-        let (indexed, total) = match &installed {
-            Some(m) => self.db.vector_progress(&m.model.id).unwrap_or((0, 0)),
-            None => (0, 0),
-        };
-        SearchStatus {
-            model: installed.as_ref().map(|m| (&m.model).into()),
-            suggested: (&self.preferred).into(),
-            indexed,
-            total,
-            error: self.error.lock().clone(),
+    /// Stops the search model and keeps it stopped until the guard is dropped, so that a chat
+    /// model about to load gets the GPU memory first. Waits for the request in hand, if any.
+    pub async fn make_room(&self) -> OwnedRwLockWriteGuard<()> {
+        let guard = self.gate.clone().write_owned().await;
+        if let Some(mut s) = self.running.lock().await.take() {
+            let _ = s.child.kill().await;
+            let _ = s.child.wait().await;
+            tracing::info!("search model stopped: a chat model is loading");
         }
-    }
-
-    /// Sends the status when it changed.
-    fn publish(&self) {
-        let status = self.status();
-        let mut last = self.status.lock();
-        if last.as_ref() != Some(&status) {
-            *last = Some(status.clone());
-            let _ = self.app.emit(STATUS_EVENT, status);
-        }
+        guard
     }
 
     /// Runs the indexer for as long as the app runs.
@@ -223,7 +176,6 @@ impl Embedder {
     /// Embeds every passage without a vector of the installed model.
     async fn index(&self) {
         let Some(m) = self.installed() else {
-            self.publish();
             return;
         };
         loop {
@@ -246,9 +198,7 @@ impl Embedder {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::warn!(model = %m.model.name, "indexing stopped: {e}");
-                        *self.error.lock() = Some(e);
                         *self.retry_at.lock() = Some(Instant::now() + RETRY_AFTER);
-                        self.publish();
                         return;
                     }
                 };
@@ -257,12 +207,9 @@ impl Embedder {
                     tracing::warn!("cannot store passage vectors: {e}");
                     return;
                 }
-                *self.error.lock() = None;
                 *self.retry_at.lock() = None;
-                self.publish();
             }
         }
-        self.publish();
     }
 
     /// The vector of `text` as a question about the files `ids`, once they are all indexed;
@@ -309,6 +256,8 @@ impl Embedder {
     /// and tried again, and gets an empty vector, which matches nothing, when even a short start
     /// of it fails while the server runs.
     async fn embed(&self, m: &Installed, texts: Vec<String>) -> Result<Vec<Vec<f32>>, String> {
+        // Not while a chat model loads: it has the GPU first.
+        let _turn = self.gate.read().await;
         let base = self.ensure(m).await?;
         *self.last_used.lock() = Instant::now();
         let result = self.request(&base, &texts).await;
@@ -418,21 +367,22 @@ impl Embedder {
         use std::io::Write;
 
         let port = crate::runtime::free_port().map_err(|e| format!("no free local port: {e}"))?;
-        // Four slots of 2048 tokens: a passage is about 650, and llama.cpp needs a whole input in
-        // one micro-batch for these models, so the micro-batch is a slot. No prompt cache: no
-        // text is embedded twice, and it would keep up to 8 GB of them in memory.
+        // One slot: texts are embedded one after the other, as fast as several slots on a GPU
+        // and with a cache a quarter the size. A model that reads text both ways needs a whole
+        // input in one micro-batch; see `SearchModel::micro_batch`. No prompt cache: no text is
+        // embedded twice, and it would keep up to 8 GB of them in memory.
         let args: Vec<String> = vec![
             "-m".into(),
             m.path.to_string_lossy().into_owned(),
             "--embedding".into(),
             "-c".into(),
-            "8192".into(),
+            SLOT_TOKENS.to_string(),
             "-np".into(),
-            "4".into(),
+            "1".into(),
             "-b".into(),
-            "2048".into(),
+            SLOT_TOKENS.to_string(),
             "-ub".into(),
-            "2048".into(),
+            m.model.micro_batch.min(SLOT_TOKENS).to_string(),
             "--cache-ram".into(),
             "0".into(),
             "--host".into(),

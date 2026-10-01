@@ -59,18 +59,6 @@ impl Db {
         })
     }
 
-    /// Passages with a vector of `model`, and passages in all.
-    pub fn vector_progress(&self, model: &str) -> rusqlite::Result<(u64, u64)> {
-        self.with(|c| {
-            c.query_row(
-                "SELECT (SELECT COUNT(*) FROM passage_vectors WHERE model = ?1),
-                        (SELECT COUNT(*) FROM attachment_passages)",
-                [model],
-                |r| Ok((r.get::<_, i64>(0)?.max(0) as u64, r.get::<_, i64>(1)?.max(0) as u64)),
-            )
-        })
-    }
-
     /// How many passages of the files `ids` have no vector of `model` yet.
     pub fn unindexed_count(&self, ids: &[String], model: &str) -> rusqlite::Result<u64> {
         if ids.is_empty() {
@@ -212,7 +200,7 @@ mod tests {
         db.store_vectors("m", &vectors).unwrap();
         assert_eq!(db.unindexed_count(std::slice::from_ref(&new), "m").unwrap(), 0);
         assert_eq!(db.unindexed_count(&[new.clone(), old.clone()], "m").unwrap(), 2);
-        assert_eq!(db.vector_progress("m").unwrap(), (2, 4));
+        assert_eq!(db.unindexed_passages("m", 10).unwrap().len(), 2);
         let stored = db.passage_vectors(std::slice::from_ref(&new), "m").unwrap().unwrap();
         assert_eq!(stored.len(), 2);
         assert!(stored.iter().all(|(_, v)| v == &[0.5, -0.25]));
@@ -229,7 +217,8 @@ mod tests {
         db.delete_staged_attachment(&id).unwrap();
         // Stored after its file went: skipped, not an error.
         db.store_vectors("m", &[(rowid, vec![1.0])]).unwrap();
-        assert_eq!(db.vector_progress("m").unwrap(), (0, 0));
+        assert_eq!(db.unindexed_passages("m", 10).unwrap(), []);
+        assert_eq!(db.unindexed_passages("other", 10).unwrap(), []);
     }
 
     #[test]

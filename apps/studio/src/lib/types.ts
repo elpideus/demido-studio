@@ -267,25 +267,6 @@ export interface MarketStatus {
 
 export type JobState = 'queued' | 'downloading' | 'paused' | 'done' | 'failed';
 
-export interface SearchModelInfo {
-  id: string;
-  name: string;
-  repo: string;
-  size: number;
-}
-
-/** The search model, which finds passages of attached files by what they mean. */
-export interface SearchStatus {
-  /** The model in use; null when none is installed. */
-  model: SearchModelInfo | null;
-  /** The model for this computer, offered for download when none is installed. */
-  suggested: SearchModelInfo;
-  /** Passages with a vector of `model`, of all passages. */
-  indexed: number;
-  total: number;
-  error: string | null;
-}
-
 export interface DownloadJob {
   id: string;
   repo: string;

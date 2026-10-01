@@ -74,6 +74,8 @@ mod tests {
             assert!(m.file.ends_with(".gguf"));
             assert_eq!(m.sha256.len(), 64, "{}", m.file);
             assert!(m.size > 0 && m.relevance > 0.0 && m.relevance < 1.0);
+            // The app's slot is 2048 tokens; a micro-batch is at most that.
+            assert!(m.micro_batch.is_power_of_two() && m.micro_batch <= 2048, "{}", m.id);
             // unsloth when it publishes the model, otherwise the model's own maker.
             assert!(
                 m.repo.starts_with("unsloth/") || m.repo.starts_with("Qwen/"),

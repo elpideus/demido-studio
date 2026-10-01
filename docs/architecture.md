@@ -295,11 +295,16 @@ model (`attachments::meaning`) turns every passage into a vector, and the questi
 a passage whose vector points where the question's does is about what it asks. It is a small
 embedding model from `catalog/models.json`: Qwen3 Embedding 0.6B when the GPU the runtime uses
 has 10 GB, EmbeddingGemma 300M otherwise and on the CPU. Setup downloads it; an installation
-without one offers it in Settings, General, and searches by words until then. The app finds it in
+without one gets it with its next update, and searches by words until then. The app finds it in
 the model folders by its `<repo>/<file>` and keeps embedding models out of the model list (a GGUF
 with `<arch>.pooling_type` cannot chat). It runs in a `llama-server` of its own (`--embedding`,
-four 2048-token slots, a micro-batch as large as a slot, no prompt cache), started when there is
-something to embed and stopped after three idle minutes; its log is `logs/search-server.log`. An
+one 2048-token slot, the micro-batch the catalog gives, no prompt cache), started when there is
+something to embed and stopped after three idle minutes; its log is `logs/search-server.log`.
+The chat model comes first: before a local one loads, the search model finishes the request in
+hand and stops, and it cannot start again until the chat model has loaded, so the chat model gets
+the GPU memory it would get alone. Started again when next needed, the search model is fitted by
+llama.cpp into what is left (`--fit`, which keeps 1 GiB free), on the CPU when nothing is. Which
+search model is used does not change with the chat model, since that would index every file again. An
 indexer embeds passages in the background, the newest file's first, in batches of eight, with
 the document prompt the model card asks for, into `passage_vectors` (little-endian f32s, one row
 per passage and model: vectors of one model do not compare with another's, so a change of model

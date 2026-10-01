@@ -143,6 +143,9 @@ pub struct SearchModel {
     pub document_prefix: String,
     /// Similarity below which a passage counts as unrelated to a question.
     pub relevance: f32,
+    /// Tokens llama.cpp decodes at once (`--ubatch-size`): the whole input for a model that
+    /// reads both ways, less for one that reads left to right (see `catalog/models.json`).
+    pub micro_batch: u32,
 }
 
 impl SearchModel {

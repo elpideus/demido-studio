@@ -13,10 +13,6 @@
   color: var(--warning);
 }
 
-.progress {
-  margin-top: var(--space-2);
-}
-
 .about {
   display: flex;
   align-items: center;

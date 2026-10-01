@@ -124,13 +124,7 @@ fn build_state(
     ));
     models.rescan();
 
-    let runtime = Arc::new(LocalRuntime::new(
-        app.clone(),
-        paths.llama_server(),
-        paths.logs_dir.clone(),
-    ));
     let embedder = attachments::meaning::Embedder::new(
-        app.clone(),
         db.clone(),
         models.clone(),
         paths.llama_server(),
@@ -144,6 +138,12 @@ fn build_state(
                 .map(|r| r.backend),
         ),
     );
+    let runtime = Arc::new(LocalRuntime::new(
+        app.clone(),
+        embedder.clone(),
+        paths.llama_server(),
+        paths.logs_dir.clone(),
+    ));
     let skills = SkillRegistry::new(app.clone(), paths.skills_dir.clone(), paths.skills_state_file.clone());
     skills.seed_defaults(&paths.default_skills_dir());
     skills.rescan();
@@ -312,8 +312,6 @@ pub fn run() {
             commands::chats::workspace_dir,
             commands::models::list_models,
             commands::models::rescan_models,
-            commands::models::search_status,
-            commands::models::download_search_model,
             commands::models::update_model,
             commands::models::set_models_enabled,
             commands::models::import_model_avatar,
