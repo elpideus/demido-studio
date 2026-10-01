@@ -159,7 +159,10 @@ model cannot use tools. Nothing is guessed from names or templates:
   Deleting a model pauses the checks first, since Windows refuses to delete a file llama.cpp has
   open. A chat loads a model's projector (`--mmproj`) once llama.cpp has said the model reads
   images or sound with it, so attached pictures reach it; a projector llama.cpp refused is never
-  loaded, and the model starts without it.
+  loaded, and the model starts without it. With a projector, llama.cpp decodes a picture in one
+  micro-batch, so the micro-batch is 2,048 tokens and so is the most a picture may take: a
+  1380×880 screenshot is 545 tokens for Gemma 4 26B, more than the default 512, and stopped the
+  server.
 - A Gemini model's thinking comes from Google's model list; tools and image and audio input come
   from [models.dev](https://models.dev), an open database of model specifications. Its Google
   entries are kept in `cache/models-dev.json`, refreshed weekly (and when a provider is added or

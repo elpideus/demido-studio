@@ -22,6 +22,9 @@ use tokio::process::{Child, Command};
 pub const STATUS_EVENT: &str = "runtime://status";
 const LOG_LINES: usize = 400;
 const LOAD_TIMEOUT: Duration = Duration::from_secs(420);
+/// Tokens one picture may take, and the micro-batch llama.cpp decodes them in, when a model loads
+/// its projector (see where the server's arguments are built).
+const VISION_BATCH: u32 = 2048;
 
 /// What to run. Two specs that compare equal can share a server.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -250,6 +253,14 @@ impl LocalRuntime {
         if let Some(mmproj) = &spec.mmproj {
             args.push("--mmproj".into());
             args.push(mmproj.to_string_lossy().into_owned());
+            // A picture's tokens are decoded in one micro-batch, with attention across all of
+            // them for models such as Gemma: a picture larger than the micro-batch (512 tokens by
+            // default; a 1380×880 screenshot is 545 for Gemma 4 26B) stops llama-server on an
+            // assertion. The micro-batch is made big enough, and a picture never larger.
+            args.push("--ubatch-size".into());
+            args.push(VISION_BATCH.to_string());
+            args.push("--image-max-tokens".into());
+            args.push(VISION_BATCH.to_string());
         }
 
         let mut cmd = Command::new(server);
