@@ -39,7 +39,8 @@ pub(crate) fn decode(bytes: &[u8]) -> String {
 }
 
 fn utf16(bytes: &[u8], word: fn([u8; 2]) -> u16) -> String {
-    let units: Vec<u16> = bytes.chunks_exact(2).map(|pair| word([pair[0], pair[1]])).collect();
+    let (pairs, _) = bytes.as_chunks::<2>();
+    let units: Vec<u16> = pairs.iter().map(|&pair| word(pair)).collect();
     String::from_utf16_lossy(&units)
 }
 
