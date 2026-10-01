@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   AppInfo,
   ApprovalDecision,
+  Attachment,
   Bar,
   Chat,
   ChartInfo,
@@ -63,8 +64,15 @@ export const api = {
   // Chats
   listChats: () => invoke<Chat[]>('list_chats'),
   getMessages: (chatId: string) => invoke<Message[]>('get_messages', { chatId }),
-  sendMessage: (chatId: string | null, text: string, modelId: string) =>
-    invoke<{ chat: Chat; message: Message }>('send_message', { chatId, text, modelId }),
+  /** Reads a file into the staging area; rejects for folders, missing files and files over 100 MB. */
+  attachFile: (path: string) => invoke<Attachment>('attach_file', { path }),
+  /** The same for bytes without a file on disk (a pasted screenshot); the name travels URI-encoded. */
+  attachData: (name: string, bytes: Uint8Array) =>
+    invoke<Attachment>('attach_data', bytes, { headers: { 'x-name': encodeURIComponent(name) } }),
+  /** Drops a staged file the person removed before sending. */
+  discardAttachment: (id: string) => invoke<void>('discard_attachment', { id }),
+  sendMessage: (chatId: string | null, text: string, modelId: string, attachmentIds: string[]) =>
+    invoke<{ chat: Chat; message: Message }>('send_message', { chatId, text, modelId, attachmentIds }),
   regenerate: (chatId: string, modelId: string) => invoke<void>('regenerate', { chatId, modelId }),
   editMessage: (chatId: string, messageId: string, text: string, modelId: string) =>
     invoke<Message>('edit_message', { chatId, messageId, text, modelId }),

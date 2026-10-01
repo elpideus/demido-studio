@@ -7,6 +7,7 @@
 //! before them is installing an update downloaded earlier, in automatic mode.
 
 mod agent;
+mod attachments;
 mod commands;
 mod db;
 mod error;
@@ -95,6 +96,18 @@ fn build_state(
         && n > 0
     {
         tracing::info!("closed {n} messages left streaming by the previous session");
+    }
+    attachments::clear_staging(&paths, &db);
+    // Attached files are read in a child process (this executable, see main.rs): a hostile file
+    // that crashes or stalls its parser then costs only its own text.
+    match std::env::current_exe() {
+        Ok(exe) => demido_extract::isolate(
+            exe,
+            vec![demido_extract::CHILD_ARG.into()],
+            std::time::Duration::from_secs(180),
+            Some(runtime::job::adopt_std),
+        ),
+        Err(e) => tracing::warn!("attached files are read in-process: {e}"),
     }
     let secrets = Arc::new(Secrets::default());
     let providers = Arc::new(ProviderStore::load(
@@ -262,6 +275,9 @@ pub fn run() {
             commands::chats::list_chats,
             commands::chats::get_messages,
             commands::chats::send_message,
+            commands::chats::attach_file,
+            commands::chats::attach_data,
+            commands::chats::discard_attachment,
             commands::chats::regenerate,
             commands::chats::edit_message,
             commands::chats::stop_turn,

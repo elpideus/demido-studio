@@ -535,13 +535,17 @@ impl ModelRegistry {
         let (Some(entry), Some(file)) = (entry, file) else {
             bail_msg!("That model is no longer available.");
         };
+        // The projector lets the model read attached images and sound. It is loaded only once
+        // llama.cpp has said the model reads them with it, so a projector it refuses never keeps
+        // the model from starting.
+        let reads_media = entry.capabilities.vision == Some(true) || entry.capabilities.audio == Some(true);
         Ok(LaunchSpec {
             model_id: entry.id.clone(),
             model_name: entry.name.clone(),
             path: file.path.clone(),
             context_length: entry.effective.context_length.unwrap_or(8192),
             gpu_layers: entry.effective.gpu_layers,
-            mmproj: None,
+            mmproj: file.mmproj.clone().filter(|_| reads_media),
         })
     }
 

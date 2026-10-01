@@ -1,8 +1,9 @@
-//! SQLite storage for chats, messages and turn traces.
+//! SQLite storage for chats, messages, attached files and turn traces.
 //!
 //! One connection behind a mutex: every statement here is small, and SQLite in WAL mode
 //! serializes writers anyway. Schema changes are numbered migrations keyed on `user_version`.
 
+mod attachments;
 mod chats;
 mod messages;
 mod traces;
@@ -14,6 +15,7 @@ use anyhow::Context;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 
+pub use attachments::{AttachmentContent, Passage};
 pub use types::*;
 
 pub struct Db {
@@ -63,6 +65,56 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX traces_by_chat ON traces(chat_id, created_at);
     CREATE INDEX traces_by_message ON traces(message_id);
+    "#,
+    // 2: attached files, their passages (searched with BM25 through an FTS5 index over them),
+    // and the passages each message was shown
+    r#"
+    CREATE TABLE attachments (
+        id          TEXT PRIMARY KEY,
+        chat_id     TEXT REFERENCES chats(id) ON DELETE CASCADE,
+        message_id  TEXT,
+        position    INTEGER NOT NULL DEFAULT 0,
+        name        TEXT NOT NULL,
+        file        TEXT NOT NULL,
+        mime        TEXT NOT NULL,
+        kind        TEXT NOT NULL,
+        size        INTEGER NOT NULL,
+        pages       INTEGER,
+        width       INTEGER,
+        height      INTEGER,
+        tokens      INTEGER,
+        note        TEXT,
+        created_at  INTEGER NOT NULL,
+        -- Large values last: reading a row's other columns never walks through them.
+        media_mime  TEXT,
+        text        TEXT,
+        media       BLOB
+    );
+    CREATE INDEX attachments_by_message ON attachments(message_id);
+    CREATE INDEX attachments_by_chat ON attachments(chat_id);
+    CREATE TABLE attachment_passages (
+        id             INTEGER PRIMARY KEY,
+        attachment_id  TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+        seq            INTEGER NOT NULL,
+        page           INTEGER,
+        text           TEXT NOT NULL
+    );
+    CREATE INDEX passages_by_attachment ON attachment_passages(attachment_id, seq);
+    CREATE VIRTUAL TABLE passages_fts USING fts5(
+        text, content = 'attachment_passages', content_rowid = 'id',
+        tokenize = 'porter unicode61 remove_diacritics 2'
+    );
+    CREATE TRIGGER passages_added AFTER INSERT ON attachment_passages BEGIN
+        INSERT INTO passages_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER passages_removed AFTER DELETE ON attachment_passages BEGIN
+        INSERT INTO passages_fts(passages_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    CREATE TABLE message_passages (
+        message_id  TEXT PRIMARY KEY,
+        chat_id     TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        passages    TEXT NOT NULL
+    );
     "#,
 ];
 

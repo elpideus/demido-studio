@@ -21,6 +21,7 @@ its source distribution.
 | [axios](https://axios-http.com), [ws](https://github.com/websockets/ws), [jszip](https://stuk.github.io/jszip/) | MIT (jszip: MIT or GPL-3.0) | Used by TradingView-API |
 | [SQLite](https://sqlite.org) via rusqlite | Public domain, MIT | Chat storage |
 | [portable-pty](https://github.com/wezterm/wezterm) from WezTerm, [avt](https://github.com/asciinema/avt) from asciinema | MIT; Apache-2.0 | The terminal the assistant's commands run in, and reading its screen |
+| [pdf-extract](https://github.com/jrmuizel/pdf-extract) and [lopdf](https://github.com/J-F-Liu/lopdf), [calamine](https://github.com/tafia/calamine), [quick-xml](https://github.com/tafia/quick-xml), [image](https://github.com/image-rs/image), [encoding_rs](https://github.com/hsivonen/encoding_rs) | MIT; MIT; MIT; MIT; MIT or Apache-2.0; (Apache-2.0 or MIT) and BSD-3-Clause | Reading attached files: PDF, spreadsheets, Word, PowerPoint and OpenDocument, images, old text encodings |
 | Rust crates (tokio, serde, reqwest, notify, keyring, sysinfo, zip, sha2 and others) | MIT or Apache-2.0 | Backend |
 
 Lightweight Charts shows TradingView's attribution logo on every chart, as its license asks.

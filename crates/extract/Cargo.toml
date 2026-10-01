@@ -1,0 +1,32 @@
+[package]
+name = "demido-extract"
+description = "Reads attached files for a model: what a file is, the text in it, passages of that text for retrieval, and a model-ready copy of an image."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+# What a child process found, sent back to the parent (see `isolate`).
+serde_json.workspace = true
+zip.workspace = true
+# Word, PowerPoint, OpenDocument and EPUB are zipped XML; `escape-html` resolves HTML's named
+# entities (&nbsp;, &eacute;...) for HTML files and EPUB chapters.
+quick-xml = { version = "0.41", features = ["escape-html"] }
+# Excel (xlsx, xlsm, xlsb, xls) and OpenDocument spreadsheets.
+calamine = { version = "0.36", features = ["dates"] }
+# Spreadsheet dates and times, which calamine gives as Excel serial numbers otherwise.
+chrono.workspace = true
+# PDF text, page by page. Chosen over pdf_oxide after measuring both; see `src/pdf.rs`.
+pdf-extract = "0.12"
+# Only the decoders attachments need. JPEG and PNG are also the encoders for model copies.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
+# Windows-1252 for old text files that are not UTF-8. Already in the tree through calamine and lopdf.
+encoding_rs = "0.8"
+
+[dev-dependencies]
+tempfile.workspace = true
+# Writes the spreadsheet the tests read.
+rust_xlsxwriter = "0.99"

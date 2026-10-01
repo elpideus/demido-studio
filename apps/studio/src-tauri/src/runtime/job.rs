@@ -37,6 +37,20 @@ mod imp {
         });
     }
 
+    /// The same for a child started with `std::process` (files read for attachments).
+    pub fn adopt_std(child: &std::process::Child) {
+        use std::os::windows::io::AsRawHandle;
+        init();
+        let Some(Some(job)) = JOB.get() else {
+            return;
+        };
+        unsafe {
+            if let Err(e) = AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle())) {
+                tracing::warn!("could not tie child process to the app: {e}");
+            }
+        }
+    }
+
     pub fn adopt(child: &tokio::process::Child) {
         let Some(Some(job)) = JOB.get() else {
             return;
@@ -55,6 +69,7 @@ mod imp {
 mod imp {
     pub fn init() {}
     pub fn adopt(_child: &tokio::process::Child) {}
+    pub fn adopt_std(_child: &std::process::Child) {}
 }
 
-pub use imp::{adopt, init};
+pub use imp::{adopt, adopt_std, init};

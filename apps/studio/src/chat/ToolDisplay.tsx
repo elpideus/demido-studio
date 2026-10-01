@@ -220,6 +220,22 @@ function Search({ d }: { d: Display }) {
   );
 }
 
+/** Where search_files found passages: one line per passage, file and page. */
+function Passages({ d }: { d: Display }) {
+  const hits = (Array.isArray(d.hits) ? d.hits : []) as Array<{ file: string; page: number | null }>;
+  if (!hits.length) return <div className={styles.muted}>No passage matched.</div>;
+  return (
+    <div className={styles.table}>
+      {hits.map((h, i) => (
+        <div key={`${h.file}-${h.page}-${i}`} className={styles.quoteRow}>
+          <span className={styles.symbol}>{h.file}</span>
+          {h.page !== null && <span className={styles.muted}>page {h.page}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Python({ d }: { d: Display }) {
   const [showCode, setShowCode] = useState(false);
   const files = (Array.isArray(d.files) ? d.files : []) as Array<{
@@ -406,6 +422,8 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <Quotes d={display} />;
     case 'search':
       return <Search d={display} />;
+    case 'passages':
+      return <Passages d={display} />;
     case 'python':
       return <Python d={display} />;
     case 'command':

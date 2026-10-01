@@ -1,0 +1,261 @@
+/* The composer's tray. The top and right padding leave room for the remove buttons that sit on
+   each chip's corner; the negative margin keeps the chips level with the text's first line. */
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-height: 196px;
+  /* Room above for the remove buttons and below for the warning badges, which stick out of
+     their chips; the negative margins keep the tray where it would be without it. */
+  margin: calc(-1 * var(--space-2)) 0 calc(-1 * var(--space-2));
+  padding: var(--space-2) var(--space-2) var(--space-2) 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-5);
+  color: var(--text-primary);
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.item:hover .remove,
+.item:focus-within .remove {
+  opacity: 1;
+}
+
+.remove:hover {
+  background: var(--surface-6);
+}
+
+/* image chips */
+.thumb {
+  position: relative;
+  display: flex;
+}
+
+.thumbImage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  object-fit: cover;
+}
+
+.thumbWarning {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+}
+
+.thumbWarning .warning {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+}
+
+.broken {
+  color: var(--text-tertiary);
+}
+
+/* file cards */
+.card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: max-content;
+  min-width: 168px;
+  max-width: 240px;
+  height: 56px;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.openable {
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.openable:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-5);
+}
+
+.tile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  background: var(--surface-5);
+  color: var(--text-secondary);
+}
+
+.tile[data-icon='pdf'] {
+  background: var(--danger-muted);
+  color: var(--danger);
+}
+
+.tile[data-icon='document'] {
+  background: var(--info-muted);
+  color: var(--info);
+}
+
+.tile[data-icon='slides'] {
+  background: var(--warning-muted);
+  color: var(--warning);
+}
+
+.tile[data-icon='sheet'],
+.tile[data-icon='data'] {
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: var(--leading-tight);
+}
+
+.name,
+.subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.subtitle {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.warning {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--warning);
+}
+
+.warningText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* a sent message's files */
+.sent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  max-width: 82%;
+}
+
+.gallery,
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Three squares to a row. */
+.gallery {
+  max-width: calc(3 * 120px + 2 * var(--space-2));
+}
+
+.gallerySingle {
+  max-width: none;
+}
+
+.imageButton {
+  display: flex;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: transparent;
+}
+
+.gridImage,
+.singleImage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  transition: filter var(--duration-fast) var(--ease-out);
+}
+
+.gridImage {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+}
+
+.singleImage {
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+/* Without a known size the image keeps its own, up to the lone image's bounds. */
+.singleImage:not([style]) {
+  max-width: 260px;
+}
+
+.singleImage.broken {
+  min-width: 120px;
+  min-height: 120px;
+}
+
+.imageButton:hover .gridImage,
+.imageButton:hover .singleImage {
+  filter: brightness(1.08);
+}

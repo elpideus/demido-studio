@@ -100,7 +100,8 @@
   text-align: center;
 }
 
-.stop {
+.stop,
+.add {
   border-radius: var(--radius-full);
 }
 

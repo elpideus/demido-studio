@@ -124,6 +124,22 @@
   background: #fff;
 }
 
+.remoteImage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-4);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.remoteImage:hover {
+  border-color: var(--border-strong);
+}
+
 .codeBlock {
   margin: 0 0 1em;
   overflow: hidden;

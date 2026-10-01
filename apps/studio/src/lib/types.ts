@@ -57,12 +57,39 @@ export interface MessageStats {
   finishReason?: string | null;
 }
 
+export type AttachmentKind = 'image' | 'audio' | 'document' | 'text' | 'data' | 'other';
+
+/** A file sent with a message: staged in the composer until sent, then in the chat's workspace. */
+export interface Attachment {
+  id: string;
+  /** File name as the person sees it. */
+  name: string;
+  /** Absolute path on disk: for opening the file and image thumbnails (fileUrl). */
+  path: string;
+  /** Path inside the chat's workspace once sent ("uploads/report.pdf"); null while staged. */
+  file: string | null;
+  mime: string;
+  kind: AttachmentKind;
+  /** Bytes. */
+  size: number;
+  /** PDF pages, slides, or spreadsheet sheets. */
+  pages: number | null;
+  /** Estimated tokens of the text the model reads; null for images, audio and other files. */
+  tokens: number | null;
+  width: number | null;
+  height: number | null;
+  /** A warning for the person, e.g. "No text found. It may be a scanned PDF." */
+  note: string | null;
+}
+
 export interface Message {
   id: string;
   chatId: string;
   seq: number;
   role: Role;
   content: string;
+  /** Files sent with a user message; empty otherwise. */
+  attachments: Attachment[];
   reasoning: string | null;
   toolCalls: ToolCall[];
   toolCallId: string | null;

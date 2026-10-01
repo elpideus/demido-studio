@@ -20,7 +20,8 @@ interface ChatsStore {
   pendingTool: Record<string, string>;
   loadChats: () => Promise<void>;
   open: (id: string | null) => Promise<void>;
-  send: (text: string, modelId: string) => Promise<boolean>;
+  /** Sends a message with the staged files `attachmentIds`; false when the backend refused it. */
+  send: (text: string, modelId: string, attachmentIds?: string[]) => Promise<boolean>;
   stop: () => Promise<void>;
   regenerate: (modelId: string) => Promise<void>;
   edit: (messageId: string, text: string, modelId: string) => Promise<void>;
@@ -73,10 +74,10 @@ export const useChats = create<ChatsStore>((set, get) => ({
     }
   },
 
-  send: async (text, modelId) => {
+  send: async (text, modelId, attachmentIds = []) => {
     const { activeId } = get();
     try {
-      const { chat, message } = await api.sendMessage(activeId, text, modelId);
+      const { chat, message } = await api.sendMessage(activeId, text, modelId, attachmentIds);
       set((s) => ({
         activeId: chat.id,
         chats: sortChats([chat, ...s.chats.filter((c) => c.id !== chat.id)]),

@@ -164,8 +164,15 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "read_file",
         group: "files",
-        description: "Read a text file from the chat's workspace folder (CSV, JSON, Markdown, code).",
+        description: "Read a file from the chat's workspace folder as text: CSV, JSON, Markdown, code, and also PDF, Word, PowerPoint, Excel and web pages. For PDFs, presentations and spreadsheets, pages chooses pages (slides, sheets).",
         parameters: files::read_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "search_files",
+        group: "files",
+        description: "Search the files the user attached to this chat (PDF, Word, text, spreadsheets and others) for passages about something. Returns the best matching passages with their file and page. Matching is by words: when nothing is found, try other words, synonyms or fewer words.",
+        parameters: files::search_schema,
         approval: false,
     },
     ToolDef {
@@ -199,7 +206,11 @@ const GROUPS: &[(&str, &str, &str)] = &[
     ),
     ("python", "Python", "Run analysis code in the chat's workspace"),
     ("terminal", "Terminal", "Run the programs installed on this computer"),
-    ("files", "Workspace files", "Read and write files in the chat's folder"),
+    (
+        "files",
+        "Workspace files",
+        "Read and write files in the chat's folder, and search attached files",
+    ),
     (
         "skills",
         "Skill authoring",
@@ -308,7 +319,11 @@ pub fn describe(name: &str, args: &Value) -> String {
         }
         "run_command" => format!("Running {}", command::one_line(&s("command"), 60)),
         "list_files" => "Listing workspace files".into(),
-        "read_file" => format!("Reading {}", s("path")),
+        "read_file" => match s("pages") {
+            pages if pages.is_empty() => format!("Reading {}", s("path")),
+            pages => format!("Reading {}, pages {pages}", s("path")),
+        },
+        "search_files" => format!("Searching attached files for “{}”", s("query")),
         "write_file" => format!("Writing {}", s("path")),
         "create_skill" => format!("Creating the skill “{}”", s("name")),
         "read_skill_file" => format!("Reading skill {}", s("skill")),
@@ -330,7 +345,8 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "run_python" => python::run(ctx, &args).await,
         "run_command" => command::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
-        "read_file" => files::read(ctx, &args),
+        "read_file" => files::read(ctx, &args).await,
+        "search_files" => files::search(ctx, &args),
         "write_file" => files::write(ctx, &args),
         "create_skill" => skills::create(ctx, &args),
         "read_skill_file" => skills::read(ctx, &args),

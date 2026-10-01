@@ -1,6 +1,7 @@
 use super::St;
 use crate::agent::{Agent, Approval, ChatEvent, SendResult};
-use crate::db::{Chat, Message, Trace};
+use crate::attachments;
+use crate::db::{Attachment, Chat, Message, Trace};
 use crate::error::CmdResult;
 
 #[tauri::command]
@@ -10,12 +11,73 @@ pub fn list_chats(state: St<'_>) -> CmdResult<Vec<Chat>> {
 
 #[tauri::command]
 pub fn get_messages(state: St<'_>, chat_id: String) -> CmdResult<Vec<Message>> {
-    Ok(state.db.list_messages(&chat_id)?)
+    let mut messages = state.db.list_messages(&chat_id)?;
+    attachments::resolve_messages(&state.paths, &mut messages);
+    Ok(messages)
 }
 
 #[tauri::command]
-pub fn send_message(state: St<'_>, chat_id: Option<String>, text: String, model_id: String) -> CmdResult<SendResult> {
-    Agent::send(&state, chat_id, text, model_id)
+pub fn send_message(
+    state: St<'_>,
+    chat_id: Option<String>,
+    text: String,
+    model_id: String,
+    attachment_ids: Option<Vec<String>>,
+) -> CmdResult<SendResult> {
+    Agent::send(&state, chat_id, text, model_id, attachment_ids.unwrap_or_default())
+}
+
+/// Adds a file from disk to the composer: copies it aside and reads it.
+#[tauri::command]
+pub async fn attach_file(state: St<'_>, path: String) -> CmdResult<Attachment> {
+    attachments::stage_file(&state, std::path::PathBuf::from(path)).await
+}
+
+/// Adds bytes from the clipboard to the composer. The body is the file; the `x-name` header its
+/// URI-encoded name.
+#[tauri::command]
+pub async fn attach_data(state: St<'_>, request: tauri::ipc::Request<'_>) -> CmdResult<Attachment> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        crate::bail_msg!("The pasted file arrived empty.");
+    };
+    if bytes.len() as u64 > attachments::MAX_FILE_BYTES {
+        crate::bail_msg!("The pasted file is larger than 100 MB, the most a file can be.");
+    }
+    let name = request
+        .headers()
+        .get("x-name")
+        .and_then(|v| v.to_str().ok())
+        .map(percent_decode)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "Pasted file".into());
+    attachments::stage_bytes(&state, name, bytes.clone()).await
+}
+
+/// Removes a file from the composer before it was sent.
+#[tauri::command]
+pub fn discard_attachment(state: St<'_>, id: String) -> CmdResult<()> {
+    attachments::discard(&state, &id)
+}
+
+/// Decodes `%XX` escapes (what `encodeURIComponent` produces).
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3])
+            && let Ok(v) = u8::from_str_radix(hex, 16)
+        {
+            out.push(v);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[tauri::command]

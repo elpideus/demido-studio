@@ -25,6 +25,7 @@ fn row_to_message(r: &Row<'_>) -> rusqlite::Result<Message> {
         stats: json_col(r, "stats")?,
         provider_meta: json_col(r, "provider_meta")?,
         created_at: r.get("created_at")?,
+        attachments: Vec::new(),
     })
 }
 
@@ -37,7 +38,11 @@ impl Db {
         self.with(|c| {
             let mut stmt = c.prepare("SELECT * FROM messages WHERE chat_id = ?1 ORDER BY seq")?;
             let rows = stmt.query_map([chat_id], row_to_message)?;
-            rows.collect()
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .and_then(|mut messages| {
+            self.fill_attachments(chat_id, &mut messages)?;
+            Ok(messages)
         })
     }
 
@@ -45,6 +50,15 @@ impl Db {
         self.with(|c| {
             c.query_row("SELECT * FROM messages WHERE id = ?1", [id], row_to_message)
                 .optional()
+        })
+        .and_then(|message| match message {
+            Some(m) => {
+                let mut one = [m];
+                self.fill_attachments(&one[0].chat_id.clone(), &mut one)?;
+                let [m] = one;
+                Ok(Some(m))
+            }
+            None => Ok(None),
         })
     }
 

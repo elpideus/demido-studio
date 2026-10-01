@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDown, FolderOpen } from 'lucide-react';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { ArrowDown, FileUp, FolderOpen } from 'lucide-react';
 import { IconButton } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
@@ -7,12 +8,35 @@ import type { Message } from '@/lib/types';
 import { currentModel, useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
+import { ATTACH_FILES_EVENT, MAX_FILES } from './attachmentView';
 import { Composer } from './Composer';
 import { EmptyChat } from './EmptyChat';
 import { MessageList } from './MessageList';
 import styles from './ChatView.module.css';
 
 const NO_MESSAGES: Message[] = [];
+
+/**
+ * Whether files are being dragged over the window. Dropped files go to the composer. Tauri takes
+ * drops itself (the webview's own drop events carry no paths), so this listens to the webview.
+ */
+function useFileDrop(): boolean {
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (payload.type === 'enter') setDragging(payload.paths.length > 0);
+      else if (payload.type === 'leave') setDragging(false);
+      else if (payload.type === 'drop') {
+        setDragging(false);
+        if (payload.paths.length > 0) {
+          window.dispatchEvent(new CustomEvent<string[]>(ATTACH_FILES_EVENT, { detail: payload.paths }));
+        }
+      }
+    });
+    return () => void unlisten.then((f) => f());
+  }, []);
+  return dragging;
+}
 
 /** The main element of the app: the conversation and its composer. */
 export function ChatView() {
@@ -28,6 +52,7 @@ export function ChatView() {
   const scroller = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  const dragging = useFileDrop();
 
   useEffect(() => {
     setWorkspace(null);
@@ -93,6 +118,17 @@ export function ChatView() {
         </button>
       )}
       <Composer chatId={activeId} model={model} prefill={prefill} />
+      {dragging && (
+        <div className={styles.drop}>
+          <div className={styles.dropZone}>
+            <span className={styles.dropIcon}>
+              <FileUp size={26} strokeWidth={1.6} aria-hidden />
+            </span>
+            <p className={styles.dropTitle}>Drop files to add them to your message</p>
+            <p className={styles.dropHint}>Up to {MAX_FILES} files, 100 MB each</p>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

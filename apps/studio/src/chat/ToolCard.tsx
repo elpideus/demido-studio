@@ -6,6 +6,7 @@ import {
   Code2,
   Database,
   Download,
+  FileSearch,
   FileText,
   LineChart,
   Search,
@@ -38,6 +39,7 @@ const ICONS: Record<string, LucideIcon> = {
   list_files: FileText,
   read_file: FileText,
   write_file: FileText,
+  search_files: FileSearch,
   create_skill: Sparkles,
   read_skill_file: Sparkles,
 };

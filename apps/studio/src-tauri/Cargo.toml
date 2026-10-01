@@ -20,6 +20,7 @@ demido-core.workspace = true
 demido-catalog.workspace = true
 demido-hardware.workspace = true
 demido-fetch.workspace = true
+demido-extract.workspace = true
 
 tauri = { workspace = true, features = ["protocol-asset"] }
 tauri-plugin-dialog.workspace = true

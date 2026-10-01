@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::sse::SseDecoder;
-use super::{ChatRequest, Completion, LlmError, LlmMessage, StreamEvent, Usage};
+use super::{ChatRequest, Completion, LlmError, LlmMessage, Media, StreamEvent, Usage};
 use crate::db::ToolCall;
 
 #[derive(Clone)]
@@ -37,7 +37,17 @@ impl OpenAiClient {
         }
         for m in &req.messages {
             messages.push(match m {
-                LlmMessage::User { content } => json!({"role": "user", "content": content}),
+                LlmMessage::User { content, media } if media.is_empty() => {
+                    json!({"role": "user", "content": content})
+                }
+                // Media first, then the text, as the chat templates of vision models expect.
+                LlmMessage::User { content, media } => {
+                    let mut parts: Vec<Value> = media.iter().map(media_part).collect();
+                    if !content.is_empty() {
+                        parts.push(json!({"type": "text", "text": content}));
+                    }
+                    json!({"role": "user", "content": parts})
+                }
                 LlmMessage::Assistant {
                     content,
                     reasoning,
@@ -183,6 +193,20 @@ impl OpenAiClient {
     }
 }
 
+/// An image as a data URL, sound as `input_audio` (llama.cpp reads WAV and MP3).
+fn media_part(m: &Media) -> Value {
+    if m.is_image() {
+        json!({"type": "image_url", "image_url": {"url": format!("data:{};base64,{}", m.mime, m.data)}})
+    } else {
+        let format = if m.mime.contains("mpeg") || m.mime.contains("mp3") {
+            "mp3"
+        } else {
+            "wav"
+        };
+        json!({"type": "input_audio", "input_audio": {"data": m.data, "format": format}})
+    }
+}
+
 fn apply_chunk(
     v: &Value,
     out: &mut Completion,
@@ -292,7 +316,10 @@ mod tests {
         let req = ChatRequest {
             system: "sys".into(),
             messages: vec![
-                LlmMessage::User { content: "hi".into() },
+                LlmMessage::User {
+                    content: "hi".into(),
+                    media: vec![Media::new("image/png", &[1, 2, 3])],
+                },
                 LlmMessage::Assistant {
                     content: String::new(),
                     reasoning: Some("thinking".into()),
@@ -323,6 +350,11 @@ mod tests {
         };
         let body = client.body(&req);
         assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(
+            body["messages"][1]["content"][0]["image_url"]["url"],
+            "data:image/png;base64,AQID"
+        );
+        assert_eq!(body["messages"][1]["content"][1]["text"], "hi");
         assert_eq!(body["messages"][2]["tool_calls"][0]["id"], "c1");
         assert_eq!(body["messages"][3]["tool_call_id"], "c1");
         assert_eq!(body["tools"][0]["function"]["name"], "t");

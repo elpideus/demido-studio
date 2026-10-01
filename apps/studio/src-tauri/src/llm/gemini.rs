@@ -348,8 +348,15 @@ fn contents(messages: &[LlmMessage]) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for m in messages {
         match m {
-            LlmMessage::User { content } => {
-                out.push(json!({"role": "user", "parts": [{"text": content}]}));
+            LlmMessage::User { content, media } => {
+                let mut parts: Vec<Value> = media
+                    .iter()
+                    .map(|m| json!({"inlineData": {"mimeType": m.mime, "data": m.data}}))
+                    .collect();
+                if !content.is_empty() || parts.is_empty() {
+                    parts.push(json!({"text": content}));
+                }
+                out.push(json!({"role": "user", "parts": parts}));
             }
             LlmMessage::Assistant {
                 content,
@@ -525,7 +532,10 @@ mod tests {
     #[test]
     fn tool_results_of_one_turn_are_grouped() {
         let history = vec![
-            LlmMessage::User { content: "hi".into() },
+            LlmMessage::User {
+                content: "hi".into(),
+                media: Vec::new(),
+            },
             LlmMessage::Assistant {
                 content: String::new(),
                 reasoning: None,
@@ -699,7 +709,10 @@ mod tests {
     fn hello_request() -> ChatRequest {
         ChatRequest {
             system: "sys".into(),
-            messages: vec![LlmMessage::User { content: "hi".into() }],
+            messages: vec![LlmMessage::User {
+                content: "hi".into(),
+                media: Vec::new(),
+            }],
             tools: vec![],
             params: GenParams::default(),
         }

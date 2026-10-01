@@ -31,6 +31,8 @@ pub struct AppPaths {
     pub models_dir: PathBuf,
     pub avatars_dir: PathBuf,
     pub workspaces_dir: PathBuf,
+    /// Files attached in the composer, before their message is sent (emptied at every start).
+    pub staging_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub cache_dir: PathBuf,
     /// Isolated browser profile for the TradingView sign-in window.
@@ -56,6 +58,7 @@ impl AppPaths {
             models_dir: data_dir.join("models"),
             avatars_dir: data_dir.join("avatars"),
             workspaces_dir: data_dir.join("workspaces"),
+            staging_dir: data_dir.join("staging"),
             logs_dir: data_dir.join("logs"),
             cache_dir: data_dir.join("cache"),
             tradingview_profile_dir: data_dir.join("webview-tradingview"),
@@ -70,6 +73,7 @@ impl AppPaths {
             &paths.models_dir,
             &paths.avatars_dir,
             &paths.workspaces_dir,
+            &paths.staging_dir,
             &paths.logs_dir,
             &paths.cache_dir,
         ] {

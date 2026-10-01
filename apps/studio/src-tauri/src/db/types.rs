@@ -108,6 +108,46 @@ pub struct Message {
     /// Provider-specific data needed to replay the message (Gemini thought signatures).
     pub provider_meta: Option<serde_json::Value>,
     pub created_at: i64,
+    /// Files sent with a user message; empty for every other message. Stored in their own table.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
+}
+
+/// A file the person attached to a message. Staged while it waits in the composer, then moved
+/// into the chat's workspace when the message is sent. Its text and its model-ready image are
+/// stored beside it in the database and read only when the prompt needs them.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub id: String,
+    /// `None` while staged.
+    #[serde(skip)]
+    pub chat_id: Option<String>,
+    #[serde(skip)]
+    pub message_id: Option<String>,
+    /// File name as the person sees it.
+    pub name: String,
+    /// Where the file is: relative to the staging folder while staged, to the chat's workspace
+    /// once sent.
+    #[serde(skip)]
+    pub stored: String,
+    /// Path inside the chat's workspace once sent (`uploads/report.pdf`).
+    pub file: Option<String>,
+    /// Absolute path on disk, filled in for the UI (see `attachments::resolve`).
+    #[serde(default)]
+    pub path: String,
+    pub mime: String,
+    pub kind: demido_extract::Kind,
+    pub size: u64,
+    /// PDF pages, slides, or spreadsheet sheets.
+    pub pages: Option<u32>,
+    /// Estimated tokens of the text the model reads.
+    pub tokens: Option<u64>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    /// Something the person should know, shown on the file's chip.
+    pub note: Option<String>,
+    pub created_at: i64,
 }
 
 impl Message {
@@ -129,6 +169,7 @@ impl Message {
             stats: None,
             provider_meta: None,
             created_at: super::now_ms(),
+            attachments: Vec::new(),
         }
     }
 }

@@ -109,14 +109,15 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | Module | Responsibility |
 |---|---|
 | `paths` | Install folder (from `install.json`), data folder (`%LOCALAPPDATA%\Demido Studio`) |
-| `db` | SQLite (WAL): chats, messages, and a trace per model call. Numbered migrations |
+| `db` | SQLite (WAL): chats, messages, attached files and their passages (FTS5), and a trace per model call. Numbered migrations |
 | `settings`, `secrets` | `settings.json`; API keys and the TradingView session in the OS credential store |
 | `runtime` | One `llama-server` process at a time, restarted only when the launch settings change |
 | `models` | GGUF discovery (built-in folder, extra folders, LM Studio), GGUF metadata, cloud models, per-model overrides, what each model can do, Hugging Face search and downloads |
 | `providers` | Gemini configuration and model listing |
 | `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE) or Gemini (native SSE); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
-| `tools` | Market data, Python, terminal commands, workspace files, skills. Grouped for the Tools menu |
+| `attachments` | Files attached to messages: staging, moving them into the chat's workspace, what the model reads of them (full text, passages, images and sound), passage search |
+| `tools` | Market data, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu |
 | `shell` | The person's own shell, found once; a command run in a pseudo-terminal and read back as the screen shows it |
 | `skills` | Skill folders, enable/disable, and a file watcher that updates the UI live |
 | `market` | The Node sidecar's lifecycle and protocol, TradingView sign-in |
@@ -128,7 +129,10 @@ guidance) and fits the history into the model's context window, newest first. Th
 answer streams to the UI as `ChatEvent`s while it is written to the database, so a crash loses
 nothing that was shown. Tool calls run one by one; `run_python` and `run_command` ask for approval first
 unless the person chose "always allow". Each model call is saved as a trace (exact request, response,
-token counts, speed) that the Inspector window shows.
+token counts, speed) that the Inspector window shows. Two things are shortened, so a chat with
+files does not store them again for every model call: images and sound are replaced by their type
+and size (`llm::redact_media`), and an attached file's text is kept whole only in the first call of
+the turn that sends it (see Attached files, below).
 
 **Prompt cache.** The system prompt contains the date but not the time, and tools are listed in
 a fixed order, so from one turn to the next the prompt prefix is identical and llama.cpp reuses
@@ -153,7 +157,9 @@ model cannot use tools. Nothing is guessed from names or templates:
   `cache/capabilities.json` for that file, projector and llama.cpp build, so it is asked again
   only when one of them changes; a model that does not load is asked again at the next start.
   Deleting a model pauses the checks first, since Windows refuses to delete a file llama.cpp has
-  open. Chats still load a model without its projector: the chat cannot attach images yet.
+  open. A chat loads a model's projector (`--mmproj`) once llama.cpp has said the model reads
+  images or sound with it, so attached pictures reach it; a projector llama.cpp refused is never
+  loaded, and the model starts without it.
 - A Gemini model's thinking comes from Google's model list; tools and image and audio input come
   from [models.dev](https://models.dev), an open database of model specifications. Its Google
   entries are kept in `cache/models-dev.json`, refreshed weekly (and when a provider is added or
@@ -239,6 +245,68 @@ process group elsewhere), while a command that finishes by itself leaves a progr
 window of its own running. It starts in the chat's workspace unless the model names a folder, and
 files it creates there show on its card.
 
+**Attached files.** The composer's **+** button, drag and drop onto the window, and pasting add
+files to a message (at most 20, 100 MB each). The file is copied to `staging/<id>/` and read once
+by `crates/extract`, two files at a time: its kind (from its content, then its name), the text a
+model can read (PDF pages, Word, PowerPoint slides, OpenDocument, EPUB, RTF, spreadsheet sheets
+as CSV, web pages, text and code, with a `--- Page N ---` line at each page, slide or sheet), that
+text split into passages of about 650 tokens, and what a model is given of a picture (a JPEG or
+PNG at most 1568 pixels on its long side, upright, since llama.cpp cannot decode WebP) or of a
+sound (the recording itself, up to 10 MB). All of it is stored with the attachment, so it never
+changes whatever later happens to the file. Passages live in `attachment_passages`, indexed by
+the FTS5 table `passages_fts` (BM25, Porter stemming). The chip then shows pages and tokens, or
+why the file cannot be read (a scanned PDF has no text). A pasted file is marked as coming from
+the internet (Windows' Mark of the Web), as a download would be. Sending checks every file first,
+then moves each into the chat's workspace, `uploads/<name>`, where Python, commands and
+`read_file` can use it too, and links it to the message in the order it was attached. A name the
+chat used before is never reused. Files left in the composer are forgotten at the next start.
+
+What the model reads is decided when the prompt is built (`attachments::context`). Each user
+message with files gets an `<attachments>` block before its text, one `<file>` per file with its
+name, workspace path and type. Files with text are included in full, smallest first, while they
+fit in three fifths of the room the history has (the context window less the system prompt, the
+tools and the answer's reserve; at most 100,000 tokens), next to the message's own text and
+pictures. The rest show only passages: the best BM25 matches for the message's words and each
+file's opening passage, within a quarter of that room, and at least one passage per file however
+small the room is; a message with nothing to search for ("summarise this") gets each file's
+opening. A later message is shown passages of those long files when at least two of its words
+match them, so a follow-up question about a long document finds its answer and small talk pulls
+nothing in. The passages a message is shown are chosen the first time its prompt is built and
+stored (`message_passages`): BM25's statistics change whenever any file is added, and a message
+must keep showing what the model answered from. A regenerate on another model only adapts the
+choice: it is cut to that model's room in the order it was made, keeping a passage of every file,
+and a file too long for it but not for the one that chose gets passages of its own, stored too.
+Everything else depends only on the stored messages, their files and the model, so the prompt of
+one step is a prefix of the next and llama.cpp keeps its cache. The model searches further with
+`search_files` and reads with `read_file`, by pages where a file has them (PDFs, presentations,
+spreadsheets) and by lines otherwise. `read_file` reads any binary file through `crates/extract`,
+attached or not: the text stored at attach time while the file keeps its size, otherwise read
+again. A long table shows its first lines and points at `run_python`.
+
+**Reading files safely.** Attached files come from anywhere, and some parser failures cannot be
+caught inside a process: a PDF whose form draws itself overflows pdf-extract's stack, and a
+parser can loop or ask for more memory than there is. So the app reads every file in a child
+process: itself, started with `--demido-extract <file>` (`main.rs` handles that before anything of
+the app starts), tied to the app's job object, and given three minutes. A child that dies or runs
+out of time costs only that file its text; the chip says it could not be read. Inside the reader,
+every parser also runs behind `catch_unwind`, Excel sheets are read cell by cell (calamine's
+ranges are dense grids, so one value in a sheet's far corner would ask for gigabytes), one file's
+ZIP parts may inflate to 1 GB in all, and a part is read once however often a file lists it.
+
+Pictures go to models that see (`image_url` data URLs for llama.cpp, `inlineData` for Gemini),
+counted by their size in 28-pixel patches (local models) or 768-pixel tiles (Gemini); sound goes
+to models that hear (WAV and MP3 for llama.cpp), counted at 32 tokens a second, the rate Google
+documents. One request carries at most 15 MB of them, the newest first. Any other model is told
+the file is in the workspace. When the history does not fit, older messages' files shrink to a
+line naming each file before whole turns are dropped.
+
+File text is material, not the person's words: the system prompt says so, and a document that
+contains `</file>` or `</attachments>` cannot close the block, since those tags in file text are
+escaped. For the same reason the assistant's Markdown never loads a picture from the web by
+itself (a file could make the model write one whose address carries the conversation away): it
+shows a link that opens in the browser. A trace keeps a file's text whole only in the first model
+call of the turn that sends it; later calls note how much was left out.
+
 **Skills.** A skill is a folder with `SKILL.md` (frontmatter `name`, `description`) and any
 files it mentions. Enabled skills' instructions go into the system prompt; their other files are
 read with `read_skill_file` or run with `run_python` (`skill:<id>/<file>`). `create_skill`
@@ -253,7 +321,7 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | Folder | What |
 |---|---|
 | `shell` | Activity bar (Chats, Market, Settings), the safety notice, toasts |
-| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers |
+| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers, attached files (`Attachments.tsx`: the composer's tray and a sent message's files; `attachmentView.ts`: what a chip says) |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
 | `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, General, Updates |
 | `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
@@ -341,7 +409,8 @@ Everything a person makes is in the data folder, never in the install folder:
 | `settings.json`, `models.json`, `providers.json`, `skills.json` | Preferences and overrides |
 | `skills/` | Skills (default ones are copied here on first run) |
 | `models/` | Downloaded models (per-user installs) |
-| `workspaces/<chat>/` | Files tools produce for a chat: data CSVs, charts, scripts, what commands download |
+| `workspaces/<chat>/` | Files tools produce for a chat: data CSVs, charts, scripts, what commands download; `uploads/` holds the files sent with its messages |
+| `staging/` | Files added in the composer and not sent yet; emptied at every start |
 | `avatars/` | Model pictures |
 | `webview-tradingview/` | The TradingView sign-in browser profile |
 | `cache/market/dukascopy/` | Downloaded Dukascopy history, 1-minute candles: `<instrument>/m1/<year>/<day>.json.gz` and a `manifest.json` per instrument; `stats.json` holds the learned request rate |

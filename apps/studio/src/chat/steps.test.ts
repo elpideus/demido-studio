@@ -17,6 +17,7 @@ function message(fields: Partial<Message>): Message {
     seq,
     role: 'assistant',
     content: '',
+    attachments: [],
     reasoning: null,
     toolCalls: [],
     toolCallId: null,

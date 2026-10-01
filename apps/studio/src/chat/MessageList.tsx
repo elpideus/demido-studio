@@ -7,6 +7,7 @@ import type { Message, ModelEntry } from '@/lib/types';
 import { useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';
 import { useWindows } from '@/stores/windows';
+import { MessageAttachments } from './Attachments';
 import { FileBundle } from './FileBundle';
 import { OpenStateProvider, bundleKey } from './openState';
 import { Markdown } from './Markdown';
@@ -60,9 +61,12 @@ const UserMessage = memo(function UserMessage({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
+  // An edit keeps the message's files, so it may go without text.
+  const files = message.attachments ?? [];
   if (editing) {
     return (
       <div className={styles.userRow}>
+        {files.length > 0 && <MessageAttachments attachments={files} />}
         <div className={styles.editBox}>
           <TextArea autoSize={{ min: 2, max: 14 }} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
           <div className={styles.editActions}>
@@ -72,7 +76,7 @@ const UserMessage = memo(function UserMessage({
             <Button
               size="sm"
               variant="primary"
-              disabled={!draft.trim()}
+              disabled={!draft.trim() && files.length === 0}
               onClick={() => {
                 setEditing(false);
                 onEdit(draft);
@@ -87,9 +91,10 @@ const UserMessage = memo(function UserMessage({
   }
   return (
     <div className={styles.userRow}>
-      <div className={cx(styles.userBubble, 'selectable')}>{message.content}</div>
+      {files.length > 0 && <MessageAttachments attachments={files} />}
+      {message.content && <div className={cx(styles.userBubble, 'selectable')}>{message.content}</div>}
       <div className={styles.userActions}>
-        <CopyIcon text={message.content} />
+        {message.content && <CopyIcon text={message.content} />}
         {canEdit && (
           <IconButton
             icon={Pencil}

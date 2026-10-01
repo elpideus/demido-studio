@@ -58,3 +58,58 @@
 .jump:hover {
   background: var(--surface-5);
 }
+
+/* Files dragged over the window. The webview gets no pointer events during a native drag. A drop
+   anywhere goes to the composer, so the overlay covers the whole window, floating windows too. */
+.drop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--surface-0) 86%, transparent);
+  pointer-events: none;
+  animation: drop-in var(--duration) var(--ease-out);
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.dropZone {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 2px dashed var(--accent-border);
+  border-radius: var(--radius-xl);
+  background: var(--accent-muted);
+  text-align: center;
+}
+
+.dropIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--accent-muted-strong);
+  color: var(--accent-text);
+}
+
+.dropTitle {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.dropHint {
+  color: var(--text-tertiary);
+  font-size: var(--text-md);
+}

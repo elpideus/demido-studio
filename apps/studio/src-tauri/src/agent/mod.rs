@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 pub use events::{CHAT_EVENT, ChatEvent};
 pub use row::{Cancelled, ToolRow};
 
+use crate::attachments;
 use crate::bail_msg;
 use crate::db::{Chat, Message, MessageStatus, Role, Trace, new_id, now_ms};
 use crate::error::{AppError, CmdResult};
@@ -63,34 +64,61 @@ impl Agent {
         self.turns.lock().keys().cloned().collect()
     }
 
-    /// Sends a message, creating the chat when `chat_id` is `None`, and starts the turn.
+    /// Sends a message with the files staged as `attachments`, creating the chat when `chat_id`
+    /// is `None`, and starts the turn.
     pub fn send(
         state: &Arc<AppState>,
         chat_id: Option<String>,
         text: String,
         model_id: String,
+        attachment_ids: Vec<String>,
     ) -> CmdResult<SendResult> {
         let text = text.trim().to_string();
-        if text.is_empty() {
+        if text.is_empty() && attachment_ids.is_empty() {
             bail_msg!("Write a message first.");
         }
-        let chat = match chat_id {
-            Some(id) => state
-                .db
-                .get_chat(&id)?
-                .ok_or_else(|| AppError::msg("That chat no longer exists."))?,
-            None => {
-                let chat = state.db.create_chat(&title_from(&text), Some(&model_id))?;
-                state.emit_chat(ChatEvent::Chat { chat: chat.clone() });
-                chat
-            }
-        };
-        if state.agent.turns.lock().contains_key(&chat.id) {
+        if let Some(id) = &chat_id
+            && state.agent.turns.lock().contains_key(id)
+        {
             bail_msg!("Wait for the current answer to finish, or stop it.");
         }
+        // Every file is checked before a chat is made for the message.
+        attachments::check_staged(&state.db, &attachment_ids)?;
+        let (chat, created) = match chat_id {
+            Some(id) => (
+                state
+                    .db
+                    .get_chat(&id)?
+                    .ok_or_else(|| AppError::msg("That chat no longer exists."))?,
+                false,
+            ),
+            None => {
+                let title = if text.is_empty() {
+                    first_file_name(state, &attachment_ids)
+                } else {
+                    title_from(&text)
+                };
+                (state.db.create_chat(&title, Some(&model_id))?, true)
+            }
+        };
         let seq = state.db.next_seq(&chat.id)?;
-        let message = Message::new(&chat.id, seq, Role::User, text);
-        state.db.save_message(&message)?;
+        let mut message = Message::new(&chat.id, seq, Role::User, text);
+        let saved = attachments::take_for_message(state, &chat.id, &message.id, &attachment_ids).and_then(|files| {
+            message.attachments = files;
+            state.db.save_message(&message).map_err(AppError::from)
+        });
+        if let Err(e) = saved {
+            // A chat made for this message goes with it. Files that could not all be moved went
+            // back to the composer (`take_for_message`), so its workspace holds nothing of value.
+            if created {
+                let _ = state.db.delete_chat(&chat.id);
+                let _ = std::fs::remove_dir_all(state.paths.workspace(&chat.id));
+            }
+            return Err(e);
+        }
+        if created {
+            state.emit_chat(ChatEvent::Chat { chat: chat.clone() });
+        }
         state.emit_chat(ChatEvent::Message {
             chat_id: chat.id.clone(),
             message: message.clone(),
@@ -135,13 +163,23 @@ impl Agent {
         if original.role != Role::User || original.chat_id != chat_id {
             bail_msg!("Only your own messages can be edited.");
         }
+        if text.trim().is_empty() && original.attachments.is_empty() {
+            bail_msg!("Write a message first.");
+        }
         state.db.truncate_messages(chat_id, original.seq)?;
         state.emit_chat(ChatEvent::Truncated {
             chat_id: chat_id.to_string(),
             from_seq: original.seq,
         });
-        let message = Message::new(chat_id, original.seq, Role::User, text.trim());
+        let mut message = Message::new(chat_id, original.seq, Role::User, text.trim());
         state.db.save_message(&message)?;
+        // The edited message keeps its files; files of the messages after it are forgotten.
+        state.db.relink_attachments(chat_id, &original.id, &message.id)?;
+        state.db.forget_removed_messages(chat_id)?;
+        if let Some(saved) = state.db.get_message(&message.id)? {
+            message.attachments = saved.attachments;
+        }
+        crate::attachments::resolve_messages(&state.paths, std::slice::from_mut(&mut message));
         state.emit_chat(ChatEvent::Message {
             chat_id: chat_id.to_string(),
             message: message.clone(),
@@ -300,7 +338,29 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             .unwrap_or(context_tokens / 4)
             .max(1024);
         let budget = context_tokens.saturating_sub(fixed + reserve).max(1024);
-        let history = prompt::history(&state.db.list_messages(chat_id)?, budget);
+        let messages = state.db.list_messages(chat_id)?;
+        let files = attachments::context::plan(
+            &attachments::context::Inputs {
+                db: &state.db,
+                chat_id,
+                access: attachments::context::ModelAccess::of(&model),
+                room_tokens: budget,
+                tools: tools.iter().map(|t| t.name.clone()).collect(),
+            },
+            &messages,
+        );
+        let history = prompt::history(&messages, budget, &files);
+        // The files of the message this turn answers are kept whole in its first call's trace only.
+        let trace_keep = (step == 0)
+            .then(|| {
+                messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == Role::User)
+                    .and_then(|m| files.get(&m.id))
+                    .map(|x| x.block.clone())
+            })
+            .flatten();
         let request = ChatRequest {
             system,
             messages: history,
@@ -404,6 +464,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                     &reply,
                     &model,
                     request_snapshot(&client, &request),
+                    trace_keep.as_deref(),
                     None,
                     duration_ms,
                     Some(err.to_string()),
@@ -438,6 +499,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             &reply,
             &model,
             completion.request_body.clone(),
+            trace_keep.as_deref(),
             Some(response),
             duration_ms,
             None,
@@ -568,6 +630,7 @@ fn save_trace(
     reply: &Message,
     model: &ModelEntry,
     request: Value,
+    keep: Option<&str>,
     response: Option<Value>,
     duration_ms: i64,
     error: Option<String>,
@@ -578,7 +641,7 @@ fn save_trace(
         message_id: Some(reply.id.clone()),
         created_at: now_ms(),
         model_id: Some(model.id.clone()),
-        request,
+        request: attachments::context::for_trace(&crate::llm::redact_media(&request), keep),
         response,
         duration_ms: Some(duration_ms),
         error,
@@ -586,6 +649,15 @@ fn save_trace(
     if let Err(e) = state.db.save_trace(&trace) {
         tracing::warn!("could not save a trace: {e}");
     }
+}
+
+/// A chat title for a message with files and no text: the first file's name.
+fn first_file_name(state: &AppState, attachments: &[String]) -> String {
+    attachments
+        .first()
+        .and_then(|id| state.db.get_attachment(id).ok().flatten())
+        .map(|a| a.name)
+        .unwrap_or_else(|| "New chat".into())
 }
 
 /// A chat title from the first message: its first line, trimmed to a few words.

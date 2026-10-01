@@ -19,6 +19,9 @@ use crate::db::ToolCall;
 pub enum LlmMessage {
     User {
         content: String,
+        /// Images and sound attached to the message, sent before its text.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        media: Vec<Media>,
     },
     Assistant {
         content: String,
@@ -32,6 +35,74 @@ pub enum LlmMessage {
         name: String,
         content: String,
     },
+}
+
+/// An image or a sound a model reads with a message.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Media {
+    /// `image/jpeg`, `image/png`, `audio/wav`, `audio/mpeg`...
+    pub mime: String,
+    /// The bytes, base64-encoded.
+    pub data: String,
+}
+
+impl Media {
+    pub fn new(mime: impl Into<String>, bytes: &[u8]) -> Self {
+        use base64::Engine;
+        Self {
+            mime: mime.into(),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        }
+    }
+
+    pub fn is_image(&self) -> bool {
+        self.mime.starts_with("image/")
+    }
+}
+
+/// A request body as the trace keeps it: every base64 image or sound is replaced by a note of its
+/// type and size, so a chat with pictures does not store them again for every model call.
+pub fn redact_media(body: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    fn note(mime: &str, base64_len: usize) -> String {
+        let kb = (base64_len * 3 / 4).div_ceil(1024);
+        format!("[{mime}, {kb} KB: left out of the trace]")
+    }
+    match body {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (k, v) in map {
+                let redacted = match (k.as_str(), v) {
+                    // OpenAI-compatible images: "url": "data:image/png;base64,..."
+                    ("url", Value::String(s)) if s.starts_with("data:") && s.len() > 256 => {
+                        let (head, data) = s.split_once(',').unwrap_or((s, ""));
+                        let mime = head.trim_start_matches("data:").split(';').next().unwrap_or("");
+                        Value::String(note(mime, data.len()))
+                    }
+                    // OpenAI-compatible sound, and Gemini's inline data.
+                    ("input_audio" | "inlineData", Value::Object(inner)) => {
+                        let mut inner = inner.clone();
+                        let mime = inner
+                            .get("mimeType")
+                            .or_else(|| inner.get("format"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("data")
+                            .to_string();
+                        if let Some(Value::String(data)) = inner.get("data") {
+                            let len = data.len();
+                            inner.insert("data".into(), Value::String(note(&mime, len)));
+                        }
+                        Value::Object(inner)
+                    }
+                    _ => redact_media(v),
+                };
+                out.insert(k.clone(), redacted);
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(redact_media).collect()),
+        other => other.clone(),
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -190,8 +261,38 @@ pub fn parse_arguments(raw: &str) -> Result<serde_json::Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_arguments;
+    use super::{parse_arguments, redact_media};
     use serde_json::json;
+
+    #[test]
+    fn traces_leave_out_media_bytes() {
+        let image = format!("data:image/jpeg;base64,{}", "A".repeat(4096));
+        let body = json!({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": image}},
+                {"type": "input_audio", "input_audio": {"data": "B".repeat(2048), "format": "wav"}},
+                {"type": "text", "text": "what is this?"}
+            ]}],
+            "contents": [{"parts": [{"inlineData": {"mimeType": "image/png", "data": "C".repeat(8192)}}]}],
+            "short": {"url": "data:,x"}
+        });
+        let r = redact_media(&body);
+        assert_eq!(
+            r["messages"][0]["content"][0]["image_url"]["url"],
+            "[image/jpeg, 3 KB: left out of the trace]"
+        );
+        assert_eq!(
+            r["messages"][0]["content"][1]["input_audio"]["data"],
+            "[wav, 2 KB: left out of the trace]"
+        );
+        assert_eq!(r["messages"][0]["content"][1]["input_audio"]["format"], "wav");
+        assert_eq!(r["messages"][0]["content"][2]["text"], "what is this?");
+        assert_eq!(
+            r["contents"][0]["parts"][0]["inlineData"]["data"],
+            "[image/png, 6 KB: left out of the trace]"
+        );
+        assert_eq!(r["short"]["url"], "data:,x");
+    }
 
     #[test]
     fn lenient_argument_parsing() {

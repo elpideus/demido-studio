@@ -5,7 +5,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Image as ImageIcon } from 'lucide-react';
 import { cx } from '@demido/ui';
 import 'katex/dist/katex.min.css';
 
@@ -83,9 +83,42 @@ function makeComponents(workspace: string | null): Components {
     ),
     img: ({ src, alt }) => {
       const raw = typeof src === 'string' ? src : '';
+      // A picture on the web is never fetched by itself: a file the model read could make it
+      // write one whose address carries the conversation to someone else's server. It opens in
+      // the browser when clicked.
+      if (/^https?:/i.test(raw)) {
+        let host = raw;
+        try {
+          host = new URL(raw).host;
+        } catch {
+          // Keep the whole address.
+        }
+        // A span, not a link: a linked image (a README badge) sits inside the Markdown link, and
+        // links do not nest. Its own click opens the picture, and does not reach the link.
+        const open = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void openUrl(raw);
+        };
+        return (
+          <span
+            role="link"
+            tabIndex={0}
+            className={styles.remoteImage}
+            title={raw}
+            onClick={open}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') open(e);
+            }}
+          >
+            <ImageIcon size={14} strokeWidth={1.8} aria-hidden />
+            {alt || 'Image'} ({host})
+          </span>
+        );
+      }
       // Images the assistant saved in the chat's folder are referenced by relative path.
       const resolved =
-        /^(https?:|data:|asset:|blob:)/i.test(raw) || !workspace
+        /^(data:|asset:|blob:)/i.test(raw) || !workspace
           ? raw
           : (fileUrl(`${workspace}/${raw.replace(/^\.?\//, '')}`) ?? raw);
       return <img src={resolved} alt={alt ?? ''} className={styles.image} loading="lazy" />;

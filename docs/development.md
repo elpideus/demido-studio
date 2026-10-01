@@ -63,6 +63,15 @@ with a screenshot after each and a list of the tools every turn called:
 node scripts/scenario.mjs --out .dev/scenario --approve "Price of EUR/USD now?" "Chart gold, 4h, 3 months"
 ```
 
+## What a model gets from a file
+
+`crates/extract` reads attached files. To see what a model is given of any file (its kind, pages,
+note, passages and the start of its text):
+
+```bash
+cargo run -p demido-extract --release --example read -- path/to/file.pdf 2000
+```
+
 ## The market data service
 
 `sidecars/market` runs on its own with Node 22 (type stripping, no build step), speaking JSON lines
@@ -86,7 +95,7 @@ that replaces `globalThis.fetch` with one answering the candle URLs locally (`no
 
 ### Versions
 
-The version is written in sixteen places: the npm packages, both Tauri configs, the Cargo
+The version is written in seventeen places: the npm packages, both Tauri configs, the Cargo
 workspace and its crates' entries in `Cargo.lock`. `scripts/version.mjs` keeps them in step, with
 the root `package.json` as the one the others follow:
 
