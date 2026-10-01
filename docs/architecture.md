@@ -26,13 +26,14 @@ the uninstaller all drive the same way.
    `/sys` on Linux. Unified memory on Apple Silicon counts as VRAM.
 2. **Choices** (`crates/catalog`). `catalog/runtimes.json` pins one llama.cpp release and every
    asset of it with its size and SHA-256; `catalog/models.json` lists model tiers by the VRAM
-   they need, each with a Qwen and a Gemma pick from unsloth's quantized GGUFs.
+   they need, each with a Qwen and a Gemma pick from unsloth's quantized GGUFs, and the search
+   models that find passages of attached files by meaning.
    `plan::backend_choices` rates every runtime for the machine (recommended, works, unsupported
    with a reason) and `plan::recommend_models` picks the tier. The CPU runtime is offered but
    never recommended; it is preselected only when no GPU runtime works on the machine.
 3. **Plan** (`provision::plan`). The choices become an ordered list of steps: app files,
-   runtime, Node, uv, Python (depends on uv), the starter model, shortcuts, the uninstall entry,
-   and the manifest. App files and the manifest are critical; any other step can fail without
+   runtime, Node, uv, Python (depends on uv), the starter model, the search model, shortcuts,
+   the uninstall entry, and the manifest. App files and the manifest are critical; any other step can fail without
    losing the rest, and its error is shown on the last page.
 4. **Run** (`provision::runner`). Each step reports progress as `SetupEvent`s. Downloads
    (`crates/fetch`) resume from a `.part` file and are verified against the pinned checksum
@@ -71,7 +72,8 @@ folder. The update plan then runs the app files, the runtime and the tools (each
 version the catalog pins is already installed, so an update downloads only what changed; a
 runtime build the catalog no longer has is replaced by the same backend's current build), the
 entry in Installed apps (new version and size) and the manifest. It downloads no starter model and
-makes no shortcut again, so one the person deleted stays deleted. The app files are swapped, never
+makes no shortcut again, so one the person deleted stays deleted. It downloads the search model
+when the installation has none (it came after the first releases), and keeps the one it has. The app files are swapped, never
 overwritten in place: the payload is unpacked into a scratch folder inside the install folder,
 then each top-level entry takes the place of the old one, which moves into a backup folder. When a
 move fails, everything moves back, so an update that cannot finish leaves the previous version
@@ -109,7 +111,7 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | Module | Responsibility |
 |---|---|
 | `paths` | Install folder (from `install.json`), data folder (`%LOCALAPPDATA%\Demido Studio`) |
-| `db` | SQLite (WAL): chats, messages, attached files and their passages (FTS5), and a trace per model call. Numbered migrations |
+| `db` | SQLite (WAL): chats, messages, attached files, their passages (FTS5) and the passages' vectors, and a trace per model call. Numbered migrations |
 | `settings`, `secrets` | `settings.json`; API keys and the TradingView session in the OS credential store |
 | `runtime` | One `llama-server` process at a time, restarted only when the launch settings change |
 | `models` | GGUF discovery (built-in folder, extra folders, LM Studio), GGUF metadata, cloud models, per-model overrides, what each model can do, Hugging Face search and downloads |
@@ -269,14 +271,15 @@ message with files gets an `<attachments>` block before its text, one `<file>` p
 name, workspace path and type. Files with text are included in full, smallest first, while they
 fit in three fifths of the room the history has (the context window less the system prompt, the
 tools and the answer's reserve; at most 100,000 tokens), next to the message's own text and
-pictures. The rest show only passages: the best BM25 matches for the message's words and each
-file's opening passage, within a quarter of that room, and at least one passage per file however
-small the room is; a message with nothing to search for ("summarise this") gets each file's
-opening. A later message is shown passages of those long files when at least two of its words
-match them, so a follow-up question about a long document finds its answer and small talk pulls
-nothing in. The passages a message is shown are chosen the first time its prompt is built and
-stored (`message_passages`): BM25's statistics change whenever any file is added, and a message
-must keep showing what the model answered from. A regenerate on another model only adapts the
+pictures. The rest show only passages: the best matches for the message (see Search by meaning,
+below) and each file's opening passage, within a quarter of that room, and at least one passage
+per file however small the room is; a message with nothing to search for ("summarise this") gets
+each file's opening. A later message is shown passages of those long files when they are about
+what it asks, or at least two of its words match them, so a follow-up question about a long
+document finds its answer and small talk pulls nothing in. The passages a message is shown are
+chosen the first time its prompt is built and stored (`message_passages`): BM25's statistics
+change whenever any file is added, the search model can change, and a message must keep showing
+what the model answered from. A regenerate on another model only adapts the
 choice: it is cut to that model's room in the order it was made, keeping a passage of every file,
 and a file too long for it but not for the one that chose gets passages of its own, stored too.
 Everything else depends only on the stored messages, their files and the model, so the prompt of
@@ -285,6 +288,34 @@ one step is a prefix of the next and llama.cpp keeps its cache. The model search
 spreadsheets) and by lines otherwise. `read_file` reads any binary file through `crates/extract`,
 attached or not: the text stored at attach time while the file keeps its size, otherwise read
 again. A long table shows its first lines and points at `run_python`.
+
+**Search by meaning.** Words alone miss a question asked in other words or another language:
+"How much money a year does Mr. Darcy have?" shares no word with "ten thousand a year". A search
+model (`attachments::meaning`) turns every passage into a vector, and the question into another;
+a passage whose vector points where the question's does is about what it asks. It is a small
+embedding model from `catalog/models.json`: Qwen3 Embedding 0.6B when the GPU the runtime uses
+has 10 GB, EmbeddingGemma 300M otherwise and on the CPU. Setup downloads it; an installation
+without one offers it in Settings, General, and searches by words until then. The app finds it in
+the model folders by its `<repo>/<file>` and keeps embedding models out of the model list (a GGUF
+with `<arch>.pooling_type` cannot chat). It runs in a `llama-server` of its own (`--embedding`,
+four 2048-token slots, a micro-batch as large as a slot, no prompt cache), started when there is
+something to embed and stopped after three idle minutes; its log is `logs/search-server.log`. An
+indexer embeds passages in the background, the newest file's first, in batches of eight, with
+the document prompt the model card asks for, into `passage_vectors` (little-endian f32s, one row
+per passage and model: vectors of one model do not compare with another's, so a change of model
+indexes again). A passage the model cannot take is cut shorter, and given an empty vector, which
+matches nothing, when even 200 characters fail. When the passages of a message are chosen, the
+question is embedded with the model's query prompt, after waiting up to 30 seconds for the chat's
+files to be indexed. Passages are then ranked by their cosine similarity, scaled to 0–1 between
+the least and the most similar, weighed 0.85 against their BM25 score over the best one's: on
+fourteen questions with known answers in a novel and a paper, words alone found 7 answers in the
+first three passages, this mix 10. A passage matches when its similarity reaches the model's
+`relevance` (0.5 for Qwen, 0.52 for Gemma; unrelated questions measured 0.26–0.45, related ones
+0.62–0.73) or it has words of the question. An earlier message's files show only passages that
+match. The message's own files, and `search_files`, show the best passages once any matches:
+asked in Italian about an English paper, the passage that answers scored 0.47 and came second,
+while "summarise this" matches nothing and gets the openings. While any passage searched has no
+vector, and without a search model, BM25 alone ranks them.
 
 **Reading files safely.** Attached files come from anywhere, and some parser failures cannot be
 caught inside a process: a PDF whose form draws itself overflows pdf-extract's stack, and a

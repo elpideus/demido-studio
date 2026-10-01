@@ -43,14 +43,21 @@ that capability as unknown rather than wrong.
 | `tiers[]` | GPU tiers, largest first. The first tier whose `minVramGb` fits the GPU's memory wins |
 | `cpuTiers[]` | The same for CPU-only machines, by `minRamGb` |
 | `smokeTest` | A tiny model for testing the install path: `demido-setup-cli --dev --model smoke` |
+| `search.models[]` | Search models, which find passages of attached files by meaning, largest first. The first whose `minVramGb` fits the GPU the runtime uses wins; a CPU-only machine gets the last |
 
 Each tier has a `contextLength` and one model per family: `name`, `repo`, `file`, `quant`,
 `size` and `sha256`. The sizes leave room for the context (KV cache) and for the desktop's own
 use of the GPU; a 12 GB card lands in `mainstream` (10 GB) rather than a tier that would fill
 it completely.
 
+Each search model also has the prompts its model card asks for, `queryPrefix` before a question
+and `documentPrefix` before a passage, and `relevance`, the similarity from which a passage is
+taken as about the question. Measure it again for a new model: embed a long document, then
+questions it answers and questions it does not, and put it between the two groups' best scores.
+
 Models are unsloth's quantized GGUFs ("UD" dynamic quants, and the quantization-aware "QAT"
-builds for Gemma). The catalog test rejects any repo outside `unsloth/`. A file's size and
+builds for Gemma). The catalog test rejects any chat model outside `unsloth/`; a search model
+may come from its maker when unsloth publishes none (Qwen3 Embedding is Qwen's own GGUF). A file's size and
 SHA-256 are in the Hugging Face API:
 
 ```bash

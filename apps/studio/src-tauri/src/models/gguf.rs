@@ -1,6 +1,6 @@
-//! Reads the metadata header of a GGUF file: architecture, name, size label, quantization and
-//! trained context length. Only the key/value section before the tokenizer is read, so this
-//! takes milliseconds even for multi-gigabyte files.
+//! Reads the metadata header of a GGUF file: architecture, name, size label, quantization,
+//! trained context length and pooling. Only the key/value section before the tokenizer is read,
+//! so this takes milliseconds even for multi-gigabyte files.
 
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -17,6 +17,16 @@ pub struct GgufInfo {
     pub file_type: Option<u32>,
     pub context_length: Option<u64>,
     pub quantized_by: Option<String>,
+    /// How an embedding model pools its tokens into one vector (llama.cpp's
+    /// `llama_pooling_type`: 1 mean, 2 cls, 3 last, 4 rank). Chat models have none.
+    pub pooling_type: Option<u32>,
+}
+
+impl GgufInfo {
+    /// An embedding or reranking model: it turns text into vectors or scores, never answers.
+    pub fn is_embedding(&self) -> bool {
+        self.pooling_type.is_some_and(|p| p > 0)
+    }
 }
 
 const MAGIC: &[u8; 4] = b"GGUF";
@@ -53,6 +63,14 @@ pub fn read(path: &Path) -> anyhow::Result<GgufInfo> {
                     .is_some_and(|a| k == format!("{a}.context_length")) =>
             {
                 info.context_length = read_int(&mut r, ty)?;
+            }
+            k if k.ends_with(".pooling_type")
+                && info
+                    .architecture
+                    .as_deref()
+                    .is_some_and(|a| k == format!("{a}.pooling_type")) =>
+            {
+                info.pooling_type = read_int(&mut r, ty)?.map(|v| v as u32);
             }
             _ => skip_value(&mut r, ty)?,
         }
@@ -198,7 +216,7 @@ mod tests {
         b.extend(b"GGUF");
         b.extend(3u32.to_le_bytes());
         b.extend(0u64.to_le_bytes());
-        b.extend(6u64.to_le_bytes());
+        b.extend(7u64.to_le_bytes());
         write_kv_string(&mut b, "general.architecture", "qwen35");
         write_kv_string(&mut b, "general.name", "Qwen3.5 9B");
         // An array of u32 to skip.
@@ -219,6 +237,11 @@ mod tests {
         b.extend(key.as_bytes());
         b.extend(4u32.to_le_bytes());
         b.extend(18u32.to_le_bytes());
+        let key = "qwen35.pooling_type";
+        b.extend((key.len() as u64).to_le_bytes());
+        b.extend(key.as_bytes());
+        b.extend(4u32.to_le_bytes());
+        b.extend(3u32.to_le_bytes());
         write_kv_string(&mut b, "tokenizer.ggml.model", "gpt2");
 
         let dir = tempfile::tempdir().unwrap();
@@ -228,6 +251,8 @@ mod tests {
         assert_eq!(info.architecture.as_deref(), Some("qwen35"));
         assert_eq!(info.context_length, Some(262144));
         assert_eq!(info.file_type, Some(18));
+        assert_eq!(info.pooling_type, Some(3));
+        assert!(info.is_embedding());
     }
 
     #[test]

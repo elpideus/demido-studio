@@ -1,13 +1,27 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, CircleAlert, Cpu, FolderOpen, Power, ScrollText, ShieldAlert, X } from 'lucide-react';
-import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch } from '@demido/ui';
+import {
+  CheckCircle2,
+  CircleAlert,
+  Cpu,
+  Download,
+  FileSearch,
+  FolderOpen,
+  Power,
+  ScrollText,
+  ShieldAlert,
+  X,
+} from 'lucide-react';
+import { Badge, Button, Dialog, Field, IconButton, ProgressBar, Select, Spinner, Switch } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
+import { on } from '@/lib/events';
+import type { SearchStatus } from '@/lib/types';
 import { useApp } from '@/stores/app';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from './settings.module.css';
 import styles from './GeneralTab.module.css';
+import { searchDownload, searchView } from './searchView';
 
 const TOOL_LABELS: Record<string, string> = { run_python: 'Run Python code', run_command: 'Run commands' };
 
@@ -41,6 +55,60 @@ function RuntimeLogs({ open, onClose }: { open: boolean; onClose: () => void }) 
     >
       <pre className={styles.logs}>{lines.length ? lines.join('\n') : 'Nothing logged yet.'}</pre>
     </Dialog>
+  );
+}
+
+/** The search model: which one, how far it has indexed attached files, or its download. */
+function SearchSection() {
+  const [status, setStatus] = useState<SearchStatus | null>(null);
+  const downloads = useModels((st) => st.downloads);
+  useEffect(() => {
+    void api.searchStatus().then(setStatus);
+    const off = on('search://status', setStatus);
+    return () => void off.then((f) => f());
+  }, []);
+  if (!status) return null;
+
+  const view = searchView(status, searchDownload(status, downloads));
+  const badge = {
+    ready: <Badge tone="accent">Ready</Badge>,
+    indexing: <Badge tone="info">Indexing</Badge>,
+    downloading: <Badge tone="info">Downloading</Badge>,
+    missing: <Badge tone="warning">Not installed</Badge>,
+    error: <Badge tone="danger">Error</Badge>,
+  }[view.state];
+  const download = () =>
+    void api.downloadSearchModel().then(
+      (job) => useModels.getState().upsertDownload(job),
+      (e) => toast.error('Could not start the download', errorText(e)),
+    );
+
+  return (
+    <section className={s.section}>
+      <h3 className={s.sectionTitle}>
+        Search in attached files
+        {badge}
+      </h3>
+      <div className={s.rows}>
+        <div className={s.row}>
+          <FileSearch size={18} className={styles.rowIcon} aria-hidden />
+          <div className={s.rowMain}>
+            <div className={s.rowTitle}>{view.title}</div>
+            <div className={s.rowMeta}>{view.meta}</div>
+            {view.progress !== null && (
+              <ProgressBar value={view.progress} size="xs" className={styles.progress} label={view.meta} />
+            )}
+          </div>
+          {view.offerDownload && (
+            <div className={s.rowActions}>
+              <Button size="sm" variant="secondary" icon={Download} onClick={download}>
+                Download
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -142,6 +210,8 @@ export function GeneralTab() {
             ))}
           </div>
         </section>
+
+        <SearchSection />
 
         <section className={s.section}>
           <h3 className={s.sectionTitle}>Startup</h3>

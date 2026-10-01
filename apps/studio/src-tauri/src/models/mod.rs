@@ -172,7 +172,7 @@ impl ModelRegistry {
         }
     }
 
-    fn model_dirs(&self) -> Vec<PathBuf> {
+    pub(crate) fn model_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = self.paths.builtin_model_dirs();
         for extra in self.settings.get().extra_model_dirs {
             if !dirs.contains(&extra) {
@@ -204,6 +204,8 @@ impl ModelRegistry {
                     continue;
                 }
                 match scan_file(&root, path) {
+                    // Embedding models (the search model among them) cannot chat.
+                    Some(file) if file.info.is_embedding() => {}
                     Some(file) if !found.iter().any(|f| f.id == file.id) => found.push(file),
                     _ => {}
                 }

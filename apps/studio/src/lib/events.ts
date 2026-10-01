@@ -11,6 +11,7 @@ import type {
   MarketStoreUpdate,
   ModelEntry,
   RuntimeStatus,
+  SearchStatus,
   Skill,
   UpdateStatus,
 } from './types';
@@ -32,6 +33,7 @@ interface EventMap {
   'chat://event': ChatEvent;
   'models://changed': ModelEntry[];
   'runtime://status': RuntimeStatus;
+  'search://status': SearchStatus;
   'downloads://changed': DownloadJob;
   'skills://changed': Skill[];
   'market://status': MarketStatus;

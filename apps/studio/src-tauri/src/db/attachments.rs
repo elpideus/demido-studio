@@ -66,7 +66,7 @@ fn row_to_attachment(r: &Row<'_>) -> rusqlite::Result<Attachment> {
     })
 }
 
-fn row_to_passage(r: &Row<'_>) -> rusqlite::Result<Passage> {
+pub(super) fn row_to_passage(r: &Row<'_>) -> rusqlite::Result<Passage> {
     Ok(Passage {
         attachment_id: r.get(0)?,
         seq: r.get::<_, i64>(1)?.max(0) as u32,

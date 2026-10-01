@@ -290,6 +290,11 @@ async fn run_step(
             manifest.starter_model = Some(model);
             Ok(())
         }
+        StepId::SearchModel => {
+            steps::model::download_search(ctx).await?;
+            manifest.models_dir = Some(ctx.plan.models_dir.clone());
+            Ok(())
+        }
         StepId::Shortcuts => steps::shortcuts::create(ctx).await,
         StepId::Finalize => {
             // Partial downloads of failed steps are kept so a retry resumes them.
@@ -325,6 +330,7 @@ mod tests {
             backend: Backend::Cpu,
             variant: "windows-cpu".into(),
             model: None,
+            search_model: None,
             model_context: 4096,
             models_dir: demido_core::paths::starter_models_dir(scope),
             python: false,

@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 use super::changes::file_kind;
 use super::{ToolContext, ToolOutput, arg_str, clip, require_str, workspace_path};
+use crate::attachments::meaning;
 
 const MAX_READ: usize = 60_000;
 
@@ -35,7 +36,7 @@ pub fn search_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Words to look for, e.g. \"termination notice period\""},
+            "query": {"type": "string", "description": "What to look for: a question, or words the passage would contain, e.g. \"termination notice period\""},
             "file": {"type": "string", "description": "Search only this file: its name or its path, e.g. uploads/contract.pdf"},
             "limit": {"type": "integer", "description": "Most passages to return (default 6, at most 20)"}
         },
@@ -230,8 +231,9 @@ fn select_pages(text: &str, range: &str) -> Option<String> {
     (!out.is_empty()).then(|| out.join("\n"))
 }
 
-/// Searches the passages of the chat's attached files.
-pub fn search(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
+/// Searches the passages of the chat's attached files: by meaning and words together when the
+/// search model has indexed them, by words otherwise.
+pub async fn search(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
     let query = require_str(args, "query")?;
     let limit = args["limit"].as_u64().unwrap_or(6).clamp(1, 20) as usize;
     let all = ctx.state.db.chat_attachments(&ctx.chat_id).map_err(|e| e.to_string())?;
@@ -261,15 +263,23 @@ pub fn search(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         }
         None => readable,
     };
-    let Some(fts) = crate::attachments::search::fts_query(query) else {
-        return Err("The query has no words to search for. Use the words the passage would contain.".into());
-    };
+    let fts = crate::attachments::search::fts_query(query);
     let ids: Vec<String> = files.iter().map(|a| a.id.clone()).collect();
-    let hits = ctx
-        .state
-        .db
-        .search_passages(&ids, &fts, limit)
-        .map_err(|e| e.to_string())?;
+    let vector = ctx.state.embedder.query(&ids, query, &ctx.cancel).await;
+    let by_meaning = vector
+        .as_ref()
+        .and_then(|q| meaning::find(&ctx.state.db, &ids, q, fts.as_deref(), limit, meaning::Matches::Best));
+    let hits = match (by_meaning, fts) {
+        (Some((hits, _)), _) => hits,
+        (None, Some(fts)) => ctx
+            .state
+            .db
+            .search_passages(&ids, &fts, limit)
+            .map_err(|e| e.to_string())?,
+        (None, None) => {
+            return Err("The query has no words to search for. Use the words the passage would contain.".into());
+        }
+    };
     let path_of = |id: &str| {
         files
             .iter()

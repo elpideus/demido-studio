@@ -121,7 +121,7 @@ export interface WizardState {
 }
 
 export type StepId =
-  'app' | 'runtime' | 'node' | 'uv' | 'python' | 'pythonPackages' | 'model' | 'shortcuts' | 'finalize';
+  'app' | 'runtime' | 'node' | 'uv' | 'python' | 'pythonPackages' | 'model' | 'searchModel' | 'shortcuts' | 'finalize';
 export type StepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 
 export interface StepInfo {

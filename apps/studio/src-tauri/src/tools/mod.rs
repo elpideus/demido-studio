@@ -171,7 +171,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "search_files",
         group: "files",
-        description: "Search the files the user attached to this chat (PDF, Word, text, spreadsheets and others) for passages about something. Returns the best matching passages with their file and page. Matching is by words: when nothing is found, try other words, synonyms or fewer words.",
+        description: "Search the files the user attached to this chat (PDF, Word, text, spreadsheets and others) for passages about something. Returns the best matching passages with their file and page. Matching is by meaning and by words (by words alone while the files are being indexed): when nothing is found, try other words, synonyms or fewer words.",
         parameters: files::search_schema,
         approval: false,
     },
@@ -346,7 +346,7 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "run_command" => command::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
         "read_file" => files::read(ctx, &args).await,
-        "search_files" => files::search(ctx, &args),
+        "search_files" => files::search(ctx, &args).await,
         "write_file" => files::write(ctx, &args),
         "create_skill" => skills::create(ctx, &args),
         "read_skill_file" => skills::read(ctx, &args),

@@ -429,6 +429,8 @@ fn start_install(app: AppHandle, state: State<'_, Arc<SetupState>>, request: Pla
         backend: request.backend,
         variant: choice.variant.clone().ok_or("No runtime build for this choice.")?,
         model,
+        // Search by meaning works with any model, local or online, so it comes either way.
+        search_model: Some(demido_catalog::search_model(choice, catalog).clone()),
         model_context: rec.context_length,
         models_dir: demido_core::paths::starter_models_dir(request.scope),
         python: true,

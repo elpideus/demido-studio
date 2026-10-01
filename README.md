@@ -59,7 +59,7 @@ click in Settings, Updates.
 |---|---|
 | Chat with local or cloud models, streaming, thinking, tool calls | The main screen |
 | Model picker and tools/skills picker | The composer |
-| Send files with a message: images, PDFs, Word, PowerPoint, spreadsheets, text and code. Short ones are read in full, long ones are searched for the passages your question needs (RAG) | The composer: **+**, drag and drop, or paste |
+| Send files with a message: images, PDFs, Word, PowerPoint, spreadsheets, text and code. Short ones are read in full, long ones are searched for the passages your question needs (RAG), by meaning as well as by words | The composer: **+**, drag and drop, or paste |
 | Commands in your own shell (PowerShell 7 when installed, else Windows PowerShell), shown live like a terminal with a Stop button; each one asks first | The chat (Terminal in the Tools menu) |
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |

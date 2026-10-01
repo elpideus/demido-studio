@@ -5,9 +5,11 @@
 //! for search, and what a model is given of an image or a sound) and stored in the database with
 //! no chat. Sending the message moves it into the chat's workspace, `uploads/<name>`, where the
 //! assistant's tools can use it too, and links it to the message. What the model reads of it is
-//! decided when the prompt is built ([`context`]); [`search`] finds its passages.
+//! decided when the prompt is built ([`context`]); [`search`] finds its passages by their words,
+//! and [`meaning`] by what they mean.
 
 pub mod context;
+pub mod meaning;
 pub mod search;
 
 use std::path::{Path, PathBuf};
@@ -160,6 +162,9 @@ fn read_into_db(state: &AppState, id: &str, name: &str, file: &Path) -> CmdResul
             chunks: &passages,
         },
     )?;
+    if !passages.is_empty() {
+        state.embedder.wake();
+    }
     Ok(resolved(&state.paths, attachment))
 }
 

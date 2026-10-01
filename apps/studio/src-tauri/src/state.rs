@@ -6,6 +6,7 @@ use demido_hardware::HardwareReport;
 use tauri::AppHandle;
 
 use crate::agent::Agent;
+use crate::attachments::meaning::Embedder;
 use crate::db::Db;
 use crate::market::MarketService;
 use crate::models::ModelRegistry;
@@ -29,6 +30,8 @@ pub struct AppState {
     pub models: Arc<ModelRegistry>,
     pub downloads: Arc<DownloadManager>,
     pub runtime: Arc<LocalRuntime>,
+    /// The search model, which indexes attached files by meaning.
+    pub embedder: Arc<Embedder>,
     pub skills: Arc<SkillRegistry>,
     pub market: Arc<MarketService>,
     pub updater: Arc<Updater>,

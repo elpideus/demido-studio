@@ -235,5 +235,36 @@
     "quant": "UD-Q4_K_XL",
     "size": 558772480,
     "sha256": "3177ebd67afe4438374da19e690bc1b98756f7e0fea9240e1be404336156a7b5"
+  },
+  "search": {
+    "$comment": "Embedding models for searching attached files by meaning, picked by memory like the tiers: the first whose minVramGb fits a GPU wins, and a CPU-only machine gets the last. unsloth publishes no Qwen3-Embedding GGUF, so that one is Qwen's own. queryPrefix and documentPrefix are the prompts each model card asks for; relevance is the similarity below which a passage is taken as unrelated (measured: unrelated questions score 0.26-0.45, related ones 0.62-0.73).",
+    "models": [
+      {
+        "id": "qwen3-embedding-0.6b",
+        "name": "Qwen3 Embedding 0.6B",
+        "minVramGb": 10,
+        "repo": "Qwen/Qwen3-Embedding-0.6B-GGUF",
+        "file": "Qwen3-Embedding-0.6B-Q8_0.gguf",
+        "quant": "Q8_0",
+        "size": 639150592,
+        "sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
+        "queryPrefix": "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:",
+        "documentPrefix": "",
+        "relevance": 0.5
+      },
+      {
+        "id": "embeddinggemma-300m",
+        "name": "EmbeddingGemma 300M",
+        "minVramGb": 0,
+        "repo": "unsloth/embeddinggemma-300m-GGUF",
+        "file": "embeddinggemma-300M-Q8_0.gguf",
+        "quant": "Q8_0",
+        "size": 328577056,
+        "sha256": "a0f7b4e13c397a6e1b32c2de75b1f65a14c92ec524d5f674d94a4290a1c4969b",
+        "queryPrefix": "task: search result | query: ",
+        "documentPrefix": "title: none | text: ",
+        "relevance": 0.52
+      }
+    ]
   }
 }

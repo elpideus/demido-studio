@@ -129,6 +129,21 @@ fn build_state(
         paths.llama_server(),
         paths.logs_dir.clone(),
     ));
+    let embedder = attachments::meaning::Embedder::new(
+        app.clone(),
+        db.clone(),
+        models.clone(),
+        paths.llama_server(),
+        paths.logs_dir.clone(),
+        attachments::meaning::for_this_computer(
+            &hardware,
+            paths
+                .manifest
+                .as_ref()
+                .and_then(|m| m.runtime.as_ref())
+                .map(|r| r.backend),
+        ),
+    );
     let skills = SkillRegistry::new(app.clone(), paths.skills_dir.clone(), paths.skills_state_file.clone());
     skills.seed_defaults(&paths.default_skills_dir());
     skills.rescan();
@@ -147,6 +162,7 @@ fn build_state(
     let token_secrets = secrets.clone();
     let rescan_models = models.clone();
     let rescan_app = app.clone();
+    let rescan_embedder = embedder.clone();
     let downloads = DownloadManager::new(
         app.clone(),
         paths.models_dir.clone(),
@@ -155,6 +171,8 @@ fn build_state(
             rescan_models.rescan();
             use tauri::Emitter;
             let _ = rescan_app.emit(models::CHANGED_EVENT, rescan_models.list());
+            // It may have been the search model.
+            rescan_embedder.wake();
         }),
     )?;
 
@@ -171,6 +189,7 @@ fn build_state(
         models,
         downloads,
         runtime,
+        embedder,
         skills,
         market,
         updater,
@@ -187,6 +206,7 @@ fn after_start(state: Arc<AppState>) {
     use tauri::Emitter;
 
     state.updater.spawn_scheduler();
+    state.embedder.spawn();
     // Find the shell commands run in now, so neither the first command nor the Tools menu waits.
     tauri::async_runtime::spawn_blocking(|| {
         shell::detect();
@@ -292,6 +312,8 @@ pub fn run() {
             commands::chats::workspace_dir,
             commands::models::list_models,
             commands::models::rescan_models,
+            commands::models::search_status,
+            commands::models::download_search_model,
             commands::models::update_model,
             commands::models::set_models_enabled,
             commands::models::import_model_avatar,
@@ -363,6 +385,7 @@ pub fn run() {
         {
             state.agent.stop_all();
             state.runtime.kill_now();
+            state.embedder.kill_now();
             // The market service flushes its store and job records on `shutdown`; a download
             // left unflushed would redo its last second of work next time.
             let market = state.market.clone();

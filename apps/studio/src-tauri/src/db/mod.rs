@@ -8,6 +8,7 @@ mod chats;
 mod messages;
 mod traces;
 pub mod types;
+mod vectors;
 
 use std::path::Path;
 
@@ -115,6 +116,16 @@ const MIGRATIONS: &[&str] = &[
         chat_id     TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
         passages    TEXT NOT NULL
     );
+    "#,
+    // 3: what each passage means, as a search model put it (little-endian f32s), one row per
+    // model: a vector of one model cannot be compared with another's.
+    r#"
+    CREATE TABLE passage_vectors (
+        passage_id  INTEGER NOT NULL REFERENCES attachment_passages(id) ON DELETE CASCADE,
+        model       TEXT NOT NULL,
+        vector      BLOB NOT NULL,
+        PRIMARY KEY (passage_id, model)
+    ) WITHOUT ROWID;
     "#,
 ];
 

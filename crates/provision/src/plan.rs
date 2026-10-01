@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use demido_catalog::{BackendChoice, Catalog, ModelPick};
+use demido_catalog::{BackendChoice, Catalog, ModelPick, SearchModel};
 use demido_core::{Backend, InstallManifest, InstallScope};
 use demido_hardware::HardwareReport;
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,8 @@ pub struct InstallPlan {
     pub variant: String,
     /// Starter model; `None` skips the download.
     pub model: Option<ModelPick>,
+    /// Embedding model for searching attached files by meaning; `None` skips it.
+    pub search_model: Option<SearchModel>,
     pub model_context: u32,
     pub models_dir: PathBuf,
     pub python: bool,
@@ -63,6 +65,7 @@ pub enum StepId {
     Python,
     PythonPackages,
     Model,
+    SearchModel,
     Shortcuts,
     Finalize,
 }
@@ -95,7 +98,9 @@ impl InstallPlan {
     ///
     /// No starter model is downloaded, and no shortcut is made again: they point at the same
     /// executable, and one the person deleted stays deleted. The entry in Installed apps is
-    /// written again, so it shows the new version and size.
+    /// written again, so it shows the new version and size. The search model came after the
+    /// first releases: an installation without one gets the one setup would pick today, and one
+    /// that has one keeps it.
     pub fn for_update(
         install_dir: &Path,
         manifest: &InstallManifest,
@@ -119,6 +124,28 @@ impl InstallPlan {
         };
         // Only a starter model uses it, and an update downloads none; kept sensible all the same.
         let recommended = |c: &BackendChoice| demido_catalog::recommend_models(c, catalog).context_length;
+        let models_dir = manifest
+            .models_dir
+            .clone()
+            .unwrap_or_else(|| demido_core::paths::starter_models_dir(manifest.scope));
+        let installed_search = catalog
+            .models
+            .search
+            .models
+            .iter()
+            .find(|m| {
+                models_dir
+                    .join(m.repo.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    .join(&m.file)
+                    .is_file()
+            })
+            .cloned();
+        let search_model = installed_search.or_else(|| {
+            choices
+                .iter()
+                .find(|c| c.backend == backend && c.available)
+                .map(|c| demido_catalog::search_model(c, catalog).clone())
+        });
         let model_context = choices
             .iter()
             .find(|c| c.backend == backend && c.available)
@@ -132,11 +159,9 @@ impl InstallPlan {
             backend,
             variant,
             model: None,
+            search_model,
             model_context,
-            models_dir: manifest
-                .models_dir
-                .clone()
-                .unwrap_or_else(|| demido_core::paths::starter_models_dir(manifest.scope)),
+            models_dir,
             python: true,
             node: true,
             shortcuts: false,
@@ -205,6 +230,14 @@ impl InstallPlan {
                 label: model.name.clone(),
                 detail: format!("{} · {}", model.quant, model.repo),
                 size: model.size,
+            });
+        }
+        if let Some(search) = &self.search_model {
+            steps.push(StepInfo {
+                id: StepId::SearchModel,
+                label: "Search model".into(),
+                detail: format!("{} · finds what you ask about in attached files", search.name),
+                size: search.size,
             });
         }
         if self.shortcuts || self.register {
@@ -356,6 +389,12 @@ mod tests {
         assert_eq!(plan.hardware["gpus"][0]["name"], "NVIDIA GeForce RTX 3060");
         let steps: Vec<StepId> = plan.steps(demido_catalog::catalog()).iter().map(|s| s.id).collect();
         assert!(!steps.contains(&StepId::Model), "{steps:?}");
+        assert!(steps.contains(&StepId::SearchModel), "{steps:?}");
+        assert_eq!(
+            plan.search_model.map(|m| m.id).as_deref(),
+            Some("qwen3-embedding-0.6b"),
+            "a 12 GB GPU has room for the larger search model"
+        );
 
         // Without a recorded models folder, the scope's; without an app, nothing to register.
         manifest.models_dir = None;

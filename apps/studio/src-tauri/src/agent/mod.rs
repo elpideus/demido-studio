@@ -23,6 +23,7 @@ pub use events::{CHAT_EVENT, ChatEvent};
 pub use row::{Cancelled, ToolRow};
 
 use crate::attachments;
+use crate::attachments::meaning::QueryVector;
 use crate::bail_msg;
 use crate::db::{Chat, Message, MessageStatus, Role, Trace, new_id, now_ms};
 use crate::error::{AppError, CmdResult};
@@ -290,6 +291,34 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<Clie
     }
 }
 
+/// The last user message as the search model puts it, for choosing the passages of long files
+/// it is shown by meaning (see `attachments::context`). `None` when they were chosen already,
+/// when every file fits whole, and without a search model.
+async fn question_vector(
+    state: &Arc<AppState>,
+    chat_id: &str,
+    messages: &[Message],
+    room_tokens: usize,
+    cancel: &CancellationToken,
+) -> Option<(String, QueryVector)> {
+    let last = messages.iter().rev().find(|m| m.role == Role::User)?;
+    if !attachments::context::may_have_long_files(room_tokens, messages)
+        || state.db.shown_passages(&last.id).ok()?.is_some()
+    {
+        return None;
+    }
+    let ids: Vec<String> = state
+        .db
+        .chat_attachments(chat_id)
+        .ok()?
+        .into_iter()
+        .filter(|a| a.tokens.is_some_and(|t| t > 0))
+        .map(|a| a.id)
+        .collect();
+    let vector = state.embedder.query(&ids, &last.content, cancel).await?;
+    Some((last.id.clone(), vector))
+}
+
 async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: &CancellationToken) -> CmdResult<()> {
     let Some(model) = state.models.get(model_id) else {
         bail_msg!("The selected model is no longer available. Pick another one.");
@@ -310,6 +339,8 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         .min(1_000_000);
     let params = ModelRegistry::gen_params(&model);
     tools::prepare(&state.settings.get()).await;
+    // The message this turn answers as the search model put it, with its id.
+    let mut question: Option<(String, QueryVector)> = None;
 
     for step in 0..MAX_STEPS {
         if cancel.is_cancelled() {
@@ -339,6 +370,9 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             .max(1024);
         let budget = context_tokens.saturating_sub(fixed + reserve).max(1024);
         let messages = state.db.list_messages(chat_id)?;
+        if step == 0 {
+            question = question_vector(state, chat_id, &messages, budget, cancel).await;
+        }
         let files = attachments::context::plan(
             &attachments::context::Inputs {
                 db: &state.db,
@@ -346,6 +380,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                 access: attachments::context::ModelAccess::of(&model),
                 room_tokens: budget,
                 tools: tools.iter().map(|t| t.name.clone()).collect(),
+                query_vector: question.as_ref().map(|(id, q)| (id.as_str(), q)),
             },
             &messages,
         );

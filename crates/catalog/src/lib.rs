@@ -9,7 +9,7 @@ mod data;
 pub mod plan;
 
 pub use data::*;
-pub use plan::{BackendChoice, ModelRecommendation, backend_choices, default_backend, recommend_models};
+pub use plan::{BackendChoice, ModelRecommendation, backend_choices, default_backend, recommend_models, search_model};
 
 use std::sync::OnceLock;
 
@@ -59,6 +59,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn search_models_are_pinned_and_picked_by_memory() {
+        let search = &catalog().models.search;
+        assert!(!search.models.is_empty());
+        let mins: Vec<f64> = search.models.iter().map(|m| m.min_vram_gb).collect();
+        assert!(
+            mins.windows(2).all(|w| w[0] > w[1]),
+            "search models out of order: {mins:?}"
+        );
+        for m in &search.models {
+            assert!(m.file.ends_with(".gguf"));
+            assert_eq!(m.sha256.len(), 64, "{}", m.file);
+            assert!(m.size > 0 && m.relevance > 0.0 && m.relevance < 1.0);
+            // unsloth when it publishes the model, otherwise the model's own maker.
+            assert!(
+                m.repo.starts_with("unsloth/") || m.repo.starts_with("Qwen/"),
+                "{} is neither unsloth nor the vendor",
+                m.repo
+            );
+        }
+        assert_eq!(search.for_memory(Some(12.0)).id, "qwen3-embedding-0.6b");
+        assert_eq!(search.for_memory(Some(8.0)).id, "embeddinggemma-300m");
+        assert_eq!(search.for_memory(None).id, "embeddinggemma-300m");
     }
 
     #[test]

@@ -5,17 +5,18 @@
 //!
 //! - Files with text are included in full while the message's files fit in a share of the room
 //!   the history has (smallest first). The rest are too long: only their passages most relevant
-//!   to the message are shown (BM25 over the passages, [`super::search`]), at least one each, and
-//!   the model can look for more with `search_files` or read pages with `read_file`.
-//! - A later message in the same chat is shown passages of those long files too when at least
-//!   two of its words match them, so a follow-up question about a long document still finds its
-//!   answer.
+//!   to the message are shown (by meaning and words together, [`super::meaning`], or by words
+//!   alone, [`super::search`]), at least one each, and the model can look for more with
+//!   `search_files` or read pages with `read_file`.
+//! - A later message in the same chat is shown passages of those long files too when they are
+//!   about what it asks (or at least two of its words match them), so a follow-up question about
+//!   a long document still finds its answer.
 //! - Images and sound go as media to a model that can read them; any other model is told the
 //!   file is in the workspace. What a model gets of them was stored when they were attached.
 //!
 //! The passages a message is shown are chosen once, the first time its prompt is built, and
-//! stored: BM25's statistics change whenever any file is added anywhere, and a message must keep
-//! showing what the model answered from. Everything else depends only on the stored messages,
+//! stored: BM25's statistics change whenever any file is added anywhere, the search model can
+//! change, and a message must keep showing what the model answered from. Everything else depends only on the stored messages,
 //! their files and the model, so the prompt of one step is a prefix of the next and llama.cpp
 //! keeps its cache. For the history to fit, older messages' blocks can be swapped for a stub
 //! naming the files ([`Extras::stub`]).
@@ -28,6 +29,7 @@ use std::collections::{HashMap, HashSet};
 
 use demido_extract::Kind;
 
+use super::meaning::{self, QueryVector};
 use super::search;
 use crate::agent::prompt::estimate_tokens;
 use crate::db::{Attachment, Db, Message, Passage, Role};
@@ -138,6 +140,9 @@ pub struct Inputs<'a> {
     pub room_tokens: usize,
     /// Names of the tools the model is offered, for the hints the block gives.
     pub tools: HashSet<String>,
+    /// A message's text as the search model put it, with the message's id: its passages are
+    /// chosen by meaning and words. Without it, by words.
+    pub query_vector: Option<(&'a str, &'a QueryVector)>,
 }
 
 impl Inputs<'_> {
@@ -145,15 +150,30 @@ impl Inputs<'_> {
         self.tools.contains(tool)
     }
 
-    /// Tokens one message's files may take in full: three fifths of the room.
     fn inline_budget(&self) -> usize {
-        (self.room_tokens * 3 / 5).min(INLINE_MAX_TOKENS)
+        inline_budget(self.room_tokens)
     }
 
     /// Tokens of passages shown for one message: a quarter of the room.
     fn excerpt_tokens(&self) -> usize {
         (self.room_tokens / 4).clamp(1_000, 16_000)
     }
+}
+
+/// Tokens one message's files may take in full: three fifths of the room.
+fn inline_budget(room_tokens: usize) -> usize {
+    (room_tokens * 3 / 5).min(INLINE_MAX_TOKENS)
+}
+
+/// Whether any of `messages`' files may be too long to include in full, so that passages of it
+/// are chosen: only then is a question worth embedding.
+pub fn may_have_long_files(room_tokens: usize, messages: &[Message]) -> bool {
+    let tokens: u64 = messages
+        .iter()
+        .flat_map(|m| &m.attachments)
+        .filter_map(|a| a.tokens)
+        .sum();
+    tokens > inline_budget(room_tokens) as u64
 }
 
 /// How a file with text is shown in its own message.
@@ -329,7 +349,7 @@ fn passages_for(
             .iter()
             .filter_map(|(id, seq)| inputs.db.passage(id, *seq).ok().flatten())
             .collect(),
-        None => select_passages(inputs, &m.content, long_files, own_long),
+        None => select_passages(inputs, m, long_files, own_long),
     };
     let missing: Vec<&Attachment> = own_long
         .iter()
@@ -339,7 +359,7 @@ fn passages_for(
     let extended = stored.is_some() && !missing.is_empty();
     if extended {
         let more: Vec<Attachment> = missing.iter().map(|a| (*a).clone()).collect();
-        chosen.extend(select_passages(inputs, &m.content, &more, &missing));
+        chosen.extend(select_passages(inputs, m, &more, &missing));
     }
     if stored.is_none() || extended {
         let keys: Vec<(String, u32)> = chosen.iter().map(|p| (p.attachment_id.clone(), p.seq)).collect();
@@ -384,19 +404,25 @@ fn fit(chosen: Vec<Passage>, budget: usize, keep: &[&Attachment]) -> Vec<Passage
 
 /// Chooses passages of the long files for a message's text, most important first:
 ///
-/// - of the message's own long files, the best BM25 matches while they fit, then each file's
-///   opening passage (a title, an abstract, a table of contents); every one of them gets at least
-///   one passage, its best match or else its opening, even past the allowance. A message with
-///   nothing to search for in them ("summarise this") gets the openings, shared out evenly;
+/// - of the message's own long files, the best matches while they fit, then each file's opening
+///   passage (a title, an abstract, a table of contents); every one of them gets at least one
+///   passage, its best match or else its opening, even past the allowance. The best are ranked
+///   by meaning and words together once any passage is about what the message asks or has its
+///   words ([`meaning::Matches::Best`]); by BM25 among those with its words without a search
+///   model. A message with nothing to search for in them ("summarise this") gets the openings,
+///   shared out evenly;
 /// - of earlier messages' long files, searched apart so they never crowd out the message's own,
-///   only passages containing at least two of the message's words (one when it has one), as FTS5
-///   matches words, within half the allowance, so small talk pulls nothing in.
+///   only passages about what the message asks, or containing at least two of its words (one
+///   when it has one) as FTS5 matches words, within half the allowance, so small talk pulls
+///   nothing in.
 fn select_passages(
     inputs: &Inputs<'_>,
-    text: &str,
+    m: &Message,
     long_files: &[Attachment],
     own_long: &[&Attachment],
 ) -> Vec<Passage> {
+    let text = m.content.as_str();
+    let vector = inputs.query_vector.filter(|(id, _)| *id == m.id).map(|(_, q)| q);
     let budget = inputs.excerpt_tokens();
     let own_ids: Vec<String> = own_long.iter().map(|a| a.id.clone()).collect();
     let earlier_ids: Vec<String> = long_files
@@ -412,15 +438,24 @@ fn select_passages(
             .and_then(|q| inputs.db.search_passages(ids, q, limit).ok())
             .unwrap_or_default()
     };
-    let own_hits = find(&own_ids, 60);
+    // By meaning and words, when every passage of the files has a vector: the matches, best
+    // first, and those of them about what the message asks.
+    let by_meaning = |ids: &[String], limit: usize, matches| {
+        meaning::find(inputs.db, ids, vector?, query.as_deref(), limit, matches)
+    };
+    let own_hits = match by_meaning(&own_ids, 60, meaning::Matches::Best) {
+        Some((hits, _)) => hits,
+        None => find(&own_ids, 60),
+    };
     let earlier_hits = {
-        let hits = find(&earlier_ids, 40);
+        let (hits, related) = by_meaning(&earlier_ids, 40, meaning::Matches::Strict)
+            .unwrap_or_else(|| (find(&earlier_ids, 40), HashSet::new()));
         let phrases: Vec<String> = terms.iter().map(|t| search::phrase(t)).collect();
         let rowids: Vec<i64> = hits.iter().map(|p| p.rowid).collect();
         let counts = inputs.db.matching_terms(&rowids, &phrases).unwrap_or_default();
         let needed = terms.len().min(2) as u32;
         hits.into_iter()
-            .filter(|p| counts.get(&p.rowid).copied().unwrap_or(0) >= needed)
+            .filter(|p| related.contains(&p.rowid) || counts.get(&p.rowid).copied().unwrap_or(0) >= needed.max(1))
             .collect::<Vec<_>>()
     };
 
@@ -870,6 +905,8 @@ mod tests {
         chat: String,
         seq: i64,
         messages: Vec<Message>,
+        /// The last message's vector, as the agent passes it.
+        vector: Option<(String, QueryVector)>,
     }
 
     impl Fixture {
@@ -881,6 +918,7 @@ mod tests {
                 chat,
                 seq: 0,
                 messages: Vec::new(),
+                vector: None,
             }
         }
 
@@ -940,6 +978,7 @@ mod tests {
                 access,
                 room_tokens,
                 tools: ["search_files", "read_file"].iter().map(|s| s.to_string()).collect(),
+                query_vector: self.vector.as_ref().map(|(id, q)| (id.as_str(), q)),
             };
             plan(&inputs, &self.messages)
         }
@@ -989,6 +1028,105 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    /// Gives every passage a vector: along the first axis when it contains `about`, along the
+    /// second otherwise, as a search model would for passages about it and not.
+    fn index(f: &Fixture, about: &str) {
+        let pending = f.db.unindexed_passages("m", 10_000).unwrap();
+        let vectors: Vec<(i64, Vec<f32>)> = pending
+            .into_iter()
+            .map(|(id, text)| {
+                (
+                    id,
+                    if text.contains(about) {
+                        vec![1.0, 0.0]
+                    } else {
+                        vec![0.0, 1.0]
+                    },
+                )
+            })
+            .collect();
+        f.db.store_vectors("m", &vectors).unwrap();
+    }
+
+    fn question(f: &mut Fixture, id: &str, vector: [f32; 2]) {
+        f.vector = Some((
+            id.to_string(),
+            QueryVector {
+                model: "m".into(),
+                vector: vector.to_vec(),
+                relevance: 0.5,
+            },
+        ));
+    }
+
+    #[test]
+    fn a_question_in_other_words_finds_its_passage_by_meaning() {
+        let mut f = Fixture::new();
+        let passages = long_passages(30, 40);
+        let refs: Vec<&str> = passages.iter().map(String::as_str).collect();
+        // No word of it is in the passage that answers it.
+        let id = f.user(
+            "Can we get out of this deal early?",
+            &[("contract.pdf", "application/pdf", Kind::Document, &refs)],
+        );
+        index(&f, "terminate");
+        question(&mut f, &id, [0.9, 0.1]);
+        let block = f.plan(12_000, false)[&id].block.clone();
+        assert!(block.contains("<excerpt page=\"31\">"), "{block}");
+
+        // A follow-up in other words still finds it; small talk, whose vector points elsewhere,
+        // does not.
+        f.assistant("With ninety days of notice.");
+        let follow = f.user("How long before we are free of it?", &[]);
+        question(&mut f, &follow, [0.8, 0.2]);
+        let block = f.plan(12_000, false)[&follow].block.clone();
+        assert!(block.contains("<excerpt page=\"31\">"), "{block}");
+        f.assistant("Ninety days.");
+        let thanks = f.user("great, cheers", &[]);
+        question(&mut f, &thanks, [0.3, 0.3]);
+        assert!(!f.plan(12_000, false).contains_key(&thanks));
+
+        // Without vectors for every passage, words alone choose: nothing matches here.
+        let mut g = Fixture::new();
+        let id = g.user(
+            "Can we get out of this deal early?",
+            &[("contract.pdf", "application/pdf", Kind::Document, &refs)],
+        );
+        question(&mut g, &id, [0.9, 0.1]);
+        let block = g.plan(12_000, false)[&id].block.clone();
+        assert!(!block.contains("<excerpt page=\"31\">"), "{block}");
+    }
+
+    #[test]
+    fn a_file_asked_about_shows_its_best_passages_below_the_relevance_line() {
+        let passages = long_passages(30, 40);
+        let refs: Vec<&str> = passages.iter().map(String::as_str).collect();
+        // Asked in another language, the answer scores under `relevance`. A word of the question
+        // matches elsewhere, so there is something to search for, and meaning ranks the answer
+        // first.
+        let mut f = Fixture::new();
+        let id = f.user(
+            "Entro quanto si può uscire? Vedi la section sul recesso.",
+            &[("contract.pdf", "application/pdf", Kind::Document, &refs)],
+        );
+        index(&f, "terminate");
+        question(&mut f, &id, [0.45, 0.05]);
+        let block = f.plan(12_000, false)[&id].block.clone();
+        assert!(block.contains("<excerpt page=\"31\">"), "{block}");
+
+        // Nothing about it and none of its words: the file's opening, as for "summarise this".
+        let mut g = Fixture::new();
+        let id = g.user(
+            "Riassumi",
+            &[("contract.pdf", "application/pdf", Kind::Document, &refs)],
+        );
+        index(&g, "terminate");
+        question(&mut g, &id, [0.3, 0.1]);
+        let block = g.plan(12_000, false)[&id].block.clone();
+        assert!(block.contains("<excerpt page=\"1\">"), "{block}");
+        assert!(!block.contains("<excerpt page=\"31\">"), "{block}");
     }
 
     #[test]

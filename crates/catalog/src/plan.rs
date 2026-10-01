@@ -191,6 +191,13 @@ pub struct ModelRecommendation {
     pub default_family: String,
 }
 
+/// The search model for a runtime choice: the larger one when the GPU it runs on has the memory
+/// for it, the small one otherwise and on the CPU.
+pub fn search_model<'a>(choice: &BackendChoice, catalog: &'a Catalog) -> &'a crate::SearchModel {
+    let gpu_memory = (choice.backend.is_gpu() && !choice.uses_system_memory).then_some(choice.memory_budget_gb);
+    catalog.models.search.for_memory(gpu_memory)
+}
+
 pub fn recommend_models(choice: &BackendChoice, catalog: &Catalog) -> ModelRecommendation {
     let models = &catalog.models;
     let (tier, context_length, table) = if choice.uses_system_memory || !choice.backend.is_gpu() {

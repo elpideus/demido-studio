@@ -113,6 +113,52 @@ pub struct ModelCatalog {
     pub tiers: Vec<Tier>,
     pub cpu_tiers: Vec<CpuTier>,
     pub smoke_test: ModelPick,
+    pub search: SearchCatalog,
+}
+
+/// Embedding models for searching attached files by meaning.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchCatalog {
+    /// Largest first: the first whose `min_vram_gb` a GPU's memory reaches is used; a CPU-only
+    /// machine uses the last.
+    pub models: Vec<SearchModel>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchModel {
+    /// Stable name the vectors made with this model are stored under.
+    pub id: String,
+    pub name: String,
+    pub min_vram_gb: f64,
+    pub repo: String,
+    pub file: String,
+    pub quant: String,
+    pub size: u64,
+    pub sha256: String,
+    /// Put before a question (the model card's prompt for search queries).
+    pub query_prefix: String,
+    /// Put before a passage.
+    pub document_prefix: String,
+    /// Similarity below which a passage counts as unrelated to a question.
+    pub relevance: f32,
+}
+
+impl SearchModel {
+    pub fn url(&self) -> String {
+        format!("https://huggingface.co/{}/resolve/main/{}", self.repo, self.file)
+    }
+}
+
+impl SearchCatalog {
+    /// The model for a machine: by GPU memory (`gpu_memory_gb`, None without a usable GPU).
+    pub fn for_memory(&self, gpu_memory_gb: Option<f64>) -> &SearchModel {
+        gpu_memory_gb
+            .and_then(|gb| self.models.iter().find(|m| gb >= m.min_vram_gb))
+            .or_else(|| self.models.last())
+            .expect("the catalog has search models")
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
