@@ -264,12 +264,9 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<Clie
     match model.source {
         ModelSource::Local => {
             let spec = state.models.launch_spec(&model.id)?;
-            let base = state.runtime.ensure(&spec).await.map_err(AppError::msg)?;
-            Ok(Client::OpenAi(OpenAiClient::new(
-                state.local_http.clone(),
-                base,
-                model.id.clone(),
-            )))
+            let served = state.runtime.ensure(&spec).await.map_err(AppError::msg)?;
+            let client = OpenAiClient::new(state.local_http.clone(), served.base_url, model.id.clone());
+            Ok((Client::OpenAi(client), Some(served.context_length as usize)))
         }
         ModelSource::Gemini => {
             let Some((_, provider_id, remote)) = ModelRegistry::parse_cloud_id(&model.id) else {
@@ -284,12 +281,8 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<Clie
             let Some(key) = state.providers.api_key(provider_id) else {
                 bail_msg!("{} has no API key. Add one in Settings, Providers.", provider.name);
             };
-            Ok(Client::Gemini(GeminiClient::new(
-                state.http.clone(),
-                provider.base_url(),
-                key,
-                remote.to_string(),
-            )))
+            let client = GeminiClient::new(state.http.clone(), provider.base_url(), key, remote.to_string());
+            Ok((Client::Gemini(client), None))
         }
     }
 }
@@ -352,8 +345,9 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             return Ok(());
         }
         // Resolved every step: a long tool call or approval wait may outlive the local runtime
-        // (unloaded, restarted on another port), and this brings it back.
-        let client = client_for(state, &model).await?;
+        // (unloaded, restarted on another port, with another context), and this brings it back.
+        let (client, served_context) = client_for(state, &model).await?;
+        let context_tokens = served_context.unwrap_or(model_context);
         let settings = state.settings.get();
         let tools = tools::specs(state, &settings);
         let system = prompt::system_prompt(&prompt::PromptInputs {
@@ -436,17 +430,50 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                 reasoning: std::mem::take(reasoning),
             });
         };
-        let result = client
-            .stream(&request, cancel, |event| {
-                first_token.get_or_insert_with(Instant::now);
-                match event {
-                    StreamEvent::Content(t) => {
-                        streamed_content.push_str(&t);
-                        pending_content.push_str(&t);
+        let mut request = ChatRequest {
+            system,
+            messages: Vec::new(),
+            tools,
+            params: params.clone(),
+        };
+        let mut retried = false;
+        let (trace_keep, result) = loop {
+            request.messages = prompt::history(&messages, budget, &files);
+            // The files of the message this turn answers are kept whole in its first call's trace only.
+            let trace_keep = (step == 0)
+                .then(|| {
+                    messages
+                        .iter()
+                        .rev()
+                        .find(|m| m.role == Role::User)
+                        .and_then(|m| files.get(&m.id))
+                        .map(|x| x.block.clone())
+                })
+                .flatten();
+            let result = client
+                .stream(&request, cancel, |event| {
+                    first_token.get_or_insert_with(Instant::now);
+                    match event {
+                        StreamEvent::Content(t) => {
+                            streamed_content.push_str(&t);
+                            pending_content.push_str(&t);
+                        }
+                        StreamEvent::Reasoning(t) => {
+                            streamed_reasoning.push_str(&t);
+                            pending_reasoning.push_str(&t);
+                        }
+                        StreamEvent::ToolCall { name, .. } => {
+                            flush(&mut pending_content, &mut pending_reasoning);
+                            emit_state.emit_chat(ChatEvent::ToolCall {
+                                chat_id: chat_id.to_string(),
+                                message_id: reply.id.clone(),
+                                name,
+                            });
+                        }
                     }
-                    StreamEvent::Reasoning(t) => {
-                        streamed_reasoning.push_str(&t);
-                        pending_reasoning.push_str(&t);
+                    if last_flush.elapsed().as_millis() >= 40 {
+                        last_flush = Instant::now();
+                        flush(&mut pending_content, &mut pending_reasoning);
                     }
                     StreamEvent::ToolCall { name, .. } => {
                         flush(&mut pending_content, &mut pending_reasoning);
@@ -457,12 +484,9 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                         });
                     }
                 }
-                if last_flush.elapsed().as_millis() >= 40 {
-                    last_flush = Instant::now();
-                    flush(&mut pending_content, &mut pending_reasoning);
-                }
-            })
-            .await;
+            }
+            break (trace_keep, result);
+        };
         flush(&mut pending_content, &mut pending_reasoning);
         let duration_ms = started.elapsed().as_millis() as i64;
         let ttft_ms = first_token.map(|t| (t - started).as_millis() as i64);

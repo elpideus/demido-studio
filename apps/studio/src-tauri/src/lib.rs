@@ -116,11 +116,17 @@ fn build_state(
         http.clone(),
     ));
     let budget = AppState::memory_budget_gb(&hardware);
+    let runtime_backend = paths
+        .manifest
+        .as_ref()
+        .and_then(|m| m.runtime.as_ref())
+        .map(|r| r.backend);
     let models = Arc::new(ModelRegistry::new(
         paths.clone(),
         settings.clone(),
         providers.clone(),
         budget,
+        AppState::context_fits_gpu(&hardware, runtime_backend),
     ));
     models.rescan();
 
@@ -129,14 +135,7 @@ fn build_state(
         models.clone(),
         paths.llama_server(),
         paths.logs_dir.clone(),
-        attachments::meaning::for_this_computer(
-            &hardware,
-            paths
-                .manifest
-                .as_ref()
-                .and_then(|m| m.runtime.as_ref())
-                .map(|r| r.backend),
-        ),
+        attachments::meaning::for_this_computer(&hardware, runtime_backend),
     );
     let runtime = Arc::new(LocalRuntime::new(
         app.clone(),
@@ -193,6 +192,7 @@ fn build_state(
         embedder,
         skills,
         market,
+        mail,
         updater,
         agent: Agent::default(),
         http,

@@ -159,6 +159,7 @@ export interface EffectiveSettings {
   minP: number | null;
   repeatPenalty: number | null;
   maxTokens: number | null;
+  /** Null for a local model llama.cpp sizes as it loads: the runtime status says what it took. */
   contextLength: number | null;
   gpuLayers: number | null;
   thinking: boolean | null;

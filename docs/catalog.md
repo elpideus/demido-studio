@@ -56,6 +56,9 @@ taken as about the question, and `microBatch`, the tokens llama.cpp decodes at o
 whole input) for a model that reads text both ways, which llama.cpp requires, and less for one
 that reads left to right, which saves GPU memory. Measure it again for a new model: embed a long document, then
 questions it answers and questions it does not, and put it between the two groups' best scores.
+`gpuMemoryMb` is the GPU memory its server takes with those settings, which a chat model sized to
+the GPU's free memory leaves for it: measure it as the difference `nvidia-smi` shows once the
+server has embedded something.
 
 Models are unsloth's quantized GGUFs ("UD" dynamic quants, and the quantization-aware "QAT"
 builds for Gemma). The catalog test rejects any chat model outside `unsloth/`; a search model

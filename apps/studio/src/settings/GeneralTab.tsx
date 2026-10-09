@@ -3,6 +3,7 @@ import { CheckCircle2, CircleAlert, Cpu, FolderOpen, Power, ScrollText, ShieldAl
 import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
+import type { Settings } from '@/lib/types';
 import { useApp } from '@/stores/app';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';

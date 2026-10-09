@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use futures_util::StreamExt;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::sse::SseDecoder;
@@ -144,7 +144,7 @@ impl OpenAiClient {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(LlmError::Provider(error_message(status.as_u16(), &text)));
+            return Err(failure(status.as_u16(), &text));
         }
 
         let mut out = Completion {
@@ -398,5 +398,20 @@ mod tests {
             "context too long"
         );
         assert_eq!(error_message(503, ""), "the model server answered 503");
+    }
+
+    #[test]
+    fn a_full_context_is_told_apart() {
+        // As llama-server b11146 answers.
+        let body = r#"{"error":{"code":400,"message":"request (18188 tokens) exceeds the available context size (16384 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":18188,"n_ctx":16384}}"#;
+        assert!(matches!(
+            failure(400, body),
+            LlmError::ContextFull { prompt_tokens: 18188, context_tokens: 16384, message }
+                if message.starts_with("request (18188 tokens)")
+        ));
+        assert!(matches!(
+            failure(400, r#"{"error":{"message":"context too long"}}"#),
+            LlmError::Provider(_)
+        ));
     }
 }

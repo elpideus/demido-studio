@@ -146,6 +146,10 @@ pub struct SearchModel {
     /// Tokens llama.cpp decodes at once (`--ubatch-size`): the whole input for a model that
     /// reads both ways, less for one that reads left to right (see `catalog/models.json`).
     pub micro_batch: u32,
+    /// GPU memory the model's server takes with the app's settings, in MiB (measured): a chat
+    /// model leaves this much free for it.
+    #[serde(default)]
+    pub gpu_memory_mb: u32,
 }
 
 impl SearchModel {

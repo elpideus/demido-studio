@@ -237,7 +237,7 @@
     "sha256": "3177ebd67afe4438374da19e690bc1b98756f7e0fea9240e1be404336156a7b5"
   },
   "search": {
-    "$comment": "Embedding models for searching attached files by meaning, picked by memory like the tiers: the first whose minVramGb fits a GPU wins, and a CPU-only machine gets the last. unsloth publishes no Qwen3-Embedding GGUF, so that one is Qwen's own. queryPrefix and documentPrefix are the prompts each model card asks for; relevance is the similarity below which a passage is taken as unrelated (measured: unrelated questions score 0.26-0.45, related ones 0.62-0.73). microBatch is how many tokens llama.cpp decodes at once: a model that reads a text both ways (EmbeddingGemma) must take a whole input in one micro-batch, so it gets the app's whole 2048-token slot; one that reads left to right (Qwen3 Embedding, last-token pooling) does not, and 512 saves it 900 MB of GPU memory (measured: 2146 MiB at 2048, 1245 MiB at 512, same speed).",
+    "$comment": "Embedding models for searching attached files by meaning, picked by memory like the tiers: the first whose minVramGb fits a GPU wins, and a CPU-only machine gets the last. unsloth publishes no Qwen3-Embedding GGUF, so that one is Qwen's own. queryPrefix and documentPrefix are the prompts each model card asks for; relevance is the similarity below which a passage is taken as unrelated (measured: unrelated questions score 0.26-0.45, related ones 0.62-0.73). microBatch is how many tokens llama.cpp decodes at once: a model that reads a text both ways (EmbeddingGemma) must take a whole input in one micro-batch, so it gets the app's whole 2048-token slot; one that reads left to right (Qwen3 Embedding, last-token pooling) does not, and 512 saves it 900 MB of GPU memory (measured: 2146 MiB at 2048, 1245 MiB at 512, same speed). gpuMemoryMb is what the server takes on the GPU with those settings (measured on an RTX 3060 with llama.cpp b11146), which a chat model sized to the free GPU memory leaves for it.",
     "models": [
       {
         "id": "qwen3-embedding-0.6b",
@@ -251,7 +251,8 @@
         "queryPrefix": "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:",
         "documentPrefix": "",
         "relevance": 0.5,
-        "microBatch": 512
+        "microBatch": 512,
+        "gpuMemoryMb": 1245
       },
       {
         "id": "embeddinggemma-300m",
@@ -265,7 +266,8 @@
         "queryPrefix": "task: search result | query: ",
         "documentPrefix": "title: none | text: ",
         "relevance": 0.52,
-        "microBatch": 2048
+        "microBatch": 2048,
+        "gpuMemoryMb": 497
       }
     ]
   }

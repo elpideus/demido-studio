@@ -1,6 +1,6 @@
 //! The local inference runtime: one `llama-server` process serving the selected model.
 //!
-//! [`LocalRuntime::ensure`] is the only entry point that matters: it returns the base URL of a
+//! [`LocalRuntime::ensure`] is the only entry point that matters: it returns the address of a
 //! server running exactly the requested launch settings, starting or restarting the process when
 //! needed. One model is resident at a time, because a second one would compete for the GPU. The
 //! search model makes room while one loads (see `attachments::meaning`).
@@ -28,6 +28,14 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(420);
 /// Tokens one picture may take, and the micro-batch llama.cpp decodes them in, when a model loads
 /// its projector (see where the server's arguments are built).
 const VISION_BATCH: u32 = 2048;
+/// Least context llama.cpp may fit a model to: below it, a turn with a few tool results no longer
+/// fits beside the system prompt and the tools (about 6000 tokens with every tool). A model that does not fit the
+/// GPU with this much gets layers moved to the CPU instead.
+const MIN_FIT_CONTEXT: u32 = 16384;
+/// GPU memory, in MiB, llama.cpp leaves free when it fits a model (its own default), besides
+/// the search model's. About 370 MiB of it stays free in the end on an RTX 3060: fitting does not
+/// count the CUDA context.
+const FIT_MARGIN_MB: u32 = 1024;
 
 /// What to run. Two specs that compare equal can share a server.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -36,7 +44,9 @@ pub struct LaunchSpec {
     pub model_id: String,
     pub model_name: String,
     pub path: PathBuf,
-    pub context_length: u32,
+    /// `None` lets llama.cpp size it to the GPU's free memory (see where the server's arguments
+    /// are built).
+    pub context_length: Option<u32>,
     /// `None` lets llama.cpp fit as many layers as the GPU holds.
     pub gpu_layers: Option<u32>,
     pub mmproj: Option<PathBuf>,
@@ -66,9 +76,19 @@ pub struct RuntimeStatus {
     pub load_seconds: Option<f64>,
 }
 
+/// A server running a model.
+#[derive(Clone, Debug)]
+pub struct Served {
+    /// The `/v1` base URL.
+    pub base_url: String,
+    /// Tokens the model can see at once: the context of the server's one slot.
+    pub context_length: u32,
+}
+
 struct Running {
     spec: LaunchSpec,
     port: u16,
+    context_length: u32,
     child: Child,
 }
 
@@ -132,8 +152,8 @@ impl LocalRuntime {
         let _ = self.app.emit(STATUS_EVENT, status);
     }
 
-    /// Returns the `/v1` base URL of a server running `spec`, starting one if needed.
-    pub async fn ensure(&self, spec: &LaunchSpec) -> Result<String, String> {
+    /// Returns the server running `spec`, starting one if needed.
+    pub async fn ensure(&self, spec: &LaunchSpec) -> Result<Served, String> {
         let server = self.server.clone().ok_or_else(|| {
             "The local AI runtime is not installed. Run the Demido Studio installer again, or pick a cloud model."
                 .to_string()
@@ -146,7 +166,10 @@ impl LocalRuntime {
         if let Some(r) = running.as_mut() {
             let alive = matches!(r.child.try_wait(), Ok(None));
             if alive && r.spec == *spec {
-                return Ok(base_url(r.port));
+                return Ok(Served {
+                    base_url: base_url(r.port),
+                    context_length: r.context_length,
+                });
             }
         }
         // The chat model comes first: the search model stops, and stays stopped while it loads.
@@ -161,17 +184,25 @@ impl LocalRuntime {
             model_id: Some(spec.model_id.clone()),
             model_name: Some(spec.model_name.clone()),
             message: None,
-            context_length: Some(spec.context_length),
+            context_length: spec.context_length,
             load_seconds: None,
         });
         let started = Instant::now();
         match self.launch(&server, spec).await {
             Ok((child, port)) => {
                 let seconds = started.elapsed().as_secs_f64();
-                tracing::info!(model = %spec.model_name, port, "model ready in {seconds:.1}s");
+                let context_length = match self.served_context(port).await {
+                    Some(n) => n,
+                    None => {
+                        tracing::warn!("llama-server did not report its context size");
+                        spec.context_length.unwrap_or(MIN_FIT_CONTEXT)
+                    }
+                };
+                tracing::info!(model = %spec.model_name, port, context_length, "model ready in {seconds:.1}s");
                 *running = Some(Running {
                     spec: spec.clone(),
                     port,
+                    context_length,
                     child,
                 });
                 self.set_status(RuntimeStatus {
@@ -179,10 +210,13 @@ impl LocalRuntime {
                     model_id: Some(spec.model_id.clone()),
                     model_name: Some(spec.model_name.clone()),
                     message: None,
-                    context_length: Some(spec.context_length),
+                    context_length: Some(context_length),
                     load_seconds: Some(seconds),
                 });
-                Ok(base_url(port))
+                Ok(Served {
+                    base_url: base_url(port),
+                    context_length,
+                })
             }
             Err(err) => {
                 tracing::error!(model = %spec.model_name, "model failed to load: {err}");
@@ -239,8 +273,6 @@ impl LocalRuntime {
         let mut args: Vec<String> = vec![
             "-m".into(),
             spec.path.to_string_lossy().into_owned(),
-            "-c".into(),
-            spec.context_length.to_string(),
             "--host".into(),
             "127.0.0.1".into(),
             "--port".into(),
@@ -254,6 +286,20 @@ impl LocalRuntime {
             "--alias".into(),
             spec.model_id.clone(),
         ];
+        match spec.context_length {
+            Some(n) => args.extend(["-c".into(), n.to_string()]),
+            // Without -c, llama.cpp takes the trained context, or as much of it as fits while this
+            // much GPU memory stays free: its margin, and room for the search model, which runs
+            // beside the chat model. It counts the projector and the micro-batch set below.
+            None => args.extend([
+                "--fit".into(),
+                "on".into(),
+                "--fit-ctx".into(),
+                MIN_FIT_CONTEXT.to_string(),
+                "--fit-target".into(),
+                (FIT_MARGIN_MB + self.search.gpu_memory_mb()).to_string(),
+            ]),
+        }
         if let Some(layers) = spec.gpu_layers {
             args.push("-ngl".into());
             args.push(layers.to_string());
@@ -341,6 +387,24 @@ impl LocalRuntime {
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
+    }
+
+    /// The context of the server's slot, as `/props` reports it.
+    async fn served_context(&self, port: u16) -> Option<u32> {
+        let props: serde_json::Value = self
+            .http
+            .get(format!("http://127.0.0.1:{port}/props"))
+            .send()
+            .await
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        props
+            .pointer("/default_generation_settings/n_ctx")?
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|&n| n > 0)
     }
 
     fn log_line(&self, line: &str) {

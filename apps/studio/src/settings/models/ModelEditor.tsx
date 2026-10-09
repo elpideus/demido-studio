@@ -112,6 +112,7 @@ function ParamRow({
 
 export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) {
   const model = useModels((st) => st.models.find((m) => m.id === id));
+  const runtime = useModels((st) => st.runtime);
   const [draft, setDraft] = useState<ModelSettings>(model?.settings ?? {});
   const [saving, setSaving] = useState(false);
 
@@ -314,12 +315,18 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
               {local && (
                 <Field
                   label="Context length"
-                  description={`How much of the conversation the model can see. Trained up to ${maxContext.toLocaleString()} tokens.`}
+                  description={`How much of the conversation the model can see. Automatic makes it as long as the memory left free allows. Trained up to ${maxContext.toLocaleString()} tokens.`}
                 >
                   <Select
-                    value={String(draft.contextLength ?? model.effective.contextLength ?? 8192)}
-                    onChange={(e) => set({ contextLength: Number(e.target.value) })}
-                    options={contextOptions.map((c) => ({ value: String(c), label: `${c.toLocaleString()} tokens` }))}
+                    value={draft.contextLength == null ? '' : String(draft.contextLength)}
+                    onChange={(e) => set({ contextLength: e.target.value ? Number(e.target.value) : null })}
+                    options={[
+                      {
+                        value: '',
+                        label: autoContext ? `Automatic (${autoContext.toLocaleString()} tokens)` : 'Automatic',
+                      },
+                      ...contextOptions.map((c) => ({ value: String(c), label: `${c.toLocaleString()} tokens` })),
+                    ]}
                   />
                 </Field>
               )}

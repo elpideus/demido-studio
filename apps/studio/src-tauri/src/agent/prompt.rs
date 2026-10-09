@@ -17,6 +17,29 @@ pub fn estimate_tokens(text: &str) -> usize {
     text.len() / 3 + 1
 }
 
+/// Rough token estimate of history as [`history`] puts it, pictures left out.
+pub fn estimate_history(messages: &[LlmMessage]) -> usize {
+    messages
+        .iter()
+        .map(|m| match m {
+            LlmMessage::User { content, .. } | LlmMessage::Tool { content, .. } => estimate_tokens(content),
+            LlmMessage::Assistant {
+                content,
+                reasoning,
+                tool_calls,
+                ..
+            } => {
+                estimate_tokens(content)
+                    + reasoning.as_deref().map_or(0, estimate_tokens)
+                    + tool_calls
+                        .iter()
+                        .map(|c| estimate_tokens(&c.arguments) + 8)
+                        .sum::<usize>()
+            }
+        })
+        .sum()
+}
+
 pub struct PromptInputs<'a> {
     pub model: &'a ModelEntry,
     pub tools: &'a [ToolSpec],
@@ -119,13 +142,15 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
 }
 
 /// One message of the history being fitted.
-struct Entry {
+struct Entry<'a> {
     /// Every user message starts a turn.
     turn: usize,
     message: LlmMessage,
     tokens: usize,
     /// The message with its files named but not shown, and its tokens.
     stub: Option<(LlmMessage, usize)>,
+    /// A tool result as the tool returned it, for shortening it.
+    result: Option<&'a str>,
 }
 
 /// Converts stored messages into model history, with each user message's files (`files`, see
@@ -174,6 +199,7 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
                             },
                             x.stub_tokens + text_tokens,
                         )),
+                        result: None,
                     },
                     None => Entry {
                         turn,
@@ -183,6 +209,7 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
                         },
                         tokens: text_tokens,
                         stub: None,
+                        result: None,
                     },
                 });
             }
@@ -193,8 +220,10 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
                 if m.content.trim().is_empty() && m.tool_calls.is_empty() {
                     continue;
                 }
+                // The reasoning of the turn being answered is sent back with its steps.
                 let reasoning = if i > last_user { m.reasoning.clone() } else { None };
                 let tokens = estimate_tokens(&m.content)
+                    + reasoning.as_deref().map_or(0, estimate_tokens)
                     + m.tool_calls
                         .iter()
                         .map(|c| estimate_tokens(&c.arguments) + 8)
@@ -209,6 +238,7 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
                     },
                     tokens,
                     stub: None,
+                    result: None,
                 });
                 // Calls left without a result (the turn was stopped) still need an answer.
                 for call in m.tool_calls.iter().filter(|c| !answered.contains(&c.id)) {
@@ -221,6 +251,7 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
                         },
                         tokens: 12,
                         stub: None,
+                        result: None,
                     });
                 }
             }
@@ -245,6 +276,7 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
                     },
                     tokens,
                     stub: None,
+                    result: (!m.content.is_empty()).then_some(m.content.as_str()),
                 });
             }
         }

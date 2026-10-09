@@ -203,6 +203,14 @@ pub enum LlmError {
     /// model retired for new API keys).
     #[error("{0}")]
     Unavailable(String),
+    /// The request does not fit in the local model's context: `prompt_tokens` of it, counted by
+    /// the server, against `context_tokens`.
+    #[error("{message}")]
+    ContextFull {
+        message: String,
+        prompt_tokens: usize,
+        context_tokens: usize,
+    },
     #[error("could not reach the model: {0}")]
     Network(String),
 }

@@ -61,6 +61,8 @@ pub struct Effective {
     pub min_p: Option<f32>,
     pub repeat_penalty: Option<f32>,
     pub max_tokens: Option<u32>,
+    /// `None` for a local model: llama.cpp sizes it to the GPU's free memory as the model loads,
+    /// and the runtime status says what it took.
     pub context_length: Option<u32>,
     pub gpu_layers: Option<u32>,
     pub thinking: Option<bool>,
@@ -133,6 +135,8 @@ pub struct ModelRegistry {
     local: RwLock<Vec<LocalFile>>,
     /// VRAM of the primary GPU (or budget), for default context lengths.
     memory_budget_gb: f64,
+    /// llama.cpp sizes a local model's context to the GPU (see `AppState::context_fits_gpu`).
+    context_fits_gpu: bool,
     local_checks: RwLock<LocalChecks>,
     cloud_catalog: RwLock<CloudCatalog>,
     /// Wakes [`Self::check_capabilities`] after a rescan.
@@ -149,6 +153,7 @@ impl ModelRegistry {
         settings: Arc<SettingsStore>,
         providers: Arc<ProviderStore>,
         memory_budget_gb: f64,
+        context_fits_gpu: bool,
     ) -> Self {
         let file = paths.models_file.clone();
         let overrides = demido_core::fsx::read_json::<ModelsFile>(&file)
@@ -164,6 +169,7 @@ impl ModelRegistry {
             overrides: RwLock::new(overrides),
             local: RwLock::new(Vec::new()),
             memory_budget_gb,
+            context_fits_gpu,
             local_checks: RwLock::new(local_checks),
             cloud_catalog: RwLock::new(cloud_catalog),
             rescanned: Notify::new(),
@@ -240,7 +246,7 @@ impl ModelRegistry {
                 out.push(ModelEntry {
                     effective: effective(&s, ModelSource::Gemini, None, None, self.memory_budget_gb),
                     id,
-                    source: ModelSource::Gemini,
+                    source,
                     provider_id: Some(provider.id.clone()),
                     provider_name: Some(provider.name.clone()),
                     name: s.name.clone().unwrap_or_else(|| m.display_name.clone()),
@@ -318,7 +324,7 @@ impl ModelRegistry {
                 ModelSource::Local,
                 f.info.architecture.as_deref(),
                 Some(f),
-                self.memory_budget_gb,
+                self.default_context(),
             ),
             id: f.id.clone(),
             source: ModelSource::Local,
@@ -530,6 +536,14 @@ impl ModelRegistry {
         Ok(())
     }
 
+    fn default_context(&self) -> DefaultContext {
+        if self.context_fits_gpu {
+            DefaultContext::FitGpu
+        } else {
+            DefaultContext::Budget(self.memory_budget_gb)
+        }
+    }
+
     /// Launch settings for a local model.
     pub fn launch_spec(&self, id: &str) -> CmdResult<LaunchSpec> {
         let entry = self.get(id);
@@ -545,7 +559,7 @@ impl ModelRegistry {
             model_id: entry.id.clone(),
             model_name: entry.name.clone(),
             path: file.path.clone(),
-            context_length: entry.effective.context_length.unwrap_or(8192),
+            context_length: entry.effective.context_length,
             gpu_layers: entry.effective.gpu_layers,
             mmproj: file.mmproj.clone().filter(|_| reads_media),
         })
@@ -700,13 +714,23 @@ fn pretty_name(f: &LocalFile) -> String {
     if joined.is_empty() { raw } else { joined }
 }
 
+/// How a local model's context is sized when the person has not chosen one.
+#[derive(Clone, Copy, Debug)]
+enum DefaultContext {
+    /// llama.cpp fits it to the GPU's free memory as the model loads.
+    FitGpu,
+    /// From this much memory (GiB) less the model's size, in steps: there is no GPU memory of
+    /// its own for llama.cpp to fit it to.
+    Budget(f64),
+}
+
 /// Family defaults, as each vendor recommends them.
 fn effective(
     s: &ModelSettings,
     source: ModelSource,
     architecture: Option<&str>,
     file: Option<&LocalFile>,
-    budget_gb: f64,
+    default_context: DefaultContext,
 ) -> Effective {
     let arch = architecture.unwrap_or_default();
     let (temperature, top_p, top_k, min_p) = match source {
@@ -718,16 +742,21 @@ fn effective(
     let context_length = match (source, file) {
         (ModelSource::Local, Some(f)) => {
             let trained = f.info.context_length.unwrap_or(32768).min(u32::MAX as u64) as u32;
-            let size_gb = f.size as f64 / 1e9;
-            let headroom = budget_gb - size_gb;
-            let fit = if headroom >= 4.0 {
-                32768
-            } else if headroom >= 2.0 {
-                16384
-            } else {
-                8192
+            let chosen = match (s.context_length, default_context) {
+                (Some(c), _) => Some(c),
+                (None, DefaultContext::FitGpu) => None,
+                (None, DefaultContext::Budget(budget_gb)) => {
+                    let headroom = budget_gb - f.size as f64 / demido_hardware::GIB as f64;
+                    Some(if headroom >= 4.0 {
+                        32768
+                    } else if headroom >= 2.0 {
+                        16384
+                    } else {
+                        8192
+                    })
+                }
             };
-            Some(s.context_length.unwrap_or(fit).min(trained.max(2048)))
+            chosen.map(|c| c.min(trained.max(2048)))
         }
         _ => s.context_length,
     };
@@ -834,29 +863,18 @@ mod tests {
     #[test]
     fn context_follows_memory_headroom_and_training() {
         let f = file("m.gguf", None, None);
-        let e = effective(
-            &ModelSettings::default(),
-            ModelSource::Local,
-            Some("qwen35"),
-            Some(&f),
-            12.0,
-        );
+        let local = |s: &ModelSettings, d| effective(s, ModelSource::Local, Some("qwen35"), Some(&f), d);
+        let e = local(&ModelSettings::default(), DefaultContext::Budget(12.0));
         assert_eq!(e.context_length, Some(32768));
         assert_eq!(e.temperature, Some(0.6));
-        let e = effective(
-            &ModelSettings::default(),
-            ModelSource::Local,
-            Some("qwen35"),
-            Some(&f),
-            6.0,
-        );
+        let e = local(&ModelSettings::default(), DefaultContext::Budget(6.0));
         assert_eq!(e.context_length, Some(8192));
         let custom = ModelSettings {
             context_length: Some(65536),
             temperature: Some(0.2),
             ..Default::default()
         };
-        let e = effective(&custom, ModelSource::Local, Some("qwen35"), Some(&f), 6.0);
+        let e = local(&custom, DefaultContext::Budget(6.0));
         assert_eq!(e.context_length, Some(65536));
         assert_eq!(e.temperature, Some(0.2));
     }

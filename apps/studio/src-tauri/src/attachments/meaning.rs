@@ -139,6 +139,12 @@ impl Embedder {
         })
     }
 
+    /// GPU memory, in MiB, the installed search model takes when it runs beside a chat model (0
+    /// without one).
+    pub fn gpu_memory_mb(&self) -> u32 {
+        self.installed().map_or(0, |m| m.model.gpu_memory_mb)
+    }
+
     /// Asks the indexer to look for work now: a file was attached, or a search model arrived.
     pub fn wake(&self) {
         self.wake.notify_one();

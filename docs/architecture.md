@@ -127,7 +127,11 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `commands` | The functions the UI calls, one file per area |
 
 **A turn.** `agent::run_turn` builds the system prompt (identity, date, enabled skills, tool
-guidance) and fits the history into the model's context window, newest first. The model's
+guidance) and fits the history into the model's context window, newest first: older files
+become stubs, then the oldest turns go, and if the latest turn alone is still too long, its tool
+results are shortened, those of its earlier steps first (`prompt::history`). Tokens are
+estimated there, and llama-server counts them exactly: a request it refuses as too long for its
+context is fitted once more at the ratio its count showed, before the turn fails. The model's
 answer streams to the UI as `ChatEvent`s while it is written to the database, so a crash loses
 nothing that was shown. Tool calls run one by one; `run_python` and `run_command` ask for approval first
 unless the person chose "always allow". A call that fails with the same tool and arguments as
@@ -146,7 +150,13 @@ its cache instead of re-reading the conversation.
 **Local runtime.** `llama-server` runs on `127.0.0.1` with a random free port, one slot,
 `--jinja` for the model's own chat template, `--reasoning-format deepseek` to separate thinking
 from the answer, and llama.cpp's automatic fitting to split layers between GPU and CPU when
-the model does not fit in VRAM. On Windows every child
+the model does not fit in VRAM. Unless the person chose a context length, llama.cpp sizes it
+too, on a GPU with memory of its own: no `-c`, so it takes the trained context or as much as
+fits (`--fit-ctx` 16384 at least, layers move to the CPU before it goes lower), keeping its
+1 GiB margin and the search model's `gpuMemoryMb` free (`--fit-target`). The runtime reads the
+context it took from `/props` and the turn fits the history to that. On the CPU or a GPU that
+shares system memory, where llama.cpp would take the whole trained context, it is 8, 16 or 32K
+tokens by how much memory the model leaves. On Windows every child
 process is in a job object that kills it when the app exits, however the app exits.
 
 **What models can do.** Every model carries its capabilities (`models/capabilities.rs`): vision,

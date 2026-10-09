@@ -50,4 +50,18 @@ impl AppState {
             _ => hardware.total_memory_gb() * 0.5,
         }
     }
+
+    /// Whether llama.cpp sizes a local model's context to what the GPU has free when it loads
+    /// (`--fit`): with a GPU runtime on a GPU with memory of its own. llama.cpp fits only GPU
+    /// memory, so on the CPU, or a GPU sharing system memory, it would take the whole trained
+    /// context instead.
+    pub fn context_fits_gpu(hardware: &HardwareReport, backend: Option<demido_core::Backend>) -> bool {
+        let catalog = demido_catalog::catalog();
+        let choices = demido_catalog::backend_choices(hardware, catalog);
+        let backend = backend.unwrap_or_else(|| demido_catalog::default_backend(&choices));
+        choices
+            .iter()
+            .find(|c| c.backend == backend)
+            .is_some_and(|c| c.backend.is_gpu() && !c.uses_system_memory)
+    }
 }
