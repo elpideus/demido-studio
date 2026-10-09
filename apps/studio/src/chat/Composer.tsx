@@ -7,9 +7,11 @@ import { api, errorText } from '@/lib/api';
 import type { Attachment, ModelEntry, SlashCommand } from '@/lib/types';
 import { useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';
+import { useSkills } from '@/stores/skills';
 import { toast } from '@/stores/toasts';
 import { AttachmentTray, type StagedFile } from './Attachments';
 import { ATTACH_FILES_EVENT, MAX_FILE_BYTES, MAX_FILES, nameFromPath, pastedName } from './attachmentView';
+import { ContextMeter } from './ContextMeter';
 import { ModelPicker } from './ModelPicker';
 import { commandIn, completion, matchCommands, runsWhenPicked, typedName } from './slashView';
 import { ToolsPicker } from './ToolsPicker';
@@ -328,6 +330,13 @@ export function Composer({ chatId, model, prefill }: Props) {
           <ModelPicker model={model} onPick={pickModel} />
           <ToolsPicker model={model} />
           <span className={styles.spacer} />
+          <ContextMeter
+            chatId={chatId}
+            model={model}
+            draft={text}
+            running={running}
+            onCompact={() => model && void runCommand('/compact', model.id)}
+          />
           {running ? (
             <IconButton
               icon={Square}

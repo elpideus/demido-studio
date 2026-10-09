@@ -217,7 +217,7 @@ pub fn current_part(messages: &[Message]) -> &[Message] {
 }
 
 /// A summary as the model reads it, before the first message after it.
-fn summary_block(summary: &str) -> String {
+pub(super) fn summary_block(summary: &str) -> String {
     format!(
         "<summary>\n{}\n</summary>\n(This summarizes the earlier conversation, which was compacted to fit the context window. Files it names are still in the workspace.)",
         summary.trim()

@@ -1,4 +1,5 @@
 use super::St;
+use crate::agent::usage::{self, ContextUsage};
 use crate::agent::{Agent, Approval, ChatEvent, SendResult};
 use crate::attachments;
 use crate::db::{Attachment, Chat, Message, Trace};
@@ -106,6 +107,18 @@ pub fn edit_message(
 #[tauri::command]
 pub fn stop_turn(state: St<'_>, chat_id: String) {
     state.agent.stop(&chat_id);
+}
+
+/// How full the context window of `chat_id` (a new chat when `None`) is with `model_id`, and how
+/// near compaction.
+#[tauri::command]
+pub async fn context_usage(state: St<'_>, chat_id: Option<String>, model_id: String) -> CmdResult<ContextUsage> {
+    let Some(model) = state.models.get(&model_id) else {
+        crate::bail_msg!("The selected model is no longer available. Pick another one.");
+    };
+    // The system prompt names the shell commands run in, found the first time.
+    crate::tools::prepare(&state.settings.get()).await;
+    usage::usage(&state, chat_id.as_deref(), &model)
 }
 
 #[tauri::command]

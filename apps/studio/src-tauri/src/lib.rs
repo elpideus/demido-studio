@@ -313,6 +313,7 @@ pub fn run() {
             commands::chats::edit_message,
             commands::chats::stop_turn,
             commands::chats::running_turns,
+            commands::chats::context_usage,
             commands::chats::resolve_approval,
             commands::chats::stop_tool,
             commands::chats::rename_chat,

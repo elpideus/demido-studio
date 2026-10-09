@@ -59,7 +59,7 @@ click in Settings, Updates.
 |---|---|
 | Chat with local or cloud models, streaming, thinking, tool calls | The main screen |
 | Model picker and tools/skills picker | The composer |
-| Long chats compact themselves: near the end of the model's context window, the earlier conversation becomes a summary the model reads instead (when, in Settings, General) | The chat; `/compact` to do it now |
+| Long chats compact themselves: near the end of the model's context window, the earlier conversation becomes a summary the model reads instead (when, in Settings, General, or for one model in Settings, Models), never past what the model was trained on. A ring by the Send button fills up as that nears: hover for how far, click for what the context holds | The chat; `/compact` to do it now |
 | Slash commands: `/compact`, `/autocompact 12k` (or `off`, `auto`, `12.5k`, `twelve thousand`), and the commands skills bring, such as `/analyze` | Type `/` in the composer |
 | Send files with a message: images, PDFs, Word, PowerPoint, spreadsheets, text and code. Short ones are read in full, long ones are searched for the passages your question needs (RAG), by meaning as well as by words | The composer: **+**, drag and drop, or paste |
 | Commands in your own shell (PowerShell 7 when installed, else Windows PowerShell), shown live like a terminal with a Stop button; each one asks first | The chat (Coding in the Tools menu) |

@@ -180,6 +180,14 @@ compacts once at most. When the summary fails, the history is fitted as without 
 failed or stopped summary stays in the chat but is never read. `/compact [what to keep]` does the
 same on demand and puts the summary at the end.
 
+The composer's context ring (`ContextMeter.tsx`) shows how near that is. `context_usage`
+(`agent::usage`) measures the next request as the turn does before compacting, from the same
+system prompt and tools (`agent::frame`) and the window a loaded local model's server gave it, and
+splits it into system prompt, tools, summary, files and conversation; the UI adds an estimate of the
+message being written. The ring is full at the threshold, or with auto-compact off at the room the
+window leaves for the history. It turns amber at 75% and red at 92%; hovering says how far it is,
+clicking shows the parts and offers `/compact`.
+
 **Slash commands.** A message that starts with a command's name runs it (`slash::run`); any other
 `/...` is sent as typed. `/autocompact` takes `off`, `auto` or a number of tokens however it is
 written (12000, 12,000, 12.000, 12k, 12.5k, 12k5, twelve thousand, 12 thousand and a half), and

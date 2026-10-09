@@ -12,6 +12,7 @@ import type {
   ChartInfo,
   ChartLayout,
   ChartLayoutEntry,
+  ContextUsage,
   DownloadJob,
   HfRepo,
   HfRepoFiles,
@@ -103,6 +104,8 @@ export const api = {
   runSlashCommand: (chatId: string | null, text: string, modelId: string, attachmentIds: string[]) =>
     invoke<SlashOutcome>('run_slash_command', { chatId, text, modelId, attachmentIds }),
   runningTurns: () => invoke<string[]>('running_turns'),
+  /** How full the context window of `chatId` (a new chat when null) is with `modelId`. */
+  contextUsage: (chatId: string | null, modelId: string) => invoke<ContextUsage>('context_usage', { chatId, modelId }),
   resolveApproval: (messageId: string, decision: ApprovalDecision) =>
     invoke<boolean>('resolve_approval', { messageId, decision }),
   /** Ends a running tool call early (a command's Stop); the turn goes on with what it printed. */

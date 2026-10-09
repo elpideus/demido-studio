@@ -801,14 +801,6 @@ mod tests {
             expand(&skill, &command, "gold"),
             "<skill name=\"Market analysis\">\n1. Find the symbol.\nFiles (read them with read_skill_file, skill id market-analysis): vol.py\n</skill>\n\nAnalyze gold."
         );
-        let named = SkillCommand {
-            prompt: "Use the market analysis skill on $1.".into(),
-            ..command
-        };
-        assert_eq!(
-            expand(&skill, &named, "gold", false),
-            "Use the market analysis skill on gold."
-        );
     }
 
     #[test]

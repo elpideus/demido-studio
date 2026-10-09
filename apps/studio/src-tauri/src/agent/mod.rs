@@ -8,6 +8,7 @@ pub mod compact;
 pub mod events;
 pub mod prompt;
 pub mod row;
+pub mod usage;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,9 +31,10 @@ use crate::db::{Chat, CommandUse, Message, MessageStatus, Role, Trace, new_id, n
 use crate::error::{AppError, CmdResult};
 use crate::llm::gemini::GeminiClient;
 use crate::llm::openai::OpenAiClient;
-use crate::llm::{ChatRequest, Client, LlmError, StreamEvent};
+use crate::llm::{ChatRequest, Client, LlmError, StreamEvent, ToolSpec};
 use crate::models::{ModelEntry, ModelRegistry, ModelSource};
 use crate::providers::ProviderKind;
+use crate::settings::Settings;
 use crate::state::AppState;
 use crate::tools::{self, ToolContext};
 
@@ -338,6 +340,56 @@ pub(crate) fn model_context(model: &ModelEntry) -> usize {
         .min(1_000_000)
 }
 
+/// What every request of a turn starts with: the system prompt and the tools.
+pub(crate) struct Frame {
+    pub system: String,
+    pub tools: Vec<ToolSpec>,
+    /// Estimated tokens of the system prompt.
+    pub system_tokens: usize,
+    /// Estimated tokens of the tools' descriptions and parameters.
+    pub tool_tokens: usize,
+}
+
+/// The [`Frame`] of the next request in `chat_id`, whose messages are `chat_messages`.
+pub(crate) fn frame(
+    state: &Arc<AppState>,
+    settings: &Settings,
+    model: &ModelEntry,
+    chat_id: &str,
+    chat_messages: &[Message],
+) -> Frame {
+    let attached = state.db.chat_attachments(chat_id).is_ok_and(|a| !a.is_empty());
+    // Tool groups load on demand (see `tools`); attached files come with the tools to search
+    // and read them.
+    let mut loaded = tools::loaded_groups(chat_messages);
+    if attached {
+        loaded.insert("files");
+    }
+    let tools = tools::specs(state, settings, &loaded);
+    let loadable = tools::loadable(state, settings, &loaded);
+    let mail_accounts = state.mail.account_list();
+    let system = prompt::system_prompt(&prompt::PromptInputs {
+        model,
+        tools: &tools,
+        skills: &state.skills,
+        attachments: attached,
+        shell: crate::shell::current().map(|s| s.name.as_str()),
+        mail_accounts: &mail_accounts,
+        loadable: &loadable,
+    });
+    let system_tokens = prompt::estimate_tokens(&system);
+    let tool_tokens = tools
+        .iter()
+        .map(|t| prompt::estimate_tokens(&t.description) + prompt::estimate_tokens(&t.parameters.to_string()))
+        .sum();
+    Frame {
+        system,
+        tools,
+        system_tokens,
+        tool_tokens,
+    }
+}
+
 /// The client for `model`, and for a local model the context its server gave it.
 async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<(Client, Option<usize>)> {
     match model.source {
@@ -446,30 +498,13 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         let context_tokens = served_context.unwrap_or(model_context);
         let settings = state.settings.get();
         let chat_messages = state.db.list_messages(chat_id)?;
-        let attached = state.db.chat_attachments(chat_id).is_ok_and(|a| !a.is_empty());
-        // Tool groups load on demand (see `tools`); attached files come with the tools to search
-        // and read them.
-        let mut loaded = tools::loaded_groups(&chat_messages);
-        if attached {
-            loaded.insert("files");
-        }
-        let tools = tools::specs(state, &settings, &loaded);
-        let loadable = tools::loadable(state, &settings, &loaded);
-        let mail_accounts = state.mail.account_list();
-        let system = prompt::system_prompt(&prompt::PromptInputs {
-            model: &model,
-            tools: &tools,
-            skills: &state.skills,
-            attachments: attached,
-            shell: crate::shell::current().map(|s| s.name.as_str()),
-            mail_accounts: &mail_accounts,
-            loadable: &loadable,
-        });
-        let fixed = prompt::estimate_tokens(&system)
-            + tools
-                .iter()
-                .map(|t| prompt::estimate_tokens(&t.description) + prompt::estimate_tokens(&t.parameters.to_string()))
-                .sum::<usize>();
+        let Frame {
+            system,
+            tools,
+            system_tokens,
+            tool_tokens,
+        } = frame(state, &settings, &model, chat_id, &chat_messages);
+        let fixed = system_tokens + tool_tokens;
         let reserve = compact::answer_reserve(&params, context_tokens);
         // Estimated tokens the history may take.
         let room = |token_ratio: f64| {
@@ -844,7 +879,6 @@ async fn run_tool_call(
             .map(|()| false);
     }
 
-    let settings = state.settings.get();
     if tools::needs_approval(&call.name, &settings) {
         let decision = match row.request_approval(None, cancel).await {
             Ok(d) => d,

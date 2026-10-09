@@ -1,0 +1,288 @@
+/* The ring in the composer */
+.meter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.meter:hover,
+.meter[aria-expanded='true'] {
+  background: var(--surface-5);
+  color: var(--text-primary);
+}
+
+.meterWide {
+  width: auto;
+  padding: 0 10px 0 7px;
+}
+
+.ring {
+  flex: none;
+  transform: rotate(-90deg);
+}
+
+.track,
+.fill {
+  fill: none;
+  stroke-width: 2.25;
+}
+
+.track {
+  stroke: var(--surface-6);
+}
+
+.fill {
+  stroke: rgba(255, 255, 255, 0.58);
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset var(--duration-slow) var(--ease-out),
+    stroke var(--duration) var(--ease-out);
+}
+
+.meter.near .fill {
+  stroke: var(--warning);
+}
+
+.meter.full .fill {
+  stroke: var(--danger);
+}
+
+.percent {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+}
+
+/* Where the chat stands, as a coloured dot beside the percentage */
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dot.low {
+  background: var(--accent);
+}
+
+.dot.near {
+  background: var(--warning);
+}
+
+.dot.full {
+  background: var(--danger);
+}
+
+/* Hover */
+.tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 1px;
+}
+
+.tipTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.tipText {
+  padding-left: 13px;
+  color: var(--text-secondary);
+}
+
+.tipHint {
+  margin-top: 3px;
+  padding-left: 13px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* Click */
+.details {
+  padding: 14px 16px 12px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.title {
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+
+.headPercent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}
+
+.sub {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The parts stacked along the way to full, a 2 px gap of the surface between them. */
+.bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin: 12px 0 12px;
+  overflow: hidden;
+  border-radius: var(--radius-xs);
+}
+
+.segment {
+  flex: 0 1 0;
+  min-width: 3px;
+  transition: flex-grow var(--duration-slow) var(--ease-out);
+}
+
+.rest {
+  min-width: 0;
+  background: var(--surface-5);
+}
+
+/* Categorical slots 1 to 5, validated for adjacent pairs on this surface. */
+.system {
+  background: #3987e5;
+}
+
+.tools {
+  background: #d95926;
+}
+
+.summary {
+  background: #199e70;
+}
+
+.files {
+  background: #c98500;
+}
+
+.conversation {
+  background: #d55181;
+}
+
+.draft {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.legend {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+
+.swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.rowLabel {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.rowValue {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.facts {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.fact {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.fact dt {
+  color: var(--text-tertiary);
+}
+
+.fact dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.factNote {
+  color: var(--text-tertiary);
+}
+
+.outlook {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading);
+}
+
+.outlook-near {
+  background: var(--warning-muted);
+  color: var(--text-primary);
+}
+
+.outlook-full {
+  background: var(--danger-muted);
+  color: var(--text-primary);
+}
+
+.source {
+  margin: 8px 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: var(--leading);
+}
+
+.actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+}

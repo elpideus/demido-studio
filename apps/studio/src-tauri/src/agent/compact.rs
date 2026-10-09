@@ -90,8 +90,15 @@ fn message_tokens(m: &Message, files: &HashMap<String, Extras>) -> usize {
 /// with the estimate of what came after, is taken when larger, since estimates run low on code
 /// and numbers. `ratio` is the tokens per estimated token the turn found.
 pub fn request_tokens(messages: &[Message], files: &HashMap<String, Extras>, estimated: usize, ratio: f64) -> usize {
-    let scaled = |tokens: usize| (tokens as f64 * ratio) as usize;
-    let counted = messages
+    counted_tokens(messages, files, ratio)
+        .unwrap_or(0)
+        .max((estimated as f64 * ratio) as usize)
+}
+
+/// The model's own count of its latest request and answer in `messages`, with the estimate of
+/// what came after; `None` before it answered.
+pub fn counted_tokens(messages: &[Message], files: &HashMap<String, Extras>, ratio: f64) -> Option<usize> {
+    messages
         .iter()
         .enumerate()
         .rev()
@@ -101,21 +108,25 @@ pub fn request_tokens(messages: &[Message], files: &HashMap<String, Extras>, est
             let prompt = stats["promptTokens"].as_u64().filter(|&t| t > 0)? as usize;
             let completion = stats["completionTokens"].as_u64().unwrap_or(0) as usize;
             let after: usize = messages[i + 1..].iter().map(|m| message_tokens(m, files)).sum();
-            Some(prompt + completion + scaled(after))
-        });
-    counted.unwrap_or(0).max(scaled(estimated))
+            Some(prompt + completion + (after as f64 * ratio) as usize)
+        })
 }
 
 /// Where the latest turn starts in `messages` (the chat from its latest summary on), when what
 /// comes before it is worth summarizing.
 pub fn older_part(messages: &[Message]) -> Option<usize> {
     let split = messages.iter().rposition(|m| m.role == Role::User)?;
-    let older: usize = messages[..split]
+    worth_summarizing(&messages[..split]).then_some(split)
+}
+
+/// Whether a summary of `messages` would save enough to be written.
+pub fn worth_summarizing(messages: &[Message]) -> bool {
+    let tokens: usize = messages
         .iter()
         .filter(|m| m.role != Role::Summary)
         .map(|m| message_tokens(m, &HashMap::new()))
         .sum();
-    (older >= MIN_OLDER_TOKENS).then_some(split)
+    tokens >= MIN_OLDER_TOKENS
 }
 
 /// Whether `messages` (the chat from its latest summary on) hold anything a new summary would add.
