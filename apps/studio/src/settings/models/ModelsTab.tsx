@@ -16,9 +16,10 @@ export function ModelsTab({ win }: { win: WindowState }) {
   const downloads = useModels((st) => st.downloads);
   const view: View = win.props.view === 'download' ? 'download' : 'installed';
   const [editing, setEditing] = useState<string | null>(typeof win.props.model === 'string' ? win.props.model : null);
-  // Kept here so the searches are still there after editing a model they found.
+  // Kept here so the searches and unfolded groups are still there after editing a model they found.
   const [query, setQuery] = useState('');
   const [groupQueries, setGroupQueries] = useState<Record<string, string | null>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const active = downloads.filter((d) => d.state === 'downloading' || d.state === 'queued').length;
 
   useEffect(() => {
@@ -59,6 +60,8 @@ export function ModelsTab({ win }: { win: WindowState }) {
         <ModelList
           query={query}
           onQueryChange={setQuery}
+          expandedGroups={expandedGroups}
+          onToggleGroup={(group) => setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }))}
           groupQueries={groupQueries}
           onGroupQueryChange={(group, value) => setGroupQueries((prev) => ({ ...prev, [group]: value }))}
           onEdit={setEditing}

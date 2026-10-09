@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
+  ChevronRight,
   Cpu,
   Download,
   EyeOff,
@@ -236,12 +237,15 @@ function BulkActions({ models, narrowed }: { models: ModelEntry[]; narrowed: boo
 
 /**
  * One section of the list, with its own search and bulk switches. It stays mounted while the
- * general search hides it, so its own search survives.
+ * general search hides it, so its own search survives. Folded, it keeps its heading and actions
+ * and lists only what a search finds, folding back once the search is cleared.
  */
 function ModelGroup({
   group,
   matches,
   searching,
+  expanded,
+  onToggle,
   groupQuery,
   onGroupQueryChange: setGroupQuery,
   empty,
@@ -252,6 +256,8 @@ function ModelGroup({
   /** The group's models that match the general search. */
   matches: ModelEntry[];
   searching: boolean;
+  expanded: boolean;
+  onToggle: () => void;
   /** The group's own search, or null while it is closed. */
   groupQuery: string | null;
   onGroupQueryChange: (query: string | null) => void;
@@ -277,18 +283,35 @@ function ModelGroup({
 
   const total = group.models.length;
   const active = group.models.filter((m) => m.enabled).length;
+  const narrowed = searching || !!groupQuery?.trim();
+  // An empty group always shows what stands in for its rows.
+  const listed = total === 0 || expanded || narrowed;
   const closeSearch = () => {
     setGroupQuery(null);
     searchButton.current?.focus();
   };
 
   return (
-    <section className={s.section}>
-      <div className={styles.groupHead}>
-        <div className={styles.groupTitle}>
-          <h3 className={styles.groupName}>{group.title}</h3>
-          {total > 0 && <span className={styles.groupCount}>{`${active} of ${total} active`}</span>}
-        </div>
+    <section className={cx(s.section, styles.group)}>
+      <div className={cx(styles.groupHead, total > 0 && styles.foldable)}>
+        <h3 className={styles.groupTitle}>
+          {total === 0 ? (
+            <span className={styles.groupLabel}>
+              <span className={styles.groupName}>{group.title}</span>
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={cx(styles.groupLabel, styles.groupToggle)}
+              aria-expanded={expanded}
+              onClick={onToggle}
+            >
+              <ChevronRight size={16} className={cx(styles.chevron, expanded && styles.chevronOpen)} aria-hidden />
+              <span className={styles.groupName}>{group.title}</span>
+              <span className={styles.groupCount}>{`${active} of ${total} active`}</span>
+            </button>
+          )}
+        </h3>
         {total > 0 && (
           <div className={styles.groupActions}>
             <IconButton
@@ -303,7 +326,7 @@ function ModelGroup({
                 setGroupQuery('');
               }}
             />
-            <BulkActions models={shown} narrowed={searching || !!groupQuery?.trim()} />
+            <BulkActions models={shown} narrowed={narrowed} />
           </div>
         )}
       </div>
@@ -319,22 +342,20 @@ function ModelGroup({
           />
         </div>
       )}
-      {total === 0 ? (
-        empty
-      ) : shown.length === 0 ? (
-        <div className={s.card}>
-          <EmptyState
-            compact
-            icon={SearchX}
-            title={`No models match “${groupQuery?.trim()}”`}
-            className={styles.noMatch}
-          />
-        </div>
-      ) : (
-        <div className={s.rows}>
-          {shown.map((m) => (
-            <ModelRow key={m.id} model={m} onEdit={() => onEdit(m.id)} onDelete={() => onDelete(m)} />
-          ))}
+      {listed && (
+        <div className={styles.groupBody}>
+          {total === 0 ? (
+            empty
+          ) : shown.length === 0 ? (
+            <EmptyState
+              compact
+              icon={SearchX}
+              title={`No models match “${groupQuery?.trim()}”`}
+              className={styles.noMatch}
+            />
+          ) : (
+            shown.map((m) => <ModelRow key={m.id} model={m} onEdit={() => onEdit(m.id)} onDelete={() => onDelete(m)} />)
+          )}
         </div>
       )}
     </section>
@@ -343,19 +364,17 @@ function ModelGroup({
 
 function NoLocalModels({ onDownload }: { onDownload: () => void }) {
   return (
-    <div className={s.card}>
-      <EmptyState
-        compact
-        icon={Cpu}
-        title="No local models yet"
-        description="Download one to run privately on this computer, or add a folder that already has GGUF files."
-        action={
-          <Button variant="primary" icon={Download} onClick={onDownload}>
-            Download a model
-          </Button>
-        }
-      />
-    </div>
+    <EmptyState
+      compact
+      icon={Cpu}
+      title="No local models yet"
+      description="Download one to run privately on this computer, or add a folder that already has GGUF files."
+      action={
+        <Button variant="primary" icon={Download} onClick={onDownload}>
+          Download a model
+        </Button>
+      }
+    />
   );
 }
 
@@ -435,6 +454,8 @@ function Folders({ hidden }: { hidden: boolean }) {
 export function ModelList({
   query,
   onQueryChange,
+  expandedGroups,
+  onToggleGroup,
   groupQueries,
   onGroupQueryChange,
   onEdit,
@@ -442,6 +463,9 @@ export function ModelList({
 }: {
   query: string;
   onQueryChange: (query: string) => void;
+  /** The groups listing all their models; the rest are folded. */
+  expandedGroups: Record<string, boolean>;
+  onToggleGroup: (group: string) => void;
   /** Each group's own search: null while closed. */
   groupQueries: Record<string, string | null>;
   onGroupQueryChange: (group: string, query: string | null) => void;
@@ -482,6 +506,8 @@ export function ModelList({
             group={group}
             matches={matches}
             searching={searching}
+            expanded={!!expandedGroups[group.id]}
+            onToggle={() => onToggleGroup(group.id)}
             groupQuery={groupQueries[group.id] ?? null}
             onGroupQueryChange={(value) => onGroupQueryChange(group.id, value)}
             empty={group.id === LOCAL_GROUP && <NoLocalModels onDownload={onDownload} />}

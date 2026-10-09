@@ -14,31 +14,82 @@
   padding: 0 var(--space-6) var(--space-3);
 }
 
+/* Each group is a card headed by its title, which folds it. */
+.group {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+
+.group + .group {
+  margin-top: var(--space-3);
+}
+
 /* Wraps the actions onto their own row before they squeeze the title. */
 .groupHead {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1) var(--space-3);
-  min-height: 28px;
-  margin-bottom: var(--space-3);
+  column-gap: var(--space-3);
+  min-height: 52px;
+  padding-right: var(--space-3);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.foldable:hover {
+  background: var(--surface-3);
 }
 
 .groupTitle {
   display: flex;
   flex: 1 1 auto;
-  align-items: baseline;
+  align-self: stretch;
+  min-width: 0;
+  font-family: var(--font-ui);
+}
+
+/* Fills the free width of the heading, so the whole stretch beside the actions folds the group. */
+.groupLabel {
+  display: flex;
+  flex: 1;
+  align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  padding: var(--space-3) 0 var(--space-3) var(--space-4);
+}
+
+.groupToggle {
+  border: none;
+  border-radius: calc(var(--radius-lg) - 1px);
+  background: none;
+  text-align: left;
+}
+
+/* The toggle reaches the card's edges, which would clip the usual outer ring. */
+.groupToggle:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.chevron {
+  flex: none;
+  color: var(--text-tertiary);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.foldable:hover .chevron {
+  color: var(--text-primary);
 }
 
 .groupName {
   overflow: hidden;
-  color: var(--text-secondary);
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-size: var(--text-base);
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -47,6 +98,7 @@
   flex: none;
   color: var(--text-tertiary);
   font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
   font-variant-numeric: tabular-nums;
 }
 
@@ -58,10 +110,15 @@
   gap: var(--space-1);
   min-width: 0;
   margin-left: auto;
+  padding-block: var(--space-2);
 }
 
 .groupSearch {
-  margin-bottom: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3) var(--space-4);
+}
+
+.groupBody {
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* A long search with no spaces wraps instead of widening the list. */
