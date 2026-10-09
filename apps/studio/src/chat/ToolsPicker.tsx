@@ -6,7 +6,6 @@ import {
   Settings2,
   Sparkles,
   SquareTerminal,
-  Terminal,
   Wrench,
   WrenchOff,
   type LucideIcon,
@@ -20,8 +19,7 @@ import styles from './Composer.module.css';
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
   market: LineChart,
-  python: Terminal,
-  terminal: SquareTerminal,
+  coding: SquareTerminal,
   files: FileText,
   skills: Sparkles,
 };
@@ -48,7 +46,8 @@ export function ToolsPicker({ model }: { model: ModelEntry | undefined }) {
         return {
           id: `group:${g.id}`,
           label: g.label,
-          description: g.available ? g.description : (g.reason ?? 'Unavailable'),
+          // A reason on an available group names the part of it that is missing.
+          description: g.reason ?? (g.available ? g.description : 'Unavailable'),
           keywords: g.tools.join(' '),
           group: 'Tools',
           disabled: !g.available,

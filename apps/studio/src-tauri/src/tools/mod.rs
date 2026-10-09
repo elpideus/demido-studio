@@ -1,9 +1,9 @@
 //! The assistant's tools.
 //!
 //! Tools come in groups the person can switch on and off from the composer's Tools menu:
-//! market data, Pine scripts, Python, the terminal, workspace files and skill authoring. Every call runs in the
-//! context of one chat, whose workspace folder holds the files tools produce (market data CSVs,
-//! charts, downloads).
+//! market data (Pine scripts and the chart among them), coding (Python and the terminal), workspace
+//! files and skill authoring. Every call runs in the context of one chat, whose workspace folder
+//! holds the files tools produce (market data CSVs, charts, downloads).
 
 mod changes;
 mod command;
@@ -157,56 +157,56 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "pine_list",
-        group: "pine",
+        group: "market",
         description: "List the Pine scripts in Demido's library (the indicators written in Demido), and optionally the user's own scripts saved on TradingView.",
         parameters: pine::list_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_read",
-        group: "pine",
+        group: "market",
         description: "Read a Pine script from Demido's library: its source with line numbers, and TradingView's compile errors and warnings with their lines. Or import one from TradingView first (the user's own scripts, or open-source community scripts) to read and change it. A long script comes in parts: the answer says which start_line reads on.",
         parameters: pine::read_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_save",
-        group: "pine",
+        group: "market",
         description: "Save a whole Pine Script indicator in Demido's library (new, or replacing a script's source by id) and compile it with TradingView's compiler: returns the compile errors and warnings with their lines, or the script's inputs and plots. Nothing is saved to TradingView. Write Pine Script v6 (//@version=6, indicator(…)); strategies and libraries can be saved but not run. To change part of a script, use pine_edit.",
         parameters: pine::save_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_edit",
-        group: "pine",
+        group: "market",
         description: "Change part of a library script: replaces old_string (copied from pine_read) with new_string, saves it and compiles it with TradingView's compiler, answering with the errors and warnings left (with their lines) and the changed lines. Use it to fix errors and warnings one change at a time. Nothing is saved to TradingView.",
         parameters: pine::edit_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_test",
-        group: "pine",
+        group: "market",
         description: "Run a Pine script on real bars of a symbol and timeframe (needs a TradingView sign-in), the way TradingView's chart runs it: returns compile or runtime errors with their lines, or each plot's latest values, ranges and signals, what it drew, and a CSV in the workspace with every bar's OHLCV and plot values. Test a library script by its id (save new code with pine_save first), or a TradingView indicator. Inputs can be changed for the run.",
         parameters: pine::test_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_publish",
-        group: "pine",
+        group: "market",
         description: "Save a library script to the user's TradingView account, so they can use it on tradingview.com (My scripts, Pine Editor). The first time it creates a new script there; afterwards it saves the next version of that same script. It must compile. The user is asked first.",
         parameters: pine::publish_schema,
         approval: false,
     },
     ToolDef {
         name: "run_python",
-        group: "python",
+        group: "coding",
         description: "Run Python 3 in the chat's workspace folder (numpy, pandas, matplotlib and requests are installed). Use it to analyse data files, compute statistics or draw charts. Print what you need to see. Charts saved as PNG files are shown to the user. Every run is a fresh process.",
         parameters: python::schema,
         approval: true,
     },
     ToolDef {
         name: "run_command",
-        group: "terminal",
+        group: "coding",
         description: "Run a command line on the user's computer in their own shell (PowerShell on Windows) and get what it printed and its exit code. Use it for programs the user has installed (yt-dlp, ffmpeg, git, ping, winget and others) and for questions about the computer itself. The user approves each command. It runs in the chat's workspace folder unless directory is given, and is stopped after timeout seconds.",
         parameters: command::schema,
         approval: true,
@@ -259,15 +259,18 @@ const GROUPS: &[(&str, &str, &str)] = &[
     (
         "market",
         "Market data",
-        "Live prices from TradingView and history from Dukascopy",
+        "Live prices from TradingView, history from Dukascopy, and Pine indicators",
     ),
     (
         "pine",
         "Pine scripts",
         "Write and test TradingView indicators, and save them to your TradingView account",
     ),
-    ("python", "Python", "Run analysis code in the chat's workspace"),
-    ("terminal", "Terminal", "Run the programs installed on this computer"),
+    (
+        "coding",
+        "Coding",
+        "Run Python analysis and the programs installed on this computer",
+    ),
     (
         "files",
         "Workspace files",
@@ -280,22 +283,17 @@ const GROUPS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Offered while any of its tools can run. The reason says what is missing, also when the rest of
+/// the group still runs.
 fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
     match group {
         "market" | "pine" => {
             let s = state.market.status();
             (s.available, s.reason)
         }
-        "python" => match state.paths.python() {
-            Some(_) => (true, None),
-            None => (
-                false,
-                Some("Python is not installed. Run the installer again to add it.".into()),
-            ),
-        },
         // Offered until the search for a shell (at startup) finds none.
-        "terminal" if crate::shell::missing() => (false, Some("No shell was found on this computer.".into())),
-        _ => (true, None),
+        "run_command" if crate::shell::missing() => Some("No shell was found on this computer.".into()),
+        _ => None,
     }
 }
 
@@ -322,7 +320,11 @@ pub fn groups(state: &AppState) -> Vec<ToolGroup> {
 pub fn specs(state: &AppState, settings: &Settings) -> Vec<ToolSpec> {
     TOOLS
         .iter()
-        .filter(|t| settings.tool_group_enabled(t.group) && group_availability(state, t.group).0)
+        .filter(|t| {
+            settings.tool_group_enabled(t.group)
+                && group_availability(state, t.group).0
+                && tool_missing(state, t.name).is_none()
+        })
         .filter(|t| t.group != "skills" || t.name == "create_skill" || !state.skills.list().is_empty())
         .map(|t| ToolSpec {
             name: t.name.to_string(),
@@ -335,7 +337,7 @@ pub fn specs(state: &AppState, settings: &Settings) -> Vec<ToolSpec> {
 /// Finds what the system prompt says about the tools: which shell commands run in. The first
 /// time, on Windows, that takes a second or two.
 pub async fn prepare(settings: &Settings) {
-    if settings.tool_group_enabled("terminal") {
+    if settings.tool_group_enabled("coding") {
         let _ = tokio::task::spawn_blocking(crate::shell::detect).await;
     }
 }

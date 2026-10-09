@@ -52,7 +52,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let tool_groups = ["market", "python", "terminal", "files", "skills"]
+        let tool_groups = ["market", "coding", "files", "skills"]
             .into_iter()
             .map(|g| (g.to_string(), true))
             .collect();
@@ -77,6 +77,18 @@ impl Settings {
     pub fn tool_group_enabled(&self, group: &str) -> bool {
         self.tool_groups.get(group).copied().unwrap_or(true)
     }
+
+    /// Brings switches saved by an older version up to date. Python and the terminal became one
+    /// group, Coding, which stays off if either was switched off; Pine scripts joined Market data.
+    fn upgrade(&mut self) {
+        if !self.tool_groups.contains_key("coding") {
+            let coding = ["python", "terminal"].iter().all(|g| self.tool_group_enabled(g));
+            self.tool_groups.insert("coding".into(), coding);
+        }
+        for old in ["python", "terminal", "pine"] {
+            self.tool_groups.remove(old);
+        }
+    }
 }
 
 pub struct SettingsStore {
@@ -86,12 +98,13 @@ pub struct SettingsStore {
 
 impl SettingsStore {
     pub fn load(path: PathBuf) -> Self {
-        let value = demido_core::fsx::read_json::<Settings>(&path).unwrap_or_else(|err| {
+        let mut value = demido_core::fsx::read_json::<Settings>(&path).unwrap_or_else(|err| {
             if path.exists() {
                 tracing::warn!("settings.json could not be read, using defaults: {err:#}");
             }
             Settings::default()
         });
+        value.upgrade();
         Self {
             path,
             value: RwLock::new(value),
@@ -149,12 +162,36 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = SettingsStore::load(dir.path().join("settings.json"));
         store
-            .patch(serde_json::json!({"toolGroups": {"python": false}, "defaultModel": "local:x"}))
+            .patch(serde_json::json!({"toolGroups": {"coding": false}, "defaultModel": "local:x"}))
             .unwrap();
         let reloaded = SettingsStore::load(dir.path().join("settings.json")).get();
         assert_eq!(reloaded.default_model.as_deref(), Some("local:x"));
-        assert!(!reloaded.tool_group_enabled("python"));
+        assert!(!reloaded.tool_group_enabled("coding"));
         assert!(reloaded.tool_group_enabled("market"));
+    }
+
+    #[test]
+    fn python_switched_off_before_coding_keeps_coding_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"toolGroups": {"market": true, "python": false, "files": true, "skills": true}}"#,
+        )
+        .unwrap();
+        let loaded = SettingsStore::load(path.clone()).get();
+        assert!(!loaded.tool_group_enabled("coding"));
+        assert!(!loaded.tool_groups.contains_key("python"));
+
+        std::fs::write(
+            &path,
+            r#"{"toolGroups": {"python": true, "terminal": true, "pine": false}}"#,
+        )
+        .unwrap();
+        let loaded = SettingsStore::load(path).get();
+        assert!(loaded.tool_group_enabled("coding"));
+        assert!(loaded.tool_group_enabled("market"));
+        assert_eq!(loaded.tool_groups.len(), 1);
     }
 
     #[test]
