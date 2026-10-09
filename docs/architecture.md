@@ -128,8 +128,8 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `updater` | The releases feed, downloading and verifying a new installer, staging it, handing over to it (see [Updates](#updates)) |
 | `commands` | The functions the UI calls, one file per area |
 
-**A turn.** `agent::run_turn` builds the system prompt (identity, date, enabled skills, tool
-guidance) and fits the history into the model's context window, newest first: older files
+**A turn.** `agent::run_turn` builds the system prompt (identity, date, tool guidance, the tool
+groups it can load, the skills manifest; the assistant is Demido whichever model answers) and fits the history into the model's context window, newest first: older files
 become stubs, then the oldest turns go, and if the latest turn alone is still too long, its tool
 results are shortened, those of its earlier steps first (`prompt::history`). Tokens are
 estimated there, and llama-server counts them exactly: a request it refuses as too long for its
@@ -406,7 +406,11 @@ with the failing program's own exit code. A command ends at its timeout (120 s u
 asks for up to an hour); ending it ends every process it started (a job object on Windows, the
 process group elsewhere), while a command that finishes by itself leaves a program it opened in a
 window of its own running. It starts in the chat's workspace unless the model names a folder, and
-files it creates there show on its card.
+files it creates there show on its card. Models write bash out of habit, so on Windows the system
+prompt's line about the shell says it is PowerShell, not bash, with PowerShell's ways and the
+Windows programs' own options (`ping -n 4`, not `ping -c 4`, which asks for administrator rights
+instead of counting); for Windows PowerShell 5.1 it adds that `&&` and `||` are missing and that
+`curl` is `Invoke-WebRequest` there.
 
 **Attached files.** The composer's **+** button, drag and drop onto the window, and pasting add
 files to a message (at most 20, 100 MB each). The file is copied to `staging/<id>/` and read once
