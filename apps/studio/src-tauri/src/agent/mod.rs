@@ -428,12 +428,14 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         let context_tokens = served_context.unwrap_or(model_context);
         let settings = state.settings.get();
         let tools = tools::specs(state, &settings);
+        let mail_accounts = state.mail.account_list();
         let system = prompt::system_prompt(&prompt::PromptInputs {
             model: &model,
             tools: &tools,
             skills: &state.skills,
             context_tokens,
             shell: crate::shell::current().map(|s| s.name.as_str()),
+            mail_accounts: &mail_accounts,
         });
         let fixed = prompt::estimate_tokens(&system)
             + tools

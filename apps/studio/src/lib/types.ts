@@ -1020,6 +1020,8 @@ export interface MailAccount {
   id: string;
   kind: MailKind;
   email: string;
+  /** The name the person gave the account, like Work; the assistant takes it in place of the address. */
+  nickname: string | null;
   host: string;
   /** Why the account cannot be read right now (a refused password). */
   error: string | null;
@@ -1036,6 +1038,7 @@ export interface NewMailAccount {
   host?: string | null;
   port?: number | null;
   username?: string | null;
+  nickname?: string | null;
 }
 
 export interface MailFolder {

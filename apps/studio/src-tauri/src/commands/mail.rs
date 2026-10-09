@@ -20,6 +20,12 @@ pub async fn mail_remove_account(state: St<'_>, id: String) -> CmdResult<()> {
     Ok(state.mail.remove_account(&id).await?)
 }
 
+/// Names the account, or takes its name away when `nickname` is empty or missing.
+#[tauri::command]
+pub fn mail_rename_account(state: St<'_>, id: String, nickname: Option<String>) -> CmdResult<AccountView> {
+    Ok(state.mail.rename_account(&id, nickname.as_deref().unwrap_or(""))?)
+}
+
 #[tauri::command]
 pub async fn mail_folders(state: St<'_>, account: String, refresh: Option<bool>) -> CmdResult<Vec<FolderView>> {
     let account = state.mail.account(Some(&account))?;

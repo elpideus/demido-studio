@@ -176,6 +176,8 @@ export const api = {
   mailAccounts: () => invoke<MailAccount[]>('mail_accounts'),
   mailAddAccount: (account: NewMailAccount) => invoke<MailAccount>('mail_add_account', { account }),
   mailRemoveAccount: (id: string) => invoke<void>('mail_remove_account', { id }),
+  /** Names the account; an empty name takes its name away. */
+  mailRenameAccount: (id: string, nickname: string) => invoke<MailAccount>('mail_rename_account', { id, nickname }),
   mailFolders: (account: string, refresh = false) => invoke<MailFolder[]>('mail_folders', { account, refresh }),
   mailMessages: (
     account: string,

@@ -126,7 +126,9 @@ any mailbox that offers IMAP over TLS on port 993. Demido only reads: opening a 
 it as read, and nothing is moved or deleted. Messages are kept on your computer once downloaded, and
 each check asks the server only for what changed since the last one; while the window is open the
 inbox is watched, so new mail arrives without asking. The assistant reads the same mail, treated as
-the sender's words and never as instructions. To analyse many emails it exports them, text
+the sender's words and never as instructions. With several accounts, give each a name (Work,
+Personal) when you connect it or from the account menu, and ask the assistant about any of them by
+name or address; when you name none, it reads the first. To analyse many emails it exports them, text
 included, to a file in its workspace and works on that with Python; up to a thousand at a time,
 about a hundred per request to the server, and every email it downloads stays cached for the next
 time. Remote images in emails stay hidden until you show

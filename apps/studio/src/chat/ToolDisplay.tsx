@@ -239,6 +239,121 @@ function Passages({ d }: { d: Display }) {
   );
 }
 
+/** The messages mail_list or mail_search found: sender, subject and date. */
+function MailList({ d }: { d: Display }) {
+  const rows = (Array.isArray(d.messages) ? d.messages : []) as Array<{
+    id: number;
+    from: string;
+    subject: string;
+    date: number;
+    unread: boolean;
+  }>;
+  // Which account and folder, so a look at the wrong account shows.
+  const where = [str(d.account), str(d.folder)].filter(Boolean).join(' · ');
+  if (!rows.length) {
+    return (
+      <div className={styles.muted}>
+        {d.query ? 'No message matched' : 'The folder is empty'}
+        {where ? ` (${where}).` : '.'}
+      </div>
+    );
+  }
+  const more = (num(d.count) ?? rows.length) - Math.min(rows.length, 8);
+  return (
+    <div className={styles.table}>
+      {where && <div className={styles.muted}>{where}</div>}
+      {rows.slice(0, 8).map((m) => (
+        <div key={m.id} className={styles.quoteRow}>
+          <div className={styles.quoteName}>
+            <span className={m.unread ? styles.symbol : undefined}>{m.from}</span>
+            <span className={styles.muted}>{m.subject || '(no subject)'}</span>
+          </div>
+          <span className={styles.muted}>{m.date ? formatDateTime(m.date) : ''}</span>
+        </div>
+      ))}
+      {more > 0 && <div className={styles.muted}>and {more} more</div>}
+    </div>
+  );
+}
+
+/** The email mail_read opened. */
+function MailMessageLine({ d }: { d: Display }) {
+  const attachments = (Array.isArray(d.attachments) ? d.attachments : []) as string[];
+  return (
+    <div className={styles.muted}>
+      {str(d.subject) || '(no subject)'} · {str(d.from)}
+      {num(d.date) ? ` · ${formatDateTime(num(d.date)!)}` : ''}
+      {attachments.length > 0 && ` · attachments: ${attachments.join(', ')}`}
+    </div>
+  );
+}
+
+const day = (ms: number) => new Date(ms).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+
+/** Many emails written to a file: how many have arrived while it runs, then the file. */
+function MailExport({ d, message }: { d: Display; message: Message | undefined }) {
+  const [stopping, setStopping] = useState(false);
+  if (d.running === true) {
+    const done = num(d.done) ?? 0;
+    const total = num(d.total) ?? 0;
+    const stop = () => {
+      if (!message) return;
+      setStopping(true);
+      api.stopTool(message.id).catch((e) => {
+        setStopping(false);
+        toast.error('Could not stop the export', errorText(e));
+      });
+    };
+    return (
+      <div className={styles.mailExport}>
+        <div className={styles.commandFoot}>
+          <span className={styles.muted}>
+            {total ? `Downloading emails: ${done} of ${total}` : `Searching ${str(d.folder) || 'the mailbox'}…`}
+          </span>
+          {message && total > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={CircleStop}
+              disabled={stopping}
+              onClick={stop}
+              className={styles.stop}
+            >
+              Stop
+            </Button>
+          )}
+        </div>
+        <ProgressBar value={total ? done / total : null} size="xs" label="Emails downloaded" />
+      </div>
+    );
+  }
+  const count = num(d.count) ?? 0;
+  if (!count) return <div className={styles.muted}>No emails matched.</div>;
+  const newest = num(d.newest);
+  const oldest = num(d.oldest);
+  const fetched = num(d.fetched) ?? 0;
+  const cached = num(d.cached) ?? 0;
+  const dates = newest && oldest ? (day(newest) === day(oldest) ? day(newest) : `${day(oldest)} – ${day(newest)}`) : '';
+  const source = [fetched ? `${fetched} downloaded` : '', cached ? `${cached} from the cache` : '']
+    .filter(Boolean)
+    .join(', ');
+  return (
+    <div className={styles.mailExport}>
+      <div className={styles.muted}>
+        {[`${count} email${count === 1 ? '' : 's'}`, str(d.account), str(d.folder), dates, source]
+          .filter(Boolean)
+          .join(' · ')}
+      </div>
+      {d.stopped ? <div className={styles.warning}>Ended early: {str(d.stopped)}</div> : null}
+      {d.absolute ? (
+        <div className={styles.chips}>
+          <FileChip path={str(d.absolute)} name={str(d.path)} size={num(d.size)} kind="text" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Python({ d }: { d: Display }) {
   const [showCode, setShowCode] = useState(false);
   const files = (Array.isArray(d.files) ? d.files : []) as Array<{

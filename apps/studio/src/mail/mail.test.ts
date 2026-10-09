@@ -10,7 +10,7 @@ import {
   linkTarget,
   splitLinks,
 } from './emailHtml';
-import { Lru, folderOptions, listDate, personLabel, rowPeople, startFolder } from './mailView';
+import { Lru, accountLabel, folderOptions, listDate, personLabel, rowPeople, startFolder } from './mailView';
 
 const folder = (path: string, extra: Partial<MailFolder> = {}): MailFolder => ({
   path,
@@ -109,6 +109,11 @@ describe('mail view', () => {
     expect(rowPeople(summary({ from: { name: '', email: '' } }), null)).toBe('(unknown sender)');
     expect(personLabel({ name: 'Ada', email: 'ada@example.com' })).toBe('Ada <ada@example.com>');
     expect(personLabel({ name: '', email: 'ada@example.com' })).toBe('ada@example.com');
+  });
+
+  it('names an account by its name first, when it has one', () => {
+    expect(accountLabel({ email: 'ada@work.com', nickname: 'Work' })).toBe('Work (ada@work.com)');
+    expect(accountLabel({ email: 'ada@gmail.com', nickname: null })).toBe('ada@gmail.com');
   });
 
   it('lists the folders that can be opened, indented, with unread counts', () => {

@@ -65,6 +65,8 @@ pub struct AccountView {
     pub id: String,
     pub kind: Kind,
     pub email: String,
+    /// The name the person gave the account.
+    pub nickname: Option<String>,
     pub host: String,
     /// Why the account cannot be read right now (a refused password).
     pub error: Option<String>,
@@ -209,6 +211,11 @@ impl MailService {
         !self.accounts.list().is_empty()
     }
 
+    /// The connected accounts, the default (the first) first.
+    pub fn account_list(&self) -> Vec<Account> {
+        self.accounts.list()
+    }
+
     pub fn accounts(&self) -> Vec<AccountView> {
         let errors = self.errors.lock().clone();
         let session_only = self.session_only.lock().clone();
@@ -222,9 +229,14 @@ impl MailService {
                 id: a.id,
                 kind: a.kind,
                 email: a.email,
+                nickname: Some(a.nickname).filter(|n| !n.is_empty()),
                 host: a.host,
             })
             .collect()
+    }
+
+    fn view(&self, id: &str) -> Option<AccountView> {
+        self.accounts().into_iter().find(|a| a.id == id)
     }
 
     fn emit_accounts(&self) {
@@ -254,14 +266,14 @@ impl MailService {
         }
     }
 
-    /// The account with this id or email address, or the only one when `key` is None.
+    /// The account with this id, email address or name, or the first one when `key` is None.
     pub fn account(&self, key: Option<&str>) -> anyhow::Result<Account> {
         let list = self.accounts.list();
         match key.map(str::trim).filter(|k| !k.is_empty()) {
             Some(k) => self
                 .accounts
                 .find(k)
-                .ok_or_else(|| anyhow::anyhow!("No mail account {k}. Connected: {}.", emails(&list))),
+                .ok_or_else(|| anyhow::anyhow!("No mail account {k}. Connected: {}.", labels(&list))),
             None => list
                 .first()
                 .cloned()
@@ -273,6 +285,7 @@ impl MailService {
     /// already connected updates it.
     pub async fn add_account(&self, new: NewAccount) -> anyhow::Result<AccountView> {
         let (account, password) = new.resolve().map_err(anyhow::Error::msg)?;
+        self.accounts.check_nickname(&account).map_err(anyhow::Error::msg)?;
         let login = imap::Login {
             host: account.host.clone(),
             port: account.port,
@@ -306,12 +319,14 @@ impl MailService {
             self.start_watcher(&account);
         }
         self.emit_accounts();
-        let id = account.id.clone();
-        Ok(self
-            .accounts()
-            .into_iter()
-            .find(|a| a.id == id)
-            .expect("the account was just saved"))
+        Ok(self.view(&account.id).expect("the account was just saved"))
+    }
+
+    /// Gives the account a name, or takes its name away when `nickname` is empty.
+    pub fn rename_account(&self, id: &str, nickname: &str) -> anyhow::Result<AccountView> {
+        let account = self.accounts.set_nickname(id, nickname)?;
+        self.emit_accounts();
+        Ok(self.view(&account.id).expect("the account was just saved"))
     }
 
     pub async fn remove_account(&self, id: &str) -> anyhow::Result<()> {
@@ -893,9 +908,9 @@ impl MailService {
     }
 }
 
-fn emails(list: &[Account]) -> String {
+fn labels(list: &[Account]) -> String {
     if list.is_empty() {
         return "none".into();
     }
-    list.iter().map(|a| a.email.as_str()).collect::<Vec<_>>().join(", ")
+    list.iter().map(Account::label).collect::<Vec<_>>().join(", ")
 }

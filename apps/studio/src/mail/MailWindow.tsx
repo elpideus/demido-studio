@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   Star,
+  Tag,
   Trash2,
   X,
 } from 'lucide-react';
@@ -58,7 +59,17 @@ import { ConnectForm } from './ConnectForm';
 import { DateFilter } from './DateFilter';
 import { rangeLabel } from './dateRange';
 import { HtmlBody, TextBody } from './EmailBody';
-import { Lru, folderOptions, listDate, personLabel, personName, rowPeople, startFolder } from './mailView';
+import {
+  Lru,
+  accountLabel,
+  folderOptions,
+  listDate,
+  personLabel,
+  personName,
+  rowPeople,
+  startFolder,
+} from './mailView';
+import { NameForm } from './NameForm';
 import styles from './MailWindow.module.css';
 
 /** Messages read from the cache at a time, and added as the list scrolls. */
@@ -104,6 +115,7 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
   const account = accounts.find((a) => a.id === win.props.account) ?? accounts[0]!;
   const [folders, setFolders] = useState<MailFolder[] | null>(null);
   const [connecting, setConnecting] = useState<'new' | MailAccount | null>(null);
+  const [naming, setNaming] = useState<MailAccount | null>(null);
   const [removing, setRemoving] = useState<MailAccount | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnchor = useRef<HTMLButtonElement>(null);
@@ -157,6 +169,7 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
 
   const menu: MenuEntry[] = [
     { id: 'add', label: 'Add account…', icon: Plus, onSelect: () => setConnecting('new') },
+    { id: 'name', label: 'Name this account…', icon: Tag, onSelect: () => setNaming(account) },
     { id: 'password', label: 'Change password…', icon: KeyRound, onSelect: () => setConnecting(account) },
     'separator',
     {
@@ -185,13 +198,13 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
                 size="sm"
                 className={styles.grow}
                 aria-label="Account"
-                options={accounts.map((a) => ({ value: a.id, label: a.email }))}
+                options={accounts.map((a) => ({ value: a.id, label: accountLabel(a) }))}
                 value={account.id}
                 onChange={(e) => setProps(win.id, { account: e.target.value, folder: null })}
               />
             ) : (
-              <span className={styles.accountName} title={account.email}>
-                {account.email}
+              <span className={styles.accountName} title={accountLabel(account)}>
+                {accountLabel(account)}
               </span>
             )}
             <IconButton
@@ -249,6 +262,24 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
             initial={connecting === 'new' ? undefined : connecting}
             onCancel={() => setConnecting(null)}
             onDone={connected}
+          />
+        )}
+      </Dialog>
+      <Dialog
+        open={naming !== null}
+        onClose={() => setNaming(null)}
+        title="Name this account"
+        description={naming?.email}
+        width={420}
+      >
+        {naming && (
+          <NameForm
+            account={naming}
+            onCancel={() => setNaming(null)}
+            onDone={(a) => {
+              setNaming(null);
+              toast.success(a.nickname ? `Named ${a.nickname}` : 'Name removed', a.email);
+            }}
           />
         )}
       </Dialog>
@@ -550,11 +581,7 @@ function FolderView({
         {results && (
           <div className={styles.resultsBar}>
             <Search size={12} />
-            <span className={styles.grow}>
-              {results.messages
-                ? `${results.messages.length} found for “${results.query}”`
-                : `Searching for “${results.query}”…`}
-            </span>
+            <span className={styles.grow}>{searchLabel(results)}</span>
             <IconButton icon={X} label="Back to the folder" size="xs" onClick={clearSearch} />
           </div>
         )}

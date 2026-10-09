@@ -362,7 +362,12 @@ images until the person shows them. The tools (`tools/mail.rs`) give the model m
 never instructions. `mail_export` runs a search (or a date range, or neither for the newest) and
 writes up to a thousand matches with their text to a JSON Lines file in the workspace through
 `open_many`, so the model analyses them with `run_python` instead of reading them into its context;
-stopped early, it keeps what arrived, and the next export continues from the cache.
+stopped early, it keeps what arrived, and the next export continues from the cache. An account
+can have a name (`nickname` in `mail.json`, given when connecting it or from the account menu; no
+two accounts share one, and none is another's address). The system prompt lists the connected
+accounts with their provider and name, the tools' `account` takes an address or a name
+(`Accounts::find`, which also reads an address with the name written around it), and each
+listing names the other accounts, so a look at the wrong one is noticed.
 
 **Commands.** `run_command` runs a command line in the person's own shell (`shell/`): PowerShell
 7 when it is installed (on the PATH, where the Microsoft Store puts an app execution alias, or in
@@ -583,7 +588,7 @@ Everything a person makes is in the data folder, never in the install folder:
 |---|---|
 | `demido.db` | Chats, messages, traces |
 | `settings.json`, `models.json`, `providers.json`, `skills.json` | Preferences and overrides |
-| `mail.json` | The connected mail accounts (no passwords) |
+| `mail.json` | The connected mail accounts and their names (no passwords) |
 | `skills/` | Skills (default ones are copied here on first run) |
 | `models/` | Downloaded models (per-user installs) |
 | `workspaces/<chat>/` | Files tools produce for a chat: data CSVs, charts, scripts, what commands download; `uploads/` holds the files sent with its messages |

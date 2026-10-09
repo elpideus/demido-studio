@@ -403,6 +403,7 @@ pub fn run() {
             commands::mail::mail_accounts,
             commands::mail::mail_add_account,
             commands::mail::mail_remove_account,
+            commands::mail::mail_rename_account,
             commands::mail::mail_folders,
             commands::mail::mail_messages,
             commands::mail::mail_sync,

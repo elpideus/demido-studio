@@ -1,6 +1,6 @@
 // How the Mail window shows lists, dates and people.
 
-import type { MailAddress, MailFolder, MailSummary } from '@/lib/types';
+import type { MailAccount, MailAddress, MailFolder, MailSummary } from '@/lib/types';
 
 /** Folders whose mail was written by the account, so the list shows who it went to. */
 const OUTGOING = new Set(['sent', 'drafts']);
@@ -26,6 +26,11 @@ export function personName(address: MailAddress): string {
 export function personLabel(address: MailAddress): string {
   if (!address.name) return address.email;
   return address.email ? `${address.name} <${address.email}>` : address.name;
+}
+
+/** An account as the account picker shows it: its name first, when it has one. */
+export function accountLabel(account: Pick<MailAccount, 'email' | 'nickname'>): string {
+  return account.nickname ? `${account.nickname} (${account.email})` : account.email;
 }
 
 /** Who a list row names: the sender, or the recipients in Sent and Drafts. */

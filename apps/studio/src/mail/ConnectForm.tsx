@@ -1,11 +1,12 @@
 import { type KeyboardEvent, useId, useState } from 'react';
-import { AtSign, ExternalLink, KeyRound, Server, User } from 'lucide-react';
+import { AtSign, ExternalLink, KeyRound, Server, Tag, User } from 'lucide-react';
 import { Button, Field, Notice, SegmentedControl, TextField } from '@demido/ui';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 import { errorText } from '@/lib/api';
 import type { MailAccount, MailKind } from '@/lib/types';
 import { useMail } from '@/stores/mail';
+import { MAX_NAME } from './NameForm';
 import styles from './MailWindow.module.css';
 
 const APP_PASSWORDS_URL = 'https://myaccount.google.com/apppasswords';
@@ -36,6 +37,7 @@ export function ConnectForm({
   const [host, setHost] = useState(initial?.kind === 'imap' ? initial.host : '');
   const [port, setPort] = useState('993');
   const [username, setUsername] = useState('');
+  const [nickname, setNickname] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +54,8 @@ export function ConnectForm({
         host: kind === 'imap' ? host.trim() : null,
         port: kind === 'imap' ? Number(port) || null : null,
         username: kind === 'imap' && username.trim() ? username.trim() : null,
+        // Signing in again keeps the name the account has.
+        nickname: initial ? null : nickname.trim() || null,
       });
       onDone(account);
     } catch (e) {
@@ -148,6 +152,23 @@ export function ConnectForm({
             />
           </Field>
         </>
+      )}
+      {!initial && (
+        <Field
+          label="Name (optional)"
+          htmlFor={`${id}-name`}
+          description="Like Work or Personal: ask the assistant about this account by its name."
+        >
+          <TextField
+            id={`${id}-name`}
+            icon={Tag}
+            placeholder="Work"
+            value={nickname}
+            maxLength={MAX_NAME}
+            onChange={(e) => setNickname(e.target.value)}
+            onKeyDown={submitOnEnter}
+          />
+        </Field>
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       <p className={styles.connectNote}>

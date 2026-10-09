@@ -451,15 +451,19 @@ pub fn describe(name: &str, args: &Value) -> String {
         "pine_edit" => "Editing a Pine script".into(),
         "pine_test" => format!("Testing a Pine script on {} {}", s("symbol"), s("timeframe")),
         "pine_publish" => "Saving a Pine script to TradingView".into(),
-        "mail_list" => match s("folder") {
-            folder if folder.is_empty() => "Checking the inbox".into(),
-            folder => format!("Listing the {folder} folder"),
-        },
-        "mail_search" => format!("Searching email for “{}”", s("query")),
-        "mail_export" => match s("query") {
-            query if query.is_empty() => "Exporting emails".into(),
-            query => format!("Exporting emails matching “{query}”"),
-        },
+        "mail_list" | "mail_search" | "mail_export" => {
+            let what = match (name, s("folder"), s("query")) {
+                ("mail_list", folder, _) if folder.is_empty() => "Checking the inbox".to_string(),
+                ("mail_list", folder, _) => format!("Listing the {folder} folder"),
+                ("mail_search", _, query) => format!("Searching email for “{query}”"),
+                (_, _, query) if query.is_empty() => "Exporting emails".into(),
+                (_, _, query) => format!("Exporting emails matching “{query}”"),
+            };
+            match s("account") {
+                account if account.is_empty() => what,
+                account => format!("{what} · {account}"),
+            }
+        }
         "mail_read" => "Reading an email".into(),
         "mail_attachment" => format!("Saving the attachment {}", s("attachment")),
         "run_python" => {
@@ -610,6 +614,23 @@ mod tests {
         assert_eq!(pine_title("//@version=6\nindicator(\"RSI cross\", overlay=true)").as_deref(), Some("RSI cross"));
         assert_eq!(pine_title("strategy('Edge')").as_deref(), Some("Edge"));
         assert_eq!(pine_title("plot(close)"), None);
+    }
+
+    #[test]
+    fn mail_titles_name_the_account_asked_for() {
+        assert_eq!(describe("mail_list", &serde_json::json!({})), "Checking the inbox");
+        assert_eq!(
+            describe("mail_list", &serde_json::json!({"folder": "sent", "account": "Work"})),
+            "Listing the sent folder · Work"
+        );
+        assert_eq!(
+            describe(
+                "mail_search",
+                &serde_json::json!({"query": "invoice", "account": "ada@work.com"})
+            ),
+            "Searching email for “invoice” · ada@work.com"
+        );
+        assert_eq!(describe("mail_export", &serde_json::json!({})), "Exporting emails");
     }
 
     #[test]
