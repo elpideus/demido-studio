@@ -123,6 +123,19 @@
   inset: 0;
 }
 
+/* The legends at the top of each pane: prices in the price pane, then one row per indicator. */
+.legends {
+  position: absolute;
+  left: 10px;
+  right: 80px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  pointer-events: none;
+}
+
 .legend {
   position: absolute;
   top: 8px;
@@ -133,7 +146,109 @@
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-height: 20px;
+  padding: 0 4px;
+  margin-left: -4px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.indicator:hover {
+  background: rgba(28, 28, 28, 0.85);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.indicator b {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-regular);
+}
+
+.indicatorHidden .indicatorName {
+  color: var(--text-tertiary);
+}
+
+.indicatorName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+.indicatorArgs {
+  color: var(--text-tertiary);
+}
+
+.indicatorError {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 460px;
+  color: var(--market-down);
+}
+
+.indicatorNote {
+  color: var(--text-tertiary);
+}
+
+.indicatorActions {
+  display: none;
+  gap: 2px;
+}
+
+.indicator:hover .indicatorActions,
+.indicator:focus-within .indicatorActions {
+  display: inline-flex;
+}
+
+.indicatorActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.indicatorActions button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+/* Tables scripts draw (Pine's table.new), over the pane they belong to. */
+.tables {
+  position: absolute;
+  left: 0;
+  z-index: 1;
   pointer-events: none;
+}
+
+.scriptTable {
+  position: absolute;
+  border-collapse: collapse;
+  color: #d1d4dc;
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+
+.scriptTable td {
+  padding: 2px 6px;
+  white-space: pre;
 }
 
 .legend b {
@@ -236,4 +351,618 @@
   color: var(--text-tertiary);
   font-size: var(--text-sm);
   text-align: center;
+}
+
+/* The Indicators menu. */
+.indicatorMenu {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: inherit;
+}
+
+.indicatorMenuSearch {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.indicatorMenuSearch > :first-child {
+  flex: 1;
+}
+
+.indicatorMenuBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 420px;
+}
+
+.indicatorMenuNav {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  width: 150px;
+  padding: var(--space-1);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.indicatorMenuSection {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.indicatorMenuSection:hover {
+  background: var(--surface-4);
+  color: var(--text-primary);
+}
+
+.indicatorMenuActive,
+.indicatorMenuActive:hover {
+  background: var(--surface-5);
+  color: var(--text-primary);
+}
+
+.indicatorMenuList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.indicatorEntry {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.indicatorEntry:hover:not(:disabled) {
+  background: var(--surface-4);
+}
+
+.indicatorEntry:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.indicatorEntryName {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.indicatorEntryBadges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.indicatorAdded {
+  color: var(--accent);
+}
+
+.indicatorBack {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  text-align: left;
+}
+
+.indicatorBack:hover {
+  background: var(--surface-4);
+}
+
+.indicatorStudy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+}
+
+.indicatorSkipped {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.indicatorImport {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+/* An indicator's settings. */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.settingsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settingsGroup .resultsTitle {
+  padding-left: 0;
+}
+
+.settingsNumber {
+  width: 110px;
+}
+
+.settingsSwatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+}
+
+.settingsTabs {
+  align-self: flex-start;
+  margin-bottom: var(--space-3);
+}
+
+/* The Style tab: a row per plot and level, its color picker opening under it. */
+.styleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+}
+
+.styleRow > label {
+  min-width: 0;
+}
+
+.styleSelect {
+  width: auto;
+  min-width: 72px;
+}
+
+.swatchButton {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.swatchButton > span {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.swatchButton:hover,
+.swatchActive {
+  border-color: var(--accent-border);
+}
+
+.colorPicker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: fit-content;
+  margin: var(--space-1) 0 var(--space-2) auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(10, 20px);
+  gap: 4px;
+}
+
+.paletteColor {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xs);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.paletteColor:hover {
+  transform: scale(1.12);
+}
+
+.paletteActive {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.colorControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.colorControls > :last-child {
+  flex: 1;
+}
+
+.colorHex {
+  flex: none;
+  width: 110px;
+}
+
+.timeframeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+/* Menu rows with an action of their own (open in the Pine Editor). */
+.indicatorEntryRow {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.indicatorEntryRow > .indicatorEntry {
+  flex: 1;
+  min-width: 0;
+}
+
+.indicatorEntryAction {
+  flex: none;
+  opacity: 0;
+}
+
+.indicatorEntryRow:hover .indicatorEntryAction,
+.indicatorEntryAction:focus-visible {
+  opacity: 1;
+}
+
+.pineIntro {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.pineIntro > button {
+  flex: none;
+}
+
+.toolbarActive {
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
+
+/* The Pine Editor, under the chart. */
+.pineEditor {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 160px;
+  max-height: 75%;
+  margin: 0 var(--space-3) var(--space-3);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+.pineResize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 6px;
+  cursor: row-resize;
+}
+
+.pineResize:hover {
+  background: var(--accent-muted);
+}
+
+.pineToolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pineIcon {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.pineSelect {
+  width: 220px;
+}
+
+.pineStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.pineStatusOk {
+  color: var(--market-up);
+}
+
+.pineStatusWarn {
+  color: var(--warning);
+}
+
+.pineStatusError {
+  color: var(--danger);
+}
+
+.pineNotice {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  background: var(--warning-muted);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.pineMain {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  container-type: inline-size;
+}
+
+.pineCode {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-0);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+/* The bottom and right padding of the gutter and the colored copy exceed the textarea's, so they
+   can follow its scrolling all the way, scrollbars included. */
+.pineGutter {
+  flex: none;
+  min-width: 44px;
+  padding: 8px 8px 48px 0;
+  overflow: hidden;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-disabled);
+  text-align: right;
+  user-select: none;
+}
+
+.pineGutter > div {
+  height: 18px;
+  padding-left: var(--space-2);
+}
+
+.pineGutterError {
+  background: var(--danger-muted);
+  color: var(--danger);
+}
+
+.pineGutterWarn {
+  color: var(--warning);
+}
+
+.pineText {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.pineHighlight,
+.pineInput {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border: 0;
+  font: inherit;
+  line-height: 18px;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.pineHighlight {
+  padding: 8px 12px 48px;
+  overflow: hidden;
+  color: #d4d4d4;
+  pointer-events: none;
+}
+
+.pineHighlight > div {
+  width: max-content;
+  min-width: 100%;
+  height: 18px;
+  padding-right: 48px;
+}
+
+.pineInput {
+  width: 100%;
+  height: 100%;
+  padding: 8px 12px 24px;
+  overflow: auto;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text-primary);
+  resize: none;
+}
+
+.pineInput::selection {
+  background: rgba(38, 79, 120, 0.85);
+  color: transparent;
+}
+
+.pine_comment {
+  color: #6a9955;
+}
+
+.pine_annotation {
+  color: #8a8f98;
+}
+
+.pine_string {
+  color: #ce9178;
+}
+
+.pine_number {
+  color: #b5cea8;
+}
+
+.pine_keyword {
+  color: #c586c0;
+}
+
+.pine_type {
+  color: #4ec9b0;
+}
+
+.pine_builtin {
+  color: #9cdcfe;
+}
+
+.pine_func {
+  color: #dcdcaa;
+}
+
+.pine_operator {
+  color: #d4d4d4;
+}
+
+.pineMarkError {
+  text-decoration: underline wavy var(--danger);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
+.pineMarkWarn {
+  text-decoration: underline wavy var(--warning);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
+.pineMessages {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  width: 280px;
+  padding: var(--space-2);
+  overflow-y: auto;
+  border-left: 1px solid var(--border-subtle);
+}
+
+@container (max-width: 560px) {
+  .pineMessages {
+    display: none;
+  }
+}
+
+.pineMessage {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  text-align: left;
+}
+
+button.pineMessage:hover {
+  background: var(--surface-3);
+}
+
+.pineMessage > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.pineSummary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.pineSummary svg {
+  vertical-align: -2px;
+}
+
+.pineConfirm {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }

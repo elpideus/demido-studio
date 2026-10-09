@@ -30,13 +30,20 @@ export interface ToolResult {
 }
 
 /**
- * A tool asking mid-run. The only kind so far is a market download estimated to take longer than
- * `Settings.downloadApprovalSeconds`: 1-minute candles, which serve every timeframe.
+ * A tool asking mid-run: a market download estimated to take longer than
+ * `Settings.downloadApprovalSeconds` (1-minute candles, which serve every timeframe), or saving a
+ * Pine script to the user's TradingView account (`pine_publish`).
  */
-export interface ToolApproval {
-  kind: 'download';
-  plan: MarketPlan;
-}
+export type ToolApproval =
+  | { kind: 'download'; plan: MarketPlan }
+  | {
+      kind: 'pinePublish';
+      name: string;
+      lines: number;
+      /** It updates the script it was saved to before, rather than adding one. */
+      update: boolean;
+      source: string;
+    };
 
 export type ApprovalDecision = 'once' | 'always' | 'deny';
 
@@ -605,4 +612,337 @@ export interface MarketStoreUpdate {
   key: string;
   from: number;
   to: number;
+}
+
+// Chart indicators (sidecars/market/src/indicators). TradingView computes them on the live chart;
+// signed out, a few classics are computed from the stored bars instead (market/indicators.ts).
+
+export type IndicatorPlotKind = 'line' | 'step' | 'area' | 'histogram' | 'columns' | 'circles' | 'cross' | 'shapes';
+
+export interface IndicatorPlot {
+  id: string;
+  title: string;
+  kind: IndicatorPlotKind;
+  color: string;
+  width: number;
+  /** 0 solid, 1 dotted, 2 dashed (TradingView's numbering). */
+  dash: number;
+  /** The column whose value picks this plot's color on each bar. */
+  colorer?: string;
+  /** Colorer value → color. */
+  colors?: Record<string, string>;
+  /** Shapes: TradingView's shape name (`triangle_up`, `label_down`, `circle`, `char`, `arrow`…). */
+  shape?: string;
+  location?: 'abovebar' | 'belowbar' | 'top' | 'bottom' | 'absolute';
+  text?: string;
+  textColor?: string;
+  /** Arrows: the color of negative values. */
+  downColor?: string;
+  /** Histograms and columns: the value bars grow from. */
+  base?: number;
+  /** Not drawn (the script's `display.none`, a layout's or the settings' unticked box); its values
+   *  still come in every row. */
+  hidden?: boolean;
+  /** Its last value on the price scale (default: yes). */
+  axisLabel?: boolean;
+}
+
+export interface IndicatorBand {
+  id: string;
+  title: string;
+  value: number;
+  color: string;
+  width: number;
+  dash: number;
+  hidden?: boolean;
+}
+
+export interface IndicatorInput {
+  id: string;
+  name: string;
+  /** TradingView's input type: integer, float, bool, text, source, resolution, color, symbol… */
+  type: string;
+  value: unknown;
+  defval: unknown;
+  /** Not shown in the settings (internal inputs). */
+  hidden: boolean;
+  fake: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: string[];
+  group?: string;
+  tooltip?: string;
+  /** Shown after the name in the chart's legend, as in TradingView's status line (default: yes). */
+  legend?: boolean;
+}
+
+export interface IndicatorMeta {
+  id: string;
+  version: string;
+  name: string;
+  short: string;
+  kind: 'study' | 'strategy';
+  /** Drawn over the candles (true) or in a pane of its own. */
+  overlay: boolean;
+  /** Decimals of its values; null uses the chart's. */
+  precision: number | null;
+  plots: IndicatorPlot[];
+  bands: IndicatorBand[];
+  inputs: IndicatorInput[];
+  /** The plot ids each row carries after its time, in order. */
+  columns: string[];
+  /** Colors of the script's drawings, by index. */
+  palette: string[];
+}
+
+/** Bar time (seconds), then one value per column of the meta (null: no value on that bar). */
+export type IndicatorRow = [number, ...(number | null)[]];
+
+export interface IndicatorLabel {
+  id: number;
+  t: number;
+  y: number | null;
+  yloc: 'price' | 'abovebar' | 'belowbar';
+  text: string;
+  style: string;
+  color: string | null;
+  textColor: string | null;
+  size: string;
+  tooltip?: string;
+}
+
+export interface IndicatorLine {
+  id: number;
+  t1: number;
+  y1: number;
+  t2: number;
+  y2: number;
+  extend: 'none' | 'left' | 'right' | 'both';
+  style: string;
+  color: string | null;
+  width: number;
+}
+
+export interface IndicatorBox {
+  id: number;
+  t1: number;
+  /** Top. */
+  y1: number;
+  t2: number;
+  /** Bottom. */
+  y2: number;
+  color: string | null;
+  bg: string | null;
+  extend: 'none' | 'left' | 'right' | 'both';
+  style: string;
+  width: number;
+  text: string;
+  textColor: string | null;
+  textSize: string;
+  halign: string;
+  valign: string;
+}
+
+export interface IndicatorTableCell {
+  row: number;
+  col: number;
+  text: string;
+  textColor: string | null;
+  bg: string | null;
+  size: string;
+  halign: string;
+  valign: string;
+  colspan: number;
+  rowspan: number;
+  tooltip?: string;
+}
+
+export interface IndicatorTable {
+  id: number;
+  position: string;
+  rows: number;
+  columns: number;
+  bg: string | null;
+  frame: string | null;
+  frameWidth: number;
+  border: string | null;
+  borderWidth: number;
+  cells: IndicatorTableCell[];
+}
+
+/** What a script draws besides its plots (Pine's labels, lines, boxes and tables). */
+export interface IndicatorGraphics {
+  labels: IndicatorLabel[];
+  lines: IndicatorLine[];
+  boxes: IndicatorBox[];
+  tables: IndicatorTable[];
+}
+
+/** How an indicator is set up: input values, and the look a saved TradingView layout gave it. */
+export interface IndicatorSetup {
+  inputs?: Record<string, unknown>;
+  styles?: Record<string, Record<string, unknown>>;
+  palettes?: Record<string, Record<string, unknown>>;
+  bands?: unknown[];
+  overlay?: boolean;
+}
+
+/** One indicator offered by the Indicators menu. */
+export interface IndicatorEntry {
+  id: string;
+  /** The script version to run; null runs the latest. */
+  version: string | null;
+  name: string;
+  short?: string;
+  overlay?: boolean;
+  kind: 'study' | 'strategy';
+  author?: string;
+  /** Community scripts: open source, protected (closed source) or invite-only. */
+  access?: 'open' | 'protected' | 'invite';
+}
+
+export interface IndicatorCatalog {
+  favorites: IndicatorEntry[];
+  mine: IndicatorEntry[];
+  builtins: IndicatorEntry[];
+}
+
+/** A chart layout saved on the user's TradingView account. */
+export interface ChartLayoutEntry {
+  id: string;
+  name: string;
+  symbol: string;
+  interval: string;
+  /** Last saved, seconds. */
+  modified: number | null;
+}
+
+export interface ChartLayoutStudy {
+  id: string;
+  version: string;
+  name: string;
+  /** Hidden in the layout. */
+  hidden: boolean;
+  state: IndicatorSetup;
+}
+
+export interface ChartLayout {
+  name: string;
+  symbol: string;
+  interval: string;
+  studies: ChartLayoutStudy[];
+  /** Names of what could not be brought over (TradingView's older built-in studies). */
+  skipped: string[];
+}
+
+/**
+ * How an indicator looks on this chart, as its settings' Style and Visibility tabs set it. Applied
+ * here, over what TradingView describes, so changing it does not compute the indicator again.
+ */
+export interface IndicatorLook {
+  plots?: Record<string, PlotLook>;
+  bands?: Record<string, BandLook>;
+  /** Decimals of its values; absent: the script's. */
+  precision?: number;
+  /** The timeframes it shows on; absent: all. */
+  timeframes?: string[];
+  /** The inputs after its name in the legend (default: yes). */
+  legendInputs?: boolean;
+  /** Its values in the legend (default: yes). */
+  legendValues?: boolean;
+  /** Its last values on the price scale (default: yes). */
+  scaleLabels?: boolean;
+}
+
+export interface PlotLook {
+  color?: string;
+  /** Per-bar colors, by the colorer's value. */
+  colors?: Record<string, string>;
+  width?: number;
+  dash?: number;
+  kind?: IndicatorPlotKind;
+  hidden?: boolean;
+}
+
+export interface BandLook {
+  color?: string;
+  width?: number;
+  dash?: number;
+  value?: number;
+  hidden?: boolean;
+}
+
+// Pine scripts written in Demido (sidecars/market/src/indicators/pine.ts), compiled and run by
+// TradingView. On the chart a library script is `DEMIDO;<id>`.
+
+export interface PineSummary {
+  id: string;
+  name: string;
+  kind: 'indicator' | 'strategy' | 'library' | null;
+  /** Milliseconds. */
+  created: number;
+  modified: number;
+  /** Goes up with every change of its source. */
+  revision: number;
+  lines: number;
+  /** The script on the user's TradingView account it was saved to or imported from. */
+  tradingview?: { id: string; version: string; synced: number; changed: boolean };
+}
+
+export interface PineScript extends PineSummary {
+  source: string;
+}
+
+/** A compiler message; lines and columns count from 1. */
+export interface PineMessage {
+  line: number;
+  column: number;
+  endLine: number;
+  endColumn: number;
+  message: string;
+  code?: string;
+}
+
+export interface PineCheck {
+  ok: boolean;
+  errors: PineMessage[];
+  warnings: PineMessage[];
+  kind: PineSummary['kind'];
+  title: string;
+  overlay?: boolean;
+  meta?: Pick<IndicatorMeta, 'name' | 'overlay' | 'inputs' | 'plots' | 'bands'>;
+}
+
+export interface PinePublished {
+  script: PineSummary;
+  tradingview: { id: string; version: string; created: boolean };
+  warnings: PineMessage[];
+}
+
+/** One drawing of a set the assistant drew (`chart_draw`); times are seconds. */
+export interface ChartDrawingItem {
+  type: 'hline' | 'line' | 'box' | 'label' | 'marker' | 'series';
+  time?: number;
+  price?: number;
+  time2?: number;
+  price2?: number;
+  points?: Array<[number, number | null]>;
+  text?: string;
+  color?: string;
+  width?: number;
+  style?: 'solid' | 'dashed' | 'dotted';
+  extend?: 'none' | 'left' | 'right' | 'both';
+  position?: 'above' | 'below';
+  shape?: string;
+}
+
+/** A named set of drawings on a chart, kept in the Market window's props. */
+export interface ChartDrawing {
+  name: string;
+  pane: 'overlay' | 'separate';
+  items: ChartDrawingItem[];
+  /** The market it was drawn on; it shows on that market's chart only. */
+  symbol?: string;
+  hidden?: boolean;
 }

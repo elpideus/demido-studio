@@ -3,7 +3,8 @@
 // the store and exits.
 //
 // Everything stored lives under DEMIDO_CACHE_DIR: Dukascopy buckets (store/dukascopy-store),
-// TradingView bars (store/tv-store) and download jobs (store/jobs). Every Dukascopy request goes
+// TradingView bars (store/tv-store) and download jobs (store/jobs). The Pine scripts written in
+// Demido are not a cache: they live under DEMIDO_PINE_DIR (indicators/pine). Every Dukascopy request goes
 // through the one fetcher queue; every read goes through store/series. The old caches are migrated
 // first: store requests wait for it.
 
@@ -14,6 +15,10 @@ import { createInterface } from 'node:readline';
 import './net.ts';
 import './http.ts';
 import * as dukascopy from './dukascopy.ts';
+import * as catalog from './indicators/catalog.ts';
+import { type LayoutState, describe as describeMeta } from './indicators/describe.ts';
+import * as pine from './indicators/pine.ts';
+import * as studies from './indicators/studies.ts';
 import { type Bar, RpcError, emit, fail, log, reply } from './protocol.ts';
 import { instrumentMeta } from './store/buckets.ts';
 import { DukascopyStore } from './store/dukascopy-store.ts';
@@ -38,6 +43,8 @@ const FAR = 1e11;
 const SWEEP_MS = 30 * 60_000;
 
 const cacheDir = process.env.DEMIDO_CACHE_DIR || path.join(os.tmpdir(), 'demido-market-cache');
+const pineLibrary = new pine.PineLibrary(process.env.DEMIDO_PINE_DIR || path.join(os.tmpdir(), 'demido-pine'));
+pine.useLibrary(pineLibrary);
 const store = new DukascopyStore(cacheDir, { log });
 const fetcher = new Fetcher(store, { log });
 const tvStore = new TvStore(cacheDir, { log });
@@ -121,6 +128,13 @@ function str(params: Params, key: string, required = true): string {
   return '';
 }
 
+/** Pine source as sent, untrimmed (its line numbers must match the editor's). */
+function source(params: Params, key = 'source'): string {
+  const v = params[key];
+  if (typeof v !== 'string') throw new RpcError('BAD_REQUEST', `"${key}" is required.`);
+  return v;
+}
+
 function int(params: Params, key: string, fallback: number, min: number, max: number): number {
   const v = Number(params[key]);
   return Number.isFinite(v) && v > 0 ? Math.max(min, Math.min(Math.floor(v), max)) : fallback;
@@ -142,6 +156,26 @@ function back(params: Params): Back | undefined {
 
 function origin(value: unknown): Origin {
   return value === 'chat' || value === 'data' ? value : 'chart';
+}
+
+/** What the editor shows of a compiled script: its inputs and plots. */
+function describeBrief(metaInfo: Record<string, unknown>) {
+  const m = describeMeta(metaInfo);
+  return { name: m.name, overlay: m.overlay, inputs: m.inputs.filter((i) => !i.hidden), plots: m.plots, bands: m.bands };
+}
+
+/** An indicator's setup as the UI sends it (from a saved layout or its settings). */
+function layoutState(v: unknown): LayoutState {
+  const o = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  const record = (x: unknown) =>
+    x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, Record<string, unknown>>) : undefined;
+  const state: LayoutState = {};
+  if (record(o.inputs)) state.inputs = o.inputs as Record<string, unknown>;
+  if (record(o.styles)) state.styles = record(o.styles);
+  if (record(o.palettes)) state.palettes = record(o.palettes);
+  if (Array.isArray(o.bands)) state.bands = o.bands;
+  if (typeof o.overlay === 'boolean') state.overlay = o.overlay;
+  return state;
 }
 
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -611,6 +645,79 @@ const handlers: Record<string, (params: Params) => Promise<unknown> | unknown> =
     tv.closeStream(str(p, 'id'));
     return {};
   },
+
+  /** More history on a live chart's session, so its indicators reach further back. */
+  'stream.extend': (p) => ({ asked: tv.extendStream(str(p, 'id'), int(p, 'bars', 500, 1, 5000)) }),
+
+  'indicators.catalog': (p) => {
+    if (p.refresh === true) catalog.refresh();
+    return catalog.catalog();
+  },
+
+  'indicators.search': (p) => catalog.search(str(p, 'query')),
+
+  'indicators.layouts': () => catalog.layouts(),
+
+  'indicators.layout': (p) => catalog.layout(str(p, 'id')),
+
+  'indicator.add': (p) =>
+    studies.add({
+      stream: str(p, 'stream'),
+      script: str(p, 'script'),
+      version: str(p, 'version', false) || null,
+      state: layoutState(p.state),
+    }),
+
+  'indicator.remove': (p) => {
+    studies.remove(str(p, 'id'));
+    return {};
+  },
+
+  /** The Pine library, most recently changed first (no sources). */
+  'pine.list': () => pineLibrary.list(),
+
+  'pine.get': async (p) => {
+    const s = await pineLibrary.get(str(p, 'id'));
+    return { ...pine.summary(s), source: s.source };
+  },
+
+  /** Creates a script (no `id`) or replaces its source; answers like `pine.get`. */
+  'pine.save': async (p) => {
+    const s = await pineLibrary.save({
+      id: str(p, 'id', false) || undefined,
+      source: source(p),
+      name: str(p, 'name', false) || undefined,
+    });
+    return { ...pine.summary(s), source: s.source };
+  },
+
+  'pine.delete': async (p) => {
+    await pineLibrary.remove(str(p, 'id'));
+    return {};
+  },
+
+  /** Compiles without saving anything: errors, warnings, what it declares. */
+  'pine.check': async (p) => {
+    const c = await pine.compile(source(p));
+    const meta = c.script ? describeBrief(c.script.metaInfo) : undefined;
+    return { ok: c.ok, errors: c.errors, warnings: c.warnings, kind: c.kind, title: c.title, overlay: c.overlay, ...(meta ? { meta } : {}) };
+  },
+
+  /** Runs a script once on a chart of its own: its values, or where it failed. */
+  'pine.test': (p) =>
+    studies.trial({
+      ...(typeof p.source === 'string' ? { source: p.source } : { script: str(p, 'script') }),
+      symbol: str(p, 'symbol'),
+      tf: timeframe(p.timeframe),
+      bars: int(p, 'bars', 500, 10, 5000),
+      state: layoutState(p.state),
+    }),
+
+  /** Saves a library script to the user's TradingView account (the app asked them first). */
+  'pine.publish': (p) => pine.publish(pineLibrary, str(p, 'id'), { name: str(p, 'name', false) || undefined }),
+
+  /** Copies a TradingView script's source into the library (own scripts stay linked). */
+  'pine.import': (p) => pine.importScript(pineLibrary, str(p, 'script')),
 
   shutdown: async () => {
     await shutdown();

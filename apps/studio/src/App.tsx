@@ -3,6 +3,7 @@ import { Spinner } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
+import { chartPatch } from '@/market/chartCommands';
 import { Disclaimer } from '@/shell/Disclaimer';
 import { RestartDialog } from '@/shell/RestartDialog';
 import { Shell } from '@/shell/Shell';
@@ -10,7 +11,8 @@ import { Toaster } from '@/shell/Toaster';
 import { useApp } from '@/stores/app';
 import { useChats } from '@/stores/chats';
 import { useMarket } from '@/stores/market';
-import { useModels } from '@/stores/models';
+import { findModel, useModels } from '@/stores/models';
+import { usePine } from '@/stores/pine';
 import { useSkills } from '@/stores/skills';
 import { toast } from '@/stores/toasts';
 import { useUpdates } from '@/stores/updates';
@@ -40,6 +42,17 @@ function subscribe(): Array<Promise<() => void>> {
       const before = useMarket.getState().status;
       useMarket.getState().set(status);
       if (status.loggedIn && !before?.loggedIn) toast.success('Signed in to TradingView', status.username ?? undefined);
+    }),
+    on('market://event', (e) => {
+      if (e.event === 'pine.changed') usePine.getState().changed(e.params.id, e.params.script);
+    }),
+    // The assistant's `chart_add_indicator` and `chart_draw`: the Market window shows them.
+    on('market://chart', (cmd) => {
+      const { windows, open, setProps } = useWindows.getState();
+      const win = windows.find((w) => w.kind === 'market');
+      if (cmd.action === 'undraw') {
+        if (win) setProps(win.id, chartPatch(win.props, cmd));
+      } else open('market', chartPatch(win?.props ?? {}, cmd));
     }),
     on('updater://status', (status) => useUpdates.getState().receive(status)),
   ];

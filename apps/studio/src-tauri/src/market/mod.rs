@@ -30,6 +30,8 @@ use crate::secrets::{Secrets, TRADINGVIEW_SESSION};
 
 pub const EVENT: &str = "market://event";
 pub const STATUS_EVENT: &str = "market://status";
+/// Commands for the Market window's chart (an indicator or drawings to show), from the assistant.
+pub const CHART_EVENT: &str = "market://chart";
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +92,8 @@ pub struct MarketService {
     node: Option<PathBuf>,
     script: PathBuf,
     cache_dir: PathBuf,
+    /// The Pine scripts written in Demido: kept data, not cache.
+    pine_dir: PathBuf,
     log_file: PathBuf,
     pub(crate) profile_dir: PathBuf,
     secrets: Arc<Secrets>,
@@ -105,11 +109,13 @@ pub struct MarketService {
 }
 
 impl MarketService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         app: AppHandle,
         node: Option<PathBuf>,
         script: PathBuf,
         cache_dir: PathBuf,
+        pine_dir: PathBuf,
         logs_dir: PathBuf,
         profile_dir: PathBuf,
         secrets: Arc<Secrets>,
@@ -135,6 +141,7 @@ impl MarketService {
             node,
             script,
             cache_dir,
+            pine_dir,
             log_file: logs_dir.join("market.log"),
             profile_dir,
             secrets,
@@ -158,6 +165,12 @@ impl MarketService {
             s.clone()
         };
         let _ = self.app.emit(STATUS_EVENT, snapshot);
+    }
+
+    /// Tells the Market window's chart to show something (see `tools::pine`). The window opens
+    /// if it is closed; nothing answers.
+    pub fn chart_command(&self, command: serde_json::Value) {
+        let _ = self.app.emit(CHART_EVENT, command);
     }
 
     pub fn logged_in(&self) -> bool {
@@ -224,9 +237,11 @@ impl MarketService {
             ));
         };
         std::fs::create_dir_all(&self.cache_dir).ok();
+        std::fs::create_dir_all(&self.pine_dir).ok();
         let mut cmd = Command::new(&node);
         cmd.arg(&self.script)
             .env("DEMIDO_CACHE_DIR", &self.cache_dir)
+            .env("DEMIDO_PINE_DIR", &self.pine_dir)
             .env("NODE_NO_WARNINGS", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

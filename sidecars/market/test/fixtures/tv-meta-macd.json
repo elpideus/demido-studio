@@ -1,0 +1,345 @@
+{
+ "_metainfoVersion": 55,
+ "bands": [
+  {
+   "id": "hline_0",
+   "isHidden": false,
+   "name": "Zero"
+  }
+ ],
+ "behind_chart": true,
+ "defaults": {
+  "bands": [
+   {
+    "color": "rgba(120,123,134,0.5)",
+    "linestyle": 2,
+    "linewidth": 1,
+    "value": 0,
+    "visible": true
+   }
+  ],
+  "inputs": {
+   "__fast_calc": false,
+   "__profile": false,
+   "in_0": "close",
+   "in_1": 12,
+   "in_2": 26,
+   "in_3": 9,
+   "in_4": "EMA",
+   "in_5": "EMA",
+   "in_6": "",
+   "in_7": true,
+   "pineFeatures": "{\"indicator\":1,\"plot\":1,\"ta\":1,\"alertcondition\":1}",
+   "pineId": "",
+   "pineVersion": "",
+   "text": "bmI9Ks46_NVoz7GsGMKf+4TZC66jBhA==_VYj+mcflN7cFXRqHqNj5gleI6aovqJj+Sdiwr+0mE9lfGu/L47tLY+6SLArfOFxgEvLVxuoWEmjWZGqhBRAe3JxcpnOZo/5a/Rn3XUKPGyRgP3Yw64r2tD1BmdhEsetzYHyr+kfXIZ1qbAdnj+o1cG1MpoEM5zDycQnCVYhicDqJqSJrOvj8zjQRkiUhs+KzIkJJkDLMmv+Qk3IaqHQmwGncAJGph1l/9boV7IXg0XWUaDCoawwNw/EV/b4oNUWs9CUaW+TZh22AoAPh9VMVrsMXw/FHgTK9nWLdjGczN/EksPtebwzZAN9sexFMdkOyU5/iK8Cf7FfUWmU7EbgooyBCIxf9RmW2iypWwMinCLrwm5xUFg/h0vUP9+ySKDaReTr15WkLBuCAoeAAvwpQ8qskJHMy8/Z9yiO8FiwptpTCP1HKscSp7WSskDMTphgkiKmfRNEqgmYmGD9jBEP7LYKZVx+rwS1ETzmKpAX/wX2z2U8bTuIFiV+AgX6RE5Ug4zT0fhMBfxoVmQMIp/cjxUvLAXwqRT4ZbJ/aZJjcBm+nEPVMBHTUXnApaF5Plw9k6xkdOxhZWNr/e35QnezPZbLthnMr7fLSjqfDBCuSIrZdq0JRMi3a2eIffyOcZRrr4mC/12nTF2/AAfZtoXJgP8c8ncb+Bv0DittG90j/bHam9RfO6AxNJlOfY6SsiCMK708hfZxQEKpTTPett6VMNR1Y9ALVIQSn0572zPyddMkqNbVWr1dZ/W9KOI03CeLp6IFWZAWQn8ul0rqkcssinGSeUflkZDXsrp+5LBjOpyO5ahDxzUuVc+0jaFi7M8RPyQt84xmz3hsYPi6aMI2KbVZBI0gLE4ZdPHGnLfQqtCACyAqqbrQHIG3uOjT5OTpQQ8mc4cGHMNE+jke5jd00OE2OdFrf1cXfntXUc2zpFhRj9oB8dJc6t0U+33DlRx9Wuq2cDUdEjZE+NslIXDpuCDmOiAYOIkCtMi4WZanXmNu7JxIMLxMKcpBJSHntmebBwt0ZAVPBImu2zIRJXe5O3S0DFX1xfXN5XxIYKxTOusSppsKyq2wbq3unrwjEgRkNrHqX7c3BdO1Kl0f0HiXo1ryUfiqjNXVjvrJO2mHpqdCrj9AK1gCVrVBCgVmKyMjYM6FMFn1UREGhLYZ8tuU3W3PKAuBw2HLhFECo9G/6/IZZvV53GssX16YzDJtmn+AhsjbiIv4iO0enz1bx4IiGZyiOsBG1"
+  },
+  "palettes": {
+   "palette_0": {
+    "colors": {
+     "0": {
+      "color": "rgba(38,166,154,1)",
+      "style": 0,
+      "width": 1
+     },
+     "1": {
+      "color": "rgba(178,223,219,1)",
+      "style": 0,
+      "width": 1
+     },
+     "2": {
+      "color": "rgba(255,205,210,1)",
+      "style": 0,
+      "width": 1
+     },
+     "3": {
+      "color": "rgba(255,82,82,1)",
+      "style": 0,
+      "width": 1
+     }
+    }
+   }
+  },
+  "styles": {
+   "plot_0": {
+    "color": "#2962ff",
+    "display": 4294967295,
+    "linestyle": 0,
+    "linewidth": 1,
+    "plottype": 5,
+    "trackPrice": false
+   },
+   "plot_2": {
+    "color": null,
+    "display": 4294967295,
+    "linestyle": 0,
+    "linewidth": 1,
+    "plottype": 0,
+    "trackPrice": false
+   },
+   "plot_3": {
+    "color": "#ff6d00",
+    "display": 4294967295,
+    "linestyle": 0,
+    "linewidth": 1,
+    "plottype": 0,
+    "trackPrice": false
+   }
+  }
+ },
+ "description": "Moving average convergence divergence",
+ "format": {
+  "type": "inherit"
+ },
+ "id": "Script$STD;MACD@tv-scripting-101",
+ "inputs": [
+  {
+   "defval": "",
+   "id": "text",
+   "isHidden": true,
+   "name": "ILScript",
+   "type": "text"
+  },
+  {
+   "defval": "",
+   "id": "pineId",
+   "isHidden": true,
+   "name": "pineId",
+   "type": "text"
+  },
+  {
+   "defval": "",
+   "id": "pineVersion",
+   "isHidden": true,
+   "name": "pineVersion",
+   "type": "text"
+  },
+  {
+   "defval": "{\"indicator\":1,\"plot\":1,\"ta\":1,\"alertcondition\":1}",
+   "id": "pineFeatures",
+   "isFake": true,
+   "isHidden": true,
+   "name": "pineFeatures",
+   "type": "text"
+  },
+  {
+   "active": true,
+   "defval": "close",
+   "display": 4294967295,
+   "id": "in_0",
+   "isFake": true,
+   "name": "Source",
+   "options": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "hl2",
+    "hlc3",
+    "hlcc4",
+    "ohlc4"
+   ],
+   "type": "source"
+  },
+  {
+   "active": true,
+   "defval": 12,
+   "display": 4294967295,
+   "id": "in_1",
+   "isFake": true,
+   "max": 1000000000000,
+   "min": 1,
+   "name": "Fast length",
+   "type": "integer"
+  },
+  {
+   "active": true,
+   "defval": 26,
+   "display": 4294967295,
+   "id": "in_2",
+   "isFake": true,
+   "max": 1000000000000,
+   "min": 1,
+   "name": "Slow length",
+   "type": "integer"
+  },
+  {
+   "active": true,
+   "defval": 9,
+   "display": 4294967295,
+   "id": "in_3",
+   "isFake": true,
+   "max": 1000000000000,
+   "min": 1,
+   "name": "Signal length",
+   "type": "integer"
+  },
+  {
+   "active": true,
+   "defval": "EMA",
+   "display": 0,
+   "id": "in_4",
+   "isFake": true,
+   "name": "Oscillator MA type",
+   "options": [
+    "EMA",
+    "SMA"
+   ],
+   "type": "text"
+  },
+  {
+   "active": true,
+   "defval": "EMA",
+   "display": 0,
+   "id": "in_5",
+   "isFake": true,
+   "name": "Signal MA type",
+   "options": [
+    "EMA",
+    "SMA"
+   ],
+   "type": "text"
+  },
+  {
+   "active": true,
+   "defval": "",
+   "group": "Calculation",
+   "id": "in_6",
+   "isFake": true,
+   "isMTFResolution": true,
+   "name": "Timeframe",
+   "solutionId": 43000591555,
+   "type": "resolution"
+  },
+  {
+   "active": true,
+   "defval": true,
+   "group": "Calculation",
+   "id": "in_7",
+   "isFake": true,
+   "isMTFGaps": true,
+   "name": "Wait for timeframe closes",
+   "type": "bool"
+  },
+  {
+   "active": true,
+   "defval": false,
+   "group": "Calculation",
+   "id": "__fast_calc",
+   "isFake": true,
+   "isHidden": true,
+   "migrate": true,
+   "name": "Fast calculation",
+   "tooltip": "Limits script calculation to the last 2K bars. Turns off automatically when chart loads more historical data.",
+   "type": "bool"
+  },
+  {
+   "active": true,
+   "defval": false,
+   "id": "__profile",
+   "isFake": true,
+   "isHidden": true,
+   "migrate": true,
+   "name": "",
+   "type": "bool"
+  }
+ ],
+ "isMTFGaps": true,
+ "isMTFResolution": true,
+ "isTVScript": true,
+ "isTVScriptStub": false,
+ "is_hidden_study": false,
+ "is_price_study": false,
+ "palettes": {
+  "palette_0": {
+   "addDefaultColor": true,
+   "colors": {
+    "0": {
+     "name": "Color 0"
+    },
+    "1": {
+     "name": "Color 1"
+    },
+    "2": {
+     "name": "Color 2"
+    },
+    "3": {
+     "name": "Color 3"
+    }
+   },
+   "valToIndex": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3
+   }
+  }
+ },
+ "pine": {
+  "digest": "88fee80c139d93c285df34faf5d48188616e5020",
+  "version": "43.0"
+ },
+ "plots": [
+  {
+   "id": "plot_0",
+   "type": "line"
+  },
+  {
+   "id": "plot_1",
+   "palette": "palette_0",
+   "target": "plot_0",
+   "type": "colorer"
+  },
+  {
+   "id": "plot_2",
+   "type": "line"
+  },
+  {
+   "id": "plot_3",
+   "type": "line"
+  },
+  {
+   "id": "plot_4",
+   "type": "alertcondition"
+  },
+  {
+   "id": "plot_5",
+   "type": "alertcondition"
+  }
+ ],
+ "scriptIdPart": "STD;MACD",
+ "shortDescription": "MACD",
+ "stats": {
+  "alertcondition": 2,
+  "plot": 3
+ },
+ "styles": {
+  "plot_0": {
+   "histogramBase": 0,
+   "isHidden": false,
+   "joinPoints": false,
+   "title": "Histogram"
+  },
+  "plot_2": {
+   "histogramBase": 0,
+   "isHidden": false,
+   "joinPoints": false,
+   "title": "MACD"
+  },
+  "plot_3": {
+   "histogramBase": 0,
+   "isHidden": false,
+   "joinPoints": false,
+   "title": "Signal line"
+  },
+  "plot_4": {
+   "text": "MACD histogram switched from a rising to falling state",
+   "title": "Rising to falling"
+  },
+  "plot_5": {
+   "text": "MACD histogram switched from a falling to rising state",
+   "title": "Falling to rising"
+  }
+ },
+ "usesPrivateLib": false
+}

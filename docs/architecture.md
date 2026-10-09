@@ -130,7 +130,10 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 guidance) and fits the history into the model's context window, newest first. The model's
 answer streams to the UI as `ChatEvent`s while it is written to the database, so a crash loses
 nothing that was shown. Tool calls run one by one; `run_python` and `run_command` ask for approval first
-unless the person chose "always allow". Each model call is saved as a trace (exact request, response,
+unless the person chose "always allow". A call that fails with the same tool and arguments as
+one that already failed in the turn gets a note saying so in its result, and the third such
+failure ends the turn (`MAX_SAME_FAILURES`): small models otherwise repeat a call that cannot
+work until the 16 steps run out. Each model call is saved as a trace (exact request, response,
 token counts, speed) that the Inspector window shows. Two things are shortened, so a chat with
 files does not store them again for every model call: images and sound are replaced by their type
 and size (`llm::redact_media`), and an attached file's text is kept whole only in the first call of
@@ -303,7 +306,8 @@ something to embed and stopped after three idle minutes; its log is `logs/search
 The chat model comes first: before a local one loads, the search model finishes the request in
 hand and stops, and it cannot start again until the chat model has loaded, so the chat model gets
 the GPU memory it would get alone. Started again when next needed, the search model is fitted by
-llama.cpp into what is left (`--fit`, which keeps 1 GiB free), on the CPU when nothing is. Which
+llama.cpp into what is left (`--fit`, which keeps 1 GiB free), on the CPU when nothing is. A chat
+model whose context llama.cpp sizes leaves room for it (see Local runtime, above). Which
 search model is used does not change with the chat model, since that would index every file again. An
 indexer embeds passages in the background, the newest file's first, in batches of eight, with
 the document prompt the model card asks for, into `passage_vectors` (little-endian f32s, one row
@@ -363,7 +367,8 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers, attached files (`Attachments.tsx`: the composer's tray and a sent message's files; `attachmentView.ts`: what a chip says) |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
 | `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, General, Updates |
-| `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
+| `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends, indicators (the Indicators menu, legends, the settings dialog, panes, script drawings, the assistant's drawings, the local fallback), the Pine Editor. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
+| `mail` | The Mail window: accounts and folders, the message list (filtered from the cache as you type, Enter searches the server), the reader (`EmailBody.tsx`; `emailHtml.ts` cleans HTML mail for its sandboxed frame), the connect form |
 | `inspector` | A turn's traces: request, response, timings |
 | `stores` | App state per area; `windows.ts` holds window geometry, focus order, pinning |
 

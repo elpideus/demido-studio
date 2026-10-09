@@ -159,6 +159,24 @@
   font-size: var(--text-md);
 }
 
+.linkish {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+}
+
+.linkish:hover {
+  text-decoration: underline;
+}
+
+.source {
+  max-height: 260px;
+  overflow: auto;
+}
+
 .planAlt {
   color: var(--text-secondary);
   font-size: var(--text-sm);

@@ -36,6 +36,9 @@ use crate::tools::{self, ToolContext};
 
 /// A turn stops after this many model calls, so a confused model cannot loop forever.
 const MAX_STEPS: usize = 16;
+/// How often one call (the same tool with the same arguments) may fail in a turn before the turn
+/// stops: a small model otherwise repeats a call that cannot work until the steps run out.
+const MAX_SAME_FAILURES: usize = 3;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -341,6 +344,8 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
     tools::prepare(&state.settings.get()).await;
     // The message this turn answers as the search model put it, with its id.
     let mut question: Option<(String, QueryVector)> = None;
+    // Failed calls of this turn, by `call_key`.
+    let mut failures: HashMap<String, usize> = HashMap::new();
 
     for step in 0..MAX_STEPS {
         if cancel.is_cancelled() {
@@ -547,7 +552,19 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             if cancel.is_cancelled() {
                 return Ok(());
             }
-            run_tool_call(state, chat_id, &model, &workspace, cancel, &call).await?;
+            let key = call_key(&call);
+            let before = failures.get(&key).copied().unwrap_or(0);
+            if !run_tool_call(state, chat_id, &model, &workspace, cancel, &call, before).await? {
+                let times = failures.entry(key).or_default();
+                *times += 1;
+                if *times >= MAX_SAME_FAILURES {
+                    bail_msg!(
+                        "Stopped: the model made the same {} call {} times, and it failed each time.",
+                        call.name,
+                        *times
+                    );
+                }
+            }
         }
         if step + 1 == MAX_STEPS {
             bail_msg!("Stopped after {MAX_STEPS} steps without a final answer.");
@@ -556,6 +573,31 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
     Ok(())
 }
 
+/// A call by its tool and arguments, whatever their spacing or key order.
+fn call_key(call: &crate::db::ToolCall) -> String {
+    let args = serde_json::from_str::<Value>(&call.arguments)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| call.arguments.clone());
+    format!("{}\u{0}{args}", call.name)
+}
+
+/// A failed call's answer when the model already made this same call and saw it fail.
+fn with_repeat_note(content: &str, times: usize) -> String {
+    let note = format!(
+        "You already made this exact call {} and it failed the same way, so repeating it cannot work. Change the arguments as the error says, use another tool, or answer the user.",
+        if times == 1 { "once".to_string() } else { format!("{times} times") }
+    );
+    match serde_json::from_str::<Value>(content) {
+        Ok(Value::Object(mut o)) => {
+            o.insert("repeated".into(), note.into());
+            Value::Object(o).to_string()
+        }
+        _ => format!("{content}\n\n{note}"),
+    }
+}
+
+/// Runs one call and records its result; `false` when it failed. `failed_before` counts the
+/// times this same call already failed in the turn.
 async fn run_tool_call(
     state: &Arc<AppState>,
     chat_id: &str,
@@ -563,7 +605,8 @@ async fn run_tool_call(
     workspace: &std::path::Path,
     cancel: &CancellationToken,
     call: &crate::db::ToolCall,
-) -> CmdResult<()> {
+    failed_before: usize,
+) -> CmdResult<bool> {
     let mut first = Message::new(chat_id, state.db.next_seq(chat_id)?, Role::Tool, "");
     first.tool_call_id = Some(call.id.clone());
     first.tool_name = Some(call.name.clone());
@@ -574,7 +617,9 @@ async fn run_tool_call(
         Ok(v) => v,
         Err(e) => {
             let row = ToolRow::new(state.clone(), first);
-            return row.finish(false, json!({"error": e}).to_string(), json!({"error": e}), 0);
+            return row
+                .finish(false, json!({"error": e}).to_string(), json!({"error": e}), 0)
+                .map(|()| false);
         }
     };
     first.tool_result = Some(json!({"label": tools::describe(&call.name, &args), "args": args}));
@@ -585,19 +630,23 @@ async fn run_tool_call(
             "There is no tool called {}. Use only the tools you were given.",
             call.name
         );
-        return row.finish(false, json!({"error": msg}).to_string(), json!({"error": msg}), 0);
+        return row
+            .finish(false, json!({"error": msg}).to_string(), json!({"error": msg}), 0)
+            .map(|()| false);
     }
 
     let settings = state.settings.get();
     if tools::needs_approval(&call.name, &settings) {
         let decision = match row.request_approval(None, cancel).await {
             Ok(d) => d,
-            Err(Cancelled) => return row.cancel(),
+            Err(Cancelled) => return row.cancel().map(|()| true),
         };
         match decision {
             Approval::Deny => {
                 let msg = "The user declined to run this. Do not retry it; continue without it or ask the user how to proceed.";
-                return row.finish(false, json!({"error": msg}).to_string(), json!({"denied": true}), 0);
+                return row
+                    .finish(false, json!({"error": msg}).to_string(), json!({"denied": true}), 0)
+                    .map(|()| false);
             }
             Approval::Always => {
                 let name = call.name.clone();
@@ -625,9 +674,15 @@ async fn run_tool_call(
     state.agent.tool_stops.lock().remove(&row.id());
     let elapsed = started.elapsed().as_millis() as i64;
     if cancel.is_cancelled() && !output.ok {
-        return row.cancel();
+        return row.cancel().map(|()| true);
     }
-    row.finish(output.ok, output.content, output.display, elapsed)
+    let content = if !output.ok && failed_before > 0 {
+        with_repeat_note(&output.content, failed_before)
+    } else {
+        output.content
+    };
+    row.finish(output.ok, content, output.display, elapsed)?;
+    Ok(output.ok)
 }
 
 fn stats(c: &crate::llm::Completion, model: &ModelEntry, duration_ms: i64, ttft_ms: Option<i64>) -> Value {
@@ -754,6 +809,21 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_same_call_is_known_whatever_its_spacing() {
+        let call = |args: &str| crate::db::ToolCall { id: "c".into(), name: "pine_test".into(), arguments: args.into() };
+        assert_eq!(
+            call_key(&call(r#"{"symbol": "FX:EURUSD", "timeframe": "1d"}"#)),
+            call_key(&call(r#"{"timeframe":"1d","symbol":"FX:EURUSD"}"#))
+        );
+        assert_ne!(call_key(&call(r#"{"id": "a"}"#)), call_key(&call(r#"{"id": "b"}"#)));
+        let noted = with_repeat_note(r#"{"error":"Give the id."}"#, 1);
+        let v: Value = serde_json::from_str(&noted).unwrap();
+        assert_eq!(v["error"], "Give the id.");
+        assert!(v["repeated"].as_str().unwrap().contains("exact call once"));
+        assert!(with_repeat_note("plain", 2).ends_with("Change the arguments as the error says, use another tool, or answer the user."));
+    }
 
     #[tokio::test]
     async fn approvals_reach_the_waiting_tool() {

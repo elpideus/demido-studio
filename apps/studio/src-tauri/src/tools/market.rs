@@ -97,7 +97,7 @@ pub fn data_status_schema() -> Value {
 }
 
 /// Makes sure a TradingView session exists, opening the sign-in window when it does not.
-async fn ensure_login(ctx: &ToolContext) -> Result<(), String> {
+pub(crate) async fn ensure_login(ctx: &ToolContext) -> Result<(), String> {
     let market = &ctx.state.market;
     if market.logged_in() {
         return Ok(());
@@ -120,7 +120,7 @@ async fn ensure_login(ctx: &ToolContext) -> Result<(), String> {
 }
 
 /// Calls a TradingView-backed method, signing in first and once more if the session expired.
-async fn call_live(ctx: &ToolContext, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+pub(crate) async fn call_live(ctx: &ToolContext, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
     ensure_login(ctx).await?;
     match ctx.state.market.call(method, params.clone(), timeout).await {
         Err(e) if e.is_auth() => {
@@ -1151,7 +1151,7 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-fn timeframe(args: &Value) -> Result<&'static str, String> {
+pub(crate) fn timeframe(args: &Value) -> Result<&'static str, String> {
     let raw = require_str(args, "timeframe")?;
     let normalized = match raw.trim() {
         "1M" | "1mo" | "1month" | "monthly" | "M" => "1M",
@@ -1190,7 +1190,7 @@ fn timeframe_seconds(timeframe: &str) -> i64 {
 }
 
 /// A whole number argument, also when the model sends it as a string.
-fn arg_u64(args: &Value, key: &str) -> Option<u64> {
+pub(crate) fn arg_u64(args: &Value, key: &str) -> Option<u64> {
     match &args[key] {
         Value::Number(n) => n
             .as_u64()
@@ -1203,7 +1203,7 @@ fn arg_u64(args: &Value, key: &str) -> Option<u64> {
 /// A date argument in seconds: `YYYY-MM-DD` (or `YYYYMMDD`, `YYYY-MM`, `YYYY`, an ISO time, Unix
 /// seconds or milliseconds). With `end`, a bare date means the end of that period: `to: 2024-03-31`
 /// includes the 31st.
-fn parse_date(raw: &str, end: bool) -> Result<i64, String> {
+pub(crate) fn parse_date(raw: &str, end: bool) -> Result<i64, String> {
     use chrono::{Months, NaiveDate, NaiveDateTime};
     let text = raw.trim();
     let bad = || format!("Could not read the date \"{text}\". Use YYYY-MM-DD.");

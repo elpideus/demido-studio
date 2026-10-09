@@ -30,7 +30,29 @@ declare module '@mathieuc/tradingview' {
     [key: string]: unknown;
   }
 
+  /** A study period: `$time` (seconds), then `plot_N` values (1e100 is "na"). */
+  export type StudyPeriod = Record<string, number>;
+
+  export interface StudyGraphic {
+    labels: Record<string, unknown>[];
+    lines: Record<string, unknown>[];
+    boxes: Record<string, unknown>[];
+    tables: Record<string, unknown>[];
+    raw(): Record<string, unknown>;
+  }
+
+  export interface Study {
+    /** Newest first. */
+    readonly periods: StudyPeriod[];
+    readonly graphic: StudyGraphic;
+    onReady(cb: () => void): void;
+    onUpdate(cb: (changes: string[]) => void): void;
+    onError(cb: (...err: unknown[]) => void): void;
+    remove(): void;
+  }
+
   export interface ChartSession {
+    Study: new (indicator: import('@mathieuc/tradingview/src/classes/PineIndicator.js').default) => Study;
     readonly periods: PricePeriod[];
     readonly infos: MarketInfos;
     setMarket(symbol: string, options?: { timeframe?: string; range?: number; to?: number; session?: string }): void;
@@ -104,4 +126,18 @@ declare module '@mathieuc/tradingview/src/miscRequests.js' {
     [key: string]: unknown;
   };
   export default miscRequests;
+}
+
+declare module '@mathieuc/tradingview/src/classes/PineIndicator.js' {
+  export default class PineIndicator {
+    constructor(options: {
+      pineId: string;
+      pineVersion: string;
+      description: string;
+      shortDescription: string;
+      inputs: Record<string, unknown>;
+      plots: Record<string, string>;
+      script: string;
+    });
+  }
 }

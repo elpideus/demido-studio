@@ -1,7 +1,7 @@
 //! The assistant's tools.
 //!
 //! Tools come in groups the person can switch on and off from the composer's Tools menu:
-//! market data, Python, the terminal, workspace files and skill authoring. Every call runs in the
+//! market data, Pine scripts, Python, the terminal, workspace files and skill authoring. Every call runs in the
 //! context of one chat, whose workspace folder holds the files tools produce (market data CSVs,
 //! charts, downloads).
 
@@ -9,6 +9,7 @@ mod changes;
 mod command;
 mod files;
 mod market;
+mod pine;
 mod python;
 mod skills;
 
@@ -141,6 +142,62 @@ const TOOLS: &[ToolDef] = &[
         approval: false,
     },
     ToolDef {
+        name: "chart_add_indicator",
+        group: "market",
+        description: "Put an indicator on the user's chart in the Market window (it opens if closed): a script from Demido's Pine library or a TradingView indicator (STD;RSI, the user's USER;… scripts, community PUB;… scripts). TradingView computes it, so it shows the same values as on tradingview.com. Optionally switches the chart's symbol and timeframe first.",
+        parameters: pine::add_indicator_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "chart_draw",
+        group: "market",
+        description: "Draw on the user's chart in the Market window, without writing an indicator: horizontal levels, trend lines, boxes (zones), labels, markers on bars, and series of values. Use it to show what you found (support and resistance, signals, a computed line) or for anything temporary. The set has a name in the chart's legend; drawing again with the same name replaces it, and an empty items list removes it.",
+        parameters: pine::draw_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "pine_list",
+        group: "pine",
+        description: "List the Pine scripts in Demido's library (the indicators written in Demido), and optionally the user's own scripts saved on TradingView.",
+        parameters: pine::list_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "pine_read",
+        group: "pine",
+        description: "Read a Pine script from Demido's library: its source with line numbers, and TradingView's compile errors and warnings with their lines. Or import one from TradingView first (the user's own scripts, or open-source community scripts) to read and change it. A long script comes in parts: the answer says which start_line reads on.",
+        parameters: pine::read_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "pine_save",
+        group: "pine",
+        description: "Save a whole Pine Script indicator in Demido's library (new, or replacing a script's source by id) and compile it with TradingView's compiler: returns the compile errors and warnings with their lines, or the script's inputs and plots. Nothing is saved to TradingView. Write Pine Script v6 (//@version=6, indicator(…)); strategies and libraries can be saved but not run. To change part of a script, use pine_edit.",
+        parameters: pine::save_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "pine_edit",
+        group: "pine",
+        description: "Change part of a library script: replaces old_string (copied from pine_read) with new_string, saves it and compiles it with TradingView's compiler, answering with the errors and warnings left (with their lines) and the changed lines. Use it to fix errors and warnings one change at a time. Nothing is saved to TradingView.",
+        parameters: pine::edit_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "pine_test",
+        group: "pine",
+        description: "Run a Pine script on real bars of a symbol and timeframe (needs a TradingView sign-in), the way TradingView's chart runs it: returns compile or runtime errors with their lines, or each plot's latest values, ranges and signals, what it drew, and a CSV in the workspace with every bar's OHLCV and plot values. Test a library script by its id (save new code with pine_save first), or a TradingView indicator. Inputs can be changed for the run.",
+        parameters: pine::test_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "pine_publish",
+        group: "pine",
+        description: "Save a library script to the user's TradingView account, so they can use it on tradingview.com (My scripts, Pine Editor). The first time it creates a new script there; afterwards it saves the next version of that same script. It must compile. The user is asked first.",
+        parameters: pine::publish_schema,
+        approval: false,
+    },
+    ToolDef {
         name: "run_python",
         group: "python",
         description: "Run Python 3 in the chat's workspace folder (numpy, pandas, matplotlib and requests are installed). Use it to analyse data files, compute statistics or draw charts. Print what you need to see. Charts saved as PNG files are shown to the user. Every run is a fresh process.",
@@ -204,6 +261,11 @@ const GROUPS: &[(&str, &str, &str)] = &[
         "Market data",
         "Live prices from TradingView and history from Dukascopy",
     ),
+    (
+        "pine",
+        "Pine scripts",
+        "Write and test TradingView indicators, and save them to your TradingView account",
+    ),
     ("python", "Python", "Run analysis code in the chat's workspace"),
     ("terminal", "Terminal", "Run the programs installed on this computer"),
     (
@@ -220,7 +282,7 @@ const GROUPS: &[(&str, &str, &str)] = &[
 
 fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
     match group {
-        "market" => {
+        "market" | "pine" => {
             let s = state.market.status();
             (s.available, s.reason)
         }
@@ -310,6 +372,29 @@ pub fn describe(name: &str, args: &Value) -> String {
             symbol if symbol.is_empty() => "Checking stored market data".into(),
             symbol => format!("Checking stored data for {symbol}"),
         },
+        "chart_add_indicator" => match s("symbol") {
+            symbol if symbol.is_empty() => format!("Adding {} to the chart", s("script")),
+            symbol => format!("Adding {} to the {symbol} chart", s("script")),
+        },
+        "chart_draw" => {
+            if args["items"].as_array().is_some_and(|a| a.is_empty()) {
+                format!("Removing the drawings “{}”", s("name"))
+            } else {
+                format!("Drawing “{}” on the chart", s("name"))
+            }
+        }
+        "pine_list" => "Listing Pine scripts".into(),
+        "pine_read" => match s("tradingview_id") {
+            tv if tv.is_empty() => "Reading a Pine script".into(),
+            _ => "Importing a Pine script from TradingView".into(),
+        },
+        "pine_save" => match pine_title(&s("source")) {
+            Some(title) => format!("Saving the Pine script “{title}”"),
+            None => "Saving a Pine script".into(),
+        },
+        "pine_edit" => "Editing a Pine script".into(),
+        "pine_test" => format!("Testing a Pine script on {} {}", s("symbol"), s("timeframe")),
+        "pine_publish" => "Saving a Pine script to TradingView".into(),
         "run_python" => {
             if s("file").is_empty() {
                 "Running Python".into()
@@ -342,6 +427,14 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "market_history" => market::history(ctx, &args).await,
         "market_download" => market::download(ctx, &args).await,
         "market_data_status" => market::data_status(ctx, &args).await,
+        "chart_add_indicator" => pine::add_indicator(ctx, &args).await,
+        "chart_draw" => pine::draw(ctx, &args).await,
+        "pine_list" => pine::list(ctx, &args).await,
+        "pine_read" => pine::read(ctx, &args).await,
+        "pine_save" => pine::save(ctx, &args).await,
+        "pine_edit" => pine::edit(ctx, &args).await,
+        "pine_test" => pine::test(ctx, &args).await,
+        "pine_publish" => pine::publish(ctx, &args).await,
         "run_python" => python::run(ctx, &args).await,
         "run_command" => command::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
@@ -353,6 +446,19 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         other => Err(format!("There is no tool called {other}.")),
     };
     result.unwrap_or_else(ToolOutput::error)
+}
+
+/// The title a Pine source declares (`indicator("Title", …)`), for labels.
+fn pine_title(source: &str) -> Option<String> {
+    let line = source
+        .lines()
+        .map(str::trim_start)
+        .find(|l| ["indicator", "strategy", "library", "study"].iter().any(|k| l.starts_with(k)))?;
+    let start = line.find(['"', '\''])?;
+    let quote = line[start..].chars().next()?;
+    let rest = &line[start + 1..];
+    let title = &rest[..rest.find(quote)?];
+    Some(title.trim().to_string()).filter(|t| !t.is_empty())
 }
 
 /// Resolves a workspace-relative path, refusing anything that would leave the workspace.
@@ -425,6 +531,13 @@ mod tests {
         let c = clip(&long, 60);
         assert!(c.starts_with("aaaa") && c.ends_with("bbbb") && c.contains("omitted"));
         assert_eq!(clip("short", 60), "short");
+    }
+
+    #[test]
+    fn pine_titles_label_the_save() {
+        assert_eq!(pine_title("//@version=6\nindicator(\"RSI cross\", overlay=true)").as_deref(), Some("RSI cross"));
+        assert_eq!(pine_title("strategy('Edge')").as_deref(), Some("Edge"));
+        assert_eq!(pine_title("plot(close)"), None);
     }
 
     #[test]

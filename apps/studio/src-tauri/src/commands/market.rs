@@ -74,6 +74,146 @@ pub async fn market_close_stream(state: St<'_>, stream_id: String) -> CmdResult<
     Ok(())
 }
 
+/// Loads more history into a live chart's TradingView session, so its indicators reach further back.
+#[tauri::command]
+pub async fn market_extend_stream(state: St<'_>, stream_id: String, bars: u32) -> CmdResult<Value> {
+    state
+        .market
+        .call("stream.extend", json!({"id": stream_id, "bars": bars}), Duration::from_secs(10))
+        .await
+        .map_err(rpc)
+}
+
+/// The Indicators menu: the user's TradingView Favorites, own scripts, and the built-ins.
+#[tauri::command]
+pub async fn market_indicator_catalog(state: St<'_>, refresh: Option<bool>) -> CmdResult<Value> {
+    state
+        .market
+        .call(
+            "indicators.catalog",
+            json!({"refresh": refresh.unwrap_or(false)}),
+            Duration::from_secs(60),
+        )
+        .await
+        .map_err(rpc)
+}
+
+/// Community scripts on TradingView matching `query`.
+#[tauri::command]
+pub async fn market_indicator_search(state: St<'_>, query: String) -> CmdResult<Value> {
+    state
+        .market
+        .call("indicators.search", json!({"query": query}), Duration::from_secs(30))
+        .await
+        .map_err(rpc)
+}
+
+/// The user's saved TradingView chart layouts.
+#[tauri::command]
+pub async fn market_indicator_layouts(state: St<'_>) -> CmdResult<Value> {
+    state
+        .market
+        .call("indicators.layouts", json!({}), Duration::from_secs(30))
+        .await
+        .map_err(rpc)
+}
+
+/// The indicators saved in one TradingView chart layout.
+#[tauri::command]
+pub async fn market_indicator_layout(state: St<'_>, layout_id: String) -> CmdResult<Value> {
+    state
+        .market
+        .call("indicators.layout", json!({"id": layout_id}), Duration::from_secs(30))
+        .await
+        .map_err(rpc)
+}
+
+/// Runs a TradingView indicator on a live chart; its values arrive as `market://event` updates.
+#[tauri::command]
+pub async fn market_indicator_add(
+    state: St<'_>,
+    stream_id: String,
+    script: String,
+    version: Option<String>,
+    setup: Option<Value>,
+) -> CmdResult<Value> {
+    state
+        .market
+        .call(
+            "indicator.add",
+            json!({"stream": stream_id, "script": script, "version": version, "state": setup.unwrap_or(Value::Null)}),
+            Duration::from_secs(60),
+        )
+        .await
+        .map_err(rpc)
+}
+
+#[tauri::command]
+pub async fn market_indicator_remove(state: St<'_>, indicator_id: String) -> CmdResult<()> {
+    let _ = state
+        .market
+        .call("indicator.remove", json!({"id": indicator_id}), Duration::from_secs(10))
+        .await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pine scripts: Demido's library (on this computer) and TradingView's compiler.
+
+const PINE_LOCAL: Duration = Duration::from_secs(30);
+const PINE_FACADE: Duration = Duration::from_secs(60);
+
+/// The Pine library, most recently changed first (no sources). Changes arrive as
+/// `market://event` `pine.changed` events.
+#[tauri::command]
+pub async fn market_pine_list(state: St<'_>) -> CmdResult<Value> {
+    state.market.call("pine.list", json!({}), PINE_LOCAL).await.map_err(rpc)
+}
+
+#[tauri::command]
+pub async fn market_pine_get(state: St<'_>, id: String) -> CmdResult<Value> {
+    state.market.call("pine.get", json!({"id": id}), PINE_LOCAL).await.map_err(rpc)
+}
+
+/// Creates a script (no `id`) or replaces one's source.
+#[tauri::command]
+pub async fn market_pine_save(state: St<'_>, id: Option<String>, source: String, name: Option<String>) -> CmdResult<Value> {
+    state
+        .market
+        .call("pine.save", json!({"id": id, "source": source, "name": name}), PINE_LOCAL)
+        .await
+        .map_err(rpc)
+}
+
+#[tauri::command]
+pub async fn market_pine_delete(state: St<'_>, id: String) -> CmdResult<()> {
+    state.market.call("pine.delete", json!({"id": id}), PINE_LOCAL).await.map_err(rpc)?;
+    Ok(())
+}
+
+/// Compiles with TradingView's compiler without saving anything.
+#[tauri::command]
+pub async fn market_pine_check(state: St<'_>, source: String) -> CmdResult<Value> {
+    state.market.call("pine.check", json!({"source": source}), PINE_FACADE).await.map_err(rpc)
+}
+
+/// Saves a library script to the user's TradingView account; the person asked for it in the
+/// Pine Editor and confirmed.
+#[tauri::command]
+pub async fn market_pine_publish(state: St<'_>, id: String, name: Option<String>) -> CmdResult<Value> {
+    state
+        .market
+        .call("pine.publish", json!({"id": id, "name": name}), PINE_FACADE)
+        .await
+        .map_err(rpc)
+}
+
+/// Copies a TradingView script's source into the library.
+#[tauri::command]
+pub async fn market_pine_import(state: St<'_>, script: String) -> CmdResult<Value> {
+    state.market.call("pine.import", json!({"script": script}), PINE_FACADE).await.map_err(rpc)
+}
+
 // ---------------------------------------------------------------------------------------------
 // The market data store: reads, downloads that fill it, and what it holds. Times are seconds;
 // results pass through as the service sends them (see `sidecars/market/src/protocol.ts`).

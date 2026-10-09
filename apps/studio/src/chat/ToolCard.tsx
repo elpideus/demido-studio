@@ -3,14 +3,19 @@ import {
   Check,
   ChevronRight,
   CircleSlash,
+  CloudUpload,
   Code2,
   Database,
   Download,
+  FileCode,
+  FilePen,
   FileSearch,
   FileText,
+  FlaskConical,
   LineChart,
   Search,
   ShieldQuestion,
+  SquareFunction,
   Sparkles,
   SquareTerminal,
   Terminal,
@@ -43,6 +48,24 @@ const ICONS: Record<string, LucideIcon> = {
   create_skill: Sparkles,
   read_skill_file: Sparkles,
 };
+
+type DownloadCard = Extract<ToolApproval, { kind: 'download' }>;
+type PinePublishCard = Extract<ToolApproval, { kind: 'pinePublish' }>;
+
+/** Answers an approval; the tool keeps waiting if the answer did not arrive, so the choices must stay usable. */
+function useDecide(message: Message) {
+  const [busy, setBusy] = useState(false);
+  const decide = async (decision: ApprovalDecision) => {
+    setBusy(true);
+    try {
+      await api.resolveApproval(message.id, decision);
+    } catch (e) {
+      setBusy(false);
+      toast.error('Could not answer', errorText(e));
+    }
+  };
+  return { busy, decide };
+}
 
 function Approval({ message, call }: { message: Message; call: ToolCall }) {
   const [busy, setBusy] = useState(false);
@@ -84,8 +107,8 @@ function Approval({ message, call }: { message: Message; call: ToolCall }) {
 
 /** A download estimated to take longer than the person's limit: download it, or not. It is 1-minute
  *  candles, which every timeframe is built from, so there is no smaller choice to offer. */
-function DownloadApproval({ message, card }: { message: Message; card: ToolApproval }) {
-  const [busy, setBusy] = useState(false);
+function DownloadApproval({ message, card }: { message: Message; card: DownloadCard }) {
+  const { busy, decide } = useDecide(message);
   // A card this UI cannot read still gets the choices, just without the estimate.
   const known = typeof card.plan?.requests === 'number';
   const decide = async (decision: ApprovalDecision) => {
@@ -114,6 +137,47 @@ function DownloadApproval({ message, card }: { message: Message; card: ToolAppro
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
           Don’t download
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Saving a Pine script to the person's TradingView account, which changes the account: once, always, or not. */
+function PinePublishApproval({ message, card }: { message: Message; card: PinePublishCard }) {
+  const { busy, decide } = useDecide(message);
+  const [showSource, setShowSource] = useState(false);
+  return (
+    <div className={styles.approval}>
+      <div className={styles.approvalTitle}>
+        <CloudUpload size={16} aria-hidden />
+        The assistant wants to save a Pine script to your TradingView account
+      </div>
+      <div className={styles.plan}>
+        <div className={styles.planLine}>
+          {card.name} · {card.lines} lines · {card.update ? 'a new version of the script saved before' : 'a new script'}
+        </div>
+        <div className={styles.planAlt}>
+          It stays private, under My scripts in TradingView’s Indicators menu. Nothing is published to the community.
+        </div>
+      </div>
+      {typeof card.source === 'string' && (
+        <>
+          <button type="button" className={styles.linkish} onClick={() => setShowSource(!showSource)}>
+            {showSource ? 'Hide the script' : 'Show the script'}
+          </button>
+          {showSource && <pre className={cx(styles.code, styles.source, 'selectable')}>{card.source}</pre>}
+        </>
+      )}
+      <div className={styles.approvalActions}>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
+          Save once
+        </Button>
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('always')}>
+          Always allow
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
+          Don’t save
         </Button>
       </div>
     </div>
@@ -176,6 +240,8 @@ export function ToolCard({ messageId, call, result, orphaned, flat }: Props) {
         result &&
         (tr?.approval?.kind === 'download' ? (
           <DownloadApproval message={result} card={tr.approval} />
+        ) : tr?.approval?.kind === 'pinePublish' ? (
+          <PinePublishApproval message={result} card={tr.approval} />
         ) : (
           <Approval message={result} call={call} />
         ))}

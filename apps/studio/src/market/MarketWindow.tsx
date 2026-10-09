@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CandlestickChart,
+  Code2,
   Database,
   Download,
   History,
@@ -9,6 +10,7 @@ import {
   Radio,
   RefreshCw,
   Search,
+  SquareFunction,
   UserRound,
 } from 'lucide-react';
 import {
@@ -30,6 +32,10 @@ import { formatPercent, formatPrice } from '@/lib/format';
 import type {
   Bar,
   ChartInfo,
+  ChartLayout,
+  ChartLayoutStudy,
+  IndicatorEntry,
+  IndicatorLook,
   MarketBarsPage,
   MarketGap,
   MarketJob,
@@ -39,10 +45,12 @@ import type {
   MarketSource,
   MarketSpan,
   MarketStoreUpdate,
+  PineSummary,
   Quote,
   SymbolMatch,
 } from '@/lib/types';
 import { useMarket } from '@/stores/market';
+import { usePine } from '@/stores/pine';
 import { toast } from '@/stores/toasts';
 import { type WindowState, useWindows } from '@/stores/windows';
 import { TabbedLayout, type TabSpec } from '@/wm/TabbedLayout';
@@ -58,14 +66,38 @@ import {
   spanOf,
   upsertJob,
 } from './chartData';
+import {
+  DRAWING_KEY,
+  drawingKey,
+  drawingMeta,
+  drawingView,
+  drawingsOf,
+  drawnOn,
+  withoutDrawing,
+} from './chartCommands';
 import { DataTab } from './DataTab';
 import { DownloadPopup } from './DownloadPopup';
 import { DownloadProgress, SOURCE_NAMES } from './DownloadProgress';
-import { PriceChart, type PriceChartHandle } from './PriceChart';
+import { IndicatorMenu } from './IndicatorMenu';
+import { IndicatorSettings } from './IndicatorSettings';
+import { shownOn } from './look';
+import { MIN_HEIGHT as PINE_MIN_HEIGHT, PineEditor } from './PineEditor';
+import { PriceChart, type IndicatorAction, type IndicatorView, type PriceChartHandle } from './PriceChart';
+import {
+  changedInputs,
+  fromEntry,
+  fromLayout,
+  fromPine,
+  pineId,
+  savedIndicators,
+  type SavedIndicator,
+} from './savedIndicators';
+import { useIndicators } from './useIndicators';
 import styles from './MarketWindow.module.css';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'] as const;
 type Tf = (typeof TIMEFRAMES)[number];
+const TF_OPTIONS = TIMEFRAMES.map((tf) => ({ value: tf, label: tf === '1d' ? '1D' : tf === '1w' ? '1W' : tf }));
 const TF_SECONDS: Record<Tf, number> = {
   '1m': 60,
   '5m': 300,
@@ -245,6 +277,11 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
   const [edgePos, setEdgePos] = useState<{ x: number; y: number } | null>(null);
   const [updating, setUpdating] = useState(false);
   const [reload, setReload] = useState(0);
+  // The open live stream, which TradingView's indicators run on.
+  const [streamId, setStreamId] = useState<string | null>(null);
+  const [indicatorMenu, setIndicatorMenu] = useState(false);
+  const [settingsKey, setSettingsKey] = useState<string | null>(null);
+  const indicatorButton = useRef<HTMLButtonElement>(null);
 
   const stream = useRef<string | null>(null);
   const earliest = useRef<number | null>(null);
@@ -308,6 +345,7 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
     let cancelled = false;
     let opened: string | null = null;
     setMode('loading');
+    setStreamId(null);
     setError(null);
     setQuote(null);
     setStale(false);
@@ -338,6 +376,7 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
         // Whether older bars are stored is only known once asked.
         more.current = 'cached';
         showBars(res.bars, spanOf(res.bars, 'tradingview'));
+        setStreamId(res.id);
         setMode('live');
         api.marketQuote([symbol]).then(
           ([q]) => !cancelled && q && !q.error && setQuote(q),
@@ -438,6 +477,156 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
     openPopup();
   }, [openPopup]);
 
+  // The window's indicators: TradingView computes them on the live stream; on stored history the
+  // classics are computed here, the rest wait for a sign-in. A library script runs again whenever
+  // it is saved (here or by the assistant): its revision is part of what it runs with.
+  const pineScripts = usePine((s) => s.scripts);
+  const saved = useMemo(() => {
+    const revisions = new Map(pineScripts.map((p) => [p.id, p.revision]));
+    return savedIndicators(win.props.indicators).map((s) => {
+      const id = pineId(s.script);
+      const revision = id ? revisions.get(id) : undefined;
+      return revision === undefined ? s : { ...s, revision };
+    });
+  }, [win.props.indicators, pineScripts]);
+  const savedRef = useRef(saved);
+  savedRef.current = saved;
+  const context = mode === 'live' && streamId ? `tv:${streamId}` : mode === 'history' ? 'local' : null;
+  const indicators = useIndicators(saved, context, chart);
+  const indicatorsRef = useRef(indicators);
+  indicatorsRef.current = indicators;
+
+  const saveIndicators = (next: SavedIndicator[]) => {
+    // Kept in the ref too, so two changes before the next render both count. The revision comes
+    // from the library, not from the props.
+    savedRef.current = next;
+    setProps(win.id, { indicators: next.map(({ revision: _revision, ...s }) => s) });
+  };
+
+  // The assistant's drawings on this market, drawn like indicators computed from the chart's bars.
+  const drawings = useMemo(
+    () => drawingsOf(win.props.drawings).filter((d) => drawnOn(d, symbol)),
+    [win.props.drawings, symbol],
+  );
+  const views = useMemo((): IndicatorView[] => {
+    const looks = new Map(saved.map((s) => [s.key, s.look]));
+    return [
+      ...indicators.views.map((v) => (shownOn(looks.get(v.key), timeframe) ? v : { ...v, offTimeframe: true })),
+      ...drawings.map((d) => ({
+        key: drawingKey(d.name),
+        name: d.name,
+        status: 'ready' as const,
+        hidden: !!d.hidden,
+        local: true,
+        drawing: true,
+      })),
+    ];
+  }, [indicators.views, saved, drawings, timeframe]);
+  const drawn = useRef(new Map<string, string>());
+  useEffect(() => {
+    const now = new Map<string, string>();
+    for (const d of drawings) {
+      const key = drawingKey(d.name);
+      const what = JSON.stringify([d.pane, d.items]);
+      now.set(key, what);
+      if (drawn.current.get(key) === what) continue;
+      chart.current?.showIndicator(key, drawingMeta(d), true, (_meta, bars) => drawingView(d, bars.map((b) => b.t)));
+    }
+    drawn.current = now;
+  }, [drawings]);
+
+  const setDrawings = (change: (list: ReturnType<typeof drawingsOf>) => ReturnType<typeof drawingsOf>) => {
+    const current = useWindows.getState().windows.find((w) => w.id === win.id)?.props.drawings;
+    setProps(win.id, { drawings: change(drawingsOf(current)) });
+  };
+
+  // The Pine Editor: open or not, on which script, how tall (all kept in the window's props).
+  const pineOpen = win.props.pineOpen === true;
+  const pineScript = typeof win.props.pineScript === 'string' ? win.props.pineScript : null;
+  const pineHeight =
+    typeof win.props.pineHeight === 'number' ? Math.max(PINE_MIN_HEIGHT, win.props.pineHeight) : 300;
+  const openPine = (id: string | null) => setProps(win.id, { pineOpen: true, pineScript: id });
+  const pineOnChart = useMemo(
+    () => new Set(saved.map((s) => pineId(s.script)).filter((id): id is string => id !== null)),
+    [saved],
+  );
+
+  const addPine = (script: PineSummary) => {
+    const s = fromPine(script, new Set(savedRef.current.map((i) => i.key)));
+    indicators.markAdded([s.key]);
+    saveIndicators([...savedRef.current, s]);
+  };
+
+  const openSource = (entry: IndicatorEntry) => {
+    api.marketPineImport(entry.id).then(
+      ({ script, updated }) => {
+        usePine.getState().changed(script.id, script);
+        openPine(script.id);
+        if (!updated) {
+          toast.info(
+            `${script.name} has changes made here`,
+            'They are kept: the version on TradingView was not loaded over them.',
+          );
+        }
+      },
+      (e) => toast.error(`Could not open ${entry.name}`, errorText(e)),
+    );
+  };
+
+  const addIndicator = (entry: IndicatorEntry) => {
+    const s = fromEntry(entry, new Set(savedRef.current.map((i) => i.key)));
+    indicators.markAdded([s.key]);
+    saveIndicators([...savedRef.current, s]);
+  };
+
+  const importLayout = (layout: ChartLayout, studies: ChartLayoutStudy[], replace: boolean) => {
+    const taken = new Set(replace ? [] : savedRef.current.map((i) => i.key));
+    const list = studies.map((study) => {
+      const s = fromLayout(study, taken);
+      taken.add(s.key);
+      return s;
+    });
+    indicators.markAdded(list.map((s) => s.key));
+    saveIndicators(replace ? list : [...savedRef.current, ...list]);
+    setIndicatorMenu(false);
+    toast.success(
+      `${list.length === 1 ? 'An indicator' : `${list.length} indicators`} from ${layout.name}`,
+      replace ? "They replace the chart's indicators." : undefined,
+    );
+  };
+
+  const indicatorAction = (key: string, action: IndicatorAction) => {
+    if (key.startsWith(DRAWING_KEY)) {
+      const name = key.slice(DRAWING_KEY.length);
+      if (action === 'remove') setDrawings((list) => withoutDrawing(list, name));
+      else if (action === 'toggle') {
+        setDrawings((list) => list.map((d) => (d.name === name ? { ...d, hidden: d.hidden ? undefined : true } : d)));
+      }
+      return;
+    }
+    if (action === 'settings') setSettingsKey(key);
+    else if (action === 'retry') indicators.retry(key);
+    else if (action === 'remove') saveIndicators(savedRef.current.filter((s) => s.key !== key));
+    else saveIndicators(savedRef.current.map((s) => (s.key === key ? { ...s, hidden: !s.hidden } : s)));
+  };
+
+  const applySettings = (key: string, values: Record<string, unknown>, look: IndicatorLook | undefined) => {
+    const meta = indicators.meta(key);
+    if (!meta) return;
+    saveIndicators(
+      savedRef.current.map((s) => {
+        if (s.key !== key) return s;
+        // Inputs the settings did not show keep their saved value; the shown ones are kept when
+        // they differ from the script's default.
+        const kept = Object.entries(s.setup.inputs ?? {}).filter(([id]) => !(id in values));
+        const inputs = { ...Object.fromEntries(kept), ...changedInputs(meta.inputs, values) };
+        const { inputs: _old, ...rest } = s.setup;
+        const { look: _look, ...base } = s;
+        return { ...base, setup: Object.keys(inputs).length ? { ...rest, inputs } : rest, ...(look ? { look } : {}) };
+      }),
+    );
+  };
+
   const loadMore = useCallback(async () => {
     if (loadingMore.current || more.current !== 'cached' || earliest.current === null) return;
     const gen = generation.current;
@@ -452,6 +641,9 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
       if (added > 0) {
         earliest.current = page.bars.reduce((min, b) => Math.min(min, b.t), edge);
         setOldest(earliest.current);
+        // TradingView's indicators only know the stream's bars: load as many more into it.
+        const id = stream.current;
+        if (id && indicatorsRef.current.onTradingView()) void api.marketExtendStream(id, added).catch(() => undefined);
       }
       // "cached" with nothing new would be asked for again forever.
       showEdge({ more: added === 0 && page.more === 'cached' ? 'none' : page.more, gap: page.gap });
@@ -558,6 +750,7 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
   // Live updates for the open stream (reopened if TradingView drops it), store changes and downloads.
   const handle = useRef<(e: MarketEvent) => void>(() => undefined);
   handle.current = (e) => {
+    if (indicators.onEvent(e)) return;
     if (e.event === 'stream.update' && e.params.id === stream.current) {
       chart.current?.updateBar(e.params.bar);
       showLast(e.params.bar);
@@ -632,15 +825,45 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
     isBehind(last.t, TF_SECONDS[timeframe], Math.floor(Date.now() / 1000));
 
   return (
-    <div className={cx(styles.window, hidden && styles.hidden)}>
+    <div className={cx(styles.window, hidden && styles.hidden)} data-chart-window>
       <div className={styles.toolbar}>
         <SymbolSearch onPick={(s) => setProps(win.id, { symbol: s })} />
         <SegmentedControl
           size="sm"
           value={timeframe}
           onChange={(tf) => setProps(win.id, { timeframe: tf })}
-          options={TIMEFRAMES.map((tf) => ({ value: tf, label: tf === '1d' ? '1D' : tf === '1w' ? '1W' : tf }))}
+          options={TF_OPTIONS}
         />
+        <Button
+          ref={indicatorButton}
+          size="sm"
+          variant="ghost"
+          icon={SquareFunction}
+          onClick={() => setIndicatorMenu((open) => !open)}
+        >
+          Indicators
+        </Button>
+        <IndicatorMenu
+          open={indicatorMenu}
+          onClose={() => setIndicatorMenu(false)}
+          anchorRef={indicatorButton}
+          loggedIn={loggedIn}
+          onAdd={addIndicator}
+          onImport={importLayout}
+          onAddPine={addPine}
+          onEditPine={openPine}
+          onOpenSource={openSource}
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={Code2}
+          aria-pressed={pineOpen}
+          className={cx(pineOpen && styles.toolbarActive)}
+          onClick={() => setProps(win.id, { pineOpen: !pineOpen })}
+        >
+          Pine Editor
+        </Button>
         <span className={styles.flex} />
         {showing && lead && (
           <button
@@ -714,7 +937,22 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
         )}
       </div>
       <div className={styles.body}>
-        <PriceChart ref={chart} pricescale={pricescale} onNeedMore={needMore} onEdgeAnchor={trackEdge} />
+        <PriceChart
+          ref={chart}
+          pricescale={pricescale}
+          onNeedMore={needMore}
+          onEdgeAnchor={trackEdge}
+          indicators={views}
+          onIndicator={indicatorAction}
+        />
+        <IndicatorSettings
+          open={settingsKey !== null}
+          meta={settingsKey ? indicators.meta(settingsKey) : undefined}
+          look={settingsKey ? saved.find((s) => s.key === settingsKey)?.look : undefined}
+          timeframes={TF_OPTIONS}
+          onClose={() => setSettingsKey(null)}
+          onApply={(values, look) => settingsKey && applySettings(settingsKey, values, look)}
+        />
         {popup && showing && (
           <DownloadPopup
             anchor={edgePos}
@@ -767,6 +1005,19 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
           </div>
         )}
       </div>
+      {pineOpen && (
+        <PineEditor
+          scriptId={pineScript}
+          height={pineHeight}
+          loggedIn={loggedIn}
+          onChart={pineOnChart}
+          onOpen={openPine}
+          onResize={(h) => setProps(win.id, { pineHeight: h })}
+          onClose={() => setProps(win.id, { pineOpen: false })}
+          onAddToChart={addPine}
+          onDeleted={(id) => saveIndicators(savedRef.current.filter((s) => pineId(s.script) !== id))}
+        />
+      )}
       {mode === 'history' && status?.available && (
         <div className={styles.banner}>
           {stale

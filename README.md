@@ -64,6 +64,10 @@ click in Settings, Updates.
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |
+| Indicators on the chart, computed by TradingView: your Favorites and your own scripts, the indicators of your saved TradingView chart layouts, TradingView's built-ins and community scripts; signed out, SMA, EMA, Bollinger Bands and RSI are computed on your computer | Chart tab, **Indicators** |
+| Each indicator's settings as in TradingView: Inputs, Style (colors, opacity, widths, line styles, plot types, levels, precision) and Visibility (per timeframe) | The gear on the indicator's legend |
+| Pine scripts: write, compile and run your own, or open one of your TradingView scripts; save them to your TradingView account to use them on tradingview.com | Chart tab, **Pine Editor**; Indicators, Pine scripts |
+| The assistant writes and tests Pine indicators, puts indicators on your chart, and draws on it (levels, zones, markers) | The chat |
 | What history is stored per market (one timeline: every timeframe reads the same 1-minute history), where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
 | History downloads with a progress bar you can pause and resume, from a chart, the Data tab or the chat | Chart, Data tab, chat cards |
 | Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, General |
@@ -83,6 +87,33 @@ download more where it ends: one more month or year than the stored 1-minute his
 from a date, or all of it, each up to today, so one download leaves the whole stretch stored. Where
 TradingView's candles are stored they are shown, and Dukascopy's fill the rest. The assistant
 downloads what it needs the same way, and asks first when the estimate is longer than your limit.
+
+**Indicators.** Signed in, the chart's indicators are TradingView's own: the Indicators menu lists
+your Favorites and your scripts as TradingView's Indicators menu does, its built-ins, and the
+community library (search). It also brings over the indicators of a chart layout saved on your
+account, with their settings and colors. TradingView computes them on the live chart, so their
+values match tradingview.com, and your plan's limit of indicators per chart applies. Lines,
+histograms, shapes, and the labels, lines, boxes and tables scripts draw are shown, each pane
+with its own legend, eye, settings and remove buttons. The settings dialog has TradingView's
+three tabs: Inputs, Style (each plot's visibility, color and opacity, width, line style and plot
+type, the levels, the value precision and what the price scale and status line show) and
+Visibility (the timeframes it shows on). Fills, background and bar colors are not drawn yet, and
+strategies are not supported. Signed out, SMA, EMA, Bollinger Bands and RSI are computed on your
+computer from the chart's bars with TradingView's formulas and settings. Other indicators stay
+listed until you sign in. Each chart window keeps its indicators across restarts.
+
+**Pine scripts.** The Pine Editor (Chart tab) writes Pine Script indicators kept in Demido's own
+library. TradingView compiles them as you type, with errors and warnings on their lines, and runs
+them on the chart like any other indicator (Ctrl+S saves, Ctrl+Enter adds to the chart). **Save
+to TradingView** puts a script on your TradingView account, private under My scripts, so it is in
+tradingview.com's Indicators menu and Pine Editor too; saving again updates the same script. Your
+own TradingView scripts open in the editor from the Indicators menu (a copy, for someone else's).
+The assistant uses the same library: it writes a script, reads TradingView's compiler errors
+and warnings, fixes them one change at a time (even in a long script, and with small local
+models), runs it on any market and timeframe to check its values (every bar's values go to a CSV in the
+workspace), and puts it on your chart. It asks before saving anything to your TradingView
+account. For a quick look that needs no indicator, it draws on the chart instead: levels, zones,
+trend lines, markers and labels, kept per market until you remove them from the legend.
 
 **Skills** are folders with a `SKILL.md` (a short frontmatter with `name` and `description`,
 then instructions) and any files it refers to. Enabled skills are part of every conversation.

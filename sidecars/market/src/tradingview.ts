@@ -86,7 +86,7 @@ export async function fetchUser(session: string, signature: string): Promise<TvU
   }
 }
 
-const WEBVIEW_USER_AGENT =
+export const WEBVIEW_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0';
 
 async function fetchUserAs(session: string, signature: string, userAgent: string | undefined): Promise<TvUser> {
@@ -182,6 +182,14 @@ export function clearCredentials(): void {
   credentials = null;
   username = null;
   emit('auth', { loggedIn: false });
+}
+
+/** The session cookies for requests to tradingview.com made on the user's behalf. */
+export async function sessionCookie(): Promise<string> {
+  if (authPending) await authPending.catch(() => undefined);
+  if (!credentials) throw new RpcError('NOT_LOGGED_IN', 'Not signed in to TradingView.');
+  const { session, signature } = credentials;
+  return signature ? `sessionid=${session};sessionid_sign=${signature}` : `sessionid=${session}`;
 }
 
 /** The connection being opened, shared by every request that arrives meanwhile. */
@@ -542,6 +550,41 @@ export async function candles(
 }
 
 /**
+ * Runs `job` on a chart session of its own, opened on the newest `count` bars and deleted after:
+ * a scratch chart for work that must not touch the live ones (testing a script, say).
+ */
+export async function withChart<T>(
+  symbol: string,
+  tf: Timeframe,
+  count: number,
+  job: (chart: ChartSession, info: ChartInfo, bars: Bar[]) => Promise<T>,
+): Promise<T> {
+  const c = await requireClient();
+  const chart = new c.Session.Chart();
+  try {
+    const ready = settle(chart, 30_000);
+    chart.setMarket(symbol.trim().toUpperCase(), {
+      timeframe: TIMEFRAMES[tf].tradingview,
+      range: Math.min(count, PAGE),
+    });
+    await ready.catch((error: unknown) => {
+      dropIfDead(c);
+      throw error;
+    });
+    const bars = barsOf(chart);
+    const info = infoOf(chart.infos, symbol);
+    keep(symbol, info, tf, bars, coverOf(bars, tf, nowSec()));
+    return await job(chart, info, bars);
+  } finally {
+    try {
+      chart.delete();
+    } catch {
+      // the socket is already gone
+    }
+  }
+}
+
+/**
  * Pages back through TradingView's whole history for one timeframe (a download job), storing every
  * page as it lands. Stops after two consecutive empty pages (the start of TradingView's history,
  * recorded as `reachedStart`) or when `signal` aborts. `to` starts the walk at an older bar; `stopAt` ends it
@@ -662,6 +705,33 @@ interface Stream {
 
 const streams = new Map<string, Stream>();
 let nextStream = 1;
+const closedListeners: ((id: string) => void)[] = [];
+
+/** The chart session of a live stream (indicators run on it), or null once it closed. */
+export function streamChart(id: string): ChartSession | null {
+  return streams.get(id)?.chart ?? null;
+}
+
+/** Calls `cb` with the id of every stream that closes, whatever the reason. */
+export function onStreamClosed(cb: (id: string) => void): void {
+  closedListeners.push(cb);
+}
+
+/** Most bars one chart session holds. */
+const STREAM_MAX_BARS = PAGE;
+
+/**
+ * Loads `count` more history bars into a live stream's session, so the indicators running on it
+ * reach further back. Returns how many it asked for (0 once the session is full).
+ */
+export function extendStream(id: string, count: number): number {
+  const stream = streams.get(id);
+  if (!stream) throw new RpcError('NO_STREAM', 'That chart is no longer live.');
+  const room = STREAM_MAX_BARS - stream.chart.periods.length;
+  const asked = Math.max(0, Math.min(count, room));
+  if (asked > 0) stream.chart.fetchMore(asked);
+  return asked;
+}
 
 /** Opens a live chart: returns the first bars; `stream.update` events carry every change. */
 export async function openStream(
@@ -737,6 +807,7 @@ export function closeStream(id: string, reason?: string): void {
   const stream = streams.get(id);
   if (!stream) return;
   streams.delete(id);
+  for (const cb of closedListeners) cb(id);
   try {
     stream.chart.delete();
   } catch {

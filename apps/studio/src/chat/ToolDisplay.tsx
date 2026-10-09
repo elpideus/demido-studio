@@ -4,11 +4,14 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
   ExternalLink,
+  FileCode,
   FileImage,
   FileSpreadsheet,
   FileText,
   FolderOpen,
+  PenLine,
   Sparkles,
+  SquareFunction,
   CircleStop,
   File as FileIcon,
 } from 'lucide-react';
@@ -400,6 +403,283 @@ function Files({ d }: { d: Display }) {
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Pine scripts and the chart
+
+/** A compiler message as the Pine tools place it: lines from 1, with the line's code. */
+interface PlacedMessage {
+  line?: number;
+  column?: number;
+  message: string;
+  code?: string;
+}
+
+const MAX_MESSAGES = 8;
+
+function openPineEditor(id: string) {
+  useWindows.getState().open('market', { tab: 'chart', pineOpen: true, pineScript: id });
+}
+
+function openChart() {
+  useWindows.getState().open('market', { tab: 'chart' });
+}
+
+function PineMessages({ list, kind }: { list: unknown; kind: 'error' | 'warning' }) {
+  const items = (Array.isArray(list) ? list : []) as PlacedMessage[];
+  if (!items.length) return null;
+  return (
+    <div className={styles.pineMessages}>
+      {items.slice(0, MAX_MESSAGES).map((m, i) => (
+        <div key={`${m.line}-${m.column}-${i}`} className={styles.pineMessage}>
+          <span className={kind === 'error' ? styles.error : styles.warning}>
+            {m.line ? `Line ${m.line}` : kind === 'error' ? 'Error' : 'Warning'}
+          </span>
+          <span className="selectable">{m.message}</span>
+          {m.code?.trim() && <code className={cx(styles.pineLine, 'selectable')}>{m.code.trim()}</code>}
+        </div>
+      ))}
+      {items.length > MAX_MESSAGES && <div className={styles.muted}>and {items.length - MAX_MESSAGES} more</div>}
+    </div>
+  );
+}
+
+/** A script of Demido's library, with a way to open it in the Pine Editor. */
+function PineHead({ script, note }: { script: PineSummary | undefined; note?: string }) {
+  if (!script) return null;
+  const facts = [
+    `${script.lines} lines`,
+    script.kind && script.kind !== 'indicator' ? script.kind : '',
+    note ?? '',
+  ].filter(Boolean);
+  return (
+    <div className={styles.skill}>
+      <FileCode size={16} className={styles.skillIcon} aria-hidden />
+      <div className={styles.skillText}>
+        <div className={styles.symbol}>{script.name}</div>
+        <div className={styles.muted}>{facts.join(' · ')}</div>
+      </div>
+      <Button size="sm" variant="secondary" iconRight={ExternalLink} onClick={() => openPineEditor(script.id)}>
+        Open in Pine Editor
+      </Button>
+    </div>
+  );
+}
+
+function PineList({ d }: { d: Display }) {
+  const scripts = (Array.isArray(d.scripts) ? d.scripts : []) as PineSummary[];
+  const tradingview = num(d.tradingview);
+  return (
+    <div className={styles.python}>
+      {scripts.length ? (
+        <div className={styles.table}>
+          {scripts.slice(0, 12).map((s) => (
+            <div key={s.id} className={styles.quoteRow}>
+              <div className={styles.quoteName}>
+                <span className={styles.symbol}>{s.name}</span>
+                <span className={styles.muted}>
+                  {s.lines} lines{s.kind && s.kind !== 'indicator' ? ` · ${s.kind}` : ''}
+                  {s.tradingview ? ' · on TradingView' : ''}
+                </span>
+              </div>
+              <button type="button" className={styles.linkish} onClick={() => openPineEditor(s.id)}>
+                Open
+              </button>
+            </div>
+          ))}
+          {scripts.length > 12 && <div className={styles.muted}>and {scripts.length - 12} more</div>}
+        </div>
+      ) : (
+        <div className={styles.muted}>Demido’s Pine library is empty.</div>
+      )}
+      {tradingview !== undefined && (
+        <div className={styles.muted}>
+          {tradingview === 1 ? '1 script' : `${tradingview} scripts`} under My scripts on TradingView
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "3 warnings", "1 error". */
+function counted(n: number, what: string): string {
+  return n === 1 ? `1 ${what}` : `${n} ${what}s`;
+}
+
+/** What the compiler said of a script, in a few words. */
+function compiledNote(ok: unknown, errors: number, warnings: number): string | undefined {
+  if (ok === true) return warnings ? `compiles, ${counted(warnings, 'warning')}` : 'compiles';
+  if (ok === false) return `does not compile: ${counted(errors, 'error')}`;
+  return undefined;
+}
+
+function PineSave({ d }: { d: Display }) {
+  const errors = Array.isArray(d.errors) ? d.errors.length : 0;
+  const warnings = Array.isArray(d.warnings) ? d.warnings.length : 0;
+  const edited = d.edited as { line?: number; count?: number } | undefined;
+  const places = num(edited?.count) ?? 1;
+  const line = num(edited?.line);
+  const done = !edited
+    ? 'Saved'
+    : line === undefined
+      ? 'Changed'
+      : places > 1
+        ? `Changed ${places} places (the first at line ${line})`
+        : `Changed at line ${line}`;
+  const status =
+    d.ok === true
+      ? { text: `${done}, and it ${compiledNote(true, 0, warnings)}`, cls: warnings ? styles.warning : styles.okText }
+      : d.ok === false
+        ? { text: `${done}, but it ${compiledNote(false, errors, 0)}`, cls: styles.error }
+        : { text: `${done}, but it could not be compiled`, cls: styles.muted };
+  return (
+    <div className={styles.python}>
+      <PineHead script={d.script as PineSummary | undefined} />
+      <div className={status.cls}>{status.text}</div>
+      <PineMessages list={d.errors} kind="error" />
+      <PineMessages list={d.warnings} kind="warning" />
+    </div>
+  );
+}
+
+function plotValue(v: unknown): string {
+  const n = num(v);
+  if (n === undefined) return '';
+  const abs = Math.abs(n);
+  return n.toLocaleString(undefined, { maximumFractionDigits: abs >= 1000 ? 2 : abs >= 1 ? 4 : 6 });
+}
+
+interface PlotStats {
+  title: string;
+  kind: string;
+  bars: number;
+  hidden?: boolean;
+  last?: number;
+  min?: number;
+  max?: number;
+  signals?: number;
+  lastSignals?: string[];
+}
+
+function PineTest({ d }: { d: Display }) {
+  const where = `${str(d.symbol)} · ${str(d.timeframe)}`;
+  if (Array.isArray(d.errors) && d.errors.length) {
+    return (
+      <div className={styles.python}>
+        <div className={styles.error}>It does not compile, so it did not run on {where}.</div>
+        <PineMessages list={d.errors} kind="error" />
+      </div>
+    );
+  }
+  if (d.fault && typeof d.fault === 'object') {
+    const fault = d.fault as PlacedMessage;
+    return (
+      <div className={styles.python}>
+        <div className={styles.error}>It compiled, but stopped with an error while running on {where}.</div>
+        <PineMessages list={[fault]} kind="error" />
+      </div>
+    );
+  }
+  const plots = (Array.isArray(d.plots) ? d.plots : []) as PlotStats[];
+  const file = str(d.file);
+  const absolute = str(d.absolute);
+  return (
+    <div className={styles.python}>
+      <div>
+        <div className={styles.symbol}>{str(d.name)}</div>
+        <div className={styles.muted}>
+          {where} · {num(d.bars)?.toLocaleString()} bars
+        </div>
+      </div>
+      {plots.length > 0 && (
+        <div className={styles.table}>
+          {plots.slice(0, 12).map((p, i) => (
+            <div key={`${p.title}-${i}`} className={styles.quoteRow}>
+              <div className={styles.quoteName}>
+                <span className={styles.symbol}>{p.title || `Plot ${i + 1}`}</span>
+                <span className={styles.muted}>
+                  {p.kind}
+                  {p.hidden ? ' · hidden' : ''}
+                </span>
+              </div>
+              {p.kind === 'shapes' ? (
+                <span className={styles.muted}>
+                  {p.signals === 1 ? '1 signal' : `${p.signals ?? 0} signals`}
+                  {p.lastSignals?.length
+                    ? ` · last ${p.lastSignals[p.lastSignals.length - 1]!.slice(0, 16).replace('T', ' ')}`
+                    : ''}
+                </span>
+              ) : p.last !== undefined ? (
+                <span className={styles.plotStats}>
+                  <span className={styles.price}>{plotValue(p.last)}</span>
+                  <span className={styles.muted}>
+                    {plotValue(p.min)} – {plotValue(p.max)}
+                  </span>
+                </span>
+              ) : (
+                <span className={styles.muted}>no values</span>
+              )}
+            </div>
+          ))}
+          {plots.length > 12 && <div className={styles.muted}>and {plots.length - 12} more</div>}
+        </div>
+      )}
+      {absolute ? (
+        <div className={styles.chips}>
+          <FileChip path={absolute} name={file.split('/').pop() ?? file} kind="table" />
+        </div>
+      ) : (
+        file && <div className={styles.muted}>{file}</div>
+      )}
+    </div>
+  );
+}
+
+function PinePublish({ d }: { d: Display }) {
+  if (d.error) {
+    return (
+      <div className={styles.python}>
+        <div className={styles.error}>{str(d.error)} It was not saved to TradingView.</div>
+        <PineMessages list={d.errors} kind="error" />
+      </div>
+    );
+  }
+  const version = str(d.version);
+  return (
+    <div className={styles.muted}>
+      {d.created === true
+        ? `${str(d.name)} is saved to your TradingView account, under My scripts.`
+        : `${str(d.name)} is updated on your TradingView account${version ? ` (version ${version})` : ''}.`}
+    </div>
+  );
+}
+
+/** Something the assistant put on the chart: an indicator, or a set of drawings. */
+function ChartChange({ d }: { d: Display }) {
+  const drawing = d.kind === 'chartDraw';
+  const Icon = drawing ? PenLine : SquareFunction;
+  const symbol = str(d.symbol);
+  const name = str(d.name) || str(d.script);
+  const what = drawing
+    ? d.removed === true
+      ? name === '*'
+        ? 'Every set of drawings was removed from the chart'
+        : `${name} was removed from the chart`
+      : `${name} · ${num(d.items) === 1 ? '1 drawing' : `${num(d.items) ?? 0} drawings`}`
+    : name;
+  return (
+    <div className={styles.skill}>
+      <Icon size={16} className={styles.skillIcon} aria-hidden />
+      <div className={styles.skillText}>
+        <div className={styles.symbol}>{what}</div>
+        {symbol && <div className={styles.muted}>On {symbol}</div>}
+      </div>
+      <Button size="sm" variant="secondary" iconRight={ExternalLink} onClick={openChart}>
+        Open chart
+      </Button>
+    </div>
+  );
+}
+
 /**
  * The result area of a tool card. Returns null when there is nothing worth showing. `message` is
  * the tool message the display belongs to, for actions that answer in its chat.
@@ -410,6 +690,8 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
   if (display.denied && display.kind !== 'candles' && display.kind !== 'download') {
     return <div className={styles.muted}>You declined this.</div>;
   }
+  // A script that does not compile is not saved to TradingView; its errors say why.
+  if (display.kind === 'pinePublish') return <PinePublish d={display} />;
   if (display.error) return <div className={styles.error}>{String(display.error)}</div>;
   switch (display.kind) {
     case 'candles':
@@ -432,6 +714,27 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <Skill d={display} />;
     case 'files':
       return <Files d={display} />;
+    case 'pineList':
+      return <PineList d={display} />;
+    case 'pineScript':
+      return (
+        <PineHead
+          script={display.script as PineSummary | undefined}
+          note={[
+            display.action === 'imported' ? 'imported from TradingView' : '',
+            compiledNote(display.ok, num(display.errors) ?? 0, num(display.warnings) ?? 0) ?? '',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        />
+      );
+    case 'pineSave':
+      return <PineSave d={display} />;
+    case 'pineTest':
+      return <PineTest d={display} />;
+    case 'chartIndicator':
+    case 'chartDraw':
+      return <ChartChange d={display} />;
     case 'file':
       return display.absolute ? (
         <FileChip path={str(display.absolute)} name={str(display.path)} size={num(display.size)} kind="text" />

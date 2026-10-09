@@ -320,6 +320,55 @@
   color: var(--text-secondary);
 }
 
+/* pine */
+.warning {
+  color: var(--warning);
+  font-size: var(--text-sm);
+}
+
+.okText {
+  color: var(--market-up);
+  font-size: var(--text-sm);
+}
+
+.pineMessages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pineMessage {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-2);
+  row-gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.pineMessage .error,
+.pineMessage .warning {
+  white-space: nowrap;
+}
+
+.pineLine {
+  grid-column: 2;
+  padding: 2px var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: #151515;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.plotStats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
 /* download */
 .download {
   display: flex;

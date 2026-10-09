@@ -10,6 +10,8 @@ import type {
   Bar,
   Chat,
   ChartInfo,
+  ChartLayout,
+  ChartLayoutEntry,
   DownloadJob,
   HfRepo,
   HfRepoFiles,
@@ -161,6 +163,40 @@ export const api = {
       bars,
     }),
   marketCloseStream: (streamId: string) => invoke<void>('market_close_stream', { streamId }),
+  /** More history on a live chart's TradingView session, so its indicators reach further back.
+   *  Returns how many bars were asked for (0 once the session holds all it can). */
+  marketExtendStream: (streamId: string, bars: number) =>
+    invoke<{ asked: number }>('market_extend_stream', { streamId, bars }),
+
+  // Chart indicators, computed by TradingView on a live stream. Their values arrive as
+  // `indicator.data` / `indicator.graphics` events; `indicator.error` says one stopped.
+  marketIndicatorCatalog: (refresh = false) => invoke<IndicatorCatalog>('market_indicator_catalog', { refresh }),
+  /** Community scripts, most popular first. */
+  marketIndicatorSearch: (query: string) => invoke<IndicatorEntry[]>('market_indicator_search', { query }),
+  marketIndicatorLayouts: () => invoke<ChartLayoutEntry[]>('market_indicator_layouts'),
+  marketIndicatorLayout: (layoutId: string) => invoke<ChartLayout>('market_indicator_layout', { layoutId }),
+  /** Rejects with the plan's limit (STUDY_LIMIT) when the chart has no room for another one. */
+  marketIndicatorAdd: (streamId: string, script: string, version: string | null, setup: IndicatorSetup) =>
+    invoke<{ id: string; meta: IndicatorMeta }>('market_indicator_add', { streamId, script, version, setup }),
+  marketIndicatorRemove: (indicatorId: string) => invoke<void>('market_indicator_remove', { indicatorId }),
+
+  // Pine scripts written in Demido, kept on this computer; `pine.changed` events follow every
+  // change. TradingView compiles and runs them; only `marketPinePublish` changes the account.
+  marketPineList: () => invoke<PineSummary[]>('market_pine_list'),
+  marketPineGet: (id: string) => invoke<PineScript>('market_pine_get', { id }),
+  /** Creates a script (no `id`) or replaces one's source. */
+  marketPineSave: (id: string | null, source: string, name?: string) =>
+    invoke<PineScript>('market_pine_save', { id, source, name: name ?? null }),
+  marketPineDelete: (id: string) => invoke<void>('market_pine_delete', { id }),
+  /** Compiles with TradingView's compiler without saving anything. */
+  marketPineCheck: (source: string) => invoke<PineCheck>('market_pine_check', { source }),
+  /** Saves a library script to the user's TradingView account: a new script the first time, the
+   *  next version of the same one afterwards. Ask first. */
+  marketPinePublish: (id: string, name?: string) =>
+    invoke<PinePublished>('market_pine_publish', { id, name: name ?? null }),
+  /** Copies a TradingView script's source into the library (the user's own stay linked to it). */
+  marketPineImport: (script: string) =>
+    invoke<{ script: PineSummary; updated: boolean }>('market_pine_import', { script }),
 
   // Market data store: bars read from what is stored, downloads that fill it, and what it holds.
   // Times are seconds. `bars.older` never touches the network.
