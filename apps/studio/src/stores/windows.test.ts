@@ -53,6 +53,16 @@ describe('reopening a pinned window', () => {
   });
 });
 
+describe('pinning to a corner', () => {
+  it('moves the window pinned to that side into the other half instead of unpinning it', () => {
+    wm().setBounds({ w: 1600, h: 900 });
+    wm().dock(wm().open('settings'), 'left');
+    wm().dock(wm().open('market'), 'top-left');
+    expect(placement('market')).toMatchObject({ mode: 'docked', slot: 'top-left', dockWidth: 560 });
+    expect(placement('settings')).toMatchObject({ mode: 'docked', slot: 'bottom-left', dockWidth: 560 });
+  });
+});
+
 describe('maximizing a pinned window', () => {
   it('goes back to its slot and width on Restore', () => {
     wm().setBounds({ w: 2000, h: 900 });

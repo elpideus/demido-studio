@@ -99,10 +99,20 @@ describe('placement', () => {
 
 describe('pinning', () => {
   it('floats the window already in an overlapping slot', () => {
-    const windows = [win('a', 'left'), win('b', null)];
+    const same = pinWindow([win('a', 'top-left'), win('b', null)], 'b', 'top-left', bounds);
+    expect(same.find((w) => w.id === 'a')).toMatchObject({ mode: 'floating', slot: null });
+    const whole = pinWindow([win('a', 'top-left'), win('b', 'bottom-left'), win('c', null)], 'c', 'left', bounds);
+    expect(whole.filter((w) => w.mode === 'floating').map((w) => w.id)).toEqual(['a', 'b']);
+    expect(whole.find((w) => w.id === 'c')).toMatchObject({ mode: 'docked', slot: 'left' });
+  });
+
+  it('keeps a window holding the whole column pinned, in the other half, when a corner is taken', () => {
+    const windows = [win('a', 'left', { dockWidth: 420 }), win('b', null, { dockWidth: 700 })];
     const after = pinWindow(windows, 'b', 'top-left', bounds);
-    expect(after.find((w) => w.id === 'a')).toMatchObject({ mode: 'floating', slot: null });
-    expect(after.find((w) => w.id === 'b')).toMatchObject({ mode: 'docked', slot: 'top-left' });
+    expect(after.find((w) => w.id === 'a')).toMatchObject({ mode: 'docked', slot: 'bottom-left', dockWidth: 420 });
+    expect(after.find((w) => w.id === 'b')).toMatchObject({ mode: 'docked', slot: 'top-left', dockWidth: 420 });
+    const below = pinWindow([win('a', 'right'), win('b', null)], 'b', 'bottom-right', bounds);
+    expect(below.find((w) => w.id === 'a')).toMatchObject({ mode: 'docked', slot: 'top-right' });
   });
 
   it('lets the two halves of a column and the rows coexist', () => {
@@ -255,6 +265,25 @@ describe('snapping', () => {
     expect(snapZone(1360, 2, bounds)).toBe('top-right');
     expect(snapZone(2, 880, bounds)).toBe('bottom-left');
     expect(snapZone(700, 400, bounds)).toBeNull();
+  });
+
+  it('gives corners a quarter of the shorter side along each edge, so they need no aiming', () => {
+    // 900 tall: the top and bottom 225 px of a side edge, and as much of the top and bottom edges.
+    expect(snapZone(2, 220, bounds)).toBe('top-left');
+    expect(snapZone(2, 230, bounds)).toBe('left');
+    expect(snapZone(1398, 680, bounds)).toBe('bottom-right');
+    expect(snapZone(1398, 670, bounds)).toBe('right');
+    expect(snapZone(220, 2, bounds)).toBe('top-left');
+    expect(snapZone(230, 2, bounds)).toBe('maximize');
+    expect(snapZone(1180, 898, bounds)).toBe('bottom-right');
+    // A small desktop still gets a usable corner.
+    expect(snapZone(2, 105, { w: 600, h: 400 })).toBe('top-left');
+  });
+
+  it('snaps to a corner the pointer comes close to diagonally, before it touches an edge', () => {
+    expect(snapZone(40, 40, bounds)).toBe('top-left');
+    expect(snapZone(1360, 860, bounds)).toBe('bottom-right');
+    expect(snapZone(60, 40, bounds)).toBeNull();
   });
 
   it('restores under the pointer at the grab ratio', () => {

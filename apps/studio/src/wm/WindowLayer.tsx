@@ -7,7 +7,7 @@ import { MailWindow } from '@/mail/MailWindow';
 import { MarketWindow } from '@/market/MarketWindow';
 import { SettingsWindow } from '@/settings/SettingsWindow';
 import { WINDOW_SPECS, type WindowKind, type WindowState, useWindows } from '@/stores/windows';
-import { type Column, type Slot, columnOf, dockLayout, slotRect } from './geometry';
+import { type Column, type Slot, columnOf, dockLayout, otherHalf, slotRect } from './geometry';
 import { WindowFrame } from './WindowFrame';
 import styles from './WindowLayer.module.css';
 
@@ -44,7 +44,7 @@ function emptyHalves(windows: WindowState[]): Slot[] {
       .filter((w) => w.mode === 'docked' && w.slot && w.slot !== column && columnOf(w.slot) === column)
       .map((w) => w.slot);
     if (halves.length !== 1) continue;
-    empty.push(halves[0]!.startsWith('top') ? (`bottom-${column}` as Slot) : (`top-${column}` as Slot));
+    empty.push(otherHalf(halves[0]!)!);
   }
   return empty;
 }

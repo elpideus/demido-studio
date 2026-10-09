@@ -36,8 +36,14 @@ export const MIN_DOCK_HEIGHT = 200;
 export const MIN_HALF_HEIGHT = 150;
 /** How close to an edge the pointer must be for a drag to snap. */
 export const SNAP_DISTANCE = 14;
-/** How far along an edge from a corner still counts as that corner. */
+/**
+ * How far along an edge from a corner still counts as that corner: this share of the desktop's
+ * shorter side, and never less than `CORNER_REACH`.
+ */
+export const CORNER_SHARE = 0.25;
 export const CORNER_REACH = 110;
+/** A pointer this close to both edges of a corner snaps to it before it touches either edge. */
+export const CORNER_BOX = 48;
 export const TITLE_BAR_HEIGHT = 38;
 /** Part of a floating window that must stay on screen so it can always be grabbed. */
 const KEEP_VISIBLE = 96;
@@ -72,6 +78,13 @@ export function columnOf(slot: Slot): Column | null {
 
 export function isRow(slot: Slot): slot is Row {
   return slot === 'top' || slot === 'bottom';
+}
+
+/** The other half of a split column: `bottom-left` for `top-left`. Null for a whole column or a row. */
+export function otherHalf(slot: Slot): Slot | null {
+  const col = columnOf(slot);
+  if (!col || slot === col) return null;
+  return slot.startsWith('top') ? (`bottom-${col}` as Slot) : (`top-${col}` as Slot);
 }
 
 /** Whether two slots cover some of the same space, so they cannot both hold a window. */
@@ -211,10 +224,11 @@ function resizeSide<T extends Pinnable>(windows: T[], side: Column | Row, axis: 
 }
 
 /**
- * Pins a window to a slot. Windows already in a slot that overlaps it float back to where they
- * were; a window joining the other half of a column takes that column's width. If the chat would
- * get less than its minimum, the column or row across from it gives way first, down to its own
- * minimum, and floats back when even that does not fit.
+ * Pins a window to a slot. A window holding the whole column makes room for one pinned to a half
+ * of it by keeping the other half; any other window already in a slot that overlaps it floats back
+ * to where it was. A window joining the other half of a column takes that column's width. If the
+ * chat would get less than its minimum, the column or row across from it gives way first, down to
+ * its own minimum, and floats back when even that does not fit.
  */
 export function pinWindow<T extends Pinnable>(windows: T[], id: string, slot: Slot, bounds: Size): T[] {
   const win = windows.find((w) => w.id === id);
@@ -222,11 +236,12 @@ export function pinWindow<T extends Pinnable>(windows: T[], id: string, slot: Sl
   const axis = axisOf(slot, bounds);
   const side = sideOf(slot);
   const across = axis.sides[0] === side ? axis.sides[1] : axis.sides[0];
-  let next = windows.map((w) =>
-    w.id !== id && w.mode === 'docked' && w.slot && slotsOverlap(w.slot, slot)
-      ? { ...w, mode: 'floating' as const, slot: null }
-      : w,
-  );
+  const rest = otherHalf(slot);
+  let next = windows.map((w) => {
+    if (w.id === id || w.mode !== 'docked' || !w.slot || !slotsOverlap(w.slot, slot)) return w;
+    if (rest && w.slot === side) return { ...w, slot: rest };
+    return { ...w, mode: 'floating' as const, slot: null };
+  });
   const wanted = sideSize(next, side, axis, id) || win[axis.key];
   const fit = (room: number) => Math.round(Math.min(Math.max(wanted, axis.minDock), Math.max(axis.minDock, room)));
   const acrossSize = sideSize(next, across, axis, id);
@@ -371,26 +386,26 @@ export function clampRect(r: Rect, bounds: Size, min: Size, max: Size = NO_MAX):
 /**
  * The snap target under the pointer while dragging, if any. Like Windows: a side edge pins to
  * that column, a corner to that quarter, the top edge maximizes. The bottom edge pins below the chat.
+ * The stretch of each edge next to a corner counts as the corner, so it does not take aiming.
  */
 export function snapZone(px: number, py: number, bounds: Size): SnapZone | null {
+  const reach = Math.max(CORNER_REACH, Math.round(Math.min(bounds.w, bounds.h) * CORNER_SHARE));
   const nearLeft = px <= SNAP_DISTANCE;
   const nearRight = px >= bounds.w - SNAP_DISTANCE;
   const nearTop = py <= SNAP_DISTANCE / 2;
   const nearBottom = py >= bounds.h - SNAP_DISTANCE / 2;
-  const topCorner = py <= CORNER_REACH;
-  const bottomCorner = py >= bounds.h - CORNER_REACH;
+  const topCorner = py <= reach;
+  const bottomCorner = py >= bounds.h - reach;
+  const leftCorner = px <= reach;
+  const rightCorner = px >= bounds.w - reach;
+  // Coming at a corner diagonally: close to both of its edges is enough.
+  const boxX = px <= CORNER_BOX ? 'left' : px >= bounds.w - CORNER_BOX ? 'right' : null;
+  const boxY = py <= CORNER_BOX ? 'top' : py >= bounds.h - CORNER_BOX ? 'bottom' : null;
+  if (boxX && boxY) return `${boxY}-${boxX}`;
   if (nearLeft) return topCorner ? 'top-left' : bottomCorner ? 'bottom-left' : 'left';
   if (nearRight) return topCorner ? 'top-right' : bottomCorner ? 'bottom-right' : 'right';
-  if (nearTop) {
-    if (px <= CORNER_REACH) return 'top-left';
-    if (px >= bounds.w - CORNER_REACH) return 'top-right';
-    return 'maximize';
-  }
-  if (nearBottom) {
-    if (px <= CORNER_REACH) return 'bottom-left';
-    if (px >= bounds.w - CORNER_REACH) return 'bottom-right';
-    return 'bottom';
-  }
+  if (nearTop) return leftCorner ? 'top-left' : rightCorner ? 'top-right' : 'maximize';
+  if (nearBottom) return leftCorner ? 'bottom-left' : rightCorner ? 'bottom-right' : 'bottom';
   return null;
 }
 
