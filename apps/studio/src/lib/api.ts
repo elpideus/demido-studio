@@ -38,12 +38,14 @@ import type {
   Message,
   ModelEntry,
   ModelFolder,
+  ModelGroup,
   ModelSettings,
   NewMailAccount,
   PineCheck,
   PinePublished,
   PineScript,
   PineSummary,
+  ProviderKind,
   ProviderView,
   Quote,
   Recommendation,
@@ -152,10 +154,12 @@ export const api = {
 
   // Providers
   listProviders: () => invoke<ProviderView[]>('list_providers'),
-  addProvider: (apiKey: string, name?: string) =>
-    invoke<ProviderView>('add_provider', { kind: 'gemini', name: name ?? null, apiKey }),
-  updateProvider: (id: string, patch: { name?: string; enabled?: boolean; baseUrl?: string; apiKey?: string }) =>
-    invoke<ProviderView>('update_provider', { id, patch }),
+  addProvider: (kind: ProviderKind, apiKey: string, name?: string, modelGroup?: ModelGroup) =>
+    invoke<ProviderView>('add_provider', { kind, name: name ?? null, apiKey, modelGroup: modelGroup ?? null }),
+  updateProvider: (
+    id: string,
+    patch: { name?: string; enabled?: boolean; baseUrl?: string; apiKey?: string; modelGroup?: ModelGroup },
+  ) => invoke<ProviderView>('update_provider', { id, patch }),
   refreshProvider: (id: string) => invoke<ProviderView>('refresh_provider', { id }),
   removeProvider: (id: string) => invoke<void>('remove_provider', { id }),
 

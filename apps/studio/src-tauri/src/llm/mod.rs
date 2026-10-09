@@ -1,18 +1,44 @@
 //! Talking to models.
 //!
 //! [`ChatRequest`] is provider-neutral. [`Client`] turns it into the wire format of the model's
-//! provider (llama.cpp's OpenAI-compatible server, or Gemini), streams the answer back as
+//! provider (OpenAI-compatible for llama.cpp's server and OpenRouter, or Gemini's own), streams
+//! the answer back as
 //! [`StreamEvent`]s and returns the assembled [`Completion`], including the exact request body
 //! for the trace.
 
 pub mod gemini;
 pub mod openai;
+pub mod openrouter;
 mod sse;
 
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::db::ToolCall;
+use crate::models::capabilities::Capabilities;
+
+/// A model a cloud provider offers, as its list of models describes it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudModel {
+    pub id: String,
+    pub display_name: String,
+    pub description: String,
+    pub input_token_limit: u64,
+    pub output_token_limit: u64,
+    /// Can think before answering.
+    pub thinking: bool,
+    /// Thinks whatever it is asked: the provider refuses a request to answer directly.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub always_thinks: bool,
+    /// What it can do, when the provider's list says (OpenRouter's does). Gemini's list says
+    /// only which models think; models.dev tells the rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Capabilities>,
+    /// Costs nothing to use.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub free: bool,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "role", rename_all = "lowercase")]
@@ -27,7 +53,8 @@ pub enum LlmMessage {
         content: String,
         reasoning: Option<String>,
         tool_calls: Vec<ToolCall>,
-        /// Provider-specific replay data (Gemini parts with thought signatures).
+        /// Provider-specific replay data (Gemini parts with thought signatures, OpenRouter
+        /// reasoning details).
         provider_meta: Option<serde_json::Value>,
     },
     Tool {

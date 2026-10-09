@@ -31,7 +31,7 @@ export function EmptyChat({ model, onSuggest }: Props) {
         <Logo size={52} />
         <h1 className={styles.title}>No model is ready yet</h1>
         <p className={styles.subtitle}>
-          Download a model to run privately on this computer, or connect Google Gemini with an API key.
+          Download a model to run privately on this computer, or connect Google Gemini or OpenRouter with an API key.
         </p>
         <div className={styles.actions}>
           <Button
@@ -42,7 +42,7 @@ export function EmptyChat({ model, onSuggest }: Props) {
             Download a model
           </Button>
           <Button variant="secondary" icon={Cloud} onClick={() => openWindow('settings', { tab: 'providers' })}>
-            Connect Gemini
+            Connect a provider
           </Button>
         </div>
       </div>

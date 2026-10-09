@@ -1,5 +1,5 @@
-//! Cloud model providers (Gemini for now). Configuration lives in `providers.json`; API keys live
-//! in the OS credential store.
+//! Cloud model providers: Google Gemini and OpenRouter. Configuration lives in `providers.json`;
+//! API keys live in the OS credential store.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,25 +10,55 @@ use serde::{Deserialize, Serialize};
 use crate::bail_msg;
 use crate::db::{new_id, now_ms};
 use crate::error::CmdResult;
-use crate::llm::gemini::{self, GeminiModel};
+use crate::llm::{CloudModel, gemini, openrouter};
 use crate::secrets::{Secrets, provider_key};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderKind {
     Gemini,
+    OpenRouter,
 }
 
 impl ProviderKind {
     pub fn label(self) -> &'static str {
         match self {
             ProviderKind::Gemini => "Google Gemini",
+            ProviderKind::OpenRouter => "OpenRouter",
+        }
+    }
+
+    /// Starts the ids of the provider's models: `<prefix>:<provider id>:<model>`.
+    pub fn id_prefix(self) -> &'static str {
+        match self {
+            ProviderKind::Gemini => "gemini",
+            ProviderKind::OpenRouter => "openrouter",
         }
     }
 
     pub fn default_base_url(self) -> &'static str {
         match self {
             ProviderKind::Gemini => gemini::DEFAULT_BASE_URL,
+            ProviderKind::OpenRouter => openrouter::DEFAULT_BASE_URL,
+        }
+    }
+}
+
+/// Which of a provider's models are offered. Only OpenRouter, which lists paid models next to
+/// free ones, lets the person choose.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelGroup {
+    #[default]
+    All,
+    Free,
+}
+
+impl ModelGroup {
+    fn admits(self, model: &CloudModel) -> bool {
+        match self {
+            ModelGroup::All => true,
+            ModelGroup::Free => model.free,
         }
     }
 }
@@ -42,7 +72,10 @@ pub struct ProviderConfig {
     pub enabled: bool,
     pub base_url: Option<String>,
     #[serde(default)]
-    pub models: Vec<GeminiModel>,
+    pub model_group: ModelGroup,
+    /// The models of `model_group`.
+    #[serde(default)]
+    pub models: Vec<CloudModel>,
     pub models_fetched_at: Option<i64>,
     pub created_at: i64,
 }
@@ -74,6 +107,7 @@ pub struct ProviderPatch {
     pub enabled: Option<bool>,
     pub base_url: Option<String>,
     pub api_key: Option<String>,
+    pub model_group: Option<ModelGroup>,
 }
 
 /// Longest name a provider can be given; it is shown in one line of the model picker.
@@ -151,12 +185,20 @@ impl ProviderStore {
     }
 
     /// Adds a provider after checking the key works.
-    pub async fn add(&self, kind: ProviderKind, name: Option<String>, api_key: String) -> CmdResult<ProviderConfig> {
+    pub async fn add(
+        &self,
+        kind: ProviderKind,
+        name: Option<String>,
+        api_key: String,
+        model_group: ModelGroup,
+    ) -> CmdResult<ProviderConfig> {
         let key = api_key.trim().to_string();
         if key.is_empty() {
             bail_msg!("Enter an API key.");
         }
-        let models = self.fetch_models(kind, kind.default_base_url(), &key).await?;
+        let models = self
+            .fetch_models(kind, kind.default_base_url(), &key, model_group)
+            .await?;
         let config = ProviderConfig {
             id: new_id(),
             kind,
@@ -166,6 +208,7 @@ impl ProviderStore {
                 .unwrap_or_else(|| kind.label().to_string()),
             enabled: true,
             base_url: None,
+            model_group,
             models,
             models_fetched_at: Some(now_ms()),
             created_at: now_ms(),
@@ -182,22 +225,30 @@ impl ProviderStore {
             bail_msg!("That provider no longer exists.");
         };
         let key = patch.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
-        // A new key is checked by listing the models with it before anything is saved.
-        let models = match key {
-            Some(key) => {
-                let base = patch
-                    .base_url
-                    .clone()
-                    .filter(|u| !u.trim().is_empty())
-                    .unwrap_or_else(|| config.base_url());
-                Some(self.fetch_models(config.kind, &base, key).await?)
-            }
-            None => None,
+        let group = patch.model_group.filter(|g| *g != config.model_group);
+        // A new key is checked by listing the models with it before anything is saved; another
+        // group of models is listed afresh.
+        let models = if key.is_some() || group.is_some() {
+            let Some(listing_key) = key.map(str::to_string).or_else(|| self.api_key(id)) else {
+                bail_msg!("This provider has no API key.");
+            };
+            let base = patch
+                .base_url
+                .clone()
+                .filter(|u| !u.trim().is_empty())
+                .unwrap_or_else(|| config.base_url());
+            let group = group.unwrap_or(config.model_group);
+            Some(self.fetch_models(config.kind, &base, &listing_key, group).await?)
+        } else {
+            None
         };
         let updated = self.edit(id, |config| {
             if let Some(models) = models {
                 config.models = models;
                 config.models_fetched_at = Some(now_ms());
+            }
+            if let Some(group) = group {
+                config.model_group = group;
             }
             if let Some(name) = patch.name.as_deref().and_then(clean_name) {
                 config.name = name;
@@ -222,7 +273,9 @@ impl ProviderStore {
         let Some(key) = self.api_key(id) else {
             bail_msg!("This provider has no API key.");
         };
-        let models = self.fetch_models(config.kind, &config.base_url(), &key).await?;
+        let models = self
+            .fetch_models(config.kind, &config.base_url(), &key, config.model_group)
+            .await?;
         self.edit(id, |config| {
             config.models = models;
             config.models_fetched_at = Some(now_ms());
@@ -250,12 +303,20 @@ impl ProviderStore {
         Ok(())
     }
 
-    async fn fetch_models(&self, kind: ProviderKind, base: &str, key: &str) -> CmdResult<Vec<GeminiModel>> {
-        match kind {
-            ProviderKind::Gemini => gemini::list_models(&self.http, base, key)
-                .await
-                .map_err(|e| crate::error::AppError::msg(format!("Gemini rejected the key: {e}"))),
-        }
+    async fn fetch_models(
+        &self,
+        kind: ProviderKind,
+        base: &str,
+        key: &str,
+        group: ModelGroup,
+    ) -> CmdResult<Vec<CloudModel>> {
+        let listed = match kind {
+            ProviderKind::Gemini => gemini::list_models(&self.http, base, key).await,
+            ProviderKind::OpenRouter => openrouter::list_models(&self.http, base, key).await,
+        };
+        let models =
+            listed.map_err(|e| crate::error::AppError::msg(format!("{} rejected the key: {e}", kind.label())))?;
+        Ok(models.into_iter().filter(|m| group.admits(m)).collect())
     }
 }
 
@@ -271,5 +332,34 @@ mod tests {
             clean_name(&"x".repeat(200)).map(|n| n.chars().count()),
             Some(MAX_NAME_CHARS)
         );
+    }
+
+    #[test]
+    fn providers_saved_before_openrouter_still_load() {
+        let saved = r#"{"providers": [{"id": "p1", "kind": "gemini", "name": "Google Gemini", "enabled": true,
+            "baseUrl": null, "modelsFetchedAt": 1, "createdAt": 1, "models": [{"id": "gemini-2.5-flash",
+            "displayName": "Gemini 2.5 Flash", "description": "", "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536, "thinking": true}]}]}"#;
+        let file: ProvidersFile = serde_json::from_str(saved).unwrap();
+        let p = &file.providers[0];
+        assert_eq!(p.model_group, ModelGroup::All);
+        assert!(!p.models[0].free && !p.models[0].always_thinks && p.models[0].capabilities.is_none());
+    }
+
+    #[test]
+    fn the_free_group_admits_only_free_models() {
+        let m = |free| CloudModel {
+            id: "m".into(),
+            display_name: "m".into(),
+            description: String::new(),
+            input_token_limit: 0,
+            output_token_limit: 0,
+            thinking: false,
+            always_thinks: false,
+            capabilities: None,
+            free,
+        };
+        assert!(ModelGroup::Free.admits(&m(true)) && !ModelGroup::Free.admits(&m(false)));
+        assert!(ModelGroup::All.admits(&m(false)));
     }
 }

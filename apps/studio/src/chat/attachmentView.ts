@@ -246,8 +246,8 @@ function lacks(model: ModelEntry, can: boolean | null): boolean {
   return can === false;
 }
 
-// Sound formats a model is given, as the backend decides (`ModelAccess`): llama.cpp reads WAV and
-// MP3, Gemini a few more.
+// Sound formats a model is given, as the backend decides (`ModelAccess`): llama.cpp and OpenRouter
+// take WAV and MP3, Gemini a few more.
 const LOCAL_AUDIO = ['audio/wav', 'audio/mpeg'];
 const GEMINI_AUDIO = [...LOCAL_AUDIO, 'audio/aac', 'audio/ogg', 'audio/flac', 'audio/aiff'];
 const AUDIO_ALIASES: Record<string, string> = {
@@ -270,7 +270,7 @@ export function attachmentWarnings(a: Attachment, model: ModelEntry | undefined)
   if (a.kind === 'audio') {
     // Sound is sent only when the model is known to hear (a cloud model too), and in its formats.
     const hears = model.capabilities.audio === true || (model.source === 'local' && model.checkingCapabilities);
-    const formats = model.source === 'local' ? LOCAL_AUDIO : GEMINI_AUDIO;
+    const formats = model.source === 'gemini' ? GEMINI_AUDIO : LOCAL_AUDIO;
     const mime = a.mime.split(';')[0]!.trim().toLowerCase();
     if (!hears) {
       warnings.push(`${model.name} can’t hear audio. It gets the file in its workspace, not the sound.`);

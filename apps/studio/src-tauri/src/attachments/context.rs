@@ -58,7 +58,8 @@ pub struct ModelAccess {
 
 impl ModelAccess {
     /// A local model reads images and sound when llama.cpp said so (its projector is loaded,
-    /// see `ModelRegistry::launch_spec`); a Gemini model unless models.dev says it cannot.
+    /// see `ModelRegistry::launch_spec`); a Gemini model unless models.dev says it cannot; an
+    /// OpenRouter model when OpenRouter's list says it can.
     pub fn of(model: &ModelEntry) -> Self {
         let caps = &model.capabilities;
         match model.source {
@@ -87,6 +88,16 @@ impl ModelAccess {
                     Vec::new()
                 },
                 gemini: true,
+            },
+            // OpenRouter passes sound on as `input_audio`, in the formats every provider takes.
+            ModelSource::OpenRouter => ModelAccess {
+                images: caps.vision == Some(true),
+                audio: if caps.audio == Some(true) {
+                    vec!["audio/wav", "audio/mpeg"]
+                } else {
+                    Vec::new()
+                },
+                gemini: false,
             },
         }
     }

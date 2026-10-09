@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use super::{ChatEvent, prompt, request_snapshot, save_trace};
 use crate::attachments::context::Extras;
 use crate::db::{Message, MessageStatus, Role};
+use crate::llm::openai::Dialect;
 use crate::llm::{ChatRequest, Client, GenParams, LlmError, LlmMessage, StreamEvent};
 use crate::models::{ModelEntry, ModelRegistry};
 use crate::state::AppState;

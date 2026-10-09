@@ -10,9 +10,9 @@ import { useWindows } from '@/stores/windows';
 import styles from './Composer.module.css';
 
 function describe(m: ModelEntry): string {
-  if (m.source === 'gemini') {
+  if (m.source !== 'local') {
     const ctx = m.maxContext ? `${Math.round(m.maxContext / 1000)}K context` : 'Cloud';
-    return `${m.providerName ?? 'Gemini'} · ${ctx}`;
+    return `${m.providerName ?? 'Cloud'} · ${ctx}`;
   }
   return [m.parameters, m.quant, m.size ? formatBytes(m.size) : null].filter(Boolean).join(' · ');
 }

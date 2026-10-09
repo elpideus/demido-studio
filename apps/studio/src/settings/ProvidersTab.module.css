@@ -13,6 +13,10 @@
   margin-bottom: var(--space-4);
 }
 
+.kinds {
+  margin-bottom: var(--space-4);
+}
+
 .providerIcon {
   display: inline-flex;
   flex: none;
@@ -60,6 +64,10 @@
   gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--border-subtle);
+}
+
+.groupSelect {
+  width: 170px;
 }
 
 .flex {

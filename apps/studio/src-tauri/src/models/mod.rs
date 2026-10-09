@@ -73,6 +73,16 @@ pub struct Effective {
 pub enum ModelSource {
     Local,
     Gemini,
+    OpenRouter,
+}
+
+impl ModelSource {
+    fn of(kind: ProviderKind) -> Self {
+        match kind {
+            ProviderKind::Gemini => ModelSource::Gemini,
+            ProviderKind::OpenRouter => ModelSource::OpenRouter,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -238,13 +248,23 @@ impl ModelRegistry {
             if !provider.enabled {
                 continue;
             }
-            let defaults_on = default_enabled_gemini(&provider.models);
+            let source = ModelSource::of(provider.kind);
+            let defaults_on = match provider.kind {
+                ProviderKind::Gemini => default_enabled_gemini(&provider.models),
+                // Nothing that costs money is switched on without the person choosing it.
+                ProviderKind::OpenRouter => provider
+                    .models
+                    .iter()
+                    .filter(|m| m.free)
+                    .map(|m| m.id.clone())
+                    .collect(),
+            };
             for m in &provider.models {
-                let id = format!("gemini:{}:{}", provider.id, m.id);
+                let id = format!("{}:{}:{}", provider.kind.id_prefix(), provider.id, m.id);
                 let s = overrides.get(&id).cloned().unwrap_or_default();
                 let enabled = s.enabled.unwrap_or_else(|| defaults_on.contains(&m.id));
                 out.push(ModelEntry {
-                    effective: effective(&s, ModelSource::Gemini, None, None, self.memory_budget_gb),
+                    effective: effective(&s, source, None, None, self.default_context()),
                     id,
                     source,
                     provider_id: Some(provider.id.clone()),
@@ -266,7 +286,7 @@ impl ModelRegistry {
                     max_context: Some(m.input_token_limit),
                     repo: None,
                     removable: false,
-                    capabilities: catalog.gemini(&m.id, m.thinking),
+                    capabilities: m.capabilities.unwrap_or_else(|| catalog.gemini(&m.id, m.thinking)),
                     checking_capabilities: false,
                     settings: s,
                 });
@@ -410,11 +430,12 @@ impl ModelRegistry {
         self.check_lock.lock().await
     }
 
-    /// Reads models.dev again when a cloud provider is set up and the copy kept is a week old,
-    /// or at once with `force` (an unchanged catalog is not downloaded twice). Returns whether
-    /// what cloud models can do may have changed.
+    /// Reads models.dev again when Gemini is set up and the copy kept is a week old, or at once
+    /// with `force` (an unchanged catalog is not downloaded twice). Returns whether what cloud
+    /// models can do may have changed. OpenRouter's own list says what its models can do.
     pub async fn refresh_cloud_catalog(&self, http: &reqwest::Client, force: bool) -> bool {
-        if self.providers.configs().is_empty() || !(force || self.cloud_catalog.read().is_stale()) {
+        let gemini = self.providers.configs().iter().any(|p| p.kind == ProviderKind::Gemini);
+        if !gemini || !(force || self.cloud_catalog.read().is_stale()) {
             return false;
         }
         let etag = self.cloud_catalog.read().etag();
@@ -583,11 +604,15 @@ impl ModelRegistry {
         }
     }
 
-    /// Provider id and remote model name for a cloud model id (`gemini:<provider>:<model>`).
+    /// Provider id and remote model name for a cloud model id (`<kind>:<provider>:<model>`). The
+    /// model name may have colons of its own (`google/gemma-4-31b-it:free`).
     pub fn parse_cloud_id(id: &str) -> Option<(ProviderKind, &str, &str)> {
-        let rest = id.strip_prefix("gemini:")?;
+        let (prefix, rest) = id.split_once(':')?;
+        let kind = [ProviderKind::Gemini, ProviderKind::OpenRouter]
+            .into_iter()
+            .find(|k| k.id_prefix() == prefix)?;
         let (provider, model) = rest.split_once(':')?;
-        Some((ProviderKind::Gemini, provider, model))
+        Some((kind, provider, model))
     }
 }
 
@@ -734,7 +759,7 @@ fn effective(
 ) -> Effective {
     let arch = architecture.unwrap_or_default();
     let (temperature, top_p, top_k, min_p) = match source {
-        ModelSource::Gemini => (None, None, None, None),
+        ModelSource::Gemini | ModelSource::OpenRouter => (None, None, None, None),
         ModelSource::Local if arch.starts_with("qwen") => (Some(0.6), Some(0.95), Some(20), Some(0.0)),
         ModelSource::Local if arch.starts_with("gemma") => (Some(1.0), Some(0.95), Some(64), Some(0.0)),
         ModelSource::Local => (Some(0.7), Some(0.9), Some(40), Some(0.05)),
@@ -775,7 +800,7 @@ fn effective(
 }
 
 /// Gemini lists dozens of versions; only the stable families are on by default.
-fn default_enabled_gemini(models: &[crate::llm::gemini::GeminiModel]) -> Vec<String> {
+fn default_enabled_gemini(models: &[crate::llm::CloudModel]) -> Vec<String> {
     let stable = regex::Regex::new(r"^gemini-(\d+(\.\d+)?-)?(pro|flash|flash-lite)(-latest)?$").expect("valid regex");
     let picked: Vec<String> = models
         .iter()
@@ -880,14 +905,45 @@ mod tests {
     }
 
     #[test]
+    fn context_is_left_to_llama_cpp_on_a_gpu_unless_chosen() {
+        let f = file("m.gguf", None, None);
+        let local =
+            |s: &ModelSettings| effective(s, ModelSource::Local, Some("qwen35"), Some(&f), DefaultContext::FitGpu);
+        assert_eq!(local(&ModelSettings::default()).context_length, None);
+        let chosen = |c| ModelSettings {
+            context_length: Some(c),
+            ..Default::default()
+        };
+        assert_eq!(local(&chosen(49152)).context_length, Some(49152));
+        // Never more than the model was trained on.
+        assert_eq!(local(&chosen(1_048_576)).context_length, Some(262_144));
+    }
+
+    #[test]
+    fn cloud_ids_name_their_provider() {
+        assert_eq!(
+            ModelRegistry::parse_cloud_id("gemini:p1:gemini-2.5-flash"),
+            Some((ProviderKind::Gemini, "p1", "gemini-2.5-flash"))
+        );
+        assert_eq!(
+            ModelRegistry::parse_cloud_id("openrouter:p2:google/gemma-4-31b-it:free"),
+            Some((ProviderKind::OpenRouter, "p2", "google/gemma-4-31b-it:free"))
+        );
+        assert_eq!(ModelRegistry::parse_cloud_id("local:C:/models/a.gguf"), None);
+    }
+
+    #[test]
     fn stable_gemini_models_are_on_by_default() {
-        let m = |id: &str| crate::llm::gemini::GeminiModel {
+        let m = |id: &str| crate::llm::CloudModel {
             id: id.into(),
             display_name: id.into(),
             description: String::new(),
             input_token_limit: 0,
             output_token_limit: 0,
             thinking: true,
+            always_thinks: false,
+            capabilities: None,
+            free: false,
         };
         let on = default_enabled_gemini(&[
             m("gemini-2.5-flash"),

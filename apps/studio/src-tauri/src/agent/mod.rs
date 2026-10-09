@@ -32,6 +32,7 @@ use crate::llm::gemini::GeminiClient;
 use crate::llm::openai::OpenAiClient;
 use crate::llm::{ChatRequest, Client, LlmError, StreamEvent};
 use crate::models::{ModelEntry, ModelRegistry, ModelSource};
+use crate::providers::ProviderKind;
 use crate::state::AppState;
 use crate::tools::{self, ToolContext};
 
@@ -346,7 +347,7 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<(Cli
             let client = OpenAiClient::new(state.local_http.clone(), served.base_url, model.id.clone());
             Ok((Client::OpenAi(client), Some(served.context_length as usize)))
         }
-        ModelSource::Gemini => {
+        ModelSource::Gemini | ModelSource::OpenRouter => {
             let Some((_, provider_id, remote)) = ModelRegistry::parse_cloud_id(&model.id) else {
                 bail_msg!("Unknown model id {}.", model.id);
             };
@@ -359,8 +360,25 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<(Cli
             let Some(key) = state.providers.api_key(provider_id) else {
                 bail_msg!("{} has no API key. Add one in Settings, Providers.", provider.name);
             };
-            let client = GeminiClient::new(state.http.clone(), provider.base_url(), key, remote.to_string());
-            Ok((Client::Gemini(client), None))
+            let client = match provider.kind {
+                ProviderKind::Gemini => Client::Gemini(GeminiClient::new(
+                    state.http.clone(),
+                    provider.base_url(),
+                    key,
+                    remote.to_string(),
+                )),
+                ProviderKind::OpenRouter => {
+                    let always_thinks = provider.models.iter().any(|m| m.id == remote && m.always_thinks);
+                    Client::OpenAi(OpenAiClient::openrouter(
+                        state.http.clone(),
+                        provider.base_url(),
+                        key,
+                        remote.to_string(),
+                        always_thinks,
+                    ))
+                }
+            };
+            Ok((client, None))
         }
     }
 }

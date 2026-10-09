@@ -159,7 +159,7 @@ export interface Trace {
   error: string | null;
 }
 
-export type ModelSource = 'local' | 'gemini';
+export type ModelSource = 'local' | 'gemini' | 'openrouter';
 
 export interface ModelSettings {
   name?: string | null;
@@ -241,22 +241,35 @@ export interface RuntimeStatus {
   loadSeconds: number | null;
 }
 
-export interface GeminiModel {
+export interface CloudModel {
   id: string;
   displayName: string;
   description: string;
   inputTokenLimit: number;
   outputTokenLimit: number;
   thinking: boolean;
+  /** Thinks whatever it is asked. */
+  alwaysThinks?: boolean;
+  /** What it can do, when the provider's list says (OpenRouter's does). */
+  capabilities?: ModelCapabilities;
+  /** Costs nothing to use. */
+  free?: boolean;
 }
+
+export type ProviderKind = 'gemini' | 'openrouter';
+
+/** Which of a provider's models are offered: OpenRouter lists paid models next to free ones. */
+export type ModelGroup = 'all' | 'free';
 
 export interface ProviderView {
   id: string;
-  kind: 'gemini';
+  kind: ProviderKind;
   name: string;
   enabled: boolean;
   baseUrl: string | null;
-  models: GeminiModel[];
+  modelGroup: ModelGroup;
+  /** The models of `modelGroup`. */
+  models: CloudModel[];
   modelsFetchedAt: number | null;
   createdAt: number;
   hasKey: boolean;

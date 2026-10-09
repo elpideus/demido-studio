@@ -3,7 +3,7 @@ use tauri::Emitter;
 use super::St;
 use crate::error::{AppError, CmdResult};
 use crate::models::CHANGED_EVENT;
-use crate::providers::{ProviderKind, ProviderPatch, ProviderView};
+use crate::providers::{ModelGroup, ProviderKind, ProviderPatch, ProviderView};
 
 fn view(state: &St<'_>, id: &str) -> CmdResult<ProviderView> {
     let _ = state.app.emit(CHANGED_EVENT, state.models.list());
@@ -36,8 +36,12 @@ pub async fn add_provider(
     kind: ProviderKind,
     name: Option<String>,
     api_key: String,
+    model_group: Option<ModelGroup>,
 ) -> CmdResult<ProviderView> {
-    let config = state.providers.add(kind, name, api_key).await?;
+    let config = state
+        .providers
+        .add(kind, name, api_key, model_group.unwrap_or_default())
+        .await?;
     refresh_capabilities(&state);
     view(&state, &config.id)
 }

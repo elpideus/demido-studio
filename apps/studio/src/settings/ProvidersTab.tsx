@@ -1,44 +1,116 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Cloud, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, Tag, Trash2 } from 'lucide-react';
-import { Badge, Button, Dialog, EmptyState, Field, IconButton, Notice, Spinner, Switch, TextField } from '@demido/ui';
+import { Cloud, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, Tag, Trash2, Waypoints } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Badge,
+  Button,
+  Dialog,
+  EmptyState,
+  Field,
+  IconButton,
+  Notice,
+  SegmentedControl,
+  Select,
+  Spinner,
+  Switch,
+  TextField,
+} from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import type { ProviderView } from '@/lib/types';
+import type { ModelGroup, ProviderKind, ProviderView } from '@/lib/types';
 import { toast } from '@/stores/toasts';
 import s from './settings.module.css';
 import styles from './ProvidersTab.module.css';
 
-const KEY_URL = 'https://aistudio.google.com/apikey';
 const NAME_MAX = 60;
 
-/** What each kind of provider is called when it has no custom name. */
-const KIND_LABEL: Record<ProviderView['kind'], string> = { gemini: 'Google Gemini' };
+/** What the person is told about each kind of provider while connecting it. */
+interface Preset {
+  /** What the provider is called when it has no custom name. */
+  label: string;
+  pitch: string;
+  icon: LucideIcon;
+  keyUrl: string;
+  keyHelp: string;
+  keyPlaceholder: string;
+  /** Lists paid models next to free ones, so the person picks which it offers. */
+  groups: boolean;
+}
+
+const PRESETS: Record<ProviderKind, Preset> = {
+  gemini: {
+    label: 'Google Gemini',
+    pitch: 'Fast, capable cloud models with a generous free tier.',
+    icon: Cloud,
+    keyUrl: 'https://aistudio.google.com/apikey',
+    keyHelp: 'Create a free key in Google AI Studio.',
+    keyPlaceholder: 'AIza…',
+    groups: false,
+  },
+  openrouter: {
+    label: 'OpenRouter',
+    pitch: 'Hundreds of models from every major lab through one key, some of them free.',
+    icon: Waypoints,
+    keyUrl: 'https://openrouter.ai/settings/keys',
+    keyHelp: 'Create a key in your OpenRouter account.',
+    keyPlaceholder: 'sk-or-…',
+    groups: true,
+  },
+};
+
+const KINDS = (Object.keys(PRESETS) as ProviderKind[]).map((k) => ({ value: k, label: PRESETS[k].label }));
+
+const GROUPS: Array<{ value: ModelGroup; label: string }> = [
+  { value: 'all', label: 'All models' },
+  { value: 'free', label: 'Free models only' },
+];
+
+const GROUP_NOTE =
+  'Free models cost nothing but have daily limits, and their providers may keep what you send. Paid models start switched off.';
+
+/** "12 models", or "12 free models" when only the free ones are offered. */
+function countModels(p: ProviderView): string {
+  const n = p.models.length;
+  return `${n} ${p.modelGroup === 'free' ? 'free ' : ''}model${n === 1 ? '' : 's'}`;
+}
+
+function ProviderIcon({ kind }: { kind: ProviderKind }) {
+  const Icon = PRESETS[kind].icon;
+  return (
+    <span className={styles.providerIcon}>
+      <Icon size={20} strokeWidth={1.8} aria-hidden />
+    </span>
+  );
+}
 
 function KeyForm({
   kind,
   submitLabel,
-  withName = false,
+  adding = false,
   onSubmit,
   onCancel,
 }: {
+  kind: ProviderKind;
   submitLabel: string;
-  /** Also ask for an optional name, for a provider being added. */
-  withName?: boolean;
-  onSubmit: (key: string, name: string) => Promise<void>;
+  /** Also ask for an optional name and, where there is a choice, which models to offer. */
+  adding?: boolean;
+  onSubmit: (key: string, name: string, group: ModelGroup) => Promise<void>;
   onCancel?: () => void;
 }) {
   const id = useId();
+  const preset = PRESETS[kind];
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
+  const [group, setGroup] = useState<ModelGroup>('all');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(key.trim(), name.trim());
+      await onSubmit(key.trim(), name.trim(), group);
       setKey('');
       setName('');
     } catch (e) {
@@ -50,16 +122,26 @@ function KeyForm({
   const submitOnEnter = (e: KeyboardEvent) => e.key === 'Enter' && key.trim() && !busy && void submit();
   return (
     <div className={s.stack}>
-      {withName && (
+      {adding && (
         <Field label="Name" htmlFor={`${id}-name`} description="Shown in the model list. Optional.">
           <TextField
             id={`${id}-name`}
             icon={Tag}
-            placeholder={KIND_LABEL.gemini}
+            placeholder={preset.label}
             value={name}
             maxLength={NAME_MAX}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={submitOnEnter}
+          />
+        </Field>
+      )}
+      {adding && preset.groups && (
+        <Field label="Models" htmlFor={`${id}-group`} description={GROUP_NOTE}>
+          <Select
+            id={`${id}-group`}
+            options={GROUPS}
+            value={group}
+            onChange={(e) => setGroup(e.target.value as ModelGroup)}
           />
         </Field>
       )}
@@ -68,12 +150,12 @@ function KeyForm({
         htmlFor={`${id}-key`}
         description={
           <>
-            Create a free key in Google AI Studio.{' '}
+            {preset.keyHelp}{' '}
             <a
-              href={KEY_URL}
+              href={preset.keyUrl}
               onClick={(e) => {
                 e.preventDefault();
-                void openUrl(KEY_URL);
+                void openUrl(preset.keyUrl);
               }}
             >
               Get a key <ExternalLink size={11} />
@@ -85,7 +167,7 @@ function KeyForm({
           id={`${id}-key`}
           icon={KeyRound}
           type="password"
-          placeholder="AIza…"
+          placeholder={preset.keyPlaceholder}
           value={key}
           invalid={!!error}
           onChange={(e) => setKey(e.target.value)}
@@ -105,6 +187,34 @@ function KeyForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Which of OpenRouter's models a connected provider offers; changing it lists them again. */
+function GroupSelect({ provider, onChange }: { provider: ProviderView; onChange: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Select
+      size="sm"
+      aria-label="Models"
+      className={styles.groupSelect}
+      options={GROUPS}
+      value={provider.modelGroup}
+      disabled={busy}
+      onChange={(e) => {
+        setBusy(true);
+        api
+          .updateProvider(provider.id, { modelGroup: e.target.value as ModelGroup })
+          .then(
+            (updated) => {
+              toast.success('Model list updated', `${countModels(updated)} available.`);
+              return onChange();
+            },
+            (err) => toast.error('Could not change the models', errorText(err)),
+          )
+          .finally(() => setBusy(false));
+      }}
+    />
   );
 }
 
@@ -165,7 +275,7 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
   const [refreshing, setRefreshing] = useState(false);
   const renameButton = useRef<HTMLButtonElement>(null);
   const refocusRename = useRef(false);
-  const kindLabel = KIND_LABEL[provider.kind];
+  const preset = PRESETS[provider.kind];
 
   useEffect(() => {
     if (renaming || !refocusRename.current) return;
@@ -177,9 +287,7 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
   return (
     <div className={s.card}>
       <div className={styles.providerHead}>
-        <span className={styles.providerIcon}>
-          <Cloud size={20} strokeWidth={1.8} aria-hidden />
-        </span>
+        <ProviderIcon kind={provider.kind} />
         <div className={s.rowMain}>
           {renaming ? (
             <div className={styles.renameRow}>
@@ -210,8 +318,8 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
             </div>
           )}
           <div className={s.rowMeta}>
-            {provider.name !== kindLabel && `${kindLabel} · `}
-            {provider.models.length} models available · key {provider.keyHint ?? 'missing'}
+            {provider.name !== preset.label && `${preset.label} · `}
+            {countModels(provider)} available · key {provider.keyHint ?? 'missing'}
             {provider.modelsFetchedAt ? ` · checked ${formatDateTime(provider.modelsFetchedAt)}` : ''}
           </div>
         </div>
@@ -228,6 +336,7 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
       {replacing ? (
         <div className={s.cardPad}>
           <KeyForm
+            kind={provider.kind}
             submitLabel="Save key"
             onCancel={() => setReplacing(false)}
             onSubmit={async (key) => {
@@ -264,6 +373,7 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
           >
             Refresh models
           </Button>
+          {preset.groups && <GroupSelect provider={provider} onChange={onChange} />}
           <span className={styles.flex} />
           <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setRemoving(true)}>
             Remove
@@ -297,12 +407,60 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
   );
 }
 
-/** Cloud model providers. Google Gemini for now. */
+/** What the person is told once a provider is connected. */
+function connectedNote(p: ProviderView): string {
+  if (p.kind !== 'openrouter' || p.modelGroup === 'free') return `${countModels(p)} are available.`;
+  return `${countModels(p)} are available. The free ones are switched on; switch on others under Models.`;
+}
+
+/** A provider being connected: which kind, then its name, models and key. */
+function AddCard({
+  initialKind,
+  onCancel,
+  onAdded,
+}: {
+  initialKind: ProviderKind;
+  onCancel?: () => void;
+  onAdded: () => void;
+}) {
+  const [kind, setKind] = useState(initialKind);
+  const preset = PRESETS[kind];
+  return (
+    <div className={s.card}>
+      <div className={s.cardPad}>
+        <SegmentedControl value={kind} onChange={setKind} options={KINDS} className={styles.kinds} />
+        <div className={styles.addHead}>
+          <ProviderIcon kind={kind} />
+          <div>
+            <div className={s.rowTitle}>{preset.label}</div>
+            <div className={s.rowMeta}>{preset.pitch}</div>
+          </div>
+        </div>
+        <KeyForm
+          key={kind}
+          kind={kind}
+          submitLabel="Connect"
+          adding
+          onCancel={onCancel}
+          onSubmit={async (key, name, group) => {
+            const added = await api.addProvider(kind, key, name || undefined, preset.groups ? group : undefined);
+            toast.success(`${preset.label} connected`, connectedNote(added));
+            onAdded();
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Cloud model providers: Google Gemini and OpenRouter. */
 export function ProvidersTab() {
   const [providers, setProviders] = useState<ProviderView[] | null>(null);
   const [adding, setAdding] = useState(false);
   const load = () => api.listProviders().then(setProviders);
   useEffect(() => void load(), []);
+  // The first kind not connected yet, so adding a second provider starts on the other one.
+  const nextKind = KINDS.find((k) => !providers?.some((p) => p.kind === k.value))?.value ?? 'gemini';
 
   return (
     <div className={s.page}>
@@ -325,30 +483,14 @@ export function ProvidersTab() {
             <ProviderCard key={p.id} provider={p} onChange={load} />
           ))}
           {providers && (providers.length === 0 || adding) && (
-            <div className={s.card}>
-              <div className={s.cardPad}>
-                <div className={styles.addHead}>
-                  <span className={styles.providerIcon}>
-                    <Cloud size={20} strokeWidth={1.8} aria-hidden />
-                  </span>
-                  <div>
-                    <div className={s.rowTitle}>{KIND_LABEL.gemini}</div>
-                    <div className={s.rowMeta}>Fast, capable cloud models with a generous free tier.</div>
-                  </div>
-                </div>
-                <KeyForm
-                  submitLabel="Connect"
-                  withName
-                  onCancel={providers.length > 0 ? () => setAdding(false) : undefined}
-                  onSubmit={async (key, name) => {
-                    const added = await api.addProvider(key, name || undefined);
-                    toast.success('Gemini connected', `${added.models.length} models are available.`);
-                    setAdding(false);
-                    void load();
-                  }}
-                />
-              </div>
-            </div>
+            <AddCard
+              initialKind={nextKind}
+              onCancel={providers.length > 0 ? () => setAdding(false) : undefined}
+              onAdded={() => {
+                setAdding(false);
+                void load();
+              }}
+            />
           )}
           {providers === null && <EmptyState compact title="Loading…" />}
           <Notice tone="info" icon={Cloud}>

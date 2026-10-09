@@ -7,13 +7,12 @@
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::openai::error_message;
 use super::sse::SseDecoder;
-use super::{ChatRequest, Completion, LlmError, LlmMessage, StreamEvent, Usage};
+use super::{ChatRequest, CloudModel, Completion, LlmError, LlmMessage, StreamEvent, Usage};
 use crate::db::ToolCall;
 
 pub const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
@@ -461,7 +460,7 @@ pub fn sanitize_schema(schema: &Value) -> Value {
 }
 
 /// Lists the chat models an API key can use. Also serves as the connection test.
-pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) -> Result<Vec<GeminiModel>, LlmError> {
+pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) -> Result<Vec<CloudModel>, LlmError> {
     let mut models = Vec::new();
     let mut page_token: Option<String> = None;
     loop {
@@ -489,12 +488,15 @@ pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) 
             if !methods.contains(&"generateContent") || !is_chat_model(&id) {
                 continue;
             }
-            models.push(GeminiModel {
+            models.push(CloudModel {
                 display_name: m["displayName"].as_str().unwrap_or(&id).to_string(),
                 description: m["description"].as_str().unwrap_or_default().to_string(),
                 input_token_limit: m["inputTokenLimit"].as_u64().unwrap_or(0),
                 output_token_limit: m["outputTokenLimit"].as_u64().unwrap_or(0),
                 thinking: m["thinking"].as_bool().unwrap_or(false),
+                always_thinks: false,
+                capabilities: None,
+                free: false,
                 id,
             });
         }
