@@ -114,6 +114,7 @@ pub struct ModelCatalog {
     pub cpu_tiers: Vec<CpuTier>,
     pub smoke_test: ModelPick,
     pub search: SearchCatalog,
+    pub speech: SpeechCatalog,
 }
 
 /// Embedding models for searching attached files by meaning.
@@ -161,11 +162,69 @@ impl SearchModel {
 impl SearchCatalog {
     /// The model for a machine: by GPU memory (`gpu_memory_gb`, None without a usable GPU).
     pub fn for_memory(&self, gpu_memory_gb: Option<f64>) -> &SearchModel {
-        gpu_memory_gb
-            .and_then(|gb| self.models.iter().find(|m| gb >= m.min_vram_gb))
-            .or_else(|| self.models.last())
-            .expect("the catalog has search models")
+        by_memory(&self.models, |m| m.min_vram_gb, gpu_memory_gb).expect("the catalog has search models")
     }
+}
+
+/// Speech models, which write down what the person says for a chat model that cannot hear.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechCatalog {
+    /// Largest first, picked like the search models.
+    pub models: Vec<SpeechModel>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechModel {
+    pub id: String,
+    pub name: String,
+    pub min_vram_gb: f64,
+    pub repo: String,
+    pub file: String,
+    pub quant: String,
+    pub size: u64,
+    pub sha256: String,
+    /// The audio encoder, which the model cannot hear without.
+    pub projector: Projector,
+    /// Tokens of the server's one slot: the longest recording and its transcript.
+    pub context_length: u32,
+    /// GPU memory the model's server takes, in MiB (measured).
+    pub gpu_memory_mb: u32,
+}
+
+impl SpeechModel {
+    pub fn url(&self) -> String {
+        hf_url(&self.repo, &self.file)
+    }
+
+    pub fn projector_url(&self) -> String {
+        hf_url(&self.repo, &self.projector.file)
+    }
+
+    /// Bytes downloaded for this model: the model and its projector.
+    pub fn download_size(&self) -> u64 {
+        self.size + self.projector.size
+    }
+}
+
+impl SpeechCatalog {
+    /// The model for a machine: by GPU memory (`gpu_memory_gb`, None without a usable GPU).
+    pub fn for_memory(&self, gpu_memory_gb: Option<f64>) -> &SpeechModel {
+        by_memory(&self.models, |m| m.min_vram_gb, gpu_memory_gb).expect("the catalog has speech models")
+    }
+
+    pub fn get(&self, id: &str) -> Option<&SpeechModel> {
+        self.models.iter().find(|m| m.id == id)
+    }
+}
+
+/// Of `models`, largest first, the first whose minimum GPU memory `gpu_memory_gb` reaches; the
+/// last without a usable GPU or when none fits.
+fn by_memory<T>(models: &[T], min_vram_gb: impl Fn(&T) -> f64, gpu_memory_gb: Option<f64>) -> Option<&T> {
+    gpu_memory_gb
+        .and_then(|gb| models.iter().find(|m| gb >= min_vram_gb(m)))
+        .or_else(|| models.last())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

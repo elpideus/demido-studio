@@ -198,6 +198,12 @@ pub fn search_model<'a>(choice: &BackendChoice, catalog: &'a Catalog) -> &'a cra
     catalog.models.search.for_memory(gpu_memory)
 }
 
+/// The speech model for a runtime choice, picked like the search model.
+pub fn speech_model<'a>(choice: &BackendChoice, catalog: &'a Catalog) -> &'a crate::SpeechModel {
+    let gpu_memory = (choice.backend.is_gpu() && !choice.uses_system_memory).then_some(choice.memory_budget_gb);
+    catalog.models.speech.for_memory(gpu_memory)
+}
+
 pub fn recommend_models(choice: &BackendChoice, catalog: &Catalog) -> ModelRecommendation {
     let models = &catalog.models;
     let (tier, context_length, table) = if choice.uses_system_memory || !choice.backend.is_gpu() {

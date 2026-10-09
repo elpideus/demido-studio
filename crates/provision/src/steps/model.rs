@@ -1,4 +1,4 @@
-//! The starter model and the search model, straight from Hugging Face into the models folder.
+//! The starter, search and speech models, straight from Hugging Face into the models folder.
 
 use std::path::PathBuf;
 
@@ -63,6 +63,37 @@ pub(crate) async fn download_search(ctx: &Ctx<'_>) -> anyhow::Result<PathBuf> {
         },
     )
     .await
+}
+
+/// The speech model and its projector (its audio encoder), which write down what the person says
+/// for a chat model that cannot hear. Like the search model, the app finds them by their file
+/// names.
+pub(crate) async fn download_speech(ctx: &Ctx<'_>) -> anyhow::Result<PathBuf> {
+    let model = ctx.plan.speech_model.as_ref().context("no speech model selected")?;
+    let mut bar = Bar::new(StepId::SpeechModel, model.download_size());
+    let dest = fetch(
+        ctx,
+        &mut bar,
+        Pinned {
+            repo: &model.repo,
+            file: &model.file,
+            size: model.size,
+            sha256: &model.sha256,
+        },
+    )
+    .await?;
+    fetch(
+        ctx,
+        &mut bar,
+        Pinned {
+            repo: &model.repo,
+            file: &model.projector.file,
+            size: model.projector.size,
+            sha256: &model.projector.sha256,
+        },
+    )
+    .await?;
+    Ok(dest)
 }
 
 /// A file of a Hugging Face repo, pinned to its size and SHA-256.

@@ -45,4 +45,5 @@ person's computer and verifies each download against a pinned SHA-256 checksum.
 | [CPython](https://www.python.org) (python-build-standalone via uv) | PSF License | GitHub releases |
 | numpy, pandas, matplotlib, requests | BSD-3-Clause, PSF-based, Apache-2.0 | PyPI |
 | Qwen and Gemma models, quantized by [unsloth](https://huggingface.co/unsloth) | Apache-2.0 (see each model card) | Hugging Face |
+| Speech model: [Qwen3-ASR 1.7B or 0.6B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B) by Qwen, as GGUF by [ggml-org](https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF) | Apache-2.0 | Hugging Face |
 | Search model: [Qwen3 Embedding 0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF) (GGUF by Qwen) or [EmbeddingGemma 300M](https://huggingface.co/unsloth/embeddinggemma-300m-GGUF) (quantized by unsloth) | Apache-2.0; [Gemma Terms of Use](https://ai.google.dev/gemma/terms) | Hugging Face |

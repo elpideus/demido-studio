@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use demido_catalog::{BackendChoice, Catalog, ModelPick, SearchModel};
+use demido_catalog::{BackendChoice, Catalog, ModelPick, SearchModel, SpeechModel};
 use demido_core::{Backend, InstallManifest, InstallScope};
 use demido_hardware::HardwareReport;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,9 @@ pub struct InstallPlan {
     pub model: Option<ModelPick>,
     /// Embedding model for searching attached files by meaning; `None` skips it.
     pub search_model: Option<SearchModel>,
+    /// Speech model, which writes down what the person says for a model that cannot hear;
+    /// `None` skips it.
+    pub speech_model: Option<SpeechModel>,
     pub model_context: u32,
     pub models_dir: PathBuf,
     pub python: bool,
@@ -66,6 +69,7 @@ pub enum StepId {
     PythonPackages,
     Model,
     SearchModel,
+    SpeechModel,
     Shortcuts,
     Finalize,
 }
@@ -100,7 +104,9 @@ impl InstallPlan {
     /// executable, and one the person deleted stays deleted. The entry in Installed apps is
     /// written again, so it shows the new version and size. The search model came after the
     /// first releases: an installation without one gets the one setup would pick today, and one
-    /// that has one keeps it.
+    /// that has one keeps it. The speech model is not downloaded: an installation that has none
+    /// is offered it in the app the first time the microphone needs it, which is the moment the
+    /// person knows what the gigabyte is for.
     pub fn for_update(
         install_dir: &Path,
         manifest: &InstallManifest,
@@ -160,6 +166,7 @@ impl InstallPlan {
             variant,
             model: None,
             search_model,
+            speech_model: None,
             model_context,
             models_dir,
             python: true,
@@ -238,6 +245,14 @@ impl InstallPlan {
                 label: "Search model".into(),
                 detail: format!("{} · finds what you ask about in attached files", search.name),
                 size: search.size,
+            });
+        }
+        if let Some(speech) = &self.speech_model {
+            steps.push(StepInfo {
+                id: StepId::SpeechModel,
+                label: "Speech model".into(),
+                detail: format!("{} · writes down what you say for models that cannot hear", speech.name),
+                size: speech.download_size(),
             });
         }
         if self.shortcuts || self.register {
@@ -390,6 +405,10 @@ mod tests {
         let steps: Vec<StepId> = plan.steps(demido_catalog::catalog()).iter().map(|s| s.id).collect();
         assert!(!steps.contains(&StepId::Model), "{steps:?}");
         assert!(steps.contains(&StepId::SearchModel), "{steps:?}");
+        assert!(
+            !steps.contains(&StepId::SpeechModel),
+            "offered in the app instead: {steps:?}"
+        );
         assert_eq!(
             plan.search_model.map(|m| m.id).as_deref(),
             Some("qwen3-embedding-0.6b"),
@@ -404,5 +423,24 @@ mod tests {
             demido_core::paths::starter_models_dir(InstallScope::Machine)
         );
         assert!(!plan.register);
+    }
+
+    #[test]
+    fn a_new_install_downloads_the_speech_model_with_its_projector() {
+        let catalog = demido_catalog::catalog();
+        let mut plan = update(&installed(InstallScope::User, None), &pc(vec![]));
+        let speech = catalog.models.speech.for_memory(None).clone();
+        plan.speech_model = Some(speech.clone());
+        let steps = plan.steps(catalog);
+        let step = steps
+            .iter()
+            .find(|s| s.id == StepId::SpeechModel)
+            .expect("a speech step");
+        assert_eq!(step.size, speech.size + speech.projector.size);
+        assert!(step.detail.starts_with("Qwen3-ASR 0.6B"), "{}", step.detail);
+        // After the search model, before the shortcuts and the manifest.
+        let at = |id| steps.iter().position(|s| s.id == id);
+        assert!(at(StepId::SearchModel) < at(StepId::SpeechModel));
+        assert!(at(StepId::SpeechModel) < at(StepId::Finalize));
     }
 }

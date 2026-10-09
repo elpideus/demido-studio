@@ -295,6 +295,11 @@ async fn run_step(
             manifest.models_dir = Some(ctx.plan.models_dir.clone());
             Ok(())
         }
+        StepId::SpeechModel => {
+            steps::model::download_speech(ctx).await?;
+            manifest.models_dir = Some(ctx.plan.models_dir.clone());
+            Ok(())
+        }
         StepId::Shortcuts => steps::shortcuts::create(ctx).await,
         StepId::Finalize => {
             // Partial downloads of failed steps are kept so a retry resumes them.
@@ -331,6 +336,7 @@ mod tests {
             variant: "windows-cpu".into(),
             model: None,
             search_model: None,
+            speech_model: None,
             model_context: 4096,
             models_dir: demido_core::paths::starter_models_dir(scope),
             python: false,

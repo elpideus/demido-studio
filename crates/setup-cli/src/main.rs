@@ -146,9 +146,10 @@ async fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("unknown model family {family}"))?,
         ),
     };
-    // The smoke test stays quick: no search model with it.
-    let search_model = (!matches!(args.model.as_str(), "none" | "smoke"))
-        .then(|| demido_catalog::search_model(choice, catalog).clone());
+    // The smoke test stays quick: no search or speech model with it.
+    let full = !matches!(args.model.as_str(), "none" | "smoke");
+    let search_model = full.then(|| demido_catalog::search_model(choice, catalog).clone());
+    let speech_model = full.then(|| demido_catalog::speech_model(choice, catalog).clone());
     let dir = match args.dir {
         Some(d) => d,
         None => repo_root()?.join(".dev").join("install"),
@@ -161,6 +162,7 @@ async fn main() -> anyhow::Result<()> {
         variant,
         model,
         search_model,
+        speech_model,
         model_context: rec.context_length,
         models_dir,
         python: args.python,

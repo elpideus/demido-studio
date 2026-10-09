@@ -360,5 +360,44 @@
         "gpuMemoryMb": 497
       }
     ]
+  },
+  "speech": {
+    "$comment": "Speech models, which write down what the person says for a chat model that cannot hear (one that can gets the recording itself). Picked by memory like the search models: the first whose minVramGb fits the GPU wins, and a CPU-only machine gets the last. These are ggml-org's GGUFs, the llama.cpp project's own conversions of Qwen's Qwen3-ASR: unsloth publishes no Qwen3-ASR, and the `unslothai` account on Hugging Face is not unsloth. Each comes with its projector, the audio encoder: the Q8_0 one, which wrote the same transcripts as bf16 at both sizes on clean, noisy and hard clips, and takes 156 MiB (0.6B) and 272 MiB (1.7B) less GPU memory. contextLength holds a five-minute recording (3633 tokens) and its transcript (about 800). gpuMemoryMb is what llama.cpp b11146 counts on an RTX 3060 (model, context and compute, plus its estimate for the projector; nvidia-smi's difference could not be taken as another job shared the GPU). A chat model does not keep it free, so beside a local chat model llama.cpp fits the speech model into what is left, on the CPU when nothing is. The 1.7B is taken from 16 GB: below that the chat model leaves it little, and on the CPU it is two and a half times slower than the 0.6B. Time to transcribe a 6.5- and a 37-second clip (best of three, a fresh clip each run), on the RTX 3060 shared with another job at full use, and on an i7-12700K with no GPU: 0.6B 0.4 s and 2.3 s on the GPU, 0.8 s and 4.1 s on the CPU; 1.7B 0.3 s and 2.4 s on the GPU, 2.0 s and 10.2 s on the CPU. Under heavy noise the 1.7B heard 'gold' where the 0.6B heard 'bonds'.",
+    "models": [
+      {
+        "id": "qwen3-asr-1.7b",
+        "name": "Qwen3-ASR 1.7B",
+        "minVramGb": 16,
+        "repo": "ggml-org/Qwen3-ASR-1.7B-GGUF",
+        "file": "Qwen3-ASR-1.7B-Q8_0.gguf",
+        "quant": "Q8_0",
+        "size": 2165034944,
+        "sha256": "58e22d0532d4eacaf034cfac17a6fed159f37c41390c710186783be439d1fc57",
+        "projector": {
+          "file": "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
+          "size": 355709344,
+          "sha256": "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d"
+        },
+        "contextLength": 6144,
+        "gpuMemoryMb": 3365
+      },
+      {
+        "id": "qwen3-asr-0.6b",
+        "name": "Qwen3-ASR 0.6B",
+        "minVramGb": 0,
+        "repo": "ggml-org/Qwen3-ASR-0.6B-GGUF",
+        "file": "Qwen3-ASR-0.6B-Q8_0.gguf",
+        "quant": "Q8_0",
+        "size": 804749248,
+        "sha256": "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971",
+        "projector": {
+          "file": "mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
+          "size": 214392480,
+          "sha256": "41a342b5e4c514e968cb756de6cd1b7be39eff43c44c57a2ef5fc6522e36603d"
+        },
+        "contextLength": 6144,
+        "gpuMemoryMb": 2068
+      }
+    ]
   }
 }

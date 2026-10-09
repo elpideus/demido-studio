@@ -9,7 +9,9 @@ mod data;
 pub mod plan;
 
 pub use data::*;
-pub use plan::{BackendChoice, ModelRecommendation, backend_choices, default_backend, recommend_models, search_model};
+pub use plan::{
+    BackendChoice, ModelRecommendation, backend_choices, default_backend, recommend_models, search_model, speech_model,
+};
 
 use std::sync::OnceLock;
 
@@ -117,12 +119,68 @@ mod tests {
     }
 
     #[test]
+    fn speech_models_are_pinned_and_picked_by_memory() {
+        let speech = &catalog().models.speech;
+        let mins: Vec<f64> = speech.models.iter().map(|m| m.min_vram_gb).collect();
+        assert!(
+            mins.len() >= 2 && mins.windows(2).all(|w| w[0] > w[1]),
+            "out of order: {mins:?}"
+        );
+        for m in &speech.models {
+            assert!(m.file.ends_with(".gguf") && m.size > 0);
+            assert_eq!(m.sha256.len(), 64, "{}", m.file);
+            // The projector comes from the model's own repo, and is measured, not guessed.
+            assert!(m.projector.file.starts_with("mmproj-") && m.projector.file.ends_with(".gguf"));
+            assert_eq!(m.projector.sha256.len(), 64, "{}", m.projector.file);
+            assert_eq!(m.download_size(), m.size + m.projector.size);
+            assert!(
+                m.projector_url()
+                    .starts_with(&format!("https://huggingface.co/{}/resolve/main/", m.repo))
+            );
+            assert!(m.gpu_memory_mb > 0);
+            // A five-minute recording is 3633 tokens, and its transcript about 800 more.
+            assert!(m.context_length >= 4500, "{}", m.id);
+            assert_eq!(speech.get(&m.id), Some(m));
+        }
+        assert_eq!(speech.for_memory(Some(24.0)).id, "qwen3-asr-1.7b");
+        assert_eq!(speech.for_memory(Some(16.0)).id, "qwen3-asr-1.7b");
+        assert_eq!(speech.for_memory(Some(12.0)).id, "qwen3-asr-0.6b");
+        assert_eq!(speech.for_memory(None).id, "qwen3-asr-0.6b");
+        assert!(speech.get("whisper").is_none());
+    }
+
+    #[test]
     fn unsloth_is_the_preferred_publisher() {
         let c = catalog();
         for tier in &c.models.tiers {
             for pick in tier.models.values() {
                 assert!(pick.repo.starts_with("unsloth/"), "{} is not unsloth", pick.repo);
             }
+        }
+        // unsloth publishes no Qwen3-ASR: the speech models are llama.cpp's own conversions. The
+        // `unslothai` account is someone else, and never a source.
+        for m in &c.models.speech.models {
+            assert!(
+                m.repo.starts_with("ggml-org/Qwen3-ASR-"),
+                "{} is not ggml-org's Qwen3-ASR",
+                m.repo
+            );
+        }
+        let repos = c
+            .models
+            .tiers
+            .iter()
+            .flat_map(|t| t.models.values().map(|p| p.repo.as_str()))
+            .chain(
+                c.models
+                    .cpu_tiers
+                    .iter()
+                    .flat_map(|t| t.models.values().map(|p| p.repo.as_str())),
+            )
+            .chain(c.models.search.models.iter().map(|m| m.repo.as_str()))
+            .chain(c.models.speech.models.iter().map(|m| m.repo.as_str()));
+        for repo in repos {
+            assert!(!repo.starts_with("unslothai/"), "{repo}");
         }
     }
 }

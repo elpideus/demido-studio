@@ -195,6 +195,15 @@ struct UpdateLaunch {
     relaunch: bool,
 }
 
+/// A model setup downloads besides the starter model, as the Review page lists it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HelperModel {
+    label: String,
+    detail: String,
+    size: u64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Context {
@@ -206,6 +215,8 @@ struct Context {
     default_backend: Backend,
     families: Vec<Family>,
     recommendations: BTreeMap<String, ModelRecommendation>,
+    /// By backend, like `recommendations`: the search and speech models that come either way.
+    helper_models: BTreeMap<String, Vec<HelperModel>>,
     default_dirs: BTreeMap<String, String>,
     elevated: bool,
     existing: Option<ExistingInstall>,
@@ -261,15 +272,33 @@ fn registered_install_dirs() -> Vec<PathBuf> {
 fn setup_context(state: State<'_, Arc<SetupState>>) -> Context {
     let catalog = demido_catalog::catalog();
     let choices = demido_catalog::backend_choices(&state.hardware, catalog);
-    let recommendations = choices
-        .iter()
-        .filter(|c| c.available)
+    let key = |c: &BackendChoice| {
+        serde_json::to_value(c.backend)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default()
+    };
+    let available = || choices.iter().filter(|c| c.available);
+    let recommendations = available()
+        .map(|c| (key(c), demido_catalog::recommend_models(c, catalog)))
+        .collect();
+    let helper_models = available()
         .map(|c| {
-            let key = serde_json::to_value(c.backend)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_default();
-            (key, demido_catalog::recommend_models(c, catalog))
+            let search = demido_catalog::search_model(c, catalog);
+            let speech = demido_catalog::speech_model(c, catalog);
+            let helpers = vec![
+                HelperModel {
+                    label: "Search model".into(),
+                    detail: format!("{} · finds what you ask about in attached files", search.name),
+                    size: search.size,
+                },
+                HelperModel {
+                    label: "Speech model".into(),
+                    detail: format!("{} · writes down what you say for models that cannot hear", speech.name),
+                    size: speech.download_size(),
+                },
+            ];
+            (key(c), helpers)
         })
         .collect();
     let (os, arch) = (demido_core::Os::current(), demido_core::Arch::current());
@@ -304,6 +333,7 @@ fn setup_context(state: State<'_, Arc<SetupState>>) -> Context {
         choices,
         families: catalog.models.families.clone(),
         recommendations,
+        helper_models,
         default_dirs,
         elevated: demido_provision::system::is_elevated(),
         // An update is for the installation it was asked for, and only that one.
@@ -431,6 +461,8 @@ fn start_install(app: AppHandle, state: State<'_, Arc<SetupState>>, request: Pla
         model,
         // Search by meaning works with any model, local or online, so it comes either way.
         search_model: Some(demido_catalog::search_model(choice, catalog).clone()),
+        // Voice input works with any model; the many that cannot hear need this one to listen.
+        speech_model: Some(demido_catalog::speech_model(choice, catalog).clone()),
         model_context: rec.context_length,
         models_dir: demido_core::paths::starter_models_dir(request.scope),
         python: true,

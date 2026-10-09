@@ -26,6 +26,7 @@ export function ReviewPage({ ctx, state, onChange, onBack, onInstall }: Props) {
   const [info, setInfo] = useState<DirInfo | null>(null);
   const choice = ctx.choices.find((c) => c.backend === state.backend);
   const pick = ctx.recommendations[state.backend]?.picks.find(([f]) => f === state.family)?.[1];
+  const helpers = ctx.helperModels[state.backend] ?? [];
 
   const check = () => void invoke<DirInfo>('check_dir', { path: state.installDir }).then(setInfo);
   useEffect(check, [state.installDir]);
@@ -50,11 +51,12 @@ export function ReviewPage({ ctx, state, onChange, onBack, onInstall }: Props) {
     },
     { label: 'Node.js', detail: 'Runs the market data service', size: ctx.fixedSizes.node ?? 0 },
     ...(pick ? [{ label: pick.name, detail: `${pick.quant} · ${pick.repo}`, size: downloadSize(pick) }] : []),
+    ...helpers,
   ];
   const download = items.reduce((sum, i) => sum + (i.included ? 0 : i.size), 0);
   const needed = items.reduce((sum, i) => sum + i.size, 0);
   // The model goes to the starter models folder, often on another drive than the app.
-  const modelBytes = pick ? downloadSize(pick) : 0;
+  const modelBytes = (pick ? downloadSize(pick) : 0) + helpers.reduce((sum, h) => sum + h.size, 0);
   const [volumes, setVolumes] = useState<VolumeNeed[]>([]);
   useEffect(() => {
     void invoke<VolumeNeed[]>('check_space', {

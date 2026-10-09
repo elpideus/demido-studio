@@ -44,6 +44,7 @@ that capability as unknown rather than wrong.
 | `cpuTiers[]` | The same for CPU-only machines, by `minRamGb` |
 | `smokeTest` | A tiny model for testing the install path: `demido-setup-cli --dev --model smoke` |
 | `search.models[]` | Search models, which find passages of attached files by meaning, largest first. The first whose `minVramGb` fits the GPU the runtime uses wins; a CPU-only machine gets the last |
+| `speech.models[]` | Speech models, which write down what the person says for a chat model that cannot hear, largest first, picked like the search models |
 
 Each tier has a `contextLength` and one model per family: `name`, `repo`, `file`, `quant`,
 `size` and `sha256`. The sizes leave room for the context (KV cache) and for the desktop's own
@@ -74,3 +75,28 @@ SHA-256 are in the Hugging Face API:
 ```bash
 curl -s "https://huggingface.co/api/models/unsloth/Qwen3.5-9B-GGUF/tree/main" | jq '.[] | select(.path | endswith(".gguf")) | {path, size, sha256: .lfs.oid}'
 ```
+
+### Speech models
+
+Each speech model has `name`, `repo`, `file`, `quant`, `size`, `sha256` and a `projector`, its
+audio encoder, without which it hears nothing; `contextLength`, the tokens of its server's one
+slot, which must hold the longest recording (a five-minute clip is 3,633 tokens for Qwen3-ASR)
+and its transcript (about 800 more); and `gpuMemoryMb`, what its server takes on the GPU.
+
+They are Qwen3-ASR 1.7B, from 16 GB of GPU memory, and 0.6B below that and on the CPU, both
+Q8_0. They come from `ggml-org`, the llama.cpp project, rather than unsloth: unsloth publishes no
+Qwen3-ASR, and `unslothai` on Hugging Face is a different account, never a source. The catalog
+test holds the speech models to `ggml-org/Qwen3-ASR-`.
+
+To measure a new one, run its `llama-server` with `-m`, `--mmproj` and the context, and:
+
+- transcribe clips through `/v1/audio/transcriptions` with each of the repo's projectors, on
+  clean, noisy and hard speech, and take the smallest projector that writes the same words (Q8_0
+  for Qwen3-ASR: the same transcripts as bf16, 156 and 272 MiB less GPU memory);
+- for `gpuMemoryMb`, add up the model, KV and compute buffers llama.cpp logs with `-lv 4`, and its
+  "estimated worst-case memory usage of mmproj"; or the difference `nvidia-smi` shows, when
+  nothing else uses the GPU;
+- time a 5- and a 30-second clip on the GPU and on the CPU (`-ngl 0 --no-mmproj-offload --device
+  none`), with a fresh clip each run: llama.cpp caches the prompt, so the same clip twice is
+  answered from its cache. The catalog's `$comment` has the times on an RTX 3060 and an
+  i7-12700K.

@@ -226,8 +226,9 @@ impl ModelRegistry {
                     continue;
                 }
                 match scan_file(&root, path) {
-                    // Embedding models (the search model among them) cannot chat.
-                    Some(file) if file.info.is_embedding() => {}
+                    // Embedding and speech recognition models (the search and speech models among
+                    // them) cannot chat.
+                    Some(file) if file.info.is_embedding() || file.info.is_speech_recognition() => {}
                     Some(file) if !found.iter().any(|f| f.id == file.id) => found.push(file),
                     _ => {}
                 }

@@ -1,5 +1,5 @@
 //! Reads the metadata header of a GGUF file: architecture, name, size label, quantization,
-//! trained context length and pooling. Only the key/value section before the tokenizer is read,
+//! trained context length, pooling and tags. Only the key/value section before the tokenizer is read,
 //! so this takes milliseconds even for multi-gigabyte files.
 
 use std::fs::File;
@@ -20,12 +20,20 @@ pub struct GgufInfo {
     /// How an embedding model pools its tokens into one vector (llama.cpp's
     /// `llama_pooling_type`: 1 mean, 2 cls, 3 last, 4 rank). Chat models have none.
     pub pooling_type: Option<u32>,
+    /// `general.tags`: what the model is for, in Hugging Face's task names.
+    pub tags: Vec<String>,
 }
 
 impl GgufInfo {
     /// An embedding or reranking model: it turns text into vectors or scores, never answers.
     pub fn is_embedding(&self) -> bool {
         self.pooling_type.is_some_and(|p| p > 0)
+    }
+
+    /// A speech recognition model (the speech model among them): it writes down what it hears,
+    /// and cannot chat.
+    pub fn is_speech_recognition(&self) -> bool {
+        self.tags.iter().any(|t| t == "automatic-speech-recognition")
     }
 }
 
@@ -56,6 +64,7 @@ pub fn read(path: &Path) -> anyhow::Result<GgufInfo> {
             "general.size_label" if ty == 8 => info.size_label = Some(read_string(&mut r)?),
             "general.quantized_by" if ty == 8 => info.quantized_by = Some(read_string(&mut r)?),
             "general.file_type" => info.file_type = read_int(&mut r, ty)?.map(|v| v as u32),
+            "general.tags" if ty == 9 => info.tags = read_strings(&mut r)?,
             k if k.ends_with(".context_length")
                 && info
                     .architecture
@@ -96,6 +105,20 @@ fn read_string(r: &mut impl Read) -> anyhow::Result<String> {
     let mut buf = vec![0u8; len as usize];
     r.read_exact(&mut buf)?;
     Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Reads an array; its strings when it holds strings, nothing otherwise.
+fn read_strings(r: &mut (impl Read + Seek)) -> anyhow::Result<Vec<String>> {
+    let inner = read_u32(r)?;
+    let count = read_u64(r)?;
+    if inner != 8 {
+        for _ in 0..count {
+            skip_value(r, inner)?;
+        }
+        return Ok(Vec::new());
+    }
+    anyhow::ensure!(count < 10_000, "too many strings");
+    (0..count).map(|_| read_string(r)).collect()
 }
 
 /// Reads an integer of any GGUF integer type, or skips a non-integer value.
@@ -216,7 +239,7 @@ mod tests {
         b.extend(b"GGUF");
         b.extend(3u32.to_le_bytes());
         b.extend(0u64.to_le_bytes());
-        b.extend(7u64.to_le_bytes());
+        b.extend(8u64.to_le_bytes());
         write_kv_string(&mut b, "general.architecture", "qwen35");
         write_kv_string(&mut b, "general.name", "Qwen3.5 9B");
         // An array of u32 to skip.
@@ -242,6 +265,14 @@ mod tests {
         b.extend(key.as_bytes());
         b.extend(4u32.to_le_bytes());
         b.extend(3u32.to_le_bytes());
+        let key = "general.tags";
+        b.extend((key.len() as u64).to_le_bytes());
+        b.extend(key.as_bytes());
+        b.extend(9u32.to_le_bytes());
+        b.extend(8u32.to_le_bytes());
+        b.extend(1u64.to_le_bytes());
+        b.extend(28u64.to_le_bytes());
+        b.extend(b"automatic-speech-recognition");
         write_kv_string(&mut b, "tokenizer.ggml.model", "gpt2");
 
         let dir = tempfile::tempdir().unwrap();
@@ -253,6 +284,9 @@ mod tests {
         assert_eq!(info.file_type, Some(18));
         assert_eq!(info.pooling_type, Some(3));
         assert!(info.is_embedding());
+        assert_eq!(info.tags, ["automatic-speech-recognition"]);
+        assert!(info.is_speech_recognition());
+        assert!(!GgufInfo::default().is_speech_recognition());
     }
 
     #[test]

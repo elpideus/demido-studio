@@ -84,6 +84,8 @@ export interface Context {
   defaultBackend: Backend;
   families: Family[];
   recommendations: Record<string, Recommendation>;
+  /** By backend: the search and speech models setup downloads whichever model is picked. */
+  helperModels: Record<string, Array<{ label: string; detail: string; size: number }>>;
   defaultDirs: Record<Scope, string>;
   elevated: boolean;
   /** In update mode, the installation at `updateLaunch.dir`, if there is one. */
@@ -128,7 +130,17 @@ export interface WizardState {
 }
 
 export type StepId =
-  'app' | 'runtime' | 'node' | 'uv' | 'python' | 'pythonPackages' | 'model' | 'searchModel' | 'shortcuts' | 'finalize';
+  | 'app'
+  | 'runtime'
+  | 'node'
+  | 'uv'
+  | 'python'
+  | 'pythonPackages'
+  | 'model'
+  | 'searchModel'
+  | 'speechModel'
+  | 'shortcuts'
+  | 'finalize';
 export type StepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 
 export interface StepInfo {
