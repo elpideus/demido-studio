@@ -1,4 +1,4 @@
-import { CandlestickChart, CircleArrowDown, MessagesSquare, Settings, type LucideIcon } from 'lucide-react';
+import { CandlestickChart, CircleArrowDown, Mail, MessagesSquare, Settings, type LucideIcon } from 'lucide-react';
 import { Logo, Tooltip, cx } from '@demido/ui';
 
 import { updateButton } from '@/settings/updateView';
@@ -94,6 +94,7 @@ export function ActivityBar() {
           onClick={() => void patchSettings({ chatListOpen: !chatListOpen })}
         />
         <Item icon={CandlestickChart} label="Market" active={isOpen('market')} onClick={() => toggle('market')} />
+        <Item icon={Mail} label="Mail" active={isOpen('mail')} onClick={() => toggle('mail')} />
       </div>
       <div className={styles.spacer} />
       <div className={styles.group}>

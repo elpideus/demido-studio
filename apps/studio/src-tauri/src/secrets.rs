@@ -55,5 +55,10 @@ pub fn provider_key(provider_id: &str) -> String {
     format!("provider:{provider_id}")
 }
 
+/// A mail account's password (for Gmail, its app password).
+pub fn mail_key(account_id: &str) -> String {
+    format!("mail:{account_id}")
+}
+
 pub const HF_TOKEN: &str = "huggingface:token";
 pub const TRADINGVIEW_SESSION: &str = "tradingview:session";

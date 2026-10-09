@@ -112,18 +112,19 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 |---|---|
 | `paths` | Install folder (from `install.json`), data folder (`%LOCALAPPDATA%\Demido Studio`) |
 | `db` | SQLite (WAL): chats, messages, attached files, their passages (FTS5) and the passages' vectors, and a trace per model call. Numbered migrations |
-| `settings`, `secrets` | `settings.json`; API keys and the TradingView session in the OS credential store |
+| `settings`, `secrets` | `settings.json`; API keys, the TradingView session and mail passwords in the OS credential store |
 | `runtime` | One `llama-server` process at a time, restarted only when the launch settings change |
 | `models` | GGUF discovery (built-in folder, extra folders, LM Studio), GGUF metadata, cloud models, per-model overrides, what each model can do, Hugging Face search and downloads |
 | `providers` | Gemini configuration and model listing |
 | `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE) or Gemini (native SSE); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
 | `attachments` | Files attached to messages: staging, moving them into the chat's workspace, what the model reads of them (full text, passages, images and sound), passage search |
-| `tools` | Market data, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu |
+| `tools` | Market data, email, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu |
 | `shell` | The person's own shell, found once; a command run in a pseudo-terminal and read back as the screen shows it |
 | `skills` | Skill folders, enable/disable, the slash commands in their `commands.json`, and a file watcher that updates the UI live |
 | `slash` | Slash commands: the app's own (`/compact`, `/autocompact`) and those skills provide |
 | `market` | The Node sidecar's lifecycle and protocol, TradingView sign-in |
+| `mail` | Email over IMAP, read only: accounts (`accounts.rs`), the connection (`imap.rs`), parsing (`body.rs`), the cache (`store.rs`, `cache/mail.db`) and keeping it up to date (`sync.rs`); `MailService` holds one connection per account and watches the inboxes |
 | `updater` | The releases feed, downloading and verifying a new installer, staging it, handing over to it (see [Updates](#updates)) |
 | `commands` | The functions the UI calls, one file per area |
 
@@ -488,6 +489,7 @@ Everything a person makes is in the data folder, never in the install folder:
 |---|---|
 | `demido.db` | Chats, messages, traces |
 | `settings.json`, `models.json`, `providers.json`, `skills.json` | Preferences and overrides |
+| `mail.json` | The connected mail accounts (no passwords) |
 | `skills/` | Skills (default ones are copied here on first run) |
 | `models/` | Downloaded models (per-user installs) |
 | `workspaces/<chat>/` | Files tools produce for a chat: data CSVs, charts, scripts, what commands download; `uploads/` holds the files sent with its messages |
@@ -497,8 +499,9 @@ Everything a person makes is in the data folder, never in the install folder:
 | `cache/market/dukascopy/` | Downloaded Dukascopy history, 1-minute candles: `<instrument>/m1/<year>/<day>.json.gz` and a `manifest.json` per instrument; `stats.json` holds the learned request rate |
 | `cache/market/tradingview/` | TradingView bars stored from charts and downloads, one file per symbol and timeframe, and `index.json` with what they cover |
 | `cache/market/jobs/` | One file per history download, so downloads resume after a restart and chat cards find them |
+| `cache/mail.db` | Mail downloaded from the accounts: folders, message headers and flags, opened bodies (SQLite) |
 | `updates/` | A downloaded update: the installer (a `.part` file while it downloads), then its `.sig` and `pending.json` once its signature is verified. Emptied once the update is installed. A development build uses `<repo>/.dev/updates` instead |
 | `logs/` | App log, rotated daily |
 
-Secrets are never in files: the Gemini API key, a Hugging Face token and the TradingView session
-are in Windows Credential Manager (service `Demido Studio`).
+Secrets are never in files: the Gemini API key, a Hugging Face token, the TradingView session and
+mail passwords are in Windows Credential Manager (service `Demido Studio`).

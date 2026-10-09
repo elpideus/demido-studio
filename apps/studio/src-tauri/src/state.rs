@@ -8,6 +8,7 @@ use tauri::AppHandle;
 use crate::agent::Agent;
 use crate::attachments::meaning::Embedder;
 use crate::db::Db;
+use crate::mail::MailService;
 use crate::market::MarketService;
 use crate::models::ModelRegistry;
 use crate::models::downloads::DownloadManager;
@@ -34,6 +35,7 @@ pub struct AppState {
     pub embedder: Arc<Embedder>,
     pub skills: Arc<SkillRegistry>,
     pub market: Arc<MarketService>,
+    pub mail: Arc<MailService>,
     pub updater: Arc<Updater>,
     pub agent: Agent,
     /// Client for the internet (Hugging Face, Gemini).

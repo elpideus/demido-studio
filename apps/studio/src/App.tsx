@@ -10,6 +10,7 @@ import { Shell } from '@/shell/Shell';
 import { Toaster } from '@/shell/Toaster';
 import { useApp } from '@/stores/app';
 import { useChats } from '@/stores/chats';
+import { useMail } from '@/stores/mail';
 import { useMarket } from '@/stores/market';
 import { findModel, useModels } from '@/stores/models';
 import { usePine } from '@/stores/pine';
@@ -55,6 +56,7 @@ function subscribe(): Array<Promise<() => void>> {
       } else open('market', chartPatch(win?.props ?? {}, cmd));
     }),
     on('updater://status', (status) => useUpdates.getState().receive(status)),
+    on('mail://accounts', (accounts) => useMail.getState().set(accounts)),
   ];
 }
 
@@ -118,6 +120,8 @@ export function App() {
         useModels.getState().load(),
         useSkills.getState().load(),
         useMarket.getState().load(),
+        useMail.getState().load(),
+        usePine.getState().load(),
         useChats.getState().loadChats(),
         useUpdates.getState().load(),
       ]);

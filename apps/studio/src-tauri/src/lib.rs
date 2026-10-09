@@ -12,6 +12,7 @@ mod commands;
 mod db;
 mod error;
 mod llm;
+mod mail;
 mod market;
 mod models;
 mod paths;
@@ -35,6 +36,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::agent::Agent;
 use crate::db::Db;
+use crate::mail::MailService;
 use crate::market::MarketService;
 use crate::models::ModelRegistry;
 use crate::models::downloads::DownloadManager;
@@ -159,6 +161,13 @@ fn build_state(
         paths.tradingview_profile_dir.clone(),
         secrets.clone(),
     );
+
+    let mail = MailService::new(
+        app.clone(),
+        paths.data_dir.join("mail.json"),
+        &paths.cache_dir.join("mail.db"),
+        secrets.clone(),
+    )?;
 
     let token_secrets = secrets.clone();
     let rescan_models = models.clone();
@@ -391,6 +400,17 @@ pub fn run() {
             commands::updates::apply_update,
             commands::updates::cancel_update,
             commands::updates::set_update_preferences,
+            commands::mail::mail_accounts,
+            commands::mail::mail_add_account,
+            commands::mail::mail_remove_account,
+            commands::mail::mail_folders,
+            commands::mail::mail_messages,
+            commands::mail::mail_sync,
+            commands::mail::mail_load_older,
+            commands::mail::mail_search,
+            commands::mail::mail_open,
+            commands::mail::mail_save_attachment,
+            commands::mail::mail_set_watching,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Demido Studio");
@@ -407,6 +427,8 @@ pub fn run() {
             let market = state.market.clone();
             tauri::async_runtime::block_on(market.shutdown(std::time::Duration::from_secs(2)));
             state.market.kill_now();
+            let mail = state.mail.clone();
+            tauri::async_runtime::block_on(mail.shutdown(std::time::Duration::from_secs(1)));
         }
     });
 }

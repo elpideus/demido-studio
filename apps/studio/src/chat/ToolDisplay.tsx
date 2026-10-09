@@ -18,8 +18,8 @@ import {
 import { Button, cx, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
-import { fileUrl, formatPercent, formatPrice } from '@/lib/format';
-import type { Message, Quote, ToolDisplay as Display } from '@/lib/types';
+import { fileUrl, formatDateTime, formatPercent, formatPrice } from '@/lib/format';
+import type { Message, PineSummary, Quote, ToolDisplay as Display } from '@/lib/types';
 import { DownloadProgress } from '@/market/DownloadProgress';
 import { currentModel, useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';

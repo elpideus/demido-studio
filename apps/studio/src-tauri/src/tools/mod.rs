@@ -8,6 +8,7 @@
 mod changes;
 mod command;
 mod files;
+mod mail;
 mod market;
 mod pine;
 mod python;
@@ -262,9 +263,9 @@ const GROUPS: &[(&str, &str, &str)] = &[
         "Live prices from TradingView, history from Dukascopy, and Pine indicators",
     ),
     (
-        "pine",
-        "Pine scripts",
-        "Write and test TradingView indicators, and save them to your TradingView account",
+        "mail",
+        "Email",
+        "Read the email of the accounts connected in the Mail window",
     ),
     (
         "coding",
@@ -286,10 +287,28 @@ const GROUPS: &[(&str, &str, &str)] = &[
 /// Offered while any of its tools can run. The reason says what is missing, also when the rest of
 /// the group still runs.
 fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
-    match group {
-        "market" | "pine" => {
-            let s = state.market.status();
-            (s.available, s.reason)
+    if group == "market" {
+        let s = state.market.status();
+        return (s.available, s.reason);
+    }
+    if group == "mail" {
+        let connected = state.mail.has_accounts();
+        return (
+            connected,
+            (!connected).then(|| "Connect an email account in the Mail window first.".to_string()),
+        );
+    }
+    let tools: Vec<&ToolDef> = TOOLS.iter().filter(|t| t.group == group).collect();
+    let missing: Vec<String> = tools.iter().filter_map(|t| tool_missing(state, t.name)).collect();
+    let available = missing.len() < tools.len();
+    (available, (!missing.is_empty()).then(|| missing.join(" ")))
+}
+
+/// Why one tool cannot run on this computer.
+fn tool_missing(state: &AppState, name: &str) -> Option<String> {
+    match name {
+        "run_python" if state.paths.python().is_none() => {
+            Some("Python is not installed. Run the installer again to add it.".into())
         }
         // Offered until the search for a shell (at startup) finds none.
         "run_command" if crate::shell::missing() => Some("No shell was found on this computer.".into()),

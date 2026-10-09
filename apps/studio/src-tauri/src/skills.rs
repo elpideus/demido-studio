@@ -493,7 +493,9 @@ pub fn parse_commands(text: &str) -> (Vec<SkillCommand>, Option<String>) {
         c.args = c.args.map(|a| a.trim().to_string()).filter(|a| !a.is_empty());
         let valid = !c.name.is_empty()
             && c.name.len() <= 32
-            && c.name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
+            && c.name
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
         if !valid {
             problems.push(format!(
                 "command {}: \"{}\" is not a valid name (use letters, digits, - and _)",

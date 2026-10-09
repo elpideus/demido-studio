@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { BookOpenText, CandlestickChart, PanelLeft, PanelRight, Settings, type LucideIcon } from 'lucide-react';
+import { BookOpenText, CandlestickChart, Mail, PanelLeft, PanelRight, Settings, type LucideIcon } from 'lucide-react';
 import { Button, cx } from '@demido/ui';
 
 import { InspectorWindow } from '@/inspector/InspectorWindow';
+import { MailWindow } from '@/mail/MailWindow';
 import { MarketWindow } from '@/market/MarketWindow';
 import { SettingsWindow } from '@/settings/SettingsWindow';
 import { WINDOW_SPECS, type WindowKind, type WindowState, useWindows } from '@/stores/windows';
@@ -13,6 +14,7 @@ import styles from './WindowLayer.module.css';
 const ICONS: Record<WindowKind, LucideIcon> = {
   settings: Settings,
   market: CandlestickChart,
+  mail: Mail,
   inspector: BookOpenText,
 };
 
@@ -22,6 +24,8 @@ function content(win: WindowState) {
       return <SettingsWindow win={win} />;
     case 'market':
       return <MarketWindow win={win} />;
+    case 'mail':
+      return <MailWindow win={win} />;
     case 'inspector':
       return <InspectorWindow win={win} />;
   }

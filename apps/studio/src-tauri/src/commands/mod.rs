@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod chats;
+pub mod mail;
 pub mod market;
 pub mod models;
 pub mod providers;

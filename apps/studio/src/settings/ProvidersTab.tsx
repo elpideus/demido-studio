@@ -17,6 +17,7 @@ const NAME_MAX = 60;
 const KIND_LABEL: Record<ProviderView['kind'], string> = { gemini: 'Google Gemini' };
 
 function KeyForm({
+  kind,
   submitLabel,
   withName = false,
   onSubmit,

@@ -6,15 +6,15 @@ agentic work and transparency.
 - **Runs locally, set up for you.** The installer detects your graphics card, picks the right AI
   runtime (NVIDIA CUDA, AMD ROCm, Apple Silicon, Vulkan or CPU), and downloads a Qwen or Gemma
   model sized for your memory. No manual hunting for runtimes, models or plugins.
-- **Agentic tools that work together.** Live and historical market data, Python for analysis and
-  charts, the programs already on your computer (yt-dlp, ffmpeg, git, ping ...) through your own
+- **Agentic tools that work together.** Live and historical market data, your email, Python for
+  analysis and charts, the programs already on your computer (yt-dlp, ffmpeg, git, ping ...) through your own
   PowerShell, workspace files, and skills the assistant can write for itself.
 - **Transparent.** Every answer records exactly what was sent to the model and what came back,
   with token counts and speed. Open any answer in the Inspector.
 - **Cloud when you want it.** Connect Google Gemini with an API key; its models appear next to
   the local ones.
-- **A desktop, not a web page.** The chat is always there; Settings, Market and the Inspector
-  are windows you can move, resize, maximize or pin to a side, a corner, the top or the bottom,
+- **A desktop, not a web page.** The chat is always there; Settings, Market, Mail and the
+  Inspector are windows you can move, resize, maximize or pin to a side, a corner, the top or the bottom,
   like Windows 11's snap layouts.
 
 > Demido Studio is under active development. AI models can be wrong or be manipulated by
@@ -62,7 +62,7 @@ click in Settings, Updates.
 | Long chats compact themselves: near the end of the model's context window, the earlier conversation becomes a summary the model reads instead (when, in Settings, General) | The chat; `/compact` to do it now |
 | Slash commands: `/compact`, `/autocompact 12k` (or `off`, `auto`, `12.5k`, `twelve thousand`), and the commands skills bring, such as `/analyze` | Type `/` in the composer |
 | Send files with a message: images, PDFs, Word, PowerPoint, spreadsheets, text and code. Short ones are read in full, long ones are searched for the passages your question needs (RAG), by meaning as well as by words | The composer: **+**, drag and drop, or paste |
-| Commands in your own shell (PowerShell 7 when installed, else Windows PowerShell), shown live like a terminal with a Stop button; each one asks first | The chat (Terminal in the Tools menu) |
+| Commands in your own shell (PowerShell 7 when installed, else Windows PowerShell), shown live like a terminal with a Stop button; each one asks first | The chat (Coding in the Tools menu) |
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |

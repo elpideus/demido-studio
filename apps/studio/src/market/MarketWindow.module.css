@@ -137,10 +137,6 @@
 }
 
 .legend {
-  position: absolute;
-  top: 8px;
-  left: 10px;
-  z-index: 2;
   display: flex;
   gap: var(--space-3);
   color: var(--text-tertiary);

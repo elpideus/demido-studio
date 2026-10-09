@@ -1,0 +1,486 @@
+.window {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- welcome and connecting */
+
+.welcome {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-y: auto;
+  padding: var(--space-8) var(--space-5);
+}
+
+.welcomeCard {
+  width: min(440px, 100%);
+}
+
+.welcomeIcon {
+  color: var(--accent);
+}
+
+.welcomeTitle {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.welcomeText {
+  margin: 0 0 var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  line-height: var(--leading);
+}
+
+.connect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.connectRow {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.port {
+  flex-shrink: 0;
+  width: 92px;
+}
+
+.connectNote {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  line-height: var(--leading);
+}
+
+.connectActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.browser {
+  display: grid;
+  flex: 1;
+  grid-template-columns: clamp(224px, 37%, 390px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.sideHead,
+.side {
+  grid-column: 1;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+
+.sideHead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  grid-row: 1;
+  padding: var(--space-3) var(--space-3) 0;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  grid-row: 2;
+  min-height: 0;
+}
+
+.reader {
+  display: flex;
+  flex-direction: column;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-0);
+}
+
+/* ---------------------------------------------------------------- sidebar */
+
+.accountRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.accountName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 2px;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+.spinning svg {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.count {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.resultsBar,
+.offline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 var(--space-3) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.resultsBar {
+  padding: 3px 3px 3px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
+
+.offline {
+  overflow: hidden;
+  color: var(--warning);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.offline span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+  outline: none;
+}
+
+.list:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.row {
+  position: relative;
+  padding: 8px var(--space-3) 9px 22px;
+  border-bottom: 1px solid var(--border-subtle);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 66px;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--surface-2);
+}
+
+.row.selected {
+  background: var(--accent-muted);
+}
+
+.row.selected::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--accent);
+  content: '';
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  position: absolute;
+  left: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+.people,
+.subject,
+.snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.people {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.rowIcon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.star {
+  flex-shrink: 0;
+  color: var(--warning);
+  fill: currentColor;
+}
+
+.date {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.subject {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.unread .people,
+.unread .subject {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.unread .date {
+  color: var(--accent-text);
+}
+
+.snippet {
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.listNote {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.sentinel {
+  height: 1px;
+}
+
+/* ---------------------------------------------------------------- reader */
+
+.readerScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.readerHead {
+  padding: var(--space-5) var(--space-6) var(--space-4);
+}
+
+.subjectRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.readerSubject {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.fromRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.fromText {
+  flex: 1;
+  min-width: 0;
+  user-select: text;
+}
+
+.fromLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-2);
+}
+
+.fromName {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.fromEmail {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.readerDate {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.recipients {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.attachment:hover:not(:disabled) {
+  background: var(--surface-4);
+  color: var(--text-primary);
+}
+
+.attachment:disabled {
+  cursor: progress;
+}
+
+.attachmentName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentSize {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.attachmentSave {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.imagesNotice {
+  margin: 0 var(--space-6) var(--space-3);
+}
+
+.readerBody {
+  padding: 0 var(--space-4) var(--space-6);
+}
+
+.frameBox {
+  position: relative;
+}
+
+.frame {
+  display: block;
+  width: 100%;
+  height: 120px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.textBody {
+  margin: 0 var(--space-2);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.textBody a {
+  color: var(--accent-text);
+}
+
+.bodyLoading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-8);
+}
+
+.bodyNotice {
+  margin: 0 var(--space-2);
+}
