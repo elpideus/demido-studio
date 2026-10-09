@@ -46,6 +46,14 @@ The webview accepts the Chrome DevTools Protocol when started with a debugging p
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm dev
 ```
 
+To try voice input without speaking, give the webview a fake microphone that plays a WAV file
+(an absolute path with forward slashes; `%noloop` plays it once, then silence). The app's own
+handler grants the microphone, so no prompt needs faking:
+
+```bash
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222 --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=C:/clips/question.wav%noloop" pnpm dev
+```
+
 `scripts/drive.mjs` then clicks, hovers, types, drags, calls backend commands and takes
 screenshots, in the order given (`--drag "selector|x,y|hold"` keeps the button down until
 `--release`, to capture a drag in progress):

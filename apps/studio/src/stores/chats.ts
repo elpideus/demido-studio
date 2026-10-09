@@ -286,6 +286,8 @@ export const useChats = create<ChatsStore>((set, get) => ({
             'Sign in to TradingView',
             'A sign-in window opened so the assistant can read live market data.',
           );
+        } else if (event.kind === 'voice') {
+          toast.warning('A voice note could not be written down', event.text);
         } else {
           toast.info(event.text);
         }

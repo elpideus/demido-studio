@@ -57,11 +57,15 @@ import type {
   Skill,
   SlashCommand,
   SlashOutcome,
+  SpeechChoice,
   SymbolMatch,
   ToolGroup,
   Trace,
+  Transcript,
+  TranscriptionRecord,
   UpdateChannel,
   UpdateStatus,
+  VoiceStatus,
 } from './types';
 
 /** Error message of a failed command. */
@@ -118,6 +122,22 @@ export const api = {
   getTrace: (messageId: string) => invoke<Trace | null>('get_trace', { messageId }),
   chatTraces: (chatId: string) => invoke<Trace[]>('chat_traces', { chatId }),
   workspaceDir: (chatId: string) => invoke<string>('workspace_dir', { chatId }),
+
+  // Voice. A recording is a 16 kHz mono WAV, sent as the raw body.
+  /** How a recording for `modelId` goes; `warm` starts loading the speech model when it will be needed. */
+  voiceStatus: (modelId: string | null, warm = false) => invoke<VoiceStatus>('voice_status', { modelId, warm }),
+  /** Writes down a dictation; the words arrive on `voice://text` as they are written. */
+  transcribeRecording: (wav: Uint8Array, job: string, chatId: string | null) =>
+    invoke<Transcript>('transcribe_recording', wav, { headers: { 'x-job': job, 'x-chat': chatId ?? '' } }),
+  cancelTranscription: (job: string) => invoke<boolean>('cancel_transcription', { job }),
+  /** Stages a recording as a voice note, for a model that hears. */
+  attachVoiceNote: (wav: Uint8Array) => invoke<Attachment>('attach_voice_note', wav),
+  /** Writes down a voice note sent earlier and returns it with its transcript. */
+  transcribeVoiceNote: (id: string) => invoke<Attachment>('transcribe_voice_note', { id }),
+  downloadSpeechModel: () => invoke<DownloadJob>('download_speech_model'),
+  openMicrophoneSettings: () => invoke<void>('open_microphone_settings'),
+  chatTranscriptions: (chatId: string) => invoke<TranscriptionRecord[]>('chat_transcriptions', { chatId }),
+  speechModels: () => invoke<SpeechChoice[]>('speech_models'),
 
   // Models
   listModels: () => invoke<ModelEntry[]>('list_models'),

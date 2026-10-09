@@ -153,6 +153,7 @@ fn read_into_db(state: &AppState, id: &str, name: &str, file: &Path) -> CmdResul
         height,
         note,
         created_at: now_ms(),
+        voice: None,
     };
     state.db.insert_attachment(
         &attachment,
@@ -166,6 +167,67 @@ fn read_into_db(state: &AppState, id: &str, name: &str, file: &Path) -> CmdResul
         state.embedder.wake();
     }
     Ok(resolved(&state.paths, attachment))
+}
+
+/// Stages a voice note recorded in the composer (a 16 kHz mono WAV file), for a model that
+/// hears. Recorded here, so not marked as coming from the internet.
+pub async fn stage_voice_note(state: &Arc<AppState>, recording: Vec<u8>) -> CmdResult<Attachment> {
+    let Some(seconds) = crate::speech::wav::seconds(&recording) else {
+        bail_msg!("The recording could not be read. Record it again.");
+    };
+    if recording.len() as u64 > MAX_AUDIO_BYTES {
+        bail_msg!("The recording is longer than a voice note can be (10 MB, about 5 minutes).");
+    }
+    let name = format!("Voice note {}.wav", chrono::Local::now().format("%Y-%m-%d %H.%M.%S"));
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let id = new_id();
+        let dir = state.paths.staging_dir.join(&id);
+        std::fs::create_dir_all(&dir)?;
+        let written = std::fs::write(dir.join(&name), &recording)
+            .map_err(|e| AppError::msg(format!("The recording could not be saved: {e}")))
+            .and_then(|()| {
+                let attachment = Attachment {
+                    id: id.clone(),
+                    chat_id: None,
+                    message_id: None,
+                    name: name.clone(),
+                    stored: format!("{id}/{name}"),
+                    file: None,
+                    path: String::new(),
+                    mime: "audio/wav".into(),
+                    kind: Kind::Audio,
+                    size: recording.len() as u64,
+                    pages: None,
+                    tokens: None,
+                    width: None,
+                    height: None,
+                    note: None,
+                    created_at: now_ms(),
+                    voice: Some(crate::db::VoiceNote {
+                        duration_ms: (seconds * 1000.0).round() as u64,
+                        transcript: None,
+                        language: None,
+                        transcribed_by: None,
+                    }),
+                };
+                state.db.insert_attachment(
+                    &attachment,
+                    AttachmentContent {
+                        text: None,
+                        media: Some((&recording, "audio/wav")),
+                        chunks: &[],
+                    },
+                )?;
+                Ok(resolved(&state.paths, attachment))
+            });
+        if written.is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        written
+    })
+    .await
+    .map_err(|e| AppError::msg(e.to_string()))?
 }
 
 /// One name for each sound format, whatever the detector or the browser called it.

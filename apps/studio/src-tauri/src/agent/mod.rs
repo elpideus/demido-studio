@@ -27,7 +27,7 @@ pub use row::{Cancelled, ToolRow};
 use crate::attachments;
 use crate::attachments::meaning::QueryVector;
 use crate::bail_msg;
-use crate::db::{Chat, CommandUse, Message, MessageStatus, Role, Trace, new_id, now_ms};
+use crate::db::{Attachment, Chat, CommandUse, Message, MessageStatus, Role, Trace, VoiceSent, new_id, now_ms};
 use crate::error::{AppError, CmdResult};
 use crate::llm::gemini::GeminiClient;
 use crate::llm::openai::OpenAiClient;
@@ -323,7 +323,11 @@ impl Agent {
             if let Some(e) = &error {
                 tracing::warn!(chat = %chat_id, "turn ended with an error: {e}");
             }
-            state.emit_chat(ChatEvent::TurnFinished { chat_id, error });
+            state.emit_chat(ChatEvent::TurnFinished {
+                chat_id: chat_id.clone(),
+                error,
+            });
+            title_from_voice(&state, &chat_id).await;
         });
     }
 }
@@ -376,7 +380,8 @@ pub(crate) fn frame(
     chat_id: &str,
     chat_messages: &[Message],
 ) -> Frame {
-    let attached = state.db.chat_attachments(chat_id).is_ok_and(|a| !a.is_empty());
+    let files = state.db.chat_attachments(chat_id).unwrap_or_default();
+    let attached = !files.is_empty();
     // Tool groups load on demand (see `tools`); attached files come with the tools to search
     // and read them.
     let mut loaded = tools::loaded_groups(chat_messages);
@@ -391,6 +396,7 @@ pub(crate) fn frame(
         tools: &tools,
         skills: &state.skills,
         attachments: attached,
+        voice: files.iter().any(|a| a.voice.is_some()),
         shell: crate::shell::current().map(|s| s.name.as_str()),
         mail_accounts: &mail_accounts,
         loadable: &loadable,
@@ -530,18 +536,41 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         };
         let mut budget = room(token_ratio);
         let mut messages = prompt::current_part(&chat_messages).to_vec();
-        if step == 0 {
-            question = question_vector(state, chat_id, &messages, budget, cancel).await;
-        }
         // The hints in attached files name the tools the model has or can load: they stay the same
         // when a group is loaded.
         let tool_names = tools::usable_names(state, &settings);
+        let access = attachments::context::ModelAccess::of(&model);
+        let voice = access.voice_route(settings.send_voice);
+        // Voice notes this model gets as text are written down first, once each.
+        let unwritten = attachments::context::notes_to_write_down(
+            &attachments::context::Inputs {
+                db: &state.db,
+                chat_id,
+                access: access.clone(),
+                voice,
+                room_tokens: budget,
+                tools: tool_names.clone(),
+                query_vector: None,
+            },
+            &messages,
+        );
+        if !unwritten.is_empty() {
+            write_down_notes(state, chat_id, &unwritten, cancel).await;
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
+            messages = prompt::current_part(&state.db.list_messages(chat_id)?).to_vec();
+        }
+        if step == 0 {
+            question = question_vector(state, chat_id, &messages, budget, cancel).await;
+        }
         let plan = |budget: usize, messages: &[Message]| {
             attachments::context::plan(
                 &attachments::context::Inputs {
                     db: &state.db,
                     chat_id,
-                    access: attachments::context::ModelAccess::of(&model),
+                    access: access.clone(),
+                    voice,
                     room_tokens: budget,
                     tools: tool_names.clone(),
                     query_vector: question.as_ref().map(|(id, q)| (id.as_str(), q)),
@@ -717,6 +746,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         };
         flush(&mut pending_content, &mut pending_reasoning);
         let duration_ms = started.elapsed().as_millis() as i64;
+        let voice_sent = voice_sent(&request.messages, &messages, &files);
         let ttft_ms = first_token.map(|t| (t - started).as_millis() as i64);
 
         let completion = match result {
@@ -761,6 +791,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                     &model,
                     request_snapshot(&client, &request),
                     trace_keep.as_deref(),
+                    voice_sent,
                     None,
                     duration_ms,
                     Some(err.to_string()),
@@ -804,6 +835,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             &model,
             completion.request_body.clone(),
             trace_keep.as_deref(),
+            voice_sent,
             Some(response),
             duration_ms,
             None,
@@ -998,6 +1030,7 @@ fn save_trace(
     model: &ModelEntry,
     request: Value,
     keep: Option<&str>,
+    voice: Vec<VoiceSent>,
     response: Option<Value>,
     duration_ms: i64,
     error: Option<String>,
@@ -1012,19 +1045,132 @@ fn save_trace(
         response,
         duration_ms: Some(duration_ms),
         error,
+        voice,
     };
     if let Err(e) = state.db.save_trace(&trace) {
         tracing::warn!("could not save a trace: {e}");
     }
 }
 
-/// A chat title for a message with files and no text: the first file's name.
+/// The title of a chat started by a voice note, until what was said in it is written down.
+pub const VOICE_TITLE: &str = "Voice message";
+
+/// A chat title for a message with files and no text: the first file's name, or
+/// [`VOICE_TITLE`] for a voice note.
 fn first_file_name(state: &AppState, attachments: &[String]) -> String {
     attachments
         .first()
         .and_then(|id| state.db.get_attachment(id).ok().flatten())
-        .map(|a| a.name)
+        .map(|a| if a.voice.is_some() { VOICE_TITLE.into() } else { a.name })
         .unwrap_or_else(|| "New chat".into())
+}
+
+/// Writes down voice notes a model is about to get as text. One that cannot be written down
+/// goes as a note saying so ([`attachments::context`]), and the person is told why.
+async fn write_down_notes(state: &Arc<AppState>, chat_id: &str, notes: &[Attachment], cancel: &CancellationToken) {
+    for note in notes {
+        if cancel.is_cancelled() {
+            return;
+        }
+        match crate::speech::transcribe_note(state, note, cancel).await {
+            Ok(note) => after_transcript(state, &note),
+            Err(e) if cancel.is_cancelled() => tracing::info!("stopped writing down a voice note: {e}"),
+            Err(e) => {
+                tracing::warn!(chat = %chat_id, "a voice note could not be written down: {e}");
+                state.notice(
+                    chat_id,
+                    "voice",
+                    &format!("A voice note went to the model without its words. {e}"),
+                );
+            }
+        }
+    }
+}
+
+/// Shows a voice note's new transcript in its chat, and names a chat it started after what was
+/// said in it.
+pub fn after_transcript(state: &AppState, note: &Attachment) {
+    let (Some(chat_id), Some(message_id)) = (&note.chat_id, &note.message_id) else {
+        return;
+    };
+    if let Ok(Some(mut message)) = state.db.get_message(message_id) {
+        attachments::resolve_messages(&state.paths, std::slice::from_mut(&mut message));
+        state.emit_chat(ChatEvent::Message {
+            chat_id: chat_id.clone(),
+            message,
+        });
+    }
+    let transcript = note
+        .voice
+        .as_ref()
+        .and_then(|v| v.transcript.as_deref())
+        .unwrap_or_default();
+    if let Ok(Some(chat)) = state.db.get_chat(chat_id)
+        && chat.title == VOICE_TITLE
+        && !transcript.trim().is_empty()
+        && first_note(state, chat_id).is_some_and(|first| first.id == note.id)
+    {
+        let title = title_from(transcript);
+        if state.db.rename_chat(chat_id, &title).is_ok()
+            && let Ok(Some(chat)) = state.db.get_chat(chat_id)
+        {
+            state.emit_chat(ChatEvent::Chat { chat });
+        }
+    }
+}
+
+/// The voice note of a chat's first message, when it has one.
+fn first_note(state: &AppState, chat_id: &str) -> Option<Attachment> {
+    let messages = state.db.list_messages(chat_id).ok()?;
+    let first = messages.iter().find(|m| m.role == Role::User)?;
+    first.attachments.iter().find(|a| a.voice.is_some()).cloned()
+}
+
+/// Names a chat its first voice note started after what was said in it, writing the note down
+/// when the model heard it as it was. Runs once the turn is over, so the speech model never
+/// competes with the chat model for the GPU while it answers.
+async fn title_from_voice(state: &Arc<AppState>, chat_id: &str) {
+    let Ok(Some(chat)) = state.db.get_chat(chat_id) else {
+        return;
+    };
+    if chat.title != VOICE_TITLE {
+        return;
+    }
+    let Some(note) = first_note(state, chat_id) else {
+        return;
+    };
+    if note.voice.as_ref().is_some_and(|v| v.transcript.is_some()) {
+        after_transcript(state, &note);
+        return;
+    }
+    if state.speech.installed().is_none() {
+        return;
+    }
+    let cancel = CancellationToken::new();
+    match crate::speech::transcribe_note(state, &note, &cancel).await {
+        Ok(note) => after_transcript(state, &note),
+        Err(e) => tracing::info!(chat = %chat_id, "no title from the voice note: {e}"),
+    }
+}
+
+/// How the voice notes of the messages the request carries went in it.
+fn voice_sent(
+    request: &[crate::llm::LlmMessage],
+    messages: &[Message],
+    files: &HashMap<String, attachments::context::Extras>,
+) -> Vec<VoiceSent> {
+    let sent = |block: &str| {
+        request.iter().any(|m| match m {
+            crate::llm::LlmMessage::User { content, .. } => content.contains(block),
+            _ => false,
+        })
+    };
+    messages
+        .iter()
+        .filter_map(|m| files.get(&m.id))
+        .filter(|x| !x.voice.is_empty() && sent(&x.block))
+        .flat_map(|x| x.voice.iter().cloned())
+        .collect()
 }
 
 /// A chat title from the first message: its first line, trimmed to a few words.

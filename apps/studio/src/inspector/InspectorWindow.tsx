@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Braces, FileJson, Gauge, MessageSquareText, Wrench } from 'lucide-react';
+import { Braces, FileJson, Gauge, MessageSquareText, Mic, Wrench } from 'lucide-react';
 import { EmptyState, Spinner, cx } from '@demido/ui';
 
 import { CopyButton } from '@/chat/Markdown';
 import { api, errorText } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import type { Trace } from '@/lib/types';
+import type { Trace, TranscriptionRecord, VoiceSent } from '@/lib/types';
 import type { WindowState } from '@/stores/windows';
 import { TabbedLayout, type TabSpec } from '@/wm/TabbedLayout';
 import styles from './InspectorWindow.module.css';
@@ -94,6 +94,57 @@ function Stat({ label, value }: { label: string; value: string | number | null |
   );
 }
 
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function sentAs(v: VoiceSent): string {
+  if (v.sentAs === 'audio') return v.parts ? `Sent as the recording, in ${v.parts} parts` : 'Sent as the recording';
+  if (v.sentAs === 'transcript') {
+    return v.transcribedBy ? `Sent as what ${v.transcribedBy} wrote down` : 'Sent as its transcript';
+  }
+  return 'Not sent: it could not be written down';
+}
+
+/** How each voice note in the request went, with the transcription behind it when there was one. */
+function VoiceNotes({ notes, chatId }: { notes: VoiceSent[]; chatId: string }) {
+  const [records, setRecords] = useState<TranscriptionRecord[]>([]);
+
+  useEffect(() => {
+    api.chatTranscriptions(chatId).then(setRecords, () => setRecords([]));
+  }, [chatId]);
+
+  return (
+    <div className={styles.voiceNotes}>
+      {notes.map((v) => {
+        const mine = records.filter((r) => r.attachmentId === v.attachmentId);
+        // A note that went as its recording may have been written down later, for the title.
+        const record = v.sentAs === 'audio' ? undefined : (mine.find((r) => !r.error) ?? mine[0]);
+        return (
+          <div key={v.attachmentId} className={styles.voiceNote}>
+            <Mic size={14} className={styles.voiceIcon} />
+            <div className={styles.voiceBody}>
+              <div className={styles.voiceName}>
+                {v.name} · {seconds(v.durationMs)}
+              </div>
+              <div className={styles.voiceHow}>{sentAs(v)}</div>
+              {record && (
+                <div className={styles.voiceRecord}>
+                  {record.error
+                    ? `Writing it down failed: ${record.error}`
+                    : `Written down in ${seconds(record.durationMs)}` +
+                      (record.language ? `, heard as ${record.language}` : '') +
+                      (record.via === 'chat' ? ', asked through chat' : '')}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Pre({ text }: { text: string }) {
   return (
     <div className={styles.preWrap}>
@@ -158,6 +209,12 @@ export function InspectorWindow({ win }: { win: WindowState }) {
               <Stat label="Messages sent" value={view.messages.length} />
               <Stat label="Tools offered" value={view.tools.length} />
             </div>
+            {trace.voice && trace.voice.length > 0 && (
+              <>
+                <h3 className={styles.section}>Voice messages</h3>
+                <VoiceNotes notes={trace.voice} chatId={trace.chatId} />
+              </>
+            )}
             <h3 className={styles.section}>Sampling</h3>
             <Pre text={JSON.stringify(view.params, null, 2)} />
           </>

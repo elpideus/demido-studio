@@ -267,7 +267,8 @@ export function attachmentWarnings(a: Attachment, model: ModelEntry | undefined)
   if (a.kind === 'image' && lacks(model, model.capabilities.vision)) {
     warnings.push(`${model.name} can’t see images. It gets the file in its workspace, not the picture.`);
   }
-  if (a.kind === 'audio') {
+  // A voice note reaches a model that cannot hear as what was said, written down.
+  if (a.kind === 'audio' && !a.voice) {
     // Sound is sent only when the model is known to hear (a cloud model too), and in its formats.
     const hears = model.capabilities.audio === true || (model.source === 'local' && model.checkingCapabilities);
     const formats = model.source === 'gemini' ? GEMINI_AUDIO : LOCAL_AUDIO;

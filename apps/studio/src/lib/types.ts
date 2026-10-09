@@ -159,6 +159,85 @@ export interface Attachment {
   height: number | null;
   /** A warning for the person, e.g. "No text found. It may be a scanned PDF." */
   note: string | null;
+  /** Set when the file is a voice note recorded in the composer. */
+  voice?: VoiceNote | null;
+}
+
+/** A recording made in the composer, sent as it is to a model that hears. */
+export interface VoiceNote {
+  durationMs: number;
+  /** What a speech model wrote down of it, once something that cannot hear needed it, or the
+   *  person asked; empty when it heard no speech. */
+  transcript: string | null;
+  /** The language it heard ("English"). */
+  language: string | null;
+  /** The speech model that wrote it down. */
+  transcribedBy: string | null;
+}
+
+/** How a recording goes to a model: as a voice note it hears, or as words in the composer. */
+export type VoiceRoute = 'audio' | 'transcript';
+
+export interface VoiceStatus {
+  route: VoiceRoute;
+  /** The installed speech model's name. */
+  speech: string | null;
+  /** The speech model to download when none is installed. */
+  missing: { id: string; name: string; size: number } | null;
+  downloading: boolean;
+  /** Longest recording, in seconds. */
+  maxSeconds: number;
+  /** Windows keeps desktop apps from the microphone. */
+  microphoneBlocked: boolean;
+}
+
+/** A speech model to choose in Settings. */
+export interface SpeechChoice {
+  id: string;
+  name: string;
+  /** Bytes to download, the model and its audio encoder. */
+  size: number;
+  installed: boolean;
+  /** The one the app picks for this computer's memory. */
+  forThisComputer: boolean;
+}
+
+/** A recording written down. */
+export interface Transcript {
+  text: string;
+  language: string | null;
+  modelId: string;
+  model: string;
+  audioMs: number;
+  durationMs: number;
+  via: 'endpoint' | 'chat';
+}
+
+/** How one request sent a voice note (shown in the Inspector). */
+export interface VoiceSent {
+  attachmentId: string;
+  name: string;
+  durationMs: number;
+  /** 'none' when neither the recording nor a transcript could go. */
+  sentAs: 'audio' | 'transcript' | 'none';
+  /** Parts the recording was cut into for a model that hears a little at a time. */
+  parts?: number;
+  transcribedBy?: string;
+}
+
+/** A transcription made, for the record; its words are not kept. */
+export interface TranscriptionRecord {
+  id: string;
+  chatId: string | null;
+  /** The voice note written down; null for dictation. */
+  attachmentId: string | null;
+  createdAt: number;
+  modelId: string;
+  audioMs: number;
+  durationMs: number;
+  via: string | null;
+  language: string | null;
+  error: string | null;
 }
 
 export interface Message {
@@ -213,6 +292,8 @@ export interface Trace {
   response: Record<string, unknown> | null;
   durationMs: number | null;
   error: string | null;
+  /** How each voice note in the request went. */
+  voice?: VoiceSent[];
 }
 
 export type ModelSource = 'local' | 'gemini' | 'openrouter';
@@ -535,6 +616,12 @@ export interface Settings {
   autoCompactTokens: number | null;
   /** The Mail window loads the images emails link to from the internet without asking. */
   mailShowImages: boolean;
+  /** The microphone to record with (a browser device id); null for the system's default. */
+  microphone: string | null;
+  /** The speech model that writes down what is said (a catalog id); null picks by the GPU's memory. */
+  speechModel: string | null;
+  /** Send the recorded voice to models that can hear it, rather than a transcript. */
+  sendVoice: boolean;
 }
 
 export type UpdateChannel = 'release' | 'prerelease';

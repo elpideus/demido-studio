@@ -23,6 +23,7 @@ mod settings;
 mod shell;
 mod skills;
 mod slash;
+mod speech;
 mod state;
 mod tools;
 mod updater;
@@ -140,9 +141,18 @@ fn build_state(
         paths.logs_dir.clone(),
         attachments::meaning::for_this_computer(&hardware, runtime_backend),
     );
+    let speech = speech::Transcriber::new(
+        db.clone(),
+        models.clone(),
+        settings.clone(),
+        paths.llama_server(),
+        paths.logs_dir.clone(),
+        speech::for_this_computer(&hardware, runtime_backend),
+    );
     let runtime = Arc::new(LocalRuntime::new(
         app.clone(),
         embedder.clone(),
+        speech.clone(),
         paths.llama_server(),
         paths.logs_dir.clone(),
     ));
@@ -200,6 +210,7 @@ fn build_state(
         downloads,
         runtime,
         embedder,
+        speech,
         skills,
         market,
         mail,
@@ -218,6 +229,7 @@ fn after_start(state: Arc<AppState>) {
 
     state.updater.spawn_scheduler();
     state.embedder.spawn();
+    state.speech.spawn();
     // Find the shell commands run in now, so neither the first command nor the Tools menu waits.
     tauri::async_runtime::spawn_blocking(|| {
         shell::detect();
@@ -288,6 +300,9 @@ pub fn run() {
             };
             let state = build_state(app.handle(), paths, settings, launch)?;
             app.manage(state.clone());
+            if let Some(window) = app.get_webview_window("main") {
+                speech::microphone::allow_for_app(&window);
+            }
             after_start(state);
             Ok(())
         })
@@ -416,6 +431,15 @@ pub fn run() {
             commands::mail::mail_open,
             commands::mail::mail_save_attachment,
             commands::mail::mail_set_watching,
+            commands::voice::voice_status,
+            commands::voice::transcribe_recording,
+            commands::voice::cancel_transcription,
+            commands::voice::attach_voice_note,
+            commands::voice::transcribe_voice_note,
+            commands::voice::download_speech_model,
+            commands::voice::open_microphone_settings,
+            commands::voice::chat_transcriptions,
+            commands::voice::speech_models,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Demido Studio");
@@ -427,6 +451,7 @@ pub fn run() {
             state.agent.stop_all();
             state.runtime.kill_now();
             state.embedder.kill_now();
+            state.speech.kill_now();
             // The market service flushes its store and job records on `shutdown`; a download
             // left unflushed would redo its last second of work next time.
             let market = state.market.clone();

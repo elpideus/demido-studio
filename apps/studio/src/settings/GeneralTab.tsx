@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, CircleAlert, Cpu, FolderOpen, Power, ScrollText, ShieldAlert, X } from 'lucide-react';
-import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch, TextField } from '@demido/ui';
+import { CheckCircle2, CircleAlert, Cpu, Download, FolderOpen, Power, ScrollText, ShieldAlert, X } from 'lucide-react';
+import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch, TextField, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
-import type { Settings } from '@/lib/types';
+import { on } from '@/lib/events';
+import type { Settings, SpeechChoice } from '@/lib/types';
 import { useApp } from '@/stores/app';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
+import { microphones, unlockNames } from '@/voice/recorder';
 import s from './settings.module.css';
 import styles from './GeneralTab.module.css';
 
@@ -117,6 +119,119 @@ function AutoCompact({ settings }: { settings: Settings }) {
             if (e.key === 'Enter') e.currentTarget.blur();
             else if (e.key === 'Escape') setDraft(null);
           }}
+        />
+      </Field>
+    </div>
+  );
+}
+
+/** The microphone, the speech model that writes down what is said, and where the voice goes. */
+function Voice({ settings }: { settings: Settings }) {
+  const patch = useApp((st) => st.patchSettings);
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  const [speech, setSpeech] = useState<SpeechChoice[]>([]);
+
+  const findMics = useCallback(() => {
+    microphones().then(setMics, () => setMics([]));
+  }, []);
+
+  useEffect(() => {
+    findMics();
+    navigator.mediaDevices?.addEventListener?.('devicechange', findMics);
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', findMics);
+  }, [findMics]);
+
+  useEffect(() => {
+    const load = () => void api.speechModels().then(setSpeech, () => undefined);
+    load();
+    // A finished download installs a speech model.
+    const unlisten = on('downloads://changed', (job) => {
+      if (job.state === 'done') load();
+    });
+    return () => void unlisten.then((f) => f());
+  }, []);
+
+  // Microphones have names only once the app has used one; asking for one names them all.
+  const unnamed = mics.some((m) => !m.label);
+  const nameMics = () => {
+    if (!unnamed) return;
+    unlockNames().then(findMics, () => undefined);
+  };
+
+  const chosenMic = settings.microphone ?? '';
+  const micOptions = [
+    { value: '', label: 'Windows default' },
+    ...mics.map((m, i) => ({ value: m.deviceId, label: m.label || `Microphone ${i + 1}` })),
+  ];
+  if (chosenMic && !mics.some((m) => m.deviceId === chosenMic)) {
+    micOptions.push({ value: chosenMic, label: 'A microphone not plugged in' });
+  }
+
+  const auto = speech.find((m) => m.forThisComputer);
+  const chosen = speech.find((m) => m.id === settings.speechModel) ?? auto;
+  const speechOptions = [
+    { value: '', label: auto ? `Automatic (${auto.name})` : 'Automatic' },
+    ...speech.map((m) => ({ value: m.id, label: m.installed ? m.name : `${m.name} · not downloaded` })),
+  ];
+
+  const download = () =>
+    api.downloadSpeechModel().then(
+      (job) => toast.info(`Downloading ${job.name}`, 'Settings, Models shows how far it got.'),
+      (e) => toast.error('Could not download the speech model', errorText(e)),
+    );
+
+  return (
+    <div className={`${s.card} ${s.cardPad} ${s.stack}`}>
+      <Field
+        layout="inline"
+        label="Microphone"
+        description="Click the microphone in the message box to talk instead of typing. Esc cancels a recording."
+      >
+        <Select
+          size="sm"
+          aria-label="Microphone"
+          className={styles.wide}
+          value={chosenMic}
+          onPointerDown={nameMics}
+          onFocus={nameMics}
+          onChange={(e) => void patch({ microphone: e.target.value || null })}
+          options={micOptions}
+        />
+      </Field>
+      <Field
+        layout="inline"
+        label="Speech model"
+        description={
+          chosen && !chosen.installed
+            ? `Writes down what you say for models that can’t hear. ${chosen.name} is not downloaded yet (${formatBytes(chosen.size)}).`
+            : 'Writes down what you say for models that can’t hear, on this computer. Automatic picks by your graphics memory; 1.7B is more accurate and needs more.'
+        }
+      >
+        <div className={styles.inlineControls}>
+          {chosen && !chosen.installed && (
+            <Button size="sm" variant="secondary" icon={Download} onClick={() => void download()}>
+              Download
+            </Button>
+          )}
+          <Select
+            size="sm"
+            aria-label="Speech model"
+            className={styles.wide}
+            value={settings.speechModel ?? ''}
+            onChange={(e) => void patch({ speechModel: e.target.value || null })}
+            options={speechOptions}
+          />
+        </div>
+      </Field>
+      <Field
+        layout="inline"
+        label="Send my voice to models that can hear"
+        description="They get the recording itself, tone and all. Off, every model gets what you said written down instead."
+      >
+        <Switch
+          checked={settings.sendVoice ?? true}
+          onChange={(v) => void patch({ sendVoice: v })}
+          label="Send my voice to models that can hear"
         />
       </Field>
     </div>
@@ -242,6 +357,11 @@ export function GeneralTab() {
         <section className={s.section}>
           <h3 className={s.sectionTitle}>Conversations</h3>
           <AutoCompact settings={settings} />
+        </section>
+
+        <section className={s.section}>
+          <h3 className={s.sectionTitle}>Voice</h3>
+          <Voice settings={settings} />
         </section>
 
         <section className={s.section}>

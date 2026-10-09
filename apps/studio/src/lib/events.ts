@@ -70,6 +70,8 @@ interface EventMap {
   'mail://changed': { account: string; folder: string };
   /** An account's folder list changed: a folder or label was made or deleted elsewhere. */
   'mail://folders': { account: string };
+  /** A dictation's words so far, as the speech model writes them down. */
+  'voice://text': { job: string; text: string };
 }
 
 export function on<K extends keyof EventMap>(name: K, handler: (payload: EventMap[K]) => void): Promise<UnlistenFn> {

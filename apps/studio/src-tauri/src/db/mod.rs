@@ -131,6 +131,32 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE messages ADD COLUMN command TEXT;
     "#,
+    // 5: voice notes recorded in the composer and what a speech model wrote down of them; every
+    // transcription made (without its words: a dictation may never be sent, and a note's are
+    // with the note); and how each request sent the voice notes in it (JSON, see `VoiceSent`).
+    r#"
+    CREATE TABLE voice_notes (
+        attachment_id  TEXT PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+        duration_ms    INTEGER NOT NULL,
+        transcript     TEXT,
+        language       TEXT,
+        model          TEXT
+    );
+    CREATE TABLE transcriptions (
+        id             TEXT PRIMARY KEY,
+        chat_id        TEXT REFERENCES chats(id) ON DELETE CASCADE,
+        attachment_id  TEXT,
+        created_at     INTEGER NOT NULL,
+        model_id       TEXT NOT NULL,
+        audio_ms       INTEGER NOT NULL,
+        duration_ms    INTEGER NOT NULL,
+        via            TEXT,
+        language       TEXT,
+        error          TEXT
+    );
+    CREATE INDEX transcriptions_by_chat ON transcriptions(chat_id, created_at);
+    ALTER TABLE traces ADD COLUMN voice TEXT;
+    "#,
 ];
 
 impl Db {

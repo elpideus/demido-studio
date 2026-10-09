@@ -167,6 +167,59 @@ pub struct Attachment {
     /// Something the person should know, shown on the file's chip.
     pub note: Option<String>,
     pub created_at: i64,
+    /// Set when the file is a voice note recorded in the composer.
+    #[serde(default)]
+    pub voice: Option<VoiceNote>,
+}
+
+/// A recording made in the composer and sent as it is, to a model that hears.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceNote {
+    pub duration_ms: u64,
+    /// What a speech model wrote down of it, once a model that cannot hear needed it (or the
+    /// person asked to see it). Empty when it heard no speech.
+    pub transcript: Option<String>,
+    /// The language it heard ("English").
+    pub language: Option<String>,
+    /// The speech model that wrote it down.
+    pub transcribed_by: Option<String>,
+}
+
+/// How a request sent one voice note: as the recording, or as what a speech model wrote down
+/// of it. Kept with the request's trace and shown in the Inspector.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSent {
+    pub attachment_id: String,
+    pub name: String,
+    pub duration_ms: u64,
+    /// "audio", "transcript", or "none" (neither could be sent).
+    pub sent_as: String,
+    /// Parts the recording was cut into for a model that hears a little at a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<u32>,
+    /// The speech model that wrote the transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcribed_by: Option<String>,
+}
+
+/// One transcription made, for the record (see `speech`). Its words are not kept here.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptionRecord {
+    pub id: String,
+    pub chat_id: Option<String>,
+    /// The voice note written down; `None` for dictation.
+    pub attachment_id: Option<String>,
+    pub created_at: i64,
+    pub model_id: String,
+    pub audio_ms: u64,
+    pub duration_ms: u64,
+    /// "endpoint" or "chat".
+    pub via: Option<String>,
+    pub language: Option<String>,
+    pub error: Option<String>,
 }
 
 impl Message {
@@ -208,4 +261,7 @@ pub struct Trace {
     pub response: Option<serde_json::Value>,
     pub duration_ms: Option<i64>,
     pub error: Option<String>,
+    /// How each voice note in the request went.
+    #[serde(default)]
+    pub voice: Vec<VoiceSent>,
 }

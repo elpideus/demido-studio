@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { ArrowUp, Plus, Square } from 'lucide-react';
-import { IconButton, Spinner, TextArea, cx } from '@demido/ui';
+import { ArrowUp, Mic, Plus, Square, X } from 'lucide-react';
+import { Button, IconButton, Spinner, TextArea, cx } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import type { Attachment, ModelEntry, SlashCommand } from '@/lib/types';
@@ -9,6 +9,9 @@ import { useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';
 import { useSkills } from '@/stores/skills';
 import { toast } from '@/stores/toasts';
+import { insertWords, type Caret } from '@/voice/dictation';
+import { useVoice } from '@/voice/useVoice';
+import { clock } from '@/voice/wav';
 import { AttachmentTray, type StagedFile } from './Attachments';
 import { ATTACH_FILES_EVENT, MAX_FILE_BYTES, MAX_FILES, nameFromPath, pastedName } from './attachmentView';
 import { ContextMeter } from './ContextMeter';
@@ -78,7 +81,7 @@ export function Composer({ chatId, model, prefill }: Props) {
   }, [skills]);
 
   /** Shows a chip for each file right away (as many as fit in a message), then reads them. */
-  const attach = useCallback((items: Array<{ name: string; read: () => Promise<Attachment> }>) => {
+  const attach = useCallback((items: Array<{ name: string; read: () => Promise<Attachment>; voice?: boolean }>) => {
     const taken = items.slice(0, Math.max(0, MAX_FILES - shown.current.size));
     const left = items.length - taken.length;
     if (left > 0) {
@@ -88,7 +91,12 @@ export function Composer({ chatId, model, prefill }: Props) {
       );
     }
     if (taken.length === 0) return;
-    const added = taken.map((item) => ({ key: `staged-${nextKey++}`, name: item.name, attachment: null }));
+    const added = taken.map((item) => ({
+      key: `staged-${nextKey++}`,
+      name: item.name,
+      attachment: null,
+      voice: item.voice,
+    }));
     for (const f of added) shown.current.add(f.key);
     setFiles((list) => [...list, ...added]);
     taken.forEach((item, i) => {
@@ -147,6 +155,40 @@ export function Composer({ chatId, model, prefill }: Props) {
     ref.current?.focus();
   };
 
+  // Dictation: the text and caret when the words started coming, and where the caret goes after them.
+  const dictation = useRef<{ text: string; caret: Caret; after: number } | null>(null);
+  const textNow = useRef(text);
+  textNow.current = text;
+  const voice = useVoice(chatId, model, {
+    onNote: (wav) => {
+      attach([{ name: 'Voice note', read: () => api.attachVoiceNote(wav), voice: true }]);
+    },
+    onDictationStart: () => {
+      const el = ref.current;
+      const at = el ? { start: el.selectionStart, end: el.selectionEnd } : { start: text.length, end: text.length };
+      dictation.current = { text: textNow.current, caret: at, after: at.start };
+    },
+    onDictation: (words) => {
+      const d = dictation.current;
+      if (!d) return;
+      const next = insertWords(d.text, d.caret, words);
+      d.after = next.caret;
+      setText(next.text);
+    },
+    onDictationEnd: (kept) => {
+      const d = dictation.current;
+      dictation.current = null;
+      if (!d) return;
+      if (!kept) setText(d.text);
+      const caret = kept ? d.after : d.caret.start;
+      requestAnimationFrame(() => {
+        ref.current?.focus();
+        ref.current?.setSelectionRange(caret, caret);
+      });
+    },
+  });
+  const listening = voice.phase !== 'idle';
+
   const pickFiles = async () => {
     const picked = await openDialog({ multiple: true, title: 'Add files' });
     if (Array.isArray(picked) && picked.length > 0) attachPaths(picked);
@@ -180,7 +222,7 @@ export function Composer({ chatId, model, prefill }: Props) {
   }, [attachPaths]);
 
   const reading = files.some((f) => !f.attachment);
-  const canSend = !!model && !running && !reading && (!!text.trim() || files.length > 0);
+  const canSend = !!model && !running && !reading && !listening && (!!text.trim() || files.length > 0);
 
   const typed = typedName(text);
   const matches = typed === null ? [] : matchCommands(commands, typed);
@@ -197,7 +239,7 @@ export function Composer({ chatId, model, prefill }: Props) {
 
   /** Sends `value` (the composer's text unless given), running it when it names a command. */
   const submit = async (value = text.trim()) => {
-    if (!model || running || reading || (!value && files.length === 0)) return;
+    if (!model || running || reading || listening || (!value && files.length === 0)) return;
     // The app's own commands act on the chat, and the files stay staged for the next message.
     const command = commandIn(commands, value)?.command;
     const sent = command && !command.skill ? [] : files;
@@ -282,6 +324,18 @@ export function Composer({ chatId, model, prefill }: Props) {
         </div>
       )}
       {loadError && <div className={styles.noticeError}>{loadError}</div>}
+      {voice.problem && (
+        <div className={styles.voiceProblem} role="alert">
+          <Mic size={14} strokeWidth={2} className={styles.voiceProblemIcon} aria-hidden />
+          <span className={styles.voiceProblemText}>{voice.problem.text}</span>
+          {voice.problem.action && (
+            <Button size="sm" variant="secondary" onClick={voice.problem.action.run}>
+              {voice.problem.action.label}
+            </Button>
+          )}
+          <IconButton icon={X} label="Dismiss" size="xs" onClick={voice.dismiss} />
+        </div>
+      )}
       {using && (
         <div className={styles.notice}>
           <span className={styles.commandName}>/{using.command.name}</span>
@@ -296,6 +350,7 @@ export function Composer({ chatId, model, prefill }: Props) {
           className={styles.input}
           autoSize={{ min: 1, max: 12 }}
           value={text}
+          readOnly={voice.phase === 'writing'}
           placeholder={model ? `Message ${model.name}` : 'Choose a model to start'}
           onChange={(e) => {
             setText(e.target.value);
@@ -319,17 +374,59 @@ export function Composer({ chatId, model, prefill }: Props) {
           rows={1}
         />
         <div className={styles.toolbar}>
-          <IconButton
-            icon={Plus}
-            label="Add files"
-            size="md"
-            strokeWidth={2}
-            className={styles.add}
-            onClick={() => void pickFiles()}
-          />
-          <ModelPicker model={model} onPick={pickModel} />
-          <ToolsPicker model={model} />
-          <span className={styles.spacer} />
+          {voice.phase === 'recording' || voice.phase === 'saving' || voice.phase === 'writing' ? (
+            <div className={styles.recording} role="status">
+              {voice.phase === 'recording' ? (
+                <>
+                  <span className={styles.recordingDot} aria-hidden />
+                  <span className={styles.meter} aria-hidden>
+                    <span className={styles.meterFill} style={{ width: `${Math.round(voice.meter.level * 100)}%` }} />
+                  </span>
+                  <span className={styles.recordingTime}>
+                    {clock(voice.meter.seconds)} / {clock(voice.limit)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Spinner size={12} />
+                  <span className={styles.recordingLabel}>
+                    {voice.phase === 'saving' ? 'Saving the recording…' : 'Writing down what you said…'}
+                  </span>
+                </>
+              )}
+              <span className={styles.spacer} />
+              <Button size="sm" variant="ghost" onClick={voice.cancel} disabled={voice.phase === 'saving'}>
+                Cancel
+              </Button>
+              {voice.phase === 'recording' && (
+                <Button size="sm" variant="secondary" icon={Square} onClick={() => void voice.stop()}>
+                  Stop
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              <IconButton
+                icon={Plus}
+                label="Add files"
+                size="md"
+                strokeWidth={2}
+                className={styles.add}
+                onClick={() => void pickFiles()}
+              />
+              <ModelPicker model={model} onPick={pickModel} />
+              <ToolsPicker model={model} />
+              <span className={styles.spacer} />
+              <IconButton
+                icon={Mic}
+                label="Record your voice (Esc cancels)"
+                size="md"
+                className={styles.add}
+                disabled={!model || voice.phase === 'starting'}
+                onClick={() => void voice.start()}
+              />
+            </>
+          )}
           <ContextMeter
             chatId={chatId}
             model={model}

@@ -18,6 +18,7 @@ use crate::runtime::LocalRuntime;
 use crate::secrets::Secrets;
 use crate::settings::SettingsStore;
 use crate::skills::SkillRegistry;
+use crate::speech::Transcriber;
 use crate::updater::Updater;
 
 pub struct AppState {
@@ -33,6 +34,8 @@ pub struct AppState {
     pub runtime: Arc<LocalRuntime>,
     /// The search model, which indexes attached files by meaning.
     pub embedder: Arc<Embedder>,
+    /// The speech model, which writes down what the person says for models that cannot hear.
+    pub speech: Arc<Transcriber>,
     pub skills: Arc<SkillRegistry>,
     pub market: Arc<MarketService>,
     pub mail: Arc<MailService>,

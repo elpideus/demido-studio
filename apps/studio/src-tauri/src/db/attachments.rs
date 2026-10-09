@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use rusqlite::{OptionalExtension, Row, params, params_from_iter};
 
-use super::{Attachment, Db, Message};
+use super::{Attachment, Db, Message, TranscriptionRecord, VoiceNote};
 
 /// A passage of an attached file.
 #[derive(Clone, Debug, PartialEq)]
@@ -30,7 +30,10 @@ pub struct AttachmentContent<'a> {
     pub chunks: &'a [demido_extract::Chunk],
 }
 
-const COLUMNS: &str = "a.id, a.chat_id, a.message_id, a.name, a.file, a.mime, a.kind, a.size, a.pages, a.width, a.height, a.tokens, a.note, a.created_at";
+const COLUMNS: &str = "a.id, a.chat_id, a.message_id, a.name, a.file, a.mime, a.kind, a.size, a.pages, a.width, a.height, a.tokens, a.note, a.created_at,
+    v.duration_ms AS voice_ms, v.transcript AS voice_transcript, v.language AS voice_language, v.model AS voice_model";
+/// Attachments with what is known of them as voice notes.
+const FROM: &str = "attachments a LEFT JOIN voice_notes v ON v.attachment_id = a.id";
 
 fn kind_str(kind: demido_extract::Kind) -> String {
     serde_json::to_value(kind)
@@ -63,6 +66,15 @@ fn row_to_attachment(r: &Row<'_>) -> rusqlite::Result<Attachment> {
         height: r.get::<_, Option<i64>>("height")?.map(|v| v as u32),
         note: r.get("note")?,
         created_at: r.get("created_at")?,
+        voice: match r.get::<_, Option<i64>>("voice_ms")? {
+            Some(ms) => Some(VoiceNote {
+                duration_ms: ms.max(0) as u64,
+                transcript: r.get("voice_transcript")?,
+                language: r.get("voice_language")?,
+                transcribed_by: r.get("voice_model")?,
+            }),
+            None => None,
+        },
     })
 }
 
@@ -113,14 +125,103 @@ impl Db {
                     insert.execute(params![a.id, chunk.seq, chunk.page, chunk.text])?;
                 }
             }
+            if let Some(v) = &a.voice {
+                tx.execute(
+                    "INSERT INTO voice_notes (attachment_id, duration_ms, transcript, language, model)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![a.id, v.duration_ms as i64, v.transcript, v.language, v.transcribed_by],
+                )?;
+            }
             tx.commit()
+        })
+    }
+
+    /// Stores what a speech model wrote down of a voice note: with the note, and as its text and
+    /// passage, where `read_file` and `search_files` find it. Returns its estimated tokens.
+    pub fn set_voice_transcript(
+        &self,
+        id: &str,
+        text: &str,
+        language: Option<&str>,
+        model: &str,
+    ) -> rusqlite::Result<u64> {
+        let text = text.trim();
+        let tokens = crate::agent::prompt::estimate_tokens(text) as u64;
+        self.with(|c| {
+            let tx = c.unchecked_transaction()?;
+            tx.execute(
+                "UPDATE voice_notes SET transcript = ?2, language = ?3, model = ?4 WHERE attachment_id = ?1",
+                params![id, text, language, model],
+            )?;
+            tx.execute("DELETE FROM attachment_passages WHERE attachment_id = ?1", [id])?;
+            if !text.is_empty() {
+                tx.execute(
+                    "INSERT INTO attachment_passages (attachment_id, seq, page, text) VALUES (?1, 0, NULL, ?2)",
+                    params![id, text],
+                )?;
+            }
+            tx.execute(
+                "UPDATE attachments SET text = ?2, tokens = ?3 WHERE id = ?1",
+                params![id, (!text.is_empty()).then_some(text), tokens as i64],
+            )?;
+            tx.commit()?;
+            Ok(tokens)
+        })
+    }
+
+    /// Records a transcription made (see `speech`).
+    pub fn record_transcription(&self, t: &TranscriptionRecord) -> rusqlite::Result<()> {
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO transcriptions (id, chat_id, attachment_id, created_at, model_id, audio_ms,
+                    duration_ms, via, language, error)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    t.id,
+                    t.chat_id,
+                    t.attachment_id,
+                    t.created_at,
+                    t.model_id,
+                    t.audio_ms as i64,
+                    t.duration_ms as i64,
+                    t.via,
+                    t.language,
+                    t.error,
+                ],
+            )
+        })?;
+        Ok(())
+    }
+
+    /// The transcriptions made, newest first (`chat_id` alone, or every one).
+    pub fn transcriptions(&self, chat_id: Option<&str>, limit: usize) -> rusqlite::Result<Vec<TranscriptionRecord>> {
+        self.with(|c| {
+            let mut stmt = c.prepare(
+                "SELECT id, chat_id, attachment_id, created_at, model_id, audio_ms, duration_ms, via, language, error
+                 FROM transcriptions WHERE ?1 IS NULL OR chat_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![chat_id, limit as i64], |r| {
+                Ok(TranscriptionRecord {
+                    id: r.get(0)?,
+                    chat_id: r.get(1)?,
+                    attachment_id: r.get(2)?,
+                    created_at: r.get(3)?,
+                    model_id: r.get(4)?,
+                    audio_ms: r.get::<_, i64>(5)?.max(0) as u64,
+                    duration_ms: r.get::<_, i64>(6)?.max(0) as u64,
+                    via: r.get(7)?,
+                    language: r.get(8)?,
+                    error: r.get(9)?,
+                })
+            })?;
+            rows.collect()
         })
     }
 
     pub fn get_attachment(&self, id: &str) -> rusqlite::Result<Option<Attachment>> {
         self.with(|c| {
             c.query_row(
-                &format!("SELECT {COLUMNS} FROM attachments a WHERE a.id = ?1"),
+                &format!("SELECT {COLUMNS} FROM {FROM} WHERE a.id = ?1"),
                 [id],
                 row_to_attachment,
             )
@@ -133,7 +234,7 @@ impl Db {
     pub fn chat_attachments(&self, chat_id: &str) -> rusqlite::Result<Vec<Attachment>> {
         self.with(|c| {
             let mut stmt = c.prepare(&format!(
-                "SELECT {COLUMNS} FROM attachments a JOIN messages m ON m.id = a.message_id
+                "SELECT {COLUMNS} FROM {FROM} JOIN messages m ON m.id = a.message_id
                  WHERE a.chat_id = ?1 ORDER BY m.seq, a.position"
             ))?;
             let rows = stmt.query_map([chat_id], row_to_attachment)?;
@@ -147,7 +248,7 @@ impl Db {
         self.with(|c| {
             c.query_row(
                 &format!(
-                    "SELECT {COLUMNS} FROM attachments a WHERE a.chat_id = ?1 AND a.file = ?2
+                    "SELECT {COLUMNS} FROM {FROM} WHERE a.chat_id = ?1 AND a.file = ?2
                      ORDER BY a.created_at DESC LIMIT 1"
                 ),
                 params![chat_id, file],
@@ -402,6 +503,7 @@ mod tests {
             height: None,
             note: None,
             created_at: now_ms(),
+            voice: None,
         }
     }
 
@@ -500,6 +602,85 @@ mod tests {
             })
             .unwrap();
         assert_eq!(indexed, 0);
+    }
+
+    #[test]
+    fn a_voice_notes_transcript_is_kept_searched_and_recorded() {
+        let db = Db::in_memory();
+        let chat = db.create_chat("t", None).unwrap();
+        let mut a = staged("Voice note.wav");
+        a.mime = "audio/wav".into();
+        a.kind = Kind::Audio;
+        a.pages = None;
+        a.tokens = None;
+        a.voice = Some(VoiceNote {
+            duration_ms: 4_200,
+            transcript: None,
+            language: None,
+            transcribed_by: None,
+        });
+        db.insert_attachment(
+            &a,
+            AttachmentContent {
+                text: None,
+                media: Some((b"RIFF", "audio/wav")),
+                chunks: &[],
+            },
+        )
+        .unwrap();
+        let m = Message::new(&chat.id, 1, Role::User, "");
+        db.save_message(&m).unwrap();
+        db.link_attachment(&a.id, &chat.id, &m.id, "uploads/Voice note.wav", 0)
+            .unwrap();
+        assert_eq!(db.get_attachment(&a.id).unwrap().unwrap().voice, a.voice);
+
+        let tokens = db
+            .set_voice_transcript(
+                &a.id,
+                "Move the stop to the last swing low.",
+                Some("English"),
+                "Qwen3-ASR 0.6B",
+            )
+            .unwrap();
+        assert!(tokens > 0);
+        let note = db.list_messages(&chat.id).unwrap()[0].attachments[0].clone();
+        let voice = note.voice.unwrap();
+        assert_eq!(
+            voice.transcript.as_deref(),
+            Some("Move the stop to the last swing low.")
+        );
+        assert_eq!(voice.language.as_deref(), Some("English"));
+        assert_eq!(voice.transcribed_by.as_deref(), Some("Qwen3-ASR 0.6B"));
+        assert_eq!(note.tokens, Some(tokens));
+        // Found by search and read like any file's text.
+        let hits = db.search_passages(std::slice::from_ref(&a.id), "\"swing\"", 5).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            db.attachment_text(&a.id).unwrap().as_deref(),
+            Some("Move the stop to the last swing low.")
+        );
+
+        // Written down again (by another model): one passage still.
+        db.set_voice_transcript(&a.id, "Move the stop.", None, "Qwen3-ASR 1.7B")
+            .unwrap();
+        assert_eq!(db.first_passages(&a.id, 5).unwrap().len(), 1);
+
+        let record = TranscriptionRecord {
+            id: new_id(),
+            chat_id: Some(chat.id.clone()),
+            attachment_id: Some(a.id.clone()),
+            created_at: now_ms(),
+            model_id: "qwen3-asr-0.6b".into(),
+            audio_ms: 4_200,
+            duration_ms: 900,
+            via: Some("endpoint".into()),
+            language: Some("English".into()),
+            error: None,
+        };
+        db.record_transcription(&record).unwrap();
+        assert_eq!(db.transcriptions(Some(&chat.id), 10).unwrap(), [record]);
+        db.delete_chat(&chat.id).unwrap();
+        assert!(db.transcriptions(None, 10).unwrap().is_empty());
     }
 
     #[test]

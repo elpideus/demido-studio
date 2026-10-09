@@ -32,7 +32,7 @@ use demido_extract::Kind;
 use super::meaning::{self, QueryVector};
 use super::search;
 use crate::agent::prompt::estimate_tokens;
-use crate::db::{Attachment, Db, Message, Passage, Role};
+use crate::db::{Attachment, Db, Message, Passage, Role, VoiceNote, VoiceSent};
 use crate::llm::Media;
 use crate::models::{ModelEntry, ModelSource};
 
@@ -54,6 +54,19 @@ pub struct ModelAccess {
     pub audio: Vec<&'static str>,
     /// Gemini counts image tokens in 768-pixel tiles; local models in patches.
     pub gemini: bool,
+    /// Most seconds of sound the model hears in one clip; a longer WAV recording goes in parts.
+    pub clip_seconds: Option<u32>,
+}
+
+/// How voice notes go to a model.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VoiceRoute {
+    /// The recording itself.
+    Audio,
+    /// What a speech model wrote down of it.
+    #[default]
+    Transcript,
 }
 
 impl ModelAccess {
@@ -72,6 +85,8 @@ impl ModelAccess {
                     Vec::new()
                 },
                 gemini: false,
+                // Gemma 4's audio encoder takes 30 seconds at a time.
+                clip_seconds: Some(crate::speech::LOCAL_CLIP_SECONDS),
             },
             ModelSource::Gemini => ModelAccess {
                 images: caps.vision != Some(false),
@@ -88,6 +103,7 @@ impl ModelAccess {
                     Vec::new()
                 },
                 gemini: true,
+                clip_seconds: None,
             },
             // OpenRouter passes sound on as `input_audio`, in the formats every provider takes.
             ModelSource::OpenRouter => ModelAccess {
@@ -98,6 +114,7 @@ impl ModelAccess {
                     Vec::new()
                 },
                 gemini: false,
+                clip_seconds: None,
             },
         }
     }
@@ -105,6 +122,17 @@ impl ModelAccess {
     fn hears(&self, mime: &str) -> bool {
         let mime = super::audio_mime(mime);
         self.audio.contains(&mime)
+    }
+
+    /// Voice notes go as the recording to a model known to hear it, unless the person turned
+    /// that off (Settings, General, Voice); any other model, one whose hearing is unknown
+    /// included, gets what a speech model wrote down.
+    pub fn voice_route(&self, send_voice: bool) -> VoiceRoute {
+        if send_voice && self.hears("audio/wav") {
+            VoiceRoute::Audio
+        } else {
+            VoiceRoute::Transcript
+        }
     }
 
     /// Tokens an image of `width` × `height` costs once scaled to the copy models get.
@@ -140,12 +168,16 @@ pub struct Extras {
     /// history has to shrink.
     pub stub: String,
     pub stub_tokens: usize,
+    /// How the block gives each voice note.
+    pub voice: Vec<VoiceSent>,
 }
 
 pub struct Inputs<'a> {
     pub db: &'a Db,
     pub chat_id: &'a str,
     pub access: ModelAccess,
+    /// How voice notes go to this model ([`ModelAccess::voice_route`]).
+    pub voice: VoiceRoute,
     /// Tokens the history may take: the context window less the system prompt, the tools and
     /// the room kept for the answer.
     pub room_tokens: usize,
@@ -182,6 +214,7 @@ pub fn may_have_long_files(room_tokens: usize, messages: &[Message]) -> bool {
     let tokens: u64 = messages
         .iter()
         .flat_map(|m| &m.attachments)
+        .filter(|a| a.voice.is_none())
         .filter_map(|a| a.tokens)
         .sum();
     tokens > inline_budget(room_tokens) as u64
@@ -229,10 +262,11 @@ fn decide(inputs: &Inputs<'_>, m: &Message) -> HashMap<String, Shown> {
     let mut budget = inputs
         .inline_budget()
         .saturating_sub(media + estimate_tokens(&m.content)) as u64;
+    // A voice note's transcript is its own element ([`voice_element`]).
     let mut with_text: Vec<&Attachment> = m
         .attachments
         .iter()
-        .filter(|a| a.tokens.is_some_and(|t| t > 0))
+        .filter(|a| a.voice.is_none() && a.tokens.is_some_and(|t| t > 0))
         .collect();
     with_text.sort_by_key(|a| a.tokens.unwrap_or(0));
     with_text
@@ -258,6 +292,7 @@ fn media_within_limit(inputs: &Inputs<'_>, messages: &[Message]) -> HashSet<Stri
         for a in &m.attachments {
             let wanted = match a.kind {
                 Kind::Image => inputs.access.images,
+                Kind::Audio if a.voice.is_some() => inputs.voice == VoiceRoute::Audio,
                 Kind::Audio => inputs.access.hears(&a.mime),
                 _ => false,
             };
@@ -272,6 +307,24 @@ fn media_within_limit(inputs: &Inputs<'_>, messages: &[Message]) -> HashSet<Stri
         }
     }
     ok
+}
+
+/// The voice notes in `messages` that go to the model as a transcript and have none yet: for a
+/// model that cannot hear them, or when the request has no room left for their sound. They are
+/// written down before the prompt is built ([`crate::speech::transcribe_note`]).
+pub fn notes_to_write_down(inputs: &Inputs<'_>, messages: &[Message]) -> Vec<Attachment> {
+    let audio = if inputs.voice == VoiceRoute::Audio {
+        media_within_limit(inputs, messages)
+    } else {
+        HashSet::new()
+    };
+    messages
+        .iter()
+        .filter(|m| m.role == Role::User)
+        .flat_map(|m| &m.attachments)
+        .filter(|a| a.voice.as_ref().is_some_and(|v| v.transcript.is_none()) && !audio.contains(&a.id))
+        .cloned()
+        .collect()
 }
 
 fn extras_for(
@@ -300,8 +353,15 @@ fn extras_for(
     let mut stubs = Vec::new();
     let mut media = Vec::new();
     let mut media_tokens = 0usize;
+    let mut voice = Vec::new();
     for a in &m.attachments {
         stubs.push(format!("<file {}/>", attributes(a, None)));
+        if let Some(note) = &a.voice {
+            let (element, sent) = voice_element(inputs, a, note, media_ok, &mut media, &mut media_tokens);
+            elements.push(element);
+            voice.push(sent);
+            continue;
+        }
         elements.push(match (a.kind, shown.get(&a.id)) {
             (_, Some(Shown::Full)) => full_element(inputs, a),
             (Kind::Data, Some(Shown::Excerpts)) => start_element(inputs, a),
@@ -336,6 +396,7 @@ fn extras_for(
         tokens,
         stub,
         stub_tokens,
+        voice,
     })
 }
 
@@ -634,15 +695,14 @@ fn media_element(
         && media_ok.contains(&a.id)
         && let Ok(Some((bytes, mime))) = inputs.db.attachment_media(&a.id)
     {
+        if !image {
+            let sounds = push_sound(inputs, a, &bytes, &mime, media, tokens);
+            return sound_element(a, &sounds, None);
+        }
         media.push(Media::new(mime, &bytes));
-        let n = media.iter().filter(|m| m.is_image() == image).count();
-        *tokens += if image {
-            inputs.access.image_tokens(a.width, a.height)
-        } else {
-            (audio_seconds(&bytes, &a.mime) * AUDIO_TOKENS_PER_SECOND) as usize
-        };
-        let attr = if image { "picture" } else { "sound" };
-        return format!("<file {} {attr}=\"{n}\"/>", attributes(a, None));
+        let n = media.iter().filter(|m| m.is_image()).count();
+        *tokens += inputs.access.image_tokens(a.width, a.height);
+        return format!("<file {} picture=\"{n}\"/>", attributes(a, None));
     }
     let why = match (image, reads) {
         (_, true) if media_ok.contains(&a.id) || a.note.is_some() => a
@@ -662,6 +722,110 @@ fn media_element(
         "<file {}>\n{why} The file is in the workspace.\n</file>",
         attributes(a, None)
     )
+}
+
+/// Adds a sound to the request's media: in parts the model hears one at a time when it is a
+/// WAV recording longer than that. Returns the numbers its parts have among the request's sounds.
+fn push_sound(
+    inputs: &Inputs<'_>,
+    a: &Attachment,
+    bytes: &[u8],
+    mime: &str,
+    media: &mut Vec<Media>,
+    tokens: &mut usize,
+) -> std::ops::RangeInclusive<usize> {
+    let first = media.iter().filter(|m| !m.is_image()).count() + 1;
+    let parts = match inputs.access.clip_seconds {
+        Some(max) if super::audio_mime(mime) == "audio/wav" => crate::speech::wav::split(bytes, max),
+        _ => vec![bytes.to_vec()],
+    };
+    let count = parts.len();
+    for part in parts {
+        media.push(Media::new(mime.to_string(), &part));
+    }
+    *tokens += (audio_seconds(bytes, &a.mime) * AUDIO_TOKENS_PER_SECOND) as usize;
+    first..=first + count - 1
+}
+
+/// The element of a sound the request carries, as `sound="n"`, or `sound="n-m"` for one in parts.
+fn sound_element(a: &Attachment, sounds: &std::ops::RangeInclusive<usize>, what: Option<&str>) -> String {
+    let (first, last) = (*sounds.start(), *sounds.end());
+    if first == last {
+        return match what {
+            Some(what) => format!("<file {} sound=\"{first}\">\n{what}\n</file>", attributes(a, None)),
+            None => format!("<file {} sound=\"{first}\"/>", attributes(a, None)),
+        };
+    }
+    let parts = format!(
+        "It is cut into {} parts that follow one another, sounds {first} to {last}.",
+        last - first + 1
+    );
+    let body = match what {
+        Some(what) => format!("{what} {parts}"),
+        None => parts,
+    };
+    format!(
+        "<file {} sound=\"{first}-{last}\">\n{body}\n</file>",
+        attributes(a, None)
+    )
+}
+
+/// A voice note recorded in the composer: the recording, to a model that hears it while the
+/// request has room for it; otherwise what a speech model wrote down of it, said to be that. A
+/// note never goes silently: without either, the element says so.
+fn voice_element(
+    inputs: &Inputs<'_>,
+    a: &Attachment,
+    note: &VoiceNote,
+    media_ok: &HashSet<String>,
+    media: &mut Vec<Media>,
+    tokens: &mut usize,
+) -> (String, VoiceSent) {
+    let mut sent = VoiceSent {
+        attachment_id: a.id.clone(),
+        name: a.name.clone(),
+        duration_ms: note.duration_ms,
+        sent_as: "audio".into(),
+        parts: None,
+        transcribed_by: None,
+    };
+    if inputs.voice == VoiceRoute::Audio
+        && media_ok.contains(&a.id)
+        && let Ok(Some((bytes, mime))) = inputs.db.attachment_media(&a.id)
+    {
+        let sounds = push_sound(inputs, a, &bytes, &mime, media, tokens);
+        let count = sounds.clone().count() as u32;
+        sent.parts = (count > 1).then_some(count);
+        let element = sound_element(
+            a,
+            &sounds,
+            Some("The user's voice message, which you hear: what they say in it is their message to you."),
+        );
+        return (element, sent);
+    }
+    let body = match (&note.transcript, &note.transcribed_by) {
+        (Some(text), by) if !text.trim().is_empty() => {
+            sent.sent_as = "transcript".into();
+            sent.transcribed_by = by.clone();
+            let by = by.as_deref().map(|m| format!(" ({m})")).unwrap_or_default();
+            format!(
+                "The user's voice message, as a speech model{by} wrote it down; a word may be misheard:\n{}",
+                neutral(text.trim())
+            )
+        }
+        (Some(_), by) => {
+            sent.sent_as = "transcript".into();
+            sent.transcribed_by = by.clone();
+            "A voice message in which a speech model heard no speech.".into()
+        }
+        (None, _) => {
+            sent.sent_as = "none".into();
+            "A voice message that could not be written down, so what the person said in it is not given to you. \
+             The recording is in the workspace."
+                .into()
+        }
+    };
+    (format!("<file {}>\n{body}\n</file>", attributes(a, None)), sent)
 }
 
 fn other_element(inputs: &Inputs<'_>, a: &Attachment) -> String {
@@ -738,31 +902,11 @@ fn shorten_files(s: &str) -> String {
 /// Seconds of sound: from a WAV header, otherwise from the size at 128 kbit/s.
 fn audio_seconds(bytes: &[u8], mime: &str) -> f64 {
     if super::audio_mime(mime) == "audio/wav"
-        && let Some(seconds) = wav_seconds(bytes)
+        && let Some(seconds) = crate::speech::wav::seconds(bytes)
     {
         return seconds;
     }
     bytes.len() as f64 * 8.0 / 128_000.0
-}
-
-/// Walks a RIFF file's chunks for the byte rate (`fmt `) and the length of the sound (`data`).
-fn wav_seconds(b: &[u8]) -> Option<f64> {
-    if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
-        return None;
-    }
-    let u32_at = |i: usize| b.get(i..i + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]));
-    let (mut at, mut byte_rate, mut data) = (12usize, None, None);
-    while at + 8 <= b.len() {
-        let size = u32_at(at + 4)? as usize;
-        match &b[at..at + 4] {
-            b"fmt " => byte_rate = u32_at(at + 16),
-            b"data" => data = Some(size.min(b.len().saturating_sub(at + 8))),
-            _ => {}
-        }
-        at += 8 + size + (size & 1);
-    }
-    let rate = byte_rate.filter(|r| *r > 0)?;
-    Some(data.unwrap_or(b.len()) as f64 / f64::from(rate))
 }
 
 /// Text from a file with the tags of this block (`<attachments>`, `<file>`, `<excerpt>`, opening
@@ -824,6 +968,14 @@ fn attr(value: &str) -> String {
 
 /// What a file is, for the model: "PDF document, 12 pages", "PNG image, 1920×1080".
 pub fn describe(a: &Attachment) -> String {
+    if let Some(note) = &a.voice {
+        let seconds = (note.duration_ms as f64 / 1000.0).round().max(1.0) as u64;
+        return match seconds {
+            1 => "voice message, 1 second".into(),
+            s if s < 120 => format!("voice message, {s} seconds"),
+            s => format!("voice message, {} min {} s", s / 60, s % 60),
+        };
+    }
     let mime = a.mime.as_str();
     let ext = a
         .name
@@ -982,16 +1134,69 @@ mod tests {
             self.messages.push(m);
         }
 
-        fn plan_with(&self, room_tokens: usize, access: ModelAccess) -> HashMap<String, Extras> {
-            let inputs = Inputs {
+        /// A user message with a voice note of `ms` milliseconds (a 440 Hz tone).
+        fn voice(&mut self, text: &str, ms: u64, transcript: Option<&str>) -> String {
+            self.seq += 1;
+            let m = Message::new(&self.chat, self.seq, Role::User, text);
+            self.db.save_message(&m).unwrap();
+            let samples: Vec<i16> = (0..ms * 16)
+                .map(|i| ((i as f64 / 16_000.0 * 440.0 * std::f64::consts::TAU).sin() * 8_000.0) as i16)
+                .collect();
+            let wav = crate::speech::wav::encode(&samples, 16_000, 1);
+            let mut a = attachment(&format!("Voice note {}.wav", self.seq), "audio/wav", Kind::Audio, &[]);
+            a.size = wav.len() as u64;
+            a.voice = Some(VoiceNote {
+                duration_ms: ms,
+                transcript: None,
+                language: None,
+                transcribed_by: None,
+            });
+            self.db
+                .insert_attachment(
+                    &a,
+                    AttachmentContent {
+                        text: None,
+                        media: Some((&wav, "audio/wav")),
+                        chunks: &[],
+                    },
+                )
+                .unwrap();
+            self.db
+                .link_attachment(&a.id, &self.chat, &m.id, &format!("uploads/{}", a.name), 0)
+                .unwrap();
+            if let Some(t) = transcript {
+                self.db.set_voice_transcript(&a.id, t, None, "Qwen3-ASR 0.6B").unwrap();
+            }
+            let id = m.id.clone();
+            self.messages.push(self.db.get_message(&m.id).unwrap().unwrap());
+            id
+        }
+
+        fn inputs(&self, room_tokens: usize, access: ModelAccess, voice: VoiceRoute) -> Inputs<'_> {
+            Inputs {
                 db: &self.db,
                 chat_id: &self.chat,
                 access,
+                voice,
                 room_tokens,
                 tools: ["search_files", "read_file"].iter().map(|s| s.to_string()).collect(),
                 query_vector: self.vector.as_ref().map(|(id, q)| (id.as_str(), q)),
-            };
-            plan(&inputs, &self.messages)
+            }
+        }
+
+        fn plan_with(&self, room_tokens: usize, access: ModelAccess) -> HashMap<String, Extras> {
+            plan(
+                &self.inputs(room_tokens, access, VoiceRoute::Transcript),
+                &self.messages,
+            )
+        }
+
+        fn plan_voice(&self, access: ModelAccess, voice: VoiceRoute) -> HashMap<String, Extras> {
+            plan(&self.inputs(20_000, access, voice), &self.messages)
+        }
+
+        fn to_write_down(&self, access: ModelAccess, voice: VoiceRoute) -> Vec<Attachment> {
+            notes_to_write_down(&self.inputs(20_000, access, voice), &self.messages)
         }
 
         fn plan(&self, room_tokens: usize, images: bool) -> HashMap<String, Extras> {
@@ -1024,6 +1229,7 @@ mod tests {
             height: (kind == Kind::Image).then_some(480),
             note: None,
             created_at: now_ms(),
+            voice: None,
         }
     }
 
@@ -1296,12 +1502,7 @@ mod tests {
     fn sound_is_budgeted_by_its_length() {
         let mut f = Fixture::new();
         let id = f.user("Transcribe it", &[("memo.mp3", "audio/mpeg", Kind::Audio, &[])]);
-        let hearing = ModelAccess {
-            images: true,
-            audio: vec!["audio/wav", "audio/mpeg"],
-            gemini: false,
-        };
-        let extras = f.plan_with(20_000, hearing);
+        let extras = f.plan_with(20_000, hearing());
         assert_eq!(extras[&id].media.len(), 1);
         assert!(extras[&id].block.contains("sound=\"1\"/>"));
         // 16,000 bytes at 128 kbit/s is one second: 32 tokens.
@@ -1318,8 +1519,134 @@ mod tests {
         wav.extend_from_slice(b"data");
         wav.extend_from_slice(&64_000u32.to_le_bytes());
         wav.extend(std::iter::repeat_n(0u8, 64_000));
-        assert_eq!(wav_seconds(&wav), Some(2.0));
-        assert_eq!(wav_seconds(b"not a wav"), None);
+        assert_eq!(audio_seconds(&wav, "audio/x-wav"), 2.0);
+        assert_eq!(audio_seconds(&[0u8; 16_000], "audio/mpeg"), 1.0, "128 kbit/s");
+    }
+
+    fn hearing() -> ModelAccess {
+        ModelAccess {
+            images: true,
+            audio: vec!["audio/wav", "audio/mpeg"],
+            gemini: false,
+            clip_seconds: Some(30),
+        }
+    }
+
+    #[test]
+    fn voice_goes_as_sound_only_to_models_known_to_hear() {
+        use crate::models::{ModelEntry, capabilities::Capabilities};
+        let mut model = ModelEntry::test_local("gemma-4-e4b");
+        model.capabilities = Capabilities {
+            audio: Some(true),
+            ..Default::default()
+        };
+        let access = ModelAccess::of(&model);
+        assert_eq!(access.voice_route(true), VoiceRoute::Audio);
+        assert_eq!(access.voice_route(false), VoiceRoute::Transcript, "the setting is off");
+        model.capabilities.audio = Some(false);
+        assert_eq!(ModelAccess::of(&model).voice_route(true), VoiceRoute::Transcript);
+        model.capabilities.audio = None;
+        assert_eq!(
+            ModelAccess::of(&model).voice_route(true),
+            VoiceRoute::Transcript,
+            "unknown is cannot"
+        );
+        // A model that hears MP3 only cannot take the composer's WAV recordings.
+        let mp3 = ModelAccess {
+            audio: vec!["audio/mpeg"],
+            ..Default::default()
+        };
+        assert_eq!(mp3.voice_route(true), VoiceRoute::Transcript);
+    }
+
+    #[test]
+    fn a_voice_note_goes_as_sound_or_as_its_transcript() {
+        let mut f = Fixture::new();
+        let id = f.voice("", 12_000, None);
+        let note = f.messages.last().unwrap().attachments[0].id.clone();
+
+        // A model that hears gets the recording, and nothing needs writing down.
+        let audio = f.plan_voice(hearing(), VoiceRoute::Audio);
+        assert_eq!(audio[&id].media.len(), 1);
+        assert!(
+            audio[&id]
+                .block
+                .contains("type=\"voice message, 12 seconds\" sound=\"1\">")
+        );
+        assert_eq!(audio[&id].voice[0].sent_as, "audio");
+        assert!(f.to_write_down(hearing(), VoiceRoute::Audio).is_empty());
+
+        // One that cannot hear, or the setting off, needs the transcript, and is told when there
+        // is none rather than getting nothing.
+        assert_eq!(
+            f.to_write_down(ModelAccess::default(), VoiceRoute::Transcript)[0].id,
+            note
+        );
+        assert_eq!(f.to_write_down(hearing(), VoiceRoute::Transcript).len(), 1);
+        let deaf = f.plan_voice(ModelAccess::default(), VoiceRoute::Transcript);
+        assert!(deaf[&id].media.is_empty());
+        assert!(deaf[&id].block.contains("could not be written down"));
+        assert_eq!(deaf[&id].voice[0].sent_as, "none");
+
+        f.db.set_voice_transcript(
+            &note,
+            "What is the price of gold today?",
+            Some("English"),
+            "Qwen3-ASR 0.6B",
+        )
+        .unwrap();
+        f.messages = f.db.list_messages(&f.chat).unwrap();
+        assert!(
+            f.to_write_down(ModelAccess::default(), VoiceRoute::Transcript)
+                .is_empty()
+        );
+        let deaf = f.plan_voice(ModelAccess::default(), VoiceRoute::Transcript);
+        assert!(deaf[&id].media.is_empty());
+        assert!(deaf[&id].block.contains("(Qwen3-ASR 0.6B) wrote it down"));
+        assert!(deaf[&id].block.contains("What is the price of gold today?"));
+        assert_eq!(deaf[&id].voice[0].sent_as, "transcript");
+        assert_eq!(deaf[&id].voice[0].transcribed_by.as_deref(), Some("Qwen3-ASR 0.6B"));
+        // The transcript is the note's own element, not a text file of the message.
+        assert_eq!(deaf[&id].block.matches("<file ").count(), 1);
+        // A model that hears still gets the sound once there is a transcript.
+        assert_eq!(f.plan_voice(hearing(), VoiceRoute::Audio)[&id].media.len(), 1);
+    }
+
+    #[test]
+    fn earlier_voice_notes_go_as_transcripts_after_a_switch() {
+        let mut f = Fixture::new();
+        let first = f.voice("", 3_000, None);
+        f.assistant("Gold is at 2,400 dollars.");
+        let second = f.voice("and silver?", 2_000, None);
+        // Answered by a model that hears: both notes go as sound.
+        let plan = f.plan_voice(hearing(), VoiceRoute::Audio);
+        assert_eq!(plan[&first].voice[0].sent_as, "audio");
+        assert_eq!(plan[&second].voice[0].sent_as, "audio");
+        // The chat switched to a model that cannot hear: every note in it needs its transcript.
+        let needed: Vec<String> = f
+            .to_write_down(ModelAccess::default(), VoiceRoute::Transcript)
+            .into_iter()
+            .map(|a| a.message_id.unwrap())
+            .collect();
+        assert_eq!(needed, [first, second]);
+    }
+
+    #[test]
+    fn long_recordings_go_to_local_models_in_clips() {
+        let mut f = Fixture::new();
+        let id = f.voice("", 70_000, None);
+        let extras = f.plan_voice(hearing(), VoiceRoute::Audio);
+        assert_eq!(extras[&id].media.len(), 3, "30-second clips");
+        assert!(extras[&id].block.contains("sound=\"1-3\""));
+        assert!(extras[&id].block.contains("cut into 3 parts"));
+        assert_eq!(extras[&id].voice[0].parts, Some(3));
+        // 70 seconds at 32 tokens a second, whatever the parts.
+        assert!(extras[&id].tokens >= 2_240);
+        let cloud = ModelAccess {
+            clip_seconds: None,
+            ..hearing()
+        };
+        assert_eq!(f.plan_voice(cloud, VoiceRoute::Audio)[&id].media.len(), 1);
     }
 
     #[test]

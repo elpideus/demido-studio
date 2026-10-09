@@ -783,6 +783,39 @@ enum DefaultContext {
     Budget(f64),
 }
 
+#[cfg(test)]
+impl ModelEntry {
+    /// A local model known by `id` alone, that nobody has said anything about yet.
+    pub fn test_local(id: &str) -> Self {
+        let settings = ModelSettings::default();
+        ModelEntry {
+            id: id.into(),
+            source: ModelSource::Local,
+            provider_id: None,
+            provider_name: None,
+            name: id.into(),
+            default_name: id.into(),
+            description: None,
+            avatar_path: None,
+            enabled: true,
+            is_default: false,
+            path: None,
+            size: None,
+            quant: None,
+            architecture: None,
+            parameters: None,
+            max_context: None,
+            repo: None,
+            projector: None,
+            removable: false,
+            capabilities: Capabilities::default(),
+            checking_capabilities: false,
+            effective: effective(&settings, ModelSource::Local, None, None, DefaultContext::FitGpu),
+            settings,
+        }
+    }
+}
+
 /// Family defaults, as each vendor recommends them.
 fn effective(
     s: &ModelSettings,

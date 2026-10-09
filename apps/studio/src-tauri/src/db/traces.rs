@@ -15,6 +15,10 @@ fn row_to_trace(r: &Row<'_>) -> rusqlite::Result<Trace> {
         response: response.and_then(|s| serde_json::from_str(&s).ok()),
         duration_ms: r.get("duration_ms")?,
         error: r.get("error")?,
+        voice: r
+            .get::<_, Option<String>>("voice")?
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
     })
 }
 
@@ -23,8 +27,8 @@ impl Db {
         self.with(|c| {
             c.execute(
                 "INSERT OR REPLACE INTO traces
-                   (id, chat_id, message_id, created_at, model_id, request, response, duration_ms, error)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                   (id, chat_id, message_id, created_at, model_id, request, response, duration_ms, error, voice)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     t.id,
                     t.chat_id,
@@ -35,6 +39,7 @@ impl Db {
                     t.response.as_ref().map(|r| r.to_string()),
                     t.duration_ms,
                     t.error,
+                    (!t.voice.is_empty()).then(|| serde_json::to_string(&t.voice).unwrap_or_default()),
                 ],
             )
         })?;

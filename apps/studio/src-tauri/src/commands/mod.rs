@@ -10,6 +10,7 @@ pub mod providers;
 pub mod skills;
 pub mod slash;
 pub mod updates;
+pub mod voice;
 
 use std::sync::Arc;
 

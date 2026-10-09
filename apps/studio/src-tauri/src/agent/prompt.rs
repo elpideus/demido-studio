@@ -46,6 +46,8 @@ pub struct PromptInputs<'a> {
     pub skills: &'a SkillRegistry,
     /// Whether files were sent in this chat: how they are shown is explained only then.
     pub attachments: bool,
+    /// Whether voice notes were sent in this chat: they are the person's words, not material.
+    pub voice: bool,
     /// The shell `run_command` uses, such as "PowerShell 7.6.6".
     pub shell: Option<&'a str>,
     /// The connected mail accounts, the default first.
@@ -92,6 +94,14 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
             s.push_str(
                 " They are saved in the workspace's uploads folder. Of a long file you see only some passages: \
                  search_files finds others and read_file reads its pages.",
+            );
+        }
+        if p.voice {
+            // Small models took a voice note for a file to read with tools, and its words for
+            // material rather than the question.
+            s.push_str(
+                " A voice message is the user speaking to you: what they say in it is their message, to answer as if \
+                 typed, and no tool reads it.",
             );
         }
         s.push('\n');
@@ -614,6 +624,7 @@ mod tests {
             tokens: 1000,
             stub: format!("<attachments><file name=\"{name}\"/></attachments>"),
             stub_tokens: 20,
+            voice: Vec::new(),
         };
         let files = HashMap::from([(first.id.clone(), big("a.pdf")), (latest.id.clone(), big("b.pdf"))]);
         let messages = vec![first, msg(Role::Assistant, "done"), latest];

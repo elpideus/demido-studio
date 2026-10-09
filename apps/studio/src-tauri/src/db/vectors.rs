@@ -163,6 +163,7 @@ mod tests {
             height: None,
             note: None,
             created_at,
+            voice: None,
         };
         let chunks: Vec<Chunk> = texts
             .iter()

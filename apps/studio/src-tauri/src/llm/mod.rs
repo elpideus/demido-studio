@@ -10,7 +10,7 @@ pub mod gemini;
 pub mod openai;
 pub mod openrouter;
 pub mod retry;
-mod sse;
+pub mod sse;
 
 use std::time::Duration;
 

@@ -247,6 +247,50 @@ model cannot use tools. Nothing is guessed from names or templates:
   its models refreshed), with an ETag so an unchanged catalog is not downloaded again. A model
   models.dev does not list keeps only what Google says.
 
+**Voice input.** The microphone button in the composer records the person's voice (`src/voice/`):
+`getUserMedia` with echo cancellation, noise suppression and automatic gain, mono, from the
+microphone chosen in Settings, General, Voice (Windows' default otherwise). An AudioWorklet,
+loaded from the app's own files as the CSP asks, hands the samples over, and the recording is
+averaged down to 16 kHz and written as a 16-bit PCM WAV in TypeScript, so nothing needs a codec. A
+recording stops itself at five minutes (9.2 MiB, under the 10 MiB a sound may be); Esc or Cancel
+throws it away. WebView2 asks for the microphone like a browser, so the main window and the
+TradingView sign-in window answer its `PermissionRequested` event (`speech::microphone`): allowed
+for the app's own origin, refused for any other page, without a prompt. When Windows' privacy settings keep desktop apps from the microphone, recording
+would get silence, so the composer says so and opens `ms-settings:privacy-microphone`; no
+microphone, a refusal and a microphone in use each get their own message.
+
+Where a recording goes depends on the chosen model's `audio` capability (see What models can do,
+above), never on its name: unknown counts as cannot hear. A model that hears gets it as a voice
+note, a WAV attachment with `attachments.voice` set, shown in the chat as a small player. In a
+chat with voice notes the system prompt adds that a voice message is the user speaking, to be
+answered as if typed, and that no tool reads it: Gemma 4 E4B heard the question without it, then
+took the note for a file to read with a tool; with
+"Send my voice to models that can hear" turned off, every model is treated as one that cannot. A
+model that cannot hear gets dictation instead: a speech model writes down what was said and the
+words stream into the composer at the caret, to be read and sent by hand. The speech model is
+Qwen3-ASR (see `docs/catalog.md`), in a `llama-server` of its own with its audio encoder
+(`--mmproj`), one slot as long as the longest recording, no prompt cache; its log is
+`logs/speech-server.log`. It starts when recording starts, so it has loaded by the time the person
+stops, and stops after three idle minutes. Like the search model it gives way to the chat model:
+before a local chat model loads, it finishes the recording in hand and stops, and it starts again
+only once the chat model has loaded. A recording goes to `/v1/audio/transcriptions`, which streams
+the words; a server without that endpoint is asked through `/v1/chat/completions` with the
+recording as `input_audio`. The model's `language English<asr_text>` prefix is taken off as the
+words arrive (`speech::clean`). Each transcription is recorded in `transcriptions` (model, length,
+time taken, how it was asked, any error), never its words.
+
+A voice note never reaches a model silently. When it would go to one that cannot hear it (the chat
+switched to such a model, or the note is summarised by compaction), it is written down first, once:
+the transcript is stored with the note (its text, tokens and one passage, so it is searched like
+any file's), and the model is told it is a voice message as a speech model wrote it down, in which
+a word may be misheard. A note that cannot be written down goes as a line saying so, and the person
+is told why. Local models hear at most 30 seconds at a time (Gemma 4), so a longer note is cut into
+parts, each cut in the quietest 20 ms of a part's last fifth, between words (`speech::wav::split`). A chat started by a voice
+note is titled "Voice message" until the note has a transcript, made after the turn so the speech
+model does not compete with the chat model while it answers. The Inspector shows, for each
+request, whether each note went as the recording (in how many parts), as its transcript or as
+neither, and which speech model wrote it down in how long.
+
 **Gemini.** Busy answers are retried as for any model (see Busy models, above). A model the API
 key cannot use is turned off, with a note in the chat, instead of failing every time; an empty or
 refused answer says why.

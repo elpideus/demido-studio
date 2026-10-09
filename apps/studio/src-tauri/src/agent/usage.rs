@@ -107,14 +107,17 @@ pub fn usage(state: &Arc<AppState>, chat_id: Option<&str>, model: &ModelEntry) -
     let fixed = system_tokens + tool_tokens;
 
     let messages = prompt::current_part(&chat_messages);
+    let access = ModelAccess::of(model);
+    let voice = access.voice_route(settings.send_voice);
     let files = files_context::plan(
         &files_context::Inputs {
             db: &state.db,
             chat_id,
-            access: ModelAccess::of(model),
+            access,
             room_tokens: window.saturating_sub(reserve).saturating_sub(fixed).max(1024),
             tools: tools::usable_names(state, &settings),
             query_vector: None,
+            voice,
         },
         messages,
     );

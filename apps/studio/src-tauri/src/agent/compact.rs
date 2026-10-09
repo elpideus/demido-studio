@@ -239,7 +239,24 @@ pub async fn run(state: &Arc<AppState>, job: Job<'_>, cancel: &CancellationToken
     emit(state, &summary);
 
     let started = Instant::now();
-    let (previous, entries) = transcript(job.messages);
+    // The summary keeps what was said in voice notes: those not yet written down are, now.
+    let unwritten: Vec<_> = job
+        .messages
+        .iter()
+        .filter(|m| m.role == Role::User)
+        .flat_map(|m| &m.attachments)
+        .filter(|a| a.voice.as_ref().is_some_and(|v| v.transcript.is_none()))
+        .cloned()
+        .collect();
+    let written;
+    let messages = if unwritten.is_empty() {
+        job.messages
+    } else {
+        super::write_down_notes(state, job.chat_id, &unwritten, cancel).await;
+        written = with_fresh_notes(state, job.messages);
+        &written
+    };
+    let (previous, entries) = transcript(messages);
     let result = summarize(state, &job, &mut summary, previous, entries, cancel).await;
     let stats = summary.stats.get_or_insert_with(|| json!({}));
     stats["durationMs"] = json!(started.elapsed().as_millis() as i64);
@@ -400,6 +417,7 @@ async fn summarize(
                     job.model,
                     completion.request_body.clone(),
                     None,
+                    Vec::new(),
                     Some(response),
                     duration_ms,
                     None,
@@ -420,6 +438,7 @@ async fn summarize(
                     job.model,
                     request_snapshot(job.client, &request),
                     None,
+                    Vec::new(),
                     None,
                     duration_ms,
                     Some(err.to_string()),
@@ -491,6 +510,19 @@ fn request_text(previous: Option<&str>, part: &[String], focus: Option<&str>, wo
     s
 }
 
+/// `messages` with their voice notes as stored now, transcripts included.
+fn with_fresh_notes(state: &AppState, messages: &[Message]) -> Vec<Message> {
+    let mut messages = messages.to_vec();
+    for a in messages.iter_mut().flat_map(|m| m.attachments.iter_mut()) {
+        if a.voice.is_some()
+            && let Ok(Some(fresh)) = state.db.get_attachment(&a.id)
+        {
+            *a = fresh;
+        }
+    }
+    messages
+}
+
 /// The conversation as the summarizer reads it: the summary it carries on from, if any, and one
 /// entry per message, long ones clipped.
 fn transcript(messages: &[Message]) -> (Option<String>, Vec<String>) {
@@ -507,16 +539,30 @@ fn transcript(messages: &[Message]) -> (Option<String>, Vec<String>) {
             }
             Role::User => {
                 let text = m.content.trim();
-                let mut entry = if text.is_empty() {
-                    "User sent files.".to_string()
-                } else {
-                    format!("User: {}", clip(text, USER_CHARS))
-                };
-                if !m.attachments.is_empty() {
-                    let names: Vec<&str> = m.attachments.iter().map(|a| a.name.as_str()).collect();
-                    entry.push_str(&format!("\n[attached: {}]", names.join(", ")));
+                let mut lines = Vec::new();
+                if !text.is_empty() {
+                    lines.push(format!("User: {}", clip(text, USER_CHARS)));
                 }
-                entries.push(entry);
+                for note in m.attachments.iter().filter_map(|a| a.voice.as_ref()) {
+                    lines.push(match note.transcript.as_deref().map(str::trim) {
+                        Some("") => "User sent a voice message with no speech in it.".to_string(),
+                        Some(said) => format!("User (voice message): {}", clip(said, USER_CHARS)),
+                        None => "User sent a voice message that could not be written down.".to_string(),
+                    });
+                }
+                if lines.is_empty() {
+                    lines.push("User sent files.".to_string());
+                }
+                let names: Vec<&str> = m
+                    .attachments
+                    .iter()
+                    .filter(|a| a.voice.is_none())
+                    .map(|a| a.name.as_str())
+                    .collect();
+                if !names.is_empty() {
+                    lines.push(format!("[attached: {}]", names.join(", ")));
+                }
+                entries.push(lines.join("\n"));
             }
             Role::Assistant => {
                 if matches!(m.status, MessageStatus::Error | MessageStatus::Streaming) {
@@ -601,7 +647,7 @@ fn clean(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::ToolCall;
+    use crate::db::{Attachment, ToolCall, VoiceNote};
 
     fn msg(role: Role, content: &str) -> Message {
         Message::new("c", 0, role, content)
@@ -719,6 +765,48 @@ mod tests {
         assert!(text.ends_with(
             "The user wants it to focus on: the prices. Use the headings from your instructions and at most 300 words."
         ));
+    }
+
+    #[test]
+    fn voice_notes_are_summarized_by_what_was_said() {
+        let note = |name: &str, transcript: Option<&str>| Attachment {
+            id: name.into(),
+            chat_id: None,
+            message_id: None,
+            name: name.into(),
+            stored: String::new(),
+            file: None,
+            path: String::new(),
+            mime: "audio/wav".into(),
+            kind: demido_extract::Kind::Audio,
+            size: 1_000,
+            pages: None,
+            tokens: None,
+            width: None,
+            height: None,
+            note: None,
+            created_at: 0,
+            voice: Some(VoiceNote {
+                duration_ms: 4_000,
+                transcript: transcript.map(str::to_string),
+                language: None,
+                transcribed_by: None,
+            }),
+        };
+        let mut spoken = msg(Role::User, "");
+        spoken.attachments = vec![note("Voice note 1.wav", Some("Buy EURUSD at 1.08."))];
+        let mut both = msg(Role::User, "And this chart.");
+        both.attachments = vec![note("Voice note 2.wav", Some("  ")), note("chart.png", None)];
+        both.attachments[1].voice = None;
+        let mut lost = msg(Role::User, "");
+        lost.attachments = vec![note("Voice note 3.wav", None)];
+        let (_, entries) = transcript(&[spoken, both, lost]);
+        assert_eq!(entries[0], "User (voice message): Buy EURUSD at 1.08.");
+        assert_eq!(
+            entries[1],
+            "User: And this chart.\nUser sent a voice message with no speech in it.\n[attached: chart.png]"
+        );
+        assert_eq!(entries[2], "User sent a voice message that could not be written down.");
     }
 
     #[test]

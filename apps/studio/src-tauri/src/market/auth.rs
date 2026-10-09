@@ -56,6 +56,8 @@ pub async fn begin(service: &Arc<MarketService>) -> Result<watch::Receiver<Login
         .data_directory(service.profile_dir.clone())
         .build()
         .map_err(|e| format!("could not open the sign-in window: {e}"))?;
+    // TradingView's pages are not the app's: they are refused the microphone, without a prompt.
+    crate::speech::microphone::allow_for_app(&window);
     let _ = window.set_focus();
 
     let (tx, rx) = watch::channel(LoginState::Waiting);

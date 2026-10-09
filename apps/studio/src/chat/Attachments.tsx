@@ -28,6 +28,7 @@ import {
   showsThumbnail,
   type AttachmentIcon,
 } from './attachmentView';
+import { SentVoiceNote, StagedVoiceNote } from './VoiceNote';
 import styles from './Attachments.module.css';
 
 const ICONS: Record<AttachmentIcon, LucideIcon> = {
@@ -52,6 +53,8 @@ export interface StagedFile {
   name: string;
   /** Null while the backend reads the file. */
   attachment: Attachment | null;
+  /** A recording made in the composer, shown as a player. */
+  voice?: boolean;
 }
 
 function openAttachment(a: Attachment) {
@@ -161,11 +164,13 @@ export function AttachmentTray({
 }) {
   return (
     <ul className={styles.tray} aria-label="Attached files">
-      {files.map(({ key, name, attachment }) => {
+      {files.map(({ key, name, attachment, voice }) => {
         const warnings = attachment ? attachmentWarnings(attachment, model) : [];
         return (
           <li key={key} className={styles.item}>
-            {attachment && showsThumbnail(attachment) ? (
+            {voice || attachment?.voice ? (
+              <StagedVoiceNote attachment={attachment} />
+            ) : attachment && showsThumbnail(attachment) ? (
               <span className={styles.thumb}>
                 <Picture attachment={attachment} className={styles.thumbImage} />
                 {warnings.length > 0 && <Warning warnings={warnings} className={styles.thumbWarning} focusable />}
@@ -185,14 +190,18 @@ export function AttachmentTray({
 
 /** A sent message's files, above its bubble; each opens in its own app. */
 export function MessageAttachments({ attachments }: { attachments: Attachment[] }) {
-  const images = attachments.filter(showsThumbnail);
-  const others = attachments.filter((a) => !showsThumbnail(a));
+  const voices = attachments.filter((a) => a.voice);
+  const images = attachments.filter((a) => !a.voice && showsThumbnail(a));
+  const others = attachments.filter((a) => !a.voice && !showsThumbnail(a));
   const single = images.length === 1 ? images[0] : undefined;
   // A lone image keeps its shape, so the list does not jump when it loads.
   const size = single ? fitWithin(single.width, single.height, 260, 320) : null;
   const shape = size ? { width: size.width, aspectRatio: `${size.width} / ${size.height}` } : undefined;
   return (
     <div className={styles.sent} role="group" aria-label="Attached files">
+      {voices.map((a) => (
+        <SentVoiceNote key={a.id} attachment={a} />
+      ))}
       {images.length > 0 && (
         <ul className={cx(styles.gallery, single && styles.gallerySingle)}>
           {images.map((a) => (

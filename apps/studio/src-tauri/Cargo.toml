@@ -67,6 +67,9 @@ windows = { workspace = true, features = [
   "Win32_System_Threading",
   "Win32_Security",
 ] }
+windows-registry.workspace = true
+# The microphone permission (see `speech::microphone`): the same version wry uses.
+webview2-com = "0.38"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

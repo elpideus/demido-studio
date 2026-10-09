@@ -55,6 +55,14 @@ pub struct Settings {
     pub auto_compact_tokens: Option<u32>,
     /// Load the images an email links to from the internet without asking, in the Mail window.
     pub mail_show_images: bool,
+    /// The microphone the composer records with (the browser's device id); `None` for the
+    /// system's default.
+    pub microphone: Option<String>,
+    /// The speech model that writes down what the person says (a catalog id); `None` lets the
+    /// app pick by the GPU's memory.
+    pub speech_model: Option<String>,
+    /// Send the person's recorded voice to models that can hear it, rather than a transcript.
+    pub send_voice: bool,
 }
 
 impl Default for Settings {
@@ -79,6 +87,9 @@ impl Default for Settings {
             auto_compact: true,
             auto_compact_tokens: None,
             mail_show_images: false,
+            microphone: None,
+            speech_model: None,
+            send_voice: true,
         }
     }
 }
