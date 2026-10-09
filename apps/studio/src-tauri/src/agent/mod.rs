@@ -4,6 +4,7 @@
 //! Every step is persisted as it happens (so a crash loses nothing the person saw), streamed to
 //! the UI as [`ChatEvent`]s, and recorded as a [`Trace`] holding the exact request and response.
 
+pub mod compact;
 pub mod events;
 pub mod prompt;
 pub mod row;
@@ -25,7 +26,7 @@ pub use row::{Cancelled, ToolRow};
 use crate::attachments;
 use crate::attachments::meaning::QueryVector;
 use crate::bail_msg;
-use crate::db::{Chat, Message, MessageStatus, Role, Trace, new_id, now_ms};
+use crate::db::{Chat, CommandUse, Message, MessageStatus, Role, Trace, new_id, now_ms};
 use crate::error::{AppError, CmdResult};
 use crate::llm::gemini::GeminiClient;
 use crate::llm::openai::OpenAiClient;
@@ -69,13 +70,14 @@ impl Agent {
     }
 
     /// Sends a message with the files staged as `attachments`, creating the chat when `chat_id`
-    /// is `None`, and starts the turn.
+    /// is `None`, and starts the turn. `command` is the slash command that wrote `text`.
     pub fn send(
         state: &Arc<AppState>,
         chat_id: Option<String>,
         text: String,
         model_id: String,
         attachment_ids: Vec<String>,
+        command: Option<CommandUse>,
     ) -> CmdResult<SendResult> {
         let text = text.trim().to_string();
         if text.is_empty() && attachment_ids.is_empty() {
@@ -97,7 +99,9 @@ impl Agent {
                 false,
             ),
             None => {
-                let title = if text.is_empty() {
+                let title = if let Some(c) = &command {
+                    title_from(&format!("{} {}", c.name, c.args))
+                } else if text.is_empty() {
                     first_file_name(state, &attachment_ids)
                 } else {
                     title_from(&text)
@@ -107,6 +111,7 @@ impl Agent {
         };
         let seq = state.db.next_seq(&chat.id)?;
         let mut message = Message::new(&chat.id, seq, Role::User, text);
+        message.command = command;
         let saved = attachments::take_for_message(state, &chat.id, &message.id, &attachment_ids).and_then(|files| {
             message.attachments = files;
             state.db.save_message(&message).map_err(AppError::from)
@@ -223,6 +228,66 @@ impl Agent {
         }
     }
 
+    /// Summarizes the chat so far (`/compact`), the summary keeping what `focus` says. Runs like
+    /// a turn: the chat is busy and Stop ends it.
+    pub fn compact(state: &Arc<AppState>, chat_id: &str, model_id: String, focus: Option<String>) -> CmdResult<()> {
+        let Some(model) = state.models.get(&model_id) else {
+            bail_msg!("The selected model is no longer available. Pick another one.");
+        };
+        if !model.enabled {
+            bail_msg!(
+                "{} is disabled. Enable it in Settings, Models, or pick another model.",
+                model.name
+            );
+        }
+        let all = state.db.list_messages(chat_id)?;
+        let messages = prompt::current_part(&all).to_vec();
+        if !compact::has_news(&messages) {
+            bail_msg!("There is nothing to compact yet.");
+        }
+        let cancel = CancellationToken::new();
+        {
+            let mut turns = state.agent.turns.lock();
+            if turns.contains_key(chat_id) {
+                bail_msg!("Wait for the current answer to finish, or stop it.");
+            }
+            turns.insert(chat_id.to_string(), cancel.clone());
+        }
+        let state = state.clone();
+        let chat_id = chat_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            state.emit_chat(ChatEvent::TurnStarted {
+                chat_id: chat_id.clone(),
+            });
+            let result = async {
+                let (client, served_context) = client_for(&state, &model)
+                    .await
+                    .map_err(|e| AppError::msg(format!("Could not compact the chat: {e}")))?;
+                let job = compact::Job {
+                    chat_id: &chat_id,
+                    model: &model,
+                    client: &client,
+                    context_tokens: served_context.unwrap_or(model_context(&model)),
+                    messages: &messages,
+                    at: compact::Place::End,
+                    focus: focus.as_deref(),
+                    ratio: 1.0,
+                    auto: false,
+                };
+                // A failed summary stays in the chat with its error, which says enough.
+                if let compact::Outcome::Failed(e) = compact::run(&state, job, &cancel).await {
+                    tracing::warn!(chat = %chat_id, "could not compact the conversation: {e}");
+                }
+                Ok::<(), AppError>(())
+            }
+            .await;
+            state.agent.turns.lock().remove(&chat_id);
+            let error = result.err().map(|e| e.to_string());
+            state.emit_chat(ChatEvent::TurnFinished { chat_id, error });
+        });
+        Ok(())
+    }
+
     /// Waits for the person to answer the approval shown on row `row_id`.
     pub(crate) async fn wait_approval(&self, row_id: &str, cancel: &CancellationToken) -> Result<Approval, Cancelled> {
         let (tx, rx) = oneshot::channel();
@@ -260,7 +325,20 @@ impl Agent {
     }
 }
 
-async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<Client> {
+/// A model's context window as its settings give it; a local model's server may give it less
+/// (see [`client_for`]).
+pub(crate) fn model_context(model: &ModelEntry) -> usize {
+    model
+        .effective
+        .context_length
+        .map(|c| c as usize)
+        .or(model.max_context.map(|c| c as usize))
+        .unwrap_or(32_768)
+        .min(1_000_000)
+}
+
+/// The client for `model`, and for a local model the context its server gave it.
+async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<(Client, Option<usize>)> {
     match model.source {
         ModelSource::Local => {
             let spec = state.models.launch_spec(&model.id)?;
@@ -326,19 +404,19 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         );
     }
     let workspace = state.paths.workspace(chat_id);
-    let context_tokens = model
-        .effective
-        .context_length
-        .map(|c| c as usize)
-        .or(model.max_context.map(|c| c as usize))
-        .unwrap_or(32_768)
-        .min(1_000_000);
+    // A cloud model's context; a local model's is what its server took (see the loop).
+    let model_context = model_context(&model);
     let params = ModelRegistry::gen_params(&model);
     tools::prepare(&state.settings.get()).await;
     // The message this turn answers as the search model put it, with its id.
     let mut question: Option<(String, QueryVector)> = None;
     // Failed calls of this turn, by `call_key`.
     let mut failures: HashMap<String, usize> = HashMap::new();
+    // Tokens per estimated token: raised when the local server counts a request that does not fit.
+    let mut token_ratio = 1.0f64;
+    // A turn compacts the chat once at most: when no summary could be written, the history is
+    // shortened to fit as it would be without compaction.
+    let mut compact_tried = false;
 
     for step in 0..MAX_STEPS {
         if cancel.is_cancelled() {
@@ -362,45 +440,67 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                 .iter()
                 .map(|t| prompt::estimate_tokens(&t.description) + prompt::estimate_tokens(&t.parameters.to_string()))
                 .sum::<usize>();
-        let reserve = params
-            .max_tokens
-            .map(|m| m as usize)
-            .unwrap_or(context_tokens / 4)
-            .max(1024);
-        let budget = context_tokens.saturating_sub(fixed + reserve).max(1024);
-        let messages = state.db.list_messages(chat_id)?;
+        let reserve = compact::answer_reserve(&params, context_tokens);
+        // Estimated tokens the history may take.
+        let room = |token_ratio: f64| {
+            ((context_tokens.saturating_sub(reserve) as f64 / token_ratio) as usize)
+                .saturating_sub(fixed)
+                .max(1024)
+        };
+        let mut budget = room(token_ratio);
+        let mut messages = prompt::current_part(&state.db.list_messages(chat_id)?).to_vec();
         if step == 0 {
             question = question_vector(state, chat_id, &messages, budget, cancel).await;
         }
-        let files = attachments::context::plan(
-            &attachments::context::Inputs {
-                db: &state.db,
-                chat_id,
-                access: attachments::context::ModelAccess::of(&model),
-                room_tokens: budget,
-                tools: tools.iter().map(|t| t.name.clone()).collect(),
-                query_vector: question.as_ref().map(|(id, q)| (id.as_str(), q)),
-            },
-            &messages,
-        );
-        let history = prompt::history(&messages, budget, &files);
-        // The files of the message this turn answers are kept whole in its first call's trace only.
-        let trace_keep = (step == 0)
-            .then(|| {
-                messages
-                    .iter()
-                    .rev()
-                    .find(|m| m.role == Role::User)
-                    .and_then(|m| files.get(&m.id))
-                    .map(|x| x.block.clone())
-            })
-            .flatten();
-        let request = ChatRequest {
-            system,
-            messages: history,
-            tools,
-            params: params.clone(),
+        let tool_names: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
+        let plan = |budget: usize, messages: &[Message]| {
+            attachments::context::plan(
+                &attachments::context::Inputs {
+                    db: &state.db,
+                    chat_id,
+                    access: attachments::context::ModelAccess::of(&model),
+                    room_tokens: budget,
+                    tools: tool_names.clone(),
+                    query_vector: question.as_ref().map(|(id, q)| (id.as_str(), q)),
+                },
+                messages,
+            )
         };
+        let mut files = plan(budget, &messages);
+
+        // Near the end of the context window, the turns before this one become a summary.
+        if settings.auto_compact && !compact_tried {
+            let limit = compact::threshold(context_tokens, reserve, settings.auto_compact_tokens);
+            let whole = fixed + prompt::estimate_history(&prompt::history(&messages, usize::MAX, &files));
+            let used = compact::request_tokens(&messages, &files, whole, token_ratio);
+            if used >= limit
+                && let Some(split) = compact::older_part(&messages)
+            {
+                compact_tried = true;
+                tracing::info!(chat = %chat_id, used, limit, "compacting the conversation");
+                let job = compact::Job {
+                    chat_id,
+                    model: &model,
+                    client: &client,
+                    context_tokens,
+                    messages: &messages[..split],
+                    at: compact::Place::Before(messages[split].seq),
+                    focus: None,
+                    ratio: token_ratio,
+                    auto: true,
+                };
+                match compact::run(state, job, cancel).await {
+                    compact::Outcome::Done => {
+                        messages = prompt::current_part(&state.db.list_messages(chat_id)?).to_vec();
+                        files = plan(budget, &messages);
+                    }
+                    compact::Outcome::Cancelled => return Ok(()),
+                    compact::Outcome::Failed(e) => {
+                        tracing::warn!(chat = %chat_id, "could not compact the conversation: {e}");
+                    }
+                }
+            }
+        }
 
         let mut reply = Message::new(chat_id, state.db.next_seq(chat_id)?, Role::Assistant, "");
         reply.status = MessageStatus::Streaming;
@@ -475,14 +575,27 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                         last_flush = Instant::now();
                         flush(&mut pending_content, &mut pending_reasoning);
                     }
-                    StreamEvent::ToolCall { name, .. } => {
-                        flush(&mut pending_content, &mut pending_reasoning);
-                        emit_state.emit_chat(ChatEvent::ToolCall {
-                            chat_id: chat_id.to_string(),
-                            message_id: reply.id.clone(),
-                            name,
-                        });
-                    }
+                })
+                .await;
+            // The history was fitted by estimate, and the local server counts exactly: a request
+            // that does not fit after all is fitted once more, at the ratio the count showed. The
+            // ratio holds for the rest of the turn.
+            if let Err(LlmError::ContextFull { prompt_tokens, .. }) = &result
+                && !retried
+            {
+                let sent = fixed + prompt::estimate_history(&request.messages);
+                let ratio = *prompt_tokens as f64 / sent as f64 * 1.05;
+                if room(ratio) < budget {
+                    tracing::info!(
+                        prompt_tokens,
+                        sent,
+                        "the request did not fit in the context; fitting it again"
+                    );
+                    token_ratio = ratio;
+                    budget = room(ratio);
+                    files = plan(budget, &messages);
+                    retried = true;
+                    continue;
                 }
             }
             break (trace_keep, result);

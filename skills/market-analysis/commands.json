@@ -1,0 +1,22 @@
+{
+  "commands": [
+    {
+      "name": "analyze",
+      "description": "Price, trend, key levels and a chart for one market",
+      "args": "<symbol> [timeframe]",
+      "prompt": "Analyze this market: $ARGUMENTS. Give the current price, the trend, the key support and resistance levels and a chart. Use daily candles unless a timeframe is given."
+    },
+    {
+      "name": "quote",
+      "description": "The current price and today's move",
+      "args": "<symbol>",
+      "prompt": "What is $ARGUMENTS trading at now? Give the price, today's change and the day's range."
+    },
+    {
+      "name": "compare",
+      "description": "How several markets moved over a period",
+      "args": "<symbols> [period]",
+      "prompt": "Compare how these markets moved: $ARGUMENTS. Use daily candles for the last three months unless a period is given. Put the returns in a table and draw one chart with each market rebased to 100."
+    }
+  ]
+}

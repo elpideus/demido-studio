@@ -132,14 +132,43 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
         s.push('\n');
     }
 
-    // Skills get up to about a sixth of the context window.
-    let budget_chars = (p.context_tokens * 3 / 6).max(2_000);
-    if let Some(section) = p.skills.prompt_section(budget_chars) {
+    if let Some(section) = p.skills.prompt_section(skills_budget_chars(p.context_tokens)) {
         s.push('\n');
         s.push_str(&section);
     }
     s
 }
+
+/// Characters of the system prompt skills may take: about a sixth of the context window.
+pub fn skills_budget_chars(context_tokens: usize) -> usize {
+    (context_tokens * 3 / 6).max(2_000)
+}
+
+/// The part of a chat the model reads: from its latest finished summary on, since a summary
+/// stands in for everything before it (see `compact`), or all of it.
+pub fn current_part(messages: &[Message]) -> &[Message] {
+    match messages
+        .iter()
+        .rposition(|m| m.role == Role::Summary && m.status == MessageStatus::Done)
+    {
+        Some(i) => &messages[i..],
+        None => messages,
+    }
+}
+
+/// A summary as the model reads it, before the first message after it.
+fn summary_block(summary: &str) -> String {
+    format!(
+        "<summary>\n{}\n</summary>\n(This summarizes the earlier conversation, which was compacted to fit the context window. Files it names are still in the workspace.)",
+        summary.trim()
+    )
+}
+
+/// Characters an earlier step's tool result of the latest turn is shortened to first, then
+/// further: the model already acted on it.
+const EARLIER_RESULT_CHARS: [usize; 2] = [1_500, 300];
+/// Characters the latest step's tool results keep at least, whatever the room.
+const LATEST_RESULT_CHARS: usize = 1_500;
 
 /// One message of the history being fitted.
 struct Entry<'a> {
@@ -154,10 +183,18 @@ struct Entry<'a> {
 }
 
 /// Converts stored messages into model history, with each user message's files (`files`, see
-/// `attachments::context`) before its text. When the history would not fit in `budget_tokens`,
-/// older messages' files are shortened to a stub first, oldest first, then the oldest turns are
-/// dropped. The latest turn always stays whole.
+/// `attachments::context`) before its text. Only the part from the latest summary on is read
+/// (see [`current_part`]), the summary at the start of the first message after it. When the
+/// history would not fit in `budget_tokens`, older messages' files are shortened to a stub first,
+/// oldest first, then the oldest turns are dropped; the summary always stays. If the latest turn
+/// alone is still too long, its tool results are shortened (see [`fit_latest_turn`]); its
+/// messages all stay.
 pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<String, Extras>) -> Vec<LlmMessage> {
+    let (summary, messages) = match current_part(messages) {
+        [first, rest @ ..] if first.role == Role::Summary => (Some(summary_block(&first.content)), rest),
+        all => (None, all),
+    };
+    let summary_tokens = summary.as_deref().map_or(0, estimate_tokens);
     // Turn boundaries: every user message starts one.
     let last_user = messages.iter().rposition(|m| m.role == Role::User).unwrap_or(0);
     let mut converted: Vec<Entry> = Vec::new();
@@ -279,11 +316,13 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
                     result: (!m.content.is_empty()).then_some(m.content.as_str()),
                 });
             }
+            // A summary that failed or is still being written; a finished one started the part.
+            Role::Summary => {}
         }
     }
 
     // Shorten older files to a stub, oldest first; the latest turn keeps them.
-    let mut total: usize = converted.iter().map(|c| c.tokens).sum();
+    let mut total: usize = summary_tokens + converted.iter().map(|c| c.tokens).sum::<usize>();
     for entry in converted.iter_mut().filter(|c| c.turn < turn) {
         if total <= budget_tokens {
             break;
@@ -298,20 +337,109 @@ pub fn history(messages: &[Message], budget_tokens: usize, files: &HashMap<Strin
     let mut drop_until = 0usize;
     while total > budget_tokens && drop_until < turn.saturating_sub(1) {
         drop_until += 1;
-        total = converted.iter().filter(|c| c.turn > drop_until).map(|c| c.tokens).sum();
+        total = summary_tokens
+            + converted
+                .iter()
+                .filter(|c| c.turn > drop_until)
+                .map(|c| c.tokens)
+                .sum::<usize>();
+    }
+    if total > budget_tokens {
+        converted.retain(|c| c.turn > drop_until);
+        fit_latest_turn(&mut converted, total, budget_tokens);
     }
     let mut out: Vec<LlmMessage> = converted
         .into_iter()
         .filter(|c| c.turn > drop_until)
         .map(|c| c.message)
         .collect();
-    if drop_until > 0
-        && let Some(LlmMessage::User { content, .. }) = out.first_mut()
-    {
-        *content =
-            format!("(Earlier parts of this conversation were left out to fit the context window.)\n\n{content}");
+    let mut lead: Vec<String> = summary.into_iter().collect();
+    if drop_until > 0 {
+        lead.push("(Earlier parts of this conversation were left out to fit the context window.)".into());
+    }
+    if !lead.is_empty() {
+        let lead = lead.join("\n\n");
+        match out.first_mut() {
+            Some(LlmMessage::User { content, .. }) => *content = format!("{lead}\n\n{content}"),
+            // Nothing was said after the summary yet.
+            _ => out.insert(
+                0,
+                LlmMessage::User {
+                    content: lead,
+                    media: Vec::new(),
+                },
+            ),
+        }
     }
     out
+}
+
+/// Shortens the tool results of a turn (`entries`, the latest one) until it fits in
+/// `budget_tokens`, `total` being its size now. The results of its earlier steps go first,
+/// oldest first: to the first of [`EARLIER_RESULT_CHARS`], then to the second, with the reasoning
+/// of their steps left out. Then the latest step's results share the room left, keeping at least
+/// [`LATEST_RESULT_CHARS`] each, so the turn can end over budget.
+fn fit_latest_turn(entries: &mut [Entry<'_>], mut total: usize, budget_tokens: usize) {
+    // The latest step: the model's last message, answered by the results after it.
+    let last_step = entries
+        .iter()
+        .rposition(|e| matches!(e.message, LlmMessage::Assistant { .. }))
+        .unwrap_or(0);
+    let shorten = |entry: &mut Entry<'_>, chars: usize, total: &mut usize| {
+        let (LlmMessage::Tool { content, .. }, Some(result)) = (&mut entry.message, entry.result) else {
+            return;
+        };
+        let clipped = crate::tools::clip(result, chars);
+        if clipped.len() < content.len() {
+            let tokens = estimate_tokens(&clipped);
+            *content = clipped;
+            *total = *total - entry.tokens + tokens;
+            entry.tokens = tokens;
+        }
+    };
+
+    for (pass, chars) in EARLIER_RESULT_CHARS.into_iter().enumerate() {
+        for entry in &mut entries[..last_step] {
+            if total <= budget_tokens {
+                return;
+            }
+            // The second time round, the earlier steps lose their reasoning too.
+            if pass > 0
+                && let LlmMessage::Assistant { reasoning, .. } = &mut entry.message
+            {
+                if let Some(r) = reasoning.take() {
+                    let tokens = entry.tokens.saturating_sub(estimate_tokens(&r));
+                    total = total - entry.tokens + tokens;
+                    entry.tokens = tokens;
+                }
+            } else {
+                shorten(entry, chars, &mut total);
+            }
+        }
+    }
+    if total <= budget_tokens {
+        return;
+    }
+
+    // The latest results, smallest first: one that fits in its share leaves the rest to the others.
+    // A shortened one also says how much was left out, which takes about 20 tokens.
+    let mut latest: Vec<usize> = (last_step..entries.len())
+        .filter(|&i| entries[i].result.is_some())
+        .collect();
+    latest.sort_by_key(|&i| entries[i].tokens);
+    let theirs: usize = latest.iter().map(|&i| entries[i].tokens).sum();
+    let mut room = budget_tokens.saturating_sub(total - theirs);
+    for (n, &i) in latest.iter().enumerate() {
+        let share = room / (latest.len() - n);
+        if entries[i].tokens > share {
+            shorten(
+                &mut entries[i],
+                (share.saturating_sub(20) * 3).max(LATEST_RESULT_CHARS),
+                &mut total,
+            );
+        }
+        room = room.saturating_sub(entries[i].tokens);
+    }
 }
 
 /// Index of the first message of the two most recent turns.
@@ -395,6 +523,130 @@ mod tests {
             matches!(&tight[2], LlmMessage::User { content, media } if content.len() > 3000 && media.len() == 1),
             "the latest message keeps its files"
         );
+    }
+
+    /// A turn of tool steps: "q", then per step a call with `reasoning` and its `results`.
+    fn tool_turn(steps: &[(&str, &[usize])]) -> Vec<Message> {
+        let mut out = vec![msg(Role::User, "q")];
+        for (s, (reasoning, results)) in steps.iter().enumerate() {
+            let mut call = msg(Role::Assistant, "");
+            call.reasoning = Some(reasoning.to_string()).filter(|r| !r.is_empty());
+            for (r, len) in results.iter().enumerate() {
+                let id = format!("{s}-{r}");
+                call.tool_calls.push(ToolCall {
+                    id: id.clone(),
+                    name: "read_file".into(),
+                    arguments: "{}".into(),
+                });
+                let mut result = msg(Role::Tool, &"y".repeat(*len));
+                result.tool_call_id = Some(id);
+                result.tool_name = Some("read_file".into());
+                out.push(result);
+            }
+            let at = out.len() - results.len();
+            out.insert(at, call);
+        }
+        out
+    }
+
+    fn result_lengths(h: &[LlmMessage]) -> Vec<usize> {
+        h.iter()
+            .filter_map(|m| match m {
+                LlmMessage::Tool { content, .. } => Some(content.len()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_latest_turn_shortens_its_earlier_results_first() {
+        let messages = tool_turn(&[("", &[9_000]), ("", &[9_000])]);
+        assert_eq!(
+            result_lengths(&history(&messages, 10_000, &HashMap::new())),
+            [9_000, 9_000]
+        );
+
+        let h = history(&messages, 4_000, &HashMap::new());
+        assert_eq!(h.len(), 5, "every message stays");
+        let [earlier, latest] = result_lengths(&h)[..] else {
+            panic!()
+        };
+        assert!((1_500..1_600).contains(&earlier), "{earlier}");
+        assert_eq!(latest, 9_000, "the result the model is about to read stays whole");
+        assert!(estimate_history(&h) <= 4_000);
+    }
+
+    #[test]
+    fn the_latest_results_share_what_room_is_left() {
+        let messages = tool_turn(&[("r".repeat(3_000).as_str(), &[9_000]), ("", &[600, 9_000, 9_000])]);
+        let h = history(&messages, 4_000, &HashMap::new());
+        assert_eq!(h.len(), 7, "every message stays");
+        assert!(
+            matches!(&h[1], LlmMessage::Assistant { reasoning: None, .. }),
+            "the earlier step lost its reasoning"
+        );
+        let lengths = result_lengths(&h);
+        assert!(lengths[0] < 400, "{lengths:?}");
+        assert_eq!(lengths[1], 600, "a short result stays whole");
+        assert!(
+            lengths[2] < 9_000 && lengths[2].abs_diff(lengths[3]) < 100,
+            "{lengths:?}"
+        );
+        assert!(estimate_history(&h) <= 4_000, "{}", estimate_history(&h));
+
+        // With no room left, each still keeps the least it may.
+        let h = history(&messages, 100, &HashMap::new());
+        assert!(result_lengths(&h)[2..].iter().all(|&n| (1_500..1_600).contains(&n)));
+    }
+
+    #[test]
+    fn the_latest_summary_stands_in_for_what_came_before() {
+        let mut failed = msg(Role::Summary, "unfinished");
+        failed.status = MessageStatus::Error;
+        let messages = vec![
+            msg(Role::User, "forgotten question"),
+            msg(Role::Assistant, "forgotten answer"),
+            msg(Role::Summary, "old gist"),
+            msg(Role::User, "second"),
+            msg(Role::Summary, "## Goal\nThe gist."),
+            msg(Role::User, "third"),
+            failed,
+            msg(Role::Assistant, "ok"),
+        ];
+        assert_eq!(current_part(&messages).len(), 4);
+        let h = history(&messages, 10_000, &HashMap::new());
+        assert_eq!(h.len(), 2);
+        let LlmMessage::User { content, .. } = &h[0] else {
+            panic!()
+        };
+        assert!(
+            content.starts_with("<summary>\n## Goal\nThe gist.\n</summary>"),
+            "{content}"
+        );
+        assert!(content.ends_with("\n\nthird"));
+        assert!(!content.contains("forgotten") && !content.contains("old gist") && !content.contains("unfinished"));
+
+        // A summary with nothing after it is a message of its own.
+        let h = history(&messages[..5], 10_000, &HashMap::new());
+        assert!(matches!(&h[..], [LlmMessage::User { content, .. }] if content.starts_with("<summary>")));
+    }
+
+    #[test]
+    fn the_summary_stays_when_turns_after_it_are_dropped() {
+        let big = "x".repeat(3000);
+        let messages = vec![
+            msg(Role::Summary, "the gist"),
+            msg(Role::User, &big),
+            msg(Role::Assistant, &big),
+            msg(Role::User, "latest"),
+        ];
+        let h = history(&messages, 600, &HashMap::new());
+        assert_eq!(h.len(), 1);
+        let LlmMessage::User { content, .. } = &h[0] else {
+            panic!()
+        };
+        assert!(content.starts_with("<summary>\nthe gist\n</summary>"));
+        assert!(content.contains("left out") && content.ends_with("latest"));
     }
 
     #[test]

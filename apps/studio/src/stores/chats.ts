@@ -5,6 +5,7 @@ import { create } from 'zustand';
 
 import { api, errorText } from '@/lib/api';
 import type { Chat, ChatEvent, Message, ModelEntry } from '@/lib/types';
+import { useApp } from './app';
 import { toast } from './toasts';
 
 interface ChatsStore {
@@ -22,6 +23,8 @@ interface ChatsStore {
   open: (id: string | null) => Promise<void>;
   /** Sends a message with the staged files `attachmentIds`; false when the backend refused it. */
   send: (text: string, modelId: string, attachmentIds?: string[]) => Promise<boolean>;
+  /** Runs the slash command `text`; false when it failed. */
+  runCommand: (text: string, modelId: string, attachmentIds?: string[]) => Promise<boolean>;
   stop: () => Promise<void>;
   regenerate: (modelId: string) => Promise<void>;
   edit: (messageId: string, text: string, modelId: string) => Promise<void>;
@@ -78,16 +81,38 @@ export const useChats = create<ChatsStore>((set, get) => ({
     const { activeId } = get();
     try {
       const { chat, message } = await api.sendMessage(activeId, text, modelId, attachmentIds);
-      set((s) => ({
-        activeId: chat.id,
-        chats: sortChats([chat, ...s.chats.filter((c) => c.id !== chat.id)]),
-        messages: { ...s.messages, [chat.id]: upsertMessage(s.messages[chat.id], message) },
-        turnError: { ...s.turnError, [chat.id]: null },
-      }));
-      if (activeId === null) void api.updateSettings({ lastChatId: chat.id });
+      showSent(chat, message, activeId === null);
       return true;
     } catch (e) {
       toast.error('Could not send the message', errorText(e));
+      return false;
+    }
+  },
+
+  runCommand: async (text, modelId, attachmentIds = []) => {
+    const { activeId } = get();
+    try {
+      const outcome = await api.runSlashCommand(activeId, text, modelId, attachmentIds);
+      switch (outcome.kind) {
+        case 'sent':
+          showSent(outcome.chat, outcome.message, activeId === null);
+          break;
+        case 'done':
+          if (outcome.settings) {
+            useApp.setState({ settings: outcome.settings });
+            toast.success(outcome.title, outcome.text);
+          } else {
+            toast.info(outcome.title, outcome.text);
+          }
+          break;
+        case 'started':
+          // It streams into the chat as a turn does.
+          break;
+      }
+      return true;
+    } catch (e) {
+      const name = text.trim().split(/\s/, 1)[0];
+      toast.error(`Could not run ${name}`, errorText(e));
       return false;
     }
   },
@@ -220,6 +245,17 @@ export const useChats = create<ChatsStore>((set, get) => ({
     }
   },
 }));
+
+/** Shows a message just sent, in a chat that may have been started by it. */
+function showSent(chat: Chat, message: Message, started: boolean) {
+  useChats.setState((s) => ({
+    activeId: chat.id,
+    chats: sortChats([chat, ...s.chats.filter((c) => c.id !== chat.id)]),
+    messages: { ...s.messages, [chat.id]: upsertMessage(s.messages[chat.id], message) },
+    turnError: { ...s.turnError, [chat.id]: null },
+  }));
+  if (started) void api.updateSettings({ lastChatId: chat.id });
+}
 
 /** The model the composer will send with. */
 export function currentModel(

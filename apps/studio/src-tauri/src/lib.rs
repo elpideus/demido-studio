@@ -21,6 +21,7 @@ mod secrets;
 mod settings;
 mod shell;
 mod skills;
+mod slash;
 mod state;
 mod tools;
 mod updater;
@@ -349,6 +350,8 @@ pub fn run() {
             commands::skills::write_skill_file,
             commands::skills::create_skill,
             commands::skills::open_skills_folder,
+            commands::slash::list_slash_commands,
+            commands::slash::run_slash_command,
             commands::market::market_status,
             commands::market::market_login,
             commands::market::market_logout,

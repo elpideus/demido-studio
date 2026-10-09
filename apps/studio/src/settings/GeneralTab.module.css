@@ -34,3 +34,7 @@
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+.tokens {
+  width: 150px;
+}

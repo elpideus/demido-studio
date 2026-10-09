@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, CircleAlert, Cpu, FolderOpen, Power, ScrollText, ShieldAlert, X } from 'lucide-react';
-import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch } from '@demido/ui';
+import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch, TextField } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import type { Settings } from '@/lib/types';
@@ -69,7 +69,7 @@ export function GeneralTab() {
       <header className={s.header}>
         <div className={s.headerText}>
           <h2 className={s.title}>General</h2>
-          <p className={s.subtitle}>This computer, the local AI runtime, permissions and storage.</p>
+          <p className={s.subtitle}>This computer, the local AI runtime, conversations, permissions and storage.</p>
         </div>
       </header>
       <div className={s.scroll}>
@@ -159,6 +159,11 @@ export function GeneralTab() {
               />
             </Field>
           </div>
+        </section>
+
+        <section className={s.section}>
+          <h3 className={s.sectionTitle}>Conversations</h3>
+          <AutoCompact settings={settings} />
         </section>
 
         <section className={s.section}>

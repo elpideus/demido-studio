@@ -17,6 +17,9 @@ pub enum Role {
     User,
     Assistant,
     Tool,
+    /// A summary of the conversation before it, which the model reads instead (see
+    /// `agent::compact`).
+    Summary,
 }
 
 impl Role {
@@ -25,6 +28,7 @@ impl Role {
             Role::User => "user",
             Role::Assistant => "assistant",
             Role::Tool => "tool",
+            Role::Summary => "summary",
         }
     }
 
@@ -32,6 +36,7 @@ impl Role {
         match s {
             "user" => Role::User,
             "tool" => Role::Tool,
+            "summary" => Role::Summary,
             _ => Role::Assistant,
         }
     }
@@ -111,6 +116,20 @@ pub struct Message {
     /// Files sent with a user message; empty for every other message. Stored in their own table.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    /// The slash command that wrote a user message: the person typed it, the model reads
+    /// `content`, what the command expanded to.
+    #[serde(default)]
+    pub command: Option<CommandUse>,
+}
+
+/// A slash command as the person typed it (see `slash`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandUse {
+    pub name: String,
+    pub args: String,
+    /// The skill that provides the command.
+    pub skill: Option<String>,
 }
 
 /// A file the person attached to a message. Staged while it waits in the composer, then moved
@@ -170,6 +189,7 @@ impl Message {
             provider_meta: None,
             created_at: super::now_ms(),
             attachments: Vec::new(),
+            command: None,
         }
     }
 }

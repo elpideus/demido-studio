@@ -1,4 +1,5 @@
 .wrap {
+  position: relative;
   width: 100%;
   max-width: calc(var(--chat-column) + 2 * var(--space-6));
   margin: 0 auto;
@@ -141,4 +142,69 @@
 
 .toolsNotice {
   margin: var(--space-2) var(--space-2) 0;
+}
+
+/* slash commands */
+.commands {
+  position: absolute;
+  right: var(--space-6);
+  bottom: calc(100% - var(--space-2));
+  left: var(--space-6);
+  z-index: 20;
+  max-height: 280px;
+  padding: var(--space-1);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-popover);
+}
+
+.command {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 7px var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.commandActive {
+  background: var(--surface-5);
+  color: var(--text-primary);
+}
+
+.commandName {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.commandArgs {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.commandText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commandSkill {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent-muted);
+  color: var(--accent-text);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
 }

@@ -127,6 +127,10 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (passage_id, model)
     ) WITHOUT ROWID;
     "#,
+    // 4: the slash command a user message was written by (JSON, see `CommandUse`).
+    r#"
+    ALTER TABLE messages ADD COLUMN command TEXT;
+    "#,
 ];
 
 impl Db {

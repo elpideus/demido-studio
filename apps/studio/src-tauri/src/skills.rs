@@ -5,6 +5,10 @@
 //! (more Markdown, Python scripts). Enabled skills are written into the system prompt; their
 //! other files are read on demand with the `read_skill_file` tool.
 //!
+//! A skill may also provide slash commands in a `commands.json` beside its `SKILL.md`: a list of
+//! `{"name", "description", "args", "prompt"}` (see [`SkillCommand`] and `slash`). Commands are
+//! not part of the system prompt; they cost context only when someone types one.
+//!
 //! The folder is watched: a skill created by the assistant, edited in an external editor or
 //! dropped in by hand appears in the UI and in the next prompt without a restart.
 
@@ -24,6 +28,10 @@ use crate::error::CmdResult;
 
 pub const CHANGED_EVENT: &str = "skills://changed";
 pub const ENTRY_FILE: &str = "SKILL.md";
+pub const COMMANDS_FILE: &str = "commands.json";
+/// Commands one skill may provide.
+const MAX_COMMANDS: usize = 20;
+const MAX_PROMPT_CHARS: usize = 8_000;
 const MAX_FILE_BYTES: u64 = 512 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -50,6 +58,28 @@ pub struct Skill {
     pub author: Option<String>,
     /// Why the skill cannot be used (for example a missing `SKILL.md`).
     pub problem: Option<String>,
+    /// Slash commands from its `commands.json`.
+    pub commands: Vec<SkillCommand>,
+    /// What is wrong in its `commands.json`; the commands that are fine still work.
+    pub commands_problem: Option<String>,
+}
+
+/// A slash command a skill provides: typing `/name args` sends `prompt` with the arguments
+/// filled in (see `slash`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillCommand {
+    /// What follows the slash: lowercase letters, digits, `-` and `_`.
+    pub name: String,
+    /// One line saying what it does, shown in the command list.
+    #[serde(default)]
+    pub description: String,
+    /// What to type after the name, such as `<symbol> [timeframe]`.
+    #[serde(default)]
+    pub args: Option<String>,
+    /// The message sent: `$ARGUMENTS` is everything typed after the name, `$1` to `$9` its
+    /// words. Arguments the prompt does not place are added at its end.
+    pub prompt: String,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -329,12 +359,7 @@ impl SkillRegistry {
                 out.push_str(s.body.trim());
                 out.push('\n');
             }
-            let others: Vec<&str> = s
-                .files
-                .iter()
-                .map(|f| f.path.as_str())
-                .filter(|p| *p != ENTRY_FILE)
-                .collect();
+            let others = s.other_files();
             if !others.is_empty() {
                 out.push_str(&format!("Files: {}\n", others.join(", ")));
             }
@@ -343,6 +368,29 @@ impl SkillRegistry {
             out.push_str("\nRead a skill's SKILL.md with read_skill_file before following it.\n");
         }
         Some(out)
+    }
+
+    /// Whether [`prompt_section`](Self::prompt_section) holds every skill's instructions at
+    /// `budget_chars`.
+    pub fn instructions_in_prompt(&self, budget_chars: usize) -> bool {
+        let full: usize = self
+            .list()
+            .iter()
+            .filter(|s| s.enabled && s.problem.is_none())
+            .map(|s| s.body.len() + s.description.len() + 64)
+            .sum();
+        full <= budget_chars
+    }
+}
+
+impl Skill {
+    /// Its files the model may read, besides `SKILL.md` and the command list.
+    pub fn other_files(&self) -> Vec<&str> {
+        self.files
+            .iter()
+            .map(|f| f.path.as_str())
+            .filter(|p| *p != ENTRY_FILE && *p != COMMANDS_FILE)
+            .collect()
     }
 }
 
@@ -386,6 +434,10 @@ fn load_skill(folder: &Path, id: &str, enabled: bool) -> Skill {
         }
         Err(_) => (BTreeMap::new(), String::new(), Some(format!("{ENTRY_FILE} is missing"))),
     };
+    let (commands, commands_problem) = match std::fs::read_to_string(folder.join(COMMANDS_FILE)) {
+        Ok(text) => parse_commands(&text),
+        Err(_) => (Vec::new(), None),
+    };
     Skill {
         id: id.to_string(),
         name: meta
@@ -401,7 +453,70 @@ fn load_skill(folder: &Path, id: &str, enabled: bool) -> Skill {
         updated_at,
         author: meta.get("author").cloned(),
         problem,
+        commands,
+        commands_problem,
     }
+}
+
+/// Reads a `commands.json`: a list of commands, or an object with one under `commands`. Bad
+/// entries are left out and described in the second value.
+pub fn parse_commands(text: &str) -> (Vec<SkillCommand>, Option<String>) {
+    let value: serde_json::Value = match serde_json::from_str(text.trim_start_matches('\u{feff}')) {
+        Ok(v) => v,
+        Err(e) => return (Vec::new(), Some(format!("{COMMANDS_FILE} is not valid JSON: {e}"))),
+    };
+    let list = match value {
+        serde_json::Value::Array(list) => list,
+        serde_json::Value::Object(mut o) => match o.remove("commands") {
+            Some(serde_json::Value::Array(list)) => list,
+            _ => return (Vec::new(), Some(format!("{COMMANDS_FILE} needs a \"commands\" list."))),
+        },
+        _ => {
+            return (
+                Vec::new(),
+                Some(format!("{COMMANDS_FILE} should hold a list of commands.")),
+            );
+        }
+    };
+    let mut commands: Vec<SkillCommand> = Vec::new();
+    let mut problems: Vec<String> = Vec::new();
+    for (i, entry) in list.into_iter().enumerate() {
+        let mut c: SkillCommand = match serde_json::from_value(entry) {
+            Ok(c) => c,
+            Err(e) => {
+                problems.push(format!("command {}: {e}", i + 1));
+                continue;
+            }
+        };
+        c.name = c.name.trim().trim_start_matches('/').to_ascii_lowercase();
+        c.description = c.description.trim().to_string();
+        c.args = c.args.map(|a| a.trim().to_string()).filter(|a| !a.is_empty());
+        let valid = !c.name.is_empty()
+            && c.name.len() <= 32
+            && c.name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
+        if !valid {
+            problems.push(format!(
+                "command {}: \"{}\" is not a valid name (use letters, digits, - and _)",
+                i + 1,
+                c.name
+            ));
+        } else if c.prompt.trim().is_empty() {
+            problems.push(format!("/{}: the prompt is empty", c.name));
+        } else if c.prompt.chars().count() > MAX_PROMPT_CHARS {
+            problems.push(format!(
+                "/{}: the prompt is longer than {MAX_PROMPT_CHARS} characters",
+                c.name
+            ));
+        } else if commands.iter().any(|o| o.name == c.name) {
+            problems.push(format!("/{} is listed twice", c.name));
+        } else if commands.len() == MAX_COMMANDS {
+            problems.push(format!("only the first {MAX_COMMANDS} commands are used"));
+            break;
+        } else {
+            commands.push(c);
+        }
+    }
+    (commands, (!problems.is_empty()).then(|| problems.join("; ")))
 }
 
 /// Splits `---` YAML frontmatter (flat `key: value` pairs) from the body.
@@ -532,6 +647,40 @@ mod tests {
         let (meta, body) = split_frontmatter("no frontmatter here");
         assert!(meta.is_empty());
         assert_eq!(body, "no frontmatter here");
+    }
+
+    #[test]
+    fn the_bundled_commands_are_valid() {
+        let (commands, problem) = parse_commands(include_str!("../../../../skills/market-analysis/commands.json"));
+        assert_eq!(problem, None);
+        assert!(commands.iter().any(|c| c.name == "analyze"));
+    }
+
+    #[test]
+    fn command_lists_are_read_leniently() {
+        let (commands, problem) = parse_commands(
+            r#"{"commands": [
+                {"name": "/Analyze", "description": " Analyze a market ", "args": "<symbol>", "prompt": "Analyze $ARGUMENTS."},
+                {"name": "bad name", "prompt": "x"},
+                {"name": "empty", "prompt": "  "},
+                {"description": "no name"},
+                {"name": "analyze", "prompt": "again"}
+            ]}"#,
+        );
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].name, "analyze");
+        assert_eq!(commands[0].description, "Analyze a market");
+        assert_eq!(commands[0].args.as_deref(), Some("<symbol>"));
+        let problem = problem.unwrap();
+        assert!(problem.contains("\"bad name\" is not a valid name"), "{problem}");
+        assert!(problem.contains("/empty: the prompt is empty"), "{problem}");
+        assert!(problem.contains("command 4: missing field `name`"), "{problem}");
+        assert!(problem.contains("/analyze is listed twice"), "{problem}");
+
+        let (commands, problem) = parse_commands(r#"[{"name": "go", "prompt": "Go."}]"#);
+        assert_eq!((commands.len(), problem), (1, None));
+        assert!(parse_commands("{nope").1.unwrap().contains("not valid JSON"));
+        assert!(parse_commands(r#"{"other": 1}"#).1.unwrap().contains("needs a \"commands\" list"));
     }
 
     #[test]

@@ -152,6 +152,18 @@ function SkillDetail({ skill, onBack }: { skill: Skill; onBack: () => void }) {
               <span>{f.path}</span>
             </button>
           ))}
+          {(skill.commands.length > 0 || skill.commandsProblem) && (
+            <>
+              <div className={cx(styles.filesTitle, styles.commandsTitle)}>Commands</div>
+              {skill.commands.map((c) => (
+                <div key={c.name} className={styles.command} title={c.description || undefined}>
+                  /{c.name}
+                  {c.args && <span className={styles.commandArgs}> {c.args}</span>}
+                </div>
+              ))}
+              {skill.commandsProblem && <div className={styles.commandsProblem}>{skill.commandsProblem}</div>}
+            </>
+          )}
           <div className={styles.fileMeta}>
             {skill.author === 'assistant' && (
               <Badge icon={Bot} tone="info">
@@ -327,6 +339,8 @@ export function SkillsTab({ win }: { win: WindowState }) {
                 </div>
                 <span className={s.muted}>
                   {sk.files.length} {sk.files.length === 1 ? 'file' : 'files'}
+                  {sk.commands.length > 0 &&
+                    ` · ${sk.commands.length} ${sk.commands.length === 1 ? 'command' : 'commands'}`}
                 </span>
                 <div className={s.rowActions} onClick={(e) => e.stopPropagation()}>
                   <Switch
@@ -342,8 +356,8 @@ export function SkillsTab({ win }: { win: WindowState }) {
         )}
         <Notice tone="info" icon={Blocks} className={styles.notice}>
           A skill is a folder with a <code>SKILL.md</code> file (a short frontmatter with <code>name</code> and{' '}
-          <code>description</code>, then instructions) and any other files it refers to. Changes in the folder appear
-          here immediately.
+          <code>description</code>, then instructions) and any other files it refers to. A <code>commands.json</code>{' '}
+          beside it adds slash commands to the chat. Changes in the folder appear here immediately.
         </Notice>
       </div>
       <NewSkillDialog

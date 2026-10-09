@@ -4,26 +4,33 @@ import { Avatar, Button, IconButton, TextArea, Tooltip, cx } from '@demido/ui';
 
 import { fileUrl, formatTokens } from '@/lib/format';
 import type { Message, ModelEntry } from '@/lib/types';
-import { useChats } from '@/stores/chats';
+import { useChats, type Retry } from '@/stores/chats';
 import { useModels } from '@/stores/models';
 import { useWindows } from '@/stores/windows';
 import { MessageAttachments } from './Attachments';
 import { FileBundle } from './FileBundle';
 import { OpenStateProvider, bundleKey } from './openState';
 import { Markdown } from './Markdown';
+import { summaryLine } from './slashView';
 import { thoughtSeconds, turnBlocks, type Step } from './steps';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCard } from './ToolCard';
 import styles from './MessageList.module.css';
 
-type Turn = { kind: 'user'; message: Message } | { kind: 'assistant'; id: string; messages: Message[] };
+type Turn =
+  | { kind: 'user'; message: Message }
+  | { kind: 'summary'; message: Message }
+  | { kind: 'assistant'; id: string; messages: Message[] };
 
-/** Consecutive assistant and tool messages after a user message form one visual turn. */
+/**
+ * Consecutive assistant and tool messages after a user message form one visual turn; a summary
+ * stands between turns.
+ */
 export function groupTurns(messages: Message[]): Turn[] {
   const turns: Turn[] = [];
   for (const m of messages) {
-    if (m.role === 'user') {
-      turns.push({ kind: 'user', message: m });
+    if (m.role === 'user' || m.role === 'summary') {
+      turns.push({ kind: m.role, message: m });
       continue;
     }
     const last = turns[turns.length - 1];
@@ -61,6 +68,9 @@ const UserMessage = memo(function UserMessage({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
+  const [showSent, setShowSent] = useState(false);
+  const command = message.command;
+  const typed = command ? `/${command.name}${command.args ? ` ${command.args}` : ''}` : message.content;
   // An edit keeps the message's files, so it may go without text.
   const files = message.attachments ?? [];
   if (editing) {
@@ -92,9 +102,25 @@ const UserMessage = memo(function UserMessage({
   return (
     <div className={styles.userRow}>
       {files.length > 0 && <MessageAttachments attachments={files} />}
-      {message.content && <div className={cx(styles.userBubble, 'selectable')}>{message.content}</div>}
+      {command ? (
+        <div className={cx(styles.userBubble, 'selectable')}>
+          <span className={styles.commandName}>/{command.name}</span>
+          {command.args && ` ${command.args}`}
+        </div>
+      ) : (
+        message.content && <div className={cx(styles.userBubble, 'selectable')}>{message.content}</div>
+      )}
+      {command && showSent && <div className={cx(styles.sentText, 'selectable')}>{message.content}</div>}
       <div className={styles.userActions}>
-        {message.content && <CopyIcon text={message.content} />}
+        {typed && <CopyIcon text={typed} />}
+        {command && (
+          <IconButton
+            icon={ScrollText}
+            label={showSent ? 'Hide the message it sent' : 'Show the message it sent'}
+            size="xs"
+            onClick={() => setShowSent(!showSent)}
+          />
+        )}
         {canEdit && (
           <IconButton
             icon={Pencil}
@@ -107,6 +133,68 @@ const UserMessage = memo(function UserMessage({
           />
         )}
       </div>
+    </div>
+  );
+});
+
+/** Where the chat was compacted: the summary that stands in for what came before it. */
+const SummaryDivider = memo(function SummaryDivider({
+  message,
+  workspace,
+}: {
+  message: Message;
+  workspace: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const openWindow = useWindows((s) => s.open);
+  const { label, detail } = summaryLine(message);
+  const live = message.status === 'streaming';
+  const retry = useChats((s) => s.retrying[message.id]);
+  const failed = message.status === 'error';
+  const icon = live ? (
+    <Spinner size={12} />
+  ) : failed ? (
+    <AlertCircle size={14} aria-hidden />
+  ) : (
+    <FoldVertical size={14} aria-hidden />
+  );
+  return (
+    <div className={styles.summary}>
+      <div className={styles.summaryRule}>
+        <Tooltip content={detail} placement="top" disabled={!detail || failed} className={styles.summaryTip}>
+          <button
+            type="button"
+            className={cx(styles.summaryLabel, failed && styles.summaryFailed)}
+            onClick={() => setOpen(!open)}
+            disabled={!message.content}
+            aria-expanded={open}
+          >
+            {icon}
+            <span>{label}</span>
+            {message.content && (
+              <ChevronDown size={13} className={cx(styles.chevron, open && styles.chevronOpen)} aria-hidden />
+            )}
+          </button>
+        </Tooltip>
+      </div>
+      {failed && detail && <div className={styles.summaryError}>{detail}</div>}
+      {live && retry && <RetryNotice retry={retry} className={styles.summaryRetry} />}
+      {open && message.content && (
+        <div className={styles.summaryBody}>
+          <Markdown text={message.content} workspace={workspace} className={cx(live && styles.streamingText)} />
+          {!live && (
+            <div className={styles.summaryActions}>
+              <CopyIcon text={message.content} />
+              <IconButton
+                icon={FileSearch}
+                label="Inspect what was sent and received"
+                size="xs"
+                onClick={() => openWindow('inspector', { messageId: message.id, title: 'Inspector · Summary' })}
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 });
@@ -265,7 +353,9 @@ export function MessageList({ chatId, messages, workspace, sendModelId }: Props)
   return (
     <div className={styles.list}>
       {turns.map((turn, i) =>
-        turn.kind === 'user' ? (
+        turn.kind === 'summary' ? (
+          <SummaryDivider key={turn.message.id} message={turn.message} workspace={workspace} />
+        ) : turn.kind === 'user' ? (
           <UserMessage
             key={turn.message.id}
             message={turn.message}

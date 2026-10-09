@@ -59,6 +59,8 @@ click in Settings, Updates.
 |---|---|
 | Chat with local or cloud models, streaming, thinking, tool calls | The main screen |
 | Model picker and tools/skills picker | The composer |
+| Long chats compact themselves: near the end of the model's context window, the earlier conversation becomes a summary the model reads instead (when, in Settings, General) | The chat; `/compact` to do it now |
+| Slash commands: `/compact`, `/autocompact 12k` (or `off`, `auto`, `12.5k`, `twelve thousand`), and the commands skills bring, such as `/analyze` | Type `/` in the composer |
 | Send files with a message: images, PDFs, Word, PowerPoint, spreadsheets, text and code. Short ones are read in full, long ones are searched for the passages your question needs (RAG), by meaning as well as by words | The composer: **+**, drag and drop, or paste |
 | Commands in your own shell (PowerShell 7 when installed, else Windows PowerShell), shown live like a terminal with a Stop button; each one asks first | The chat (Terminal in the Tools menu) |
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
@@ -118,7 +120,23 @@ trend lines, markers and labels, kept per market until you remove them from the 
 **Skills** are folders with a `SKILL.md` (a short frontmatter with `name` and `description`,
 then instructions) and any files it refers to. Enabled skills are part of every conversation.
 Ask the assistant to "make this a skill" and it writes one, scripts included; it appears
-immediately, without a restart.
+immediately, without a restart. A `commands.json` beside `SKILL.md` adds slash commands:
+
+```json
+{
+  "commands": [
+    {
+      "name": "analyze",
+      "description": "Price, trend, key levels and a chart for one market",
+      "args": "<symbol> [timeframe]",
+      "prompt": "Analyze this market: $ARGUMENTS."
+    }
+  ]
+}
+```
+
+`$ARGUMENTS` is what you type after the command, `$1` to `$9` its words. Commands cost no
+context until you use one, which keeps small models' prompts small.
 
 ## Develop
 

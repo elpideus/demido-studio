@@ -220,4 +220,16 @@ mod tests {
         assert_eq!(loaded.update_channel, UpdateChannel::Prerelease);
         assert!(!loaded.auto_update);
     }
+
+    #[test]
+    fn compaction_is_on_by_default_and_its_threshold_can_be_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SettingsStore::load(dir.path().join("settings.json"));
+        assert!(store.get().auto_compact);
+        assert_eq!(store.get().auto_compact_tokens, None);
+        store.patch(serde_json::json!({"autoCompactTokens": 12_300})).unwrap();
+        assert_eq!(store.get().auto_compact_tokens, Some(12_300));
+        store.patch(serde_json::json!({"autoCompactTokens": null})).unwrap();
+        assert_eq!(store.get().auto_compact_tokens, None);
+    }
 }

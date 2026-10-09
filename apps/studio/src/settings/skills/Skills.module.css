@@ -147,3 +147,28 @@
   white-space: pre-wrap;
   user-select: text;
 }
+
+.commandsTitle {
+  margin-top: var(--space-4);
+}
+
+.command {
+  padding: 3px var(--space-2);
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commandArgs {
+  color: var(--text-tertiary);
+}
+
+.commandsProblem {
+  padding: 3px var(--space-2);
+  color: var(--warning);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}

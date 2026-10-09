@@ -35,6 +35,8 @@ import type {
   RuntimeStatus,
   Settings,
   Skill,
+  SlashCommand,
+  SlashOutcome,
   SymbolMatch,
   ToolGroup,
   Trace,
@@ -79,6 +81,10 @@ export const api = {
   editMessage: (chatId: string, messageId: string, text: string, modelId: string) =>
     invoke<Message>('edit_message', { chatId, messageId, text, modelId }),
   stopTurn: (chatId: string) => invoke<void>('stop_turn', { chatId }),
+  listSlashCommands: () => invoke<SlashCommand[]>('list_slash_commands'),
+  /** Runs `/name args`; built-in commands leave the staged files staged. */
+  runSlashCommand: (chatId: string | null, text: string, modelId: string, attachmentIds: string[]) =>
+    invoke<SlashOutcome>('run_slash_command', { chatId, text, modelId, attachmentIds }),
   runningTurns: () => invoke<string[]>('running_turns'),
   resolveApproval: (messageId: string, decision: ApprovalDecision) =>
     invoke<boolean>('resolve_approval', { messageId, decision }),

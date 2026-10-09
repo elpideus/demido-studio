@@ -121,7 +121,8 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `attachments` | Files attached to messages: staging, moving them into the chat's workspace, what the model reads of them (full text, passages, images and sound), passage search |
 | `tools` | Market data, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu |
 | `shell` | The person's own shell, found once; a command run in a pseudo-terminal and read back as the screen shows it |
-| `skills` | Skill folders, enable/disable, and a file watcher that updates the UI live |
+| `skills` | Skill folders, enable/disable, the slash commands in their `commands.json`, and a file watcher that updates the UI live |
+| `slash` | Slash commands: the app's own (`/compact`, `/autocompact`) and those skills provide |
 | `market` | The Node sidecar's lifecycle and protocol, TradingView sign-in |
 | `updater` | The releases feed, downloading and verifying a new installer, staging it, handing over to it (see [Updates](#updates)) |
 | `commands` | The functions the UI calls, one file per area |
@@ -142,6 +143,29 @@ token counts, speed) that the Inspector window shows. Two things are shortened, 
 files does not store them again for every model call: images and sound are replaced by their type
 and size (`llm::redact_media`), and an attached file's text is kept whole only in the first call of
 the turn that sends it (see Attached files, below).
+
+**Compaction.** Before a model call whose request reaches the threshold, the turns before the
+latest message are summarized (`agent::compact`). The threshold is 85% of what the context window
+leaves after the answer's share, or the lower `autoCompactTokens` set in Settings, General or with
+`/autocompact`. What a request uses is the last answer's exact token count plus an estimate of
+what came after it, never less than the estimate alone. The model writes the summary under fixed
+headings (goal, facts and decisions, files and data, done so far, open tasks), without thinking. A
+conversation too long for one request is summarized in parts, each part extending the summary so
+far. The summary is a message of role `summary` placed before the latest message, and the history
+starts there (`prompt::current_part`): the model reads the summary in place of everything before
+it, while the chat still shows every message, with a divider where it was compacted. A turn
+compacts once at most. When the summary fails, the history is fitted as without compaction; a
+failed or stopped summary stays in the chat but is never read. `/compact [what to keep]` does the
+same on demand and puts the summary at the end.
+
+**Slash commands.** A message that starts with a command's name runs it (`slash::run`); any other
+`/...` is sent as typed. `/autocompact` takes `off`, `auto` or a number of tokens however it is
+written (12000, 12,000, 12.000, 12k, 12.5k, 12k5, twelve thousand, 12 thousand and a half), and
+says what it means for the model in use. A skill's command sends its `prompt` with `$ARGUMENTS`
+and `$1` to `$9` filled in. When the system prompt has no room for the skill's instructions, they
+are sent in front of the prompt. The message keeps the command (`messages.command`) so the chat
+shows `/name args`. Commands are never listed in the system prompt, so a small model pays no
+context for them until one is used.
 
 **Prompt cache.** The system prompt contains the date but not the time, and tools are listed in
 a fixed order, so from one turn to the next the prompt prefix is identical and llama.cpp reuses
@@ -364,7 +388,10 @@ call of the turn that sends it; later calls note how much was left out.
 files it mentions. Enabled skills' instructions go into the system prompt; their other files are
 read with `read_skill_file` or run with `run_python` (`skill:<id>/<file>`). `create_skill`
 writes a new folder, copies the scripts it references from the chat's workspace, and rewrites
-references to point at its final id. The watcher (debounced `notify`) picks it up and the UI
+references to point at its final id. A `commands.json` beside `SKILL.md` gives the skill slash
+commands: a list of `{"name", "description", "args", "prompt"}` (or an object holding one under
+`commands`), at most 20; bad entries are left out and shown in Settings, Skills. `create_skill`
+writes it from its `commands` parameter. The watcher (debounced `notify`) picks it up and the UI
 updates without a refresh.
 
 ### Frontend (`apps/studio/src`)
@@ -373,8 +400,8 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 
 | Folder | What |
 |---|---|
-| `shell` | Activity bar (Chats, Market, Settings), the safety notice, toasts |
-| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`), composer, model and tools pickers, attached files (`Attachments.tsx`: the composer's tray and a sent message's files; `attachmentView.ts`: what a chip says) |
+| `shell` | Activity bar (Chats, Market, Mail, Settings), the safety notice, toasts |
+| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`; a divider where the chat was compacted), composer (the slash command list, `slashView.ts`), model and tools pickers, attached files (`Attachments.tsx`: the composer's tray and a sent message's files; `attachmentView.ts`: what a chip says) |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
 | `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, General, Updates |
 | `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends, indicators (the Indicators menu, legends, the settings dialog, panes, script drawings, the assistant's drawings, the local fallback), the Pine Editor. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |

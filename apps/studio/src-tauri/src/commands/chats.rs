@@ -24,7 +24,14 @@ pub fn send_message(
     model_id: String,
     attachment_ids: Option<Vec<String>>,
 ) -> CmdResult<SendResult> {
-    Agent::send(&state, chat_id, text, model_id, attachment_ids.unwrap_or_default())
+    Agent::send(
+        &state,
+        chat_id,
+        text,
+        model_id,
+        attachment_ids.unwrap_or_default(),
+        None,
+    )
 }
 
 /// Adds a file from disk to the composer: copies it aside and reads it.

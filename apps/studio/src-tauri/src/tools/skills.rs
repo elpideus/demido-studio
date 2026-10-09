@@ -30,6 +30,20 @@ pub fn create_schema() -> Value {
                 "items": {"type": "string"},
                 "description": "Workspace files to copy into the skill, e.g. a Python script you wrote and ran (analysis.py)"
             },
+            "commands": {
+                "type": "array",
+                "description": "Slash commands that start the skill from the chat. In prompt, $ARGUMENTS is what the user types after the command and $1, $2 its words",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Lowercase, e.g. analyze for /analyze"},
+                        "description": {"type": "string"},
+                        "args": {"type": "string", "description": "What to type after it, e.g. <symbol> [timeframe]"},
+                        "prompt": {"type": "string", "description": "The message it sends, e.g. Analyze $1 on the $2 timeframe."}
+                    },
+                    "required": ["name", "prompt"]
+                }
+            },
             "overwrite": {"type": "boolean", "description": "Replace an existing skill with the same name"}
         },
         "required": ["name", "description", "instructions"]
@@ -66,6 +80,12 @@ pub fn create(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         .unwrap_or_default();
     let mut files = files;
     let overwrite = args["overwrite"].as_bool().unwrap_or(false);
+    if let Some(commands) = args["commands"].as_array().filter(|c| !c.is_empty())
+        && !files.iter().any(|(p, _)| p == crate::skills::COMMANDS_FILE)
+    {
+        let text = serde_json::to_string_pretty(&json!({ "commands": commands })).map_err(|e| e.to_string())?;
+        files.push((crate::skills::COMMANDS_FILE.to_string(), text));
+    }
 
     // Scripts and notes the assistant wrote in the workspace belong with the skill, or the skill
     // breaks in any other chat. Copy the ones asked for and the ones the instructions name.
@@ -134,6 +154,20 @@ pub fn create(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         }
     }
     let file_list: Vec<String> = skill.files.iter().map(|f| f.path.clone()).collect();
+    let mut result = json!({
+        "created": skill.id,
+        "name": skill.name,
+        "files": file_list,
+        "enabled": true,
+        "note": "The skill is saved and enabled; it is part of future conversations. Tell the user its name.",
+    });
+    if !skill.commands.is_empty() {
+        let names: Vec<String> = skill.commands.iter().map(|c| format!("/{}", c.name)).collect();
+        result["commands"] = json!(names);
+    }
+    if let Some(problem) = &skill.commands_problem {
+        result["commands_problem"] = json!(problem);
+    }
     Ok(ToolOutput::ok(
         json!({
             "created": skill.id,

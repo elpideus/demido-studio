@@ -10,7 +10,8 @@ export interface Chat {
   pinned: boolean;
 }
 
-export type Role = 'user' | 'assistant' | 'tool';
+/** `summary` stands in for the messages before it once the chat is compacted. */
+export type Role = 'user' | 'assistant' | 'tool' | 'summary';
 export type MessageStatus = 'streaming' | 'awaitingApproval' | 'running' | 'done' | 'error' | 'cancelled';
 
 export interface ToolCall {
@@ -64,6 +65,30 @@ export interface MessageStats {
   finishReason?: string | null;
 }
 
+/** The stats of a `summary` message. */
+export interface SummaryStats {
+  /** Written when the chat neared the end of the context window, not by `/compact`. */
+  auto?: boolean;
+  /** Messages it summarizes. */
+  messages?: number;
+  tokensBefore?: number;
+  tokensAfter?: number;
+  /** The model's name. */
+  model?: string;
+  durationMs?: number;
+  /** The part being written, while a long conversation is summarized part by part. */
+  part?: number;
+  parts?: number;
+}
+
+/** The slash command that wrote a user message: `/name args`. */
+export interface CommandUse {
+  name: string;
+  args: string;
+  /** The skill that provides it, by id. */
+  skill: string | null;
+}
+
 export type AttachmentKind = 'image' | 'audio' | 'document' | 'text' | 'data' | 'other';
 
 /** A file sent with a message: staged in the composer until sent, then in the chat's workspace. */
@@ -108,6 +133,8 @@ export interface Message {
   stats: MessageStats | null;
   providerMeta: unknown;
   createdAt: number;
+  /** Set on a user message a slash command wrote; `content` is what it sent. */
+  command?: CommandUse | null;
 }
 
 export type ChatEvent =
@@ -252,7 +279,38 @@ export interface Skill {
   updatedAt: number;
   author: string | null;
   problem: string | null;
+  /** Slash commands from its `commands.json`. */
+  commands: SkillCommand[];
+  /** What is wrong in its `commands.json`; the commands that are fine still work. */
+  commandsProblem: string | null;
 }
+
+export interface SkillCommand {
+  name: string;
+  description: string;
+  args: string | null;
+  prompt: string;
+}
+
+/** A command the composer offers after a `/`. */
+export interface SlashCommand {
+  name: string;
+  description: string;
+  /** What to type after the name, such as `<symbol> [timeframe]`. */
+  args: string | null;
+  /** The skill that provides it; null for the app's own. */
+  skill: string | null;
+  skillName: string | null;
+}
+
+/** What running a slash command did. */
+export type SlashOutcome =
+  /** It ran: `text` says what it changed or found; `settings` are the settings it changed. */
+  | { kind: 'done'; title: string; text: string; settings: Settings | null }
+  /** It sent a message, as `sendMessage` does. */
+  | { kind: 'sent'; chat: Chat; message: Message }
+  /** It started work in the chat, which streams in like a turn. */
+  | { kind: 'started' };
 
 export interface ToolGroup {
   id: string;

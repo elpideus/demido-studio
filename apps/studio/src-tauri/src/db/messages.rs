@@ -1,4 +1,4 @@
-use rusqlite::{OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{Db, Message, MessageStatus, Role, ToolCall};
 
@@ -26,11 +26,51 @@ fn row_to_message(r: &Row<'_>) -> rusqlite::Result<Message> {
         provider_meta: json_col(r, "provider_meta")?,
         created_at: r.get("created_at")?,
         attachments: Vec::new(),
+        command: json_col(r, "command")?,
     })
 }
 
 fn to_json<T: serde::Serialize>(v: &Option<T>) -> Option<String> {
     v.as_ref().and_then(|v| serde_json::to_string(v).ok())
+}
+
+fn save_on(c: &Connection, m: &Message) -> rusqlite::Result<()> {
+    let tool_calls = if m.tool_calls.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&m.tool_calls).ok()
+    };
+    c.execute(
+        "INSERT INTO messages (id, chat_id, seq, role, content, reasoning, tool_calls,
+            tool_call_id, tool_name, tool_result, model_id, status, error, stats,
+            provider_meta, created_at, command)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+         ON CONFLICT(id) DO UPDATE SET
+            content = excluded.content, reasoning = excluded.reasoning,
+            tool_calls = excluded.tool_calls, tool_result = excluded.tool_result,
+            model_id = excluded.model_id, status = excluded.status, error = excluded.error,
+            stats = excluded.stats, provider_meta = excluded.provider_meta",
+        params![
+            m.id,
+            m.chat_id,
+            m.seq,
+            m.role.as_str(),
+            m.content,
+            m.reasoning,
+            tool_calls,
+            m.tool_call_id,
+            m.tool_name,
+            to_json(&m.tool_result),
+            m.model_id,
+            m.status.as_str(),
+            m.error,
+            to_json(&m.stats),
+            to_json(&m.provider_meta),
+            m.created_at,
+            to_json(&m.command),
+        ],
+    )?;
+    Ok(())
 }
 
 impl Db {
@@ -75,43 +115,26 @@ impl Db {
 
     /// Inserts or replaces a message by id.
     pub fn save_message(&self, m: &Message) -> rusqlite::Result<()> {
-        let tool_calls = if m.tool_calls.is_empty() {
-            None
-        } else {
-            serde_json::to_string(&m.tool_calls).ok()
-        };
+        self.with(|c| save_on(c, m))
+    }
+
+    /// Saves a new message at its `seq`, moving that message and every later one down by one.
+    /// Returns the messages that moved, as they are now.
+    pub fn insert_message_at(&self, m: &Message) -> rusqlite::Result<Vec<Message>> {
         self.with(|c| {
-            c.execute(
-                "INSERT INTO messages (id, chat_id, seq, role, content, reasoning, tool_calls,
-                    tool_call_id, tool_name, tool_result, model_id, status, error, stats,
-                    provider_meta, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-                 ON CONFLICT(id) DO UPDATE SET
-                    content = excluded.content, reasoning = excluded.reasoning,
-                    tool_calls = excluded.tool_calls, tool_result = excluded.tool_result,
-                    model_id = excluded.model_id, status = excluded.status, error = excluded.error,
-                    stats = excluded.stats, provider_meta = excluded.provider_meta",
-                params![
-                    m.id,
-                    m.chat_id,
-                    m.seq,
-                    m.role.as_str(),
-                    m.content,
-                    m.reasoning,
-                    tool_calls,
-                    m.tool_call_id,
-                    m.tool_name,
-                    to_json(&m.tool_result),
-                    m.model_id,
-                    m.status.as_str(),
-                    m.error,
-                    to_json(&m.stats),
-                    to_json(&m.provider_meta),
-                    m.created_at,
-                ],
-            )
+            let tx = c.unchecked_transaction()?;
+            tx.execute(
+                "UPDATE messages SET seq = seq + 1 WHERE chat_id = ?1 AND seq >= ?2",
+                params![m.chat_id, m.seq],
+            )?;
+            save_on(&tx, m)?;
+            tx.commit()
         })?;
-        Ok(())
+        Ok(self
+            .list_messages(&m.chat_id)?
+            .into_iter()
+            .filter(|x| x.seq > m.seq)
+            .collect())
     }
 
     /// Deletes every message from `seq` onwards (used to regenerate or edit a turn).
@@ -164,6 +187,19 @@ mod tests {
         assert_eq!(all[1].content, "hi there");
         assert_eq!(all[1].tool_calls.len(), 1);
         assert_eq!(db.truncate_messages(&chat.id, 2).unwrap(), 1);
+
+        let summary = Message::new(&chat.id, 1, Role::Summary, "the gist");
+        let moved = db.insert_message_at(&summary).unwrap();
+        assert_eq!(
+            moved.iter().map(|m| (m.id.as_str(), m.seq)).collect::<Vec<_>>(),
+            [(user.id.as_str(), 2)]
+        );
+        let all = db.list_messages(&chat.id).unwrap();
+        assert_eq!(
+            all.iter().map(|m| m.role).collect::<Vec<_>>(),
+            [Role::Summary, Role::User]
+        );
+        assert_eq!(db.next_seq(&chat.id).unwrap(), 3);
         db.delete_chat(&chat.id).unwrap();
         assert!(db.list_messages(&chat.id).unwrap().is_empty());
     }

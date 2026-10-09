@@ -7,6 +7,7 @@ pub mod market;
 pub mod models;
 pub mod providers;
 pub mod skills;
+pub mod slash;
 pub mod updates;
 
 use std::sync::Arc;
