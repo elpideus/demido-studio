@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Spinner } from '@demido/ui';
 
+import { unreachableNote } from '@/chat/contextView';
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
 import { chartPatch } from '@/market/chartCommands';
@@ -20,12 +21,33 @@ import { useUpdates } from '@/stores/updates';
 import { useWindows } from '@/stores/windows';
 import styles from './App.module.css';
 
+/**
+ * Warns when the memory free gave a model that just loaded too small a window to ever reach the
+ * auto-compact threshold set for it. Chats then compact earlier, at what the window allows.
+ */
+async function warnIfOutOfReach(modelId: string) {
+  const usage = await api.contextUsage(null, modelId).catch(() => null);
+  const model = findModel(useModels.getState().models, modelId);
+  if (!usage || !model || usage.threshold === null || usage.windowBy !== 'memory') return;
+  const note = unreachableNote(usage, model.name);
+  if (note) toast.warning('Auto-compact threshold out of reach', note);
+}
+
 /** Mirrors backend events into the stores for the lifetime of the app. */
 function subscribe(): Array<Promise<() => void>> {
   return [
     on('chat://event', (e) => useChats.getState().apply(e)),
     on('models://changed', (models) => useModels.getState().setModels(models)),
-    on('runtime://status', (status) => useModels.getState().setRuntime(status)),
+    on('runtime://status', (status) => {
+      const before = useModels.getState().runtime;
+      useModels.getState().setRuntime(status);
+      const loaded =
+        status.state === 'ready' &&
+        (before?.state !== 'ready' ||
+          before.modelId !== status.modelId ||
+          before.contextLength !== status.contextLength);
+      if (loaded && status.modelId) void warnIfOutOfReach(status.modelId);
+    }),
     on('downloads://changed', (job) => {
       const before = useModels.getState().downloads.find((j) => j.id === job.id);
       useModels.getState().upsertDownload(job);

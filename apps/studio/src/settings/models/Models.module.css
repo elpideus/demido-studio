@@ -288,3 +288,8 @@
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
+
+/* A threshold the model's window never reaches */
+.warning {
+  color: var(--warning);
+}

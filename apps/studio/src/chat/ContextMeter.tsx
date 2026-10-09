@@ -101,6 +101,7 @@ export function ContextMeter({ chatId, model, draft, running, onCompact }: Props
               {view.percentLabel} of context used
             </span>
             <span className={styles.tipText}>{view.headline}</span>
+            {view.warning && <span className={styles.tipWarning}>The threshold you set is never reached</span>}
             <span className={styles.tipHint}>Click for details</span>
           </span>
         }
@@ -137,7 +138,11 @@ export function ContextMeter({ chatId, model, draft, running, onCompact }: Props
           }}
           onSettings={() => {
             setOpen(false);
-            openWindow('settings', { tab: 'general' });
+            // Where the threshold in force is set: the model's own, or the one for every model.
+            openWindow(
+              'settings',
+              usage.custom?.scope === 'model' ? { tab: 'models', model: model.id } : { tab: 'general' },
+            );
           }}
         />
       </Popover>
@@ -224,7 +229,10 @@ function Details({ usage, view, draft, canCompact, onCompact, onSettings }: Deta
       <dl className={styles.facts}>
         <div className={styles.fact}>
           <dt>Auto-compact</dt>
-          <dd>{auto ? `at ${n(usage.threshold!)}` : 'Off'}</dd>
+          <dd>
+            {auto ? `at ${n(usage.threshold!)}` : 'Off'}
+            {auto && usage.custom?.scope === 'model' && <span className={styles.factNote}> · this model's own</span>}
+          </dd>
         </div>
         <div className={styles.fact}>
           <dt>Kept for the answer</dt>
@@ -234,8 +242,19 @@ function Details({ usage, view, draft, canCompact, onCompact, onSettings }: Deta
           <dt>Context window</dt>
           <dd>
             {n(usage.window)}
+            {usage.windowEstimated ? (
+              <span className={styles.factNote}> · may shrink on load</span>
+            ) : (
+              usage.windowBy === 'memory' && <span className={styles.factNote}> · as memory allows</span>
+            )}
           </dd>
         </div>
+        {usage.modelLimit !== null && usage.modelLimit > usage.window && (
+          <div className={styles.fact}>
+            <dt>Model reads up to</dt>
+            <dd>{n(usage.modelLimit)}</dd>
+          </div>
+        )}
         {usage.compactions > 0 && (
           <div className={styles.fact}>
             <dt>Compacted</dt>

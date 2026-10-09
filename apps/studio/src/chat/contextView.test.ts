@@ -7,10 +7,14 @@ function usage(fields: Partial<ContextUsage>): ContextUsage {
   return {
     window: 32_768,
     windowEstimated: false,
+    windowBy: 'model',
+    modelLimit: 32_768,
     reserve: 8_192,
     used: 4_000,
     counted: false,
     threshold: 20_889,
+    ceiling: 20_889,
+    custom: null,
     canCompact: true,
     compactions: 0,
     parts: { system: 1_000, tools: 1_000, summary: 0, files: 0, conversation: 2_000 },
@@ -71,5 +75,25 @@ describe('the context ring', () => {
     expect(estimateTokens('abcdef')).toBe(3);
     // Three bytes a character in UTF-8.
     expect(estimateTokens('日本語')).toBe(4);
+  });
+
+  it('warns when the threshold set is beyond what the window allows', () => {
+    const set = { tokens: 100_000, scope: 'model' as const };
+    const memory = usage({ windowBy: 'memory', modelLimit: 262_144, custom: set });
+    // Numbers as this machine writes them: 32,768 or 32.768.
+    const n = (x: number) => x.toLocaleString();
+    expect(contextView(memory, 0, false, 'Qwen').warning).toBe(
+      `With the memory free, Qwen has a window of ${n(32_768)} tokens, so chats compact at ${n(20_889)} tokens: ` +
+        `${n(100_000)} is never reached. Free up GPU memory, or lower the threshold.`,
+    );
+    expect(unreachableNote(usage({ custom: set }), 'Qwen')).toContain(`Qwen reads at most ${n(32_768)} tokens`);
+    expect(unreachableNote(usage({ windowBy: 'setting', custom: set }), 'Qwen')).toMatch(/context length is set/);
+  });
+
+  it('does not warn about a threshold that is reached, or with auto-compact off', () => {
+    expect(contextView(usage({ custom: { tokens: 12_000, scope: 'all' }, threshold: 12_000 })).warning).toBeNull();
+    expect(contextView(usage({ custom: { tokens: 100_000, scope: 'all' }, threshold: null })).warning).toBeNull();
+    expect(unreachableNote(usage({}), 'Qwen')).toBeNull();
+    expect(unreachableNote(usage({}), 'Qwen', 50_000)).toContain(`${(50_000).toLocaleString()} is never reached`);
   });
 });

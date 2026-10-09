@@ -14,6 +14,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
+use serde::Serialize;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -23,6 +24,7 @@ use crate::db::{Message, MessageStatus, Role};
 use crate::llm::openai::Dialect;
 use crate::llm::{ChatRequest, Client, GenParams, LlmError, LlmMessage, StreamEvent};
 use crate::models::{ModelEntry, ModelRegistry};
+use crate::settings::Settings;
 use crate::state::AppState;
 use crate::tools::clip;
 
@@ -57,14 +59,38 @@ pub fn threshold(context_tokens: usize, reserve: usize, custom: Option<u32>) -> 
     custom.map_or(limit, |t| (t as usize).clamp(MIN_TOKENS, limit))
 }
 
-/// [`threshold`] for `model` with the context its settings give it.
-pub fn threshold_for(model: &ModelEntry, custom: Option<u32>) -> usize {
-    let context = super::model_context(model);
-    threshold(
-        context,
-        answer_reserve(&ModelRegistry::gen_params(model), context),
-        custom,
-    )
+/// Whom a threshold the person set is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Scope {
+    /// This model, in its settings.
+    Model,
+    /// Every model without one of its own: Settings, General, or `/autocompact`.
+    All,
+}
+
+/// A threshold the person set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Custom {
+    pub tokens: u32,
+    pub scope: Scope,
+}
+
+/// The threshold the person set for `model`: its own, else the one for every model.
+pub fn custom(settings: &Settings, model: &ModelEntry) -> Option<Custom> {
+    custom_of(model.settings.auto_compact_tokens, settings.auto_compact_tokens)
+}
+
+fn custom_of(own: Option<u32>, all: Option<u32>) -> Option<Custom> {
+    own.map(|tokens| Custom {
+        tokens,
+        scope: Scope::Model,
+    })
+    .or(all.map(|tokens| Custom {
+        tokens,
+        scope: Scope::All,
+    }))
 }
 
 /// Estimated tokens of one message as the history shows it, `files` holding the files of user
@@ -597,6 +623,22 @@ mod tests {
             MIN_TOKENS,
             "a tiny window still has a floor"
         );
+    }
+
+    #[test]
+    fn a_models_own_threshold_wins_over_the_one_for_every_model() {
+        let own = |tokens| Custom {
+            tokens,
+            scope: Scope::Model,
+        };
+        let all = |tokens| Custom {
+            tokens,
+            scope: Scope::All,
+        };
+        assert_eq!(custom_of(Some(50_000), Some(12_000)), Some(own(50_000)));
+        assert_eq!(custom_of(None, Some(12_000)), Some(all(12_000)));
+        assert_eq!(custom_of(Some(8_000), None), Some(own(8_000)));
+        assert_eq!(custom_of(None, None), None);
     }
 
     #[test]

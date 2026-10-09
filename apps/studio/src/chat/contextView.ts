@@ -34,10 +34,36 @@ export interface ContextView {
   headline: string;
   /** What happens next, in a sentence or two. */
   outlook: string;
+  /** Why the threshold the person set is never reached, when it is not. */
+  warning: string | null;
 }
 
-/** The view of `usage` with `draft` tokens being written. */
-export function contextView(usage: ContextUsage, draft = 0, running = false): ContextView {
+/**
+ * Why a threshold of `tokens` (by default the one set) is never reached with `model`, whose window
+ * leaves room for `usage.ceiling` at most; null when it is reached, or nothing is set.
+ */
+export function unreachableNote(
+  usage: ContextUsage,
+  model: string,
+  tokens: number | null | undefined = usage.custom?.tokens,
+): string | null {
+  if (tokens == null || tokens <= usage.ceiling) return null;
+  const window = usage.window.toLocaleString();
+  const why =
+    usage.windowBy === 'memory'
+      ? `With the memory free, ${model} has a window of ${window} tokens`
+      : usage.windowBy === 'setting'
+        ? `${model}'s context length is set to ${window} tokens`
+        : `${model} reads at most ${window} tokens`;
+  const fix = usage.windowBy === 'memory' ? ' Free up GPU memory, or lower the threshold.' : '';
+  return (
+    `${why}, so chats compact at ${usage.ceiling.toLocaleString()} tokens: ` +
+    `${tokens.toLocaleString()} is never reached.${fix}`
+  );
+}
+
+/** The view of `usage` with `draft` tokens being written, with `model` (its name). */
+export function contextView(usage: ContextUsage, draft = 0, running = false, model = 'The model'): ContextView {
   const used = usage.used + draft;
   const room = Math.max(1, usage.window - usage.reserve);
   const limit = Math.max(1, usage.threshold ?? room);

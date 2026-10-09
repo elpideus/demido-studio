@@ -168,8 +168,14 @@ attempt is dropped, and the stats tooltip says how many tries it took.
 
 **Compaction.** Before a model call whose request reaches the threshold, the turns before the
 latest message are summarized (`agent::compact`). The threshold is 85% of what the context window
-leaves after the answer's share, or the lower `autoCompactTokens` set in Settings, General or with
-`/autocompact`. What a request uses is the last answer's exact token count plus an estimate of
+leaves after the answer's share, or a lower one set: the model's own (`autoCompactTokens` in its
+settings, Settings, Models), else the one for every model (Settings, General, or `/autocompact`).
+The window is what a local model's server took for the memory free, never more than the model is
+made for (`agent::model_limit`: the trained context its GGUF gives, or the limit its provider
+gives), so however large the GPU, a chat compacts before the model reads past what it was trained
+on. A threshold set above what the window allows is never reached: the context ring, the model
+editor and `/autocompact` say why (the memory, the context length set, or the model), and a model
+that loads with too little memory for the threshold set shows a warning. What a request uses is the last answer's exact token count plus an estimate of
 what came after it, never less than the estimate alone. The model writes the summary under fixed
 headings (goal, facts and decisions, files and data, done so far, open tasks), without thinking. A
 conversation too long for one request is summarized in parts, each part extending the summary so
@@ -537,7 +543,7 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | Folder | What |
 |---|---|
 | `shell` | Activity bar (Chats, Market, Mail, Settings), the safety notice, toasts |
-| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`; a divider where the chat was compacted), composer (the slash command list, `slashView.ts`), model and tools pickers, attached files (`Attachments.tsx`: the composer's tray and a sent message's files; `attachmentView.ts`: what a chip says) |
+| `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`; a divider where the chat was compacted), composer (the slash command list, `slashView.ts`; the context ring, `ContextMeter.tsx` and `contextView.ts`), model and tools pickers, attached files (`Attachments.tsx`: the composer's tray and a sent message's files; `attachmentView.ts`: what a chip says) |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
 | `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, General, Updates |
 | `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends, indicators (the Indicators menu, legends, the settings dialog, panes, script drawings, the assistant's drawings, the local fallback), the Pine Editor. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |

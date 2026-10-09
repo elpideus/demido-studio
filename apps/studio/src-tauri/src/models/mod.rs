@@ -48,6 +48,9 @@ pub struct ModelSettings {
     pub context_length: Option<u32>,
     pub gpu_layers: Option<u32>,
     pub thinking: Option<bool>,
+    /// The tokens at which a chat with this model is compacted, instead of the threshold for
+    /// every model (`Settings::auto_compact_tokens`). Never above what its window allows.
+    pub auto_compact_tokens: Option<u32>,
 }
 
 /// The settings in force for a model: its own, or the family defaults.

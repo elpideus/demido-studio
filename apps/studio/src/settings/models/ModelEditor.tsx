@@ -3,9 +3,11 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { ArrowLeft, ImageMinus, ImagePlus, RotateCcw, Save } from 'lucide-react';
 import { Avatar, Badge, Button, Field, Select, Slider, Switch, TextArea, TextField, formatBytes } from '@demido/ui';
 
+import { unreachableNote } from '@/chat/contextView';
 import { api, errorText } from '@/lib/api';
 import { fileUrl } from '@/lib/format';
-import type { ModelSettings } from '@/lib/types';
+import type { ContextUsage, ModelSettings } from '@/lib/types';
+import { useApp } from '@/stores/app';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
@@ -115,11 +117,27 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
   const runtime = useModels((st) => st.runtime);
   const [draft, setDraft] = useState<ModelSettings>(model?.settings ?? {});
   const [saving, setSaving] = useState(false);
+  const autoCompact = useApp((st) => st.settings?.autoCompact ?? true);
+  const allCompactAt = useApp((st) => st.settings?.autoCompactTokens ?? null);
+  // The window this model has, as a new chat would measure it: how high a threshold can go.
+  const [usage, setUsage] = useState<ContextUsage | null>(null);
+  const served = `${runtime?.state}:${runtime?.modelId}:${runtime?.contextLength}`;
 
   useEffect(() => {
     // Reset only when switching models, not on every refresh of the list.
     if (model) setDraft(model.settings);
   }, [id]);
+
+  useEffect(() => {
+    let current = true;
+    api.contextUsage(null, id).then(
+      (u) => current && setUsage(u),
+      () => current && setUsage(null),
+    );
+    return () => {
+      current = false;
+    };
+  }, [id, served, model?.settings]);
 
   const dirty = useMemo(
     () => JSON.stringify(normalize(draft)) !== JSON.stringify(normalize(model?.settings ?? {})),
@@ -168,6 +186,20 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
   };
   const maxContext = model.maxContext ?? 262144;
   const contextOptions = CONTEXTS.filter((c) => c <= Math.max(maxContext, 4096));
+  // The context Automatic gives this model: what its server took if it is loaded, else what the
+  // app chose, unknown when llama.cpp sizes it as the model loads.
+  const loaded = runtime?.state === 'ready' && runtime.modelId === model.id;
+  const autoContext =
+    model.settings.contextLength == null
+      ? ((loaded ? runtime.contextLength : null) ?? model.effective.contextLength)
+      : null;
+  // Measured with the context length saved, which the draft may change.
+  const compactNote =
+    usage && (draft.contextLength ?? null) === (model.settings.contextLength ?? null)
+      ? unreachableNote(usage, draft.name || model.defaultName, draft.autoCompactTokens ?? allCompactAt)
+      : null;
+  // Where the setting for every model compacts this one: no higher than its window allows.
+  const inheritedAt = usage ? Math.min(allCompactAt ?? Infinity, usage.ceiling) : null;
 
   return (
     <div className={s.page}>
@@ -330,6 +362,32 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
                   />
                 </Field>
               )}
+              <Field
+                label="Compact at"
+                description={
+                  !autoCompact ? (
+                    'Auto-compact is off for every model, in Settings, General.'
+                  ) : compactNote ? (
+                    <span className={styles.warning}>{compactNote}</span>
+                  ) : (
+                    'Tokens at which chats with this model are summarized. Leave empty to use the setting for ' +
+                    `every model${inheritedAt ? `, ${inheritedAt.toLocaleString()} tokens for this one` : ''}.`
+                  )
+                }
+              >
+                <TextField
+                  type="number"
+                  min={1000}
+                  value={draft.autoCompactTokens ?? ''}
+                  placeholder={allCompactAt ? `${allCompactAt.toLocaleString()} (every model)` : 'Automatic'}
+                  disabled={!autoCompact}
+                  onChange={(e) => set({ autoCompactTokens: e.target.value ? Number(e.target.value) : null })}
+                  onBlur={() =>
+                    draft.autoCompactTokens != null &&
+                    set({ autoCompactTokens: Math.max(1000, draft.autoCompactTokens) })
+                  }
+                />
+              </Field>
               {local && (
                 <Field label="GPU layers" description="Auto fits as much of the model on the GPU as fits.">
                   <TextField

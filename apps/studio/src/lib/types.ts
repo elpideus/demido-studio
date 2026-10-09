@@ -88,6 +88,46 @@ export interface SummaryStats {
   parts?: number;
 }
 
+/** What decides how large a model's window is: what the model is made for, the memory free, or
+ * the context length set in its settings. */
+export type WindowBy = 'model' | 'memory' | 'setting';
+
+/** An auto-compact threshold the person set, for one model or for every model. */
+export interface CustomThreshold {
+  tokens: number;
+  scope: 'model' | 'all';
+}
+
+/** How full a chat's context window is, measured as a turn measures it before compacting. */
+export interface ContextUsage {
+  /** Tokens the model reads at once. */
+  window: number;
+  /** A local model not loaded yet: its server may give it a smaller window when it loads. */
+  windowEstimated: boolean;
+  /** What decides `window`. */
+  windowBy: WindowBy;
+  /** Tokens the model is made for (trained on, or its provider takes); `window` is never more. */
+  modelLimit: number | null;
+  /** Tokens of the window every request keeps for the answer. */
+  reserve: number;
+  /** Tokens the next request takes as the chat stands, before the message being written. */
+  used: number;
+  /** `used` is the model's own count of its latest answer rather than an estimate. */
+  counted: boolean;
+  /** Tokens at which the chat is compacted; null with auto-compact off. */
+  threshold: number | null;
+  /** The highest threshold the window allows: where the chat compacts unless a lower one is set. */
+  ceiling: number;
+  /** The threshold the person set. Above `ceiling`, it is never reached. */
+  custom: CustomThreshold | null;
+  /** There is an older part worth summarizing; without one, a full chat drops its oldest messages. */
+  canCompact: boolean;
+  /** Summaries written in this chat so far. */
+  compactions: number;
+  /** `used`, part by part. */
+  parts: { system: number; tools: number; summary: number; files: number; conversation: number };
+}
+
 /** The slash command that wrote a user message: `/name args`. */
 export interface CommandUse {
   name: string;
@@ -192,6 +232,8 @@ export interface ModelSettings {
   contextLength?: number | null;
   gpuLayers?: number | null;
   thinking?: boolean | null;
+  /** Tokens at which chats with this model are compacted, instead of the threshold for every model. */
+  autoCompactTokens?: number | null;
 }
 
 export interface EffectiveSettings {

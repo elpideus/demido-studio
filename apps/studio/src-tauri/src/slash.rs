@@ -12,11 +12,11 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use crate::agent::{Agent, compact};
+use crate::agent::{Agent, compact, usage};
 use crate::bail_msg;
 use crate::db::{Chat, CommandUse, Message};
 use crate::error::CmdResult;
-use crate::models::ModelEntry;
+use crate::models::{ModelEntry, ModelRegistry};
 use crate::settings::Settings;
 use crate::skills::{Skill, SkillCommand, SkillRegistry};
 use crate::state::AppState;
@@ -178,7 +178,7 @@ fn autocompact(state: &Arc<AppState>, args: &str, model_id: &str) -> CmdResult<O
         "" => {
             return Ok(Outcome::Done {
                 title: "Auto-compact".into(),
-                text: describe(&state.settings.get(), model.as_ref()),
+                text: describe(state, &state.settings.get(), model.as_ref()),
                 settings: None,
             });
         }
@@ -214,13 +214,13 @@ fn autocompact(state: &Arc<AppState>, args: &str, model_id: &str) -> CmdResult<O
     };
     Ok(Outcome::Done {
         title: "Auto-compact".into(),
-        text: describe(&settings, model.as_ref()),
+        text: describe(state, &settings, model.as_ref()),
         settings: Some(settings),
     })
 }
 
 /// When compaction happens under `settings`, and what that means for `model`.
-fn describe(settings: &Settings, model: Option<&ModelEntry>) -> String {
+fn describe(state: &AppState, settings: &Settings, model: Option<&ModelEntry>) -> String {
     if !settings.auto_compact {
         return "Off. Chats are compacted only when you type /compact.".into();
     }
@@ -229,19 +229,49 @@ fn describe(settings: &Settings, model: Option<&ModelEntry>) -> String {
         Some(t) => format!("On, at {} tokens.", group(t as u64)),
         None => format!("On, at {share}% of the room the model's context window leaves."),
     };
-    if let Some(m) = model {
-        let at = compact::threshold_for(m, settings.auto_compact_tokens) as u64;
-        match settings.auto_compact_tokens {
-            Some(t) if t as u64 > at => text.push_str(&format!(
-                " {} has less room than that, so it compacts at {} tokens.",
-                m.name,
-                group(at)
-            )),
-            None => text.push_str(&format!(" For {}, that is about {} tokens.", m.name, group(at))),
-            _ => {}
+    let Some(m) = model else {
+        return text;
+    };
+    let window = usage::window_of(state, m);
+    let reserve = compact::answer_reserve(&ModelRegistry::gen_params(m), window.tokens);
+    let ceiling = compact::threshold(window.tokens, reserve, None) as u64;
+    let custom = compact::custom(settings, m);
+    if let Some(c) = custom.filter(|c| c.scope == compact::Scope::Model) {
+        text.push_str(&format!(
+            " {} has its own, {} tokens, set in Settings, Models.",
+            m.name,
+            group(c.tokens as u64)
+        ));
+    }
+    match custom {
+        Some(c) if c.tokens as u64 > ceiling => {
+            text.push_str(&format!(
+                " {}, so it compacts at {} tokens: {} is never reached.",
+                why_less(m, window),
+                group(ceiling),
+                group(c.tokens as u64)
+            ));
+            if window.by == usage::WindowBy::Memory {
+                text.push_str(" Free up GPU memory, or lower the threshold.");
+            }
         }
+        None => text.push_str(&format!(" For {}, that is about {} tokens.", m.name, group(ceiling))),
+        _ => {}
     }
     text
+}
+
+/// Why `model` has no more room than `window`, as the start of a sentence.
+fn why_less(model: &ModelEntry, window: usage::Window) -> String {
+    let tokens = group(window.tokens as u64);
+    match window.by {
+        usage::WindowBy::Memory => format!("With the memory free, {} has a window of {tokens} tokens", model.name),
+        usage::WindowBy::Setting => format!(
+            "{}'s context length is set to {tokens} tokens in Settings, Models",
+            model.name
+        ),
+        usage::WindowBy::Model => format!("{} reads at most {tokens} tokens", model.name),
+    }
 }
 
 /// `n` with thousands separators: 12,300.

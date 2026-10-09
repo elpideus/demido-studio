@@ -45,6 +45,84 @@ function RuntimeLogs({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
+/**
+ * When long chats are summarized to fit the model's context window. The threshold goes through
+ * `/autocompact`, which reads it however it is written and says what it means for the model.
+ */
+function AutoCompact({ settings }: { settings: Settings }) {
+  const patch = useApp((st) => st.patchSettings);
+  const models = useModels((st) => st.models);
+  const model = models.find((m) => m.isDefault && m.enabled) ?? models.find((m) => m.enabled);
+  const modelId = model?.id ?? '';
+  // What the model can reach changes with the window its server took as it loaded.
+  const runtime = useModels((st) => st.runtime);
+  const served = `${runtime?.state}:${runtime?.modelId}:${runtime?.contextLength}`;
+  const saved = settings.autoCompactTokens == null ? '' : settings.autoCompactTokens.toLocaleString();
+  // What is being typed; null while the saved value shows.
+  const [draft, setDraft] = useState<string | null>(null);
+  const [meaning, setMeaning] = useState<string | null>(null);
+
+  const autocompact = useCallback(
+    async (args: string) => {
+      const outcome = await api.runSlashCommand(null, `/autocompact ${args}`.trim(), modelId, []);
+      if (outcome.kind !== 'done') return;
+      if (outcome.settings) useApp.setState({ settings: outcome.settings });
+      setMeaning(outcome.text);
+    },
+    [modelId],
+  );
+
+  useEffect(() => {
+    autocompact('').catch(() => setMeaning(null));
+  }, [autocompact, settings.autoCompact, settings.autoCompactTokens, served, model?.settings]);
+
+  const commit = () => {
+    if (draft === null) return;
+    const text = draft.trim();
+    setDraft(null);
+    if (text === saved) return;
+    autocompact(text || 'auto').catch((e) => toast.error('Could not change when chats are compacted', errorText(e)));
+  };
+
+  return (
+    <div className={`${s.card} ${s.cardPad} ${s.stack}`}>
+      <Field
+        layout="inline"
+        label="Compact long chats automatically"
+        description={
+          meaning ?? "Summarizes the earlier conversation when a chat nears the end of the model's context window."
+        }
+      >
+        <Switch
+          checked={settings.autoCompact ?? true}
+          onChange={(v) => void patch({ autoCompact: v })}
+          label="Compact long chats automatically"
+        />
+      </Field>
+      <Field
+        layout="inline"
+        label="Compact at"
+        description="Tokens, such as 12000, 12k or 12.5k. Leave it empty to compact just before the context window is full. A model can have its own, in Settings, Models. Type /compact in a chat to compact it now."
+      >
+        <TextField
+          size="sm"
+          className={styles.tokens}
+          aria-label="Compact at"
+          placeholder="Automatic"
+          value={draft ?? saved}
+          disabled={settings.autoCompact === false}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+            else if (e.key === 'Escape') setDraft(null);
+          }}
+        />
+      </Field>
+    </div>
+  );
+}
+
 export function GeneralTab() {
   const info = useApp((st) => st.info);
   const settings = useApp((st) => st.settings);

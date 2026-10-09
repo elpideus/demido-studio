@@ -270,7 +270,7 @@ impl Agent {
                     chat_id: &chat_id,
                     model: &model,
                     client: &client,
-                    context_tokens: served_context.unwrap_or(model_context(&model)),
+                    context_tokens: window(&model, served_context),
                     messages: &messages,
                     at: compact::Place::End,
                     focus: focus.as_deref(),
@@ -328,16 +328,34 @@ impl Agent {
     }
 }
 
-/// A model's context window as its settings give it; a local model's server may give it less
-/// (see [`client_for`]).
+/// The most context `model` is made for: what a local model was trained on (its GGUF says), what
+/// a cloud model's provider takes. `None` when that is unknown.
+pub(crate) fn model_limit(model: &ModelEntry) -> Option<usize> {
+    model.max_context.filter(|&c| c > 0).map(|c| c as usize)
+}
+
+/// A model's context window as its settings give it, never more than [`model_limit`]; a local
+/// model's server may give it less (see [`client_for`]).
 pub(crate) fn model_context(model: &ModelEntry) -> usize {
+    let limit = model_limit(model);
     model
         .effective
         .context_length
         .map(|c| c as usize)
-        .or(model.max_context.map(|c| c as usize))
+        .or(limit)
         .unwrap_or(32_768)
+        .min(limit.unwrap_or(usize::MAX))
         .min(1_000_000)
+}
+
+/// The window a request with `model` has: what a local model's server took (`served`, as much as
+/// the memory free allows), else what its settings give it. Never more than the model is made
+/// for, however much memory there is: past its limit, a model loses track of what it reads.
+pub(crate) fn window(model: &ModelEntry, served: Option<usize>) -> usize {
+    match served {
+        Some(served) => served.min(model_limit(model).unwrap_or(usize::MAX)),
+        None => model_context(model),
+    }
 }
 
 /// What every request of a turn starts with: the system prompt and the tools.
@@ -474,8 +492,6 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         );
     }
     let workspace = state.paths.workspace(chat_id);
-    // A cloud model's context; a local model's is what its server took (see the loop).
-    let model_context = model_context(&model);
     let params = ModelRegistry::gen_params(&model);
     tools::prepare(&state.settings.get()).await;
     // The message this turn answers as the search model put it, with its id.
@@ -495,7 +511,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         // Resolved every step: a long tool call or approval wait may outlive the local runtime
         // (unloaded, restarted on another port, with another context), and this brings it back.
         let (client, served_context) = client_for(state, &model).await?;
-        let context_tokens = served_context.unwrap_or(model_context);
+        let context_tokens = window(&model, served_context);
         let settings = state.settings.get();
         let chat_messages = state.db.list_messages(chat_id)?;
         let Frame {
@@ -537,7 +553,8 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
 
         // Near the end of the context window, the turns before this one become a summary.
         if settings.auto_compact && !compact_tried {
-            let limit = compact::threshold(context_tokens, reserve, settings.auto_compact_tokens);
+            let custom = compact::custom(&settings, &model).map(|c| c.tokens);
+            let limit = compact::threshold(context_tokens, reserve, custom);
             let whole = fixed + prompt::estimate_history(&prompt::history(&messages, usize::MAX, &files));
             let used = compact::request_tokens(&messages, &files, whole, token_ratio);
             if used >= limit
