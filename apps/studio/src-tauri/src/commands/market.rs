@@ -79,7 +79,11 @@ pub async fn market_close_stream(state: St<'_>, stream_id: String) -> CmdResult<
 pub async fn market_extend_stream(state: St<'_>, stream_id: String, bars: u32) -> CmdResult<Value> {
     state
         .market
-        .call("stream.extend", json!({"id": stream_id, "bars": bars}), Duration::from_secs(10))
+        .call(
+            "stream.extend",
+            json!({"id": stream_id, "bars": bars}),
+            Duration::from_secs(10),
+        )
         .await
         .map_err(rpc)
 }
@@ -172,29 +176,50 @@ pub async fn market_pine_list(state: St<'_>) -> CmdResult<Value> {
 
 #[tauri::command]
 pub async fn market_pine_get(state: St<'_>, id: String) -> CmdResult<Value> {
-    state.market.call("pine.get", json!({"id": id}), PINE_LOCAL).await.map_err(rpc)
+    state
+        .market
+        .call("pine.get", json!({"id": id}), PINE_LOCAL)
+        .await
+        .map_err(rpc)
 }
 
 /// Creates a script (no `id`) or replaces one's source.
 #[tauri::command]
-pub async fn market_pine_save(state: St<'_>, id: Option<String>, source: String, name: Option<String>) -> CmdResult<Value> {
+pub async fn market_pine_save(
+    state: St<'_>,
+    id: Option<String>,
+    source: String,
+    name: Option<String>,
+) -> CmdResult<Value> {
     state
         .market
-        .call("pine.save", json!({"id": id, "source": source, "name": name}), PINE_LOCAL)
+        .call(
+            "pine.save",
+            json!({"id": id, "source": source, "name": name}),
+            PINE_LOCAL,
+        )
         .await
         .map_err(rpc)
 }
 
 #[tauri::command]
 pub async fn market_pine_delete(state: St<'_>, id: String) -> CmdResult<()> {
-    state.market.call("pine.delete", json!({"id": id}), PINE_LOCAL).await.map_err(rpc)?;
+    state
+        .market
+        .call("pine.delete", json!({"id": id}), PINE_LOCAL)
+        .await
+        .map_err(rpc)?;
     Ok(())
 }
 
 /// Compiles with TradingView's compiler without saving anything.
 #[tauri::command]
 pub async fn market_pine_check(state: St<'_>, source: String) -> CmdResult<Value> {
-    state.market.call("pine.check", json!({"source": source}), PINE_FACADE).await.map_err(rpc)
+    state
+        .market
+        .call("pine.check", json!({"source": source}), PINE_FACADE)
+        .await
+        .map_err(rpc)
 }
 
 /// Saves a library script to the user's TradingView account; the person asked for it in the
@@ -211,7 +236,11 @@ pub async fn market_pine_publish(state: St<'_>, id: String, name: Option<String>
 /// Copies a TradingView script's source into the library.
 #[tauri::command]
 pub async fn market_pine_import(state: St<'_>, script: String) -> CmdResult<Value> {
-    state.market.call("pine.import", json!({"script": script}), PINE_FACADE).await.map_err(rpc)
+    state
+        .market
+        .call("pine.import", json!({"script": script}), PINE_FACADE)
+        .await
+        .map_err(rpc)
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -47,7 +47,10 @@ describe('savedIndicators', () => {
 
 describe('new indicators', () => {
   it("start from a menu entry with TradingView's defaults, under a free key", () => {
-    const s = fromEntry({ id: 'STD;RSI', version: '1', name: 'Relative strength index', short: 'RSI', kind: 'study' }, new Set());
+    const s = fromEntry(
+      { id: 'STD;RSI', version: '1', name: 'Relative strength index', short: 'RSI', kind: 'study' },
+      new Set(),
+    );
     expect(s).toMatchObject({ script: 'STD;RSI', version: '1', name: 'RSI', setup: {} });
     expect(s.key).toMatch(/^[a-z0-9]+$/);
     expect(s.hidden).toBeUndefined();
@@ -58,13 +61,24 @@ describe('new indicators', () => {
       { id: 'PUB;x', version: '', name: 'Squeeze', hidden: true, state: { inputs: { in_0: 3 } } },
       new Set(['taken']),
     );
-    expect(s).toMatchObject({ script: 'PUB;x', version: null, name: 'Squeeze', setup: { inputs: { in_0: 3 } }, hidden: true });
+    expect(s).toMatchObject({
+      script: 'PUB;x',
+      version: null,
+      name: 'Squeeze',
+      setup: { inputs: { in_0: 3 } },
+      hidden: true,
+    });
     expect(s.key).not.toBe('taken');
   });
 
   it("start from a library script, with the assistant's inputs if any", () => {
     const s = fromPine({ id: 'abc123', name: 'My cross' }, new Set(), { Length: 9 });
-    expect(s).toMatchObject({ script: 'DEMIDO;abc123', version: null, name: 'My cross', setup: { inputs: { Length: 9 } } });
+    expect(s).toMatchObject({
+      script: 'DEMIDO;abc123',
+      version: null,
+      name: 'My cross',
+      setup: { inputs: { Length: 9 } },
+    });
     expect(fromPine({ id: 'abc123', name: 'x' }, new Set(), {}).setup).toEqual({});
     expect(pineId(s.script)).toBe('abc123');
     expect(pineId('USER;abc123')).toBeNull();

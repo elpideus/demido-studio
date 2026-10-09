@@ -160,11 +160,7 @@ test('strategies are recognised', () => {
 
 test('rows run oldest first with "na" as null', () => {
   const rows = rowsOf(
-    [
-      { $time: 200, plot_0: 2, plot_1: 1e100 },
-      { $time: 100, plot_0: 1, plot_1: 3 },
-      { plot_0: 9 },
-    ],
+    [{ $time: 200, plot_0: 2, plot_1: 1e100 }, { $time: 100, plot_0: 1, plot_1: 3 }, { plot_0: 9 }],
     ['plot_0', 'plot_1'],
   );
   assert.deepEqual(rows, [
@@ -270,7 +266,12 @@ test('a chart layout yields its script studies with their state and pane', () =>
               {
                 type: 'Study',
                 metaInfo: 'Script$USER;abc@tv-scripting-101[v.110.0]',
-                state: { visible: false, inputs: { in_0: 5, text: 'body', in_1: { nested: 1 } }, styles: {}, palettes: {} },
+                state: {
+                  visible: false,
+                  inputs: { in_0: 5, text: 'body', in_1: { nested: 1 } },
+                  styles: {},
+                  palettes: {},
+                },
               },
               { type: 'Study', metaInfo: 'Volume@tv-basicstudies-251', state: {} },
             ],
@@ -316,7 +317,8 @@ test('a runtime error names the line and the bar, without the server', () => {
   const args = [
     {
       ctx: { funcName: 'get', index: 3, code: 'RE10045', size: 0, bar_index: 0 },
-      error: "Error on bar {bar_index}: In 'array.{funcName}()' function. Index {index} is out of bounds, array size is {size}.",
+      error:
+        "Error on bar {bar_index}: In 'array.{funcName}()' function. Index {index} is out of bounds, array size is {size}.",
       stack_trace: [{ n: '#main', p: 4 }],
     },
     'some-server@some-server',

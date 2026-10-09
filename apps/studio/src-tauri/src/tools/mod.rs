@@ -739,10 +739,11 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
 
 /// The title a Pine source declares (`indicator("Title", …)`), for labels.
 fn pine_title(source: &str) -> Option<String> {
-    let line = source
-        .lines()
-        .map(str::trim_start)
-        .find(|l| ["indicator", "strategy", "library", "study"].iter().any(|k| l.starts_with(k)))?;
+    let line = source.lines().map(str::trim_start).find(|l| {
+        ["indicator", "strategy", "library", "study"]
+            .iter()
+            .any(|k| l.starts_with(k))
+    })?;
     let start = line.find(['"', '\''])?;
     let quote = line[start..].chars().next()?;
     let rest = &line[start + 1..];
@@ -824,7 +825,10 @@ mod tests {
 
     #[test]
     fn pine_titles_label_the_save() {
-        assert_eq!(pine_title("//@version=6\nindicator(\"RSI cross\", overlay=true)").as_deref(), Some("RSI cross"));
+        assert_eq!(
+            pine_title("//@version=6\nindicator(\"RSI cross\", overlay=true)").as_deref(),
+            Some("RSI cross")
+        );
         assert_eq!(pine_title("strategy('Edge')").as_deref(), Some("Edge"));
         assert_eq!(pine_title("plot(close)"), None);
     }

@@ -16,7 +16,10 @@ import {
 } from '../src/indicators/pine.ts';
 
 test('compiler messages are filled in and placed', () => {
-  assert.equal(fillMessage('Undeclared identifier "{identifier}"', { identifier: 'lenx' }), 'Undeclared identifier "lenx"');
+  assert.equal(
+    fillMessage('Undeclared identifier "{identifier}"', { identifier: 'lenx' }),
+    'Undeclared identifier "lenx"',
+  );
   assert.equal(fillMessage('Keeps {unknown} as is', {}), 'Keeps {unknown} as is');
   assert.deepEqual(
     messageOf({
@@ -38,7 +41,10 @@ test('the declaration gives the kind and the title', () => {
     kind: 'indicator',
     title: 'RSI cross',
   });
-  assert.deepEqual(declaration("//@version=6\nstrategy(title = 'My \\'edge\\'')\n"), { kind: 'strategy', title: "My 'edge'" });
+  assert.deepEqual(declaration("//@version=6\nstrategy(title = 'My \\'edge\\'')\n"), {
+    kind: 'strategy',
+    title: "My 'edge'",
+  });
   assert.deepEqual(declaration('//@version=4\nstudy("Old")\n'), { kind: 'indicator', title: 'Old' });
   assert.deepEqual(declaration('//@version=6\nlibrary("Utils")\n'), { kind: 'library', title: 'Utils' });
   assert.deepEqual(declaration('plot(close)\n'), { kind: null, title: '' });
@@ -75,7 +81,10 @@ test('the library saves, renames from the title, counts revisions and deletes', 
 
   const same = await lib.save({ id: s.id, source: SOURCE });
   assert.equal(same.revision, 1);
-  const edited = await lib.save({ id: s.id, source: SOURCE.replace('Close plus one', 'Close plus two').replace('+ 1', '+ 2') });
+  const edited = await lib.save({
+    id: s.id,
+    source: SOURCE.replace('Close plus one', 'Close plus two').replace('+ 1', '+ 2'),
+  });
   assert.equal(edited.revision, 2);
   assert.equal(edited.name, 'Close plus two');
   const named = await lib.save({ id: s.id, source: edited.source, name: '  My   script ' });

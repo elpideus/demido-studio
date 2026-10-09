@@ -57,7 +57,8 @@ const SECTIONS: Array<{ id: Section; label: string; icon: LucideIcon }> = [
 
 /** Whether TradingView shares a script's source, so it can be opened in the Pine Editor. */
 const editable = (e: IndicatorEntry) =>
-  e.kind !== 'strategy' && (e.id.startsWith('USER;') || (e.id.startsWith('PUB;') && (!e.access || e.access === 'open')));
+  e.kind !== 'strategy' &&
+  (e.id.startsWith('USER;') || (e.id.startsWith('PUB;') && (!e.access || e.access === 'open')));
 
 // Kept between openings (the sidecar caches them too): the menu opens on what was there.
 let catalogCache: IndicatorCatalog | null = null;
@@ -237,8 +238,8 @@ export function IndicatorMenu({
             </Button>
           }
         >
-          Your favorites, your scripts, your chart layouts and the community library come from your TradingView
-          account. Meanwhile, these are computed on this computer from the chart's bars.
+          Your favorites, your scripts, your chart layouts and the community library come from your TradingView account.
+          Meanwhile, these are computed on this computer from the chart's bars.
         </Notice>
         <div className={styles.resultsTitle}>Computed on this computer</div>
         {list(q ? matching(LOCAL_ENTRIES) : LOCAL_ENTRIES, 'No indicator matches.')}
@@ -396,7 +397,9 @@ function EntryRow({
         onClick={() => onAdd(entry)}
       >
         <span className={styles.indicatorEntryName}>{entry.name}</span>
-        <span className={styles.resultMeta}>{entry.author ?? (entry.short && entry.short !== entry.name ? entry.short : '')}</span>
+        <span className={styles.resultMeta}>
+          {entry.author ?? (entry.short && entry.short !== entry.name ? entry.short : '')}
+        </span>
         <span className={styles.indicatorEntryBadges}>
           {strategy && <Badge>Strategy</Badge>}
           {access && <Badge tone="warning">{access}</Badge>}
@@ -449,16 +452,27 @@ function PineRow({
           {script.lines} {script.lines === 1 ? 'line' : 'lines'}
         </span>
         <span className={styles.indicatorEntryBadges}>
-          {script.kind && script.kind !== 'indicator' && <Badge>{script.kind === 'strategy' ? 'Strategy' : 'Library'}</Badge>}
+          {script.kind && script.kind !== 'indicator' && (
+            <Badge>{script.kind === 'strategy' ? 'Strategy' : 'Library'}</Badge>
+          )}
           {tv && (
-            <Badge tone={tv.changed ? 'warning' : 'accent'} title={tv.changed ? 'Changed since it was saved to TradingView' : 'Saved to your TradingView account'}>
+            <Badge
+              tone={tv.changed ? 'warning' : 'accent'}
+              title={tv.changed ? 'Changed since it was saved to TradingView' : 'Saved to your TradingView account'}
+            >
               {tv.changed ? 'TradingView: changed' : 'On TradingView'}
             </Badge>
           )}
           {added && <Check size={14} className={styles.indicatorAdded} aria-label="Added" />}
         </span>
       </button>
-      <IconButton icon={Pencil} label="Edit in the Pine Editor" size="sm" className={styles.indicatorEntryAction} onClick={onEdit} />
+      <IconButton
+        icon={Pencil}
+        label="Edit in the Pine Editor"
+        size="sm"
+        className={styles.indicatorEntryAction}
+        onClick={onEdit}
+      />
     </div>
   );
 }
@@ -540,10 +554,20 @@ function Layouts({ onImport }: { onImport: IndicatorMenuProps['onImport'] }) {
             )}
             {layout.studies.length > 0 && (
               <div className={styles.indicatorImport}>
-                <Button size="sm" variant="secondary" disabled={!studies.length} onClick={() => onImport(layout, studies, true)}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!studies.length}
+                  onClick={() => onImport(layout, studies, true)}
+                >
                   Replace the chart's indicators
                 </Button>
-                <Button size="sm" variant="primary" disabled={!studies.length} onClick={() => onImport(layout, studies, false)}>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={!studies.length}
+                  onClick={() => onImport(layout, studies, false)}
+                >
                   Add to chart
                 </Button>
               </div>

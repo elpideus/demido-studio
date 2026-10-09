@@ -1,622 +1,605 @@
 {
- "TVScriptMetaInfoExprs": {
-  "patchMap": {
-   "defaults.filledAreasStyle.fill_3.visible": "rm_9",
-   "defaults.styles.plot_2.display": "rm_3",
-   "defaults.styles.plot_3.display": "rm_7",
-   "defaults.styles.plot_4.display": "rm_7",
-   "filledAreasStyle.fill_3.isHidden": "rm_10",
-   "inputs.8.active": "rm_1",
-   "inputs.9.active": "rm_2",
-   "styles.plot_11.isHidden": "rm_20",
-   "styles.plot_2.isHidden": "rm_4",
-   "styles.plot_3.isHidden": "rm_10",
-   "styles.plot_4.isHidden": "rm_10",
-   "styles.plot_6.isHidden": "rm_20",
-   "styles.plot_8.isHidden": "rm_20",
-   "styles.plot_9.isHidden": "rm_20"
+  "TVScriptMetaInfoExprs": {
+    "patchMap": {
+      "defaults.filledAreasStyle.fill_3.visible": "rm_9",
+      "defaults.styles.plot_2.display": "rm_3",
+      "defaults.styles.plot_3.display": "rm_7",
+      "defaults.styles.plot_4.display": "rm_7",
+      "filledAreasStyle.fill_3.isHidden": "rm_10",
+      "inputs.8.active": "rm_1",
+      "inputs.9.active": "rm_2",
+      "styles.plot_11.isHidden": "rm_20",
+      "styles.plot_2.isHidden": "rm_4",
+      "styles.plot_3.isHidden": "rm_10",
+      "styles.plot_4.isHidden": "rm_10",
+      "styles.plot_6.isHidden": "rm_20",
+      "styles.plot_8.isHidden": "rm_20",
+      "styles.plot_9.isHidden": "rm_20"
+    },
+    "tree": "//@version=6\n##root(root_metainfo,rm_0,'price',\"const&&string\",indicator,format,'2_69_2_80')\ncalculateDivergence=##input(defval=false,type='INPUT_BOOL',##id='in_2')\nmaTypeInput=##input(defval='SMA',type='INPUT_STRING',##id='in_3')\nvar isBB=(maTypeInput=='SMA + Bollinger Bands')\n##root(root_metainfo,rm_1,##active('in_4',(maTypeInput!='None')),\"input&&bool\")\n##root(root_metainfo,rm_2,##active('in_5',isBB),\"input&&bool\")\nvar enableMA=(maTypeInput!='None')\n##root(root_metainfo,rm_3,(enableMA?display.all:display.none),\"cb&&input&&plot_display&&integer\",plot,display,'44_65_44_101')\n##root(root_metainfo,rm_4,(not enableMA),\"input&&bool\")\n##root(root_metainfo,rm_5,(isBB?display.all:display.none),\"cb&&input&&plot_display&&integer\",plot,display,'45_111_45_143')\n##root(root_metainfo,rm_6,(not isBB),\"input&&bool\")\n##root(root_metainfo,rm_7,(isBB?display.all:display.none),\"cb&&input&&plot_display&&integer\",plot,display,'46_111_46_143')\n##root(root_metainfo,rm_8,(not isBB),\"input&&bool\")\n##root(root_metainfo,rm_9,(isBB?display.all:display.none),\"cb&&input&&plot_simple_display&&bool\",fill,display,'47_130_47_162')\n##root(root_metainfo,rm_10,(not isBB),\"input&&bool\")\n##root(root_metainfo,rm_11,2,\"input&&integer\",plot,linewidth,'97_18_97_18')\n##root(root_metainfo,rm_12,(not calculateDivergence),\"input&&bool\")\n##root(root_metainfo,rm_13,'shape_label_up',\"input&&string\",plotshape,style,'107_18_107_30')\n##root(root_metainfo,rm_14,'Absolute',\"input&&string\",plotshape,location,'108_18_108_34')\n##root(root_metainfo,rm_15,(not calculateDivergence),\"input&&bool\")\n##root(root_metainfo,rm_16,2,\"input&&integer\",plot,linewidth,'118_18_118_18')\n##root(root_metainfo,rm_17,(not calculateDivergence),\"input&&bool\")\n##root(root_metainfo,rm_18,'shape_label_down',\"input&&string\",plotshape,style,'128_18_128_32')\n##root(root_metainfo,rm_19,'Absolute',\"input&&string\",plotshape,location,'129_18_129_34')\n##root(root_metainfo,rm_20,(not calculateDivergence),\"input&&bool\")\n"
   },
-  "tree": "//@version=6\n##root(root_metainfo,rm_0,'price',\"const&&string\",indicator,format,'2_69_2_80')\ncalculateDivergence=##input(defval=false,type='INPUT_BOOL',##id='in_2')\nmaTypeInput=##input(defval='SMA',type='INPUT_STRING',##id='in_3')\nvar isBB=(maTypeInput=='SMA + Bollinger Bands')\n##root(root_metainfo,rm_1,##active('in_4',(maTypeInput!='None')),\"input&&bool\")\n##root(root_metainfo,rm_2,##active('in_5',isBB),\"input&&bool\")\nvar enableMA=(maTypeInput!='None')\n##root(root_metainfo,rm_3,(enableMA?display.all:display.none),\"cb&&input&&plot_display&&integer\",plot,display,'44_65_44_101')\n##root(root_metainfo,rm_4,(not enableMA),\"input&&bool\")\n##root(root_metainfo,rm_5,(isBB?display.all:display.none),\"cb&&input&&plot_display&&integer\",plot,display,'45_111_45_143')\n##root(root_metainfo,rm_6,(not isBB),\"input&&bool\")\n##root(root_metainfo,rm_7,(isBB?display.all:display.none),\"cb&&input&&plot_display&&integer\",plot,display,'46_111_46_143')\n##root(root_metainfo,rm_8,(not isBB),\"input&&bool\")\n##root(root_metainfo,rm_9,(isBB?display.all:display.none),\"cb&&input&&plot_simple_display&&bool\",fill,display,'47_130_47_162')\n##root(root_metainfo,rm_10,(not isBB),\"input&&bool\")\n##root(root_metainfo,rm_11,2,\"input&&integer\",plot,linewidth,'97_18_97_18')\n##root(root_metainfo,rm_12,(not calculateDivergence),\"input&&bool\")\n##root(root_metainfo,rm_13,'shape_label_up',\"input&&string\",plotshape,style,'107_18_107_30')\n##root(root_metainfo,rm_14,'Absolute',\"input&&string\",plotshape,location,'108_18_108_34')\n##root(root_metainfo,rm_15,(not calculateDivergence),\"input&&bool\")\n##root(root_metainfo,rm_16,2,\"input&&integer\",plot,linewidth,'118_18_118_18')\n##root(root_metainfo,rm_17,(not calculateDivergence),\"input&&bool\")\n##root(root_metainfo,rm_18,'shape_label_down',\"input&&string\",plotshape,style,'128_18_128_32')\n##root(root_metainfo,rm_19,'Absolute',\"input&&string\",plotshape,location,'129_18_129_34')\n##root(root_metainfo,rm_20,(not calculateDivergence),\"input&&bool\")\n"
- },
- "_metainfoVersion": 55,
- "bands": [
-  {
-   "id": "hline_0",
-   "isHidden": false,
-   "name": "RSI Upper Band"
-  },
-  {
-   "id": "hline_1",
-   "isHidden": false,
-   "name": "RSI Middle Band"
-  },
-  {
-   "id": "hline_2",
-   "isHidden": false,
-   "name": "RSI Lower Band"
-  }
- ],
- "behind_chart": true,
- "defaults": {
+  "_metainfoVersion": 55,
   "bands": [
-   {
-    "color": "#787B86",
-    "linestyle": 2,
-    "linewidth": 1,
-    "value": 70,
-    "visible": true
-   },
-   {
-    "color": "rgba(120,123,134,0.5)",
-    "linestyle": 2,
-    "linewidth": 1,
-    "value": 50,
-    "visible": true
-   },
-   {
-    "color": "#787B86",
-    "linestyle": 2,
-    "linewidth": 1,
-    "value": 30,
-    "visible": true
-   }
+    {
+      "id": "hline_0",
+      "isHidden": false,
+      "name": "RSI Upper Band"
+    },
+    {
+      "id": "hline_1",
+      "isHidden": false,
+      "name": "RSI Middle Band"
+    },
+    {
+      "id": "hline_2",
+      "isHidden": false,
+      "name": "RSI Lower Band"
+    }
+  ],
+  "behind_chart": true,
+  "defaults": {
+    "bands": [
+      {
+        "color": "#787B86",
+        "linestyle": 2,
+        "linewidth": 1,
+        "value": 70,
+        "visible": true
+      },
+      {
+        "color": "rgba(120,123,134,0.5)",
+        "linestyle": 2,
+        "linewidth": 1,
+        "value": 50,
+        "visible": true
+      },
+      {
+        "color": "#787B86",
+        "linestyle": 2,
+        "linewidth": 1,
+        "value": 30,
+        "visible": true
+      }
+    ],
+    "filledAreasStyle": {
+      "fill_0": {
+        "color": "rgba(126,87,194,0.1)",
+        "visible": true
+      },
+      "fill_1": {
+        "bottomColor": "rgba(76,175,80,0)",
+        "bottomValue": 70,
+        "fillType": "gradient",
+        "topColor": "rgba(76,175,80,1)",
+        "topValue": 100,
+        "visible": true
+      },
+      "fill_2": {
+        "bottomColor": "rgba(242,54,69,1)",
+        "bottomValue": 0,
+        "fillType": "gradient",
+        "topColor": "rgba(242,54,69,0)",
+        "topValue": 30,
+        "visible": true
+      },
+      "fill_3": {
+        "color": "#2962ff",
+        "visible": false
+      }
+    },
+    "inputs": {
+      "__fast_calc": false,
+      "__profile": false,
+      "in_0": 14,
+      "in_1": "close",
+      "in_2": false,
+      "in_3": "SMA",
+      "in_4": 14,
+      "in_5": 2,
+      "in_6": "",
+      "in_7": true,
+      "pineFeatures": "{\"indicator\":1,\"plot\":1,\"ta\":1,\"math\":1,\"alertcondition\":1}",
+      "pineId": "",
+      "pineVersion": "",
+      "text": "bmI9Ks46_2LXDm/1uRTrVcmnXFAyTMQ==_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"
+    },
+    "palettes": {
+      "palette_0": {
+        "colors": {
+          "0": {
+            "color": "rgba(76,175,80,0.1)",
+            "style": 0,
+            "width": 1
+          }
+        }
+      },
+      "palette_1": {
+        "colors": {
+          "0": {
+            "color": "rgba(76,175,80,1)",
+            "style": 0,
+            "width": 2
+          },
+          "1": {
+            "color": "rgba(255,255,255,0)",
+            "style": 0,
+            "width": 2
+          }
+        }
+      },
+      "palette_2": {
+        "colors": {
+          "0": {
+            "color": "rgba(242,54,69,1)",
+            "style": 0,
+            "width": 2
+          },
+          "1": {
+            "color": "rgba(255,255,255,0)",
+            "style": 0,
+            "width": 2
+          }
+        }
+      }
+    },
+    "styles": {
+      "plot_0": {
+        "color": "#7E57C2",
+        "display": 4294967295,
+        "linestyle": 0,
+        "linewidth": 1,
+        "plottype": 0,
+        "trackPrice": false
+      },
+      "plot_1": {
+        "color": "rgba(0,0,0,0)",
+        "display": 0,
+        "linestyle": 0,
+        "linewidth": 1,
+        "plottype": 0,
+        "trackPrice": false
+      },
+      "plot_11": {
+        "color": "#F23645",
+        "display": 1,
+        "location": "Absolute",
+        "plottype": "shape_label_down",
+        "textColor": "#FFFFFF"
+      },
+      "plot_2": {
+        "color": "#FDD835",
+        "display": 4294967295,
+        "linestyle": 0,
+        "linewidth": 1,
+        "plottype": 0,
+        "trackPrice": false
+      },
+      "plot_3": {
+        "color": "#4CAF50",
+        "display": 0,
+        "linestyle": 0,
+        "linewidth": 1,
+        "plottype": 0,
+        "trackPrice": false
+      },
+      "plot_4": {
+        "color": "#4CAF50",
+        "display": 0,
+        "linestyle": 0,
+        "linewidth": 1,
+        "plottype": 0,
+        "trackPrice": false
+      },
+      "plot_6": {
+        "color": "#2962ff",
+        "display": 1,
+        "linestyle": 0,
+        "linewidth": 2,
+        "plottype": 0,
+        "trackPrice": false
+      },
+      "plot_8": {
+        "color": "#4CAF50",
+        "display": 1,
+        "location": "Absolute",
+        "plottype": "shape_label_up",
+        "textColor": "#FFFFFF"
+      },
+      "plot_9": {
+        "color": "#2962ff",
+        "display": 1,
+        "linestyle": 0,
+        "linewidth": 2,
+        "plottype": 0,
+        "trackPrice": false
+      }
+    }
+  },
+  "description": "Relative strength index",
+  "filledAreas": [
+    {
+      "fillgaps": false,
+      "id": "fill_0",
+      "isHidden": false,
+      "objAId": "hline_0",
+      "objBId": "hline_2",
+      "title": "RSI Background Fill",
+      "type": "hline_hline"
+    },
+    {
+      "fillgaps": false,
+      "id": "fill_1",
+      "isHidden": false,
+      "objAId": "plot_0",
+      "objBId": "plot_1",
+      "title": "Overbought Gradient Fill",
+      "type": "plot_plot"
+    },
+    {
+      "fillgaps": false,
+      "id": "fill_2",
+      "isHidden": false,
+      "objAId": "plot_0",
+      "objBId": "plot_1",
+      "title": "Oversold Gradient Fill",
+      "type": "plot_plot"
+    },
+    {
+      "fillgaps": false,
+      "id": "fill_3",
+      "isHidden": false,
+      "objAId": "plot_3",
+      "objBId": "plot_4",
+      "palette": "palette_0",
+      "title": "Bollinger Bands Background Fill",
+      "type": "plot_plot"
+    }
   ],
   "filledAreasStyle": {
-   "fill_0": {
-    "color": "rgba(126,87,194,0.1)",
-    "visible": true
-   },
-   "fill_1": {
-    "bottomColor": "rgba(76,175,80,0)",
-    "bottomValue": 70,
-    "fillType": "gradient",
-    "topColor": "rgba(76,175,80,1)",
-    "topValue": 100,
-    "visible": true
-   },
-   "fill_2": {
-    "bottomColor": "rgba(242,54,69,1)",
-    "bottomValue": 0,
-    "fillType": "gradient",
-    "topColor": "rgba(242,54,69,0)",
-    "topValue": 30,
-    "visible": true
-   },
-   "fill_3": {
-    "color": "#2962ff",
-    "visible": false
-   }
+    "fill_0": {
+      "isHidden": false
+    },
+    "fill_1": {
+      "isHidden": false
+    },
+    "fill_2": {
+      "isHidden": false
+    },
+    "fill_3": {
+      "isHidden": true
+    }
   },
-  "inputs": {
-   "__fast_calc": false,
-   "__profile": false,
-   "in_0": 14,
-   "in_1": "close",
-   "in_2": false,
-   "in_3": "SMA",
-   "in_4": 14,
-   "in_5": 2,
-   "in_6": "",
-   "in_7": true,
-   "pineFeatures": "{\"indicator\":1,\"plot\":1,\"ta\":1,\"math\":1,\"alertcondition\":1}",
-   "pineId": "",
-   "pineVersion": "",
-   "text": "bmI9Ks46_2LXDm/1uRTrVcmnXFAyTMQ==_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"
+  "format": {
+    "precision": 2,
+    "type": "price"
   },
+  "id": "Script$STD;RSI@tv-scripting-101",
+  "inputs": [
+    {
+      "defval": "",
+      "id": "text",
+      "isHidden": true,
+      "name": "ILScript",
+      "type": "text"
+    },
+    {
+      "defval": "",
+      "id": "pineId",
+      "isHidden": true,
+      "name": "pineId",
+      "type": "text"
+    },
+    {
+      "defval": "",
+      "id": "pineVersion",
+      "isHidden": true,
+      "name": "pineVersion",
+      "type": "text"
+    },
+    {
+      "defval": "{\"indicator\":1,\"plot\":1,\"ta\":1,\"math\":1,\"alertcondition\":1}",
+      "id": "pineFeatures",
+      "isFake": true,
+      "isHidden": true,
+      "name": "pineFeatures",
+      "type": "text"
+    },
+    {
+      "active": true,
+      "defval": 14,
+      "display": 4294967295,
+      "group": "RSI Settings",
+      "id": "in_0",
+      "isFake": true,
+      "max": 1000000000000,
+      "min": 1,
+      "name": "RSI Length",
+      "type": "integer"
+    },
+    {
+      "active": true,
+      "defval": "close",
+      "display": 4294967295,
+      "group": "RSI Settings",
+      "id": "in_1",
+      "isFake": true,
+      "name": "Source",
+      "options": ["open", "high", "low", "close", "hl2", "hlc3", "hlcc4", "ohlc4"],
+      "type": "source"
+    },
+    {
+      "active": true,
+      "defval": false,
+      "display": 0,
+      "group": "RSI Settings",
+      "id": "in_2",
+      "isFake": true,
+      "name": "Calculate Divergence",
+      "tooltip": "Calculating divergences is needed in order for divergence alerts to fire.",
+      "type": "bool"
+    },
+    {
+      "active": true,
+      "defval": "SMA",
+      "display": 0,
+      "group": "Smoothing",
+      "id": "in_3",
+      "isFake": true,
+      "name": "Type",
+      "options": ["None", "SMA", "SMA + Bollinger Bands", "EMA", "SMMA (RMA)", "WMA", "VWMA"],
+      "type": "text"
+    },
+    {
+      "active": true,
+      "defval": 14,
+      "display": 0,
+      "group": "Smoothing",
+      "id": "in_4",
+      "isFake": true,
+      "name": "Length",
+      "type": "integer"
+    },
+    {
+      "active": false,
+      "defval": 2,
+      "display": 0,
+      "group": "Smoothing",
+      "id": "in_5",
+      "isFake": true,
+      "max": 50,
+      "min": 0.001,
+      "name": "BB StdDev",
+      "step": 0.5,
+      "tooltip": "Only applies when 'SMA + Bollinger Bands' is selected. Determines the distance between the SMA and the bands.",
+      "type": "float"
+    },
+    {
+      "active": true,
+      "defval": "",
+      "group": "Calculation",
+      "id": "in_6",
+      "isFake": true,
+      "isMTFResolution": true,
+      "name": "Timeframe",
+      "solutionId": 43000591555,
+      "type": "resolution"
+    },
+    {
+      "active": true,
+      "defval": true,
+      "group": "Calculation",
+      "id": "in_7",
+      "isFake": true,
+      "isMTFGaps": true,
+      "name": "Wait for timeframe closes",
+      "type": "bool"
+    },
+    {
+      "active": true,
+      "defval": false,
+      "group": "Calculation",
+      "id": "__fast_calc",
+      "isFake": true,
+      "isHidden": true,
+      "migrate": true,
+      "name": "Fast calculation",
+      "tooltip": "Limits script calculation to the last 2K bars. Turns off automatically when chart loads more historical data.",
+      "type": "bool"
+    },
+    {
+      "active": true,
+      "defval": false,
+      "id": "__profile",
+      "isFake": true,
+      "isHidden": true,
+      "migrate": true,
+      "name": "",
+      "type": "bool"
+    }
+  ],
+  "isMTFGaps": true,
+  "isMTFResolution": true,
+  "isTVScript": true,
+  "isTVScriptStub": false,
+  "is_hidden_study": false,
+  "is_price_study": false,
   "palettes": {
-   "palette_0": {
-    "colors": {
-     "0": {
-      "color": "rgba(76,175,80,0.1)",
-      "style": 0,
-      "width": 1
-     }
+    "palette_0": {
+      "addDefaultColor": true,
+      "colors": {
+        "0": {
+          "name": "Color 0"
+        }
+      },
+      "valToIndex": {
+        "0": 0
+      }
+    },
+    "palette_1": {
+      "colors": {
+        "0": {
+          "name": "Color 0"
+        },
+        "1": {
+          "name": "Color 1"
+        }
+      },
+      "valToIndex": {
+        "1": 0,
+        "2": 1
+      }
+    },
+    "palette_2": {
+      "colors": {
+        "0": {
+          "name": "Color 0"
+        },
+        "1": {
+          "name": "Color 1"
+        }
+      },
+      "valToIndex": {
+        "2": 1,
+        "3": 0
+      }
     }
-   },
-   "palette_1": {
-    "colors": {
-     "0": {
-      "color": "rgba(76,175,80,1)",
-      "style": 0,
-      "width": 2
-     },
-     "1": {
-      "color": "rgba(255,255,255,0)",
-      "style": 0,
-      "width": 2
-     }
+  },
+  "pine": {
+    "digest": "958fa1bb23156174c59fdd0e38aa69ba0fa4972e",
+    "version": "47.0"
+  },
+  "plots": [
+    {
+      "id": "plot_0",
+      "type": "line"
+    },
+    {
+      "id": "plot_1",
+      "type": "line"
+    },
+    {
+      "id": "plot_2",
+      "type": "line"
+    },
+    {
+      "id": "plot_3",
+      "type": "line"
+    },
+    {
+      "id": "plot_4",
+      "type": "line"
+    },
+    {
+      "id": "plot_5",
+      "palette": "palette_0",
+      "target": "fill_3",
+      "type": "colorer"
+    },
+    {
+      "id": "plot_6",
+      "type": "line"
+    },
+    {
+      "id": "plot_7",
+      "palette": "palette_1",
+      "target": "plot_6",
+      "type": "colorer"
+    },
+    {
+      "id": "plot_8",
+      "type": "shapes"
+    },
+    {
+      "id": "plot_9",
+      "type": "line"
+    },
+    {
+      "id": "plot_10",
+      "palette": "palette_2",
+      "target": "plot_9",
+      "type": "colorer"
+    },
+    {
+      "id": "plot_11",
+      "type": "shapes"
+    },
+    {
+      "id": "plot_12",
+      "type": "alertcondition"
+    },
+    {
+      "id": "plot_13",
+      "type": "alertcondition"
     }
-   },
-   "palette_2": {
-    "colors": {
-     "0": {
-      "color": "rgba(242,54,69,1)",
-      "style": 0,
-      "width": 2
-     },
-     "1": {
-      "color": "rgba(255,255,255,0)",
-      "style": 0,
-      "width": 2
-     }
-    }
-   }
+  ],
+  "scriptIdPart": "STD;RSI",
+  "shortDescription": "RSI",
+  "stats": {
+    "alertcondition": 2,
+    "plot": 7,
+    "plotshape": 2
   },
   "styles": {
-   "plot_0": {
-    "color": "#7E57C2",
-    "display": 4294967295,
-    "linestyle": 0,
-    "linewidth": 1,
-    "plottype": 0,
-    "trackPrice": false
-   },
-   "plot_1": {
-    "color": "rgba(0,0,0,0)",
-    "display": 0,
-    "linestyle": 0,
-    "linewidth": 1,
-    "plottype": 0,
-    "trackPrice": false
-   },
-   "plot_11": {
-    "color": "#F23645",
-    "display": 1,
-    "location": "Absolute",
-    "plottype": "shape_label_down",
-    "textColor": "#FFFFFF"
-   },
-   "plot_2": {
-    "color": "#FDD835",
-    "display": 4294967295,
-    "linestyle": 0,
-    "linewidth": 1,
-    "plottype": 0,
-    "trackPrice": false
-   },
-   "plot_3": {
-    "color": "#4CAF50",
-    "display": 0,
-    "linestyle": 0,
-    "linewidth": 1,
-    "plottype": 0,
-    "trackPrice": false
-   },
-   "plot_4": {
-    "color": "#4CAF50",
-    "display": 0,
-    "linestyle": 0,
-    "linewidth": 1,
-    "plottype": 0,
-    "trackPrice": false
-   },
-   "plot_6": {
-    "color": "#2962ff",
-    "display": 1,
-    "linestyle": 0,
-    "linewidth": 2,
-    "plottype": 0,
-    "trackPrice": false
-   },
-   "plot_8": {
-    "color": "#4CAF50",
-    "display": 1,
-    "location": "Absolute",
-    "plottype": "shape_label_up",
-    "textColor": "#FFFFFF"
-   },
-   "plot_9": {
-    "color": "#2962ff",
-    "display": 1,
-    "linestyle": 0,
-    "linewidth": 2,
-    "plottype": 0,
-    "trackPrice": false
-   }
-  }
- },
- "description": "Relative strength index",
- "filledAreas": [
-  {
-   "fillgaps": false,
-   "id": "fill_0",
-   "isHidden": false,
-   "objAId": "hline_0",
-   "objBId": "hline_2",
-   "title": "RSI Background Fill",
-   "type": "hline_hline"
-  },
-  {
-   "fillgaps": false,
-   "id": "fill_1",
-   "isHidden": false,
-   "objAId": "plot_0",
-   "objBId": "plot_1",
-   "title": "Overbought Gradient Fill",
-   "type": "plot_plot"
-  },
-  {
-   "fillgaps": false,
-   "id": "fill_2",
-   "isHidden": false,
-   "objAId": "plot_0",
-   "objBId": "plot_1",
-   "title": "Oversold Gradient Fill",
-   "type": "plot_plot"
-  },
-  {
-   "fillgaps": false,
-   "id": "fill_3",
-   "isHidden": false,
-   "objAId": "plot_3",
-   "objBId": "plot_4",
-   "palette": "palette_0",
-   "title": "Bollinger Bands Background Fill",
-   "type": "plot_plot"
-  }
- ],
- "filledAreasStyle": {
-  "fill_0": {
-   "isHidden": false
-  },
-  "fill_1": {
-   "isHidden": false
-  },
-  "fill_2": {
-   "isHidden": false
-  },
-  "fill_3": {
-   "isHidden": true
-  }
- },
- "format": {
-  "precision": 2,
-  "type": "price"
- },
- "id": "Script$STD;RSI@tv-scripting-101",
- "inputs": [
-  {
-   "defval": "",
-   "id": "text",
-   "isHidden": true,
-   "name": "ILScript",
-   "type": "text"
-  },
-  {
-   "defval": "",
-   "id": "pineId",
-   "isHidden": true,
-   "name": "pineId",
-   "type": "text"
-  },
-  {
-   "defval": "",
-   "id": "pineVersion",
-   "isHidden": true,
-   "name": "pineVersion",
-   "type": "text"
-  },
-  {
-   "defval": "{\"indicator\":1,\"plot\":1,\"ta\":1,\"math\":1,\"alertcondition\":1}",
-   "id": "pineFeatures",
-   "isFake": true,
-   "isHidden": true,
-   "name": "pineFeatures",
-   "type": "text"
-  },
-  {
-   "active": true,
-   "defval": 14,
-   "display": 4294967295,
-   "group": "RSI Settings",
-   "id": "in_0",
-   "isFake": true,
-   "max": 1000000000000,
-   "min": 1,
-   "name": "RSI Length",
-   "type": "integer"
-  },
-  {
-   "active": true,
-   "defval": "close",
-   "display": 4294967295,
-   "group": "RSI Settings",
-   "id": "in_1",
-   "isFake": true,
-   "name": "Source",
-   "options": [
-    "open",
-    "high",
-    "low",
-    "close",
-    "hl2",
-    "hlc3",
-    "hlcc4",
-    "ohlc4"
-   ],
-   "type": "source"
-  },
-  {
-   "active": true,
-   "defval": false,
-   "display": 0,
-   "group": "RSI Settings",
-   "id": "in_2",
-   "isFake": true,
-   "name": "Calculate Divergence",
-   "tooltip": "Calculating divergences is needed in order for divergence alerts to fire.",
-   "type": "bool"
-  },
-  {
-   "active": true,
-   "defval": "SMA",
-   "display": 0,
-   "group": "Smoothing",
-   "id": "in_3",
-   "isFake": true,
-   "name": "Type",
-   "options": [
-    "None",
-    "SMA",
-    "SMA + Bollinger Bands",
-    "EMA",
-    "SMMA (RMA)",
-    "WMA",
-    "VWMA"
-   ],
-   "type": "text"
-  },
-  {
-   "active": true,
-   "defval": 14,
-   "display": 0,
-   "group": "Smoothing",
-   "id": "in_4",
-   "isFake": true,
-   "name": "Length",
-   "type": "integer"
-  },
-  {
-   "active": false,
-   "defval": 2,
-   "display": 0,
-   "group": "Smoothing",
-   "id": "in_5",
-   "isFake": true,
-   "max": 50,
-   "min": 0.001,
-   "name": "BB StdDev",
-   "step": 0.5,
-   "tooltip": "Only applies when 'SMA + Bollinger Bands' is selected. Determines the distance between the SMA and the bands.",
-   "type": "float"
-  },
-  {
-   "active": true,
-   "defval": "",
-   "group": "Calculation",
-   "id": "in_6",
-   "isFake": true,
-   "isMTFResolution": true,
-   "name": "Timeframe",
-   "solutionId": 43000591555,
-   "type": "resolution"
-  },
-  {
-   "active": true,
-   "defval": true,
-   "group": "Calculation",
-   "id": "in_7",
-   "isFake": true,
-   "isMTFGaps": true,
-   "name": "Wait for timeframe closes",
-   "type": "bool"
-  },
-  {
-   "active": true,
-   "defval": false,
-   "group": "Calculation",
-   "id": "__fast_calc",
-   "isFake": true,
-   "isHidden": true,
-   "migrate": true,
-   "name": "Fast calculation",
-   "tooltip": "Limits script calculation to the last 2K bars. Turns off automatically when chart loads more historical data.",
-   "type": "bool"
-  },
-  {
-   "active": true,
-   "defval": false,
-   "id": "__profile",
-   "isFake": true,
-   "isHidden": true,
-   "migrate": true,
-   "name": "",
-   "type": "bool"
-  }
- ],
- "isMTFGaps": true,
- "isMTFResolution": true,
- "isTVScript": true,
- "isTVScriptStub": false,
- "is_hidden_study": false,
- "is_price_study": false,
- "palettes": {
-  "palette_0": {
-   "addDefaultColor": true,
-   "colors": {
-    "0": {
-     "name": "Color 0"
-    }
-   },
-   "valToIndex": {
-    "0": 0
-   }
-  },
-  "palette_1": {
-   "colors": {
-    "0": {
-     "name": "Color 0"
+    "plot_0": {
+      "histogramBase": 0,
+      "isHidden": false,
+      "joinPoints": false,
+      "title": "RSI"
     },
-    "1": {
-     "name": "Color 1"
-    }
-   },
-   "valToIndex": {
-    "1": 0,
-    "2": 1
-   }
-  },
-  "palette_2": {
-   "colors": {
-    "0": {
-     "name": "Color 0"
+    "plot_1": {
+      "histogramBase": 0,
+      "isHidden": true,
+      "joinPoints": false,
+      "title": "Plot"
     },
-    "1": {
-     "name": "Color 1"
+    "plot_11": {
+      "isHidden": true,
+      "text": " Bear ",
+      "title": "Regular Bearish Label"
+    },
+    "plot_12": {
+      "text": "Found a new Regular Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.",
+      "title": "Regular Bullish Divergence"
+    },
+    "plot_13": {
+      "text": "Found a new Regular Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.",
+      "title": "Regular Bearish Divergence"
+    },
+    "plot_2": {
+      "histogramBase": 0,
+      "isHidden": false,
+      "joinPoints": false,
+      "title": "RSI-based MA"
+    },
+    "plot_3": {
+      "histogramBase": 0,
+      "isHidden": true,
+      "joinPoints": false,
+      "title": "Upper Bollinger Band"
+    },
+    "plot_4": {
+      "histogramBase": 0,
+      "isHidden": true,
+      "joinPoints": false,
+      "title": "Lower Bollinger Band"
+    },
+    "plot_6": {
+      "histogramBase": 0,
+      "isHidden": true,
+      "joinPoints": false,
+      "title": "Regular Bullish"
+    },
+    "plot_8": {
+      "isHidden": true,
+      "text": " Bull ",
+      "title": "Regular Bullish Label"
+    },
+    "plot_9": {
+      "histogramBase": 0,
+      "isHidden": true,
+      "joinPoints": false,
+      "title": "Regular Bearish"
     }
-   },
-   "valToIndex": {
-    "2": 1,
-    "3": 0
-   }
-  }
- },
- "pine": {
-  "digest": "958fa1bb23156174c59fdd0e38aa69ba0fa4972e",
-  "version": "47.0"
- },
- "plots": [
-  {
-   "id": "plot_0",
-   "type": "line"
   },
-  {
-   "id": "plot_1",
-   "type": "line"
-  },
-  {
-   "id": "plot_2",
-   "type": "line"
-  },
-  {
-   "id": "plot_3",
-   "type": "line"
-  },
-  {
-   "id": "plot_4",
-   "type": "line"
-  },
-  {
-   "id": "plot_5",
-   "palette": "palette_0",
-   "target": "fill_3",
-   "type": "colorer"
-  },
-  {
-   "id": "plot_6",
-   "type": "line"
-  },
-  {
-   "id": "plot_7",
-   "palette": "palette_1",
-   "target": "plot_6",
-   "type": "colorer"
-  },
-  {
-   "id": "plot_8",
-   "type": "shapes"
-  },
-  {
-   "id": "plot_9",
-   "type": "line"
-  },
-  {
-   "id": "plot_10",
-   "palette": "palette_2",
-   "target": "plot_9",
-   "type": "colorer"
-  },
-  {
-   "id": "plot_11",
-   "type": "shapes"
-  },
-  {
-   "id": "plot_12",
-   "type": "alertcondition"
-  },
-  {
-   "id": "plot_13",
-   "type": "alertcondition"
-  }
- ],
- "scriptIdPart": "STD;RSI",
- "shortDescription": "RSI",
- "stats": {
-  "alertcondition": 2,
-  "plot": 7,
-  "plotshape": 2
- },
- "styles": {
-  "plot_0": {
-   "histogramBase": 0,
-   "isHidden": false,
-   "joinPoints": false,
-   "title": "RSI"
-  },
-  "plot_1": {
-   "histogramBase": 0,
-   "isHidden": true,
-   "joinPoints": false,
-   "title": "Plot"
-  },
-  "plot_11": {
-   "isHidden": true,
-   "text": " Bear ",
-   "title": "Regular Bearish Label"
-  },
-  "plot_12": {
-   "text": "Found a new Regular Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.",
-   "title": "Regular Bullish Divergence"
-  },
-  "plot_13": {
-   "text": "Found a new Regular Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.",
-   "title": "Regular Bearish Divergence"
-  },
-  "plot_2": {
-   "histogramBase": 0,
-   "isHidden": false,
-   "joinPoints": false,
-   "title": "RSI-based MA"
-  },
-  "plot_3": {
-   "histogramBase": 0,
-   "isHidden": true,
-   "joinPoints": false,
-   "title": "Upper Bollinger Band"
-  },
-  "plot_4": {
-   "histogramBase": 0,
-   "isHidden": true,
-   "joinPoints": false,
-   "title": "Lower Bollinger Band"
-  },
-  "plot_6": {
-   "histogramBase": 0,
-   "isHidden": true,
-   "joinPoints": false,
-   "title": "Regular Bullish"
-  },
-  "plot_8": {
-   "isHidden": true,
-   "text": " Bull ",
-   "title": "Regular Bullish Label"
-  },
-  "plot_9": {
-   "histogramBase": 0,
-   "isHidden": true,
-   "joinPoints": false,
-   "title": "Regular Bearish"
-  }
- },
- "usesPrivateLib": false
+  "usesPrivateLib": false
 }

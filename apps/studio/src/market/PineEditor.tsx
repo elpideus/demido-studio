@@ -184,10 +184,7 @@ export function PineEditor({
   };
 
   const lines = useMemo(() => source.split('\n'), [source]);
-  const marks = useMemo(
-    () => marksByLine(lines, check?.errors ?? [], check?.warnings ?? []),
-    [lines, check],
-  );
+  const marks = useMemo(() => marksByLine(lines, check?.errors ?? [], check?.warnings ?? []), [lines, check]);
 
   /** Saves the editor's text in the library; the script it is saved as. */
   const persist = async (): Promise<PineScript> => {
@@ -357,7 +354,12 @@ export function PineEditor({
 
   let status;
   if (loading) status = <span className={styles.pineStatus}>Loading…</span>;
-  else if (checking && !check) status = <span className={styles.pineStatus}><Spinner size={12} /> Compiling…</span>;
+  else if (checking && !check)
+    status = (
+      <span className={styles.pineStatus}>
+        <Spinner size={12} /> Compiling…
+      </span>
+    );
   else if (checkError)
     status = (
       <span className={cx(styles.pineStatus, styles.pineStatusWarn)} title={checkError}>
@@ -407,7 +409,9 @@ export function PineEditor({
         {linked && (
           <Badge
             tone={linked.changed ? 'warning' : 'accent'}
-            title={linked.changed ? 'Changed since it was last saved to TradingView' : 'Saved to your TradingView account'}
+            title={
+              linked.changed ? 'Changed since it was last saved to TradingView' : 'Saved to your TradingView account'
+            }
           >
             {linked.changed ? 'TradingView: older' : 'On TradingView'}
           </Badge>
@@ -450,13 +454,23 @@ export function PineEditor({
           icon={CloudUpload}
           loading={busy === 'publish'}
           disabled={!loggedIn || failing || !!busy || loading}
-          title={loggedIn ? 'Save it to your TradingView account, to use it on tradingview.com' : 'Sign in to TradingView first'}
+          title={
+            loggedIn
+              ? 'Save it to your TradingView account, to use it on tradingview.com'
+              : 'Sign in to TradingView first'
+          }
           onClick={() => setConfirm('publish')}
         >
           {linked ? 'Update on TradingView' : 'Save to TradingView'}
         </Button>
         {!isNew && !deleted && (
-          <IconButton icon={Trash2} label="Delete the script" size="sm" disabled={!!busy} onClick={() => setConfirm('delete')} />
+          <IconButton
+            icon={Trash2}
+            label="Delete the script"
+            size="sm"
+            disabled={!!busy}
+            onClick={() => setConfirm('delete')}
+          />
         )}
         <IconButton icon={X} label="Close the Pine Editor" size="sm" onClick={onClose} />
       </div>
@@ -468,7 +482,9 @@ export function PineEditor({
           </Button>
         </div>
       )}
-      {deleted && <div className={styles.pineNotice}>This script was deleted from the library. Saving it creates it again.</div>}
+      {deleted && (
+        <div className={styles.pineNotice}>This script was deleted from the library. Saving it creates it again.</div>
+      )}
       <div className={styles.pineMain}>
         {loadError ? (
           <div className={styles.resultsEmpty}>{loadError}</div>
@@ -481,7 +497,10 @@ export function PineEditor({
                 return (
                   <div
                     key={i}
-                    className={cx(kindHere === 'error' && styles.pineGutterError, kindHere === 'warning' && styles.pineGutterWarn)}
+                    className={cx(
+                      kindHere === 'error' && styles.pineGutterError,
+                      kindHere === 'warning' && styles.pineGutterWarn,
+                    )}
                   >
                     {i + 1}
                   </div>
@@ -592,8 +611,8 @@ export function PineEditor({
       >
         <p className={styles.pineConfirm}>
           <strong>{name}</strong> is saved as a private script under My scripts on tradingview.com
-          {linked ? ', as a new version of the one there' : ''}, so you can add it to your charts in the browser. Nothing is
-          published to the community.
+          {linked ? ', as a new version of the one there' : ''}, so you can add it to your charts in the browser.
+          Nothing is published to the community.
           {dirty ? ' Your unsaved changes are saved here first.' : ''}
         </p>
       </Dialog>

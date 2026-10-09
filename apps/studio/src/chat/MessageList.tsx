@@ -248,10 +248,7 @@ function RoutedModels({ messages, router }: { messages: Message[]; router: strin
         {router} picked {picks.length === 1 ? 'this model' : `${picks.length} models`}
       </div>
       {picks.map((p) => {
-        const meta = [
-          p.provider && `via ${p.provider}`,
-          steps > 1 && `${p.steps} of ${steps} steps`,
-        ].filter(Boolean);
+        const meta = [p.provider && `via ${p.provider}`, steps > 1 && `${p.steps} of ${steps} steps`].filter(Boolean);
         return (
           <div key={`${p.model} ${p.provider}`} className={styles.routedPick}>
             <span className={styles.routedName}>{p.name ?? p.model}</span>

@@ -266,7 +266,8 @@ export function useIndicators(
 
   const onEvent = useCallback(
     (e: MarketEvent): boolean => {
-      if (e.event !== 'indicator.data' && e.event !== 'indicator.graphics' && e.event !== 'indicator.error') return false;
+      if (e.event !== 'indicator.data' && e.event !== 'indicator.graphics' && e.event !== 'indicator.error')
+        return false;
       const key = byStudy.current.get(e.params.id);
       if (key) apply(key, e);
       else {

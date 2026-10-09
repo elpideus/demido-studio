@@ -7,7 +7,15 @@
 // Moving averages need `length` bars before their first value, and the EMA and RSI settle within a
 // few times `length` bars to TradingView's values.
 
-import type { Bar, IndicatorEntry, IndicatorInput, IndicatorMeta, IndicatorPlot, IndicatorRow, IndicatorSetup } from '@/lib/types';
+import type {
+  Bar,
+  IndicatorEntry,
+  IndicatorInput,
+  IndicatorMeta,
+  IndicatorPlot,
+  IndicatorRow,
+  IndicatorSetup,
+} from '@/lib/types';
 
 type Series = Array<number | null>;
 
@@ -276,7 +284,11 @@ const LOCAL: Record<string, Local> = {
       short: 'BB',
       overlay: true,
       precision: null,
-      plots: [line('plot_0', 'Basis', '#2962FF'), line('plot_1', 'Upper', '#F23645'), line('plot_2', 'Lower', '#089981')],
+      plots: [
+        line('plot_0', 'Basis', '#2962FF'),
+        line('plot_1', 'Upper', '#F23645'),
+        line('plot_2', 'Lower', '#089981'),
+      ],
       bands: [],
       inputs: [
         lengthInput('in_0', 'Length', 20),
@@ -291,21 +303,43 @@ const LOCAL: Record<string, Local> = {
           options: MA_TYPES,
         },
         sourceInput('in_2'),
-        { id: 'in_3', name: 'StdDev', type: 'float', value: 2, defval: 2, hidden: false, fake: false, min: 0.001, max: 50, step: 0.5 },
+        {
+          id: 'in_3',
+          name: 'StdDev',
+          type: 'float',
+          value: 2,
+          defval: 2,
+          hidden: false,
+          fake: false,
+          min: 0.001,
+          max: 50,
+          step: 0.5,
+        },
         offsetInput('in_4'),
       ],
     },
     compute: (bars, i) => {
       const src = sourceOf(bars, i.in_2);
       const length = len(i.in_0, 20);
-      const basis = average(i.in_1, src, bars.map((b) => b.v), length);
+      const basis = average(
+        i.in_1,
+        src,
+        bars.map((b) => b.v),
+        length,
+      );
       const dev = stdev(src, length);
       const mult = typeof i.in_3 === 'number' ? i.in_3 : 2;
       const shift = offset(i.in_4);
       return [
         shifted(basis, shift),
-        shifted(basis.map((b, k) => (b === null || dev[k] === null ? null : b + mult * dev[k]!)), shift),
-        shifted(basis.map((b, k) => (b === null || dev[k] === null ? null : b - mult * dev[k]!)), shift),
+        shifted(
+          basis.map((b, k) => (b === null || dev[k] === null ? null : b + mult * dev[k]!)),
+          shift,
+        ),
+        shifted(
+          basis.map((b, k) => (b === null || dev[k] === null ? null : b - mult * dev[k]!)),
+          shift,
+        ),
       ];
     },
   },
@@ -343,7 +377,14 @@ const LOCAL: Record<string, Local> = {
     compute: (bars, i) => {
       const value = rsi(sourceOf(bars, i.in_1), len(i.in_0, 14));
       const ma =
-        i.in_3 === 'None' ? value.map(() => null) : average(i.in_3, value, bars.map((b) => b.v), len(i.in_4, 14));
+        i.in_3 === 'None'
+          ? value.map(() => null)
+          : average(
+              i.in_3,
+              value,
+              bars.map((b) => b.v),
+              len(i.in_4, 14),
+            );
       return [value, ma];
     },
   },
@@ -362,7 +403,14 @@ function offset(v: unknown): number {
 
 /** The indicators this computer can compute, as the Indicators menu lists them. */
 export const LOCAL_ENTRIES: IndicatorEntry[] = Object.values(LOCAL)
-  .map((l) => ({ id: l.meta.id, version: null, name: l.meta.name, short: l.meta.short, overlay: l.meta.overlay, kind: 'study' as const }))
+  .map((l) => ({
+    id: l.meta.id,
+    version: null,
+    name: l.meta.name,
+    short: l.meta.short,
+    overlay: l.meta.overlay,
+    kind: 'study' as const,
+  }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
 export function isLocal(script: string): boolean {

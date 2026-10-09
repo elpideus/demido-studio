@@ -126,12 +126,14 @@ const builtinList = cached(6 * 3600_000, async () => {
 const mineList = cached(60_000, async () => {
   const list = await json(`${FACADE}/list?filter=saved`, await sessionCookie());
   if (!Array.isArray(list)) return [];
-  return list
-    .map((x) => entryOf(obj(x)))
-    .filter((e): e is CatalogEntry => e !== null)
-    // Saved versions of a script ("5.0") are its drafts; the menu runs the latest one.
-    .map((e) => ({ ...e, version: null }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    list
+      .map((x) => entryOf(obj(x)))
+      .filter((e): e is CatalogEntry => e !== null)
+      // Saved versions of a script ("5.0") are its drafts; the menu runs the latest one.
+      .map((e) => ({ ...e, version: null }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  );
 });
 
 /** Fetches a tradingview.com page with the user's session, following real redirects only. */

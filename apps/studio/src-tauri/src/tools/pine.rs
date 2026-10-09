@@ -195,7 +195,8 @@ fn brief(s: &Value) -> Value {
         "modified": iso_ms(&s["modified"]),
     });
     if let Some(tv) = s["tradingview"].as_object() {
-        out["tradingview"] = json!({"id": tv.get("id"), "version": tv.get("version"), "editedSince": tv.get("changed")});
+        out["tradingview"] =
+            json!({"id": tv.get("id"), "version": tv.get("version"), "editedSince": tv.get("changed")});
     }
     out
 }
@@ -237,7 +238,13 @@ async fn library_hint(ctx: &ToolContext) -> String {
         .map(|l| {
             l.iter()
                 .take(12)
-                .map(|s| format!("\"{}\" ({})", s["id"].as_str().unwrap_or_default(), s["name"].as_str().unwrap_or_default()))
+                .map(|s| {
+                    format!(
+                        "\"{}\" ({})",
+                        s["id"].as_str().unwrap_or_default(),
+                        s["name"].as_str().unwrap_or_default()
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -271,7 +278,10 @@ fn by_name(list: &Value, name: &str) -> Option<String> {
 /// with one the library does not have, the answer lists the ids there are.
 async fn script_of(ctx: &ToolContext, args: &Value, what: &str) -> Result<Value, String> {
     let Some(raw) = arg_str(args, "id") else {
-        return Err(format!("The \"id\" argument is required: {what}.{}", library_hint(ctx).await));
+        return Err(format!(
+            "The \"id\" argument is required: {what}.{}",
+            library_hint(ctx).await
+        ));
     };
     let id = library_id(raw);
     match local(ctx, "pine.get", json!({"id": id})).await {
@@ -362,7 +372,12 @@ fn line_of(text: &str, offset: usize) -> usize {
 }
 
 fn line_list(lines: &[usize]) -> String {
-    lines.iter().take(8).map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
+    lines
+        .iter()
+        .take(8)
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Replaces `old` with `new` in a script's source: as given, else without the line numbers
@@ -401,7 +416,12 @@ fn apply_edit(source: &str, old: &str, new: &str, all: bool) -> Result<Edited, S
             line: line_of(source, at[0]),
             lines,
         }),
-        n if all => Ok(Edited { source: source.replace(old.as_str(), &new), count: n, line: line_of(source, at[0]), lines }),
+        n if all => Ok(Edited {
+            source: source.replace(old.as_str(), &new),
+            count: n,
+            line: line_of(source, at[0]),
+            lines,
+        }),
         n => {
             let on: Vec<usize> = at.iter().map(|&i| line_of(source, i)).collect();
             Err(format!(
@@ -447,7 +467,8 @@ fn loose_edit(source: &str, old: &str, new: &str, crlf: bool) -> Result<Edited, 
                 .filter(|(_, l)| l.contains(probe))
                 .map(|(i, _)| i + 1)
                 .collect();
-            let base = "old_string is not in the script. Copy it exactly as pine_read shows it, without the line numbers.";
+            let base =
+                "old_string is not in the script. Copy it exactly as pine_read shows it, without the line numbers.";
             return Err(match near.first() {
                 None => format!("{base} Read the script again with pine_read to see its current text."),
                 Some(&first) => format!(
@@ -501,7 +522,9 @@ fn loose_edit(source: &str, old: &str, new: &str, crlf: bool) -> Result<Edited, 
             let shifted: String = if mine >= theirs {
                 format!("{have}{}", indent(l).chars().skip(theirs).collect::<String>())
             } else {
-                have.chars().take(have.chars().count().saturating_sub(theirs - mine)).collect()
+                have.chars()
+                    .take(have.chars().count().saturating_sub(theirs - mine))
+                    .collect()
             };
             format!("{shifted}{}", l.trim_start())
         })
@@ -511,10 +534,19 @@ fn loose_edit(source: &str, old: &str, new: &str, crlf: bool) -> Result<Edited, 
     let count = replacement.len();
     let mut out: Vec<String> = lines[..i].iter().map(|l| l.to_string()).collect();
     for (k, l) in replacement.into_iter().enumerate() {
-        out.push(if crlf && (k + 1 < count || ends_cr) { format!("{l}\r") } else { l });
+        out.push(if crlf && (k + 1 < count || ends_cr) {
+            format!("{l}\r")
+        } else {
+            l
+        });
     }
     out.extend(lines[end..].iter().map(|l| l.to_string()));
-    Ok(Edited { source: out.join("\n"), count: 1, line: i + 1, lines: count.max(1) })
+    Ok(Edited {
+        source: out.join("\n"),
+        count: 1,
+        line: i + 1,
+        lines: count.max(1),
+    })
 }
 
 /// Lines an edit changed, with two around them, numbered as `pine_read` shows them.
@@ -536,7 +568,13 @@ fn read_text(s: &Value, source: &str, start: usize, check: Option<&Value>, note:
         lines.pop();
     }
     let total = lines.len();
-    let some_lines = |n: usize| if n == 1 { "1 line".to_string() } else { format!("{n} lines") };
+    let some_lines = |n: usize| {
+        if n == 1 {
+            "1 line".to_string()
+        } else {
+            format!("{n} lines")
+        }
+    };
     let id = s["id"].as_str().unwrap_or_default();
     let mut out = String::new();
     let _ = write!(
@@ -557,11 +595,18 @@ fn read_text(s: &Value, source: &str, start: usize, check: Option<&Value>, note:
         let _ = writeln!(out, "{note}");
     }
     match check {
-        None => out.push_str("Not compiled (the user is not signed in to TradingView); pine_edit and pine_save compile it.\n"),
+        None => out
+            .push_str("Not compiled (the user is not signed in to TradingView); pine_edit and pine_save compile it.\n"),
         Some(c) => {
             let errors = placed(&c["errors"], source);
             let warnings = placed(&c["warnings"], source);
-            let count = |n: usize, what: &str| if n == 1 { format!("1 {what}") } else { format!("{n} {what}s") };
+            let count = |n: usize, what: &str| {
+                if n == 1 {
+                    format!("1 {what}")
+                } else {
+                    format!("{n} {what}s")
+                }
+            };
             let _ = writeln!(
                 out,
                 "{}",
@@ -569,21 +614,32 @@ fn read_text(s: &Value, source: &str, start: usize, check: Option<&Value>, note:
                     (0, 0) => "TradingView's compiler: it compiles, with no warnings.".to_string(),
                     (0, w) => format!("TradingView's compiler: it compiles, with {}:", count(w, "warning")),
                     (e, 0) => format!("TradingView's compiler: it does not compile, {}:", count(e, "error")),
-                    (e, w) => format!("TradingView's compiler: it does not compile, {} and {}:", count(e, "error"), count(w, "warning")),
+                    (e, w) => format!(
+                        "TradingView's compiler: it does not compile, {} and {}:",
+                        count(e, "error"),
+                        count(w, "warning")
+                    ),
                 }
             );
             let tagged = errors
                 .into_iter()
                 .map(|m| ("error", m))
                 .chain(warnings.into_iter().map(|m| ("warning", m)));
-            let all: Vec<Value> = tagged.map(|(kind, mut m)| {
-                m["kind"] = kind.into();
-                m
-            }).collect();
+            let all: Vec<Value> = tagged
+                .map(|(kind, mut m)| {
+                    m["kind"] = kind.into();
+                    m
+                })
+                .collect();
             let (shown, more) = capped(all);
             for m in &shown {
                 let message: String = m["message"].as_str().unwrap_or_default().chars().take(300).collect();
-                let _ = writeln!(out, "- line {} ({}): {message}", m["line"], m["kind"].as_str().unwrap_or_default());
+                let _ = writeln!(
+                    out,
+                    "- line {} ({}): {message}",
+                    m["line"],
+                    m["kind"].as_str().unwrap_or_default()
+                );
                 if let Some(code) = m["code"].as_str().map(str::trim).filter(|c| !c.is_empty()) {
                     let _ = writeln!(out, "    {}", code.chars().take(160).collect::<String>());
                 }
@@ -611,13 +667,24 @@ fn read_text(s: &Value, source: &str, start: usize, check: Option<&Value>, note:
         end += 1;
     }
     if start == 1 && end == total {
-        let _ = writeln!(out, "Its source, {} (the line numbers are not part of it):", some_lines(total));
+        let _ = writeln!(
+            out,
+            "Its source, {} (the line numbers are not part of it):",
+            some_lines(total)
+        );
     } else {
-        let _ = writeln!(out, "Lines {start} to {end} of {total} (the line numbers are not part of the source):");
+        let _ = writeln!(
+            out,
+            "Lines {start} to {end} of {total} (the line numbers are not part of the source):"
+        );
     }
     out.push_str(&numbered(&lines[start - 1..end], start));
     if end < total {
-        let _ = write!(out, "\n… it continues: pine_read with id {id} and start_line {}.", end + 1);
+        let _ = write!(
+            out,
+            "\n… it continues: pine_read with id {id} and start_line {}.",
+            end + 1
+        );
     } else if start > 1 {
         out.push_str("\nThat is the end of the script.");
     }
@@ -682,7 +749,10 @@ fn file_safe(text: &str, max: usize) -> String {
 
 pub async fn list(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
     let library = local(ctx, "pine.list", json!({})).await?;
-    let scripts: Vec<Value> = library.as_array().map(|l| l.iter().map(brief).collect()).unwrap_or_default();
+    let scripts: Vec<Value> = library
+        .as_array()
+        .map(|l| l.iter().map(brief).collect())
+        .unwrap_or_default();
     let mut content = json!({ "library": scripts });
     let mut display = json!({"kind": "pineList", "scripts": library});
     if args["tradingview"] == true {
@@ -713,8 +783,12 @@ pub async fn read(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String>
             local(ctx, "pine.get", json!({"id": id})).await?
         }
         None => {
-            script_of(ctx, args, "the script to read, from pine_list (or a tradingview_id to import one from TradingView)")
-                .await?
+            script_of(
+                ctx,
+                args,
+                "the script to read, from pine_list (or a tradingview_id to import one from TradingView)",
+            )
+            .await?
         }
     };
     let source = s["source"].as_str().unwrap_or_default();
@@ -735,7 +809,10 @@ pub async fn read(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String>
 }
 
 pub async fn save(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
-    let given = args["source"].as_str().filter(|s| !s.trim().is_empty()).ok_or("The \"source\" argument is required.")?;
+    let given = args["source"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or("The \"source\" argument is required.")?;
     // A whole script copied from pine_read comes with its line numbers.
     let plain = without_numbers(given);
     let source = plain.as_deref().unwrap_or(given);
@@ -759,9 +836,15 @@ pub async fn edit(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String>
         .as_str()
         .ok_or("The \"new_string\" argument is required: the text that replaces old_string (empty to delete it).")?;
     let id = s["id"].as_str().unwrap_or_default().to_string();
-    let edited = apply_edit(s["source"].as_str().unwrap_or_default(), old, new, args["replace_all"] == true)?;
+    let edited = apply_edit(
+        s["source"].as_str().unwrap_or_default(),
+        old,
+        new,
+        args["replace_all"] == true,
+    )?;
     let params = json!({"id": id, "source": edited.source});
-    let (mut content, mut display) = store(ctx, params, &edited.source, "Changed and saved in Demido's library").await?;
+    let (mut content, mut display) =
+        store(ctx, params, &edited.source, "Changed and saved in Demido's library").await?;
     content["replaced"] = edited.count.into();
     content["now"] = around(&edited.source, edited.line, edited.lines).into();
     display["edited"] = json!({"line": edited.line, "count": edited.count});
@@ -798,7 +881,11 @@ async fn store(ctx: &ToolContext, params: Value, source: &str, done: &str) -> Re
                 content["inputs"] = inputs_brief(meta).into();
                 content["plots"] = meta["plots"]
                     .as_array()
-                    .map(|l| l.iter().map(|p| json!({"title": p["title"], "kind": p["kind"]})).collect::<Vec<_>>())
+                    .map(|l| {
+                        l.iter()
+                            .map(|p| json!({"title": p["title"], "kind": p["kind"]}))
+                            .collect::<Vec<_>>()
+                    })
                     .unwrap_or_default()
                     .into();
             }
@@ -832,7 +919,10 @@ pub async fn test(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String>
     let bars = arg_u64(args, "bars").unwrap_or(500).clamp(10, 5000);
     let mut params = json!({"symbol": symbol, "timeframe": tf, "bars": bars});
     // The source, for pointing at lines; the name, for the CSV.
-    let (source, name) = match (args["source"].as_str().filter(|s| !s.trim().is_empty()), arg_str(args, "id")) {
+    let (source, name) = match (
+        args["source"].as_str().filter(|s| !s.trim().is_empty()),
+        arg_str(args, "id"),
+    ) {
         (Some(source), _) => {
             params["source"] = source.into();
             (source.to_string(), String::new())
@@ -845,7 +935,10 @@ pub async fn test(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String>
             let what = "the script to test, from pine_list (or a TradingView indicator id such as STD;RSI)";
             let s = script_of(ctx, args, what).await?;
             params["script"] = format!("{PREFIX}{}", s["id"].as_str().unwrap_or_default()).into();
-            (s["source"].as_str().unwrap_or_default().to_string(), s["name"].as_str().unwrap_or_default().to_string())
+            (
+                s["source"].as_str().unwrap_or_default().to_string(),
+                s["name"].as_str().unwrap_or_default().to_string(),
+            )
         }
     };
     // Titles become ids once the script's inputs are known: a quick compile tells them.
@@ -894,7 +987,11 @@ pub async fn test(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String>
     }
 
     let meta = &result["meta"];
-    let script_name = meta["name"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or(name);
+    let script_name = meta["name"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or(name);
     let table = values_table(&result);
     let rel = format!(
         "data/pine_{}_{}_{tf}.csv",
@@ -961,7 +1058,11 @@ fn values_table(result: &Value) -> ValuesTable {
         .unwrap_or_default();
     let rows: HashMap<i64, &Vec<Value>> = result["rows"]
         .as_array()
-        .map(|r| r.iter().filter_map(|row| Some((row.get(0)?.as_i64()?, row.as_array()?))).collect())
+        .map(|r| {
+            r.iter()
+                .filter_map(|row| Some((row.get(0)?.as_i64()?, row.as_array()?)))
+                .collect()
+        })
         .unwrap_or_default();
     let mut used = HashMap::<String, usize>::new();
     let mut plots = Vec::new();
@@ -979,7 +1080,12 @@ fn values_table(result: &Value) -> ValuesTable {
             .iter()
             .map(|t| rows.get(t).and_then(|row| row.get(col + 1)).and_then(Value::as_f64))
             .collect();
-        plots.push((title, p["kind"].as_str().unwrap_or("line").to_string(), p["hidden"] == true, values));
+        plots.push((
+            title,
+            p["kind"].as_str().unwrap_or("line").to_string(),
+            p["hidden"] == true,
+            values,
+        ));
     }
     ValuesTable { times, ohlcv, plots }
 }
@@ -1030,21 +1136,36 @@ impl ValuesTable {
         self.plots
             .iter()
             .map(|(title, kind, hidden, values)| {
-                let present: Vec<(usize, f64)> =
-                    values.iter().enumerate().filter_map(|(i, v)| v.map(|v| (i, v))).collect();
+                let present: Vec<(usize, f64)> = values
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, v)| v.map(|v| (i, v)))
+                    .collect();
                 let mut out = json!({"title": title, "kind": kind, "bars": present.len()});
                 if *hidden {
                     out["hidden"] = true.into();
                 }
                 if kind == "shapes" {
-                    let signals: Vec<i64> =
-                        present.iter().filter(|(_, v)| *v != 0.0).map(|(i, _)| self.times[*i]).collect();
+                    let signals: Vec<i64> = present
+                        .iter()
+                        .filter(|(_, v)| *v != 0.0)
+                        .map(|(i, _)| self.times[*i])
+                        .collect();
                     out["signals"] = signals.len().into();
-                    out["lastSignals"] = signals.iter().rev().take(5).rev().map(|t| iso_s(*t)).collect::<Vec<_>>().into();
+                    out["lastSignals"] = signals
+                        .iter()
+                        .rev()
+                        .take(5)
+                        .rev()
+                        .map(|t| iso_s(*t))
+                        .collect::<Vec<_>>()
+                        .into();
                 } else if let Some(&(i, last)) = present.last() {
                     let (min, max) = present
                         .iter()
-                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), (_, v)| (lo.min(*v), hi.max(*v)));
+                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), (_, v)| {
+                            (lo.min(*v), hi.max(*v))
+                        });
                     out["last"] = json!(last);
                     out["lastTime"] = iso_s(self.times[i]).into();
                     out["min"] = json!(min);
@@ -1084,7 +1205,10 @@ fn drawings_brief(graphics: &Value) -> Option<Value> {
         "boxes": count("boxes"),
         "tables": count("tables"),
     });
-    let mut labels: Vec<&Value> = graphics["labels"].as_array().map(|l| l.iter().collect()).unwrap_or_default();
+    let mut labels: Vec<&Value> = graphics["labels"]
+        .as_array()
+        .map(|l| l.iter().collect())
+        .unwrap_or_default();
     labels.sort_by_key(|l| l["t"].as_i64().unwrap_or(0));
     let recent: Vec<Value> = labels
         .iter()
@@ -1103,9 +1227,15 @@ fn drawings_brief(graphics: &Value) -> Option<Value> {
             list.iter()
                 .take(2)
                 .map(|t| {
-                    let mut grid = vec![vec![String::new(); t["columns"].as_u64().unwrap_or(0).min(20) as usize]; t["rows"].as_u64().unwrap_or(0).min(40) as usize];
+                    let mut grid = vec![
+                        vec![String::new(); t["columns"].as_u64().unwrap_or(0).min(20) as usize];
+                        t["rows"].as_u64().unwrap_or(0).min(40) as usize
+                    ];
                     for c in t["cells"].as_array().into_iter().flatten() {
-                        let (r, col) = (c["row"].as_u64().unwrap_or(0) as usize, c["col"].as_u64().unwrap_or(0) as usize);
+                        let (r, col) = (
+                            c["row"].as_u64().unwrap_or(0) as usize,
+                            c["col"].as_u64().unwrap_or(0) as usize,
+                        );
                         if let Some(cell) = grid.get_mut(r).and_then(|row| row.get_mut(col)) {
                             *cell = c["text"].as_str().unwrap_or_default().to_string();
                         }
@@ -1142,7 +1272,9 @@ pub async fn publish(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, Stri
             display: json!({"kind": "pinePublish", "error": "It does not compile.", "errors": errors}),
         });
     }
-    let name = arg_str(args, "name").map(str::to_string).unwrap_or_else(|| s["name"].as_str().unwrap_or_default().to_string());
+    let name = arg_str(args, "name")
+        .map(str::to_string)
+        .unwrap_or_else(|| s["name"].as_str().unwrap_or_default().to_string());
     let linked = s["tradingview"]["id"].as_str().map(str::to_string);
     let card = json!({
         "kind": "pinePublish",
@@ -1157,7 +1289,10 @@ pub async fn publish(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, Stri
             Err(Cancelled) => return Err("Cancelled.".into()),
             Ok(Approval::Deny) => {
                 let content = json!({"status": "declined", "note": "The user chose not to save it to their TradingView account. Do not retry; the script stays in Demido's library, and runs on the chart from there."});
-                return Ok(ToolOutput::ok(content.to_string(), json!({"kind": "pinePublish", "name": name, "denied": true})));
+                return Ok(ToolOutput::ok(
+                    content.to_string(),
+                    json!({"kind": "pinePublish", "name": name, "denied": true}),
+                ));
             }
             Ok(Approval::Always) => {
                 let _ = ctx.state.settings.update(|s| {
@@ -1212,7 +1347,10 @@ pub async fn add_indicator(ctx: &ToolContext, args: &Value) -> Result<ToolOutput
         (raw.to_string(), None)
     } else {
         let s = local(ctx, "pine.get", json!({"id": library_id(raw)})).await?;
-        (format!("{PREFIX}{}", library_id(raw)), s["name"].as_str().map(str::to_string))
+        (
+            format!("{PREFIX}{}", library_id(raw)),
+            s["name"].as_str().map(str::to_string),
+        )
     };
     let command = json!({
         "action": "indicator",
@@ -1296,7 +1434,9 @@ pub(crate) fn normalize_items(items: &[Value]) -> Result<Vec<Value>, String> {
                 d.insert("price2".into(), price_of(item, "price2", kind)?.into());
             }
             "series" => {
-                let points = item["points"].as_array().ok_or("A series needs points: [[time, value], …].")?;
+                let points = item["points"]
+                    .as_array()
+                    .ok_or("A series needs points: [[time, value], …].")?;
                 if points.len() > MAX_POINTS {
                     return Err(format!("At most {MAX_POINTS} points in a series."));
                 }
@@ -1331,10 +1471,17 @@ pub async fn draw(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String>
             .market
             .chart_command(json!({"action": "undraw", "name": name}));
         let content = json!({"status": "removed", "note": if name == "*" { "Every set of drawings was removed from the chart." } else { "That set of drawings was removed from the chart." }});
-        return Ok(ToolOutput::ok(content.to_string(), json!({"kind": "chartDraw", "name": name, "removed": true})));
+        return Ok(ToolOutput::ok(
+            content.to_string(),
+            json!({"kind": "chartDraw", "name": name, "removed": true}),
+        ));
     }
     let count = items.len();
-    let pane = if args["pane"] == "separate" { "separate" } else { "overlay" };
+    let pane = if args["pane"] == "separate" {
+        "separate"
+    } else {
+        "overlay"
+    };
     ctx.state.market.chart_command(json!({
         "action": "draw",
         "drawing": {"name": name, "pane": pane, "items": items},
@@ -1377,12 +1524,19 @@ mod tests {
     fn edits_replace_exact_text_once() {
         let src = "//@version=6\nindicator(\"x\")\nlen = 14\nplot(ta.sma(close, len))\n";
         let e = apply_edit(src, "len = 14", "len = input.int(14)", false).unwrap();
-        assert_eq!(e.source, "//@version=6\nindicator(\"x\")\nlen = input.int(14)\nplot(ta.sma(close, len))\n");
+        assert_eq!(
+            e.source,
+            "//@version=6\nindicator(\"x\")\nlen = input.int(14)\nplot(ta.sma(close, len))\n"
+        );
         assert_eq!((e.count, e.line, e.lines), (1, 3, 1));
         let twice = apply_edit(src, "len", "n", false).unwrap_err();
         assert!(twice.contains("occurs 2 times (lines 3, 4)"), "{twice}");
         assert_eq!(apply_edit(src, "len", "n", true).unwrap().count, 2);
-        assert!(apply_edit(src, "plot(x)", "plot(y)", false).unwrap_err().contains("not in the script"));
+        assert!(
+            apply_edit(src, "plot(x)", "plot(y)", false)
+                .unwrap_err()
+                .contains("not in the script")
+        );
         assert!(apply_edit(src, "len = 14", "len = 14", false).is_err());
         assert!(apply_edit(src, "  ", "x", false).is_err());
     }
@@ -1409,18 +1563,36 @@ mod tests {
         let e = apply_edit(src, "if b\n    c = 1", "if b\n    c := 3", false).unwrap();
         assert_eq!(e.source, "if a\n    if b\n        c := 3\n        d = 2\nplot(c)");
         assert_eq!(e.line, 2);
-        assert_eq!(around(&e.source, e.line, e.lines), "1| if a\n2|     if b\n3|         c := 3\n4|         d = 2\n5| plot(c)");
+        assert_eq!(
+            around(&e.source, e.line, e.lines),
+            "1| if a\n2|     if b\n3|         c := 3\n4|         d = 2\n5| plot(c)"
+        );
         let crlf = "x = 1\r\n    y = 2\r\nz = 3";
-        assert_eq!(apply_edit(crlf, "y = 2\nz = 3", "y = 5\nz = 3", false).unwrap().source, "x = 1\r\n    y = 5\r\nz = 3");
+        assert_eq!(
+            apply_edit(crlf, "y = 2\nz = 3", "y = 5\nz = 3", false).unwrap().source,
+            "x = 1\r\n    y = 5\r\nz = 3"
+        );
         // All of it flattened: every line keeps its own indentation.
         let e = apply_edit(src, "if b\nc = 1\nd = 2", "if b\nc = 1 // one\nd = 2", false).unwrap();
         assert_eq!(e.source, "if a\n    if b\n        c = 1 // one\n        d = 2\nplot(c)");
         // A line added deeper, and one taken out of the block.
-        let e = apply_edit(src, "    if b\n        c = 1", "    if b\n        c = 1\n        if c > 0\n            c := 0\n    e = 1", false).unwrap();
-        assert_eq!(e.source, "if a\n    if b\n        c = 1\n        if c > 0\n            c := 0\n    e = 1\n        d = 2\nplot(c)");
+        let e = apply_edit(
+            src,
+            "    if b\n        c = 1",
+            "    if b\n        c = 1\n        if c > 0\n            c := 0\n    e = 1",
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            e.source,
+            "if a\n    if b\n        c = 1\n        if c > 0\n            c := 0\n    e = 1\n        d = 2\nplot(c)"
+        );
         // Indented by 2 where the script indents by 4.
         let e = apply_edit(src, "if b\n  c = 1", "if b\n  c = 1\n      f = 1\ng = 1", false).unwrap();
-        assert_eq!(e.source, "if a\n    if b\n        c = 1\n            f = 1\n    g = 1\n        d = 2\nplot(c)");
+        assert_eq!(
+            e.source,
+            "if a\n    if b\n        c = 1\n            f = 1\n    g = 1\n        d = 2\nplot(c)"
+        );
         let hint = apply_edit(src, "if b\n    e = 1", "if b", false).unwrap_err();
         assert!(hint.contains("first line is on line 2"), "{hint}");
     }
@@ -1436,14 +1608,25 @@ mod tests {
 
     #[test]
     fn a_long_script_is_read_in_parts_with_its_compiler_messages() {
-        let source: String = (1..=800).map(|i| format!("x{i} = ta.sma(close, {i}) // a line of some length\n")).collect();
+        let source: String = (1..=800)
+            .map(|i| format!("x{i} = ta.sma(close, {i}) // a line of some length\n"))
+            .collect();
         let s = json!({"id": "a1", "name": "Long", "kind": "indicator", "revision": 3});
         let check = json!({"ok": true, "errors": [], "warnings": [{"line": 2, "column": 1, "message": "Shadowed"}]});
         let first = read_text(&s, &source, 1, Some(&check), None);
-        assert!(first.contains("it compiles, with 1 warning:\n- line 2 (warning): Shadowed\n    x2 = ta.sma(close, 2)"), "{first}");
+        assert!(
+            first.contains("it compiles, with 1 warning:\n- line 2 (warning): Shadowed\n    x2 = ta.sma(close, 2)"),
+            "{first}"
+        );
         assert!(first.chars().count() <= READ_CHARS + 200);
         assert!(first.contains("\n  1| x1 = ta.sma(close, 1)"));
-        let next: usize = first.rsplit("start_line ").next().unwrap().trim_end_matches('.').parse().unwrap();
+        let next: usize = first
+            .rsplit("start_line ")
+            .next()
+            .unwrap()
+            .trim_end_matches('.')
+            .parse()
+            .unwrap();
         let second = read_text(&s, &source, next, None, None);
         assert!(second.contains(&format!("Lines {next} to ")), "{second}");
         assert!(second.contains("not signed in"));

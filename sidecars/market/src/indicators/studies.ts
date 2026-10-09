@@ -111,7 +111,10 @@ export function studyError(args: unknown[]): RpcError {
     const at = fault.line ? ` on line ${fault.line}` : '';
     return new RpcError('SCRIPT_RUNTIME', `The script stopped${at}: ${fault.message.slice(0, 400)}`);
   }
-  return new RpcError('STUDY_ERROR', `TradingView could not compute this indicator: ${text.slice(0, 300) || 'no reason given'}.`);
+  return new RpcError(
+    'STUDY_ERROR',
+    `TradingView could not compute this indicator: ${text.slice(0, 300) || 'no reason given'}.`,
+  );
 }
 
 /** A script by its chart id: TradingView's (catalog) or the Pine library's, compiled. */

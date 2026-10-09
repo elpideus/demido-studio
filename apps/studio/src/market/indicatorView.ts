@@ -10,7 +10,11 @@ export function columnIndex(meta: Pick<IndicatorMeta, 'columns'>): Map<string, n
 }
 
 /** Rows after an update: `full` replaces them, otherwise rows replace or join by time. Oldest first. */
-export function mergeRows(rows: readonly IndicatorRow[], incoming: readonly IndicatorRow[], full: boolean): IndicatorRow[] {
+export function mergeRows(
+  rows: readonly IndicatorRow[],
+  incoming: readonly IndicatorRow[],
+  full: boolean,
+): IndicatorRow[] {
   const sorted = [...incoming].sort((a, b) => a[0] - b[0]);
   if (full || !rows.length) return sorted;
   const out = [...rows];
@@ -157,7 +161,8 @@ export function shapeMarkers(
       const marker: Marker = { time, position: 'aboveBar', shape, color };
       if (plot.location === 'absolute') {
         // Labels point at the value: an up label sits below it, a down label above it.
-        marker.position = shape === 'arrowUp' ? 'atPriceTop' : shape === 'arrowDown' ? 'atPriceBottom' : 'atPriceMiddle';
+        marker.position =
+          shape === 'arrowUp' ? 'atPriceTop' : shape === 'arrowDown' ? 'atPriceBottom' : 'atPriceMiddle';
         marker.price = v;
       } else {
         // A series bool: drawn where it is true.

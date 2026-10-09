@@ -383,7 +383,10 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     }
     if (s.ownAnchor) {
       s.anchor.setData(
-        anchorPoints(s.meta, rowAt, times.current, s.columns).map((p) => ({ ...p, time: p.time as UTCTimestamp })) as never,
+        anchorPoints(s.meta, rowAt, times.current, s.columns).map((p) => ({
+          ...p,
+          time: p.time as UTCTimestamp,
+        })) as never,
       );
     }
     s.markers?.setMarkers(s.hidden ? [] : markersOf(s));
@@ -399,7 +402,10 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       const historical = t < last;
       const row = rowAt(t);
       for (const { plot, api } of s.plotted) {
-        api.update(seriesPoint(plot, pointAt(plot, row, t, s.columns.get(plot.id) ?? -1, s.columns)) as never, historical);
+        api.update(
+          seriesPoint(plot, pointAt(plot, row, t, s.columns.get(plot.id) ?? -1, s.columns)) as never,
+          historical,
+        );
       }
       if (s.ownAnchor) {
         const [p] = anchorPoints(s.meta, rowAt, [t], s.columns);
@@ -434,11 +440,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     if (!c || !cs) return null;
     const old = shown.current.get(key);
     // A redrawn indicator keeps its pane: the new series join it before the old ones leave.
-    const paneIndex = meta.overlay
-      ? 0
-      : old && old.ownAnchor
-        ? old.anchor.getPane().paneIndex()
-        : c.panes().length;
+    const paneIndex = meta.overlay ? 0 : old && old.ownAnchor ? old.anchor.getPane().paneIndex() : c.panes().length;
     const newPane = paneIndex >= c.panes().length;
     const p = precisionOf(meta, precision.current);
     const priceFormat = { type: 'price' as const, precision: p, minMove: 1 / 10 ** p };

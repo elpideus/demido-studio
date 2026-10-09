@@ -27,7 +27,8 @@ const KINDS = new Set<string>(PLOT_KINDS.map((k) => k.value));
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const color = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
-const width = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(4, Math.max(1, Math.round(v))) : undefined);
+const width = (v: unknown) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(4, Math.max(1, Math.round(v))) : undefined;
 const dash = (v: unknown) => (v === 0 || v === 1 || v === 2 ? v : undefined);
 const bool = (v: unknown) => (typeof v === 'boolean' ? v : undefined);
 
@@ -77,7 +78,10 @@ function records<T>(v: unknown, of: (x: unknown) => T | null): Record<string, T>
 export function lookOf(value: unknown): IndicatorLook | undefined {
   if (!isObj(value)) return undefined;
   const precision =
-    typeof value.precision === 'number' && Number.isInteger(value.precision) && value.precision >= 0 && value.precision <= 10
+    typeof value.precision === 'number' &&
+    Number.isInteger(value.precision) &&
+    value.precision >= 0 &&
+    value.precision <= 10
       ? value.precision
       : undefined;
   const out = defined<IndicatorLook>({
@@ -159,14 +163,17 @@ export function shownOn(look: IndicatorLook | undefined, timeframe: string): boo
  * The look worth keeping: only what differs from the indicator's own description, so a later
  * change of the script's defaults still shows through. Undefined when nothing differs.
  */
-export function tidyLook(meta: IndicatorMeta, look: IndicatorLook, allTimeframes: readonly string[]): IndicatorLook | undefined {
+export function tidyLook(
+  meta: IndicatorMeta,
+  look: IndicatorLook,
+  allTimeframes: readonly string[],
+): IndicatorLook | undefined {
   const plots: Record<string, PlotLook> = {};
   for (const p of meta.plots) {
     const l = look.plots?.[p.id];
     if (!l) continue;
-    const colors = l.colors && p.colors
-      ? Object.fromEntries(Object.entries(l.colors).filter(([k, c]) => p.colors![k] !== c))
-      : {};
+    const colors =
+      l.colors && p.colors ? Object.fromEntries(Object.entries(l.colors).filter(([k, c]) => p.colors![k] !== c)) : {};
     const kept = defined<PlotLook>({
       color: l.color && l.color !== p.color ? l.color : undefined,
       colors: Object.keys(colors).length ? colors : undefined,

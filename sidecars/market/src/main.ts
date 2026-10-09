@@ -161,7 +161,13 @@ function origin(value: unknown): Origin {
 /** What the editor shows of a compiled script: its inputs and plots. */
 function describeBrief(metaInfo: Record<string, unknown>) {
   const m = describeMeta(metaInfo);
-  return { name: m.name, overlay: m.overlay, inputs: m.inputs.filter((i) => !i.hidden), plots: m.plots, bands: m.bands };
+  return {
+    name: m.name,
+    overlay: m.overlay,
+    inputs: m.inputs.filter((i) => !i.hidden),
+    plots: m.plots,
+    bands: m.bands,
+  };
 }
 
 /** An indicator's setup as the UI sends it (from a saved layout or its settings). */
@@ -700,7 +706,15 @@ const handlers: Record<string, (params: Params) => Promise<unknown> | unknown> =
   'pine.check': async (p) => {
     const c = await pine.compile(source(p));
     const meta = c.script ? describeBrief(c.script.metaInfo) : undefined;
-    return { ok: c.ok, errors: c.errors, warnings: c.warnings, kind: c.kind, title: c.title, overlay: c.overlay, ...(meta ? { meta } : {}) };
+    return {
+      ok: c.ok,
+      errors: c.errors,
+      warnings: c.warnings,
+      kind: c.kind,
+      title: c.title,
+      overlay: c.overlay,
+      ...(meta ? { meta } : {}),
+    };
   },
 
   /** Runs a script once on a chart of its own: its values, or where it failed. */

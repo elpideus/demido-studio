@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 import { lineAt, lineClasses, marksByLine, offsetAt, segmentsOf } from './pineSyntax';
 
-const runs = (line: string) => segmentsOf(line).filter((s) => s.cls).map((s) => [s.text, s.cls]);
+const runs = (line: string) =>
+  segmentsOf(line)
+    .filter((s) => s.cls)
+    .map((s) => [s.text, s.cls]);
 
 describe('lineClasses', () => {
   it('colors declarations, calls, strings and numbers', () => {

@@ -3,7 +3,20 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Bar } from '@/lib/types';
-import { LOCAL_ENTRIES, ema, isLocal, localMeta, localRows, rma, rsi, sma, sourceOf, stdev, vwma, wma } from './indicators';
+import {
+  LOCAL_ENTRIES,
+  ema,
+  isLocal,
+  localMeta,
+  localRows,
+  rma,
+  rsi,
+  sma,
+  sourceOf,
+  stdev,
+  vwma,
+  wma,
+} from './indicators';
 
 const bars = (closes: number[]): Bar[] =>
   closes.map((c, i) => ({ t: 1_700_000_000 + i * 60, o: c, h: c + 1, l: c - 1, c, v: 10 + i }));

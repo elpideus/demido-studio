@@ -192,7 +192,12 @@ function arrowHead(ctx: Ctx, fromX: number, fromY: number, toX: number, toY: num
 function drawLines(ctx: Ctx, text: string, x: number, y: number, size: number, baseline: CanvasTextBaseline): void {
   const lines = text.split('\n');
   const step = size * 1.25;
-  const first = baseline === 'top' ? y : baseline === 'bottom' ? y - step * (lines.length - 1) : y - (step * (lines.length - 1)) / 2;
+  const first =
+    baseline === 'top'
+      ? y
+      : baseline === 'bottom'
+        ? y - step * (lines.length - 1)
+        : y - (step * (lines.length - 1)) / 2;
   lines.forEach((line, i) => ctx.fillText(line, x, first + i * step));
 }
 

@@ -28,7 +28,13 @@ describe('drawing sets', () => {
   it('are read from the props, malformed ones left out', () => {
     expect(
       drawingsOf([
-        { name: 'A', pane: 'separate', items: [{ type: 'hline', price: 1 }, { type: 'nope' }], symbol: 'FX:EURUSD', hidden: true },
+        {
+          name: 'A',
+          pane: 'separate',
+          items: [{ type: 'hline', price: 1 }, { type: 'nope' }],
+          symbol: 'FX:EURUSD',
+          hidden: true,
+        },
         { name: 'A', items: [] },
         { name: '', items: [] },
         { name: 'B', items: 'x' },
@@ -90,12 +96,25 @@ describe('chartPatch', () => {
   });
 
   it('shows an indicator again instead of adding it twice', () => {
-    const patch = chartPatch(props, { action: 'indicator', script: 'STD;RSI', name: null, inputs: {}, symbol: null, timeframe: null });
-    expect(patch).toEqual({ tab: 'chart', indicators: [{ key: 'k1', script: 'STD;RSI', version: null, name: 'RSI', setup: {} }] });
+    const patch = chartPatch(props, {
+      action: 'indicator',
+      script: 'STD;RSI',
+      name: null,
+      inputs: {},
+      symbol: null,
+      timeframe: null,
+    });
+    expect(patch).toEqual({
+      tab: 'chart',
+      indicators: [{ key: 'k1', script: 'STD;RSI', version: null, name: 'RSI', setup: {} }],
+    });
   });
 
-  it("names a TradingView script by its id until its description arrives", () => {
-    const patch = chartPatch({}, { action: 'indicator', script: 'PUB;xyz', name: null, inputs: {}, symbol: null, timeframe: null });
+  it('names a TradingView script by its id until its description arrives', () => {
+    const patch = chartPatch(
+      {},
+      { action: 'indicator', script: 'PUB;xyz', name: null, inputs: {}, symbol: null, timeframe: null },
+    );
     expect(savedIndicators(patch.indicators)[0]).toMatchObject({ script: 'PUB;xyz', name: 'PUB;xyz', version: null });
   });
 
@@ -160,8 +179,19 @@ describe('drawingView', () => {
   });
 
   it('draws a level across the chart, with its text at the right', () => {
-    const { graphics } = drawingView(set([{ type: 'hline', price: 1.1, text: 'R1', color: '#f00', style: 'dashed' }]), TIMES);
-    expect(graphics.lines[0]).toMatchObject({ t1: 3600, t2: 14400, y1: 1.1, y2: 1.1, extend: 'both', style: 'dashed', color: '#f00' });
+    const { graphics } = drawingView(
+      set([{ type: 'hline', price: 1.1, text: 'R1', color: '#f00', style: 'dashed' }]),
+      TIMES,
+    );
+    expect(graphics.lines[0]).toMatchObject({
+      t1: 3600,
+      t2: 14400,
+      y1: 1.1,
+      y2: 1.1,
+      extend: 'both',
+      style: 'dashed',
+      color: '#f00',
+    });
     expect(graphics.labels[0]).toMatchObject({ t: 14400, y: 1.1, text: 'R1', style: 'label_left' });
   });
 
@@ -169,11 +199,16 @@ describe('drawingView', () => {
     const { graphics } = drawingView(set([{ type: 'line', time: 0, price: 0, time2: 7300, price2: 73 }]), TIMES);
     expect(graphics.lines[0]).toMatchObject({ t1: 3600, y1: 36, t2: 7200, y2: 73 });
     // Wholly before the bars: nothing.
-    expect(drawingView(set([{ type: 'line', time: 0, price: 0, time2: 100, price2: 1 }]), TIMES).graphics.lines).toEqual([]);
+    expect(
+      drawingView(set([{ type: 'line', time: 0, price: 0, time2: 100, price2: 1 }]), TIMES).graphics.lines,
+    ).toEqual([]);
   });
 
   it('draws a box between its corners, top first', () => {
-    const { graphics } = drawingView(set([{ type: 'box', time: 10900, price: 1, time2: 3700, price2: 2, text: 'Zone' }]), TIMES);
+    const { graphics } = drawingView(
+      set([{ type: 'box', time: 10900, price: 1, time2: 3700, price2: 2, text: 'Zone' }]),
+      TIMES,
+    );
     expect(graphics.boxes[0]).toMatchObject({ t1: 3600, t2: 10800, y1: 2, y2: 1, text: 'Zone', color: '#2962ff' });
     expect(graphics.boxes[0]!.bg).toMatch(/^rgba\(41,98,255,/);
   });

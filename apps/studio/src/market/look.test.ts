@@ -18,7 +18,16 @@ const meta = (): IndicatorMeta => ({
   plots: [
     { id: 'plot_0', title: 'RSI', kind: 'line', color: '#7E57C2', width: 1, dash: 0 },
     { id: 'plot_1', title: 'MA', kind: 'line', color: '#FDD835', width: 1, dash: 0, hidden: true },
-    { id: 'plot_2', title: 'Hist', kind: 'histogram', color: '#26a69a', width: 1, dash: 0, colorer: 'plot_3', colors: { '0': '#26a69a', '1': '#ef5350' } },
+    {
+      id: 'plot_2',
+      title: 'Hist',
+      kind: 'histogram',
+      color: '#26a69a',
+      width: 1,
+      dash: 0,
+      colorer: 'plot_3',
+      colors: { '0': '#26a69a', '1': '#ef5350' },
+    },
   ],
   bands: [{ id: 'hline_0', title: 'Upper', value: 70, color: '#787B86', width: 1, dash: 2 }],
   inputs: [],

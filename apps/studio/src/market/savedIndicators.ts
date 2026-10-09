@@ -115,7 +115,10 @@ export function pineId(script: string): string | null {
 }
 
 /** Input values worth keeping: those that differ from the script's defaults. */
-export function changedInputs(inputs: readonly IndicatorInput[], values: Record<string, unknown>): Record<string, unknown> {
+export function changedInputs(
+  inputs: readonly IndicatorInput[],
+  values: Record<string, unknown>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const i of inputs) {
     if (!(i.id in values)) continue;

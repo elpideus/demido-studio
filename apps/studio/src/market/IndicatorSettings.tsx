@@ -59,10 +59,46 @@ const LINES = new Set(['line', 'step', 'area']);
 
 /** TradingView's palette: greys, then its hues bright, light and dark. */
 const PALETTE = [
-  '#ffffff', '#d1d4dc', '#b2b5be', '#9598a1', '#787b86', '#5d606b', '#434651', '#2a2e39', '#131722', '#000000',
-  '#f23645', '#ff9800', '#ffeb3b', '#4caf50', '#089981', '#00bcd4', '#2962ff', '#673ab7', '#9c27b0', '#e91e63',
-  '#faa1a4', '#ffcc80', '#fff59d', '#a5d6a7', '#70ccbd', '#80deea', '#90bff9', '#b39ddb', '#ce93d8', '#f48fb1',
-  '#b22833', '#f57c00', '#fbc02d', '#388e3c', '#056656', '#0097a7', '#1848cc', '#512da8', '#7b1fa2', '#c2185b',
+  '#ffffff',
+  '#d1d4dc',
+  '#b2b5be',
+  '#9598a1',
+  '#787b86',
+  '#5d606b',
+  '#434651',
+  '#2a2e39',
+  '#131722',
+  '#000000',
+  '#f23645',
+  '#ff9800',
+  '#ffeb3b',
+  '#4caf50',
+  '#089981',
+  '#00bcd4',
+  '#2962ff',
+  '#673ab7',
+  '#9c27b0',
+  '#e91e63',
+  '#faa1a4',
+  '#ffcc80',
+  '#fff59d',
+  '#a5d6a7',
+  '#70ccbd',
+  '#80deea',
+  '#90bff9',
+  '#b39ddb',
+  '#ce93d8',
+  '#f48fb1',
+  '#b22833',
+  '#f57c00',
+  '#fbc02d',
+  '#388e3c',
+  '#056656',
+  '#0097a7',
+  '#1848cc',
+  '#512da8',
+  '#7b1fa2',
+  '#c2185b',
 ];
 
 /** A palette, a hex field and an opacity slider, opened under the swatch that was clicked. */
@@ -118,7 +154,17 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
   );
 }
 
-function Swatch({ color, active, label, onClick }: { color: string; active: boolean; label: string; onClick: () => void }) {
+function Swatch({
+  color,
+  active,
+  label,
+  onClick,
+}: {
+  color: string;
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
@@ -216,7 +262,11 @@ export function IndicatorSettings({ open, meta, look, timeframes, onClose, onApp
     if (!meta) return;
     onApply(
       Object.fromEntries(inputs.map((i) => [i.id, valueOf(i, drafts[i.id])])),
-      tidyLook(meta, lookDraft, timeframes.map((t) => t.value)),
+      tidyLook(
+        meta,
+        lookDraft,
+        timeframes.map((t) => t.value),
+      ),
     );
     onClose();
   };
@@ -230,7 +280,8 @@ export function IndicatorSettings({ open, meta, look, timeframes, onClose, onApp
   const control = (input: IndicatorInput) => {
     const draft = drafts[input.id];
     const options = input.options?.length ? input.options : input.type === 'source' ? [...SOURCES] : null;
-    if (input.type === 'bool') return <Switch size="sm" checked={draft === true} onChange={(on) => set(input.id, on)} />;
+    if (input.type === 'bool')
+      return <Switch size="sm" checked={draft === true} onChange={(on) => set(input.id, on)} />;
     if (options) {
       const value = String(draft ?? '');
       return (
@@ -285,7 +336,13 @@ export function IndicatorSettings({ open, meta, look, timeframes, onClose, onApp
   };
 
   const swatch = (key: string, color: string, label: string) => (
-    <Swatch key={key} color={color} label={label} active={picking === key} onClick={() => setPicking((p) => (p === key ? null : key))} />
+    <Swatch
+      key={key}
+      color={color}
+      label={label}
+      active={picking === key}
+      onClick={() => setPicking((p) => (p === key ? null : key))}
+    />
   );
 
   const styleTab = shown && (
@@ -300,10 +357,16 @@ export function IndicatorSettings({ open, meta, look, timeframes, onClose, onApp
             return (
               <div key={p.id}>
                 <div className={styles.styleRow}>
-                  <Checkbox checked={!p.hidden} onChange={(on) => setPlot(p.id, { hidden: !on })} label={p.title || p.id} />
+                  <Checkbox
+                    checked={!p.hidden}
+                    onChange={(on) => setPlot(p.id, { hidden: !on })}
+                    label={p.title || p.id}
+                  />
                   <span className={styles.flex} />
                   {palette
-                    ? palette.map(([k, c]) => swatch(`plot:${p.id}:${k}`, c, `${p.title || p.id}: color ${Number(k) + 1 || k}`))
+                    ? palette.map(([k, c]) =>
+                        swatch(`plot:${p.id}:${k}`, c, `${p.title || p.id}: color ${Number(k) + 1 || k}`),
+                      )
                     : swatch(`plot:${p.id}`, p.color, `${p.title || p.id}: color`)}
                   {p.kind !== 'shapes' && (
                     <Select
@@ -357,7 +420,11 @@ export function IndicatorSettings({ open, meta, look, timeframes, onClose, onApp
           {shown.bands.map((b) => (
             <div key={b.id}>
               <div className={styles.styleRow}>
-                <Checkbox checked={!b.hidden} onChange={(on) => setBand(b.id, { hidden: !on })} label={b.title || b.id} />
+                <Checkbox
+                  checked={!b.hidden}
+                  onChange={(on) => setBand(b.id, { hidden: !on })}
+                  label={b.title || b.id}
+                />
                 <span className={styles.flex} />
                 {swatch(`band:${b.id}`, b.color, `${b.title || b.id}: color`)}
                 <LevelField value={b.value} onChange={(value) => setBand(b.id, { value })} />
@@ -378,14 +445,20 @@ export function IndicatorSettings({ open, meta, look, timeframes, onClose, onApp
                   onChange={(e) => setBand(b.id, { dash: Number(e.target.value) })}
                 />
               </div>
-              {picking === `band:${b.id}` && <ColorPicker value={b.color} onChange={(c) => setBand(b.id, { color: c })} />}
+              {picking === `band:${b.id}` && (
+                <ColorPicker value={b.color} onChange={(c) => setBand(b.id, { color: c })} />
+              )}
             </div>
           ))}
         </section>
       )}
       <section className={styles.settingsGroup}>
         <div className={styles.resultsTitle}>Values</div>
-        <Field layout="inline" label="Precision" description="Decimals of its values. Default: the script's, or the chart's.">
+        <Field
+          layout="inline"
+          label="Precision"
+          description="Decimals of its values. Default: the script's, or the chart's."
+        >
           <Select
             size="sm"
             className={styles.styleSelect}

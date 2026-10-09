@@ -130,8 +130,10 @@ async function facade(urlPath: string, params: Record<string, string>, form?: Re
     throw new RpcError('NETWORK', `Could not reach TradingView: ${(error as Error).message}`);
   }
   if (res.status === 413) throw new RpcError('TOO_LARGE', 'TradingView refused the script: it is too large.');
-  if (res.status === 420) throw new RpcError('BAD_NAME', `TradingView refused the name: at most ${MAX_NAME} characters.`);
-  if (res.status === 401) throw new RpcError('SESSION_EXPIRED', 'TradingView did not accept the session. Sign in again.');
+  if (res.status === 420)
+    throw new RpcError('BAD_NAME', `TradingView refused the name: at most ${MAX_NAME} characters.`);
+  if (res.status === 401)
+    throw new RpcError('SESSION_EXPIRED', 'TradingView did not accept the session. Sign in again.');
   const text = await res.text();
   try {
     return obj(JSON.parse(text));
@@ -173,12 +175,22 @@ async function compileNow(source: string): Promise<Compiled> {
   const at = (message: string): PineMessage => ({ line: 1, column: 1, endLine: 1, endColumn: 1, message });
   if (!source.trim()) return { ok: false, errors: [at('The script is empty.')], warnings: [], kind, title };
   if (source.length > MAX_SOURCE) {
-    return { ok: false, errors: [at('The script is too large (over a million characters).')], warnings: [], kind, title };
+    return {
+      ok: false,
+      errors: [at('The script is too large (over a million characters).')],
+      warnings: [],
+      kind,
+      title,
+    };
   }
   const data = await facade('translate_source/last', {}, { source, inputs: '{}' });
   const reason2 = obj(data.reason2);
-  const errors = arr(reason2.errors).map(messageOf).filter((m): m is PineMessage => m !== null);
-  const warnings = arr(reason2.warnings).map(messageOf).filter((m): m is PineMessage => m !== null);
+  const errors = arr(reason2.errors)
+    .map(messageOf)
+    .filter((m): m is PineMessage => m !== null);
+  const warnings = arr(reason2.warnings)
+    .map(messageOf)
+    .filter((m): m is PineMessage => m !== null);
   const result = obj(data.result);
   const metaInfo = obj(result.metaInfo);
   if (data.success === true && typeof result.ilTemplate === 'string' && Object.keys(metaInfo).length) {
@@ -217,7 +229,10 @@ export async function runnable(source: string): Promise<{ script: Script; warnin
   if (!c.ok || !c.script) {
     const first = c.errors[0];
     const more = c.errors.length > 1 ? ` (and ${c.errors.length - 1} more)` : '';
-    throw new RpcError('COMPILE_ERROR', `The script does not compile: ${first ? where(first) : 'no reason given'}${more}.`);
+    throw new RpcError(
+      'COMPILE_ERROR',
+      `The script does not compile: ${first ? where(first) : 'no reason given'}${more}.`,
+    );
   }
   if (c.kind === 'library') {
     throw new RpcError('UNSUPPORTED', 'A library cannot run on a chart; scripts import it.');
@@ -382,7 +397,8 @@ export class PineLibrary {
    * title its declaration gives, as TradingView names a script on its first save.
    */
   async save(req: { id?: string; source: string; name?: string }): Promise<PineScript> {
-    if (req.source.length > MAX_SOURCE) throw new RpcError('TOO_LARGE', 'The script is too large (over a million characters).');
+    if (req.source.length > MAX_SOURCE)
+      throw new RpcError('TOO_LARGE', 'The script is too large (over a million characters).');
     const all = await this.#all();
     const now = Date.now();
     const named = cleanName(req.name ?? '') || cleanName(declaration(req.source).title);
@@ -421,7 +437,10 @@ export class PineLibrary {
   async link(id: string, tvId: string, version: string, source?: string): Promise<PineScript> {
     const all = await this.#all();
     const old = await this.get(id);
-    const s: PineScript = { ...old, tradingview: { id: tvId, version, synced: Date.now(), hash: hashOf(source ?? old.source) } };
+    const s: PineScript = {
+      ...old,
+      tradingview: { id: tvId, version, synced: Date.now(), hash: hashOf(source ?? old.source) },
+    };
     all.set(id, s);
     await this.#persist();
     this.#changed(id, s);
@@ -471,7 +490,10 @@ function savedMeta(data: Obj): Obj {
   if (str(meta.scriptIdPart)) return meta;
   const reason = str(data.reason) || str(data.error) || str(obj(data.error).message);
   if (/exist/i.test(reason)) {
-    throw new RpcError('NAME_TAKEN', `Your TradingView account already has a script with this name. Give this one another title. (${reason})`);
+    throw new RpcError(
+      'NAME_TAKEN',
+      `Your TradingView account already has a script with this name. Give this one another title. (${reason})`,
+    );
   }
   throw new RpcError('SAVE_FAILED', `TradingView did not save the script${reason ? `: ${reason}` : '.'}`);
 }
@@ -486,7 +508,10 @@ export async function publish(lib: PineLibrary, id: string, opts: { name?: strin
   const c = await compile(s.source);
   if (!c.ok) {
     const first = c.errors[0];
-    throw new RpcError('COMPILE_ERROR', `Fix the script before saving it to TradingView: ${first ? where(first) : 'it does not compile'}.`);
+    throw new RpcError(
+      'COMPILE_ERROR',
+      `Fix the script before saving it to TradingView: ${first ? where(first) : 'it does not compile'}.`,
+    );
   }
   const name = cleanName(opts.name ?? '') || s.name;
   const source = s.source;
@@ -526,7 +551,10 @@ export async function importScript(lib: PineLibrary, tvId: string): Promise<Impo
     const reason = str(data.reason) || str(data.error);
     // "User is not allowed to see source code of pine": closed source or invite-only.
     if (/allowed|access|permission|protected|auth/i.test(reason) || !reason) {
-      throw new RpcError('NO_ACCESS', 'TradingView does not share the source of this script (it is closed source or invite-only).');
+      throw new RpcError(
+        'NO_ACCESS',
+        'TradingView does not share the source of this script (it is closed source or invite-only).',
+      );
     }
     throw new RpcError('NOT_FOUND', `TradingView could not find this script: ${reason}`);
   }

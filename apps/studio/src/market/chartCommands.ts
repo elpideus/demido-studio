@@ -188,7 +188,10 @@ function markerStyle(shape: string | undefined, below: boolean): string {
  * levels, lines, boxes, labels and markers as a script's drawings. Times fall in the bar they are
  * in; what lies wholly outside the bars is left out, and lines are cut where the bars end.
  */
-export function drawingView(d: ChartDrawing, times: readonly number[]): { rows: IndicatorRow[]; graphics: IndicatorGraphics } {
+export function drawingView(
+  d: ChartDrawing,
+  times: readonly number[],
+): { rows: IndicatorRow[]; graphics: IndicatorGraphics } {
   const graphics: IndicatorGraphics = { labels: [], lines: [], boxes: [], tables: [] };
   if (!times.length) return { rows: [], graphics };
   const first = times[0]!;
@@ -228,13 +231,23 @@ export function drawingView(d: ChartDrawing, times: readonly number[]): { rows: 
           width,
         };
         graphics.lines.push(line);
-        if (text) graphics.labels.push(label(id++, last, item.price, 'price', text, 'label_left', color ?? BLUE, 'small'));
+        if (text)
+          graphics.labels.push(label(id++, last, item.price, 'price', text, 'label_left', color ?? BLUE, 'small'));
         break;
       }
       case 'line': {
         const { time: t1, price: y1, time2: t2, price2: y2 } = item;
         if (typeof t1 !== 'number' || typeof t2 !== 'number' || typeof y1 !== 'number' || typeof y2 !== 'number') break;
-        const [a, b] = t1 <= t2 ? [{ t: t1, y: y1 }, { t: t2, y: y2 }] : [{ t: t2, y: y2 }, { t: t1, y: y1 }];
+        const [a, b] =
+          t1 <= t2
+            ? [
+                { t: t1, y: y1 },
+                { t: t2, y: y2 },
+              ]
+            : [
+                { t: t2, y: y2 },
+                { t: t1, y: y1 },
+              ];
         if (b.t < first || a.t > end) break;
         // Cut where the bars end, along the line.
         const at = (t: number) => (b.t === a.t ? a.y : a.y + ((b.y - a.y) * (t - a.t)) / (b.t - a.t));
@@ -251,7 +264,10 @@ export function drawingView(d: ChartDrawing, times: readonly number[]): { rows: 
           color: color ?? BLUE,
           width,
         });
-        if (text) graphics.labels.push(label(id++, snap(times, to.t), to.y, 'price', text, 'label_left', color ?? BLUE, 'small'));
+        if (text)
+          graphics.labels.push(
+            label(id++, snap(times, to.t), to.y, 'price', text, 'label_left', color ?? BLUE, 'small'),
+          );
         break;
       }
       case 'box': {
@@ -287,7 +303,9 @@ export function drawingView(d: ChartDrawing, times: readonly number[]): { rows: 
         const c = color ?? BLUE;
         if (item.position === 'above' || item.position === 'below') {
           const above = item.position === 'above';
-          graphics.labels.push(label(id++, t, null, above ? 'abovebar' : 'belowbar', text, above ? 'label_down' : 'label_up', c, 'normal'));
+          graphics.labels.push(
+            label(id++, t, null, above ? 'abovebar' : 'belowbar', text, above ? 'label_down' : 'label_up', c, 'normal'),
+          );
         } else if (typeof item.price === 'number') {
           graphics.labels.push(label(id++, t, item.price, 'price', text, 'label_down', c, 'normal'));
         }
@@ -300,7 +318,16 @@ export function drawingView(d: ChartDrawing, times: readonly number[]): { rows: 
         const below = item.position ? item.position === 'below' : up;
         // Green for a buy-like marker (pointing up, or below the bar), red otherwise.
         const c = color ?? (up || (!down && below) ? GREEN : RED);
-        const marker = label(id++, snap(times, item.time), null, below ? 'belowbar' : 'abovebar', text, markerStyle(item.shape, below), c, 'small');
+        const marker = label(
+          id++,
+          snap(times, item.time),
+          null,
+          below ? 'belowbar' : 'abovebar',
+          text,
+          markerStyle(item.shape, below),
+          c,
+          'small',
+        );
         marker.textColor = c;
         graphics.labels.push(marker);
         break;

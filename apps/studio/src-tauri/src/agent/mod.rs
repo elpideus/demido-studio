@@ -849,7 +849,11 @@ fn call_key(call: &crate::db::ToolCall) -> String {
 fn with_repeat_note(content: &str, times: usize) -> String {
     let note = format!(
         "You already made this exact call {} and it failed the same way, so repeating it cannot work. Change the arguments as the error says, use another tool, or answer the user.",
-        if times == 1 { "once".to_string() } else { format!("{times} times") }
+        if times == 1 {
+            "once".to_string()
+        } else {
+            format!("{times} times")
+        }
     );
     match serde_json::from_str::<Value>(content) {
         Ok(Value::Object(mut o)) => {
@@ -1085,7 +1089,11 @@ mod tests {
 
     #[test]
     fn the_same_call_is_known_whatever_its_spacing() {
-        let call = |args: &str| crate::db::ToolCall { id: "c".into(), name: "pine_test".into(), arguments: args.into() };
+        let call = |args: &str| crate::db::ToolCall {
+            id: "c".into(),
+            name: "pine_test".into(),
+            arguments: args.into(),
+        };
         assert_eq!(
             call_key(&call(r#"{"symbol": "FX:EURUSD", "timeframe": "1d"}"#)),
             call_key(&call(r#"{"timeframe":"1d","symbol":"FX:EURUSD"}"#))
@@ -1095,7 +1103,10 @@ mod tests {
         let v: Value = serde_json::from_str(&noted).unwrap();
         assert_eq!(v["error"], "Give the id.");
         assert!(v["repeated"].as_str().unwrap().contains("exact call once"));
-        assert!(with_repeat_note("plain", 2).ends_with("Change the arguments as the error says, use another tool, or answer the user."));
+        assert!(
+            with_repeat_note("plain", 2)
+                .ends_with("Change the arguments as the error says, use another tool, or answer the user.")
+        );
     }
 
     #[tokio::test]

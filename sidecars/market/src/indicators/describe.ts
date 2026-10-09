@@ -756,7 +756,9 @@ export function parseLayout(html: string): Layout | null {
         hidden: state.visible === false,
         state: {
           inputs: Object.fromEntries(
-            Object.entries(obj(state.inputs)).filter(([k, v]) => !SCRIPT_INPUTS.has(k) && v !== null && typeof v !== 'object'),
+            Object.entries(obj(state.inputs)).filter(
+              ([k, v]) => !SCRIPT_INPUTS.has(k) && v !== null && typeof v !== 'object',
+            ),
           ),
           styles: obj(state.styles) as Record<string, Obj>,
           palettes: obj(state.palettes) as Record<string, Obj>,

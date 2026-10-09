@@ -530,7 +530,12 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
       const what = JSON.stringify([d.pane, d.items]);
       now.set(key, what);
       if (drawn.current.get(key) === what) continue;
-      chart.current?.showIndicator(key, drawingMeta(d), true, (_meta, bars) => drawingView(d, bars.map((b) => b.t)));
+      chart.current?.showIndicator(key, drawingMeta(d), true, (_meta, bars) =>
+        drawingView(
+          d,
+          bars.map((b) => b.t),
+        ),
+      );
     }
     drawn.current = now;
   }, [drawings]);
@@ -543,8 +548,7 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
   // The Pine Editor: open or not, on which script, how tall (all kept in the window's props).
   const pineOpen = win.props.pineOpen === true;
   const pineScript = typeof win.props.pineScript === 'string' ? win.props.pineScript : null;
-  const pineHeight =
-    typeof win.props.pineHeight === 'number' ? Math.max(PINE_MIN_HEIGHT, win.props.pineHeight) : 300;
+  const pineHeight = typeof win.props.pineHeight === 'number' ? Math.max(PINE_MIN_HEIGHT, win.props.pineHeight) : 300;
   const openPine = (id: string | null) => setProps(win.id, { pineOpen: true, pineScript: id });
   const pineOnChart = useMemo(
     () => new Set(saved.map((s) => pineId(s.script)).filter((id): id is string => id !== null)),

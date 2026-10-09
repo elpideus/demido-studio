@@ -120,7 +120,12 @@ pub(crate) async fn ensure_login(ctx: &ToolContext) -> Result<(), String> {
 }
 
 /// Calls a TradingView-backed method, signing in first and once more if the session expired.
-pub(crate) async fn call_live(ctx: &ToolContext, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+pub(crate) async fn call_live(
+    ctx: &ToolContext,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Value, String> {
     ensure_login(ctx).await?;
     match ctx.state.market.call(method, params.clone(), timeout).await {
         Err(e) if e.is_auth() => {
