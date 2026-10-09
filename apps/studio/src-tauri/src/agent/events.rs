@@ -30,6 +30,17 @@ pub enum ChatEvent {
         message_id: String,
         name: String,
     },
+    /// The model was busy: what streamed into the message is void, and the request goes again in
+    /// `wait_ms`, as retry `attempt` of `attempts`.
+    #[serde(rename_all = "camelCase")]
+    Retrying {
+        chat_id: String,
+        message_id: String,
+        attempt: u32,
+        attempts: u32,
+        wait_ms: u64,
+        reason: String,
+    },
     /// Messages from `from_seq` on were removed (regenerate, edit).
     #[serde(rename_all = "camelCase")]
     Truncated { chat_id: String, from_seq: i64 },

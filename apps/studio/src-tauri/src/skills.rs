@@ -2,8 +2,9 @@
 //!
 //! Each skill is a folder under the skills directory holding a `SKILL.md` with a short
 //! frontmatter (`name`, `description`) and instructions, plus any other files it references
-//! (more Markdown, Python scripts). Enabled skills are written into the system prompt; their
-//! other files are read on demand with the `read_skill_file` tool.
+//! (more Markdown, Python scripts). The system prompt lists enabled skills with their
+//! descriptions (the manifest); the model reads a skill's instructions and other files on demand
+//! with the `read_skill_file` tool.
 //!
 //! A skill may also provide slash commands in a `commands.json` beside its `SKILL.md`: a list of
 //! `{"name", "description", "args", "prompt"}` (see [`SkillCommand`] and `slash`). Commands are
@@ -337,49 +338,48 @@ impl SkillRegistry {
             .ok_or_else(|| crate::error::AppError::msg("The skill was written but could not be read back."))
     }
 
-    /// The Skills section of the system prompt. Full instructions when they fit `budget_chars`,
-    /// otherwise names and descriptions with a pointer to `read_skill_file`.
-    pub fn prompt_section(&self, budget_chars: usize) -> Option<String> {
-        let skills: Vec<Skill> = self
-            .list()
+    /// Skills the model may use: enabled, with a readable `SKILL.md`.
+    pub fn usable(&self) -> Vec<Skill> {
+        self.list()
             .into_iter()
             .filter(|s| s.enabled && s.problem.is_none())
-            .collect();
+            .collect()
+    }
+
+    /// The Skills section of the system prompt: the manifest, one line per usable skill with its
+    /// description, from which the model decides when a skill applies. Instructions are not in it:
+    /// the model reads them with `read_skill_file` when it uses the skill, so a skill costs a line
+    /// in every conversation and its instructions only where it is used.
+    pub fn prompt_section(&self) -> Option<String> {
+        let skills = self.usable();
         if skills.is_empty() {
             return None;
         }
-        let full: usize = skills.iter().map(|s| s.body.len() + s.description.len() + 64).sum();
         let mut out = String::from(
-            "## Skills\nSkills are procedures the user saved. When a request matches a skill, follow its instructions. Files listed with a skill can be read with read_skill_file.\n",
+            "## Skills\nProcedures the user saved. When a request matches one, read it first with read_skill_file (skill id), then follow it.\n",
         );
         for s in &skills {
-            out.push_str(&format!("\n### {} (skill id: {})\n{}\n", s.name, s.id, s.description));
-            if full <= budget_chars {
-                out.push('\n');
-                out.push_str(s.body.trim());
-                out.push('\n');
-            }
-            let others = s.other_files();
-            if !others.is_empty() {
-                out.push_str(&format!("Files: {}\n", others.join(", ")));
-            }
-        }
-        if full > budget_chars {
-            out.push_str("\nRead a skill's SKILL.md with read_skill_file before following it.\n");
+            out.push_str(&manifest_line(s));
         }
         Some(out)
     }
+}
 
-    /// Whether [`prompt_section`](Self::prompt_section) holds every skill's instructions at
-    /// `budget_chars`.
-    pub fn instructions_in_prompt(&self, budget_chars: usize) -> bool {
-        let full: usize = self
-            .list()
-            .iter()
-            .filter(|s| s.enabled && s.problem.is_none())
-            .map(|s| s.body.len() + s.description.len() + 64)
-            .sum();
-        full <= budget_chars
+/// Characters of a description the manifest keeps: descriptions are one sentence, and one that
+/// is not still costs a line, not a paragraph.
+const MANIFEST_DESCRIPTION_CHARS: usize = 300;
+
+/// A skill in the manifest: its id, its name when the id does not already say it, and what it is for.
+fn manifest_line(s: &Skill) -> String {
+    let description: String = s.description.split_whitespace().collect::<Vec<_>>().join(" ");
+    let description = match description.char_indices().nth(MANIFEST_DESCRIPTION_CHARS) {
+        Some((cut, _)) => format!("{}…", description[..cut].trim_end()),
+        None => description,
+    };
+    if slug(&s.name) == s.id {
+        format!("- {}: {description}\n", s.id)
+    } else {
+        format!("- {} ({}): {description}\n", s.id, s.name)
     }
 }
 
@@ -682,7 +682,47 @@ mod tests {
         let (commands, problem) = parse_commands(r#"[{"name": "go", "prompt": "Go."}]"#);
         assert_eq!((commands.len(), problem), (1, None));
         assert!(parse_commands("{nope").1.unwrap().contains("not valid JSON"));
-        assert!(parse_commands(r#"{"other": 1}"#).1.unwrap().contains("needs a \"commands\" list"));
+        assert!(
+            parse_commands(r#"{"other": 1}"#)
+                .1
+                .unwrap()
+                .contains("needs a \"commands\" list")
+        );
+    }
+
+    #[test]
+    fn the_manifest_names_each_skill_in_one_line() {
+        let skill = |id: &str, name: &str, description: &str| Skill {
+            id: id.into(),
+            name: name.into(),
+            description: description.into(),
+            enabled: true,
+            folder: String::new(),
+            files: Vec::new(),
+            body: "1. A long procedure.".into(),
+            updated_at: 0,
+            author: None,
+            problem: None,
+            commands: Vec::new(),
+            commands_problem: None,
+        };
+        assert_eq!(
+            manifest_line(&skill(
+                "market-analysis",
+                "Market analysis",
+                "For prices\n  and trends."
+            )),
+            "- market-analysis: For prices and trends.\n"
+        );
+        assert_eq!(
+            manifest_line(&skill("sma-2", "SMA", "Crossovers.")),
+            "- sma-2 (SMA): Crossovers.\n"
+        );
+        let long = manifest_line(&skill("x", "x", &"word ".repeat(100)));
+        assert!(
+            long.chars().count() < MANIFEST_DESCRIPTION_CHARS + 10 && long.ends_with("…\n"),
+            "{long}"
+        );
     }
 
     #[test]

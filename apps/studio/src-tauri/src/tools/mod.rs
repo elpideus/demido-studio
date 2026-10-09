@@ -4,6 +4,11 @@
 //! market data (Pine scripts and the chart among them), coding (Python and the terminal), workspace
 //! files and skill authoring. Every call runs in the context of one chat, whose workspace folder
 //! holds the files tools produce (market data CSVs, charts, downloads).
+//!
+//! A chat starts with none of the groups loaded: the system prompt lists them in a line each, and
+//! the model loads the ones a request needs with `load_tools`. A group stays loaded for the rest
+//! of the chat, which is read back from the chat's tool calls (see [`loaded_groups`]), so a
+//! greeting does not carry thousands of tokens of tool schemas.
 
 mod changes;
 mod command;
@@ -14,6 +19,7 @@ mod pine;
 mod python;
 mod skills;
 
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -22,6 +28,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::{Approval, Cancelled, ToolRow};
+use crate::db::{Message, Role};
 use crate::llm::ToolSpec;
 use crate::settings::Settings;
 use crate::state::AppState;
@@ -103,147 +110,147 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "market_search",
         group: "market",
-        description: "Find market symbols on TradingView (stocks, forex, crypto, indices, futures). Returns symbols such as FX:EURUSD to use with the other market tools.",
+        description: "Find TradingView symbols for stocks, forex, crypto, indices and futures.",
         parameters: market::search_schema,
         approval: false,
     },
     ToolDef {
         name: "market_quote",
         group: "market",
-        description: "Get live prices from TradingView for one or more symbols: last price, change, bid/ask and the day's range.",
+        description: "Live prices of one or more symbols: last price, change, bid/ask and the day's range.",
         parameters: market::quote_schema,
         approval: false,
     },
     ToolDef {
         name: "market_candles",
         group: "market",
-        description: "Get OHLCV candles for a symbol (needs a TradingView sign-in). Recent and live data come from TradingView; older data comes from the stored Dukascopy history, and history that is not stored yet is downloaded first (a long download asks the user). All rows are saved as a CSV file in the workspace with a source column; the result is a summary with the file path.",
+        description: "OHLCV candles of a symbol (needs a TradingView sign-in): recent ones from TradingView, older ones from the stored history. Saves every row to a CSV in the workspace and returns a summary with its path.",
         parameters: market::candles_schema,
         approval: false,
     },
     ToolDef {
         name: "market_history",
         group: "market",
-        description: "Historical candles without signing in: forex pairs, metals, commodities, indices and crypto from Dukascopy, years back (stocks come from stored TradingView data). Reads the local store and first downloads what is missing as 1-minute candles, from which every timeframe is built; a long download asks the user. Check market_data_status first to see what is stored. Saves a CSV file in the workspace and returns a summary with the file path.",
+        description: "Historical candles without a TradingView sign-in: years of forex, metals, commodities, indices and crypto from Dukascopy (stocks only from stored TradingView data). Saves a CSV in the workspace and returns a summary with its path.",
         parameters: market::history_schema,
         approval: false,
     },
     ToolDef {
         name: "market_download",
         group: "market",
-        description: "Download a symbol's price history into the local store as 1-minute candles, from which every timeframe is built, so no timeframe ever needs another download. Without from/to it fetches all the history the source has. Check market_data_status first: stored data is never downloaded twice. A download estimated to take long asks the user first. The tool waits up to 90 seconds; a longer download continues in the background with a progress bar in the chat.",
+        description: "Download a symbol's price history into the local store. Without from/to it fetches all the history the source has. Waits up to 90 seconds; a longer download goes on in the background with a progress bar in the chat.",
         parameters: market::download_schema,
         approval: false,
     },
     ToolDef {
         name: "market_data_status",
         group: "market",
-        description: "Show which market history is stored locally: for each market and source (Dukascopy or TradingView), the covered date ranges and gaps (Dukascopy: of its 1-minute history, which serves every timeframe; TradingView: per timeframe), the size on disk and any running downloads. Use it before downloading.",
+        description: "Which market history is stored locally: per market and source (Dukascopy, or TradingView per timeframe), the date ranges covered, gaps, size on disk and running downloads.",
         parameters: market::data_status_schema,
         approval: false,
     },
     ToolDef {
         name: "chart_add_indicator",
         group: "market",
-        description: "Put an indicator on the user's chart in the Market window (it opens if closed): a script from Demido's Pine library or a TradingView indicator (STD;RSI, the user's USER;… scripts, community PUB;… scripts). TradingView computes it, so it shows the same values as on tradingview.com. Optionally switches the chart's symbol and timeframe first.",
+        description: "Put an indicator on the user's chart in the Market window (opening it if closed): a script from Demido's Pine library or a TradingView indicator.",
         parameters: pine::add_indicator_schema,
         approval: false,
     },
     ToolDef {
         name: "chart_draw",
         group: "market",
-        description: "Draw on the user's chart in the Market window, without writing an indicator: horizontal levels, trend lines, boxes (zones), labels, markers on bars, and series of values. Use it to show what you found (support and resistance, signals, a computed line) or for anything temporary. The set has a name in the chart's legend; drawing again with the same name replaces it, and an empty items list removes it.",
+        description: "Draw on the user's chart in the Market window without writing an indicator, to show what you found: levels, trend lines, zones, labels, markers and series of values.",
         parameters: pine::draw_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_list",
         group: "market",
-        description: "List the Pine scripts in Demido's library (the indicators written in Demido), and optionally the user's own scripts saved on TradingView.",
+        description: "List the Pine scripts in Demido's library, and optionally the user's own scripts on TradingView.",
         parameters: pine::list_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_read",
         group: "market",
-        description: "Read a Pine script from Demido's library: its source with line numbers, and TradingView's compile errors and warnings with their lines. Or import one from TradingView first (the user's own scripts, or open-source community scripts) to read and change it. A long script comes in parts: the answer says which start_line reads on.",
+        description: "Read a library Pine script with line numbers and its compile errors and warnings, or first import a TradingView script into the library to read and change it.",
         parameters: pine::read_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_save",
         group: "market",
-        description: "Save a whole Pine Script indicator in Demido's library (new, or replacing a script's source by id) and compile it with TradingView's compiler: returns the compile errors and warnings with their lines, or the script's inputs and plots. Nothing is saved to TradingView. Write Pine Script v6 (//@version=6, indicator(…)); strategies and libraries can be saved but not run. To change part of a script, use pine_edit.",
+        description: "Save a whole Pine Script v6 indicator in Demido's library (not on TradingView) and compile it: returns errors and warnings with their lines, or the script's inputs and plots. Strategies and libraries can be saved but not run. To change part of a script, use pine_edit.",
         parameters: pine::save_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_edit",
         group: "market",
-        description: "Change part of a library script: replaces old_string (copied from pine_read) with new_string, saves it and compiles it with TradingView's compiler, answering with the errors and warnings left (with their lines) and the changed lines. Use it to fix errors and warnings one change at a time. Nothing is saved to TradingView.",
+        description: "Replace old_string with new_string in a library script, then save and compile it: returns the errors and warnings left, with their lines, and the changed lines. Fix errors one change at a time. Nothing is saved to TradingView.",
         parameters: pine::edit_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_test",
         group: "market",
-        description: "Run a Pine script on real bars of a symbol and timeframe (needs a TradingView sign-in), the way TradingView's chart runs it: returns compile or runtime errors with their lines, or each plot's latest values, ranges and signals, what it drew, and a CSV in the workspace with every bar's OHLCV and plot values. Test a library script by its id (save new code with pine_save first), or a TradingView indicator. Inputs can be changed for the run.",
+        description: "Run a Pine script on real bars of a symbol and timeframe as TradingView's chart does (needs a TradingView sign-in): returns compile or runtime errors with their lines, or each plot's latest values, ranges and signals, what it drew, and a CSV in the workspace with every bar's OHLCV and plot values.",
         parameters: pine::test_schema,
         approval: false,
     },
     ToolDef {
         name: "pine_publish",
         group: "market",
-        description: "Save a library script to the user's TradingView account, so they can use it on tradingview.com (My scripts, Pine Editor). The first time it creates a new script there; afterwards it saves the next version of that same script. It must compile. The user is asked first.",
+        description: "Save a library script to the user's TradingView account (My scripts): a new script the first time, its next version afterwards. It must compile. The user is asked first.",
         parameters: pine::publish_schema,
         approval: false,
     },
     ToolDef {
         name: "mail_list",
         group: "mail",
-        description: "List the newest messages of an email folder (the inbox unless another is named), with sender, subject, date, unread state and a preview of each. Also names the account's folders. Reading never marks anything as read.",
+        description: "List the newest messages of an email folder with sender, subject, date, unread state and a preview, and name the account's folders. Never marks anything as read.",
         parameters: mail::list_schema,
         approval: false,
     },
     ToolDef {
         name: "mail_search",
         group: "mail",
-        description: "Search the user's mailbox on the mail server, all of it, not only what was downloaded. On Gmail it takes Gmail's search syntax (from:, subject:, has:attachment, after:2026/01/31, is:unread…) and searches All Mail. Returns the newest matches with their ids.",
+        description: "Search the whole mailbox on the mail server, not only what was downloaded. Returns the newest matches with their ids.",
         parameters: mail::search_schema,
         approval: false,
     },
     ToolDef {
         name: "mail_export",
         group: "mail",
-        description: "Download many emails at once with their whole text, up to 1000, into a JSON Lines file in the chat's workspace (mail folder), to analyse them with run_python. Takes the same search as mail_search, a date range, both, or neither for the newest. It fetches about a hundred emails per request to the server; emails opened or exported before come from the cache, and everything downloaded is cached for next time. Returns the file's path and a summary, not the emails themselves.",
+        description: "Write many emails (up to 1000) with their whole text into a JSON Lines file in the workspace's mail folder, chosen by a mail_search query, a date range, both, or neither for the newest. Returns the file's path and a summary, not the emails. Use it to work through more than a handful of emails.",
         parameters: mail::export_schema,
         approval: false,
     },
     ToolDef {
         name: "mail_read",
         group: "mail",
-        description: "Read one email by its id (from mail_list or mail_search): sender, recipients, date, subject, the whole text and the list of attachments. Does not mark it as read.",
+        description: "Read one email by id: sender, recipients, date, subject, whole text and attachment list. Does not mark it as read.",
         parameters: mail::read_schema,
         approval: false,
     },
     ToolDef {
         name: "mail_attachment",
         group: "mail",
-        description: "Save an email's attachment into the chat's workspace (mail folder), to read it with read_file or analyse it with run_python. Returns the file's path.",
+        description: "Save an email's attachment in the workspace's mail folder and return its path, for read_file or run_python.",
         parameters: mail::attachment_schema,
         approval: false,
     },
     ToolDef {
         name: "run_python",
         group: "coding",
-        description: "Run Python 3 in the chat's workspace folder (numpy, pandas, matplotlib and requests are installed). Use it to analyse data files, compute statistics or draw charts. Print what you need to see. Charts saved as PNG files are shown to the user. Every run is a fresh process.",
+        description: "Run Python 3 in the chat's workspace folder, where files open by their relative path (numpy, pandas, matplotlib and requests are installed). Print what you need to see. Charts saved as PNG files are shown to the user. Every run is a fresh process.",
         parameters: python::schema,
         approval: true,
     },
     ToolDef {
         name: "run_command",
         group: "coding",
-        description: "Run a command line on the user's computer in their own shell (PowerShell on Windows) and get what it printed and its exit code. Use it for programs the user has installed (yt-dlp, ffmpeg, git, ping, winget and others) and for questions about the computer itself. The user approves each command. It runs in the chat's workspace folder unless directory is given, and is stopped after timeout seconds.",
+        description: "Run a command line in the user's own shell on their computer and get its output and exit code: for the programs they installed (yt-dlp, ffmpeg, git, winget…) and questions about the computer. The user approves each command. It runs in the chat's workspace folder (so downloads land there) unless directory is given.",
         parameters: command::schema,
         approval: true,
     },
@@ -257,14 +264,14 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "read_file",
         group: "files",
-        description: "Read a file from the chat's workspace folder as text: CSV, JSON, Markdown, code, and also PDF, Word, PowerPoint, Excel and web pages. For PDFs, presentations and spreadsheets, pages chooses pages (slides, sheets).",
+        description: "Read a workspace file as text: CSV, JSON, Markdown and code, and also PDF, Word, PowerPoint, Excel and web pages.",
         parameters: files::read_schema,
         approval: false,
     },
     ToolDef {
         name: "search_files",
         group: "files",
-        description: "Search the files the user attached to this chat (PDF, Word, text, spreadsheets and others) for passages about something. Returns the best matching passages with their file and page. Matching is by meaning and by words (by words alone while the files are being indexed): when nothing is found, try other words, synonyms or fewer words.",
+        description: "Search the files attached to this chat for passages about something; returns the best ones with their file and page. Matches by meaning and by words (words only while indexing): when nothing is found, try other words, synonyms or fewer words.",
         parameters: files::search_schema,
         approval: false,
     },
@@ -278,46 +285,84 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "create_skill",
         group: "skills",
-        description: "Save a reusable skill: instructions that are added to future conversations so a task can be repeated. Use it when the user asks to turn what you did into a skill. Write clear, numbered steps naming the tools and parameters to use; put Python code in extra files and run them with run_python's file parameter as skill:<skill-id>/<file>.",
+        description: "Save what you did as a reusable skill when the user asks: future conversations list it by its description and read its instructions when it applies. Write numbered steps naming the tools and parameters to use; put Python code in files, run with run_python's file as skill:<skill-id>/<file>.",
         parameters: skills::create_schema,
         approval: false,
     },
     ToolDef {
         name: "read_skill_file",
         group: "skills",
-        description: "Read a file of a skill (its SKILL.md, or a file it references).",
+        description: "Read a skill's instructions (SKILL.md, the default) or another of its files.",
         parameters: skills::read_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: LOADER,
+        group: "",
+        description: "Load groups of tools the system prompt lists, to use their tools from your next step on.",
+        parameters: || load_schema(&GROUPS.iter().map(|g| g.id).collect::<Vec<_>>()),
         approval: false,
     },
 ];
 
-const GROUPS: &[(&str, &str, &str)] = &[
-    (
-        "market",
-        "Market data",
-        "Live prices from TradingView, history from Dukascopy, and Pine indicators",
-    ),
-    (
-        "mail",
-        "Email",
-        "Read the email of the accounts connected in the Mail window",
-    ),
-    (
-        "coding",
-        "Coding",
-        "Run Python analysis and the programs installed on this computer",
-    ),
-    (
-        "files",
-        "Workspace files",
-        "Read and write files in the chat's folder, and search attached files",
-    ),
-    (
-        "skills",
-        "Skill authoring",
-        "Let the assistant save what it did as a skill",
-    ),
+/// The tool that loads the others.
+const LOADER: &str = "load_tools";
+/// Tools offered without loading a group: the loader, and reading the skills the system prompt
+/// lists (with skill authoring off too).
+const ALWAYS: [&str; 2] = [LOADER, "read_skill_file"];
+
+struct GroupDef {
+    id: &'static str,
+    /// The Tools menu's name and description.
+    label: &'static str,
+    description: &'static str,
+    /// What the model reads in the system prompt, to know when to load the group.
+    for_model: &'static str,
+}
+
+const GROUPS: &[GroupDef] = &[
+    GroupDef {
+        id: "market",
+        label: "Market data",
+        description: "Live prices from TradingView, history from Dukascopy, and Pine indicators",
+        for_model: "prices, quotes and price history of stocks, forex, crypto, indices and commodities; \
+                    indicators and drawings on the user's chart (Market window); Pine Script",
+    },
+    GroupDef {
+        id: "mail",
+        label: "Email",
+        description: "Read the email of the accounts connected in the Mail window",
+        for_model: "the user's email: list, search, read and export messages, save attachments",
+    },
+    GroupDef {
+        id: "coding",
+        label: "Coding",
+        description: "Run Python analysis and the programs installed on this computer",
+        for_model: "run Python (data analysis, charts, file conversion) and command lines on the user's computer",
+    },
+    GroupDef {
+        id: "files",
+        label: "Workspace files",
+        description: "Read and write files in the chat's folder, and search attached files",
+        for_model: "list, read and write files in the chat's workspace folder; search attached files",
+    },
+    GroupDef {
+        id: "skills",
+        label: "Skill authoring",
+        description: "Let the assistant save what it did as a skill",
+        for_model: "save what you did as a reusable skill, when the user asks",
+    },
 ];
+
+fn load_schema(groups: &[&str]) -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "groups": {"type": "array", "items": {"type": "string", "enum": groups}},
+        },
+        "required": ["groups"],
+    })
+}
 
 /// Offered while any of its tools can run. The reason says what is missing, also when the rest of
 /// the group still runs.
@@ -355,37 +400,196 @@ pub fn groups(state: &AppState) -> Vec<ToolGroup> {
     let settings = state.settings.get();
     GROUPS
         .iter()
-        .map(|&(id, label, description)| {
-            let (available, reason) = group_availability(state, id);
+        .map(|g| {
+            let (available, reason) = group_availability(state, g.id);
             ToolGroup {
-                id,
-                label,
-                description,
-                enabled: settings.tool_group_enabled(id),
+                id: g.id,
+                label: g.label,
+                description: g.description,
+                enabled: settings.tool_group_enabled(g.id),
                 available,
                 reason,
-                tools: TOOLS.iter().filter(|t| t.group == id).map(|t| t.name).collect(),
+                tools: TOOLS.iter().filter(|t| t.group == g.id).map(|t| t.name).collect(),
             }
         })
         .collect()
 }
 
-/// Tool specs offered to the model, given the enabled groups.
-pub fn specs(state: &AppState, settings: &Settings) -> Vec<ToolSpec> {
+/// Why the model cannot load a group now: turned off in the Tools menu, or nothing in it can run
+/// on this computer. `None` when it can.
+fn unready(state: &AppState, settings: &Settings, group: &GroupDef) -> Option<String> {
+    if !settings.tool_group_enabled(group.id) {
+        return Some(format!(
+            "The {} tools are turned off in the Tools menu; the user can turn them on there.",
+            group.label
+        ));
+    }
+    match group_availability(state, group.id) {
+        (true, _) => None,
+        (false, reason) => {
+            Some(reason.unwrap_or_else(|| format!("The {} tools cannot run on this computer.", group.label)))
+        }
+    }
+}
+
+/// The groups the model can load and has not, as the system prompt lists them: id and what they
+/// are for.
+pub fn loadable(state: &AppState, settings: &Settings, loaded: &HashSet<&str>) -> Vec<(&'static str, &'static str)> {
+    GROUPS
+        .iter()
+        .filter(|g| !loaded.contains(g.id) && unready(state, settings, g).is_none())
+        .map(|g| (g.id, g.for_model))
+        .collect()
+}
+
+/// Tool specs offered to the model: those of the `loaded` groups that can run, the loader while
+/// there is more to load, and reading skills while any is in use.
+pub fn specs(state: &AppState, settings: &Settings, loaded: &HashSet<&str>) -> Vec<ToolSpec> {
+    let loadable: Vec<&str> = loadable(state, settings, loaded)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let ready: HashSet<&str> = GROUPS
+        .iter()
+        .filter(|g| loaded.contains(g.id) && unready(state, settings, g).is_none())
+        .map(|g| g.id)
+        .collect();
     TOOLS
         .iter()
-        .filter(|t| {
-            settings.tool_group_enabled(t.group)
-                && group_availability(state, t.group).0
-                && tool_missing(state, t.name).is_none()
-        })
-        .filter(|t| t.group != "skills" || t.name == "create_skill" || !state.skills.list().is_empty())
-        .map(|t| ToolSpec {
-            name: t.name.to_string(),
-            description: t.description.to_string(),
-            parameters: (t.parameters)(),
+        .filter_map(|t| {
+            let parameters = match t.name {
+                // The system prompt lists skills without their instructions (see
+                // `SkillRegistry::prompt_section`), so reading them is offered while any skill is in
+                // use, also with skill authoring off.
+                "read_skill_file" if state.skills.usable().is_empty() => return None,
+                LOADER if loadable.is_empty() => return None,
+                // Only the groups left to load, so the model cannot ask for any other.
+                LOADER => load_schema(&loadable),
+                name if ALWAYS.contains(&name) => (t.parameters)(),
+                name if !ready.contains(t.group) || tool_missing(state, name).is_some() => return None,
+                _ => (t.parameters)(),
+            };
+            Some(ToolSpec {
+                name: t.name.to_string(),
+                description: t.description.to_string(),
+                parameters,
+            })
         })
         .collect()
+}
+
+/// Names of the tools the model is offered or can load, for hints that name tools.
+pub fn usable_names(state: &AppState, settings: &Settings) -> HashSet<String> {
+    let all: HashSet<&str> = GROUPS.iter().map(|g| g.id).collect();
+    specs(state, settings, &all).into_iter().map(|t| t.name).collect()
+}
+
+/// The groups a chat has loaded: those its `load_tools` calls named, and those of any other tool
+/// it called. All of the chat counts, also what a summary replaced, so a group once loaded stays
+/// loaded and the tools sent with each request change only when one is added.
+pub fn loaded_groups(messages: &[Message]) -> HashSet<&'static str> {
+    let mut loaded = HashSet::new();
+    let calls = messages
+        .iter()
+        .filter(|m| m.role == Role::Assistant)
+        .flat_map(|m| &m.tool_calls);
+    for call in calls {
+        if call.name == LOADER {
+            let args = crate::llm::parse_arguments(&call.arguments).unwrap_or_default();
+            loaded.extend(requested_groups(&args).iter().filter_map(|g| group_of(g)).map(|g| g.id));
+        } else if let Some(t) = TOOLS.iter().find(|t| t.name == call.name && !ALWAYS.contains(&t.name)) {
+            loaded.insert(t.group);
+        }
+    }
+    loaded
+}
+
+/// The groups a `load_tools` call asks for, as written: `groups` as a list (or a string), or a
+/// single `group`.
+fn requested_groups(args: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for key in ["groups", "group"] {
+        match &args[key] {
+            Value::String(s) => out.extend(s.split([',', ' ']).map(str::to_string)),
+            Value::Array(items) => out.extend(items.iter().filter_map(Value::as_str).map(str::to_string)),
+            _ => {}
+        }
+    }
+    out.iter()
+        .map(|g| g.trim().to_ascii_lowercase())
+        .filter(|g| !g.is_empty())
+        .collect()
+}
+
+/// The group named `name`, or the group of the tool named `name`.
+fn group_of(name: &str) -> Option<&'static GroupDef> {
+    let id = match TOOLS.iter().find(|t| t.name == name && !t.group.is_empty()) {
+        Some(t) => t.group,
+        None => name,
+    };
+    GROUPS.iter().find(|g| g.id == id)
+}
+
+/// Why the model may not run `name` now: there is no such tool, or its group is turned off or
+/// cannot run on this computer. A tool of a group not loaded yet runs, which loads the group.
+pub fn refusal(state: &AppState, settings: &Settings, name: &str) -> Option<String> {
+    let Some(tool) = TOOLS.iter().find(|t| t.name == name) else {
+        return Some(format!(
+            "There is no tool called {name}. Use only the tools you were given."
+        ));
+    };
+    if ALWAYS.contains(&tool.name) {
+        return None;
+    }
+    let group = GROUPS.iter().find(|g| g.id == tool.group)?;
+    unready(state, settings, group).or_else(|| tool_missing(state, name))
+}
+
+/// Loads the groups asked for: they are in the tools of the next request, and from then on, since
+/// [`loaded_groups`] reads this call back from the chat.
+fn load(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
+    let settings = ctx.state.settings.get();
+    let names = || GROUPS.iter().map(|g| g.id).collect::<Vec<_>>().join(", ");
+    let asked = requested_groups(args);
+    if asked.is_empty() {
+        return Err(format!("Name the groups to load in \"groups\": {}.", names()));
+    }
+    let mut loaded: Vec<&GroupDef> = Vec::new();
+    let mut problems: Vec<String> = Vec::new();
+    for name in asked {
+        let Some(group) = group_of(&name) else {
+            problems.push(format!(
+                "There is no tool group called {name}; the groups are {}.",
+                names()
+            ));
+            continue;
+        };
+        match unready(&ctx.state, &settings, group) {
+            Some(why) => problems.push(why),
+            None if !loaded.iter().any(|g| g.id == group.id) => loaded.push(group),
+            None => {}
+        }
+    }
+    if loaded.is_empty() {
+        return Err(problems.join(" "));
+    }
+    let tools: serde_json::Map<String, Value> = loaded
+        .iter()
+        .map(|g| {
+            let names: Vec<&str> = TOOLS
+                .iter()
+                .filter(|t| t.group == g.id && tool_missing(&ctx.state, t.name).is_none())
+                .map(|t| t.name)
+                .collect();
+            (g.id.to_string(), json!(names))
+        })
+        .collect();
+    let mut content = json!({"loaded": tools, "next": "Use these tools now, as the request needs."});
+    if !problems.is_empty() {
+        content["not_loaded"] = json!(problems);
+    }
+    let labels: Vec<&str> = loaded.iter().map(|g| g.label).collect();
+    Ok(ToolOutput::ok(content.to_string(), json!({ "groups": labels })))
 }
 
 /// Finds what the system prompt says about the tools: which shell commands run in. The first
@@ -394,10 +598,6 @@ pub async fn prepare(settings: &Settings) {
     if settings.tool_group_enabled("coding") {
         let _ = tokio::task::spawn_blocking(crate::shell::detect).await;
     }
-}
-
-pub fn exists(name: &str) -> bool {
-    TOOLS.iter().any(|t| t.name == name)
 }
 
 pub fn needs_approval(name: &str, settings: &Settings) -> bool {
@@ -483,6 +683,18 @@ pub fn describe(name: &str, args: &Value) -> String {
         "write_file" => format!("Writing {}", s("path")),
         "create_skill" => format!("Creating the skill “{}”", s("name")),
         "read_skill_file" => format!("Reading skill {}", s("skill")),
+        LOADER => {
+            let mut labels: Vec<&str> = requested_groups(args)
+                .iter()
+                .filter_map(|g| group_of(g))
+                .map(|g| g.label)
+                .collect();
+            labels.dedup();
+            match labels.as_slice() {
+                [] => "Loading tools".into(),
+                _ => format!("Loading tools: {}", labels.join(", ")),
+            }
+        }
         other => format!("Running {other}"),
     }
 }
@@ -519,6 +731,7 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "write_file" => files::write(ctx, &args),
         "create_skill" => skills::create(ctx, &args),
         "read_skill_file" => skills::read(ctx, &args),
+        LOADER => load(ctx, &args),
         other => Err(format!("There is no tool called {other}.")),
     };
     result.unwrap_or_else(ToolOutput::error)
@@ -638,7 +851,61 @@ mod tests {
         for t in TOOLS {
             let schema = (t.parameters)();
             assert_eq!(schema["type"], "object", "{}", t.name);
-            assert!(GROUPS.iter().any(|g| g.0 == t.group));
+            assert!(
+                (t.name == LOADER && t.group.is_empty()) || GROUPS.iter().any(|g| g.id == t.group),
+                "{}",
+                t.name
+            );
         }
+    }
+
+    fn calls(calls: &[(&str, &str)]) -> Message {
+        let mut m = Message::new("c", 1, Role::Assistant, "");
+        m.tool_calls = calls
+            .iter()
+            .enumerate()
+            .map(|(i, (name, arguments))| crate::db::ToolCall {
+                id: format!("call{i}"),
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            })
+            .collect();
+        m
+    }
+
+    #[test]
+    fn loaded_groups_are_read_back_from_the_chat() {
+        let none = loaded_groups(&[Message::new("c", 0, Role::User, "Hi!")]);
+        assert!(none.is_empty());
+        let chat = [
+            calls(&[(LOADER, r#"{"groups": ["market", "nonsense"]}"#)]),
+            // Small models write a string, or name a tool instead of its group.
+            calls(&[
+                (LOADER, r#"{"group": "Mail"}"#),
+                (LOADER, r#"{"groups": "run_python"}"#),
+            ]),
+            // A tool called without loading its group loads it; reading skills loads nothing.
+            calls(&[("write_file", "{}"), ("read_skill_file", "{}")]),
+        ];
+        let loaded = loaded_groups(&chat);
+        let mut ids: Vec<&str> = loaded.into_iter().collect();
+        ids.sort();
+        assert_eq!(ids, ["coding", "files", "mail", "market"]);
+    }
+
+    #[test]
+    fn the_loader_names_only_groups() {
+        let schema = load_schema(&["mail", "files"]);
+        assert_eq!(
+            schema["properties"]["groups"]["items"]["enum"],
+            json!(["mail", "files"])
+        );
+        assert_eq!(
+            describe(LOADER, &json!({"groups": ["market", "coding"]})),
+            "Loading tools: Market data, Coding"
+        );
+        assert_eq!(describe(LOADER, &json!({})), "Loading tools");
+        assert!(group_of("pine_test").is_some_and(|g| g.id == "market"));
+        assert!(group_of("load_tools").is_none());
     }
 }

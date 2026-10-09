@@ -32,13 +32,13 @@ const READ_CHARS: usize = 10_500;
 /// Compiler messages an answer lists; the rest are counted, with their lines.
 const MAX_MESSAGES: usize = 12;
 
-const ID_HINT: &str = "The script's id in Demido's Pine library (from pine_list or pine_save)";
+const ID_HINT: &str = "Library script id (from pine_list or pine_save)";
 
 pub fn list_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "tradingview": {"type": "boolean", "description": "Also list the user's own scripts saved on their TradingView account (needs a TradingView sign-in). Bring one into the library with pine_read"}
+            "tradingview": {"type": "boolean", "description": "Also list the user's TradingView scripts (needs a sign-in); pine_read brings one into the library"}
         }
     })
 }
@@ -48,8 +48,8 @@ pub fn read_schema() -> Value {
         "type": "object",
         "properties": {
             "id": {"type": "string", "description": ID_HINT},
-            "tradingview_id": {"type": "string", "description": "Instead of id: a TradingView script id (USER;… from pine_list, or PUB;… for an open-source community script). Its source is copied into the library first; the user's own scripts stay linked, so pine_publish updates them"},
-            "start_line": {"type": "integer", "description": "First line to show, from 1 (default 1). A long script comes in parts, and each part says where the next one starts"}
+            "tradingview_id": {"type": "string", "description": "Instead of id: a TradingView script to import (USER;… from pine_list, or PUB;… open-source community). The user's own stay linked, so pine_publish updates them"},
+            "start_line": {"type": "integer", "description": "First line to show (default 1); a long script comes in parts, each saying where the next starts"}
         }
     })
 }
@@ -59,9 +59,9 @@ pub fn edit_schema() -> Value {
         "type": "object",
         "properties": {
             "id": {"type": "string", "description": ID_HINT},
-            "old_string": {"type": "string", "description": "The exact text to replace, copied from pine_read without the line numbers and with its indentation. Include enough of the lines around it to make it unique"},
-            "new_string": {"type": "string", "description": "The text that takes its place (empty to delete it)"},
-            "replace_all": {"type": "boolean", "description": "Replace every occurrence of old_string (by default it must occur exactly once)"}
+            "old_string": {"type": "string", "description": "Exact text from pine_read, without line numbers, with its indentation and enough lines around it to be unique"},
+            "new_string": {"type": "string", "description": "Its replacement (empty deletes it)"},
+            "replace_all": {"type": "boolean", "description": "Replace every occurrence (otherwise old_string must occur once)"}
         },
         "required": ["id", "old_string", "new_string"]
     })
@@ -71,9 +71,9 @@ pub fn save_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "source": {"type": "string", "description": "The whole Pine Script source. Start with //@version=6 and an indicator(\"Title\", …) declaration; the title names the script"},
-            "id": {"type": "string", "description": "Replace this library script's source (from an earlier pine_save or pine_list). Leave it out to create a new script"},
-            "name": {"type": "string", "description": "Optional name; by default the declaration's title"}
+            "source": {"type": "string", "description": "Whole source: //@version=6, then indicator(\"Title\", …), whose title names the script"},
+            "id": {"type": "string", "description": "Library script to replace; omit to create a new one"},
+            "name": {"type": "string", "description": "Default: the declaration's title"}
         },
         "required": ["source"]
     })
@@ -83,11 +83,11 @@ pub fn test_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "id": {"type": "string", "description": "The script to test: a library script's id (from pine_list or pine_save), or a TradingView indicator id such as STD;RSI. To test new code, save it with pine_save first"},
-            "symbol": {"type": "string", "description": "TradingView symbol, e.g. FX:EURUSD, NASDAQ:AAPL, BINANCE:BTCUSDT"},
+            "id": {"type": "string", "description": "Library script id (save new code with pine_save first) or a TradingView indicator id such as STD;RSI"},
+            "symbol": {"type": "string", "description": "TradingView symbol"},
             "timeframe": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]},
             "bars": {"type": "integer", "description": "Newest bars to run it on (10 to 5000, default 500)"},
-            "inputs": {"type": "object", "description": "Input values by input id (in_0, in_1, …) or by the input's title, e.g. {\"Length\": 50}. The result lists the inputs"}
+            "inputs": {"type": "object", "description": "Input values by id (in_0, …) or title, e.g. {\"Length\": 50}; the result lists them"}
         },
         "required": ["id", "symbol", "timeframe"]
     })
@@ -98,7 +98,7 @@ pub fn publish_schema() -> Value {
         "type": "object",
         "properties": {
             "id": {"type": "string", "description": ID_HINT},
-            "name": {"type": "string", "description": "Optional name on TradingView; by default the script's name"}
+            "name": {"type": "string", "description": "Name on TradingView (default: the script's)"}
         },
         "required": ["id"]
     })
@@ -109,7 +109,7 @@ pub fn add_indicator_schema() -> Value {
         "type": "object",
         "properties": {
             "script": {"type": "string", "description": "A library script id (from pine_save), or a TradingView indicator id: STD;RSI, STD;MACD, USER;… (the user's own), PUB;… (community)"},
-            "inputs": {"type": "object", "description": "Optional input values by input id (in_0, …) or title"},
+            "inputs": {"type": "object", "description": "Input values by id (in_0, …) or title"},
             "symbol": {"type": "string", "description": "Switch the chart to this symbol first"},
             "timeframe": {"type": "string", "enum": ["1m", "5m", "15m", "1h", "4h", "1d", "1w"], "description": "Switch the chart to this timeframe first"}
         },
@@ -118,26 +118,25 @@ pub fn add_indicator_schema() -> Value {
 }
 
 pub fn draw_schema() -> Value {
-    let point = |what: &str| json!({"description": format!("{what}: ISO date-time (2026-10-01T14:00:00Z) or Unix seconds")});
     json!({
         "type": "object",
         "properties": {
-            "name": {"type": "string", "description": "Name of this set of drawings, shown in the chart's legend. Drawing again with the same name replaces the set"},
+            "name": {"type": "string", "description": "Name of the set, shown in the chart's legend; drawing with the same name replaces it"},
             "items": {
                 "type": "array",
-                "description": "What to draw. Leave it empty to remove the set with this name (\"*\" removes every set)",
+                "description": "What to draw; empty removes the set (with name \"*\", every set)",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "type": {"type": "string", "enum": ["hline", "line", "box", "label", "marker", "series"], "description": "hline: a horizontal level at price. line: a segment from (time, price) to (time2, price2). box: a rectangle between two corners. label: text at (time, price). marker: an arrow or shape above or below the bar at time. series: a line through points, like an indicator plot"},
-                        "time": point("Bar time"),
+                        "type": {"type": "string", "enum": ["hline", "line", "box", "label", "marker", "series"], "description": "hline: level at price. line: (time, price) to (time2, price2). box: rectangle with those corners. label: text at (time, price). marker: shape at the bar at time. series: line through points"},
+                        "time": {"description": "Bar time: ISO date-time (2026-10-01T14:00:00Z) or Unix seconds"},
                         "price": {"type": "number"},
-                        "time2": point("Second point's time (line, box)"),
-                        "price2": {"type": "number", "description": "Second point's price (line, box)"},
+                        "time2": {"description": "line, box: second point's time"},
+                        "price2": {"type": "number", "description": "line, box: second point's price"},
                         "points": {"type": "array", "items": {"type": "array", "items": {}}, "description": "series: [[time, value], …]"},
                         "text": {"type": "string"},
                         "color": {"type": "string", "description": "CSS color, e.g. #f23645 or rgba(41,98,255,0.3)"},
-                        "width": {"type": "integer", "description": "Line width in pixels (1 to 4)"},
+                        "width": {"type": "integer", "description": "Pixels, 1 to 4"},
                         "style": {"type": "string", "enum": ["solid", "dashed", "dotted"]},
                         "extend": {"type": "string", "enum": ["none", "left", "right", "both"], "description": "line: extend beyond its points"},
                         "position": {"type": "string", "enum": ["above", "below"], "description": "marker, label: above or below the bar (a label without it sits at price)"},
@@ -146,8 +145,8 @@ pub fn draw_schema() -> Value {
                     "required": ["type"]
                 }
             },
-            "pane": {"type": "string", "enum": ["overlay", "separate"], "description": "overlay (default) draws on the candles; separate draws in a pane of its own below them, for values on another scale"},
-            "symbol": {"type": "string", "description": "The chart to draw on; switches the chart to it. By default the chart's current symbol"},
+            "pane": {"type": "string", "enum": ["overlay", "separate"], "description": "overlay (default): on the candles. separate: a pane below, for values on another scale"},
+            "symbol": {"type": "string", "description": "Switch the chart to this symbol first"},
             "timeframe": {"type": "string", "enum": ["1m", "5m", "15m", "1h", "4h", "1d", "1w"], "description": "Switch the chart to this timeframe"}
         },
         "required": ["name", "items"]

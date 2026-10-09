@@ -2,14 +2,17 @@
 //!
 //! [`ChatRequest`] is provider-neutral. [`Client`] turns it into the wire format of the model's
 //! provider (OpenAI-compatible for llama.cpp's server and OpenRouter, or Gemini's own), streams
-//! the answer back as
-//! [`StreamEvent`]s and returns the assembled [`Completion`], including the exact request body
-//! for the trace.
+//! the answer back as [`StreamEvent`]s and returns the assembled [`Completion`], including the
+//! exact request body for the trace. A model that is busy for a moment is asked again (see
+//! [`retry`]).
 
 pub mod gemini;
 pub mod openai;
 pub mod openrouter;
+pub mod retry;
 mod sse;
+
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -172,6 +175,14 @@ pub enum StreamEvent {
         index: usize,
         name: String,
     },
+    /// The model was busy (`reason`): the request goes again after `wait`, as retry `attempt` of
+    /// `attempts`. What streamed of the failed attempt is void; the next one starts afresh.
+    Retrying {
+        attempt: u32,
+        attempts: u32,
+        wait: Duration,
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -195,8 +206,10 @@ pub struct Completion {
     pub provider_meta: Option<serde_json::Value>,
     /// The request body exactly as sent (secrets are never part of the body).
     pub request_body: serde_json::Value,
-    /// Model name the provider reported.
+    /// Model name the provider reported: for a router, the model it picked.
     pub model: Option<String>,
+    /// Who ran the model, when the API says: OpenRouter names the provider it sent the request to.
+    pub provider: Option<String>,
 }
 
 /// A model endpoint ready to take requests.
@@ -207,16 +220,82 @@ pub enum Client {
 }
 
 impl Client {
+    /// Streams one answer. While the model is busy (overloaded, rate limited for a moment, or out
+    /// of reach for a cloud model), the request is sent again after a growing wait, up to
+    /// [`retry::RETRIES`] times; [`StreamEvent::Retrying`] says so before each wait.
     pub async fn stream(
         &self,
         req: &ChatRequest,
         cancel: &CancellationToken,
-        on_event: impl FnMut(StreamEvent) + Send,
+        mut on_event: impl FnMut(StreamEvent) + Send,
     ) -> Result<Completion, LlmError> {
-        match self {
-            Client::OpenAi(c) => c.stream(req, cancel, on_event).await,
-            Client::Gemini(c) => c.stream(req, cancel, on_event).await,
+        let mut retries = 0;
+        loop {
+            let result = match self {
+                Client::OpenAi(c) => c.stream(req, cancel, &mut on_event).await,
+                Client::Gemini(c) => c.stream(req, cancel, &mut on_event).await,
+            };
+            let err = match result {
+                Ok(completion) => return Ok(completion),
+                Err(err) => err,
+            };
+            let (reason, asked) = match &err {
+                LlmError::Busy { message, retry_after } => (message.clone(), *retry_after),
+                // A local server that cannot be reached is down, not busy: the runtime restarts it.
+                LlmError::Network(message) if !self.is_local() => {
+                    (format!("could not reach the model: {message}"), None)
+                }
+                _ => return Err(err),
+            };
+            let wait = (retries < retry::RETRIES && !retry::lasting(&reason))
+                .then(|| retry::wait_before(retries + 1, asked))
+                .flatten();
+            let Some(wait) = wait else {
+                return Err(gave_up(err, retries, asked));
+            };
+            retries += 1;
+            tracing::warn!(attempt = retries, ?wait, "the model is busy, trying again: {reason}");
+            on_event(StreamEvent::Retrying {
+                attempt: retries,
+                attempts: retry::RETRIES,
+                wait,
+                reason,
+            });
+            tokio::select! {
+                _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+                _ = tokio::time::sleep(wait) => {}
+            }
         }
+    }
+
+    fn is_local(&self) -> bool {
+        matches!(self, Client::OpenAi(c) if c.dialect == openai::Dialect::LlamaCpp)
+    }
+
+    /// Whether the model is one of OpenRouter's routers (the Free Models Router, say), which
+    /// picks another model for each request: [`Completion::model`] says which.
+    pub fn is_router(&self) -> bool {
+        matches!(self, Client::OpenAi(c)
+            if matches!(c.dialect, openai::Dialect::OpenRouter { .. }) && openrouter::is_router(&c.model))
+    }
+}
+
+/// The error of the last attempt, saying how often the request was tried or when it may work.
+fn gave_up(err: LlmError, retries: u32, asked: Option<Duration>) -> LlmError {
+    let note = match asked {
+        Some(wait) if retry::too_long(wait) => {
+            format!(" Try again in {}.", retry::rough(wait))
+        }
+        _ if retries > 0 => format!(" It was tried {} times.", retries + 1),
+        _ => String::new(),
+    };
+    match err {
+        LlmError::Busy { message, retry_after } => LlmError::Busy {
+            message: format!("{}{note}", message.trim_end()),
+            retry_after,
+        },
+        LlmError::Network(message) => LlmError::Network(format!("{}{note}", message.trim_end())),
+        other => other,
     }
 }
 
@@ -226,6 +305,13 @@ pub enum LlmError {
     Cancelled,
     #[error("{0}")]
     Provider(String),
+    /// Overloaded or rate limited for now: worth asking again, after `retry_after` when the
+    /// provider said how long.
+    #[error("{message}")]
+    Busy {
+        message: String,
+        retry_after: Option<Duration>,
+    },
     /// The provider lists the model but will not run it for this account (for example a
     /// model retired for new API keys).
     #[error("{0}")]

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use crate::agent::{Agent, compact, prompt};
+use crate::agent::{Agent, compact};
 use crate::bail_msg;
 use crate::db::{Chat, CommandUse, Message};
 use crate::error::CmdResult;
@@ -154,14 +154,7 @@ pub fn run(
             else {
                 bail_msg!("There is no /{name} command. Type / to see the commands there are.");
             };
-            let context = state
-                .models
-                .get(&model_id)
-                .map_or(32_768, |m| crate::agent::model_context(&m));
-            let inline = !state
-                .skills
-                .instructions_in_prompt(prompt::skills_budget_chars(context));
-            let content = expand(&skill, &def, args, inline);
+            let content = expand(&skill, &def, args);
             let used = CommandUse {
                 name: command.name,
                 args: args.to_string(),
@@ -264,29 +257,23 @@ fn group(n: u64) -> String {
     out
 }
 
-/// The message a skill command sends: its prompt with the arguments filled in, with the skill's
-/// instructions in front when the system prompt does not hold them (`with_instructions`), or a
-/// pointer to the skill when the prompt does not name it.
-pub fn expand(skill: &Skill, command: &SkillCommand, args: &str, with_instructions: bool) -> String {
-    let prompt = fill(&command.prompt, args);
-    if with_instructions {
-        let mut s = format!("<skill name=\"{}\">\n{}\n", skill.name, skill.body.trim());
-        let files = skill.other_files();
-        if !files.is_empty() {
-            s.push_str(&format!(
-                "Files (read them with read_skill_file, skill id {}): {}\n",
-                skill.id,
-                files.join(", ")
-            ));
-        }
-        s.push_str("</skill>\n\n");
-        s.push_str(&prompt);
-        s
-    } else if prompt.to_lowercase().contains(&skill.name.to_lowercase()) {
-        prompt
-    } else {
-        format!("{prompt}\n\nFollow the {} skill.", skill.name)
+/// The message a skill command sends: its prompt with the arguments filled in, after the skill's
+/// instructions. The system prompt lists skills without their instructions (see
+/// `SkillRegistry::prompt_section`), and a command means the skill is used, so they come along
+/// instead of costing the model a `read_skill_file` call.
+pub fn expand(skill: &Skill, command: &SkillCommand, args: &str) -> String {
+    let mut s = format!("<skill name=\"{}\">\n{}\n", skill.name, skill.body.trim());
+    let files = skill.other_files();
+    if !files.is_empty() {
+        s.push_str(&format!(
+            "Files (read them with read_skill_file, skill id {}): {}\n",
+            skill.id,
+            files.join(", ")
+        ));
     }
+    s.push_str("</skill>\n\n");
+    s.push_str(&fill(&command.prompt, args));
+    s
 }
 
 /// `template` with `$ARGUMENTS` replaced by `args` and `$1` to `$9` by its words (a "quoted
@@ -731,7 +718,18 @@ mod tests {
 
     #[test]
     fn what_is_not_a_number_is_refused() {
-        for text in ["", "lots", "12 apples", "12 5", "1,23,4", "12kb", "and a half", "50%", "k"] {
+        for text in [
+            "",
+            "lots",
+            "12 apples",
+            "12 5",
+            "1,23,4",
+            "12kb",
+            "and a half",
+            "50%",
+            "k",
+            "12k/32k",
+        ] {
             assert_eq!(parse_tokens(text), None, "{text}");
         }
     }
@@ -800,12 +798,7 @@ mod tests {
             prompt: "Analyze $ARGUMENTS.".into(),
         };
         assert_eq!(
-            expand(&skill, &command, "gold", false),
-            "Analyze gold.\n\nFollow the Market analysis skill."
-        );
-        let inline = expand(&skill, &command, "gold", true);
-        assert_eq!(
-            inline,
+            expand(&skill, &command, "gold"),
             "<skill name=\"Market analysis\">\n1. Find the symbol.\nFiles (read them with read_skill_file, skill id market-analysis): vol.py\n</skill>\n\nAnalyze gold."
         );
         let named = SkillCommand {

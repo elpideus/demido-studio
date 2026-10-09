@@ -11,15 +11,15 @@ pub fn create_schema() -> Value {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Short title, e.g. \"EURUSD weekly volatility\""},
-            "description": {"type": "string", "description": "One sentence saying when to use the skill"},
-            "instructions": {"type": "string", "description": "Markdown instructions: numbered steps, the tools and parameters to use, how to present the result"},
+            "description": {"type": "string", "description": "One sentence saying when to use the skill: future conversations decide from it"},
+            "instructions": {"type": "string", "description": "Markdown: numbered steps, the tools and parameters to use, how to present the result"},
             "files": {
                 "type": "array",
-                "description": "Extra files stored with the skill, e.g. a Python script or reference notes",
+                "description": "Files to store with the skill, such as a script or notes",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "path": {"type": "string", "description": "File name, e.g. analysis.py or notes.md"},
+                        "path": {"type": "string", "description": "File name"},
                         "content": {"type": "string"}
                     },
                     "required": ["path", "content"]
@@ -28,23 +28,23 @@ pub fn create_schema() -> Value {
             "include_files": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Workspace files to copy into the skill, e.g. a Python script you wrote and ran (analysis.py)"
+                "description": "Workspace files to copy into the skill, such as a script you ran"
             },
             "commands": {
                 "type": "array",
-                "description": "Slash commands that start the skill from the chat. In prompt, $ARGUMENTS is what the user types after the command and $1, $2 its words",
+                "description": "Slash commands that start the skill. In prompt, $ARGUMENTS is what the user types after the command and $1, $2 its words",
                 "items": {
                     "type": "object",
                     "properties": {
                         "name": {"type": "string", "description": "Lowercase, e.g. analyze for /analyze"},
                         "description": {"type": "string"},
                         "args": {"type": "string", "description": "What to type after it, e.g. <symbol> [timeframe]"},
-                        "prompt": {"type": "string", "description": "The message it sends, e.g. Analyze $1 on the $2 timeframe."}
+                        "prompt": {"type": "string", "description": "The message it sends, e.g. Analyze $1 on $2."}
                     },
                     "required": ["name", "prompt"]
                 }
             },
-            "overwrite": {"type": "boolean", "description": "Replace an existing skill with the same name"}
+            "overwrite": {"type": "boolean", "description": "Replace the skill with the same name"}
         },
         "required": ["name", "description", "instructions"]
     })
@@ -55,7 +55,7 @@ pub fn read_schema() -> Value {
         "type": "object",
         "properties": {
             "skill": {"type": "string", "description": "Skill id or name"},
-            "path": {"type": "string", "description": "File inside the skill (default SKILL.md)"}
+            "path": {"type": "string", "description": "Another file of the skill"}
         },
         "required": ["skill"]
     })
@@ -159,7 +159,7 @@ pub fn create(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         "name": skill.name,
         "files": file_list,
         "enabled": true,
-        "note": "The skill is saved and enabled; it is part of future conversations. Tell the user its name.",
+        "note": "The skill is saved and enabled; future conversations list it with its description. Tell the user its name.",
     });
     if !skill.commands.is_empty() {
         let names: Vec<String> = skill.commands.iter().map(|c| format!("/{}", c.name)).collect();
@@ -169,14 +169,7 @@ pub fn create(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         result["commands_problem"] = json!(problem);
     }
     Ok(ToolOutput::ok(
-        json!({
-            "created": skill.id,
-            "name": skill.name,
-            "files": file_list,
-            "enabled": true,
-            "note": "The skill is saved and enabled; it is part of future conversations. Tell the user its name.",
-        })
-        .to_string(),
+        result.to_string(),
         json!({"kind": "skill", "id": skill.id, "name": skill.name, "description": skill.description, "files": file_list, "folder": skill.folder}),
     ))
 }
@@ -189,9 +182,21 @@ pub fn read(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
         .find(key)
         .ok_or_else(|| format!("There is no skill called {key}."))?;
     let path = arg_str(args, "path").unwrap_or(crate::skills::ENTRY_FILE);
-    let text = ctx.state.skills.read_file(&skill.id, path).map_err(|e| e.to_string())?;
+    let mut text = clip(
+        &ctx.state.skills.read_file(&skill.id, path).map_err(|e| e.to_string())?,
+        40_000,
+    );
+    // The manifest in the system prompt names skills only; their files are named here.
+    let others = skill.other_files();
+    if path.eq_ignore_ascii_case(crate::skills::ENTRY_FILE) && !others.is_empty() {
+        text.push_str(&format!(
+            "\n\nFiles of this skill: {}. Read one with read_skill_file; run a .py one with run_python and file \"skill:{}/<file>\".",
+            others.join(", "),
+            skill.id
+        ));
+    }
     Ok(ToolOutput::ok(
-        clip(&text, 40_000),
+        text,
         json!({"kind": "skillFile", "id": skill.id, "name": skill.name, "path": path}),
     ))
 }

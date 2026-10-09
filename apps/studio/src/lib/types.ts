@@ -53,7 +53,12 @@ export type ToolDisplay = { kind?: string; error?: string; denied?: boolean } & 
 
 export interface MessageStats {
   model?: string;
+  /** The model the provider reported: for a router, the one it picked. */
   providerModel?: string | null;
+  /** Who ran the model, when the provider says (OpenRouter names the one it sent the request to). */
+  provider?: string | null;
+  /** The model is a router (OpenRouter's Free Models Router, say), so `providerModel` is its pick. */
+  routed?: boolean | null;
   promptTokens?: number;
   completionTokens?: number;
   cachedTokens?: number;
@@ -63,6 +68,8 @@ export interface MessageStats {
   durationMs?: number;
   ttftMs?: number | null;
   finishReason?: string | null;
+  /** Times the model was busy and the request went again. */
+  retries?: number | null;
 }
 
 /** The stats of a `summary` message. */
@@ -141,6 +148,15 @@ export type ChatEvent =
   | { type: 'message'; chatId: string; message: Message }
   | { type: 'delta'; chatId: string; messageId: string; content: string; reasoning: string }
   | { type: 'toolCall'; chatId: string; messageId: string; name: string }
+  | {
+      type: 'retrying';
+      chatId: string;
+      messageId: string;
+      attempt: number;
+      attempts: number;
+      waitMs: number;
+      reason: string;
+    }
   | { type: 'truncated'; chatId: string; fromSeq: number }
   | { type: 'turnStarted'; chatId: string }
   | { type: 'turnFinished'; chatId: string; error: string | null }

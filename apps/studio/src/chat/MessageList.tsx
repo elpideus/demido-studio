@@ -1,6 +1,17 @@
-import { memo, useMemo, useState } from 'react';
-import { AlertCircle, Copy, Check, FileSearch, Pencil, RefreshCw } from 'lucide-react';
-import { Avatar, Button, IconButton, TextArea, Tooltip, cx } from '@demido/ui';
+import { memo, useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  Copy,
+  Check,
+  ChevronDown,
+  FileSearch,
+  FoldVertical,
+  Pencil,
+  RefreshCw,
+  Route,
+  ScrollText,
+} from 'lucide-react';
+import { Avatar, Button, IconButton, Spinner, TextArea, Tooltip, cx } from '@demido/ui';
 
 import { fileUrl, formatTokens } from '@/lib/format';
 import type { Message, ModelEntry } from '@/lib/types';
@@ -10,6 +21,7 @@ import { useWindows } from '@/stores/windows';
 import { MessageAttachments } from './Attachments';
 import { FileBundle } from './FileBundle';
 import { OpenStateProvider, bundleKey } from './openState';
+import { routedPicks } from './routed';
 import { Markdown } from './Markdown';
 import { summaryLine } from './slashView';
 import { thoughtSeconds, turnBlocks, type Step } from './steps';
@@ -211,6 +223,7 @@ function Stats({ message }: { message: Message }) {
     s.cachedTokens ? `Reused from cache: ${s.cachedTokens}` : null,
     s.promptPerSecond ? `Prompt speed: ${s.promptPerSecond} tok/s` : null,
     s.ttftMs ? `First token after ${(s.ttftMs / 1000).toFixed(2)}s` : null,
+    s.retries ? `The model was busy: tried ${s.retries + 1} times` : null,
     s.finishReason && `Finish: ${s.finishReason}`,
   ]
     .filter(Boolean)
@@ -219,6 +232,71 @@ function Stats({ message }: { message: Message }) {
     <Tooltip content={detail || 'Generation stats'} placement="top">
       <span className={styles.stats}>{parts.join(' · ')}</span>
     </Tooltip>
+  );
+}
+
+/** The models a router (OpenRouter's Free Models Router, say) picked to write this turn, behind an
+ * icon beside the stats. */
+function RoutedModels({ messages, router }: { messages: Message[]; router: string }) {
+  const models = useModels((s) => s.models);
+  const picks = useMemo(() => routedPicks(messages, models), [messages, models]);
+  if (picks.length === 0) return null;
+  const steps = picks.reduce((n, p) => n + p.steps, 0);
+  const content = (
+    <div className={styles.routed}>
+      <div className={styles.routedTitle}>
+        {router} picked {picks.length === 1 ? 'this model' : `${picks.length} models`}
+      </div>
+      {picks.map((p) => {
+        const meta = [
+          p.provider && `via ${p.provider}`,
+          steps > 1 && `${p.steps} of ${steps} steps`,
+        ].filter(Boolean);
+        return (
+          <div key={`${p.model} ${p.provider}`} className={styles.routedPick}>
+            <span className={styles.routedName}>{p.name ?? p.model}</span>
+            {p.name && <span className={styles.routedId}>{p.model}</span>}
+            {meta.length > 0 && <span className={styles.routedMeta}>{meta.join(' · ')}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+  return (
+    <Tooltip content={content} placement="top" delay={150}>
+      <span
+        className={styles.routedIcon}
+        tabIndex={0}
+        aria-label={`${router} picked ${picks.map((p) => p.name ?? p.model).join(', ')}`}
+      >
+        <Route size={13} aria-hidden />
+      </span>
+    </Tooltip>
+  );
+}
+
+/** A busy model's answer about to be asked for again: why, and a countdown to it. */
+function RetryNotice({ retry, className }: { retry: Retry; className?: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [retry]);
+  const seconds = Math.ceil((retry.at - now) / 1000);
+  const when = seconds > 0 ? `Trying again in ${seconds}s` : 'Trying again';
+  return (
+    <div className={cx(styles.retrying, className)} role="status">
+      <Spinner size={12} />
+      <div className={styles.retryText}>
+        <span className={styles.retryReason} title={retry.reason}>
+          {retry.reason}
+        </span>
+        <span>
+          {when} · retry {retry.attempt} of {retry.attempts}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -234,6 +312,7 @@ function AssistantStep({
   workspace: string | null;
 }) {
   const streaming = m.status === 'streaming';
+  const retry = useChats((s) => (streaming ? s.retrying[m.id] : undefined));
   const nothingYet = streaming && !m.content && !m.reasoning;
   const reasoningLive = streaming && !m.content && m.toolCalls.length === 0;
   return (
@@ -241,7 +320,8 @@ function AssistantStep({
       {m.reasoning && (
         <ThinkingBlock messageId={m.id} text={m.reasoning} live={reasoningLive} seconds={thoughtSeconds(m)} />
       )}
-      {nothingYet && !pendingTool && (
+      {retry && <RetryNotice retry={retry} />}
+      {nothingYet && !pendingTool && !retry && (
         <div className={styles.waiting}>
           <span className={styles.dot} />
           <span className={styles.dot} />
@@ -329,6 +409,7 @@ const AssistantTurn = memo(function AssistantTurn({
             onClick={() => open('inspector', { messageId: lastAssistant.id, title: `Inspector · ${name}` })}
           />
           <Stats message={lastAssistant} />
+          <RoutedModels messages={assistants} router={name} />
         </div>
       )}
     </div>

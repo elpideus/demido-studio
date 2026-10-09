@@ -8,6 +8,16 @@ import type { Chat, ChatEvent, Message, ModelEntry } from '@/lib/types';
 import { useApp } from './app';
 import { toast } from './toasts';
 
+/** A busy model's answer that is about to be asked for again. */
+export interface Retry {
+  /** Retry number, from 1, of `attempts`. */
+  attempt: number;
+  attempts: number;
+  /** When it is asked for again, in ms since the epoch. */
+  at: number;
+  reason: string;
+}
+
 interface ChatsStore {
   chats: Chat[];
   /** The chat on screen; null is a new, not yet started chat. */
@@ -19,6 +29,8 @@ interface ChatsStore {
   pickedModelId: string | null;
   /** Tool calls the model is still writing, by assistant message id. */
   pendingTool: Record<string, string>;
+  /** Answers waiting for a busy model, by message id. */
+  retrying: Record<string, Retry>;
   loadChats: () => Promise<void>;
   open: (id: string | null) => Promise<void>;
   /** Sends a message with the staged files `attachmentIds`; false when the backend refused it. */
@@ -33,6 +45,13 @@ interface ChatsStore {
   pin: (id: string, pinned: boolean) => Promise<void>;
   pickModel: (id: string | null) => void;
   apply: (event: ChatEvent) => void;
+}
+
+function without<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const rest = { ...record };
+  delete rest[key];
+  return rest;
 }
 
 function sortChats(chats: Chat[]): Chat[] {
@@ -53,6 +72,7 @@ export const useChats = create<ChatsStore>((set, get) => ({
   turnError: {},
   pickedModelId: null,
   pendingTool: {},
+  retrying: {},
 
   loadChats: async () => {
     const [chats, running] = await Promise.all([api.listChats(), api.runningTurns()]);
@@ -179,11 +199,11 @@ export const useChats = create<ChatsStore>((set, get) => ({
     switch (event.type) {
       case 'message':
         set((s) => {
-          const pendingTool = { ...s.pendingTool };
-          if (event.message.status !== 'streaming') delete pendingTool[event.message.id];
+          const done = event.message.status !== 'streaming';
           return {
             messages: { ...s.messages, [event.chatId]: upsertMessage(s.messages[event.chatId], event.message) },
-            pendingTool,
+            pendingTool: done ? without(s.pendingTool, event.message.id) : s.pendingTool,
+            retrying: done ? without(s.retrying, event.message.id) : s.retrying,
           };
         });
         break;
@@ -192,6 +212,7 @@ export const useChats = create<ChatsStore>((set, get) => ({
           const list = s.messages[event.chatId];
           if (!list) return {};
           return {
+            retrying: without(s.retrying, event.messageId),
             messages: {
               ...s.messages,
               [event.chatId]: list.map((m) =>
@@ -208,7 +229,34 @@ export const useChats = create<ChatsStore>((set, get) => ({
         });
         break;
       case 'toolCall':
-        set((s) => ({ pendingTool: { ...s.pendingTool, [event.messageId]: event.name } }));
+        set((s) => ({
+          pendingTool: { ...s.pendingTool, [event.messageId]: event.name },
+          retrying: without(s.retrying, event.messageId),
+        }));
+        break;
+      case 'retrying':
+        // What streamed of the failed attempt is void: the next one starts the answer afresh.
+        set((s) => {
+          const list = s.messages[event.chatId];
+          const retry = {
+            attempt: event.attempt,
+            attempts: event.attempts,
+            at: Date.now() + event.waitMs,
+            reason: event.reason,
+          };
+          return {
+            retrying: { ...s.retrying, [event.messageId]: retry },
+            pendingTool: without(s.pendingTool, event.messageId),
+            messages: list
+              ? {
+                  ...s.messages,
+                  [event.chatId]: list.map((m) =>
+                    m.id === event.messageId ? { ...m, content: '', reasoning: null } : m,
+                  ),
+                }
+              : s.messages,
+          };
+        });
         break;
       case 'truncated':
         set((s) => {

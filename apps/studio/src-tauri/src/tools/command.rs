@@ -19,9 +19,9 @@ pub fn schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "command": {"type": "string", "description": "The command line, in the shell's own syntax (PowerShell on Windows)"},
-            "directory": {"type": "string", "description": "Folder to run in: an absolute path, ~ for the user's home folder, or a folder in the workspace. Default: the chat's workspace folder"},
-            "timeout": {"type": "integer", "description": "Seconds before the command is stopped: 120 by default, at most 3600. Longer for downloads and other long jobs; 3 to 5 for full-screen programs such as btop or top, whose screen at that moment is returned"}
+            "command": {"type": "string", "description": "In the shell's own syntax"},
+            "directory": {"type": "string", "description": "Absolute path, ~ for the home folder, or a workspace folder"},
+            "timeout": {"type": "integer", "description": "Seconds before it is stopped (default 120, max 3600): longer for downloads and other long jobs; 3 to 5 for full-screen programs such as btop, whose screen is then returned"}
         },
         "required": ["command"]
     })

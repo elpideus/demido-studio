@@ -445,15 +445,25 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         let (client, served_context) = client_for(state, &model).await?;
         let context_tokens = served_context.unwrap_or(model_context);
         let settings = state.settings.get();
-        let tools = tools::specs(state, &settings);
+        let chat_messages = state.db.list_messages(chat_id)?;
+        let attached = state.db.chat_attachments(chat_id).is_ok_and(|a| !a.is_empty());
+        // Tool groups load on demand (see `tools`); attached files come with the tools to search
+        // and read them.
+        let mut loaded = tools::loaded_groups(&chat_messages);
+        if attached {
+            loaded.insert("files");
+        }
+        let tools = tools::specs(state, &settings, &loaded);
+        let loadable = tools::loadable(state, &settings, &loaded);
         let mail_accounts = state.mail.account_list();
         let system = prompt::system_prompt(&prompt::PromptInputs {
             model: &model,
             tools: &tools,
             skills: &state.skills,
-            context_tokens,
+            attachments: attached,
             shell: crate::shell::current().map(|s| s.name.as_str()),
             mail_accounts: &mail_accounts,
+            loadable: &loadable,
         });
         let fixed = prompt::estimate_tokens(&system)
             + tools
@@ -468,11 +478,13 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                 .max(1024)
         };
         let mut budget = room(token_ratio);
-        let mut messages = prompt::current_part(&state.db.list_messages(chat_id)?).to_vec();
+        let mut messages = prompt::current_part(&chat_messages).to_vec();
         if step == 0 {
             question = question_vector(state, chat_id, &messages, budget, cancel).await;
         }
-        let tool_names: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
+        // The hints in attached files name the tools the model has or can load: they stay the same
+        // when a group is loaded.
+        let tool_names = tools::usable_names(state, &settings);
         let plan = |budget: usize, messages: &[Message]| {
             attachments::context::plan(
                 &attachments::context::Inputs {
@@ -557,6 +569,8 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             params: params.clone(),
         };
         let mut retried = false;
+        // Times the model was busy and the request went again.
+        let mut busy_retries = 0u32;
         let (trace_keep, result) = loop {
             request.messages = prompt::history(&messages, budget, &files);
             // The files of the message this turn answers are kept whole in its first call's trace only.
@@ -572,6 +586,34 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                 .flatten();
             let result = client
                 .stream(&request, cancel, |event| {
+                    if let StreamEvent::Retrying {
+                        attempt,
+                        attempts,
+                        wait,
+                        reason,
+                    } = event
+                    {
+                        // The next attempt starts the answer afresh.
+                        busy_retries += 1;
+                        first_token = None;
+                        for text in [
+                            &mut pending_content,
+                            &mut pending_reasoning,
+                            &mut streamed_content,
+                            &mut streamed_reasoning,
+                        ] {
+                            text.clear();
+                        }
+                        emit_state.emit_chat(ChatEvent::Retrying {
+                            chat_id: chat_id.to_string(),
+                            message_id: reply.id.clone(),
+                            attempt,
+                            attempts,
+                            wait_ms: wait.as_millis() as u64,
+                            reason,
+                        });
+                        return;
+                    }
                     first_token.get_or_insert_with(Instant::now);
                     match event {
                         StreamEvent::Content(t) => {
@@ -590,6 +632,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                                 name,
                             });
                         }
+                        StreamEvent::Retrying { .. } => {}
                     }
                     if last_flush.elapsed().as_millis() >= 40 {
                         last_flush = Instant::now();
@@ -649,7 +692,11 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                     MessageStatus::Error
                 };
                 reply.error = (!cancelled).then(|| message.clone());
-                reply.stats = Some(json!({"durationMs": duration_ms, "model": model.name}));
+                reply.stats = Some(json!({
+                    "durationMs": duration_ms,
+                    "model": model.name,
+                    "retries": (busy_retries > 0).then_some(busy_retries),
+                }));
                 state.db.save_message(&reply)?;
                 state.emit_chat(ChatEvent::Message {
                     chat_id: chat_id.to_string(),
@@ -675,7 +722,14 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         reply.tool_calls = completion.tool_calls.clone();
         reply.provider_meta = completion.provider_meta.clone();
         reply.status = MessageStatus::Done;
-        reply.stats = Some(stats(&completion, &model, duration_ms, ttft_ms));
+        reply.stats = Some(stats(
+            &completion,
+            &model,
+            duration_ms,
+            ttft_ms,
+            busy_retries,
+            client.is_router(),
+        ));
         state.db.save_message(&reply)?;
         state.emit_chat(ChatEvent::Message {
             chat_id: chat_id.to_string(),
@@ -683,6 +737,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         });
         let response = json!({
             "model": completion.model,
+            "provider": completion.provider,
             "content": completion.content,
             "reasoning": completion.reasoning,
             "toolCalls": completion.tool_calls,
@@ -782,11 +837,8 @@ async fn run_tool_call(
     first.tool_result = Some(json!({"label": tools::describe(&call.name, &args), "args": args}));
     let row = ToolRow::new(state.clone(), first);
 
-    if !tools::exists(&call.name) {
-        let msg = format!(
-            "There is no tool called {}. Use only the tools you were given.",
-            call.name
-        );
+    let settings = state.settings.get();
+    if let Some(msg) = tools::refusal(state, &settings, &call.name) {
         return row
             .finish(false, json!({"error": msg}).to_string(), json!({"error": msg}), 0)
             .map(|()| false);
@@ -842,7 +894,17 @@ async fn run_tool_call(
     Ok(output.ok)
 }
 
-fn stats(c: &crate::llm::Completion, model: &ModelEntry, duration_ms: i64, ttft_ms: Option<i64>) -> Value {
+/// The stats line of an answer. `retries` is how often the model was busy and asked again;
+/// `ttft_ms` counts from the first attempt, waits included. `routed` says the model is a router,
+/// so `providerModel` is the model it picked (shown beside the stats).
+fn stats(
+    c: &crate::llm::Completion,
+    model: &ModelEntry,
+    duration_ms: i64,
+    ttft_ms: Option<i64>,
+    retries: u32,
+    routed: bool,
+) -> Value {
     let timings = c.timings.clone().unwrap_or(Value::Null);
     let generation_ms = ttft_ms.map(|t| (duration_ms - t).max(1)).unwrap_or(duration_ms.max(1));
     let tokens_per_second = timings["predicted_per_second"]
@@ -851,6 +913,8 @@ fn stats(c: &crate::llm::Completion, model: &ModelEntry, duration_ms: i64, ttft_
     json!({
         "model": model.name,
         "providerModel": c.model,
+        "provider": c.provider,
+        "routed": routed.then_some(true),
         "promptTokens": c.usage.prompt_tokens,
         "completionTokens": c.usage.completion_tokens,
         "cachedTokens": timings["cache_n"].as_u64().unwrap_or(c.usage.cached_tokens),
@@ -860,6 +924,7 @@ fn stats(c: &crate::llm::Completion, model: &ModelEntry, duration_ms: i64, ttft_
         "durationMs": duration_ms,
         "ttftMs": ttft_ms,
         "finishReason": c.finish_reason,
+        "retries": (retries > 0).then_some(retries),
     })
 }
 

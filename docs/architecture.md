@@ -119,7 +119,7 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE) or Gemini (native SSE); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
 | `attachments` | Files attached to messages: staging, moving them into the chat's workspace, what the model reads of them (full text, passages, images and sound), passage search |
-| `tools` | Market data, email, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu |
+| `tools` | Market data, email, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu, and loaded by the model a group at a time |
 | `shell` | The person's own shell, found once; a command run in a pseudo-terminal and read back as the screen shows it |
 | `skills` | Skill folders, enable/disable, the slash commands in their `commands.json`, and a file watcher that updates the UI live |
 | `slash` | Slash commands: the app's own (`/compact`, `/autocompact`) and those skills provide |
@@ -145,6 +145,27 @@ files does not store them again for every model call: images and sound are repla
 and size (`llm::redact_media`), and an attached file's text is kept whole only in the first call of
 the turn that sends it (see Attached files, below).
 
+**Tool groups on demand.** A chat starts with no tool group loaded: the request carries only
+`load_tools` (and `read_skill_file` while skills are in use), and the system prompt lists the
+groups the person turned on, a line each, so a greeting costs about 550 tokens instead of
+about 6,000. The model loads the groups a request needs with `load_tools`, and their tools are in
+the request from its next step on. What is loaded is read back from the chat's own tool calls
+(`tools::loaded_groups`): a group stays loaded for the rest of the chat, also past a summary, so
+the tools change only when one is added, and llama.cpp re-reads the prompt once then instead of
+on every request. A chat with attached files starts with the files group loaded. A tool the
+model calls without loading its group runs all the same (and loads it); one whose group is
+turned off or cannot run here returns why.
+
+**Busy models.** A model that answers "busy" (overloaded, rate limited, 408, 429, 5xx, or the
+same words in the middle of a stream) is asked again up to five times, after 1, 2, 4, 8 and 16
+seconds give or take a fifth, or after what the server asks for (`Retry-After`, OpenRouter's
+`X-RateLimit-Reset`, Gemini's `retryDelay`) when that is longer (`llm::retry`, in
+`Client::stream`). A wait of more than a minute, or a per-day quota, is not waited out: the error
+says when to try again. A cloud model that cannot be reached is retried the same way; a local
+llama-server only when it answers 503 while loading, since its other errors would come back. The
+chat shows the reason and a countdown (`ChatEvent::Retrying`), what streamed of the failed
+attempt is dropped, and the stats tooltip says how many tries it took.
+
 **Compaction.** Before a model call whose request reaches the threshold, the turns before the
 latest message are summarized (`agent::compact`). The threshold is 85% of what the context window
 leaves after the answer's share, or the lower `autoCompactTokens` set in Settings, General or with
@@ -163,8 +184,8 @@ same on demand and puts the summary at the end.
 `/...` is sent as typed. `/autocompact` takes `off`, `auto` or a number of tokens however it is
 written (12000, 12,000, 12.000, 12k, 12.5k, 12k5, twelve thousand, 12 thousand and a half), and
 says what it means for the model in use. A skill's command sends its `prompt` with `$ARGUMENTS`
-and `$1` to `$9` filled in. When the system prompt has no room for the skill's instructions, they
-are sent in front of the prompt. The message keeps the command (`messages.command`) so the chat
+and `$1` to `$9` filled in, after the skill's instructions: the system prompt lists skills
+without them, and a command means the skill is used. The message keeps the command (`messages.command`) so the chat
 shows `/name args`. Commands are never listed in the system prompt, so a small model pays no
 context for them until one is used.
 
@@ -209,9 +230,9 @@ model cannot use tools. Nothing is guessed from names or templates:
   its models refreshed), with an ETag so an unchanged catalog is not downloaded again. A model
   models.dev does not list keeps only what Google says.
 
-**Gemini.** Answers that fail as "busy" (429 or 5xx, before anything was shown) are retried up
-to four times with growing waits. A model the API key cannot use is turned off, with a note in
-the chat, instead of failing every time; an empty or refused answer says why.
+**Gemini.** Busy answers are retried as for any model (see Busy models, above). A model the API
+key cannot use is turned off, with a note in the chat, instead of failing every time; an empty or
+refused answer says why.
 
 **Market data.** `sidecars/market` is a small Node program (bundled to one file) that speaks JSON
 lines over stdio: requests with an id, responses with the same id, and events for live streams,
@@ -485,7 +506,10 @@ shows a link that opens in the browser. A trace keeps a file's text whole only i
 call of the turn that sends it; later calls note how much was left out.
 
 **Skills.** A skill is a folder with `SKILL.md` (frontmatter `name`, `description`) and any
-files it mentions. Enabled skills' instructions go into the system prompt; their other files are
+files it mentions. The system prompt lists enabled skills, one line each with its description
+(the manifest, `SkillRegistry::prompt_section`); the model reads a skill's instructions with
+`read_skill_file` when a request fits one, which is offered whenever a skill is enabled, even with
+the Skill authoring tools turned off. Reading `SKILL.md` names the skill's other files, which are
 read with `read_skill_file` or run with `run_python` (`skill:<id>/<file>`). `create_skill`
 writes a new folder, copies the scripts it references from the chat's workspace, and rewrites
 references to point at its final id. A `commands.json` beside `SKILL.md` gives the skill slash

@@ -29,8 +29,8 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(420);
 /// its projector (see where the server's arguments are built).
 const VISION_BATCH: u32 = 2048;
 /// Least context llama.cpp may fit a model to: below it, a turn with a few tool results no longer
-/// fits beside the system prompt and the tools (about 6000 tokens with every tool). A model that does not fit the
-/// GPU with this much gets layers moved to the CPU instead.
+/// fits beside the system prompt and the tools (about 6000 tokens with every tool). A model that
+/// does not fit the GPU with this much gets layers moved to the CPU instead.
 const MIN_FIT_CONTEXT: u32 = 16384;
 /// GPU memory, in MiB, llama.cpp leaves free when it fits a model (its own default), besides
 /// the search model's. About 370 MiB of it stays free in the end on an RTX 3060: fitting does not

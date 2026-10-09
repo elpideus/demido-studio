@@ -317,8 +317,26 @@ async fn summarize(
         let result = job
             .client
             .stream(&request, cancel, |event| {
-                if let StreamEvent::Content(t) = event {
-                    pending.push_str(&t);
+                match event {
+                    StreamEvent::Content(t) => pending.push_str(&t),
+                    // The next attempt writes the part afresh.
+                    StreamEvent::Retrying {
+                        attempt,
+                        attempts,
+                        wait,
+                        reason,
+                    } => {
+                        pending.clear();
+                        state.emit_chat(ChatEvent::Retrying {
+                            chat_id: summary.chat_id.clone(),
+                            message_id: summary.id.clone(),
+                            attempt,
+                            attempts,
+                            wait_ms: wait.as_millis() as u64,
+                            reason,
+                        });
+                    }
+                    _ => {}
                 }
                 if last_flush.elapsed().as_millis() >= 40 {
                     last_flush = Instant::now();

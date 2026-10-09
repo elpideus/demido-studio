@@ -178,6 +178,7 @@ impl OpenAiClient {
         body
     }
 
+    /// Streams one answer, once: [`super::Client::stream`] tries again when the model is busy.
     pub async fn stream(
         &self,
         req: &ChatRequest,
@@ -197,9 +198,10 @@ impl OpenAiClient {
             r = request.send() => r?,
         };
         if !response.status().is_success() {
-            let status = response.status();
+            let status = response.status().as_u16();
+            let asked = retry::asked_by_headers(response.headers());
             let text = response.text().await.unwrap_or_default();
-            return Err(failure(status.as_u16(), &text));
+            return Err(failure(status, &text, asked, self.is_local()));
         }
 
         let mut out = Completion {
@@ -231,12 +233,7 @@ impl OpenAiClient {
                     continue;
                 };
                 if let Some(err) = v.get("error") {
-                    return Err(LlmError::Provider(
-                        err.get("message")
-                            .and_then(Value::as_str)
-                            .unwrap_or("the model returned an error")
-                            .to_string(),
-                    ));
+                    return Err(stream_failure(err, self.is_local()));
                 }
                 apply_chunk(&v, &mut out, &mut calls, &mut details, &mut on_event);
             }
@@ -255,6 +252,29 @@ impl OpenAiClient {
         }
         Ok(out)
     }
+}
+
+impl OpenAiClient {
+    fn is_local(&self) -> bool {
+        self.dialect == Dialect::LlamaCpp
+    }
+}
+
+/// An error that arrived inside the stream, after the server had answered 200. OpenRouter passes
+/// on its provider's failures this way, with the status they would have had as `code`.
+fn stream_failure(err: &Value, local: bool) -> LlmError {
+    let message = describe_error(err).unwrap_or_else(|| "the model returned an error".to_string());
+    let code = err["code"]
+        .as_u64()
+        .or_else(|| err["code"].as_str()?.parse().ok())
+        .map(|c| c as u16);
+    if code.is_some_and(|c| retry::busy_status(c, local)) || (code.is_none() && retry::sounds_busy(&message)) {
+        return LlmError::Busy {
+            message,
+            retry_after: retry::asked_by_body(err),
+        };
+    }
+    LlmError::Provider(message)
 }
 
 /// An image as a data URL, sound as `input_audio` (llama.cpp reads WAV and MP3).
@@ -280,6 +300,9 @@ fn apply_chunk(
 ) {
     if out.model.is_none() {
         out.model = v.get("model").and_then(Value::as_str).map(str::to_string);
+    }
+    if out.provider.is_none() {
+        out.provider = v.get("provider").and_then(Value::as_str).map(str::to_string);
     }
     if let Some(choice) = v.get("choices").and_then(|c| c.get(0)) {
         let delta = &choice["delta"];
@@ -411,13 +434,20 @@ fn merge_details(pieces: Vec<Value>) -> Vec<Value> {
     merged
 }
 
-/// The error for a request the server refused, telling one llama-server refused because it does
-/// not fit in the context apart.
-fn failure(status: u16, body: &str) -> LlmError {
+/// The error for a request the server refused, telling apart one llama-server refused because it
+/// does not fit in the context, and a busy server worth asking again (after `asked`, when its
+/// headers said).
+fn failure(status: u16, body: &str, asked: Option<std::time::Duration>, local: bool) -> LlmError {
     let message = error_message(status, body);
     let error = serde_json::from_str::<Value>(body)
         .ok()
         .and_then(|v| v.get("error").cloned());
+    if retry::busy_status(status, local) {
+        return LlmError::Busy {
+            retry_after: asked.or_else(|| error.as_ref().and_then(retry::asked_by_body)),
+            message,
+        };
+    }
     let count = |key: &str| error.as_ref()?.get(key)?.as_u64().map(|n| n as usize);
     match (
         error.as_ref().and_then(|e| e.get("type")).and_then(Value::as_str),
@@ -662,6 +692,16 @@ mod tests {
     }
 
     #[test]
+    fn a_router_names_the_model_it_picked() {
+        let mut out = Completion::default();
+        let chunk = json!({"id": "gen-1", "provider": "Chutes", "model": "qwen/qwen3-coder:free",
+            "choices": [{"delta": {"content": "Hi"}}]});
+        apply_chunk(&chunk, &mut out, &mut BTreeMap::new(), &mut Vec::new(), &mut |_| {});
+        assert_eq!(out.model.as_deref(), Some("qwen/qwen3-coder:free"));
+        assert_eq!(out.provider.as_deref(), Some("Chutes"));
+    }
+
+    #[test]
     fn provider_errors_are_readable() {
         assert_eq!(
             error_message(400, r#"{"error":{"message":"context too long"}}"#),
@@ -701,13 +741,39 @@ mod tests {
         // As llama-server b11146 answers.
         let body = r#"{"error":{"code":400,"message":"request (18188 tokens) exceeds the available context size (16384 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":18188,"n_ctx":16384}}"#;
         assert!(matches!(
-            failure(400, body),
+            failure(400, body, None, true),
             LlmError::ContextFull { prompt_tokens: 18188, context_tokens: 16384, message }
                 if message.starts_with("request (18188 tokens)")
         ));
         assert!(matches!(
-            failure(400, r#"{"error":{"message":"context too long"}}"#),
+            failure(400, r#"{"error":{"message":"context too long"}}"#, None, true),
             LlmError::Provider(_)
+        ));
+    }
+
+    #[test]
+    fn busy_providers_are_told_apart() {
+        let limited = r#"{"error":{"message":"Rate limit exceeded: free-models-per-min.","code":429}}"#;
+        assert!(matches!(
+            failure(429, limited, Some(std::time::Duration::from_secs(9)), false),
+            LlmError::Busy { retry_after: Some(w), .. } if w.as_secs() == 9
+        ));
+        assert!(matches!(
+            failure(402, r#"{"error":{"message":"Insufficient credits"}}"#, None, false),
+            LlmError::Provider(_)
+        ));
+        // llama-server's 500 is the request's fault; its 503 means it is loading.
+        assert!(matches!(failure(500, "", None, true), LlmError::Provider(_)));
+        assert!(matches!(failure(503, "", None, true), LlmError::Busy { .. }));
+        let upstream = json!({"message": "Provider returned error", "code": 429,
+            "metadata": {"raw": "m:free is temporarily rate-limited upstream.", "provider_name": "Venice"}});
+        assert!(matches!(stream_failure(&upstream, false), LlmError::Busy { .. }));
+        let refused =
+            json!({"message": "Provider returned error", "code": 400, "metadata": {"raw": "bad tool schema"}});
+        assert!(matches!(stream_failure(&refused, false), LlmError::Provider(_)));
+        assert!(matches!(
+            stream_failure(&json!({"message": "Model overloaded"}), false),
+            LlmError::Busy { .. }
         ));
     }
 }

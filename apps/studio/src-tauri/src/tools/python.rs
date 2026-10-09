@@ -19,9 +19,9 @@ pub fn schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "code": {"type": "string", "description": "Python source code to run"},
+            "code": {"type": "string"},
             "file": {"type": "string", "description": "Run this .py file instead of code: a workspace path, or skill:<skill-id>/<file> for a skill's script"},
-            "args": {"type": "array", "items": {"type": "string"}, "description": "Command-line arguments for the script (sys.argv[1:])"}
+            "args": {"type": "array", "items": {"type": "string"}, "description": "sys.argv[1:]"}
         }
     })
 }

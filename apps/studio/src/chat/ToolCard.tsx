@@ -25,6 +25,7 @@ import {
   Sparkles,
   SquareTerminal,
   Terminal,
+  Wrench,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -53,6 +54,20 @@ const ICONS: Record<string, LucideIcon> = {
   search_files: FileSearch,
   create_skill: Sparkles,
   read_skill_file: Sparkles,
+  pine_list: FileCode,
+  pine_read: FileCode,
+  pine_edit: FilePen,
+  pine_save: FileCode,
+  pine_test: FlaskConical,
+  pine_publish: CloudUpload,
+  chart_add_indicator: SquareFunction,
+  chart_draw: PenLine,
+  mail_list: Mail,
+  mail_search: MailSearch,
+  mail_read: MailOpen,
+  mail_export: Mails,
+  mail_attachment: Paperclip,
+  load_tools: Wrench,
 };
 
 type DownloadCard = Extract<ToolApproval, { kind: 'download' }>;

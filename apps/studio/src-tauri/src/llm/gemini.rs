@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::openai::error_message;
 use super::sse::SseDecoder;
-use super::{ChatRequest, CloudModel, Completion, LlmError, LlmMessage, StreamEvent, Usage};
+use super::{ChatRequest, CloudModel, Completion, LlmError, LlmMessage, StreamEvent, Usage, retry};
 use crate::db::ToolCall;
 
 pub const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
@@ -26,17 +26,6 @@ pub struct GeminiClient {
     pub api_key: String,
     /// Model id without the `models/` prefix, e.g. `gemini-2.5-flash`.
     pub model: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct GeminiModel {
-    pub id: String,
-    pub display_name: String,
-    pub description: String,
-    pub input_token_limit: u64,
-    pub output_token_limit: u64,
-    pub thinking: bool,
 }
 
 impl GeminiClient {
@@ -94,9 +83,8 @@ impl GeminiClient {
         body
     }
 
-    /// Streams one answer. When Gemini is busy or rate limited before anything was shown, the
-    /// request is sent again after a short wait, a few times, before the error reaches the
-    /// person.
+    /// Streams one answer, once: [`super::Client::stream`] tries again when Gemini is busy or
+    /// rate limited ("This model is currently experiencing high demand").
     pub async fn stream(
         &self,
         req: &ChatRequest,
@@ -104,52 +92,25 @@ impl GeminiClient {
         mut on_event: impl FnMut(StreamEvent) + Send,
     ) -> Result<Completion, LlmError> {
         let body = self.body(req);
-        let mut attempt = 1;
-        loop {
-            let mut shown = false;
-            let result = self
-                .stream_once(&body, cancel, &mut |event| {
-                    shown = true;
-                    on_event(event);
-                })
-                .await;
-            match result {
-                Ok(completion) => return Ok(completion),
-                Err(Failure::Busy(message)) if !shown && attempt < ATTEMPTS => {
-                    let wait = RETRY_WAIT * 2u32.pow(attempt - 1);
-                    tracing::warn!(model = %self.model, attempt, ?wait, "Gemini is busy, trying again: {message}");
-                    tokio::select! {
-                        _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                        _ = tokio::time::sleep(wait) => {}
-                    }
-                    attempt += 1;
-                }
-                Err(Failure::Busy(message)) => return Err(LlmError::Provider(message)),
-                Err(Failure::Other(e)) => return Err(e),
-            }
-        }
-    }
-
-    async fn stream_once(
-        &self,
-        body: &Value,
-        cancel: &CancellationToken,
-        on_event: &mut (dyn FnMut(StreamEvent) + Send),
-    ) -> Result<Completion, Failure> {
         let url = format!(
             "{}/models/{}:streamGenerateContent?alt=sse",
             self.base_url.trim_end_matches('/'),
             self.model
         );
-        let request = self.http.post(url).header("x-goog-api-key", &self.api_key).json(body);
+        let request = self.http.post(url).header("x-goog-api-key", &self.api_key).json(&body);
         let response = tokio::select! {
-            _ = cancel.cancelled() => return Err(LlmError::Cancelled.into()),
-            r = request.send() => r.map_err(LlmError::from)?,
+            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+            r = request.send() => r?,
         };
         if !response.status().is_success() {
             let status = response.status().as_u16();
+            let asked = retry::asked_by_headers(response.headers());
             let text = response.text().await.unwrap_or_default();
-            return Err(Failure::from_status(status, error_message(status, &text)));
+            let asked = asked.or_else(|| {
+                let v = serde_json::from_str::<Value>(&text).ok()?;
+                retry::asked_by_body(&v["error"])
+            });
+            return Err(status_error(status, error_message(status, &text), asked));
         }
 
         let mut out = Completion {
@@ -164,12 +125,12 @@ impl GeminiClient {
         let mut blocked: Option<String> = None;
         loop {
             let chunk = tokio::select! {
-                _ = cancel.cancelled() => return Err(LlmError::Cancelled.into()),
+                _ = cancel.cancelled() => return Err(LlmError::Cancelled),
                 c = stream.next() => c,
             };
             let (events, ended) = match chunk {
                 Some(Ok(bytes)) => (decoder.push(&bytes), false),
-                Some(Err(e)) => return Err(LlmError::Network(e.to_string()).into()),
+                Some(Err(e)) => return Err(LlmError::Network(e.to_string())),
                 None => (decoder.finish().into_iter().collect::<Vec<_>>(), true),
             };
             for data in events {
@@ -182,9 +143,9 @@ impl GeminiClient {
                 if let Some(err) = v.get("error") {
                     let message = err["message"].as_str().unwrap_or("Gemini returned an error");
                     let code = err["code"].as_u64().unwrap_or_default() as u16;
-                    return Err(Failure::from_status(code, message.to_string()));
+                    return Err(status_error(code, message.to_string(), retry::asked_by_body(err)));
                 }
-                apply_chunk(&v, &mut out, &mut parts, on_event);
+                apply_chunk(&v, &mut out, &mut parts, &mut on_event);
                 // A refused prompt arrives as feedback with no candidates at all.
                 if let Some(reason) = v["promptFeedback"]["blockReason"].as_str() {
                     blocked = Some(reason.to_string());
@@ -206,45 +167,25 @@ impl GeminiClient {
         // An answer with nothing in it would show as an empty message; say what happened instead.
         if out.content.is_empty() && out.tool_calls.is_empty() {
             let message = empty_answer_message(out.finish_reason.as_deref(), blocked.as_deref());
-            return Err(LlmError::Provider(message).into());
+            return Err(LlmError::Provider(message));
         }
         out.provider_meta = Some(json!({ "gemini": { "parts": parts } }));
         Ok(out)
     }
 }
 
-/// Tries per answer while Gemini says it is busy.
-const ATTEMPTS: u32 = 4;
-/// Wait before the first retry; it doubles each time (2, 4, 8 seconds).
-const RETRY_WAIT: Duration = if cfg!(test) {
-    Duration::from_millis(10)
-} else {
-    Duration::from_secs(2)
-};
-
-/// Why one attempt failed.
-enum Failure {
-    /// Rate limited or temporarily overloaded ("This model is currently experiencing high
-    /// demand"): worth another try.
-    Busy(String),
-    Other(LlmError),
-}
-
-impl Failure {
-    fn from_status(status: u16, message: String) -> Self {
-        match status {
-            429 | 500 | 502 | 503 | 504 => Failure::Busy(message),
-            // Listed but not served to this key, e.g. "no longer available to new users".
-            404 => Failure::Other(LlmError::Unavailable(message)),
-            _ if message.contains("no longer available") => Failure::Other(LlmError::Unavailable(message)),
-            _ => Failure::Other(LlmError::Provider(message)),
-        }
-    }
-}
-
-impl From<LlmError> for Failure {
-    fn from(e: LlmError) -> Self {
-        Failure::Other(e)
+/// The error for a failed request: busy (rate limited or overloaded, worth another try, after
+/// `asked` when Google says how long), a model this key cannot use, or anything else.
+fn status_error(status: u16, message: String, asked: Option<Duration>) -> LlmError {
+    match status {
+        _ if retry::busy_status(status, false) => LlmError::Busy {
+            message,
+            retry_after: asked,
+        },
+        // Listed but not served to this key, e.g. "no longer available to new users".
+        404 => LlmError::Unavailable(message),
+        _ if message.contains("no longer available") => LlmError::Unavailable(message),
+        _ => LlmError::Provider(message),
     }
 }
 
@@ -529,7 +470,7 @@ fn is_chat_model(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::GenParams;
+    use crate::llm::{Client, GenParams};
 
     #[test]
     fn tool_results_of_one_turn_are_grouped() {
@@ -723,31 +664,49 @@ mod tests {
     #[tokio::test]
     async fn busy_answers_are_retried() {
         let (base, hits) = flaky_server(2).await;
-        let client = GeminiClient::new(reqwest::Client::new(), base, "key".into(), "m".into());
+        let client = Client::Gemini(GeminiClient::new(
+            reqwest::Client::new(),
+            base,
+            "key".into(),
+            "m".into(),
+        ));
         let mut text = String::new();
+        let mut retries = Vec::new();
         let done = client
-            .stream(&hello_request(), &CancellationToken::new(), |e| {
-                if let StreamEvent::Content(t) = e {
-                    text.push_str(&t);
-                }
+            .stream(&hello_request(), &CancellationToken::new(), |e| match e {
+                StreamEvent::Content(t) => text.push_str(&t),
+                StreamEvent::Retrying { attempt, reason, .. } => retries.push((attempt, reason)),
+                _ => {}
             })
             .await
             .expect("the third attempt answers");
         assert_eq!(done.content, "Hello");
         assert_eq!(text, "Hello");
         assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 3);
+        assert_eq!(retries.len(), 2);
+        assert_eq!(retries[1].0, 2);
+        assert!(retries[0].1.contains("high demand"), "{}", retries[0].1);
     }
 
     #[tokio::test]
     async fn a_model_that_stays_busy_reports_why() {
         let (base, hits) = flaky_server(usize::MAX).await;
-        let client = GeminiClient::new(reqwest::Client::new(), base, "key".into(), "m".into());
+        let client = Client::Gemini(GeminiClient::new(
+            reqwest::Client::new(),
+            base,
+            "key".into(),
+            "m".into(),
+        ));
         let err = client
             .stream(&hello_request(), &CancellationToken::new(), |_| {})
             .await
             .expect_err("every attempt is busy");
         assert!(err.to_string().contains("high demand"), "{err}");
-        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), ATTEMPTS as usize);
+        assert!(err.to_string().ends_with("It was tried 6 times."), "{err}");
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            retry::RETRIES as usize + 1
+        );
     }
 
     #[tokio::test]
@@ -819,14 +778,14 @@ mod tests {
         let retired = "This model models/gemini-2.5-flash is no longer available to new users.";
         for status in [404, 400] {
             assert!(matches!(
-                Failure::from_status(status, retired.into()),
-                Failure::Other(LlmError::Unavailable(_))
+                status_error(status, retired.into(), None),
+                LlmError::Unavailable(_)
             ));
         }
-        assert!(matches!(Failure::from_status(503, "busy".into()), Failure::Busy(_)));
+        assert!(matches!(status_error(503, "busy".into(), None), LlmError::Busy { .. }));
         assert!(matches!(
-            Failure::from_status(400, "bad request".into()),
-            Failure::Other(LlmError::Provider(_))
+            status_error(400, "bad request".into(), None),
+            LlmError::Provider(_)
         ));
     }
 }

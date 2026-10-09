@@ -31,8 +31,8 @@ pub fn search_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Company, ticker or pair, e.g. \"apple\", \"EURUSD\", \"bitcoin\", \"S&P 500\""},
-            "type": {"type": "string", "enum": ["stock", "forex", "crypto", "index", "futures", "cfd", "fund", "etf", "mutual_fund", "bond"], "description": "Optional asset class filter. Gold, silver and oil are listed as cfd. fund covers ETFs and mutual funds; etf and mutual_fund narrow to one kind"}
+            "query": {"type": "string", "description": "Company, ticker or pair, e.g. apple, EURUSD, S&P 500"},
+            "type": {"type": "string", "enum": ["stock", "forex", "crypto", "index", "futures", "cfd", "fund", "etf", "mutual_fund", "bond"], "description": "Asset class. Gold, silver and oil are cfd; fund covers etf and mutual_fund"}
         },
         "required": ["query"]
     })
@@ -42,7 +42,7 @@ pub fn quote_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "symbols": {"type": "array", "items": {"type": "string"}, "description": "TradingView symbols such as FX:EURUSD, NASDAQ:AAPL, BINANCE:BTCUSDT"}
+            "symbols": {"type": "array", "items": {"type": "string"}, "description": "TradingView symbols"}
         },
         "required": ["symbols"]
     })
@@ -52,11 +52,11 @@ pub fn candles_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "symbol": {"type": "string", "description": "TradingView symbol such as FX:EURUSD or NASDAQ:AAPL"},
+            "symbol": {"type": "string", "description": "TradingView symbol"},
             "timeframe": {"type": "string", "enum": TIMEFRAMES},
-            "bars": {"type": "integer", "description": "Number of candles back from now (default 300, max 5000). Ignored when from is given."},
-            "from": {"type": "string", "description": "Optional start date, YYYY-MM-DD"},
-            "to": {"type": "string", "description": "Optional end date, YYYY-MM-DD (default: now)"}
+            "bars": {"type": "integer", "description": "Candles back from now (default 300, max 5000); ignored with from"},
+            "from": {"type": "string", "description": "Start date, YYYY-MM-DD"},
+            "to": {"type": "string", "description": "End date, YYYY-MM-DD (default: now)"}
         },
         "required": ["symbol", "timeframe"]
     })
@@ -79,9 +79,9 @@ pub fn download_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "symbol": {"type": "string", "description": "Dukascopy instrument (EURUSD, XAUUSD, US500) or TradingView symbol (FX:EURUSD, NASDAQ:AAPL)"},
-            "from": {"type": "string", "description": "Optional start date, YYYY-MM-DD (default: the earliest data the source has)"},
-            "to": {"type": "string", "description": "Optional end date, YYYY-MM-DD (default: now)"}
+            "symbol": {"type": "string", "description": "Dukascopy instrument (EURUSD) or TradingView symbol (NASDAQ:AAPL)"},
+            "from": {"type": "string", "description": "Start date, YYYY-MM-DD (default: the earliest the source has)"},
+            "to": {"type": "string", "description": "End date, YYYY-MM-DD (default: now)"}
         },
         "required": ["symbol"]
     })
@@ -91,7 +91,7 @@ pub fn data_status_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "symbol": {"type": "string", "description": "Optional symbol or instrument to check (EURUSD, FX:EURUSD); every stored market when omitted"}
+            "symbol": {"type": "string", "description": "Symbol or instrument to check (default: every stored market)"}
         }
     })
 }

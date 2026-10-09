@@ -14,7 +14,7 @@ pub fn list_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Folder inside the workspace (default: the workspace itself)"}
+            "path": {"type": "string", "description": "Workspace folder (default: its root)"}
         }
     })
 }
@@ -23,10 +23,10 @@ pub fn read_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "File path inside the workspace, e.g. data/FX_EURUSD_1h.csv or uploads/report.pdf"},
-            "pages": {"type": "string", "description": "PDF pages, slides or spreadsheet sheets to read, e.g. \"3\" or \"10-14\""},
-            "start_line": {"type": "integer", "description": "First line to read, from 1 (default 1)"},
-            "max_lines": {"type": "integer", "description": "Read at most this many lines (default 200)"}
+            "path": {"type": "string", "description": "Workspace path, e.g. uploads/report.pdf"},
+            "pages": {"type": "string", "description": "PDF pages, slides or spreadsheet sheets, e.g. \"3\" or \"10-14\""},
+            "start_line": {"type": "integer", "description": "Default 1"},
+            "max_lines": {"type": "integer", "description": "Default 200"}
         },
         "required": ["path"]
     })
@@ -36,9 +36,9 @@ pub fn search_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "What to look for: a question, or words the passage would contain, e.g. \"termination notice period\""},
-            "file": {"type": "string", "description": "Search only this file: its name or its path, e.g. uploads/contract.pdf"},
-            "limit": {"type": "integer", "description": "Most passages to return (default 6, at most 20)"}
+            "query": {"type": "string", "description": "A question, or words the passage would contain"},
+            "file": {"type": "string", "description": "Only this file (name or path)"},
+            "limit": {"type": "integer", "description": "Default 6, max 20"}
         },
         "required": ["query"]
     })
@@ -48,8 +48,8 @@ pub fn write_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "File path inside the workspace"},
-            "content": {"type": "string", "description": "Full text content of the file"}
+            "path": {"type": "string", "description": "Workspace path"},
+            "content": {"type": "string", "description": "The whole text"}
         },
         "required": ["path", "content"]
     })
