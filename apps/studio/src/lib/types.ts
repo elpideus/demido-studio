@@ -281,6 +281,8 @@ export interface ModelEntry {
   maxContext: number | null;
   repo: string | null;
   removable: boolean;
+  /** File name of the projector found next to a local model, which lets it see pictures or hear sound. */
+  projector: string | null;
   capabilities: ModelCapabilities;
   /** llama.cpp has yet to say what this local model can do. */
   checkingCapabilities: boolean;
@@ -454,10 +456,19 @@ export interface HfModelFile {
   recommended: boolean;
 }
 
+/** A repo's projector (mmproj), which lets its models see pictures and, for some, hear sound. */
+export interface HfProjector {
+  path: string;
+  size: number;
+  sha256: string | null;
+}
+
 export interface HfRepoFiles {
   repo: string;
   gated: boolean;
   files: HfModelFile[];
+  /** Downloaded with whichever file is picked. */
+  projector: HfProjector | null;
 }
 
 export interface Recommendation {
@@ -470,6 +481,8 @@ export interface Recommendation {
   quant: string;
   size: number;
   sha256: string;
+  /** Downloaded with the model. */
+  projector: HfProjector | null;
   installed: boolean;
 }
 

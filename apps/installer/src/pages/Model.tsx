@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, Ban, Sparkles } from 'lucide-react';
 import { Badge, Button, cx, formatBytes } from '@demido/ui';
 
-import type { Context, WizardState } from '../types';
+import { downloadSize, type Context, type WizardState } from '../types';
 import styles from '../Setup.module.css';
 
 interface Props {
@@ -52,7 +52,7 @@ export function ModelPage({ ctx, state, onChange, onBack, onNext }: Props) {
                     {fam?.vendor} · {pick.quant} · {pick.repo}
                   </span>
                 </span>
-                <span className={styles.optionSide}>{formatBytes(pick.size)}</span>
+                <span className={styles.optionSide}>{formatBytes(downloadSize(pick))}</span>
               </button>
             );
           })}

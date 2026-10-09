@@ -114,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
                 "  {family}: {} {} ({:.2} GB)",
                 pick.name,
                 pick.quant,
-                pick.size as f64 / 1e9
+                pick.download_size() as f64 / 1e9
             );
         }
         return Ok(());

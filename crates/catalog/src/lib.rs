@@ -89,6 +89,34 @@ mod tests {
     }
 
     #[test]
+    fn every_starter_model_comes_with_its_bf16_projector() {
+        let c = catalog();
+        let picks = c
+            .models
+            .tiers
+            .iter()
+            .flat_map(|t| t.models.values())
+            .chain(c.models.cpu_tiers.iter().flat_map(|t| t.models.values()));
+        for pick in picks {
+            let p = pick
+                .projector
+                .as_ref()
+                .unwrap_or_else(|| panic!("{} has no projector", pick.file));
+            assert!(p.file.contains("mmproj") && p.file.contains("BF16"), "{}", p.file);
+            assert_eq!(p.sha256.len(), 64, "{}", p.file);
+            assert!(p.size > 0);
+            assert_eq!(pick.download_size(), pick.size + p.size);
+            assert!(
+                pick.projector_url()
+                    .unwrap()
+                    .starts_with(&format!("https://huggingface.co/{}/resolve/main/mmproj", pick.repo))
+            );
+        }
+        // The smoke test only checks that a model answers.
+        assert!(c.models.smoke_test.projector.is_none());
+    }
+
+    #[test]
     fn unsloth_is_the_preferred_publisher() {
         let c = catalog();
         for tier in &c.models.tiers {

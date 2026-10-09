@@ -35,6 +35,13 @@ export interface ModelPick {
   file: string;
   quant: string;
   size: number;
+  /** What lets the model read pictures and sound, downloaded with it. */
+  projector?: { file: string; size: number; sha256: string };
+}
+
+/** Bytes a pick downloads: the model and its projector. */
+export function downloadSize(pick: ModelPick): number {
+  return pick.size + (pick.projector?.size ?? 0);
 }
 
 export interface Recommendation {

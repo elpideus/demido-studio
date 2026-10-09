@@ -7,7 +7,7 @@ use super::St;
 use crate::bail_msg;
 use crate::error::{AppError, CmdResult};
 use crate::models::downloads::{DownloadJob, DownloadSpec};
-use crate::models::hf::{self, HfRepo, HfRepoFiles};
+use crate::models::hf::{self, HfProjector, HfRepo, HfRepoFiles};
 use crate::models::{CHANGED_EVENT, ModelEntry, ModelSettings, ModelSource};
 use crate::runtime::RuntimeStatus;
 use crate::secrets::HF_TOKEN;
@@ -148,6 +148,8 @@ pub struct Recommendation {
     pub quant: String,
     pub size: u64,
     pub sha256: String,
+    /// Downloaded with the model.
+    pub projector: Option<HfProjector>,
     pub installed: bool,
 }
 
@@ -176,6 +178,11 @@ pub fn recommended_models(state: St<'_>) -> Vec<Recommendation> {
                 family: family.clone(),
                 family_label: f.label.clone(),
                 description: f.description.clone(),
+                projector: pick.projector.map(|p| HfProjector {
+                    path: p.file,
+                    size: p.size,
+                    sha256: Some(p.sha256),
+                }),
                 name: pick.name,
                 repo: pick.repo,
                 file: pick.file,
@@ -189,6 +196,44 @@ pub fn recommended_models(state: St<'_>) -> Vec<Recommendation> {
 
 #[tauri::command]
 pub fn download_model(state: St<'_>, spec: DownloadSpec) -> CmdResult<DownloadJob> {
+    state.downloads.enqueue(spec).map_err(|e| AppError::msg(e.to_string()))
+}
+
+/// The projector a local model without one can get from its Hugging Face repo, if the repo has
+/// one.
+#[tauri::command]
+pub async fn find_projector(state: St<'_>, id: String) -> CmdResult<Option<HfProjector>> {
+    let (repo, _) = state.models.projector_target(&id)?;
+    repo_projector(&state, &repo).await
+}
+
+async fn repo_projector(state: &St<'_>, repo: &str) -> CmdResult<Option<HfProjector>> {
+    let token = state.secrets.get(HF_TOKEN);
+    let files = hf::repo_files(&state.http, repo, token.as_deref(), None)
+        .await
+        .map_err(|e| AppError::msg(format!("Could not list the files of {repo}: {e}")))?;
+    Ok(files.projector)
+}
+
+/// Queues the projector of a local model that has none, into the model's own folder. Once it is
+/// there, llama.cpp is asked again what the model can do.
+#[tauri::command]
+pub async fn download_projector(state: St<'_>, id: String) -> CmdResult<DownloadJob> {
+    let (repo, dir) = state.models.projector_target(&id)?;
+    let Some(projector) = repo_projector(&state, &repo).await? else {
+        bail_msg!("{repo} on Hugging Face has no projector for this model.");
+    };
+    let name = state.models.get(&id).map(|m| m.name).unwrap_or_else(|| repo.clone());
+    let spec = DownloadSpec {
+        repo,
+        name: format!("Projector for {name}"),
+        quant: None,
+        paths: vec![projector.path],
+        sizes: vec![projector.size],
+        sha256: vec![projector.sha256],
+        projector: None,
+        dir: Some(dir),
+    };
     state.downloads.enqueue(spec).map_err(|e| AppError::msg(e.to_string()))
 }
 

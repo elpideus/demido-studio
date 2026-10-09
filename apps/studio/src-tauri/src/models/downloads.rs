@@ -1,7 +1,7 @@
 //! The model download queue: one download at a time (full bandwidth to the file the person is
 //! waiting for), resumable, verified against Hugging Face's SHA-256 before it appears as a model.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -9,6 +9,8 @@ use demido_fetch::{CancellationToken, DownloadRequest, Downloader, FetchError};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+
+use super::hf::HfProjector;
 
 pub const CHANGED_EVENT: &str = "downloads://changed";
 
@@ -47,6 +49,39 @@ pub struct DownloadSpec {
     pub paths: Vec<String>,
     pub sizes: Vec<u64>,
     pub sha256: Vec<Option<String>>,
+    /// The repo's projector, saved next to the model unless one is there already.
+    #[serde(default)]
+    pub projector: Option<HfProjector>,
+    /// The folder the files go to, when not `<models folder>/<repo>`: a projector fetched for a
+    /// model already on disk goes next to it. Set by the backend only.
+    #[serde(skip)]
+    pub dir: Option<PathBuf>,
+}
+
+impl DownloadSpec {
+    /// The files to fetch, as (repo path, size, SHA-256): the model's parts, then its projector
+    /// when `dir` has none of that name.
+    fn files(&self, dir: &Path) -> Vec<(String, u64, Option<String>)> {
+        let mut files: Vec<_> = self
+            .paths
+            .iter()
+            .enumerate()
+            .map(|(i, path)| {
+                let size = self.sizes.get(i).copied().unwrap_or(0);
+                (path.clone(), size, self.sha256.get(i).cloned().flatten())
+            })
+            .collect();
+        if let Some(p) = &self.projector
+            && !dir.join(sanitize(file_name(&p.path))).is_file()
+        {
+            files.push((p.path.clone(), p.size, p.sha256.clone()));
+        }
+        files
+    }
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 struct Entry {
@@ -91,9 +126,12 @@ impl DownloadManager {
         let _ = self.app.emit(CHANGED_EVENT, job);
     }
 
-    fn dest_dir(&self, repo: &str) -> PathBuf {
+    fn dest_dir(&self, spec: &DownloadSpec) -> PathBuf {
+        if let Some(dir) = &spec.dir {
+            return dir.clone();
+        }
         let mut dir = self.models_dir.clone();
-        for part in repo.split('/') {
+        for part in spec.repo.split('/') {
             dir.push(sanitize(part));
         }
         dir
@@ -113,7 +151,7 @@ impl DownloadManager {
             repo: spec.repo.clone(),
             name: spec.name.clone(),
             quant: spec.quant.clone(),
-            total: spec.sizes.iter().sum(),
+            total: spec.files(&self.dest_dir(&spec)).iter().map(|f| f.1).sum(),
             downloaded: 0,
             bytes_per_second: 0.0,
             state: JobState::Queued,
@@ -161,19 +199,21 @@ impl DownloadManager {
     }
 
     async fn run(&self, id: &str, spec: &DownloadSpec, cancel: &CancellationToken) -> Result<(), FetchError> {
-        let dir = self.dest_dir(&spec.repo);
+        let dir = self.dest_dir(spec);
         let token = (self.token)();
         let mut done_before = 0u64;
         let mut last_emit = Instant::now() - Duration::from_secs(1);
-        for (i, path) in spec.paths.iter().enumerate() {
-            let file_name = path.rsplit('/').next().unwrap_or(path);
-            let mut req = DownloadRequest::new(super::hf::file_url(&spec.repo, path), dir.join(sanitize(file_name)))
-                .bearer(token.clone());
-            if let Some(size) = spec.sizes.get(i).copied().filter(|s| *s > 0) {
+        for (path, size, sha256) in spec.files(&dir) {
+            let mut req = DownloadRequest::new(
+                super::hf::file_url(&spec.repo, &path),
+                dir.join(sanitize(file_name(&path))),
+            )
+            .bearer(token.clone());
+            if size > 0 {
                 req = req.size(size);
             }
-            if let Some(Some(sha)) = spec.sha256.get(i) {
-                req = req.sha256(sha.clone());
+            if let Some(sha) = sha256 {
+                req = req.sha256(sha);
             }
             self.downloader
                 .download(&req, cancel, |p| {
@@ -191,7 +231,7 @@ impl DownloadManager {
                     }
                 })
                 .await?;
-            done_before += spec.sizes.get(i).copied().unwrap_or(0);
+            done_before += size;
         }
         Ok(())
     }
@@ -210,13 +250,7 @@ impl DownloadManager {
                 entry.job.downloaded = entry.job.total;
                 completed = true;
             }
-            Err(FetchError::Cancelled) if entry.discard => {
-                let dir = self.dest_dir(&spec.repo);
-                for path in &spec.paths {
-                    let name = sanitize(path.rsplit('/').next().unwrap_or(path));
-                    let _ = std::fs::remove_file(dir.join(format!("{name}.part")));
-                }
-            }
+            Err(FetchError::Cancelled) if entry.discard => self.remove_partial(spec),
             Err(FetchError::Cancelled) => entry.job.state = JobState::Paused,
             Err(err) => {
                 entry.job.state = JobState::Failed;
@@ -286,14 +320,20 @@ impl DownloadManager {
         let mut job = e.job.clone();
         entries.retain(|e| e.job.id != id);
         drop(entries);
-        let dir = self.dest_dir(&spec.repo);
-        for path in &spec.paths {
-            let name = sanitize(path.rsplit('/').next().unwrap_or(path));
-            let _ = std::fs::remove_file(dir.join(format!("{name}.part")));
-        }
+        self.remove_partial(&spec);
         job.state = JobState::Failed;
         job.error = Some("cancelled".into());
         self.emit(&job);
+    }
+
+    /// Deletes what a stopped job had downloaded of its files.
+    fn remove_partial(&self, spec: &DownloadSpec) {
+        let dir = self.dest_dir(spec);
+        let projector = spec.projector.iter().map(|p| &p.path);
+        for path in spec.paths.iter().chain(projector) {
+            let name = sanitize(file_name(path));
+            let _ = std::fs::remove_file(dir.join(format!("{name}.part")));
+        }
     }
 
     /// Removes finished jobs from the list.
@@ -312,4 +352,40 @@ fn sanitize(part: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec(projector: Option<HfProjector>) -> DownloadSpec {
+        DownloadSpec {
+            repo: "unsloth/gemma-4-E4B-it-qat-GGUF".into(),
+            name: "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf".into(),
+            quant: Some("UD-Q4_K_XL".into()),
+            paths: vec!["gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf".into()],
+            sizes: vec![5],
+            sha256: vec![None],
+            projector,
+            dir: None,
+        }
+    }
+
+    #[test]
+    fn the_projector_comes_with_the_model_unless_the_folder_has_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let projector = HfProjector {
+            path: "mmproj-BF16.gguf".into(),
+            size: 3,
+            sha256: Some("ab".repeat(32)),
+        };
+        let with = spec(Some(projector.clone())).files(dir.path());
+        assert_eq!(with.len(), 2);
+        assert_eq!(with[1], ("mmproj-BF16.gguf".into(), 3, Some("ab".repeat(32))));
+        assert_eq!(spec(None).files(dir.path()).len(), 1);
+
+        // Another quant of the same repo already brought it.
+        std::fs::write(dir.path().join("mmproj-BF16.gguf"), b"abc").unwrap();
+        assert_eq!(spec(Some(projector)).files(dir.path()).len(), 1);
+    }
 }

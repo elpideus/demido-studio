@@ -23,6 +23,7 @@ function model(patch: Partial<ModelEntry>): ModelEntry {
     maxContext: null,
     repo: null,
     removable: false,
+    projector: null,
     capabilities: { vision: null, audio: null, tools: null, thinking: null },
     checkingCapabilities: false,
     settings: {} as ModelEntry['settings'],

@@ -108,6 +108,9 @@ pub struct ModelEntry {
     pub parameters: Option<String>,
     pub max_context: Option<u64>,
     pub repo: Option<String>,
+    /// File name of the projector found next to a local model, which lets it see pictures or
+    /// hear sound once llama.cpp says it does.
+    pub projector: Option<String>,
     /// Lives in a folder Demido manages, so it can be deleted from the app.
     pub removable: bool,
     pub capabilities: Capabilities,
@@ -288,6 +291,7 @@ impl ModelRegistry {
                     parameters: None,
                     max_context: Some(m.input_token_limit),
                     repo: None,
+                    projector: None,
                     removable: false,
                     capabilities: m.capabilities.unwrap_or_else(|| catalog.gemini(&m.id, m.thinking)),
                     checking_capabilities: false,
@@ -366,6 +370,11 @@ impl ModelRegistry {
             parameters: f.info.size_label.clone(),
             max_context: f.info.context_length,
             repo: f.repo.clone(),
+            projector: f
+                .mmproj
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned()),
             removable: managed,
             capabilities: checked.unwrap_or_default(),
             checking_capabilities: runtime.is_some() && checked.is_none(),
@@ -519,6 +528,21 @@ impl ModelRegistry {
         Ok(name)
     }
 
+    /// Where a local model's projector goes: the model's Hugging Face repo (from its folders) and
+    /// the folder it is in, where the projector is looked for.
+    pub fn projector_target(&self, id: &str) -> CmdResult<(String, PathBuf)> {
+        let file = self.local.read().iter().find(|f| f.id == id).cloned();
+        let Some(file) = file else {
+            bail_msg!("That model is no longer on disk.");
+        };
+        let (Some(repo), Some(dir)) = (file.repo, file.path.parent()) else {
+            bail_msg!(
+                "This model is not in a folder named after its Hugging Face repository, so its projector cannot be found."
+            );
+        };
+        Ok((repo, dir.to_path_buf()))
+    }
+
     /// Deletes a model's files from disk (managed folders only).
     pub fn delete_local(&self, id: &str) -> CmdResult<()> {
         let file = self.local.read().iter().find(|f| f.id == id).cloned();
@@ -667,17 +691,7 @@ fn scan_file(root: &Path, path: &Path) -> Option<LocalFile> {
         .map(|d| d.as_secs());
     let components: Vec<&str> = rel_str.split('/').collect();
     let repo = (components.len() >= 3).then(|| format!("{}/{}", components[0], components[1]));
-    let mmproj = path.parent().and_then(|dir| {
-        std::fs::read_dir(dir)
-            .ok()?
-            .filter_map(Result::ok)
-            .map(|e| e.path())
-            .find(|p| {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.to_ascii_lowercase().contains("mmproj") && n.ends_with(".gguf"))
-            })
-    });
+    let mmproj = path.parent().and_then(projector_in);
     Some(LocalFile {
         id: format!("local:{rel_str}"),
         path: path.to_path_buf(),
@@ -690,6 +704,22 @@ fn scan_file(root: &Path, path: &Path) -> Option<LocalFile> {
         repo,
         mmproj,
     })
+}
+
+/// The projector a model in `dir` is loaded with: of the `mmproj` files there, the one
+/// [`hf::preferred_projector`] chooses.
+fn projector_in(dir: &Path) -> Option<PathBuf> {
+    let found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.to_ascii_lowercase().contains("mmproj") && n.ends_with(".gguf"))
+        })
+        .collect();
+    hf::preferred_projector(found, |p| p.file_name().and_then(|n| n.to_str()).unwrap_or_default())
 }
 
 /// What llama.cpp's answer about `f` depends on.

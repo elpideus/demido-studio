@@ -237,7 +237,10 @@ model cannot use tools. Nothing is guessed from names or templates:
   loaded, and the model starts without it. With a projector, llama.cpp decodes a picture in one
   micro-batch, so the micro-batch is 2,048 tokens and so is the most a picture may take: a
   1380×880 screenshot is 545 tokens for Gemma 4 26B, more than the default 512, and stopped the
-  server.
+  server. The installer and Settings, Models download a model's projector with it (BF16 when the
+  repo has one, else F16, then F32, then any; `hf::preferred_projector`), and the model editor
+  offers the repo's projector for a model already on disk without one. It goes into the model's
+  own folder, and the new file makes llama.cpp check the model again.
 - A Gemini model's thinking comes from Google's model list; tools and image and audio input come
   from [models.dev](https://models.dev), an open database of model specifications. Its Google
   entries are kept in `cache/models-dev.json`, refreshed weekly (and when a provider is added or

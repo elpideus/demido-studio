@@ -337,6 +337,8 @@ pub fn run() {
             commands::models::hf_repo_files,
             commands::models::recommended_models,
             commands::models::download_model,
+            commands::models::find_projector,
+            commands::models::download_projector,
             commands::models::list_downloads,
             commands::models::pause_download,
             commands::models::resume_download,

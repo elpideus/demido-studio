@@ -50,6 +50,12 @@ Each tier has a `contextLength` and one model per family: `name`, `repo`, `file`
 use of the GPU; a 12 GB card lands in `mainstream` (10 GB) rather than a tier that would fill
 it completely.
 
+Each pick also has a `projector` (`file`, `size`, `sha256`): the repo's `mmproj` file, which lets
+the model read pictures and, for Gemma 4 E2B, E4B and 12B, hear sound. The installer saves it next
+to the model, where the app finds it. Take the BF16 one, the precision the models were trained in;
+the catalog test rejects any other. The tier test counts only the model's size, since llama.cpp
+fits the projector beside the model and sizes the context to what is left.
+
 Each search model also has the prompts its model card asks for, `queryPrefix` before a question
 and `documentPrefix` before a passage, `relevance`, the similarity from which a passage is
 taken as about the question, and `microBatch`, the tokens llama.cpp decodes at once: 2048 (a

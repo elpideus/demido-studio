@@ -229,7 +229,7 @@ impl InstallPlan {
                 id: StepId::Model,
                 label: model.name.clone(),
                 detail: format!("{} · {}", model.quant, model.repo),
-                size: model.size,
+                size: model.download_size(),
             });
         }
         if let Some(search) = &self.search_model {

@@ -154,7 +154,7 @@ pub struct SearchModel {
 
 impl SearchModel {
     pub fn url(&self) -> String {
-        format!("https://huggingface.co/{}/resolve/main/{}", self.repo, self.file)
+        hf_url(&self.repo, &self.file)
     }
 }
 
@@ -205,10 +205,37 @@ pub struct ModelPick {
     pub quant: String,
     pub size: u64,
     pub sha256: String,
+    /// What lets the model see pictures (and Gemma 4 hear sound), from the same repo. It is
+    /// saved next to the model, where the app looks for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projector: Option<Projector>,
 }
 
 impl ModelPick {
     pub fn url(&self) -> String {
-        format!("https://huggingface.co/{}/resolve/main/{}", self.repo, self.file)
+        hf_url(&self.repo, &self.file)
     }
+
+    pub fn projector_url(&self) -> Option<String> {
+        self.projector.as_ref().map(|p| hf_url(&self.repo, &p.file))
+    }
+
+    /// Bytes downloaded for this pick: the model and its projector.
+    pub fn download_size(&self) -> u64 {
+        self.size + self.projector.as_ref().map_or(0, |p| p.size)
+    }
+}
+
+/// A model's `mmproj` file: the encoder that turns pictures or sound into what the model reads.
+/// llama.cpp loads it with `--mmproj`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Projector {
+    pub file: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+fn hf_url(repo: &str, file: &str) -> String {
+    format!("https://huggingface.co/{repo}/resolve/main/{file}")
 }

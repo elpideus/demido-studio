@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { ArrowLeft, ImageMinus, ImagePlus, RotateCcw, Save } from 'lucide-react';
-import { Avatar, Badge, Button, Field, Select, Slider, Switch, TextArea, TextField, formatBytes } from '@demido/ui';
+import { ArrowLeft, Download, ImageMinus, ImagePlus, RotateCcw, Save } from 'lucide-react';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Field,
+  Notice,
+  Select,
+  Slider,
+  Switch,
+  TextArea,
+  TextField,
+  formatBytes,
+} from '@demido/ui';
 
 import { unreachableNote } from '@/chat/contextView';
 import { api, errorText } from '@/lib/api';
 import { fileUrl } from '@/lib/format';
-import type { ContextUsage, ModelSettings } from '@/lib/types';
+import type { ContextUsage, HfProjector, ModelEntry, ModelSettings } from '@/lib/types';
 import { useApp } from '@/stores/app';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
@@ -245,6 +257,7 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
           <h3 className={s.sectionTitle}>Capabilities</h3>
           <div className={`${s.card} ${s.cardPad}`}>
             <CapabilityList model={model} />
+            {local && !model.projector && model.repo && <ProjectorOffer model={model} />}
           </div>
         </section>
 
@@ -449,6 +462,64 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * A local model without a projector reads neither pictures nor sound. When its Hugging Face repo
+ * has one, it is offered here; once it is in the model's folder llama.cpp is asked again.
+ */
+function ProjectorOffer({ model }: { model: ModelEntry }) {
+  const [projector, setProjector] = useState<HfProjector | null>(null);
+  const [starting, setStarting] = useState(false);
+  const jobName = `Projector for ${model.name}`;
+  const downloading = useModels((st) =>
+    st.downloads.some((j) => j.name === jobName && j.state !== 'done' && j.state !== 'failed'),
+  );
+  useEffect(() => {
+    let live = true;
+    // Offline, or a repo that is gone: nothing to offer.
+    api.findProjector(model.id).then(
+      (p) => live && setProjector(p),
+      () => live && setProjector(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [model.id]);
+  if (!projector) return null;
+  const download = async () => {
+    setStarting(true);
+    try {
+      const job = await api.downloadProjector(model.id);
+      useModels.getState().upsertDownload(job);
+      toast.info('Download started', `${projector.path} · ${formatBytes(projector.size)}`);
+    } catch (e) {
+      toast.error('Could not start the download', errorText(e));
+    } finally {
+      setStarting(false);
+    }
+  };
+  return (
+    <Notice
+      className={styles.projectorOffer}
+      title="This model has no projector"
+      action={
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={Download}
+          loading={starting}
+          disabled={downloading}
+          onClick={() => void download()}
+        >
+          {downloading ? 'Downloading' : 'Download'}
+        </Button>
+      }
+    >
+      Without it the model cannot see pictures or hear sound. {model.repo} has one: {projector.path},{' '}
+      {formatBytes(projector.size)}.
+    </Notice>
   );
 }
 

@@ -17,6 +17,7 @@ import type {
   HfRepo,
   HfRepoFiles,
   HfModelFile,
+  HfProjector,
   IndicatorCatalog,
   IndicatorEntry,
   IndicatorMeta,
@@ -133,7 +134,7 @@ export const api = {
   hfSearch: (query: string) => invoke<HfRepo[]>('hf_search', { query }),
   hfRepoFiles: (repo: string) => invoke<HfRepoFiles>('hf_repo_files', { repo }),
   recommendedModels: () => invoke<Recommendation[]>('recommended_models'),
-  downloadModel: (repo: string, file: HfModelFile) =>
+  downloadModel: (repo: string, file: HfModelFile, projector: HfProjector | null) =>
     invoke<DownloadJob>('download_model', {
       spec: {
         repo,
@@ -142,8 +143,11 @@ export const api = {
         paths: file.paths,
         sizes: file.sizes,
         sha256: file.sha256,
+        projector,
       },
     }),
+  findProjector: (id: string) => invoke<HfProjector | null>('find_projector', { id }),
+  downloadProjector: (id: string) => invoke<DownloadJob>('download_projector', { id }),
   listDownloads: () => invoke<DownloadJob[]>('list_downloads'),
   pauseDownload: (id: string) => invoke<void>('pause_download', { id }),
   resumeDownload: (id: string) => invoke<void>('resume_download', { id }),

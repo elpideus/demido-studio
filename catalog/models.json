@@ -1,5 +1,5 @@
 {
-  "$comment": "Starter models the installer picks by usable VRAM (or RAM on CPU-only machines). unsloth quantized GGUFs are preferred everywhere. Tiers are matched top-down: the first tier whose minimum fits wins.",
+  "$comment": "Starter models the installer picks by usable VRAM (or RAM on CPU-only machines). unsloth quantized GGUFs are preferred everywhere. Tiers are matched top-down: the first tier whose minimum fits wins. Each pick comes with its repo's projector (mmproj), which lets the model read pictures and, for Gemma 4 E2B, E4B and 12B, hear sound; llama.cpp fits it into the GPU memory beside the model. The BF16 projector is taken, as the model was trained in BF16 and the file is no larger than the F16 one. F16 was reported to make Gemma 4 repeat itself on audio; on llama.cpp b11146 with Gemma 4 E4B QAT, the BF16 and F16 projectors gave the same transcripts of 37- and 80-second clips and neither looped, so the report did not reproduce, but BF16 costs nothing to keep.",
   "families": [
     {
       "id": "qwen",
@@ -28,7 +28,12 @@
           "file": "Qwen3.8-27B-UD-Q6_K_XL.gguf",
           "quant": "UD-Q6_K_XL",
           "size": 25299061664,
-          "sha256": "701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917"
+          "sha256": "701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 931146432,
+            "sha256": "83ee4f4f205fa514161778c41df1ea14144faa0f713510893b63c2395f5c2d53"
+          }
         },
         "gemma": {
           "name": "Gemma 4 31B",
@@ -36,7 +41,12 @@
           "file": "gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 17287670048,
-          "sha256": "00b5a7c497f0c8934033088c10a7fa9a4c015e46ee6d89e9c6890650ba5d0e71"
+          "sha256": "00b5a7c497f0c8934033088c10a7fa9a4c015e46ee6d89e9c6890650ba5d0e71",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 1200726496,
+            "sha256": "d904b3579a9fbfbd50bc9bf40cb7384909edbd69fa9276db5ddc853e80f0edca"
+          }
         }
       }
     },
@@ -51,7 +61,12 @@
           "file": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
           "quant": "UD-Q4_K_XL",
           "size": 17559178144,
-          "sha256": "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e"
+          "sha256": "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 931146432,
+            "sha256": "83ee4f4f205fa514161778c41df1ea14144faa0f713510893b63c2395f5c2d53"
+          }
         },
         "gemma": {
           "name": "Gemma 4 31B",
@@ -59,7 +74,12 @@
           "file": "gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 17287670048,
-          "sha256": "00b5a7c497f0c8934033088c10a7fa9a4c015e46ee6d89e9c6890650ba5d0e71"
+          "sha256": "00b5a7c497f0c8934033088c10a7fa9a4c015e46ee6d89e9c6890650ba5d0e71",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 1200726496,
+            "sha256": "d904b3579a9fbfbd50bc9bf40cb7384909edbd69fa9276db5ddc853e80f0edca"
+          }
         }
       }
     },
@@ -74,7 +94,12 @@
           "file": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
           "quant": "UD-Q3_K_XL",
           "size": 13146393504,
-          "sha256": "8c2a45ff85e7674ca185ec8eb6cdeab0e617ed9d8018caed0b64380eb2a67a5e"
+          "sha256": "8c2a45ff85e7674ca185ec8eb6cdeab0e617ed9d8018caed0b64380eb2a67a5e",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 931146432,
+            "sha256": "83ee4f4f205fa514161778c41df1ea14144faa0f713510893b63c2395f5c2d53"
+          }
         },
         "gemma": {
           "name": "Gemma 4 26B A4B",
@@ -82,7 +107,12 @@
           "file": "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 14249047104,
-          "sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891"
+          "sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 1194828256,
+            "sha256": "7b06953ccdbe8cf363f47841a7afaacd2b1c2ff9a8d6b426fdec7521a6878744"
+          }
         }
       }
     },
@@ -97,7 +127,12 @@
           "file": "Qwen3.5-9B-UD-Q6_K_XL.gguf",
           "quant": "UD-Q6_K_XL",
           "size": 8756929760,
-          "sha256": "33b0050fb9c19abcf815647a78464dad959a06dadaecb0b96af798669f9074d4"
+          "sha256": "33b0050fb9c19abcf815647a78464dad959a06dadaecb0b96af798669f9074d4",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 921705024,
+            "sha256": "853698ce7aa6c7ba732478bad280240969ddf7b0fcbf93900046f63903a83383"
+          }
         },
         "gemma": {
           "name": "Gemma 4 12B",
@@ -105,7 +140,12 @@
           "file": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 6716356800,
-          "sha256": "90fd44e29e0d7cffeb0fd00dc73cfdab9ed0b0e95306ecf7821ea634c940c370"
+          "sha256": "90fd44e29e0d7cffeb0fd00dc73cfdab9ed0b0e95306ecf7821ea634c940c370",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 175115840,
+            "sha256": "dcb8103adad042b1bf99df767aaf34eb37c5a73a4a2f0417e4d7ba557e91664f"
+          }
         }
       }
     },
@@ -120,7 +160,12 @@
           "file": "Qwen3.5-9B-UD-Q4_K_XL.gguf",
           "quant": "UD-Q4_K_XL",
           "size": 5966095584,
-          "sha256": "6f5d30666c2d8ae16a306e616d95341dcf3cc46810df84d7e6f5a7d1e4c1b293"
+          "sha256": "6f5d30666c2d8ae16a306e616d95341dcf3cc46810df84d7e6f5a7d1e4c1b293",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 921705024,
+            "sha256": "853698ce7aa6c7ba732478bad280240969ddf7b0fcbf93900046f63903a83383"
+          }
         },
         "gemma": {
           "name": "Gemma 4 12B",
@@ -128,7 +173,12 @@
           "file": "gemma-4-12b-it-UD-Q3_K_XL.gguf",
           "quant": "UD-Q3_K_XL",
           "size": 6022684480,
-          "sha256": "30adc491834f9e57625331b5ae2a51d59a817458d6d9406eca4fd71ff88b9295"
+          "sha256": "30adc491834f9e57625331b5ae2a51d59a817458d6d9406eca4fd71ff88b9295",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 175115840,
+            "sha256": "2e269f906eb15169ee9ce880ea649bd6d42d4964c21f8ede10d0d0efc738bcbb"
+          }
         }
       }
     },
@@ -143,7 +193,12 @@
           "file": "Qwen3.5-4B-UD-Q6_K_XL.gguf",
           "quant": "UD-Q6_K_XL",
           "size": 4145548448,
-          "sha256": "87f58d94410b81429268d8389a3d686e6c6bffecf7852772720fbea059cbbb9d"
+          "sha256": "87f58d94410b81429268d8389a3d686e6c6bffecf7852772720fbea059cbbb9d",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 675569344,
+            "sha256": "302b92d565080b9cc0281186979ae75a7429ec23d14f6f7607a035539b21f3a6"
+          }
         },
         "gemma": {
           "name": "Gemma 4 E4B",
@@ -151,7 +206,12 @@
           "file": "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 4215695776,
-          "sha256": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3"
+          "sha256": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 991552320,
+            "sha256": "7c9bafa27f82d658eda805c1d82ef62bb0368e1ff75f64f77de58ad318beaaf9"
+          }
         }
       }
     },
@@ -166,7 +226,12 @@
           "file": "Qwen3.5-4B-UD-Q4_K_XL.gguf",
           "quant": "UD-Q4_K_XL",
           "size": 2912109728,
-          "sha256": "b252c5610a42ca82d20fe2a12813e9d069eed89292907e26c783eeb0bc961bc7"
+          "sha256": "b252c5610a42ca82d20fe2a12813e9d069eed89292907e26c783eeb0bc961bc7",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 675569344,
+            "sha256": "302b92d565080b9cc0281186979ae75a7429ec23d14f6f7607a035539b21f3a6"
+          }
         },
         "gemma": {
           "name": "Gemma 4 E2B",
@@ -174,7 +239,12 @@
           "file": "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 2620370976,
-          "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889"
+          "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 986833728,
+            "sha256": "38b33846f56426cd650e0e574d78de125abdfcedf35c0d7f6929f6ffe26efe02"
+          }
         }
       }
     }
@@ -191,7 +261,12 @@
           "file": "Qwen3.5-4B-UD-Q4_K_XL.gguf",
           "quant": "UD-Q4_K_XL",
           "size": 2912109728,
-          "sha256": "b252c5610a42ca82d20fe2a12813e9d069eed89292907e26c783eeb0bc961bc7"
+          "sha256": "b252c5610a42ca82d20fe2a12813e9d069eed89292907e26c783eeb0bc961bc7",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 675569344,
+            "sha256": "302b92d565080b9cc0281186979ae75a7429ec23d14f6f7607a035539b21f3a6"
+          }
         },
         "gemma": {
           "name": "Gemma 4 E4B",
@@ -199,7 +274,12 @@
           "file": "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 4215695776,
-          "sha256": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3"
+          "sha256": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 991552320,
+            "sha256": "7c9bafa27f82d658eda805c1d82ef62bb0368e1ff75f64f77de58ad318beaaf9"
+          }
         }
       }
     },
@@ -214,7 +294,12 @@
           "file": "Qwen3.5-2B-UD-Q4_K_XL.gguf",
           "quant": "UD-Q4_K_XL",
           "size": 1339752704,
-          "sha256": "0af96165ea615bea39a04118d63f0b6d35908aea850ee4a51aa6151d851b8b35"
+          "sha256": "0af96165ea615bea39a04118d63f0b6d35908aea850ee4a51aa6151d851b8b35",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 671372992,
+            "sha256": "f17196c0d8fc756bc65be60075bd4a359917eee8a438505639511727c585d3c2"
+          }
         },
         "gemma": {
           "name": "Gemma 4 E2B",
@@ -222,7 +307,12 @@
           "file": "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
           "quant": "QAT UD-Q4_K_XL",
           "size": 2620370976,
-          "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889"
+          "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889",
+          "projector": {
+            "file": "mmproj-BF16.gguf",
+            "size": 986833728,
+            "sha256": "38b33846f56426cd650e0e574d78de125abdfcedf35c0d7f6929f6ffe26efe02"
+          }
         }
       }
     }

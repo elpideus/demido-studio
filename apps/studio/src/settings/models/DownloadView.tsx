@@ -29,7 +29,7 @@ import {
 } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
-import type { DownloadJob, Fit, HfModelFile, HfRepo, HfRepoFiles, Recommendation } from '@/lib/types';
+import type { DownloadJob, Fit, HfModelFile, HfProjector, HfRepo, HfRepoFiles, Recommendation } from '@/lib/types';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
@@ -46,11 +46,12 @@ const FIT: Record<Fit, { tone: 'accent' | 'warning' | 'danger' | 'neutral'; labe
   unknown: { tone: 'neutral', label: '', title: '' },
 };
 
-async function startDownload(repo: string, file: HfModelFile) {
+/** A model file with the repo's projector, which lets it see pictures and, for some, hear sound. */
+async function startDownload(repo: string, file: HfModelFile, projector: HfProjector | null) {
   try {
-    const job = await api.downloadModel(repo, file);
+    const job = await api.downloadModel(repo, file, projector);
     useModels.getState().upsertDownload(job);
-    toast.info('Download started', `${file.name} · ${formatBytes(file.size)}`);
+    toast.info('Download started', `${file.name} · ${formatBytes(file.size + (projector?.size ?? 0))}`);
   } catch (e) {
     toast.error('Could not start the download', errorText(e));
   }
@@ -157,7 +158,7 @@ function Recommended() {
                 <div className={s.rowMain}>
                   <div className={s.rowTitle}>{r.name}</div>
                   <div className={s.rowMeta}>
-                    {r.familyLabel} · {r.quant} · {formatBytes(r.size)}
+                    {r.familyLabel} · {r.quant} · {formatBytes(r.size + (r.projector?.size ?? 0))}
                   </div>
                 </div>
               </div>
@@ -175,16 +176,20 @@ function Recommended() {
                     icon={Download}
                     disabled={downloading}
                     onClick={() =>
-                      void startDownload(r.repo, {
-                        name: r.file,
-                        paths: [r.file],
-                        sizes: [r.size],
-                        sha256: [r.sha256],
-                        size: r.size,
-                        quant: r.quant,
-                        fit: 'fits',
-                        recommended: true,
-                      })
+                      void startDownload(
+                        r.repo,
+                        {
+                          name: r.file,
+                          paths: [r.file],
+                          sizes: [r.size],
+                          sha256: [r.sha256],
+                          size: r.size,
+                          quant: r.quant,
+                          fit: 'fits',
+                          recommended: true,
+                        },
+                        r.projector,
+                      )
                     }
                   >
                     {downloading ? 'Downloading' : 'Download'}
@@ -220,6 +225,12 @@ function RepoFiles({ repo, onBack }: { repo: string; onBack: () => void }) {
           This repository needs you to accept its terms on Hugging Face and a token with access (below).
         </Notice>
       )}
+      {data?.projector && data.files.length > 0 && (
+        <p className={s.muted}>
+          Each download includes the repository's projector ({formatBytes(data.projector.size)}), which lets the model
+          see pictures and, if it can, hear sound.
+        </p>
+      )}
       {data && data.files.length === 0 && (
         <EmptyState compact title="No GGUF files here" description="Pick another repository." />
       )}
@@ -253,7 +264,7 @@ function RepoFiles({ repo, onBack }: { repo: string; onBack: () => void }) {
                   size="sm"
                   variant={f.recommended ? 'primary' : 'secondary'}
                   icon={Download}
-                  onClick={() => void startDownload(repo, f)}
+                  onClick={() => void startDownload(repo, f, data.projector)}
                 >
                   Download
                 </Button>

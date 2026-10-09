@@ -1,6 +1,6 @@
 //! Browsing Hugging Face for GGUF models. unsloth's quantizations are ranked first.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const API: &str = "https://huggingface.co/api";
@@ -50,6 +50,17 @@ pub struct HfRepoFiles {
     pub repo: String,
     pub gated: bool,
     pub files: Vec<HfModelFile>,
+    /// What lets the repo's models see pictures or hear sound, downloaded with any of them.
+    pub projector: Option<HfProjector>,
+}
+
+/// A repo's `mmproj` file.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HfProjector {
+    pub path: String,
+    pub size: u64,
+    pub sha256: Option<String>,
 }
 
 fn with_token(req: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::RequestBuilder {
@@ -116,6 +127,7 @@ pub async fn repo_files(
 
     let split = regex::Regex::new(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$").expect("valid regex");
     let mut groups: std::collections::BTreeMap<String, Vec<(String, u64, Option<String>)>> = Default::default();
+    let mut projectors: Vec<HfProjector> = Vec::new();
     for entry in &tree {
         if entry["type"] != "file" {
             continue;
@@ -125,19 +137,26 @@ pub async fn repo_files(
         };
         let file_name = path.rsplit('/').next().unwrap_or(path);
         let lower = file_name.to_ascii_lowercase();
+        let size = entry["lfs"]["size"]
+            .as_u64()
+            .or_else(|| entry["size"].as_u64())
+            .unwrap_or(0);
+        let sha = entry["lfs"]["oid"].as_str().map(str::to_string);
+        if lower.ends_with(".gguf") && lower.contains("mmproj") {
+            projectors.push(HfProjector {
+                path: path.to_string(),
+                size,
+                sha256: sha,
+            });
+            continue;
+        }
         if !lower.ends_with(".gguf")
-            || lower.contains("mmproj")
             || lower.starts_with("mtp-")
             || lower.starts_with("dflash-")
             || lower.contains("imatrix")
         {
             continue;
         }
-        let size = entry["lfs"]["size"]
-            .as_u64()
-            .or_else(|| entry["size"].as_u64())
-            .unwrap_or(0);
-        let sha = entry["lfs"]["oid"].as_str().map(str::to_string);
         let key = match split.captures(path) {
             Some(c) => format!("{}.gguf", &c[1]),
             None => path.to_string(),
@@ -182,10 +201,33 @@ pub async fn repo_files(
     if let Some(i) = best {
         files[i].recommended = true;
     }
+    let projector = preferred_projector(projectors, |p| p.path.rsplit('/').next().unwrap_or(&p.path));
     Ok(HfRepoFiles {
         repo: repo.to_string(),
         gated,
         files,
+        projector,
+    })
+}
+
+/// The projector to use of several: BF16 first, the precision these models were trained in (see
+/// `catalog/models.json`), then F16, F32, and quantized ones last. Ties go to the shorter name.
+pub fn preferred_projector<T>(candidates: Vec<T>, name: impl Fn(&T) -> &str) -> Option<T> {
+    fn rank(name: &str) -> u8 {
+        let lower = name.to_ascii_lowercase();
+        if lower.contains("bf16") {
+            0
+        } else if lower.contains("f16") {
+            1
+        } else if lower.contains("f32") {
+            2
+        } else {
+            3
+        }
+    }
+    candidates.into_iter().min_by(|a, b| {
+        let (a, b) = (name(a), name(b));
+        (rank(a), a.len(), a).cmp(&(rank(b), b.len(), b))
     })
 }
 
@@ -211,6 +253,26 @@ pub fn file_url(repo: &str, path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bf16_projector_is_chosen_over_others() {
+        let pick = |names: &[&str]| preferred_projector(names.to_vec(), |n| *n).map(str::to_string);
+        assert_eq!(
+            pick(&["mmproj-F16.gguf", "mmproj-F32.gguf", "mmproj-BF16.gguf"]).as_deref(),
+            Some("mmproj-BF16.gguf")
+        );
+        assert_eq!(
+            pick(&[
+                "mmproj-model-Q8_0.gguf",
+                "mmproj-model-f32.gguf",
+                "mmproj-model-f16.gguf"
+            ])
+            .as_deref(),
+            Some("mmproj-model-f16.gguf")
+        );
+        assert_eq!(pick(&["x.mmproj-Q8_0.gguf"]).as_deref(), Some("x.mmproj-Q8_0.gguf"));
+        assert_eq!(pick(&[]), None);
+    }
 
     #[test]
     fn fit_bands() {

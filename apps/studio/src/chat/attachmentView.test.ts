@@ -66,6 +66,7 @@ const model = (over: Partial<ModelEntry> = {}, can: Partial<ModelCapabilities> =
   maxContext: null,
   repo: null,
   removable: true,
+  projector: null,
   capabilities: { vision: null, audio: null, tools: true, thinking: null, ...can },
   checkingCapabilities: false,
   settings: {},

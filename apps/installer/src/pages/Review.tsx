@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { ArrowLeft, Download } from 'lucide-react';
 import { Button, Checkbox, Notice, formatBytes } from '@demido/ui';
 
-import type { Context, DirInfo, VolumeNeed, WizardState } from '../types';
+import { downloadSize, type Context, type DirInfo, type VolumeNeed, type WizardState } from '../types';
 import styles from '../Setup.module.css';
 
 const RUNTIME_LABEL: Record<string, string> = {
@@ -49,12 +49,12 @@ export function ReviewPage({ ctx, state, onChange, onBack, onInstall }: Props) {
       size: (ctx.fixedSizes.python ?? 0) + (ctx.fixedSizes.uv ?? 0),
     },
     { label: 'Node.js', detail: 'Runs the market data service', size: ctx.fixedSizes.node ?? 0 },
-    ...(pick ? [{ label: pick.name, detail: `${pick.quant} · ${pick.repo}`, size: pick.size }] : []),
+    ...(pick ? [{ label: pick.name, detail: `${pick.quant} · ${pick.repo}`, size: downloadSize(pick) }] : []),
   ];
   const download = items.reduce((sum, i) => sum + (i.included ? 0 : i.size), 0);
   const needed = items.reduce((sum, i) => sum + i.size, 0);
   // The model goes to the starter models folder, often on another drive than the app.
-  const modelBytes = pick?.size ?? 0;
+  const modelBytes = pick ? downloadSize(pick) : 0;
   const [volumes, setVolumes] = useState<VolumeNeed[]>([]);
   useEffect(() => {
     void invoke<VolumeNeed[]>('check_space', {
