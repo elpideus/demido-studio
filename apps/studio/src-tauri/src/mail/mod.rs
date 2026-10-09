@@ -31,15 +31,21 @@ pub use accounts::{Account, Kind, NewAccount};
 pub use body::{Addr, Attachment};
 use imap::{Conn, IdleEnd, MailError};
 use store::Store;
+pub use store::{DateRange, FolderView, PageQuery, Summary};
 
 use crate::secrets::Secrets;
 
 pub const ACCOUNTS_EVENT: &str = "mail://accounts";
 /// A folder's cached messages changed: `{account, folder}`.
 pub const CHANGED_EVENT: &str = "mail://changed";
+/// An account's folder list changed, a folder or label made or deleted elsewhere: `{account}`.
+pub const FOLDERS_EVENT: &str = "mail://folders";
 
 /// A folder checked this recently is shown from the cache without asking the server.
 const FRESH_MS: i64 = 60_000;
+/// A folder list read this recently is shown from the cache; an older one is read again, so
+/// folders and labels made or deleted elsewhere come and go.
+const FOLDERS_FRESH_MS: i64 = 60_000;
 /// A connection unused this long is closed.
 const CLOSE_UNUSED: Duration = Duration::from_secs(5 * 60);
 /// IDLE is renewed this often; servers end it after 30 minutes.
@@ -90,7 +96,23 @@ pub struct OpenedMessage {
     pub summary: Summary,
     pub html: Option<String>,
     pub text: String,
-    pub attachment_list: Vec<Attachment>,
+    pub attachments: Vec<Attachment>,
+}
+
+/// Many messages opened at once (`MailService::open_many`).
+pub struct OpenedMany {
+    /// The messages with their bodies, in the order asked for.
+    pub messages: Vec<OpenedMessage>,
+    /// How many came from the cache.
+    pub cached: usize,
+    /// How many came from the server, and in how many requests.
+    pub fetched: usize,
+    pub requests: usize,
+    /// Asked for but no longer on the server.
+    pub missing: usize,
+    /// Why it ended before every message was there, when it did. What arrived is cached, so
+    /// asking again continues from there.
+    pub stopped: Option<String>,
 }
 
 type Slot = Arc<tokio::sync::Mutex<Option<Conn>>>;
@@ -209,6 +231,10 @@ impl MailService {
         let _ = self.app.emit(ACCOUNTS_EVENT, self.accounts());
     }
 
+    fn emit_folders(&self, account: &str) {
+        let _ = self.app.emit(FOLDERS_EVENT, json!({ "account": account }));
+    }
+
     fn emit_changed(&self, account: &str, folder: &str) {
         let _ = self
             .app
@@ -258,7 +284,7 @@ impl MailService {
         let (account, remembered) = self.accounts.save(account, &password)?;
         if let Ok(folders) = folders {
             self.store.set_folders(&account.id, &folders)?;
-            self.listed.lock().insert(account.id.clone());
+            self.listed.lock().insert(account.id.clone(), crate::db::now_ms());
         }
         {
             let mut session_only = self.session_only.lock();
@@ -337,15 +363,23 @@ impl MailService {
         }
     }
 
-    /// The account's folders. The list is read from the server once a session (or when
-    /// `refresh`), from the cache otherwise.
+    /// The account's folders. The list is read from the server when it is more than a minute old
+    /// (or when `refresh`), from the cache otherwise. A change is announced with `mail://folders`.
     pub async fn folders(&self, account: &Account, refresh: bool) -> anyhow::Result<Vec<FolderView>> {
-        let listed = self.listed.lock().contains(&account.id);
-        if refresh || !listed {
-            match with_conn!(self, account, |conn| async { Ok(conn.list_folders().await?) }) {
+        let now = crate::db::now_ms();
+        let fresh = self
+            .listed
+            .lock()
+            .get(&account.id)
+            .is_some_and(|t| now - t < FOLDERS_FRESH_MS);
+        if refresh || !fresh {
+            match with_conn!(self, account, |conn| async { anyhow::Ok(conn.list_folders().await?) }) {
                 Ok(folders) => {
-                    self.store.set_folders(&account.id, &folders)?;
-                    self.listed.lock().insert(account.id.clone());
+                    let changed = self.store.set_folders(&account.id, &folders)?;
+                    self.listed.lock().insert(account.id.clone(), now);
+                    if changed {
+                        self.emit_folders(&account.id);
+                    }
                 }
                 Err(e) => {
                     let cached = self.store.folders(&account.id)?;
@@ -408,7 +442,11 @@ impl MailService {
                 return anyhow::Ok(false);
             }
             sync::sync_folder(conn, &self.store, &account.id, path).await
-        })?;
+        });
+        let changed = match changed {
+            Ok(changed) => changed,
+            Err(e) => return Err(self.unless_gone(account, path, e).await),
+        };
         if changed {
             self.emit_changed(&account.id, path);
         }
@@ -431,21 +469,61 @@ impl MailService {
         Ok(live && path == self.folder_path(account, None)?)
     }
 
+    /// The error of a folder the server would not open, unless the folder is gone: deleted
+    /// elsewhere, it leaves the folder list (which is announced) and the error says so.
+    async fn unless_gone(&self, account: &Account, path: &str, e: anyhow::Error) -> anyhow::Error {
+        if !matches!(e.downcast_ref::<MailError>(), Some(MailError::Server(_))) {
+            return e;
+        }
+        match self.folders(account, true).await {
+            Ok(list) if !list.iter().any(|f| f.path == path) => {
+                anyhow::anyhow!("The folder {path} is no longer in {}.", account.email)
+            }
+            _ => e,
+        }
+    }
+
     /// Fetches the next page of older messages. Returns how many arrived.
     pub async fn load_older(&self, account: &Account, path: &str) -> anyhow::Result<u32> {
-        let added = with_conn!(self, account, |conn| sync::load_older(conn, &self.store, &account.id, path))?;
+        let added = match with_conn!(self, account, |conn| sync::load_older(
+            conn,
+            &self.store,
+            &account.id,
+            path
+        )) {
+            Ok(added) => added,
+            Err(e) => return Err(self.unless_gone(account, path, e).await),
+        };
         if added > 0 {
             self.emit_changed(&account.id, path);
         }
         Ok(added)
     }
 
-    /// Searches a folder on the server (with Gmail's search syntax on Gmail): the newest
-    /// `limit` matches.
-    pub async fn search(&self, account: &Account, path: &str, text: &str, limit: usize) -> anyhow::Result<Vec<Summary>> {
+    /// Searches a folder on the server (with Gmail's search syntax on Gmail), for `text`, mail
+    /// that arrived within `dates`, or both: the newest `limit` matches. With neither, the
+    /// folder's newest `limit` messages.
+    pub async fn search(
+        &self,
+        account: &Account,
+        path: &str,
+        text: &str,
+        dates: &DateRange,
+        limit: usize,
+    ) -> anyhow::Result<Vec<Summary>> {
         let text = text.trim();
-        if text.is_empty() {
-            return Ok(Vec::new());
+        let found = with_conn!(self, account, |conn| sync::search(
+            conn,
+            &self.store,
+            &account.id,
+            path,
+            text,
+            dates,
+            limit
+        ));
+        match found {
+            Ok(found) => Ok(found),
+            Err(e) => Err(self.unless_gone(account, path, e).await),
         }
     }
 
@@ -460,7 +538,7 @@ impl MailService {
     pub async fn open(&self, id: i64) -> anyhow::Result<OpenedMessage> {
         let summary = self.summary(id)?;
         let opened = |summary: Summary, body: body::Body| OpenedMessage {
-            attachment_list: summary.plan.attachments.clone(),
+            attachments: summary.plan.attachments.clone(),
             html: body.html,
             text: body.text,
             summary,
@@ -481,6 +559,105 @@ impl MailService {
         };
         self.store.save_body(id, &body)?;
         Ok(opened(self.summary(id).unwrap_or(summary), body))
+    }
+
+    /// Many messages with their bodies: those opened before come from the cache, the rest are
+    /// fetched a hundred or so to a request (see `sync::body_batches`) and cached as they arrive.
+    /// Between requests the connection is free for the Mail window; `progress` hears how many of
+    /// how many are there, and `stop` ends it early with what it has.
+    pub async fn open_many(
+        &self,
+        ids: &[i64],
+        stop: impl Fn() -> bool,
+        mut progress: impl FnMut(usize, usize),
+    ) -> anyhow::Result<OpenedMany> {
+        let mut summaries = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(s) = self.store.message(*id)? {
+                summaries.push(s);
+            }
+        }
+        let mut bodies: HashMap<i64, body::Body> = HashMap::new();
+        // The rest by account and folder, each folder's oldest first.
+        let mut wanted: BTreeMap<(String, String), Vec<&Summary>> = BTreeMap::new();
+        for s in &summaries {
+            match self.store.body(s.id)? {
+                Some(body) => {
+                    bodies.insert(s.id, body);
+                }
+                None => wanted.entry((s.account.clone(), s.folder.clone())).or_default().push(s),
+            }
+        }
+        let total = summaries.len();
+        let cached = bodies.len();
+        let (mut fetched, mut requests, mut missing) = (0, 0, 0);
+        let mut stopped = None;
+        progress(cached, total);
+        'folders: for ((account_id, folder), mut list) in wanted {
+            let Some(account) = self.accounts.get(&account_id) else {
+                missing += list.len();
+                continue;
+            };
+            list.sort_by_key(|s| s.uid);
+            let by_uid: HashMap<u32, &Summary> = list.iter().map(|s| (s.uid, *s)).collect();
+            let folder = folder.as_str();
+            for batch in sync::body_batches(list.iter().map(|s| (s.uid, s.size, s.plan.multipart))) {
+                if stop() {
+                    stopped = Some("Stopped before every email was downloaded.".to_string());
+                    break 'folders;
+                }
+                let got = match &batch {
+                    sync::BodyBatch::Whole(uids) => {
+                        with_conn!(self, &account, |conn| sync::fetch_whole(conn, folder, uids))
+                    }
+                    sync::BodyBatch::Parts(uid) => {
+                        let s = by_uid[uid];
+                        with_conn!(self, &account, |conn| async {
+                            let body = sync::fetch_body(conn, folder, s.uid, s.size, &s.plan).await?;
+                            anyhow::Ok(body.map(|b| (s.uid, b)).into_iter().collect::<HashMap<_, _>>())
+                        })
+                    }
+                };
+                requests += 1;
+                let got = match got {
+                    Ok(got) => got,
+                    Err(e) => {
+                        stopped = Some(format!("{e:#}"));
+                        break 'folders;
+                    }
+                };
+                missing += batch.count() - got.len();
+                let arrived: Vec<(i64, body::Body)> = got
+                    .into_iter()
+                    .filter_map(|(uid, body)| Some((by_uid.get(&uid)?.id, body)))
+                    .collect();
+                self.store
+                    .save_bodies(&arrived.iter().map(|(id, body)| (*id, body)).collect::<Vec<_>>())?;
+                fetched += arrived.len();
+                bodies.extend(arrived);
+                progress(cached + fetched, total);
+            }
+        }
+        let messages = summaries
+            .into_iter()
+            .filter_map(|summary| {
+                let body = bodies.remove(&summary.id)?;
+                Some(OpenedMessage {
+                    attachments: summary.plan.attachments.clone(),
+                    html: body.html,
+                    text: body.text,
+                    summary,
+                })
+            })
+            .collect();
+        Ok(OpenedMany {
+            messages,
+            cached,
+            fetched,
+            requests,
+            missing,
+            stopped,
+        })
     }
 
     /// An attachment's file name and contents.

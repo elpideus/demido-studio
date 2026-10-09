@@ -16,6 +16,16 @@ import type {
   HfRepo,
   HfRepoFiles,
   HfModelFile,
+  IndicatorCatalog,
+  IndicatorEntry,
+  IndicatorMeta,
+  IndicatorSetup,
+  MailAccount,
+  MailDateRange,
+  MailFolder,
+  MailMessage,
+  MailPage,
+  MailSummary,
   MarketBarsPage,
   MarketCacheSummary,
   MarketJob,
@@ -161,6 +171,47 @@ export const api = {
   openSkillsFolder: (id?: string) => invoke<void>('open_skills_folder', { id: id ?? null }),
 
   // Market
+  // Mail: reading only. `mailMessages` answers from the cache; `mailSync` asks the server for
+  // what changed, announced with `mail://changed`.
+  mailAccounts: () => invoke<MailAccount[]>('mail_accounts'),
+  mailAddAccount: (account: NewMailAccount) => invoke<MailAccount>('mail_add_account', { account }),
+  mailRemoveAccount: (id: string) => invoke<void>('mail_remove_account', { id }),
+  mailFolders: (account: string, refresh = false) => invoke<MailFolder[]>('mail_folders', { account, refresh }),
+  mailMessages: (
+    account: string,
+    folder: string,
+    limit: number,
+    filter: string | null,
+    unreadOnly: boolean,
+    dates: MailDateRange | null = null,
+  ) =>
+    invoke<MailPage>('mail_messages', {
+      account,
+      folder,
+      limit,
+      filter,
+      unreadOnly,
+      since: dates?.since ?? null,
+      until: dates?.until ?? null,
+    }),
+  mailSync: (account: string, folder: string, force = false) =>
+    invoke<boolean>('mail_sync', { account, folder, force }),
+  mailLoadOlder: (account: string, folder: string) => invoke<number>('mail_load_older', { account, folder }),
+  /** Searches the folder on the server for `query`, mail that arrived within `dates`, or both. */
+  mailSearch: (account: string, folder: string, query: string, dates: MailDateRange | null = null, limit?: number) =>
+    invoke<MailSummary[]>('mail_search', {
+      account,
+      folder,
+      query,
+      since: dates?.since ?? null,
+      until: dates?.until ?? null,
+      limit: limit ?? null,
+    }),
+  mailOpen: (id: number) => invoke<MailMessage>('mail_open', { id }),
+  mailSaveAttachment: (id: number, section: string, path: string) =>
+    invoke<void>('mail_save_attachment', { id, section, path }),
+  mailSetWatching: (open: boolean) => invoke<void>('mail_set_watching', { open }),
+
   marketStatus: () => invoke<MarketStatus>('market_status'),
   marketLogin: () => invoke<void>('market_login'),
   marketLogout: () => invoke<MarketStatus>('market_logout'),

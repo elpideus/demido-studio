@@ -430,6 +430,12 @@ export interface Settings {
   /** Change through `api.setUpdatePreferences`, which also acts on the change. */
   updateChannel: UpdateChannel;
   autoUpdate: boolean;
+  /** Summarize the chat when it nears the end of the model's context window. */
+  autoCompact: boolean;
+  /** Tokens at which that happens; null is near the model's limit. Never above that limit. */
+  autoCompactTokens: number | null;
+  /** The Mail window loads the images emails link to from the internet without asking. */
+  mailShowImages: boolean;
 }
 
 export type UpdateChannel = 'release' | 'prerelease';
@@ -1004,4 +1010,101 @@ export interface ChartDrawing {
   /** The market it was drawn on; it shows on that market's chart only. */
   symbol?: string;
   hidden?: boolean;
+}
+
+// ---------------------------------------------------------------- Mail (src-tauri mail/)
+
+export type MailKind = 'gmail' | 'imap';
+
+export interface MailAccount {
+  id: string;
+  kind: MailKind;
+  email: string;
+  host: string;
+  /** Why the account cannot be read right now (a refused password). */
+  error: string | null;
+  /** The password is missing and must be entered again. */
+  needsPassword: boolean;
+  /** The credential store refused the password: it is kept only until the app closes. */
+  sessionOnly: boolean;
+}
+
+export interface NewMailAccount {
+  kind: MailKind;
+  email: string;
+  password: string;
+  host?: string | null;
+  port?: number | null;
+  username?: string | null;
+}
+
+export interface MailFolder {
+  path: string;
+  name: string;
+  /** inbox, flagged, important, sent, drafts, archive, all, junk, trash */
+  role: string | null;
+  selectable: boolean;
+  depth: number;
+  total: number | null;
+  unseen: number | null;
+}
+
+export interface MailAddress {
+  name: string;
+  email: string;
+}
+
+export interface MailSummary {
+  id: number;
+  account: string;
+  folder: string;
+  uid: number;
+  date: number;
+  from: MailAddress;
+  to: MailAddress[];
+  cc: MailAddress[];
+  subject: string;
+  snippet: string;
+  unread: boolean;
+  flagged: boolean;
+  answered: boolean;
+  draft: boolean;
+  attachments: number;
+  labels: string[];
+  size: number;
+  messageId: string | null;
+}
+
+/** Mail that arrived between two moments (ms, both included); a missing end is open. */
+export interface MailDateRange {
+  since: number | null;
+  until: number | null;
+}
+
+export interface MailPage {
+  account: string;
+  folder: string;
+  messages: MailSummary[];
+  total: number | null;
+  unseen: number | null;
+  /** The folder has been loaded at least once. */
+  loaded: boolean;
+  /** No older messages remain on the server. */
+  complete: boolean;
+  checkedAt: number | null;
+}
+
+export interface MailAttachment {
+  /** IMAP part number, which names the attachment to the backend. */
+  section: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
+export interface MailMessage {
+  summary: MailSummary;
+  html: string | null;
+  text: string;
+  attachments: MailAttachment[];
 }

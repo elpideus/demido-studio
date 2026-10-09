@@ -344,15 +344,27 @@ impl Conn {
     }
 
     /// A search for what a person typed: Gmail's own search syntax on Gmail, words anywhere in
-    /// the message elsewhere.
-    pub async fn search_text(&mut self, text: &str) -> Result<Vec<u32>, MailError> {
+    /// the message elsewhere. The messages must also match `criteria` (more search keys, such as
+    /// dates); with no text, they are the whole search.
+    pub async fn search_text(&mut self, text: &str, criteria: &str) -> Result<Vec<u32>, MailError> {
+        let text = text.trim();
+        if text.is_empty() {
+            return self
+                .uid_search(if criteria.is_empty() { "ALL" } else { criteria })
+                .await;
+        }
         let key = if self.caps.gmail { "X-GM-RAW" } else { "TEXT" };
-        let query = if text.is_ascii() {
-            format!("{key} {}", quote(text))
-        } else if self.caps.literal_plus {
-            format!("CHARSET UTF-8 {key} {{{}+}}\r\n{text}", text.len())
+        let keys = if criteria.is_empty() {
+            key.to_string()
         } else {
-            format!("CHARSET UTF-8 {key} {}", quote(text))
+            format!("{criteria} {key}")
+        };
+        let query = if text.is_ascii() {
+            format!("{keys} {}", quote(text))
+        } else if self.caps.literal_plus {
+            format!("CHARSET UTF-8 {keys} {{{}+}}\r\n{text}", text.len())
+        } else {
+            format!("CHARSET UTF-8 {keys} {}", quote(text))
         };
         self.uid_search(&query).await
     }
@@ -363,13 +375,18 @@ impl Conn {
         Ok(timed(COMMAND_TIMEOUT, s.status(path, "(UNSEEN)")).await?.unseen)
     }
 
+    /// Fetches `items` of the messages in a UID set of the selected folder, in one request.
+    pub async fn fetch_many(&mut self, uid_set: &str, items: &str) -> Result<Vec<Fetch>, MailError> {
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, async {
+            s.uid_fetch(uid_set, items).await?.try_collect().await
+        })
+        .await
+    }
+
     /// Fetches `items` of one message of the selected folder.
     pub async fn fetch_one(&mut self, uid: u32, items: &str) -> Result<Option<Fetch>, MailError> {
-        let s = self.session()?;
-        let mut fetches: Vec<Fetch> = timed(COMMAND_TIMEOUT, async {
-            s.uid_fetch(uid.to_string(), items).await?.try_collect().await
-        })
-        .await?;
+        let mut fetches = self.fetch_many(&uid.to_string(), items).await?;
         Ok(fetches
             .iter()
             .position(|f| f.uid == Some(uid))

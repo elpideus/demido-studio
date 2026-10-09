@@ -48,6 +48,13 @@ pub struct Settings {
     pub update_channel: UpdateChannel,
     /// Download new versions in the background and install them the next time the app starts.
     pub auto_update: bool,
+    /// Summarize the older part of a chat when it nears the model's context window.
+    pub auto_compact: bool,
+    /// The tokens at which a chat is compacted, instead of the default share of the context
+    /// window. Never above that share, whatever is set.
+    pub auto_compact_tokens: Option<u32>,
+    /// Load the images an email links to from the internet without asking, in the Mail window.
+    pub mail_show_images: bool,
 }
 
 impl Default for Settings {
@@ -69,6 +76,9 @@ impl Default for Settings {
             download_approval_seconds: 60,
             update_channel: UpdateChannel::Release,
             auto_update: true,
+            auto_compact: true,
+            auto_compact_tokens: None,
+            mail_show_images: false,
         }
     }
 }

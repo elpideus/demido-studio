@@ -15,7 +15,7 @@ import {
   CircleStop,
   File as FileIcon,
 } from 'lucide-react';
-import { Button, cx, formatBytes } from '@demido/ui';
+import { Button, ProgressBar, cx, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { fileUrl, formatDateTime, formatPercent, formatPrice } from '@/lib/format';
@@ -706,6 +706,12 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <Search d={display} />;
     case 'passages':
       return <Passages d={display} />;
+    case 'mail':
+      return <MailList d={display} />;
+    case 'mailMessage':
+      return <MailMessageLine d={display} />;
+    case 'mailExport':
+      return <MailExport d={display} message={message} />;
     case 'python':
       return <Python d={display} />;
     case 'command':
@@ -753,6 +759,20 @@ export function isProminent(display: Display | undefined): boolean {
   return (
     !!display &&
     !display.error &&
-    ['candles', 'quotes', 'python', 'command', 'skill', 'download', 'dataStatus'].includes(String(display.kind))
+    [
+      'candles',
+      'quotes',
+      'python',
+      'command',
+      'skill',
+      'download',
+      'dataStatus',
+      'pineSave',
+      'pineTest',
+      'pinePublish',
+      'chartIndicator',
+      'chartDraw',
+      'mailExport',
+    ].includes(String(display.kind))
   );
 }

@@ -26,8 +26,10 @@ pub async fn mail_folders(state: St<'_>, account: String, refresh: Option<bool>)
     Ok(state.mail.folders(&account, refresh.unwrap_or(false)).await?)
 }
 
-/// A page of cached messages; the server is not asked (see `mail_sync`).
+/// A page of cached messages; the server is not asked (see `mail_sync`). `since` and `until`
+/// (ms, both included) keep the mail that arrived between them.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn mail_messages(
     state: St<'_>,
     account: String,
@@ -35,12 +37,15 @@ pub fn mail_messages(
     limit: u32,
     filter: Option<String>,
     unread_only: Option<bool>,
+    since: Option<i64>,
+    until: Option<i64>,
 ) -> CmdResult<MessagePage> {
     let account = state.mail.account(Some(&account))?;
     let query = PageQuery {
         limit: limit.clamp(1, 5000),
         filter: filter.as_deref(),
         unread_only: unread_only.unwrap_or(false),
+        dates: DateRange { since, until },
     };
     Ok(state.mail.messages(&account, &folder, &query)?)
 }
@@ -59,17 +64,22 @@ pub async fn mail_load_older(state: St<'_>, account: String, folder: String) -> 
     Ok(state.mail.load_older(&account, &folder).await?)
 }
 
+/// Searches a folder on the server for `query`, mail that arrived between `since` and `until`
+/// (ms, both included), or both.
 #[tauri::command]
 pub async fn mail_search(
     state: St<'_>,
     account: String,
     folder: String,
     query: String,
+    since: Option<i64>,
+    until: Option<i64>,
     limit: Option<u32>,
 ) -> CmdResult<Vec<Summary>> {
     let account = state.mail.account(Some(&account))?;
     let limit = limit.unwrap_or(100).clamp(1, 500) as usize;
-    Ok(state.mail.search(&account, &folder, &query, limit).await?)
+    let dates = DateRange { since, until };
+    Ok(state.mail.search(&account, &folder, &query, &dates, limit).await?)
 }
 
 #[tauri::command]

@@ -1,0 +1,194 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 288px;
+  padding: var(--space-3);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.preset {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.preset:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
+
+.month {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.title {
+  flex: 1;
+  text-align: center;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.weekdays,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.weekdays {
+  margin-bottom: calc(var(--space-1) * -1);
+  color: var(--text-tertiary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.grid {
+  row-gap: 2px;
+}
+
+/* The cell carries the band that joins the days of a range; the day sits on top of it. */
+.cell {
+  display: flex;
+  justify-content: center;
+}
+
+.between {
+  background: var(--accent-muted);
+}
+
+.first {
+  background: linear-gradient(to right, transparent 50%, var(--accent-muted) 50%);
+}
+
+.last {
+  background: linear-gradient(to left, transparent 50%, var(--accent-muted) 50%);
+}
+
+.day {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.day:hover {
+  background: var(--surface-5);
+}
+
+.outside {
+  color: var(--text-disabled);
+}
+
+.today {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  font-weight: var(--weight-semibold);
+}
+
+.between .day {
+  color: var(--accent-text);
+}
+
+.between .day:hover {
+  background: var(--accent-muted-strong);
+}
+
+.edge,
+.edge:hover {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: var(--weight-semibold);
+}
+
+.today.edge {
+  box-shadow: none;
+}
+
+.times {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.when {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.whenLabel {
+  width: 32px;
+  color: var(--text-tertiary);
+}
+
+.whenDay {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  width: 92px;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.time:hover {
+  border-color: var(--border-strong);
+}
+
+.time:focus {
+  border-color: var(--accent-border);
+  background: var(--surface-1);
+}
+
+.time::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  justify-content: space-between;
+}

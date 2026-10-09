@@ -73,6 +73,8 @@ click in Settings, Updates.
 | What history is stored per market (one timeline: every timeframe reads the same 1-minute history), where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
 | History downloads with a progress bar you can pause and resume, from a chart, the Data tab or the chat | Chart, Data tab, chat cards |
 | Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, General |
+| Your Gmail (or another IMAP mailbox): folders, messages and attachments, read only; new mail shows up on its own while the window is open | Mail window |
+| The assistant lists, searches and reads your email, exports hundreds of emails to a file for analysis, and saves attachments to its workspace | The chat (Email in the Tools menu) |
 | Updates: Release or Pre-release channel, automatic in the background or checked by hand | Settings, Updates |
 | Exact request and response of any answer | Inspector (from an answer's toolbar) |
 
@@ -116,6 +118,19 @@ models), runs it on any market and timeframe to check its values (every bar's va
 workspace), and puts it on your chart. It asks before saving anything to your TradingView
 account. For a quick look that needs no indicator, it draws on the chart instead: levels, zones,
 trend lines, markers and labels, kept per market until you remove them from the legend.
+
+**Email.** The Mail window connects Gmail with an
+[app password](https://myaccount.google.com/apppasswords) (it needs 2-Step Verification on the
+Google account; work and school accounts can have app passwords turned off by their admin), or
+any mailbox that offers IMAP over TLS on port 993. Demido only reads: opening a message never marks
+it as read, and nothing is moved or deleted. Messages are kept on your computer once downloaded, and
+each check asks the server only for what changed since the last one; while the window is open the
+inbox is watched, so new mail arrives without asking. The assistant reads the same mail, treated as
+the sender's words and never as instructions. To analyse many emails it exports them, text
+included, to a file in its workspace and works on that with Python; up to a thousand at a time,
+about a hundred per request to the server, and every email it downloads stays cached for the next
+time. Remote images in emails stay hidden until you show
+them, since loading them tells the sender you read the message.
 
 **Skills** are folders with a `SKILL.md` (a short frontmatter with `name` and `description`,
 then instructions) and any files it refers to. Enabled skills are part of every conversation.

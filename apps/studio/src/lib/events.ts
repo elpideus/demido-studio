@@ -65,6 +65,11 @@ interface EventMap {
   'market://event': MarketEvent;
   'market://chart': ChartCommand;
   'updater://status': UpdateStatus;
+  'mail://accounts': MailAccount[];
+  /** A folder's cached messages changed. */
+  'mail://changed': { account: string; folder: string };
+  /** An account's folder list changed: a folder or label was made or deleted elsewhere. */
+  'mail://folders': { account: string };
 }
 
 export function on<K extends keyof EventMap>(name: K, handler: (payload: EventMap[K]) => void): Promise<UnlistenFn> {

@@ -461,6 +461,29 @@
   background: #fff;
 }
 
+/* Laid out, so its images load, but not seen until they have. */
+.frameHidden {
+  visibility: hidden;
+}
+
+/* Over the hidden frame. It fades in a moment late, so an email that is ready at once never
+   flashes it. */
+.frameLoading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-8);
+  opacity: 0;
+  animation: appear var(--duration-fast) var(--ease-out) 150ms forwards;
+}
+
+@keyframes appear {
+  to {
+    opacity: 1;
+  }
+}
+
 .textBody {
   margin: 0 var(--space-2);
   color: var(--text-primary);

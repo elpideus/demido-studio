@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Spinner, cx } from '@demido/ui';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 import { linkTarget, prepareEmailHtml, splitLinks } from './emailHtml';
 import styles from './MailWindow.module.css';
+
+/** The longest an email waits for its images before it shows; the rest arrive in place. */
+const IMAGES_WAIT_MS = 2500;
 
 function openLink(href: string | null | undefined) {
   const url = linkTarget(href);
@@ -11,7 +15,8 @@ function openLink(href: string | null | undefined) {
 
 /**
  * The HTML of an email in a sandboxed frame that runs no scripts. The frame is as tall as the
- * email, so the reader scrolls it together with the header; links open in the browser.
+ * email, so the reader scrolls it together with the header; links open in the browser. It shows
+ * once its images have arrived, so the email does not appear without them and then jump.
  */
 export function HtmlBody({
   html,
@@ -24,6 +29,8 @@ export function HtmlBody({
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const prepared = useMemo(() => prepareEmailHtml(html, showImages), [html, showImages]);
+  const [shown, setShown] = useState<string | null>(null);
+  const ready = shown === prepared.doc;
 
   useEffect(() => onRemote(prepared.remote), [prepared.remote, onRemote]);
 
@@ -80,23 +87,42 @@ export function HtmlBody({
         timers.forEach((t) => window.clearTimeout(t));
       };
     };
-    iframe.addEventListener('load', attach);
-    if (iframe.contentDocument?.readyState === 'complete') attach();
+    // Until the email is parsed the frame holds an empty page, which is neither measured nor
+    // shown. The frame's load waits for every image; a slow one only holds the email back so long.
+    const parsed = () => iframe.contentDocument?.URL === 'about:srcdoc';
+    const loaded = () => {
+      attach();
+      setShown(prepared.doc);
+    };
+    iframe.addEventListener('load', loaded);
+    if (parsed() && iframe.contentDocument?.readyState === 'complete') loaded();
+    const late = window.setTimeout(() => {
+      if (parsed()) attach();
+      setShown(prepared.doc);
+    }, IMAGES_WAIT_MS);
     return () => {
-      iframe.removeEventListener('load', attach);
+      iframe.removeEventListener('load', loaded);
+      window.clearTimeout(late);
       cleanup();
     };
   }, [prepared.doc]);
 
   return (
-    <iframe
-      ref={frame}
-      className={styles.frame}
-      title="Email"
-      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      referrerPolicy="no-referrer"
-      srcDoc={prepared.doc}
-    />
+    <div className={styles.frameBox}>
+      {!ready && (
+        <div className={styles.frameLoading}>
+          <Spinner />
+        </div>
+      )}
+      <iframe
+        ref={frame}
+        className={cx(styles.frame, !ready && styles.frameHidden)}
+        title="Email"
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        referrerPolicy="no-referrer"
+        srcDoc={prepared.doc}
+      />
+    </div>
   );
 }
 

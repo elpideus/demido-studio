@@ -199,6 +199,41 @@ const TOOLS: &[ToolDef] = &[
         approval: false,
     },
     ToolDef {
+        name: "mail_list",
+        group: "mail",
+        description: "List the newest messages of an email folder (the inbox unless another is named), with sender, subject, date, unread state and a preview of each. Also names the account's folders. Reading never marks anything as read.",
+        parameters: mail::list_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "mail_search",
+        group: "mail",
+        description: "Search the user's mailbox on the mail server, all of it, not only what was downloaded. On Gmail it takes Gmail's search syntax (from:, subject:, has:attachment, after:2026/01/31, is:unread…) and searches All Mail. Returns the newest matches with their ids.",
+        parameters: mail::search_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "mail_export",
+        group: "mail",
+        description: "Download many emails at once with their whole text, up to 1000, into a JSON Lines file in the chat's workspace (mail folder), to analyse them with run_python. Takes the same search as mail_search, a date range, both, or neither for the newest. It fetches about a hundred emails per request to the server; emails opened or exported before come from the cache, and everything downloaded is cached for next time. Returns the file's path and a summary, not the emails themselves.",
+        parameters: mail::export_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "mail_read",
+        group: "mail",
+        description: "Read one email by its id (from mail_list or mail_search): sender, recipients, date, subject, the whole text and the list of attachments. Does not mark it as read.",
+        parameters: mail::read_schema,
+        approval: false,
+    },
+    ToolDef {
+        name: "mail_attachment",
+        group: "mail",
+        description: "Save an email's attachment into the chat's workspace (mail folder), to read it with read_file or analyse it with run_python. Returns the file's path.",
+        parameters: mail::attachment_schema,
+        approval: false,
+    },
+    ToolDef {
         name: "run_python",
         group: "coding",
         description: "Run Python 3 in the chat's workspace folder (numpy, pandas, matplotlib and requests are installed). Use it to analyse data files, compute statistics or draw charts. Print what you need to see. Charts saved as PNG files are shown to the user. Every run is a fresh process.",
@@ -416,6 +451,17 @@ pub fn describe(name: &str, args: &Value) -> String {
         "pine_edit" => "Editing a Pine script".into(),
         "pine_test" => format!("Testing a Pine script on {} {}", s("symbol"), s("timeframe")),
         "pine_publish" => "Saving a Pine script to TradingView".into(),
+        "mail_list" => match s("folder") {
+            folder if folder.is_empty() => "Checking the inbox".into(),
+            folder => format!("Listing the {folder} folder"),
+        },
+        "mail_search" => format!("Searching email for “{}”", s("query")),
+        "mail_export" => match s("query") {
+            query if query.is_empty() => "Exporting emails".into(),
+            query => format!("Exporting emails matching “{query}”"),
+        },
+        "mail_read" => "Reading an email".into(),
+        "mail_attachment" => format!("Saving the attachment {}", s("attachment")),
         "run_python" => {
             if s("file").is_empty() {
                 "Running Python".into()
@@ -456,6 +502,11 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "pine_edit" => pine::edit(ctx, &args).await,
         "pine_test" => pine::test(ctx, &args).await,
         "pine_publish" => pine::publish(ctx, &args).await,
+        "mail_list" => mail::list(ctx, &args).await,
+        "mail_search" => mail::search(ctx, &args).await,
+        "mail_export" => mail::export(ctx, &args).await,
+        "mail_read" => mail::read(ctx, &args).await,
+        "mail_attachment" => mail::attachment(ctx, &args).await,
         "run_python" => python::run(ctx, &args).await,
         "run_command" => command::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),

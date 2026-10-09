@@ -13,6 +13,12 @@ import {
   FileText,
   FlaskConical,
   LineChart,
+  Mail,
+  MailOpen,
+  MailSearch,
+  Mails,
+  Paperclip,
+  PenLine,
   Search,
   ShieldQuestion,
   SquareFunction,
@@ -111,16 +117,6 @@ function DownloadApproval({ message, card }: { message: Message; card: DownloadC
   const { busy, decide } = useDecide(message);
   // A card this UI cannot read still gets the choices, just without the estimate.
   const known = typeof card.plan?.requests === 'number';
-  const decide = async (decision: ApprovalDecision) => {
-    setBusy(true);
-    // The tool keeps waiting if the answer did not arrive, so the choices must stay usable.
-    try {
-      await api.resolveApproval(message.id, decision);
-    } catch (e) {
-      setBusy(false);
-      toast.error('Could not answer', errorText(e));
-    }
-  };
   return (
     <div className={styles.approval}>
       <div className={styles.approvalTitle}>

@@ -77,6 +77,10 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX bodies_by_age ON bodies(opened_at);
     "#,
+    // 2: Gmail's copies of one message, in each of its labels' folders
+    r#"
+    CREATE INDEX messages_by_gm_msgid ON messages(account, gm_msgid);
+    "#,
 ];
 
 /// A folder as the server lists it.
@@ -207,6 +211,19 @@ fn summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
     })
 }
 
+/// A span of time in ms since the epoch, both ends included; an end left out is open.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct DateRange {
+    pub since: Option<i64>,
+    pub until: Option<i64>,
+}
+
+impl DateRange {
+    pub fn contains(&self, ms: i64) -> bool {
+        self.since.is_none_or(|s| ms >= s) && self.until.is_none_or(|u| ms <= u)
+    }
+}
+
 /// Which messages a page shows.
 #[derive(Clone, Debug, Default)]
 pub struct PageQuery<'a> {
@@ -214,6 +231,8 @@ pub struct PageQuery<'a> {
     /// Words that must all appear in the sender, subject or preview.
     pub filter: Option<&'a str>,
     pub unread_only: bool,
+    /// When they arrived.
+    pub dates: DateRange,
 }
 
 pub struct Store {
@@ -268,7 +287,8 @@ impl Store {
     }
 
     /// Replaces the account's folder list, keeping what was synced of the folders that remain.
-    pub fn set_folders(&self, account: &str, folders: &[FolderInfo]) -> anyhow::Result<()> {
+    /// Returns whether a folder was added or removed.
+    pub fn set_folders(&self, account: &str, folders: &[FolderInfo]) -> anyhow::Result<bool> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         let existing: Vec<String> = {
@@ -276,6 +296,7 @@ impl Store {
             stmt.query_map([account], |r| r.get(0))?.collect::<Result<_, _>>()?
         };
         let keep: HashSet<&str> = folders.iter().map(|f| f.path.as_str()).collect();
+        let changed = existing.len() != keep.len() || existing.iter().any(|p| !keep.contains(p.as_str()));
         for gone in existing.iter().filter(|p| !keep.contains(p.as_str())) {
             tx.execute(
                 "DELETE FROM folders WHERE account = ?1 AND path = ?2",
@@ -293,11 +314,20 @@ impl Store {
                  ON CONFLICT(account, path) DO UPDATE SET name = excluded.name, role = excluded.role,
                    delimiter = excluded.delimiter, selectable = excluded.selectable, depth = excluded.depth,
                    position = excluded.position",
-                params![account, f.path, f.name, f.role, f.delimiter, f.selectable, f.depth, f.position],
+                params![
+                    account,
+                    f.path,
+                    f.name,
+                    f.role,
+                    f.delimiter,
+                    f.selectable,
+                    f.depth,
+                    f.position
+                ],
             )?;
         }
         tx.commit()?;
-        Ok(())
+        Ok(changed)
     }
 
     /// The folder with `role` ("inbox", "all", "sent"…), or one whose path or name is `name`.
@@ -312,18 +342,6 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()
-        })
-    }
-
-    pub fn folder_role(&self, account: &str, path: &str) -> anyhow::Result<Option<String>> {
-        self.with(|c| {
-            c.query_row(
-                "SELECT role FROM folders WHERE account = ?1 AND path = ?2",
-                params![account, path],
-                |r| r.get(0),
-            )
-            .optional()
-            .map(Option::flatten)
         })
     }
 
@@ -531,6 +549,12 @@ impl Store {
         if q.unread_only {
             sql.push_str(&format!(" AND (flags & {SEEN}) = 0"));
         }
+        if let Some(since) = q.dates.since {
+            sql.push_str(&format!(" AND date >= {since}"));
+        }
+        if let Some(until) = q.dates.until {
+            sql.push_str(&format!(" AND date <= {until}"));
+        }
         sql.push_str(&format!(" ORDER BY date DESC, uid DESC LIMIT {}", q.limit.max(1)));
         self.with(|c| {
             let mut stmt = c.prepare(&sql)?;
@@ -581,41 +605,70 @@ impl Store {
         self.with(|c| c.execute("DELETE FROM messages WHERE id = ?1", [id]).map(|_| ()))
     }
 
-    /// A cached body, marked as just opened.
+    /// A cached body, marked as just opened. On Gmail a message is in the folder of each of its
+    /// labels, and its body cached under any of them serves them all.
     pub fn body(&self, id: i64) -> anyhow::Result<Option<Body>> {
+        let row = |r: &rusqlite::Row<'_>| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                Body {
+                    html: r.get(1)?,
+                    text: r.get(2)?,
+                },
+            ))
+        };
         self.with(|c| {
-            let body = c
-                .query_row("SELECT html, text FROM bodies WHERE message = ?1", [id], |r| {
-                    Ok(Body {
-                        html: r.get(0)?,
-                        text: r.get(1)?,
-                    })
-                })
+            let mut found = c
+                .query_row("SELECT message, html, text FROM bodies WHERE message = ?1", [id], row)
                 .optional()?;
-            if body.is_some() {
+            if found.is_none() {
+                found = c
+                    .query_row(
+                        "SELECT b.message, b.html, b.text FROM messages m
+                         JOIN messages o ON o.account = m.account AND o.gm_msgid = m.gm_msgid AND o.id != m.id
+                         JOIN bodies b ON b.message = o.id
+                         WHERE m.id = ?1 AND m.gm_msgid IS NOT NULL
+                         LIMIT 1",
+                        [id],
+                        row,
+                    )
+                    .optional()?;
+            }
+            if let Some((message, _)) = &found {
                 c.execute(
                     "UPDATE bodies SET opened_at = ?2 WHERE message = ?1",
-                    params![id, crate::db::now_ms()],
+                    params![message, crate::db::now_ms()],
                 )?;
             }
-            Ok(body)
+            Ok(found.map(|(_, body)| body))
         })
     }
 
     pub fn save_body(&self, id: i64, body: &Body) -> anyhow::Result<()> {
-        let bytes = body.html.as_ref().map_or(0, String::len) + body.text.len();
+        self.save_bodies(&[(id, body)])
+    }
+
+    /// Caches the bodies of many messages at once, in one transaction.
+    pub fn save_bodies(&self, bodies: &[(i64, &Body)]) -> anyhow::Result<()> {
+        if bodies.is_empty() {
+            return Ok(());
+        }
+        let now = crate::db::now_ms();
         self.with(|c| {
-            c.execute(
-                "INSERT OR REPLACE INTO bodies (message, html, text, bytes, opened_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, body.html, body.text, bytes as i64, crate::db::now_ms()],
-            )?;
-            // A message first listed without a preview gets one from its body.
-            let preview = super::body::snippet(&body.text);
-            c.execute(
-                "UPDATE messages SET snippet = ?2 WHERE id = ?1 AND snippet = ''",
-                params![id, preview],
-            )?;
-            Ok(())
+            let tx = c.unchecked_transaction()?;
+            {
+                let mut save = tx.prepare(
+                    "INSERT OR REPLACE INTO bodies (message, html, text, bytes, opened_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                )?;
+                // A message first listed without a preview gets one from its body.
+                let mut preview = tx.prepare("UPDATE messages SET snippet = ?2 WHERE id = ?1 AND snippet = ''")?;
+                for (id, body) in bodies {
+                    let bytes = body.html.as_ref().map_or(0, String::len) + body.text.len();
+                    save.execute(params![id, body.html, body.text, bytes as i64, now])?;
+                    preview.execute(params![id, super::body::snippet(&body.text)])?;
+                }
+            }
+            tx.commit()
         })?;
         self.prune_bodies(MAX_BODY_BYTES)
     }
@@ -697,15 +750,45 @@ mod tests {
         )
         .unwrap();
         let all = s
-            .page("a", "INBOX", &PageQuery { limit: 10, ..PageQuery::default() })
+            .page(
+                "a",
+                "INBOX",
+                &PageQuery {
+                    limit: 10,
+                    ..PageQuery::default()
+                },
+            )
             .unwrap();
         assert_eq!(all.iter().map(|m| m.uid).collect::<Vec<_>>(), [2, 3, 1]);
         assert!(all[0].unread);
         let found = s
-            .page("a", "INBOX", &PageQuery { limit: 10, filter: Some("invoice apr"), unread_only: false })
+            .page(
+                "a",
+                "INBOX",
+                &PageQuery {
+                    limit: 10,
+                    filter: Some("invoice apr"),
+                    ..PageQuery::default()
+                },
+            )
             .unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].subject, "Invoice April");
+        let dated = |since, until| {
+            let q = PageQuery {
+                limit: 10,
+                dates: DateRange { since, until },
+                ..PageQuery::default()
+            };
+            s.page("a", "INBOX", &q)
+                .unwrap()
+                .iter()
+                .map(|m| m.uid)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(dated(Some(20), None), [2, 3]);
+        assert_eq!(dated(None, Some(20)), [3, 1]);
+        assert_eq!(dated(Some(11), Some(29)), [3]);
         assert_eq!(s.count("a", "INBOX", 2).unwrap(), 2);
         assert_eq!(s.max_uid("a", "INBOX").unwrap(), Some(3));
     }
@@ -722,7 +805,11 @@ mod tests {
         };
         assert!(s.update_flags("a", "INBOX", std::slice::from_ref(&seen)).unwrap());
         assert!(!s.update_flags("a", "INBOX", &[seen]).unwrap());
-        let unread_only = PageQuery { limit: 10, filter: None, unread_only: true };
+        let unread_only = PageQuery {
+            limit: 10,
+            unread_only: true,
+            ..PageQuery::default()
+        };
         assert!(s.page("a", "INBOX", &unread_only).unwrap().is_empty());
     }
 
@@ -751,7 +838,17 @@ mod tests {
         let mut m = meta(1, 10, "x");
         m.header.snippet.clear();
         s.upsert("a", "INBOX", &[m]).unwrap();
-        let id = s.page("a", "INBOX", &PageQuery { limit: 1, ..PageQuery::default() }).unwrap()[0].id;
+        let id = s
+            .page(
+                "a",
+                "INBOX",
+                &PageQuery {
+                    limit: 1,
+                    ..PageQuery::default()
+                },
+            )
+            .unwrap()[0]
+            .id;
         let body = Body {
             html: None,
             text: "Hello\nthere".into(),
@@ -768,7 +865,14 @@ mod tests {
         let s = Store::in_memory();
         s.upsert("a", "INBOX", &[meta(1, 10, "x"), meta(2, 20, "y")]).unwrap();
         let ids: Vec<i64> = s
-            .page("a", "INBOX", &PageQuery { limit: 5, ..PageQuery::default() })
+            .page(
+                "a",
+                "INBOX",
+                &PageQuery {
+                    limit: 5,
+                    ..PageQuery::default()
+                },
+            )
             .unwrap()
             .iter()
             .map(|m| m.id)
@@ -797,13 +901,22 @@ mod tests {
             depth: 0,
             position,
         };
-        s.set_folders("a", &[f("INBOX", Some("inbox"), 0), f("[Gmail]/Posta inviata", Some("sent"), 1), f("Work", None, 2)])
-            .unwrap();
-        assert_eq!(s.find_folder("a", "sent").unwrap().as_deref(), Some("[Gmail]/Posta inviata"));
+        let list = [
+            f("INBOX", Some("inbox"), 0),
+            f("[Gmail]/Posta inviata", Some("sent"), 1),
+            f("Work", None, 2),
+        ];
+        assert!(s.set_folders("a", &list).unwrap());
+        assert!(!s.set_folders("a", &list).unwrap());
+        assert_eq!(
+            s.find_folder("a", "sent").unwrap().as_deref(),
+            Some("[Gmail]/Posta inviata")
+        );
         assert_eq!(s.find_folder("a", "work").unwrap().as_deref(), Some("Work"));
         assert_eq!(s.find_folder("a", "nope").unwrap(), None);
         s.upsert("a", "Work", &[meta(1, 1, "x")]).unwrap();
-        s.set_folders("a", &[f("INBOX", Some("inbox"), 0)]).unwrap();
+        // A label deleted on the server goes, with its messages.
+        assert!(s.set_folders("a", &[f("INBOX", Some("inbox"), 0)]).unwrap());
         assert_eq!(s.count("a", "Work", 0).unwrap(), 0);
         assert_eq!(s.folders("a").unwrap().len(), 1);
     }

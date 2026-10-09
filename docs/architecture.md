@@ -270,6 +270,100 @@ sidecar, and saved in the credential store. When a market tool needs a session a
 the sign-in window opens; if the person does not sign in within the timeout, the tool result tells
 the model to ask them to.
 
+**Indicators.** TradingView computes the chart's indicators; Demido only draws them.
+`sidecars/market/src/indicators/` has four parts:
+
+- `catalog` reads what TradingView's own Indicators menu reads, with the person's session: the
+  built-ins, their scripts and Favorites (pine-facade), community search, and the saved chart
+  layouts with their studies' state. A layout's studies that are not Pine scripts (TradingView's
+  older built-ins) are listed as skipped; Volume is left out, since the chart draws volume itself.
+- `describe` turns a script's metaInfo (and a layout's state) into plain data: plots, colorers,
+  shapes, bands, inputs, and the columns each row carries.
+- `studies` runs each indicator as a study on the live stream's chart session (`indicator.add`,
+  `indicator.remove`). It sends `indicator.data` rows, `indicator.graphics` (labels, lines, boxes,
+  tables) and `indicator.error`. When the plan's indicators-per-chart limit refuses a study it
+  answers `STUDY_LIMIT`. `stream.extend` loads more bars into the session when the chart pages
+  back, so the indicators reach as far back as the candles. `trial` runs a script once on a chart
+  session of its own, for any market and timeframe, and returns every bar's values, or the
+  compile errors or runtime fault that stopped it (`pine.test`).
+- `pine` is Demido's own Pine library, on this computer (`DEMIDO_PINE_DIR/library.json`).
+  TradingView compiles its scripts without saving anything (pine-facade `translate_source`,
+  `pine.check`), and they run on the chart like any other indicator under the id `DEMIDO;<id>`.
+  `pine.import` copies a TradingView script into it; the person's own scripts stay linked, so a
+  script they edited in Demido is not overwritten. `pine.publish` saves one to the person's
+  account (private, under My scripts), the only call that changes the account; saving again adds
+  a version of the same script. Every change sends `pine.changed`, which the backend forwards on
+  `market://event`.
+
+In the UI (`apps/studio/src/market/`), a chart window keeps its indicators in its props
+(`savedIndicators`). `useIndicators` runs them in their saved order on the live stream, one
+request at a time, so the plan's limit refuses the last ones; removing one retries those.
+`PriceChart` draws them with Lightweight Charts: overlays on the candles, the others in panes of
+their own, shapes as series markers, and script drawings with a series primitive (`drawings`).
+Tables are HTML (`ScriptTable`). The pure parts (`indicatorView`) are unit-tested. Signed out,
+`indicators.ts` computes SMA, EMA, Bollinger Bands and RSI from the chart's bars under
+TradingView's ids and input ids, so the same saved indicator runs either way.
+
+`IndicatorSettings` is TradingView's settings dialog: Inputs, Style and Visibility. Inputs are
+sent to TradingView, which computes the indicator again; Style and Visibility are a look kept with
+the saved indicator (`look.ts`) and applied over what TradingView describes, so changing a color,
+width, line style, plot type, level, precision or the timeframes it shows on redraws it without
+computing anything. The Pine Editor (`PineEditor`, `pineSyntax`) edits library scripts: a
+textarea over a highlighted copy, compiled 900 ms after typing stops, with the compiler's
+messages on their lines. The `usePine` store keeps the library's list, updated by `pine.changed`,
+so a script the assistant saves shows up at once and runs again on the chart (a library
+indicator's revision is part of what it runs).
+
+The assistant has the same tools (`tools/pine.rs`): `pine_list`, `pine_read` (also imports a
+TradingView script), `pine_save` (saves a whole script and compiles it, answering with errors and
+warnings placed on their lines), `pine_edit`, `pine_test` (runs it through `trial` and writes
+every bar's values to a CSV in the workspace, with per-plot statistics in the answer) and
+`pine_publish`, which asks the person first unless they chose Always (`always_allowed_tools`).
+They are built for small local models. `pine_read` answers in plain text: the compiler's errors
+and warnings with their lines and code, then the source with line numbers, in parts of about
+10,000 characters that each say which `start_line` reads on (a result is clipped to 12,000 in
+the prompt). `pine_edit` replaces `old_string` with `new_string`, then saves and compiles, so a
+fix is one small call instead of rewriting a long script. It accepts text copied with
+`pine_read`'s line numbers, with the indentation lost or shifted (each line gets the script's
+indentation back, matched line by line), and with either line ending. A missing or unknown id
+gets an error that lists the library's ids, and a script's name works in place of its id.
+`pine_test` takes only an id, so new code is saved first. `chart_add_indicator` and `chart_draw` change
+the chart through `market://chart` commands (`chartCommands.ts`), opening the Market window when
+it is closed. `chart_draw` draws named sets of levels, zones, trend lines, markers and labels
+without any indicator, kept per market in the window's props until the person removes them from
+the legend.
+
+**Mail.** Accounts are in `mail.json` and their passwords in the credential store (`mail:<id>`);
+Gmail is IMAP at `imap.gmail.com` with an app password, other providers give their host. Every
+connection is TLS on port 993 and opens folders with EXAMINE and bodies with `BODY.PEEK`, so
+reading never changes a flag. Each account has one connection, behind a lock: commands queue on
+it, a broken one is reopened once, and one unused for five minutes is closed. The cache
+(`cache/mail.db`) keeps each folder's messages (headers, flags, a preview and the body's MIME
+structure) and the bodies opened. A folder is first loaded as its newest 50 messages; older ones
+are fetched as the list scrolls. After that, `sync_folder` asks only for what changed: new
+messages above the stored UIDNEXT, flags changed since the stored HIGHESTMODSEQ (CONDSTORE), and
+deletions, looked for only when the message count says some are missing; a changed UIDVALIDITY
+starts the folder over. Servers without CONDSTORE have the flags of the cached range read again.
+A folder checked less than a minute ago is not asked again, and concurrent requests share one
+check. While the Mail window is open (and two minutes after), each inbox is watched with IDLE on
+its own connection (where IDLE is missing, it is checked every three minutes instead); news announces
+`mail://changed`, which the window answers by reading the cache again. Opening a message fetches
+the whole message when it is small, else only its text and the images it shows inline, skipping
+attachments, which are fetched by part when saved. Bodies are cached under the message; on Gmail,
+where a message is in the folder of each of its labels, a body cached in one serves its copies in
+the others (by X-GM-MSGID). `MailService::open_many` opens many messages at once: the cached ones
+from the cache, the rest with one UID FETCH per hundred messages or 8 MB (`sync::body_batches`;
+a large message with parts still gets its own part-by-part fetch), each saved in one transaction as
+it arrives and with the connection released between requests, so the Mail window is not held up.
+The window renders HTML mail in a sandboxed
+frame without scripts, cleaned (`emailHtml.ts`) and under a content policy that blocks remote
+images until the person shows them. The tools (`tools/mail.rs`) give the model message ids
+(`m123`) and wrap every email in `<email>` tags with a note that it is the sender's content,
+never instructions. `mail_export` runs a search (or a date range, or neither for the newest) and
+writes up to a thousand matches with their text to a JSON Lines file in the workspace through
+`open_many`, so the model analyses them with `run_python` instead of reading them into its context;
+stopped early, it keeps what arrived, and the next export continues from the cache.
+
 **Commands.** `run_command` runs a command line in the person's own shell (`shell/`): PowerShell
 7 when it is installed (on the PATH, where the Microsoft Store puts an app execution alias, or in
 Program Files; each candidate is asked its version once, at startup), Windows PowerShell 5.1

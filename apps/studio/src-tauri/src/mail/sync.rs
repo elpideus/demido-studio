@@ -6,13 +6,13 @@
 //! deletions are looked for only when the count dropped below what the additions explain. When
 //! nothing changed a sync costs that one EXAMINE.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use async_imap::imap_proto::{MessageSection, SectionPath};
 
 use super::body::{self, Body, Plan};
 use super::imap::Conn;
-use super::store::{FolderState, Store, Summary};
+use super::store::{DateRange, FolderState, Store, Summary};
 
 /// Messages fetched at a time: the first look at a folder, and each page further back.
 pub const PAGE: u32 = 50;
@@ -22,6 +22,11 @@ const WHOLE_MESSAGE_LIMIT: u32 = 1_000_000;
 
 /// Inline images fetched with a large message's text.
 const INLINE_BUDGET: u64 = 8 * 1024 * 1024;
+
+/// Whole messages fetched in one request when many are wanted at once, up to this many of them
+/// and this many bytes, so each request ends well within the command timeout.
+const BATCH_MESSAGES: usize = 100;
+const BATCH_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Updates the cache of `path`. Returns whether anything in it changed.
 pub async fn sync_folder(conn: &mut Conn, store: &Store, account: &str, path: &str) -> anyhow::Result<bool> {
@@ -143,37 +148,138 @@ pub async fn load_older(conn: &mut Conn, store: &Store, account: &str, path: &st
     Ok(older.len() as u32)
 }
 
-/// Searches a folder on the server; the newest `limit` results are fetched into the cache when
-/// they are not there yet.
+/// Searches a folder on the server, for `text`, mail that arrived within `dates`, or both; the
+/// newest `limit` results are fetched into the cache when they are not there yet.
 pub async fn search(
     conn: &mut Conn,
     store: &Store,
     account: &str,
     path: &str,
     text: &str,
+    dates: &DateRange,
     limit: usize,
 ) -> anyhow::Result<Vec<Summary>> {
     conn.ensure_selected(path).await?;
-    let uids = conn.search_text(text).await?;
-    let newest: Vec<u32> = uids.iter().rev().take(limit).copied().collect();
-    let cached: HashSet<u32> = store
-        .summaries_by_uid(account, path, &newest)?
-        .iter()
-        .map(|s| s.uid)
-        .collect();
-    let missing: Vec<u32> = newest.iter().copied().filter(|u| !cached.contains(u)).collect();
-    if !missing.is_empty() {
-        let list = conn.fetch_meta(&uid_set(&missing), true).await?;
-        store.upsert(account, path, &list)?;
+    let uids = conn.search_text(text, &date_criteria(dates)).await?;
+    // The server matches whole days, in its own time zone, so it also finds mail from around the
+    // range: the newest matches are read a page at a time until `limit` of them fall within it.
+    let mut found = Vec::new();
+    for page in uids.rchunks(limit.max(1)) {
+        let cached: HashSet<u32> = store
+            .summaries_by_uid(account, path, page)?
+            .iter()
+            .map(|s| s.uid)
+            .collect();
+        let missing: Vec<u32> = page.iter().copied().filter(|u| !cached.contains(u)).collect();
+        if !missing.is_empty() {
+            let list = conn.fetch_meta(&uid_set(&missing), true).await?;
+            store.upsert(account, path, &list)?;
+        }
+        found.extend(
+            store
+                .summaries_by_uid(account, path, page)?
+                .into_iter()
+                .filter(|s| dates.contains(s.date)),
+        );
+        if found.len() >= limit {
+            break;
+        }
     }
-    store.summaries_by_uid(account, path, &newest)
+    found.sort_by(|a, b| b.date.cmp(&a.date).then(b.uid.cmp(&a.uid)));
+    found.truncate(limit);
+    Ok(found)
+}
+
+/// IMAP search keys for mail that arrived within `dates`. IMAP compares whole days in the
+/// server's time zone, so the days are widened by one on each side; `search` keeps the exact range.
+fn date_criteria(dates: &DateRange) -> String {
+    const DAY: i64 = 86_400_000;
+    let day = |ms: i64| {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .map(|d| d.format("%-d-%b-%Y").to_string())
+            .unwrap_or_default()
+    };
+    let mut keys = Vec::new();
+    if let Some(since) = dates.since {
+        keys.push(format!("SINCE {}", day(since - DAY)));
+    }
+    if let Some(until) = dates.until {
+        // BEFORE excludes its own day: the day after the widened end.
+        keys.push(format!("BEFORE {}", day(until + 2 * DAY)));
+    }
+    keys.retain(|k| !k.ends_with(' '));
+    keys.join(" ")
+}
+
+/// Whether a message's body is fetched by fetching the whole message; a large one with parts is
+/// fetched part by part, leaving its attachments on the server.
+fn fetched_whole(size: u32, multipart: bool) -> bool {
+    !multipart || size <= WHOLE_MESSAGE_LIMIT
+}
+
+/// The requests that fetch the bodies of many messages of one folder.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BodyBatch {
+    /// Whole messages, all in one request.
+    Whole(Vec<u32>),
+    /// A large message with parts, which has a request of its own (see `fetch_body`).
+    Parts(u32),
+}
+
+impl BodyBatch {
+    /// The messages the request fetches.
+    pub fn count(&self) -> usize {
+        match self {
+            BodyBatch::Whole(uids) => uids.len(),
+            BodyBatch::Parts(_) => 1,
+        }
+    }
+}
+
+/// Groups messages (`(uid, size, multipart)`) into as few requests as their sizes allow.
+pub fn body_batches(messages: impl IntoIterator<Item = (u32, u32, bool)>) -> Vec<BodyBatch> {
+    let mut batches = Vec::new();
+    let mut whole = Vec::new();
+    let mut bytes = 0u64;
+    for (uid, size, multipart) in messages {
+        if !fetched_whole(size, multipart) {
+            batches.push(BodyBatch::Parts(uid));
+            continue;
+        }
+        if !whole.is_empty() && (whole.len() >= BATCH_MESSAGES || bytes + u64::from(size) > BATCH_BYTES) {
+            batches.push(BodyBatch::Whole(std::mem::take(&mut whole)));
+            bytes = 0;
+        }
+        whole.push(uid);
+        bytes += u64::from(size);
+    }
+    if !whole.is_empty() {
+        batches.push(BodyBatch::Whole(whole));
+    }
+    batches
+}
+
+/// The bodies of whole messages, fetched in one request, by UID. A message no longer on the
+/// server is left out.
+pub async fn fetch_whole(conn: &mut Conn, path: &str, uids: &[u32]) -> anyhow::Result<HashMap<u32, Body>> {
+    conn.ensure_selected(path).await?;
+    let wanted: HashSet<u32> = uids.iter().copied().collect();
+    let fetches = conn.fetch_many(&uid_set(uids), "(UID BODY.PEEK[])").await?;
+    // The server may slip in news about other messages, without a body; only the answers count.
+    Ok(fetches
+        .iter()
+        .filter_map(|f| {
+            let uid = f.uid.filter(|u| wanted.contains(u))?;
+            Some((uid, body::parse_body(f.body()?)))
+        })
+        .collect())
 }
 
 /// A message's body: the whole message when small, otherwise only its text and inline images.
 /// None when the message is no longer on the server.
 pub async fn fetch_body(conn: &mut Conn, path: &str, uid: u32, size: u32, plan: &Plan) -> anyhow::Result<Option<Body>> {
     conn.ensure_selected(path).await?;
-    if !plan.multipart || size <= WHOLE_MESSAGE_LIMIT {
+    if fetched_whole(size, plan.multipart) {
         let Some(f) = conn.fetch_one(uid, "(UID BODY.PEEK[])").await? else {
             return Ok(None);
         };
@@ -337,6 +443,49 @@ mod tests {
         assert_eq!(uid_set(&[9, 3, 4, 5, 12, 13, 4]), "3:5,9,12:13");
         assert_eq!(uid_set(&[7]), "7");
         assert_eq!(uid_set(&[]), "");
+    }
+
+    #[test]
+    fn dates_are_searched_by_whole_days_around_the_range() {
+        let ms = |s: &str| chrono::DateTime::parse_from_rfc3339(s).unwrap().timestamp_millis();
+        let range = DateRange {
+            since: Some(ms("2026-10-01T09:30:00Z")),
+            until: Some(ms("2026-10-09T23:59:59.999Z")),
+        };
+        assert_eq!(date_criteria(&range), "SINCE 30-Sep-2026 BEFORE 11-Oct-2026");
+        let open_end = DateRange {
+            since: Some(ms("2026-01-01T00:00:00Z")),
+            until: None,
+        };
+        assert_eq!(date_criteria(&open_end), "SINCE 31-Dec-2025");
+        assert_eq!(date_criteria(&DateRange::default()), "");
+        assert!(range.contains(ms("2026-10-05T12:00:00Z")));
+        assert!(!range.contains(ms("2026-10-10T00:00:00Z")));
+    }
+
+    #[test]
+    fn bodies_are_fetched_many_to_a_request() {
+        use BodyBatch::{Parts, Whole};
+        // 250 small messages: three requests, of at most 100.
+        let small: Vec<_> = (1..=250).map(|uid| (uid, 20_000, true)).collect();
+        let batches = body_batches(small);
+        assert_eq!(batches.iter().map(BodyBatch::count).collect::<Vec<_>>(), [100, 100, 50]);
+        // Requests stop growing at 8 MB; a large message with parts is fetched on its own.
+        let mixed = [
+            (1, 900_000, false),
+            (2, 5_000_000, true),
+            (3, 3_000_000, false),
+            (4, 900_000, true),
+        ];
+        let mut sizes = mixed.to_vec();
+        sizes.extend((5..=10).map(|uid| (uid, 1_000_000, false)));
+        assert_eq!(
+            body_batches(sizes),
+            [Parts(2), Whole(vec![1, 3, 4, 5, 6, 7]), Whole(vec![8, 9, 10])]
+        );
+        // A message larger than a request still gets one.
+        assert_eq!(body_batches([(1, 20_000_000, false)]), [Whole(vec![1])]);
+        assert!(body_batches([]).is_empty());
     }
 
     #[test]

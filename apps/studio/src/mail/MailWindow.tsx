@@ -1,9 +1,11 @@
 import { type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  CalendarDays,
   Download,
   ExternalLink,
   FileText,
+  Image as ImageIcon,
   ImageOff,
   KeyRound,
   Mail,
@@ -39,11 +41,22 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
 import { formatDateTime } from '@/lib/format';
-import type { MailAccount, MailAttachment, MailFolder, MailMessage, MailPage, MailSummary } from '@/lib/types';
+import type {
+  MailAccount,
+  MailAttachment,
+  MailDateRange,
+  MailFolder,
+  MailMessage,
+  MailPage,
+  MailSummary,
+} from '@/lib/types';
 import { useMail } from '@/stores/mail';
+import { useApp } from '@/stores/app';
 import { toast } from '@/stores/toasts';
 import { type WindowState, useWindows } from '@/stores/windows';
 import { ConnectForm } from './ConnectForm';
+import { DateFilter } from './DateFilter';
+import { rangeLabel } from './dateRange';
 import { HtmlBody, TextBody } from './EmailBody';
 import { Lru, folderOptions, listDate, personLabel, personName, rowPeople, startFolder } from './mailView';
 import styles from './MailWindow.module.css';
@@ -97,7 +110,8 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
   const shownAccount = useRef(account.id);
   shownAccount.current = account.id;
 
-  // The folder list is read from the server once a session, then from the cache.
+  // The folder list comes from the cache; the backend reads it from the server again when it is
+  // a minute old.
   const loadFolders = useCallback(async (id: string, refresh = false) => {
     try {
       const list = await api.mailFolders(id, refresh);
@@ -112,18 +126,27 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
     void loadFolders(account.id);
   }, [account.id, loadFolders]);
 
-  // Unread counts follow the changes the folders report.
+  // Unread counts follow the changes the folders report, and the list follows folders and
+  // labels made or deleted elsewhere.
   useEffect(() => {
     let timer = 0;
-    const unlisten = on('mail://changed', (e) => {
+    const reload = (e: { account: string }) => {
       if (e.account !== account.id) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => void loadFolders(account.id), 400);
-    });
+    };
+    const unlisten = [on('mail://changed', reload), on('mail://folders', reload)];
     return () => {
       window.clearTimeout(timer);
-      void unlisten.then((f) => f());
+      for (const u of unlisten) void u.then((f) => f());
     };
+  }, [account.id, loadFolders]);
+
+  // Coming back to the app checks for folders and labels made or deleted meanwhile.
+  useEffect(() => {
+    const onFocus = () => void loadFolders(account.id);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [account.id, loadFolders]);
 
   // The saved folder shows from the cache right away, before the folder list arrives.
@@ -265,9 +288,18 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
 
 interface Results {
   query: string;
+  range: MailDateRange | null;
   /** Null while the server is searched. */
   messages: MailSummary[] | null;
   error?: string;
+}
+
+/** What the results bar says: what was searched for, and how much was found. */
+function searchLabel({ query, range, messages }: Results): string {
+  const text = query ? `for “${query}”` : '';
+  const dates = range ? rangeLabel(range) : '';
+  if (!messages) return `Searching ${[text, dates].filter(Boolean).join(', ')}…`;
+  return [`${messages.length} found ${text}`.trim(), dates].filter(Boolean).join(' · ');
 }
 
 /**
@@ -288,6 +320,12 @@ function FolderView({
   const [query, setQuery] = useState('');
   const filter = useDebounced(query.trim(), 200);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [range, setRange] = useState<MailDateRange | null>(null);
+  const [picking, setPicking] = useState(false);
+  const pickerAnchor = useRef<HTMLButtonElement>(null);
+  const searches = useRef(0);
+  const alwaysImages = useApp((s) => s.settings?.mailShowImages ?? false);
+  const patchSettings = useApp((s) => s.patchSettings);
   const [limit, setLimit] = useState(STEP);
   const [page, setPage] = useState<MailPage | null>(null);
   const [results, setResults] = useState<Results | null>(null);
@@ -392,23 +430,37 @@ function FolderView({
     return () => observer.disconnect();
   }, [page, results]);
 
-  const search = async () => {
-    const q = query.trim();
-    if (!q) return setResults(null);
-    setResults({ query: q, messages: null });
+  // Only the latest search shows its results.
+  const runSearch = async (q: string, dates: MailDateRange | null) => {
+    const n = ++searches.current;
+    if (!q && !dates) return setResults(null);
+    setResults({ query: q, range: dates, messages: null });
     try {
-      const found = await api.mailSearch(account.id, folder, q);
-      setResults((r) => (r?.query === q ? { query: q, messages: found } : r));
+      const found = await api.mailSearch(account.id, folder, q, dates);
+      if (n === searches.current) setResults({ query: q, range: dates, messages: found });
     } catch (e) {
-      setResults((r) => (r?.query === q ? { query: q, messages: [], error: errorText(e) } : r));
+      if (n === searches.current) setResults({ query: q, range: dates, messages: [], error: errorText(e) });
     }
+  };
+  const search = () => runSearch(query.trim(), range);
+  const applyRange = (next: MailDateRange | null) => {
+    setPicking(false);
+    setRange(next);
+    if (next) void runSearch(query.trim(), next);
+    else void runSearch(results?.query ?? '', null);
+  };
+  const clearText = () => {
+    setQuery('');
+    void runSearch('', range);
   };
   const clearSearch = () => {
     setQuery('');
-    setResults(null);
+    setRange(null);
+    void runSearch('', null);
   };
 
-  const messages = results ? (results.messages ?? []) : (page?.messages ?? []);
+  // While the server is searched, the saved mail that matches shows.
+  const messages = (results ? results.messages : null) ?? page?.messages ?? [];
   const current = selected ? (messages.find((m) => m.id === selected.id) ?? selected) : null;
 
   const move = (delta: number) => {
@@ -447,7 +499,35 @@ function FolderView({
                 clearSearch();
               }
             }}
-            trailing={query ? <IconButton icon={X} label="Clear" size="xs" tooltip={false} onClick={clearSearch} /> : null}
+            trailing={
+              <>
+                {query && <IconButton icon={X} label="Clear" size="xs" tooltip={false} onClick={clearText} />}
+                <IconButton
+                  ref={pickerAnchor}
+                  icon={CalendarDays}
+                  label={range ? `Dates: ${rangeLabel(range)}` : 'Search by date'}
+                  size="xs"
+                  active={!!range || picking}
+                  aria-expanded={picking}
+                  onClick={() => setPicking((o) => !o)}
+                />
+              </>
+            }
+          />
+          <DateFilter
+            open={picking}
+            onClose={() => setPicking(false)}
+            anchorRef={pickerAnchor}
+            value={range}
+            onApply={applyRange}
+          />
+          <IconButton
+            icon={alwaysImages ? ImageIcon : ImageOff}
+            label="Load images automatically"
+            size="sm"
+            active={alwaysImages}
+            aria-pressed={alwaysImages}
+            onClick={() => void patchSettings({ mailShowImages: !alwaysImages })}
           />
           <IconButton
             icon={RefreshCw}
@@ -628,7 +708,10 @@ function Reader({ summary, account }: { summary: MailSummary; account: MailAccou
   const [message, setMessage] = useState<MailMessage | null>(() => opened.get(summary.id) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [showImages, setShowImages] = useState(false);
+  const alwaysImages = useApp((s) => s.settings?.mailShowImages ?? false);
+  const patchSettings = useApp((s) => s.patchSettings);
+  const [imagesOnce, setShowImages] = useState(false);
+  const showImages = alwaysImages || imagesOnce;
   const [remote, setRemote] = useState(false);
 
   useEffect(() => {
@@ -683,9 +766,14 @@ function Reader({ summary, account }: { summary: MailSummary; account: MailAccou
           icon={ImageOff}
           className={styles.imagesNotice}
           action={
-            <Button size="sm" variant="secondary" onClick={() => setShowImages(true)}>
-              Show images
-            </Button>
+            <>
+              <Button size="sm" variant="secondary" onClick={() => setShowImages(true)}>
+                Show images
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void patchSettings({ mailShowImages: true })}>
+                Always show
+              </Button>
+            </>
           }
         >
           Images from the internet are hidden: loading them can tell the sender you read this.
