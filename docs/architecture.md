@@ -115,7 +115,7 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `settings`, `secrets` | `settings.json`; API keys, the TradingView session and mail passwords in the OS credential store |
 | `runtime` | One `llama-server` process at a time, restarted only when the launch settings change |
 | `models` | GGUF discovery (built-in folder, extra folders, LM Studio), GGUF metadata, cloud models, per-model overrides, what each model can do, Hugging Face search and downloads |
-| `providers` | Gemini configuration and model listing |
+| `providers` | Gemini and OpenRouter: configuration, model listing, and what each key has left (`ProviderStore::usage`: OpenRouter's `GET /key` gives today's free requests and a key's credit limit; Google reports Gemini's quota only in AI Studio, so it is shown as unreported) |
 | `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE) or Gemini (native SSE); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
 | `attachments` | Files attached to messages: staging, moving them into the chat's workspace, what the model reads of them (full text, passages, images and sound), passage search |

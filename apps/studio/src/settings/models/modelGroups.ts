@@ -8,6 +8,8 @@ export interface ModelGroupData {
   title: string;
   /** Label of the group's search button and field. */
   searchLabel: string;
+  /** The cloud provider whose models these are; null for the local group. */
+  providerId: string | null;
   models: ModelEntry[];
 }
 
@@ -22,6 +24,7 @@ export function groupModels(models: ModelEntry[]): ModelGroupData[] {
     id: LOCAL_GROUP,
     title: 'On this computer',
     searchLabel: 'Search on this computer',
+    providerId: null,
     models: [],
   };
   const cloud = new Map<string, ModelGroupData>();
@@ -32,7 +35,13 @@ export function groupModels(models: ModelEntry[]): ModelGroupData[] {
     }
     const id = `provider:${m.providerId ?? ''}`;
     const title = m.providerName ?? 'Cloud';
-    const group = cloud.get(id) ?? { id, title, searchLabel: `Search ${title}`, models: [] };
+    const group = cloud.get(id) ?? {
+      id,
+      title,
+      searchLabel: `Search ${title}`,
+      providerId: m.providerId,
+      models: [],
+    };
     group.models.push(m);
     cloud.set(id, group);
   }

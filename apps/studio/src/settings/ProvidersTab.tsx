@@ -20,9 +20,11 @@ import {
 import { api, errorText } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { ModelGroup, ProviderKind, ProviderView } from '@/lib/types';
+import { useProviderUsage } from '@/stores/providerUsage';
 import { toast } from '@/stores/toasts';
 import s from './settings.module.css';
 import styles from './ProvidersTab.module.css';
+import { ProviderUsageMeters, useUsageRefresh } from './UsageMeter';
 
 const NAME_MAX = 60;
 
@@ -333,6 +335,7 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
           }
         />
       </div>
+      {provider.hasKey && <ProviderUsageMeters providerId={provider.id} />}
       {replacing ? (
         <div className={s.cardPad}>
           <KeyForm
@@ -344,6 +347,7 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
               setReplacing(false);
               toast.success('Key updated');
               void onChange();
+              void useProviderUsage.getState().refresh(true);
             }}
           />
         </div>
@@ -459,6 +463,7 @@ export function ProvidersTab() {
   const [adding, setAdding] = useState(false);
   const load = () => api.listProviders().then(setProviders);
   useEffect(() => void load(), []);
+  useUsageRefresh();
   // The first kind not connected yet, so adding a second provider starts on the other one.
   const nextKind = KINDS.find((k) => !providers?.some((p) => p.kind === k.value))?.value ?? 'gemini';
 
@@ -489,6 +494,7 @@ export function ProvidersTab() {
               onAdded={() => {
                 setAdding(false);
                 void load();
+                void useProviderUsage.getState().refresh(true);
               }}
             />
           )}

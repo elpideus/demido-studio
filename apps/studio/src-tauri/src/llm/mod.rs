@@ -43,6 +43,26 @@ pub struct CloudModel {
     pub free: bool,
 }
 
+/// Part of what a provider lets a key use, as the provider itself reports it.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Allowance {
+    pub kind: AllowanceKind,
+    pub remaining: f64,
+    pub limit: f64,
+    /// When it is full again (ms since the epoch); `None` when it never refills.
+    pub resets_at: Option<i64>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AllowanceKind {
+    /// Requests to free models in the current UTC day.
+    FreeRequests,
+    /// US dollars of credit the key may still spend.
+    KeyCredit,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "role", rename_all = "lowercase")]
 pub enum LlmMessage {

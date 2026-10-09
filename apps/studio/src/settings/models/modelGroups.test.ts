@@ -45,6 +45,8 @@ describe('groupModels', () => {
     const groups = groupModels([cloud('a', 'Flash', 'p1', 'Gemini'), cloud('b', 'Pro', 'p2', 'Gemini')]);
     expect(groups.slice(1).map((g) => g.models.map((m) => m.id))).toEqual([['a'], ['b']]);
     expect(new Set(groups.map((g) => g.id)).size).toBe(3);
+    // Each group knows its provider, whose usage its heading shows.
+    expect(groups.map((g) => g.providerId)).toEqual([null, 'p1', 'p2']);
   });
 
   it('sorts cloud models active first, then by name, and leaves local order alone', () => {

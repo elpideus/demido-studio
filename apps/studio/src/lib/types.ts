@@ -334,6 +334,21 @@ export interface ProviderView {
   keyHint: string | null;
 }
 
+/** Part of what a provider lets a key use, as the provider reports it. */
+export interface Allowance {
+  /** `freeRequests`: requests to free models today (UTC). `keyCredit`: US dollars the key may still spend. */
+  kind: 'freeRequests' | 'keyCredit';
+  remaining: number;
+  limit: number;
+  /** When it is full again; null when it never refills. */
+  resetsAt: number | null;
+}
+
+/** What a provider says one of its keys has left. `unreported`: the provider cannot be asked (Gemini). */
+export type ProviderUsage = { providerId: string; checkedAt: number } & (
+  { status: 'reported'; allowances: Allowance[] } | { status: 'unreported' } | { status: 'failed'; message: string }
+);
+
 export interface SkillFile {
   path: string;
   size: number;

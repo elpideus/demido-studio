@@ -349,6 +349,7 @@ pub fn run() {
             commands::models::add_model_folder,
             commands::models::remove_model_folder,
             commands::providers::list_providers,
+            commands::providers::provider_usage,
             commands::providers::add_provider,
             commands::providers::update_provider,
             commands::providers::refresh_provider,

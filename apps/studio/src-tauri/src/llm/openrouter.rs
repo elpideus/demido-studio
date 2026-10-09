@@ -2,10 +2,11 @@
 //! [`super::openai::OpenAiClient`] in its OpenRouter dialect; this module checks keys and reads
 //! the list of models, which says what each model can do and what it costs.
 
+use chrono::{DateTime, Datelike, Days, Months, NaiveTime, Utc};
 use serde_json::Value;
 
 use super::openai::error_message;
-use super::{CloudModel, LlmError};
+use super::{Allowance, AllowanceKind, CloudModel, LlmError};
 use crate::models::capabilities::Capabilities;
 
 pub const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
@@ -23,6 +24,50 @@ pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) 
     get(http, &format!("{base}/key"), api_key).await?;
     let list = get(http, &format!("{base}/models"), api_key).await?;
     Ok(parse_models(&list))
+}
+
+/// What the key has left, from `GET /key`: today's requests to free models and, when the key has
+/// a credit limit, its credit. The account's own balance needs a management key, so a key without
+/// a limit reports only the free requests.
+pub async fn allowances(http: &reqwest::Client, base_url: &str, api_key: &str) -> Result<Vec<Allowance>, LlmError> {
+    let key = get(http, &format!("{}/key", base_url.trim_end_matches('/')), api_key).await?;
+    Ok(parse_allowances(&key["data"], Utc::now()))
+}
+
+fn parse_allowances(key: &Value, now: DateTime<Utc>) -> Vec<Allowance> {
+    let mut allowances = Vec::new();
+    let free = &key["free_model_daily_requests"];
+    if let (Some(remaining), Some(limit)) = (free["remaining"].as_f64(), free["limit"].as_f64()) {
+        allowances.push(Allowance {
+            kind: AllowanceKind::FreeRequests,
+            remaining,
+            limit,
+            resets_at: next_reset(Some("daily"), now),
+        });
+    }
+    // A key without a limit has `null` for both.
+    if let (Some(remaining), Some(limit)) = (key["limit_remaining"].as_f64(), key["limit"].as_f64()) {
+        allowances.push(Allowance {
+            kind: AllowanceKind::KeyCredit,
+            remaining,
+            limit,
+            resets_at: next_reset(key["limit_reset"].as_str(), now),
+        });
+    }
+    allowances
+}
+
+/// OpenRouter's limits reset at midnight UTC: every day, every Monday or on the first of the
+/// month. `None` for a limit that never resets.
+fn next_reset(period: Option<&str>, now: DateTime<Utc>) -> Option<i64> {
+    let today = now.date_naive();
+    let next = match period? {
+        "daily" => today + Days::new(1),
+        "weekly" => today + Days::new(7 - u64::from(today.weekday().num_days_from_monday())),
+        "monthly" => today.with_day(1)? + Months::new(1),
+        _ => return None,
+    };
+    Some(next.and_time(NaiveTime::MIN).and_utc().timestamp_millis())
 }
 
 async fn get(http: &reqwest::Client, url: &str, api_key: &str) -> Result<Value, LlmError> {
@@ -163,5 +208,68 @@ mod tests {
         let auto = &models[0];
         assert!(!auto.free && !auto.thinking);
         assert_eq!(auto.capabilities.and_then(|c| c.audio), Some(true));
+    }
+
+    fn at(rfc3339: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(rfc3339).unwrap().to_utc()
+    }
+
+    fn ms(rfc3339: &str) -> Option<i64> {
+        Some(at(rfc3339).timestamp_millis())
+    }
+
+    #[test]
+    fn reads_what_a_key_has_left() {
+        let now = at("2026-10-09T15:30:00Z");
+        let limited = json!({
+            "label": "sk-or-v1-abc...xyz",
+            "limit": 10, "limit_remaining": 7.25, "limit_reset": "monthly",
+            "usage": 42.5, "usage_daily": 0.5, "is_free_tier": false,
+            "free_model_daily_requests": {"used": 12, "limit": 1000, "remaining": 988}
+        });
+        assert_eq!(
+            parse_allowances(&limited, now),
+            [
+                Allowance {
+                    kind: AllowanceKind::FreeRequests,
+                    remaining: 988.0,
+                    limit: 1000.0,
+                    resets_at: ms("2026-10-10T00:00:00Z"),
+                },
+                Allowance {
+                    kind: AllowanceKind::KeyCredit,
+                    remaining: 7.25,
+                    limit: 10.0,
+                    resets_at: ms("2026-11-01T00:00:00Z"),
+                },
+            ]
+        );
+
+        let unlimited = json!({"limit": null, "limit_remaining": null, "limit_reset": null,
+            "free_model_daily_requests": {"used": 50, "limit": 50, "remaining": 0}});
+        let only_free = parse_allowances(&unlimited, now);
+        assert_eq!(only_free.len(), 1);
+        assert_eq!((only_free[0].remaining, only_free[0].limit), (0.0, 50.0));
+
+        assert!(parse_allowances(&json!({"label": "old"}), now).is_empty());
+    }
+
+    #[test]
+    fn limits_reset_at_midnight_utc() {
+        // A Friday.
+        let now = at("2026-10-09T23:59:59Z");
+        assert_eq!(next_reset(Some("daily"), now), ms("2026-10-10T00:00:00Z"));
+        assert_eq!(next_reset(Some("weekly"), now), ms("2026-10-12T00:00:00Z"));
+        assert_eq!(
+            next_reset(Some("monthly"), at("2026-12-31T08:00:00Z")),
+            ms("2027-01-01T00:00:00Z")
+        );
+        // On a Monday the week has just begun.
+        assert_eq!(
+            next_reset(Some("weekly"), at("2026-10-12T00:00:00Z")),
+            ms("2026-10-19T00:00:00Z")
+        );
+        assert_eq!(next_reset(None, now), None);
+        assert_eq!(next_reset(Some("yearly"), now), None);
     }
 }

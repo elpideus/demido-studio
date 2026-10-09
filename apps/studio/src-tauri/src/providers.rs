@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::bail_msg;
 use crate::db::{new_id, now_ms};
 use crate::error::CmdResult;
-use crate::llm::{CloudModel, gemini, openrouter};
+use crate::llm::{Allowance, CloudModel, gemini, openrouter};
 use crate::secrets::{Secrets, provider_key};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -98,6 +98,29 @@ pub struct ProviderView {
     pub has_key: bool,
     /// Last four characters of the key, for recognition.
     pub key_hint: Option<String>,
+}
+
+/// What a provider says one of its keys has left.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUsage {
+    pub provider_id: String,
+    #[serde(flatten)]
+    pub report: UsageReport,
+    pub checked_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum UsageReport {
+    Reported {
+        allowances: Vec<Allowance>,
+    },
+    /// The provider cannot be asked: Google shows Gemini's quotas only in AI Studio.
+    Unreported,
+    Failed {
+        message: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -301,6 +324,30 @@ impl ProviderStore {
         self.save(&list)?;
         self.secrets.delete(&provider_key(id));
         Ok(())
+    }
+
+    /// What every provider with a key has left, asked of them all at once.
+    pub async fn usage(&self) -> Vec<ProviderUsage> {
+        let asks = self.configs().into_iter().filter_map(|config| {
+            let key = self.api_key(&config.id)?;
+            Some(async move {
+                let report = match config.kind {
+                    ProviderKind::Gemini => UsageReport::Unreported,
+                    ProviderKind::OpenRouter => {
+                        match openrouter::allowances(&self.http, &config.base_url(), &key).await {
+                            Ok(allowances) => UsageReport::Reported { allowances },
+                            Err(e) => UsageReport::Failed { message: e.to_string() },
+                        }
+                    }
+                };
+                ProviderUsage {
+                    provider_id: config.id,
+                    report,
+                    checked_at: now_ms(),
+                }
+            })
+        });
+        futures_util::future::join_all(asks).await
     }
 
     async fn fetch_models(

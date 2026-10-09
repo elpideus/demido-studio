@@ -39,6 +39,7 @@ import type { ModelEntry, ModelFolder } from '@/lib/types';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
+import { UsageChip, useUsageRefresh } from '../UsageMeter';
 import { CapabilityIcons } from './Capabilities';
 import { LOCAL_GROUP, filterModels, groupModels, type ModelGroupData } from './modelGroups';
 import styles from './Models.module.css';
@@ -309,6 +310,7 @@ function ModelGroup({
               <ChevronRight size={16} className={cx(styles.chevron, expanded && styles.chevronOpen)} aria-hidden />
               <span className={styles.groupName}>{group.title}</span>
               <span className={styles.groupCount}>{`${active} of ${total} active`}</span>
+              {group.providerId && <UsageChip providerId={group.providerId} />}
             </button>
           )}
         </h3>
@@ -474,6 +476,7 @@ export function ModelList({
 }) {
   const models = useModels((st) => st.models);
   const [deleting, setDeleting] = useState<ModelEntry | null>(null);
+  useUsageRefresh();
   const groups = useMemo(() => groupModels(models), [models]);
   const matched = useMemo(
     () => groups.map((group) => ({ group, matches: filterModels(group.models, query) })),

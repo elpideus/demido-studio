@@ -47,6 +47,7 @@ import type {
   PineScript,
   PineSummary,
   ProviderKind,
+  ProviderUsage,
   ProviderView,
   Quote,
   Recommendation,
@@ -157,6 +158,7 @@ export const api = {
 
   // Providers
   listProviders: () => invoke<ProviderView[]>('list_providers'),
+  providerUsage: () => invoke<ProviderUsage[]>('provider_usage'),
   addProvider: (kind: ProviderKind, apiKey: string, name?: string, modelGroup?: ModelGroup) =>
     invoke<ProviderView>('add_provider', { kind, name: name ?? null, apiKey, modelGroup: modelGroup ?? null }),
   updateProvider: (
