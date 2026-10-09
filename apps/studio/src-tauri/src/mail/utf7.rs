@@ -43,7 +43,8 @@ fn decode_chunk(chunk: &str) -> Option<String> {
     if bytes.len() % 2 != 0 {
         return None;
     }
-    let units = bytes.chunks_exact(2).map(|p| u16::from_be_bytes([p[0], p[1]]));
+    let (pairs, _) = bytes.as_chunks::<2>();
+    let units = pairs.iter().map(|&pair| u16::from_be_bytes(pair));
     char::decode_utf16(units).collect::<Result<String, _>>().ok()
 }
 
