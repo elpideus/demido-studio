@@ -204,8 +204,8 @@ export const api = {
   openSkillsFolder: (id?: string) => invoke<void>('open_skills_folder', { id: id ?? null }),
 
   // Market
-  // Mail: reading only. `mailMessages` answers from the cache; `mailSync` asks the server for
-  // what changed, announced with `mail://changed`.
+  // Mail: reading, and marking as read. `mailMessages` answers from the cache; `mailSync` asks the
+  // server for what changed, announced with `mail://changed`.
   mailAccounts: () => invoke<MailAccount[]>('mail_accounts'),
   mailAddAccount: (account: NewMailAccount) => invoke<MailAccount>('mail_add_account', { account }),
   mailRemoveAccount: (id: string) => invoke<void>('mail_remove_account', { id }),
@@ -245,7 +245,9 @@ export const api = {
   mailOpen: (id: number) => invoke<MailMessage>('mail_open', { id }),
   mailSaveAttachment: (id: number, section: string, path: string) =>
     invoke<void>('mail_save_attachment', { id, section, path }),
-  mailSetWatching: (open: boolean) => invoke<void>('mail_set_watching', { open }),
+  /** Marks messages as read on the server; returns how many were unread. */
+  mailMarkRead: (ids: number[]) => invoke<number>('mail_mark_read', { ids }),
+  mailWindowOpen: (open: boolean) => invoke<void>('mail_window_open', { open }),
 
   marketStatus: () => invoke<MarketStatus>('market_status'),
   marketLogin: () => invoke<void>('market_login'),

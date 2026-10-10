@@ -14,6 +14,7 @@ import {
   FlaskConical,
   LineChart,
   Mail,
+  MailCheck,
   MailOpen,
   MailSearch,
   Mails,
@@ -67,11 +68,13 @@ const ICONS: Record<string, LucideIcon> = {
   mail_read: MailOpen,
   mail_export: Mails,
   mail_attachment: Paperclip,
+  mail_mark_read: MailCheck,
   load_tools: Wrench,
 };
 
 type DownloadCard = Extract<ToolApproval, { kind: 'download' }>;
 type PinePublishCard = Extract<ToolApproval, { kind: 'pinePublish' }>;
+type MailMarkReadCard = Extract<ToolApproval, { kind: 'mailMarkRead' }>;
 
 /** Answers an approval; the tool keeps waiting if the answer did not arrive, so the choices must stay usable. */
 function useDecide(message: Message) {
@@ -195,6 +198,42 @@ function PinePublishApproval({ message, card }: { message: Message; card: PinePu
   );
 }
 
+/** Marking emails as read that the person did not ask the assistant to mark: allow it, or not. */
+function MailMarkReadApproval({ message, card }: { message: Message; card: MailMarkReadCard }) {
+  const { busy, decide } = useDecide(message);
+  const sample = Array.isArray(card.messages) ? card.messages : [];
+  const count = typeof card.count === 'number' ? card.count : sample.length;
+  const more = count - sample.length;
+  return (
+    <div className={styles.approval}>
+      <div className={styles.approvalTitle}>
+        <MailCheck size={16} aria-hidden />
+        {count === 1
+          ? 'The assistant wants to mark an email as read'
+          : `The assistant wants to mark ${count} emails as read`}
+      </div>
+      {sample.length > 0 && (
+        <div className={styles.plan}>
+          {sample.map((m, i) => (
+            <div key={i} className={styles.mailLine}>
+              <span className={styles.mailFrom}>{m.from}</span> {m.subject || '(no subject)'}
+            </div>
+          ))}
+          {more > 0 && <div className={styles.planAlt}>and {more} more</div>}
+        </div>
+      )}
+      <div className={styles.approvalActions}>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
+          Allow
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
+          Don’t allow
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   /** The assistant message that made the call. */
   messageId: string;
@@ -253,6 +292,8 @@ export function ToolCard({ messageId, call, result, orphaned, flat }: Props) {
           <DownloadApproval message={result} card={tr.approval} />
         ) : tr?.approval?.kind === 'pinePublish' ? (
           <PinePublishApproval message={result} card={tr.approval} />
+        ) : tr?.approval?.kind === 'mailMarkRead' ? (
+          <MailMarkReadApproval message={result} card={tr.approval} />
         ) : (
           <Approval message={result} call={call} />
         ))}

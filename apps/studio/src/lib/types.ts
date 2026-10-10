@@ -32,8 +32,9 @@ export interface ToolResult {
 
 /**
  * A tool asking mid-run: a market download estimated to take longer than
- * `Settings.downloadApprovalSeconds` (1-minute candles, which serve every timeframe), or saving a
- * Pine script to the user's TradingView account (`pine_publish`).
+ * `Settings.downloadApprovalSeconds` (1-minute candles, which serve every timeframe), saving a
+ * Pine script to the user's TradingView account (`pine_publish`), or marking emails as read when
+ * the user did not ask for it (`mail_mark_read`).
  */
 export type ToolApproval =
   | { kind: 'download'; plan: MarketPlan }
@@ -44,6 +45,12 @@ export type ToolApproval =
       /** It updates the script it was saved to before, rather than adding one. */
       update: boolean;
       source: string;
+    }
+  | {
+      kind: 'mailMarkRead';
+      count: number;
+      /** The first few of them. */
+      messages: Array<{ from: string; subject: string }>;
     };
 
 export type ApprovalDecision = 'once' | 'always' | 'deny';
@@ -616,6 +623,8 @@ export interface Settings {
   autoCompactTokens: number | null;
   /** The Mail window loads the images emails link to from the internet without asking. */
   mailShowImages: boolean;
+  /** Opening a message in the Mail window marks it as read. */
+  mailMarkRead: boolean;
   /** The microphone to record with (a browser device id); null for the system's default. */
   microphone: string | null;
   /** The speech model that writes down what is said (a catalog id); null picks by the GPU's memory. */

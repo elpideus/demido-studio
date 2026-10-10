@@ -98,8 +98,18 @@ pub async fn mail_save_attachment(state: St<'_>, id: i64, section: String, path:
     Ok(state.mail.save_attachment(id, &section, &path).await?)
 }
 
-/// The Mail window opened or closed: while it is open the inboxes are watched for new mail.
+/// Marks messages as read on the server. Returns how many were unread.
 #[tauri::command]
-pub fn mail_set_watching(state: St<'_>, open: bool) {
-    state.mail.set_watching(open);
+pub async fn mail_mark_read(state: St<'_>, ids: Vec<i64>) -> CmdResult<u32> {
+    let report = state.mail.mark_read(&ids).await?;
+    if let Some(why) = report.stopped {
+        tracing::warn!("marking mail as read stopped partway: {why}");
+    }
+    Ok(report.marked as u32)
+}
+
+/// The Mail window opened or closed.
+#[tauri::command]
+pub fn mail_window_open(state: St<'_>, open: bool) {
+    state.mail.set_window_open(open);
 }

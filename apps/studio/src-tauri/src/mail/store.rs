@@ -6,7 +6,7 @@
 //! it is here, older ones arrive page by page as the list scrolls. Bodies are kept for the
 //! messages opened, the least recently opened dropped first once they pass a size limit.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use anyhow::Context;
@@ -498,6 +498,53 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// Marks cached messages of `folder` read, with their copies in other folders (on Gmail, the
+    /// folders of the message's other labels), and lowers each folder's unread count to match.
+    /// Returns the folders whose messages changed, with how many turned read in each.
+    pub fn mark_seen(&self, account: &str, folder: &str, uids: &[u32]) -> anyhow::Result<Vec<(String, u32)>> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let mut turned: BTreeMap<String, u32> = BTreeMap::new();
+        {
+            let mut find =
+                tx.prepare("SELECT id, gm_msgid FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3")?;
+            let mut copies = tx.prepare("SELECT id FROM messages WHERE account = ?1 AND gm_msgid = ?2")?;
+            let mut ids = Vec::new();
+            for uid in uids {
+                let found = find
+                    .query_row(params![account, folder, uid], |r| {
+                        Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
+                    })
+                    .optional()?;
+                let Some((id, gm_msgid)) = found else { continue };
+                ids.push(id);
+                if let Some(gm) = gm_msgid {
+                    for copy in copies.query_map(params![account, gm], |r| r.get::<_, i64>(0))? {
+                        ids.push(copy?);
+                    }
+                }
+            }
+            ids.sort_unstable();
+            ids.dedup();
+            let mut mark = tx.prepare(&format!(
+                "UPDATE messages SET flags = flags | {SEEN} WHERE id = ?1 AND (flags & {SEEN}) = 0 RETURNING folder"
+            ))?;
+            for id in ids {
+                if let Some(path) = mark.query_row([id], |r| r.get::<_, String>(0)).optional()? {
+                    *turned.entry(path).or_default() += 1;
+                }
+            }
+            let mut lower = tx.prepare(
+                "UPDATE folders SET unseen = MAX(unseen - ?3, 0) WHERE account = ?1 AND path = ?2 AND unseen IS NOT NULL",
+            )?;
+            for (path, n) in &turned {
+                lower.execute(params![account, path, n])?;
+            }
+        }
+        tx.commit()?;
+        Ok(turned.into_iter().collect())
+    }
+
     /// Cached UIDs at or above `from_uid`.
     pub fn uids_from(&self, account: &str, folder: &str, from_uid: u32) -> anyhow::Result<Vec<u32>> {
         self.with(|c| {
@@ -811,6 +858,45 @@ mod tests {
             ..PageQuery::default()
         };
         assert!(s.page("a", "INBOX", &unread_only).unwrap().is_empty());
+    }
+
+    #[test]
+    fn marking_read_reaches_the_copies_in_other_labels() {
+        let s = Store::in_memory();
+        let copy = |uid, gm_msgid| MessageMeta {
+            gm_msgid: Some(gm_msgid),
+            ..meta(uid, 10, "x")
+        };
+        s.upsert("a", "INBOX", &[copy(1, 100), copy(2, 200), meta(3, 10, "y")])
+            .unwrap();
+        s.upsert("a", "[Gmail]/All Mail", &[copy(51, 100), copy(52, 200)])
+            .unwrap();
+        for (path, unseen) in [("INBOX", 3), ("[Gmail]/All Mail", 9)] {
+            let state = FolderState {
+                unseen: Some(unseen),
+                low_uid: Some(1),
+                ..FolderState::default()
+            };
+            s.save_folder_state("a", path, &state).unwrap();
+        }
+        // UID 4 is not cached; 1 and 3 are, and 1 is also in All Mail.
+        let turned = s.mark_seen("a", "INBOX", &[1, 3, 4]).unwrap();
+        assert_eq!(turned, [("INBOX".to_string(), 2), ("[Gmail]/All Mail".to_string(), 1)]);
+        assert_eq!(s.folder_state("a", "INBOX").unwrap().unseen, Some(1));
+        assert_eq!(s.folder_state("a", "[Gmail]/All Mail").unwrap().unseen, Some(8));
+        let unread = |path| {
+            let q = PageQuery {
+                limit: 10,
+                unread_only: true,
+                ..PageQuery::default()
+            };
+            s.page("a", path, &q).unwrap().iter().map(|m| m.uid).collect::<Vec<_>>()
+        };
+        assert_eq!(unread("INBOX"), [2]);
+        assert_eq!(unread("[Gmail]/All Mail"), [52]);
+        // Read already: nothing changes, and the counts stay.
+        assert!(s.mark_seen("a", "INBOX", &[1]).unwrap().is_empty());
+        assert_eq!(s.folder_state("a", "INBOX").unwrap().unseen, Some(1));
     }
 
     #[test]

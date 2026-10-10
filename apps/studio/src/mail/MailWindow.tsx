@@ -9,6 +9,7 @@ import {
   ImageOff,
   KeyRound,
   Mail,
+  MailCheck,
   MoreHorizontal,
   Paperclip,
   Plus,
@@ -87,10 +88,11 @@ const SHOWN = [
 export function MailWindow({ win }: { win: WindowState }) {
   const accounts = useMail((s) => s.accounts);
 
-  // While the window is open the inboxes are watched, so new mail shows without asking.
+  // The inboxes are watched from a moment after the app starts; while this window is open their
+  // connections also stay open, so opening a message asks for nothing but its body.
   useEffect(() => {
-    void api.mailSetWatching(true);
-    return () => void api.mailSetWatching(false);
+    void api.mailWindowOpen(true);
+    return () => void api.mailWindowOpen(false);
   }, []);
 
   if (!accounts.length) {
@@ -122,8 +124,8 @@ function MailBrowser({ win, accounts }: { win: WindowState; accounts: MailAccoun
   const shownAccount = useRef(account.id);
   shownAccount.current = account.id;
 
-  // The folder list comes from the cache; the backend reads it from the server again when it is
-  // a minute old.
+  // The folder list comes from the cache; when it is a minute old the backend reads it from the
+  // server again in the background, and says so with `mail://folders`.
   const loadFolders = useCallback(async (id: string, refresh = false) => {
     try {
       const list = await api.mailFolders(id, refresh);
@@ -356,6 +358,7 @@ function FolderView({
   const pickerAnchor = useRef<HTMLButtonElement>(null);
   const searches = useRef(0);
   const alwaysImages = useApp((s) => s.settings?.mailShowImages ?? false);
+  const markRead = useApp((s) => s.settings?.mailMarkRead ?? true);
   const patchSettings = useApp((s) => s.patchSettings);
   const [limit, setLimit] = useState(STEP);
   const [page, setPage] = useState<MailPage | null>(null);
@@ -401,7 +404,7 @@ function FolderView({
 
   // The folder is brought up to date when it opens, when the account signs in again and when
   // the app comes back to the front. The backend skips the server when it checked a moment ago,
-  // or when it watches the folder (the inbox, while this window is open).
+  // or when it watches the folder (the inbox).
   const signedIn = !account.error && !account.needsPassword;
   useEffect(() => {
     if (!signedIn) return;
@@ -508,6 +511,13 @@ function FolderView({
     }
   };
 
+  // The cached list follows with `mail://changed`; search results are the server's, kept here.
+  const onRead = useCallback((id: number) => {
+    setResults((r) =>
+      r?.messages ? { ...r, messages: r.messages.map((m) => (m.id === id ? { ...m, unread: false } : m)) } : r,
+    );
+  }, []);
+
   const syncing = syncs > 0;
   const count = page?.unseen ? `${page.unseen} unread` : page?.total != null ? `${page.total} messages` : '';
 
@@ -561,6 +571,14 @@ function FolderView({
             onClick={() => void patchSettings({ mailShowImages: !alwaysImages })}
           />
           <IconButton
+            icon={markRead ? MailCheck : Mail}
+            label="Mark as read when opened"
+            size="sm"
+            active={markRead}
+            aria-pressed={markRead}
+            onClick={() => void patchSettings({ mailMarkRead: !markRead })}
+          />
+          <IconButton
             icon={RefreshCw}
             label="Check for new mail"
             size="sm"
@@ -612,7 +630,7 @@ function FolderView({
       </div>
       <section className={styles.reader}>
         {current ? (
-          <Reader key={current.id} summary={current} account={account} />
+          <Reader key={current.id} summary={current} account={account} onRead={onRead} />
         ) : (
           <EmptyState icon={Mail} title="No message selected" description="Choose a message to read it here." />
         )}
@@ -730,8 +748,19 @@ function ListEnd({
   return null;
 }
 
-/** The open message. Its body is fetched once, then kept by the backend and in memory. */
-function Reader({ summary, account }: { summary: MailSummary; account: MailAccount }) {
+/**
+ * The open message. Its body is fetched once, then kept by the backend and in memory. Once it
+ * shows, an unread message is marked read on the server, unless that is switched off.
+ */
+function Reader({
+  summary,
+  account,
+  onRead,
+}: {
+  summary: MailSummary;
+  account: MailAccount;
+  onRead: (id: number) => void;
+}) {
   const [message, setMessage] = useState<MailMessage | null>(() => opened.get(summary.id) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -740,6 +769,8 @@ function Reader({ summary, account }: { summary: MailSummary; account: MailAccou
   const [imagesOnce, setShowImages] = useState(false);
   const showImages = alwaysImages || imagesOnce;
   const [remote, setRemote] = useState(false);
+  const markRead = useApp((s) => s.settings?.mailMarkRead ?? true);
+  const marked = useRef(false);
 
   useEffect(() => {
     const cached = opened.get(summary.id);
@@ -757,6 +788,19 @@ function Reader({ summary, account }: { summary: MailSummary; account: MailAccou
       live = false;
     };
   }, [summary.id, attempt]);
+
+  const shown = message !== null;
+  useEffect(() => {
+    if (!shown || !markRead || !summary.unread || marked.current) return;
+    marked.current = true;
+    api
+      .mailMarkRead([summary.id])
+      .then(() => onRead(summary.id))
+      .catch((e) => {
+        marked.current = false;
+        toast.error('Could not mark the message as read', errorText(e));
+      });
+  }, [shown, markRead, summary.id, summary.unread, onRead]);
 
   const s = message?.summary ?? summary;
   const gmail =

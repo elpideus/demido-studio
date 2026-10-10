@@ -172,8 +172,8 @@ export function ConnectForm({
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       <p className={styles.connectNote}>
-        Demido only reads your mail: opening a message does not mark it as read. The password is kept in your system's
-        credential store.
+        Demido reads your mail; it never sends, moves or deletes any. Opening a message marks it as read, unless you
+        switch that off. The password is kept in your system's credential store.
       </p>
       <div className={styles.connectActions}>
         {onCancel && (

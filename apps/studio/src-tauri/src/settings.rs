@@ -55,6 +55,8 @@ pub struct Settings {
     pub auto_compact_tokens: Option<u32>,
     /// Load the images an email links to from the internet without asking, in the Mail window.
     pub mail_show_images: bool,
+    /// Opening a message in the Mail window marks it as read.
+    pub mail_mark_read: bool,
     /// The microphone the composer records with (the browser's device id); `None` for the
     /// system's default.
     pub microphone: Option<String>,
@@ -87,6 +89,7 @@ impl Default for Settings {
             auto_compact: true,
             auto_compact_tokens: None,
             mail_show_images: false,
+            mail_mark_read: true,
             microphone: None,
             speech_model: None,
             send_voice: true,

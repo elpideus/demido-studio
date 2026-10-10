@@ -181,3 +181,16 @@
   color: var(--text-secondary);
   font-size: var(--text-sm);
 }
+
+.mailLine {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailFrom {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}

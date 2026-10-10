@@ -3,9 +3,10 @@
 //!
 //! Everything shown comes from a local cache ([`store`]) and the server is asked only for what
 //! changed ([`sync`]). Each account has one connection for its requests, kept open while it is
-//! used, and while the Mail window is open a second one waits on the inbox with IDLE, so new
-//! mail shows up as it arrives and the inbox is never polled. Folders are opened read-only and
-//! bodies fetched with BODY.PEEK: reading here never marks anything as read on the server.
+//! used, and from a moment after the app starts a second one waits on the inbox with IDLE, so
+//! new mail is in the cache before the Mail window opens and the inbox is never polled. Folders
+//! are opened read-only and bodies fetched with BODY.PEEK: reading never marks anything as read
+//! on the server; only [`MailService::mark_read`] does, when the person or the assistant asks.
 
 pub mod accounts;
 mod body;
@@ -16,7 +17,7 @@ mod utf7;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -50,12 +51,16 @@ const FOLDERS_FRESH_MS: i64 = 60_000;
 const CLOSE_UNUSED: Duration = Duration::from_secs(5 * 60);
 /// IDLE is renewed this often; servers end it after 30 minutes.
 const IDLE_RENEW: Duration = Duration::from_secs(20 * 60);
-/// Without IDLE, the inbox is checked this often while the Mail window is open.
+/// Without IDLE, the inbox is checked this often while the Mail window is open, and this often
+/// while it is closed.
 const POLL_EVERY: Duration = Duration::from_secs(3 * 60);
+const POLL_CLOSED: Duration = Duration::from_secs(10 * 60);
 /// News is gathered this long before a sync, so a burst of changes costs one.
 const DEBOUNCE: Duration = Duration::from_millis(1500);
-/// The inbox stays watched this long after the Mail window closes.
-const WATCH_GRACE: Duration = Duration::from_secs(120);
+/// The inboxes start being watched this long after the app starts, once the window is up.
+const START_DELAY: Duration = Duration::from_secs(3);
+/// Messages marked read in one request.
+const MARK_BATCH: usize = 500;
 /// The longest wait between attempts to reconnect the watcher.
 const MAX_BACKOFF: Duration = Duration::from_secs(5 * 60);
 
@@ -117,6 +122,19 @@ pub struct OpenedMany {
     pub stopped: Option<String>,
 }
 
+/// What marking many messages read did (`MailService::mark_read`).
+#[derive(Debug, Default)]
+pub struct MarkedRead {
+    /// Unread before, read now.
+    pub marked: usize,
+    /// Read already.
+    pub already: usize,
+    /// Not in the mail cache any more.
+    pub missing: usize,
+    /// Why it ended before every message was marked, when it did.
+    pub stopped: Option<String>,
+}
+
 type Slot = Arc<tokio::sync::Mutex<Option<Conn>>>;
 
 struct Watcher {
@@ -138,8 +156,6 @@ pub struct MailService {
     listed: Mutex<HashMap<String, i64>>,
     watchers: Mutex<HashMap<String, Watcher>>,
     window_open: AtomicBool,
-    /// Bumped by every open or close of the Mail window, so a late stop does not undo a reopen.
-    window_gen: AtomicU64,
     janitor: AtomicBool,
     closing: AtomicBool,
     me: Weak<MailService>,
@@ -200,7 +216,6 @@ impl MailService {
             listed: Mutex::default(),
             watchers: Mutex::default(),
             window_open: AtomicBool::new(false),
-            window_gen: AtomicU64::new(0),
             janitor: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             me: me.clone(),
@@ -315,9 +330,7 @@ impl MailService {
             old.logout().await;
         }
         self.start_janitor();
-        if self.window_open.load(Ordering::SeqCst) {
-            self.start_watcher(&account);
-        }
+        self.start_watcher(&account);
         self.emit_accounts();
         Ok(self.view(&account.id).expect("the account was just saved"))
     }
@@ -378,8 +391,9 @@ impl MailService {
         }
     }
 
-    /// The account's folders. The list is read from the server when it is more than a minute old
-    /// (or when `refresh`), from the cache otherwise. A change is announced with `mail://folders`.
+    /// The account's folders, from the cache. A list more than a minute old is read from the
+    /// server again in the background, and a change announced with `mail://folders`; with
+    /// `refresh`, or with nothing cached yet, it is read from the server first.
     pub async fn folders(&self, account: &Account, refresh: bool) -> anyhow::Result<Vec<FolderView>> {
         let now = crate::db::now_ms();
         let fresh = self
@@ -387,24 +401,39 @@ impl MailService {
             .lock()
             .get(&account.id)
             .is_some_and(|t| now - t < FOLDERS_FRESH_MS);
-        if refresh || !fresh {
-            match with_conn!(self, account, |conn| async { anyhow::Ok(conn.list_folders().await?) }) {
-                Ok(folders) => {
-                    let changed = self.store.set_folders(&account.id, &folders)?;
-                    self.listed.lock().insert(account.id.clone(), now);
-                    if changed {
-                        self.emit_folders(&account.id);
-                    }
-                }
-                Err(e) => {
-                    let cached = self.store.folders(&account.id)?;
-                    if cached.is_empty() {
-                        return Err(e);
-                    }
+        if fresh && !refresh {
+            return self.store.folders(&account.id);
+        }
+        let cached = self.store.folders(&account.id)?;
+        if refresh || cached.is_empty() {
+            return match self.list_folders(account).await {
+                Err(e) if !cached.is_empty() => {
                     tracing::warn!("listing the folders of {} failed: {e:#}", account.email);
-                    return Ok(cached);
+                    Ok(cached)
                 }
-            }
+                other => other,
+            };
+        }
+        // Counted as listed now, so the requests meanwhile do not start more of these.
+        self.listed.lock().insert(account.id.clone(), now);
+        if let Some(me) = self.me.upgrade() {
+            let account = account.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = me.list_folders(&account).await {
+                    tracing::debug!("listing the folders of {} failed: {e:#}", account.email);
+                }
+            });
+        }
+        Ok(cached)
+    }
+
+    /// Reads the folder list from the server into the cache.
+    async fn list_folders(&self, account: &Account) -> anyhow::Result<Vec<FolderView>> {
+        let folders = with_conn!(self, account, |conn| async { anyhow::Ok(conn.list_folders().await?) })?;
+        let changed = self.store.set_folders(&account.id, &folders)?;
+        self.listed.lock().insert(account.id.clone(), crate::db::now_ms());
+        if changed {
+            self.emit_folders(&account.id);
         }
         self.store.folders(&account.id)
     }
@@ -675,6 +704,59 @@ impl MailService {
         })
     }
 
+    /// Marks messages as read on the server, many to a request, and in the cache: their copies in
+    /// other folders too (on Gmail, the folders of their other labels). Every folder that changed
+    /// is announced with `mail://changed`. It fails only when nothing could be marked; when it
+    /// ends partway, `stopped` says why.
+    pub async fn mark_read(&self, ids: &[i64]) -> anyhow::Result<MarkedRead> {
+        let mut report = MarkedRead::default();
+        let mut wanted: BTreeMap<(String, String), Vec<u32>> = BTreeMap::new();
+        let mut seen = HashSet::new();
+        for id in ids.iter().filter(|id| seen.insert(**id)) {
+            match self.store.message(*id)? {
+                Some(s) => {
+                    if !s.unread {
+                        report.already += 1;
+                    }
+                    wanted.entry((s.account, s.folder)).or_default().push(s.uid);
+                }
+                None => report.missing += 1,
+            }
+        }
+        let mut changed: HashSet<(String, String)> = HashSet::new();
+        let mut stored = false;
+        'folders: for ((account_id, folder), uids) in wanted {
+            let Some(account) = self.accounts.get(&account_id) else {
+                report.missing += uids.len();
+                continue;
+            };
+            for chunk in uids.chunks(MARK_BATCH) {
+                let set = sync::uid_set(chunk);
+                let result = with_conn!(self, &account, |conn| async {
+                    anyhow::Ok(conn.mark_seen(&folder, &set).await?)
+                });
+                if let Err(e) = result {
+                    if !stored {
+                        return Err(self.unless_gone(&account, &folder, e).await);
+                    }
+                    report.stopped = Some(format!("{e:#}"));
+                    break 'folders;
+                }
+                stored = true;
+                for (path, n) in self.store.mark_seen(&account_id, &folder, chunk)? {
+                    if path == folder {
+                        report.marked += n as usize;
+                    }
+                    changed.insert((account_id.clone(), path));
+                }
+            }
+        }
+        for (account, folder) in changed {
+            self.emit_changed(&account, &folder);
+        }
+        Ok(report)
+    }
+
     /// An attachment's file name and contents.
     pub async fn attachment(&self, id: i64, section: &str) -> anyhow::Result<(String, Vec<u8>)> {
         let summary = self.summary(id)?;
@@ -720,26 +802,34 @@ impl MailService {
         anyhow::anyhow!("This message is no longer on the server; it was deleted or moved.")
     }
 
-    /// The Mail window opened or closed. While it is open each account's inbox is watched.
-    pub fn set_watching(&self, open: bool) {
+    /// Starts keeping the mail up to date in the background, a moment after the app starts: each
+    /// account's folder list is read and its inbox watched from then on, so the Mail window opens
+    /// on mail that is already there.
+    pub fn start(&self) {
+        let Some(me) = self.me.upgrade() else { return };
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(START_DELAY).await;
+            for account in me.accounts.list() {
+                if !me.accounts.has_password(&account.id) {
+                    continue;
+                }
+                me.start_watcher(&account);
+                if let Err(e) = me.folders(&account, true).await {
+                    tracing::debug!("listing the folders of {} failed: {e:#}", account.email);
+                }
+            }
+        });
+    }
+
+    /// The Mail window opened or closed. While it is open the accounts' connections stay open,
+    /// and opening it watches again an inbox whose watcher gave up (a refused password).
+    pub fn set_window_open(&self, open: bool) {
         self.window_open.store(open, Ordering::SeqCst);
-        let generation = self.window_gen.fetch_add(1, Ordering::SeqCst) + 1;
         if open {
             for account in self.accounts.list() {
                 self.start_watcher(&account);
             }
-            return;
         }
-        let Some(me) = self.me.upgrade() else { return };
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(WATCH_GRACE).await;
-            if me.window_gen.load(Ordering::SeqCst) == generation && !me.window_open.load(Ordering::SeqCst) {
-                let ids: Vec<String> = me.watchers.lock().keys().cloned().collect();
-                for id in ids {
-                    me.stop_watcher(&id);
-                }
-            }
-        });
     }
 
     fn start_watcher(&self, account: &Account) {
@@ -775,6 +865,10 @@ impl MailService {
     async fn watch(&self, account: Account, stop: CancellationToken, live: Arc<AtomicBool>) {
         let mut backoff = Duration::from_secs(5);
         while !stop.is_cancelled() {
+            if !self.accounts.has_password(&account.id) {
+                // Entering it again in the Mail window starts a new watcher.
+                break;
+            }
             let result = self.watch_once(&account, &stop, &live, &mut backoff).await;
             live.store(false, Ordering::SeqCst);
             match result {
@@ -817,8 +911,13 @@ impl MailService {
                     tracing::debug!("checking the inbox of {} failed: {e:#}", account.email);
                 }
                 *backoff = Duration::from_secs(5);
+                let every = if self.window_open.load(Ordering::SeqCst) {
+                    POLL_EVERY
+                } else {
+                    POLL_CLOSED
+                };
                 tokio::select! {
-                    _ = tokio::time::sleep(POLL_EVERY) => {}
+                    _ = tokio::time::sleep(every) => {}
                     _ = stop.cancelled() => return Ok(()),
                 }
             }
@@ -858,7 +957,8 @@ impl MailService {
         }
     }
 
-    /// Closes connections unused for a while; the one serving a watched account stays open.
+    /// Closes connections unused for a while; while the Mail window is open, those of watched
+    /// accounts stay open.
     fn start_janitor(&self) {
         if self.janitor.swap(true, Ordering::SeqCst) {
             return;
@@ -872,8 +972,9 @@ impl MailService {
                     return;
                 }
                 let slots: Vec<(String, Slot)> = me.slots.lock().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let window_open = me.window_open.load(Ordering::SeqCst);
                 for (account, slot) in slots {
-                    if me.watchers.lock().contains_key(&account) {
+                    if window_open && me.watchers.lock().contains_key(&account) {
                         continue;
                     }
                     let Ok(mut guard) = slot.try_lock() else { continue };

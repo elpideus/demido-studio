@@ -1,7 +1,8 @@
 //! One IMAP connection: TLS, login, and the few commands browsing needs.
 //!
 //! Folders are opened with EXAMINE (read-only) and bodies fetched with BODY.PEEK, so browsing
-//! never changes anything on the server: a message opened here stays unread in Gmail.
+//! never changes anything on the server: a message opened here stays unread in Gmail until it is
+//! marked read on purpose ([`Conn::mark_seen`], which opens its folder with SELECT).
 //! Every command runs under a timeout; a connection that times out or breaks is dropped by its
 //! owner and a new one made.
 
@@ -93,8 +94,9 @@ pub struct Caps {
 pub struct Conn {
     session: Option<Session>,
     pub caps: Caps,
-    /// The folder EXAMINE last opened.
+    /// The folder last opened, and whether SELECT opened it for changes (EXAMINE does not).
     selected: Option<String>,
+    writable: bool,
     pub last_used: Instant,
 }
 
@@ -171,6 +173,7 @@ pub async fn connect(login: &Login) -> Result<Conn, MailError> {
         session: Some(session),
         caps,
         selected: None,
+        writable: false,
         last_used: Instant::now(),
     };
     if conn.caps.condstore {
@@ -253,7 +256,37 @@ impl Conn {
         let mbox = timed(COMMAND_TIMEOUT, s.examine(path)).await?;
         self.drain();
         self.selected = Some(path.to_string());
+        self.writable = false;
         Ok(mbox)
+    }
+
+    /// Opens `path` for changes with SELECT, unless it already is.
+    async fn ensure_writable(&mut self, path: &str) -> Result<(), MailError> {
+        if self.writable && self.selected.as_deref() == Some(path) {
+            return Ok(());
+        }
+        self.drain();
+        self.selected = None;
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, s.select(path)).await?;
+        self.drain();
+        self.selected = Some(path.to_string());
+        self.writable = true;
+        Ok(())
+    }
+
+    /// Marks the messages of a UID set of `path` as read on the server.
+    pub async fn mark_seen(&mut self, path: &str, uid_set: &str) -> Result<(), MailError> {
+        self.ensure_writable(path).await?;
+        let s = self.session()?;
+        let _: Vec<Fetch> = timed(COMMAND_TIMEOUT, async {
+            s.uid_store(uid_set, r"+FLAGS.SILENT (\Seen)")
+                .await?
+                .try_collect()
+                .await
+        })
+        .await?;
+        Ok(())
     }
 
     pub async fn ensure_selected(&mut self, path: &str) -> Result<(), MailError> {

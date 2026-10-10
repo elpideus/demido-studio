@@ -241,6 +241,13 @@ const TOOLS: &[ToolDef] = &[
         approval: false,
     },
     ToolDef {
+        name: "mail_mark_read",
+        group: "mail",
+        description: "Mark emails as read on the mail server, many at once by id. Only when the user asked for it; otherwise the user is asked to allow it.",
+        parameters: mail::mark_read_schema,
+        approval: false,
+    },
+    ToolDef {
         name: "run_python",
         group: "coding",
         description: "Run Python 3 in the chat's workspace folder, where files open by their relative path (numpy, pandas, matplotlib and requests are installed). Print what you need to see. Charts saved as PNG files are shown to the user. Every run is a fresh process.",
@@ -331,8 +338,8 @@ const GROUPS: &[GroupDef] = &[
     GroupDef {
         id: "mail",
         label: "Email",
-        description: "Read the email of the accounts connected in the Mail window",
-        for_model: "the user's email: list, search, read and export messages, save attachments",
+        description: "Read the email of the accounts connected in the Mail window, and mark it as read when you ask or allow it",
+        for_model: "the user's email: list, search, read and export messages, save attachments, mark them as read",
     },
     GroupDef {
         id: "coding",
@@ -666,6 +673,10 @@ pub fn describe(name: &str, args: &Value) -> String {
         }
         "mail_read" => "Reading an email".into(),
         "mail_attachment" => format!("Saving the attachment {}", s("attachment")),
+        "mail_mark_read" => match args["ids"].as_array().map_or(0, Vec::len) {
+            1 => "Marking an email as read".into(),
+            n => format!("Marking {n} emails as read"),
+        },
         "run_python" => {
             if s("file").is_empty() {
                 "Running Python".into()
@@ -723,6 +734,7 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "mail_export" => mail::export(ctx, &args).await,
         "mail_read" => mail::read(ctx, &args).await,
         "mail_attachment" => mail::attachment(ctx, &args).await,
+        "mail_mark_read" => mail::mark_read(ctx, &args).await,
         "run_python" => python::run(ctx, &args).await,
         "run_command" => command::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
@@ -848,6 +860,10 @@ mod tests {
             "Searching email for “invoice” · ada@work.com"
         );
         assert_eq!(describe("mail_export", &serde_json::json!({})), "Exporting emails");
+        assert_eq!(
+            describe("mail_mark_read", &serde_json::json!({"ids": ["m1", "m2"]})),
+            "Marking 2 emails as read"
+        );
     }
 
     #[test]

@@ -288,6 +288,21 @@ function MailMessageLine({ d }: { d: Display }) {
   );
 }
 
+function MailMarkRead({ d }: { d: Display }) {
+  const marked = num(d.marked) ?? 0;
+  const already = num(d.already) ?? 0;
+  const missing = num(d.missing) ?? 0;
+  const parts = [`${marked} ${marked === 1 ? 'email' : 'emails'} marked as read`];
+  if (already) parts.push(`${already} read already`);
+  if (missing) parts.push(`${missing} not found`);
+  return (
+    <>
+      <div className={styles.muted}>{parts.join(' · ')}</div>
+      {str(d.stopped) && <div className={styles.error}>Stopped before the rest: {str(d.stopped)}</div>}
+    </>
+  );
+}
+
 const day = (ms: number) => new Date(ms).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 
 /** Many emails written to a file: how many have arrived while it runs, then the file. */
@@ -825,6 +840,8 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <MailList d={display} />;
     case 'mailMessage':
       return <MailMessageLine d={display} />;
+    case 'mailMarkRead':
+      return <MailMarkRead d={display} />;
     case 'mailExport':
       return <MailExport d={display} message={message} />;
     case 'python':
@@ -888,6 +905,7 @@ export function isProminent(display: Display | undefined): boolean {
       'chartIndicator',
       'chartDraw',
       'mailExport',
+      'mailMarkRead',
     ].includes(String(display.kind))
   );
 }

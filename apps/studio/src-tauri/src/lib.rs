@@ -228,6 +228,7 @@ fn after_start(state: Arc<AppState>) {
     use tauri::Emitter;
 
     state.updater.spawn_scheduler();
+    state.mail.start();
     state.embedder.spawn();
     state.speech.spawn();
     // Find the shell commands run in now, so neither the first command nor the Tools menu waits.
@@ -430,7 +431,8 @@ pub fn run() {
             commands::mail::mail_search,
             commands::mail::mail_open,
             commands::mail::mail_save_attachment,
-            commands::mail::mail_set_watching,
+            commands::mail::mail_mark_read,
+            commands::mail::mail_window_open,
             commands::voice::voice_status,
             commands::voice::transcribe_recording,
             commands::voice::cancel_transcription,
