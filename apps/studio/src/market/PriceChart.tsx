@@ -276,7 +276,8 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       layout: {
         background: { type: ColorType.Solid, color: '#1c1c1c' },
         textColor: 'rgba(255,255,255,0.55)',
-        fontFamily: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
+        fontFamily:
+          "'Segoe UI Variable Text', 'Segoe UI', -apple-system, 'Inter', 'Inter Variable', system-ui, sans-serif",
         fontSize: 11,
         attributionLogo: true,
         panes: { separatorColor: 'rgba(255,255,255,0.08)', separatorHoverColor: 'rgba(255,255,255,0.14)' },

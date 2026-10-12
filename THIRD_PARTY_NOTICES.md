@@ -16,6 +16,7 @@ its source distribution.
 | [dukascopy-node](https://github.com/Leo4815162342/dukascopy-node) by Leonid Pyrlia | MIT | Historical market data |
 | [react-markdown](https://github.com/remarkjs/react-markdown), remark-gfm, remark-math, rehype-katex, rehype-highlight | MIT | Rendering answers |
 | [KaTeX](https://katex.org) | MIT | Math |
+| [Inter](https://rsms.me/inter/) by Rasmus Andersson, [JetBrains Mono](https://www.jetbrains.com/lp/mono/) by JetBrains, through [Fontsource](https://fontsource.org) | SIL Open Font License 1.1 | Type, on systems without Segoe UI and Cascadia (Linux) |
 | [highlight.js](https://highlightjs.org) | BSD-3-Clause | Code highlighting |
 | [zustand](https://github.com/pmndrs/zustand) | MIT | State |
 | [axios](https://axios-http.com), [ws](https://github.com/websockets/ws), [jszip](https://stuk.github.io/jszip/) | MIT (jszip: MIT or GPL-3.0) | Used by TradingView-API |

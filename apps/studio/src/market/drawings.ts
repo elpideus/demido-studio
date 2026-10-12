@@ -18,7 +18,7 @@ import type { Bar, IndicatorBox, IndicatorGraphics, IndicatorLabel, IndicatorLin
 type Target = Parameters<IPrimitivePaneRenderer['draw']>[0];
 type Ctx = CanvasRenderingContext2D;
 
-const FONT = "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif";
+const FONT = "'Segoe UI Variable Text', 'Segoe UI', -apple-system, 'Inter', 'Inter Variable', system-ui, sans-serif";
 const DEFAULT_COLOR = '#2962ff';
 
 /** Pine's text sizes, in pixels. */

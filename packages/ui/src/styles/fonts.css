@@ -1,0 +1,5 @@
+/* Inter and JetBrains Mono travel with the app for systems without Segoe UI and Cascadia, such as
+   Linux, so the UI looks the same there. The type stacks in tokens.css name them after the
+   platforms' own fonts, so Windows and macOS never load them. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
