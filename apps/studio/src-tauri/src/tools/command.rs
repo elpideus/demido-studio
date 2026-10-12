@@ -1,5 +1,5 @@
 //! `run_command`: a command line in the user's own shell (see [`crate::shell`]), so the assistant
-//! can use the programs installed on the computer: yt-dlp, ffmpeg, git, ping, winget and so on.
+//! can use the programs installed on the computer: yt-dlp, ffmpeg, git, ping, the package manager and so on.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

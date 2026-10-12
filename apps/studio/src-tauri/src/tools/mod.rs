@@ -257,7 +257,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "run_command",
         group: "coding",
-        description: "Run a command line in the user's own shell on their computer and get its output and exit code: for the programs they installed (yt-dlp, ffmpeg, git, winget…) and questions about the computer. The user approves each command. It runs in the chat's workspace folder (so downloads land there) unless directory is given.",
+        description: "Run a command line in the user's own shell on their computer and get its output and exit code: for the programs they installed (yt-dlp, ffmpeg, git, their package manager…) and questions about the computer. The user approves each command. It runs in the chat's workspace folder (so downloads land there) unless directory is given.",
         parameters: command::schema,
         approval: true,
     },

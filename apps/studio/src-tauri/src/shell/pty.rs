@@ -77,7 +77,13 @@ pub async fn run(
     cmd.env("GIT_PAGER", "cat");
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     #[cfg(unix)]
-    cmd.env("TERM", "xterm-256color");
+    {
+        cmd.env("TERM", "xterm-256color");
+        // man, journalctl and systemctl page through less in a terminal: "cat" turns that off.
+        cmd.env("PAGER", "cat");
+        cmd.env("MANPAGER", "cat");
+        cmd.env("SYSTEMD_PAGER", "cat");
+    }
     for (key, value) in &req.env {
         cmd.env(key, value);
     }
@@ -405,5 +411,117 @@ mod tests {
         let never = CancellationToken::new();
         let cancelled = run(request("Start-Sleep 30"), &never, &cancel, |_| {}).await.unwrap();
         assert!(cancelled.is_none());
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+
+    fn request<'a>(command: &'a str, dir: &'a std::path::Path, timeout: Duration) -> Request<'a> {
+        Request {
+            shell: super::super::detect().expect("bash"),
+            command,
+            dir,
+            env: vec![("DEMIDO_TEST", "from Demido".into())],
+            timeout,
+        }
+    }
+
+    async fn run_command(command: &str, timeout: Duration) -> (Outcome, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let never = CancellationToken::new();
+        let out = run(request(command, dir.path(), timeout), &never, &never, |_| {})
+            .await
+            .unwrap()
+            .expect("not cancelled");
+        (out, dir)
+    }
+
+    #[tokio::test]
+    async fn output_and_exit_code_come_back() {
+        let (out, _dir) = run_command("echo \"héllo $DEMIDO_TEST\"; exit 3", Duration::from_secs(60)).await;
+        assert_eq!(out.ending, Ending::Exited(3));
+        assert_eq!(out.shown.text, "héllo from Demido");
+    }
+
+    #[tokio::test]
+    async fn a_failing_program_exits_with_its_own_code_and_says_why() {
+        let (out, _dir) = run_command("ls /does-not-exist-demido", Duration::from_secs(60)).await;
+        assert_eq!(out.ending, Ending::Exited(2));
+        assert!(out.shown.text.contains("does-not-exist-demido"), "{}", out.shown.text);
+    }
+
+    #[tokio::test]
+    async fn a_timeout_stops_the_whole_tree_and_keeps_the_output() {
+        let marker = format!("demido-{}", std::process::id());
+        // A program the command left running in the background must end too.
+        let (out, dir) = run_command(
+            &format!("echo started; sleep 300 & echo $! > sleeper; wait; echo {marker}"),
+            Duration::from_secs(3),
+        )
+        .await;
+        assert_eq!(out.ending, Ending::TimedOut);
+        assert!(out.shown.text.starts_with("started"), "{}", out.shown.text);
+        assert!(!out.shown.text.contains(&marker));
+        let pid: libc::pid_t = std::fs::read_to_string(dir.path().join("sleeper"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        // SAFETY: signal 0 only asks whether the process exists.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            assert!(Instant::now() < deadline, "the background sleep outlived the command");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[tokio::test]
+    async fn stop_and_cancel_end_a_running_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let (stop, cancel) = (CancellationToken::new(), CancellationToken::new());
+        let stopper = stop.clone();
+        let mut seen = String::new();
+        let out = run(
+            request("echo working; sleep 30", dir.path(), Duration::from_secs(60)),
+            &stop,
+            &cancel,
+            |shown| {
+                seen = shown.text.clone();
+                if shown.text.contains("working") {
+                    stopper.cancel();
+                }
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(out.ending, Ending::Stopped);
+        assert_eq!(out.shown.text, "working");
+        assert_eq!(seen, "working");
+        assert!(out.elapsed < Duration::from_secs(20));
+
+        let canceller = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            canceller.cancel();
+        });
+        let never = CancellationToken::new();
+        let cancelled = run(
+            request("sleep 30", dir.path(), Duration::from_secs(60)),
+            &never,
+            &cancel,
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert!(cancelled.is_none());
+    }
+
+    #[tokio::test]
+    async fn pagers_never_wait_for_keys() {
+        let (out, _dir) = run_command("echo \"$PAGER $MANPAGER $SYSTEMD_PAGER\"", Duration::from_secs(60)).await;
+        assert_eq!(out.shown.text, "cat cat cat");
     }
 }

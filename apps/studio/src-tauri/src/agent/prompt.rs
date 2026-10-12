@@ -62,9 +62,13 @@ pub struct PromptInputs<'a> {
 pub fn system_prompt(p: &PromptInputs<'_>) -> String {
     let today = chrono::Local::now().format("%A, %B %-d, %Y");
     let os = match demido_core::Os::current() {
-        demido_core::Os::Windows => "Windows",
-        demido_core::Os::Macos => "macOS",
-        demido_core::Os::Linux => "Linux",
+        demido_core::Os::Windows => "Windows".to_owned(),
+        demido_core::Os::Macos => "macOS".to_owned(),
+        // The distribution tells the model which package manager and paths to expect.
+        demido_core::Os::Linux => match linux_distribution() {
+            Some(name) => format!("Linux ({name})"),
+            None => "Linux".to_owned(),
+        },
     };
     // The assistant is Demido whichever model answers, so switching models keeps the persona.
     let mut s = format!(
@@ -140,7 +144,7 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
             );
         }
         if has("run_command") {
-            s.push_str(&shell_line(p.shell, os == "Windows"));
+            s.push_str(&shell_line(p.shell, demido_core::Os::current()));
         }
         if has("mail_read") {
             s.push_str(&mail_accounts(p.mail_accounts));
@@ -163,8 +167,10 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
 
 /// Which shell `run_command` runs in. Models write bash out of habit, and on Windows that fails
 /// or misleads: `ping -c 4` answers that `-c` needs administrator rights instead of counting. So
-/// on Windows the line names PowerShell's ways and the Windows programs' own options.
-fn shell_line(shell: Option<&str>, windows: bool) -> String {
+/// on Windows the line names PowerShell's ways and the Windows programs' own options. On Linux it
+/// is bash, where the habit is right; what the model must know there is that sudo cannot ask.
+fn shell_line(shell: Option<&str>, os: demido_core::Os) -> String {
+    let windows = os == demido_core::Os::Windows;
     let shell = shell.unwrap_or(if windows { "PowerShell" } else { "the user's shell" });
     let mut s = format!("- run_command runs in {shell}");
     if windows {
@@ -172,6 +178,11 @@ fn shell_line(shell: Option<&str>, windows: bool) -> String {
             " on Windows, not bash: write PowerShell (Get-ChildItem, Select-String, Get-Content -Tail, \
              $env:NAME, 2>$null) and give Windows programs their own options (ping -n 4, not ping -c 4; \
              ipconfig, tracert, where.exe).",
+        );
+    } else if os == demido_core::Os::Linux && shell == "bash" {
+        s.push_str(
+            ". Nobody can type into a command, so sudo fails at once instead of asking for a password: \
+             for one that needs it, give the user the command to run in their own terminal.",
         );
     } else {
         s.push('.');
@@ -183,6 +194,30 @@ fn shell_line(shell: Option<&str>, windows: bool) -> String {
     }
     s.push('\n');
     s
+}
+
+/// The Linux distribution's name, such as "CachyOS Linux" or "Ubuntu 24.04.3 LTS", read once.
+fn linux_distribution() -> Option<String> {
+    static NAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        ["/etc/os-release", "/usr/lib/os-release"]
+            .into_iter()
+            .find_map(|path| std::fs::read_to_string(path).ok())
+            .and_then(|text| distribution_name(&text))
+    })
+    .clone()
+}
+
+/// PRETTY_NAME from an os-release file, else NAME.
+fn distribution_name(os_release: &str) -> Option<String> {
+    let value = |key: &str| {
+        os_release.lines().find_map(|line| {
+            let value = line.strip_prefix(key)?.strip_prefix('=')?.trim();
+            let value = value.trim_matches(|c| c == '"' || c == '\'');
+            (!value.is_empty()).then(|| value.to_owned())
+        })
+    };
+    value("PRETTY_NAME").or_else(|| value("NAME"))
 }
 
 /// The connected mail accounts, so the model passes the one the user means: by its name, its
@@ -563,7 +598,7 @@ mod tests {
 
     #[test]
     fn the_shell_line_steers_windows_away_from_bash() {
-        let pwsh = shell_line(Some("PowerShell 7.6.6"), true);
+        let pwsh = shell_line(Some("PowerShell 7.6.6"), demido_core::Os::Windows);
         assert!(
             pwsh.starts_with("- run_command runs in PowerShell 7.6.6 on Windows, not bash"),
             "{pwsh}"
@@ -571,14 +606,43 @@ mod tests {
         assert!(pwsh.contains("ping -n 4, not ping -c 4"), "{pwsh}");
         assert!(!pwsh.contains("&&"), "PowerShell 7 has && and ||");
 
-        let legacy = shell_line(Some("Windows PowerShell 5.1"), true);
+        let legacy = shell_line(Some("Windows PowerShell 5.1"), demido_core::Os::Windows);
         assert!(
             legacy.contains("no && or ||") && legacy.contains("curl.exe"),
             "{legacy}"
         );
 
-        assert_eq!(shell_line(Some("zsh"), false), "- run_command runs in zsh.\n");
-        assert_eq!(shell_line(None, false), "- run_command runs in the user's shell.\n");
+        assert_eq!(
+            shell_line(Some("zsh"), demido_core::Os::Macos),
+            "- run_command runs in zsh.\n"
+        );
+        assert_eq!(
+            shell_line(None, demido_core::Os::Macos),
+            "- run_command runs in the user's shell.\n"
+        );
+    }
+
+    #[test]
+    fn the_shell_line_on_linux_says_sudo_cannot_ask() {
+        let bash = shell_line(Some("bash"), demido_core::Os::Linux);
+        assert!(bash.starts_with("- run_command runs in bash. "), "{bash}");
+        assert!(bash.contains("sudo fails at once"), "{bash}");
+        assert!(!bash.contains("PowerShell"), "{bash}");
+        assert_eq!(
+            shell_line(Some("sh"), demido_core::Os::Linux),
+            "- run_command runs in sh.\n"
+        );
+    }
+
+    #[test]
+    fn the_distribution_is_read_from_os_release() {
+        let arch = "NAME=\"Arch Linux\"\nPRETTY_NAME=\"Arch Linux\"\nID=arch\n";
+        assert_eq!(distribution_name(arch).as_deref(), Some("Arch Linux"));
+        let ubuntu = "PRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\nNAME=\"Ubuntu\"\n";
+        assert_eq!(distribution_name(ubuntu).as_deref(), Some("Ubuntu 24.04.3 LTS"));
+        assert_eq!(distribution_name("NAME=Gentoo\n").as_deref(), Some("Gentoo"));
+        assert_eq!(distribution_name("ID=x\nPRETTY_NAME=\"\"\n"), None);
+        assert_eq!(distribution_name(""), None);
     }
 
     #[test]

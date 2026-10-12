@@ -1,6 +1,7 @@
 //! Which shell commands run in: on Windows PowerShell 7 when it is installed (from its installer,
 //! winget or the Microsoft Store), otherwise Windows PowerShell 5.1, which every Windows has; on
-//! macOS and Linux the user's login shell. Found once per run of the app.
+//! Linux bash, whatever the login shell (models write bash, which fish or nushell would refuse);
+//! on macOS the user's login shell. Found once per run of the app.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -11,7 +12,7 @@ use base64::Engine;
 pub struct Shell {
     pub program: PathBuf,
     /// What it is called in the chat and the system prompt: "PowerShell 7.6.6",
-    /// "Windows PowerShell 5.1", "zsh".
+    /// "Windows PowerShell 5.1", "bash", "zsh".
     pub name: String,
     kind: Kind,
 }
@@ -20,6 +21,9 @@ pub struct Shell {
 enum Kind {
     #[cfg_attr(not(windows), allow(dead_code))]
     PowerShell,
+    /// bash on Linux, with a `sudo` that fails at once instead of asking (see [`BASH_PREAMBLE`]).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Bash,
     #[cfg_attr(windows, allow(dead_code))]
     Posix,
 }
@@ -35,6 +39,11 @@ const PREAMBLE: &str = "$ProgressPreference = 'SilentlyContinue'; [Console]::Out
 /// Runs after it: a failed program exits with its own code, as it would in a terminal, instead of
 /// the 1 PowerShell reports for any failure.
 const EPILOGUE: &str = "if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 }";
+
+/// Runs before a bash command: nobody can type into the command's terminal, so `sudo` asking for a
+/// password would wait until the command times out. `-n` makes it fail at once and say a password
+/// is needed (and changes nothing where sudo needs none). One line, as with PowerShell's.
+const BASH_PREAMBLE: &str = r#"sudo() { command sudo -n "$@"; }"#;
 
 impl Shell {
     pub fn is_powershell(&self) -> bool {
@@ -57,7 +66,9 @@ impl Shell {
             .map(String::from)
             .chain([encode_powershell(&format!("{PREAMBLE}\n{command}\n{EPILOGUE}"))])
             .collect(),
-            // A login shell reads the profile that puts Homebrew and the like on the PATH.
+            // A login shell reads the profile that puts Homebrew, ~/.local/bin and the like on
+            // the PATH.
+            Kind::Bash => vec!["-l".into(), "-c".into(), format!("{BASH_PREAMBLE}\n{command}")],
             Kind::Posix => vec!["-l".into(), "-c".into(), command.into()],
         }
     }
@@ -148,7 +159,29 @@ fn find() -> Option<Shell> {
     })
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
+fn find() -> Option<Shell> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let bash = [PathBuf::from("/usr/bin/bash"), PathBuf::from("/bin/bash")]
+        .into_iter()
+        .chain(std::env::split_paths(&path).map(|dir| dir.join("bash")))
+        .find(|p| p.is_absolute() && p.is_file());
+    if let Some(program) = bash {
+        return Some(Shell {
+            program,
+            name: "bash".into(),
+            kind: Kind::Bash,
+        });
+    }
+    let program = PathBuf::from("/bin/sh");
+    program.is_file().then(|| Shell {
+        program,
+        name: "sh".into(),
+        kind: Kind::Posix,
+    })
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
 fn find() -> Option<Shell> {
     let program = std::env::var_os("SHELL")
         .map(PathBuf::from)
@@ -275,6 +308,44 @@ mod tests {
         };
         assert_eq!(shell.args("ls -la"), ["-l", "-c", "ls -la"]);
         assert!(!shell.is_powershell());
+    }
+
+    #[test]
+    fn bash_gets_the_command_after_one_line_of_its_own() {
+        let shell = Shell {
+            program: "/usr/bin/bash".into(),
+            name: "bash".into(),
+            kind: Kind::Bash,
+        };
+        let args = shell.args("ls -la\necho done");
+        assert_eq!(args[..2], ["-l", "-c"]);
+        let lines: Vec<&str> = args[2].lines().collect();
+        assert_eq!(lines, [BASH_PREAMBLE, "ls -la", "echo done"]);
+        assert!(!shell.is_powershell());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_runs_commands_in_bash_whatever_the_login_shell() {
+        let shell = detect().expect("bash");
+        assert_eq!(shell.name, "bash");
+        assert_eq!(shell.kind, Kind::Bash);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sudo_is_replaced_by_one_that_never_asks() {
+        // No terminal and no cached credentials: plain sudo would ask for a password and wait.
+        let shell = detect().expect("bash");
+        let started = std::time::Instant::now();
+        let out = std::process::Command::new(&shell.program)
+            .args(shell.args("type sudo"))
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        // The function stands in for sudo, whatever the profile does, and needs no sudo installed.
+        assert!(String::from_utf8_lossy(&out.stdout).contains("sudo is a function"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
     #[test]
