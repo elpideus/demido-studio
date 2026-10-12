@@ -2,6 +2,16 @@
 
 ## First run
 
+You need Rust (stable), Node.js 22+ and pnpm 10+. On Linux, Tauri also needs WebKitGTK and its
+build dependencies; on Arch and CachyOS:
+
+```bash
+sudo pacman -S --needed base-devel webkit2gtk-4.1 gtk3 libsoup3 librsvg nodejs pnpm gst-plugins-good gst-plugin-pipewire
+```
+
+(other distributions: [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/#linux),
+plus GStreamer's good plugins and PipeWire plugin, which WebKitGTK records and plays sound with).
+
 ```bash
 pnpm install
 pnpm dev:runtime    # once: llama.cpp for this machine, Node, uv, Python + packages → .dev/install
@@ -17,8 +27,20 @@ created), delete `.dev/install` and run it again.
 
 `pnpm dev` first assembles `.dev/resources` (the bundled market service and the default skills),
 then starts the app with hot reload. The data folder is the real one,
-`%LOCALAPPDATA%\Demido Studio`; set `DEMIDO_DATA_DIR` to use another. Downloaded updates are the
-exception: a development build keeps them in `.dev/updates`, away from the installed app's.
+`%LOCALAPPDATA%\Demido Studio` on Windows and `~/.local/share/demido-studio` on Linux; set
+`DEMIDO_DATA_DIR` to use another. Downloaded updates are the exception: a development build keeps
+them in `.dev/updates`, away from the installed app's. The log goes to the data folder's `logs/`
+and the terminal; `DEMIDO_LOG` sets its filter (`DEMIDO_LOG=info,demido_studio_lib=debug`).
+
+On Linux:
+
+- Commands the assistant runs go to bash, whatever the login shell (fish, zsh), with `sudo`
+  turned into `sudo -n`, so it fails at once instead of waiting for a password nobody can type.
+- With NVIDIA's driver under Wayland, the app and setup set `__NV_DISABLE_EXPLICIT_SYNC=1` for
+  themselves (`demido_core::platform::prepare_webview`): without it WebKitGTK ends the app with
+  "Error 71 (Protocol error)" as the window shows. Should a window still stay blank, try
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1`; set by hand, either one turns the automatic one off.
+- In a debug build, what the page logs to its console goes to the terminal too.
 
 Useful terminal commands:
 
@@ -40,11 +62,31 @@ pnpm format:check
 
 ## Driving the running app
 
-The webview accepts the Chrome DevTools Protocol when started with a debugging port:
+On Windows the webview accepts the Chrome DevTools Protocol when started with a debugging port:
 
 ```bash
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm dev
 ```
+
+On Linux WebKitGTK has no such protocol, so a debug build opens a bridge of its own
+(`src-tauri/src/drive.rs`) when started with a port for it:
+
+```bash
+DEMIDO_DRIVE_PORT=9223 pnpm dev
+```
+
+The scripts below pick the bridge on Linux and the DevTools Protocol elsewhere
+(`scripts/drive-transport.mjs`; `DRIVE=cdp` or `DRIVE=bridge` chooses by hand). Over the bridge,
+clicks, hovers, drags, typing and keys are DOM events the page dispatches, pointer capture
+included, rather than input from the system: CSS `:hover` does not apply, and files cannot be
+dropped. Screenshots are WebKitGTK's snapshots of the page.
+
+Two things about the microphone on Linux. Listing the devices (Settings, General, Voice) makes
+WebKitGTK ask the desktop's camera portal once, when a camera is plugged in, and the desktop
+asks the person; either answer leaves the microphone working. The portal names the app from its
+systemd scope, so an app started from a terminal is named after the terminal; start it as
+`systemd-run --user --scope --unit='app-demido\x2dstudio-'$RANDOM …` to be asked as the app
+itself.
 
 To try voice input without speaking, give the webview a fake microphone that plays a WAV file
 (an absolute path with forward slashes; `%noloop` plays it once, then silence). The app's own

@@ -5,10 +5,11 @@
 //
 //   node scripts/scenario.mjs --out .dev/scenario --approve "prompt one" "prompt two" ...
 //
-// Needs the app running with remote debugging (see scripts/drive.mjs). Starts a new chat.
+// Needs the app started for driving (see scripts/drive-transport.mjs). Starts a new chat.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { connect } from './drive-transport.mjs';
 
 const args = process.argv.slice(2);
 let out = '.dev/scenario';
@@ -21,36 +22,12 @@ for (let i = 0; i < args.length; i += 1) {
 }
 mkdirSync(out, { recursive: true });
 
-const port = Number(process.env.CDP_PORT ?? 9222);
-const list = await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json());
-const target = list.find((t) => t.type === 'page' && /localhost:1420|tauri/.test(t.url));
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((r) => (ws.onopen = r));
-let id = 0;
-const pending = new Map();
-ws.onmessage = (e) => {
-  const m = JSON.parse(e.data);
-  if (pending.has(m.id)) {
-    pending.get(m.id)(m);
-    pending.delete(m.id);
-  }
-};
-const send = (method, params = {}) =>
-  new Promise((r) => {
-    const i = ++id;
-    pending.set(i, r);
-    ws.send(JSON.stringify({ id: i, method, params }));
-  });
-const evaluate = async (expression) => {
-  const res = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-  if (res.result?.exceptionDetails) throw new Error(res.result.exceptionDetails.exception?.description);
-  return res.result?.result?.value;
-};
+const page = await connect();
+const { evaluate } = page;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shot = async (name) => {
-  const res = await send('Page.captureScreenshot', { format: 'png' });
   const file = path.join(out, `${name}.png`);
-  writeFileSync(file, Buffer.from(res.result.data, 'base64'));
+  writeFileSync(file, await page.screenshot());
   return file;
 };
 
@@ -62,9 +39,8 @@ for (const [index, prompt] of prompts.entries()) {
   const started = Date.now();
   // Type like a person: focus the composer, insert text, press Enter.
   await evaluate(`document.querySelector('[aria-label="Message"]').focus()`);
-  await send('Input.insertText', { text: prompt });
-  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
-  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', windowsVirtualKeyCode: 13 });
+  await page.insertText(prompt);
+  await page.key('Enter');
   await sleep(1200);
   // Wait for the turn to end, approving code runs when asked.
   for (;;) {
@@ -99,4 +75,4 @@ for (const [index, prompt] of prompts.entries()) {
   console.log(`  prompt: ${prompt.slice(0, 100)}`);
   if (summary.errors.length) console.log(`  errors: ${summary.errors.join(' | ').slice(0, 400)}`);
 }
-ws.close();
+page.close();
