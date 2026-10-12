@@ -10,6 +10,8 @@ mod agent;
 mod attachments;
 mod commands;
 mod db;
+#[cfg(all(debug_assertions, target_os = "linux"))]
+mod drive;
 mod error;
 mod llm;
 mod mail;
@@ -364,6 +366,8 @@ pub fn run() {
                 speech::microphone::allow_for_app(&window);
                 #[cfg(all(debug_assertions, target_os = "linux"))]
                 page_console_to_stdout(&window);
+                #[cfg(all(debug_assertions, target_os = "linux"))]
+                drive::start(app.handle().clone());
                 show_if_never_ready(window);
             }
             after_start(state);
