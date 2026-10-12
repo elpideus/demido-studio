@@ -183,10 +183,16 @@ export function useVoice(chatId: string | null, model: ModelEntry | undefined, h
           text: 'No microphone was found. Plug one in, or choose another in Settings, General, Voice.',
         });
       } else if (e.problem === 'denied') {
-        setProblem({
-          text: 'The microphone was refused. Windows may be keeping apps from it: check “Microphone access” in Windows Settings.',
-          action: openWindowsSettings,
-        });
+        setProblem(
+          useApp.getState().info?.platform === 'windows'
+            ? {
+                text: 'The microphone was refused. Windows may be keeping apps from it: check “Microphone access” in Windows Settings.',
+                action: openWindowsSettings,
+              }
+            : {
+                text: 'The microphone was refused. Check that it is not muted or turned off in your system’s sound settings, then try again.',
+              },
+        );
       } else {
         setProblem({ text: e.message });
       }

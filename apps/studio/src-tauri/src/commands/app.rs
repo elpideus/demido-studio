@@ -26,7 +26,10 @@ pub struct AppInfo {
     pub data_dir: String,
     pub install_dir: Option<String>,
     pub disclaimer_accepted: bool,
+    /// The OS's name and version, to show.
     pub os: String,
+    /// Which OS it is, for the UI's choices: "windows", "macos" or "linux".
+    pub platform: demido_core::Os,
     pub cpu: String,
     pub memory_gb: f64,
     pub gpu: Option<String>,
@@ -58,6 +61,7 @@ pub fn app_info(state: St<'_>) -> AppInfo {
             .map(|p| p.to_string_lossy().into_owned()),
         disclaimer_accepted: settings.disclaimer_accepted.as_deref() == Some(DISCLAIMER_VERSION),
         os: state.hardware.os_version.clone(),
+        platform: demido_core::Os::current(),
         cpu: state.hardware.cpu.name.clone(),
         memory_gb: (state.hardware.total_memory_gb() * 10.0).round() / 10.0,
         gpu: gpu.map(|g| g.name.clone()),

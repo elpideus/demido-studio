@@ -160,7 +160,7 @@ function Voice({ settings }: { settings: Settings }) {
 
   const chosenMic = settings.microphone ?? '';
   const micOptions = [
-    { value: '', label: 'Windows default' },
+    { value: '', label: 'System default' },
     ...mics.map((m, i) => ({ value: m.deviceId, label: m.label || `Microphone ${i + 1}` })),
   ];
   if (chosenMic && !mics.some((m) => m.deviceId === chosenMic)) {

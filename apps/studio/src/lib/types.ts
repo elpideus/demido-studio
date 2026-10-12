@@ -592,7 +592,10 @@ export interface AppInfo {
   dataDir: string;
   installDir: string | null;
   disclaimerAccepted: boolean;
+  /** The OS's name and version, to show. */
   os: string;
+  /** Which OS it is, for choices that differ between them. */
+  platform: 'windows' | 'macos' | 'linux';
   cpu: string;
   memoryGb: number;
   gpu: string | null;

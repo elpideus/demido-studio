@@ -1,15 +1,19 @@
 //! The microphone: allowed to the app's own pages, and whether Windows lets desktop apps use it.
 
 /// The origins of the app's own pages: the bundled UI, and Vite's server while developing.
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 fn is_app_origin(uri: &str) -> bool {
     let Ok(url) = url::Url::parse(uri) else {
         return false;
     };
+    // tauri://localhost, the page on Linux and macOS, is a custom scheme: to the url crate its
+    // origin is opaque ("null"), so it is matched by scheme and host.
+    if url.scheme() == "tauri" {
+        return url.host_str() == Some("localhost") && url.port().is_none();
+    }
     let origin = url.origin().ascii_serialization();
-    matches!(
-        origin.as_str(),
-        "http://tauri.localhost" | "https://tauri.localhost" | "tauri://localhost"
-    ) || (cfg!(debug_assertions) && origin == "http://localhost:1420")
+    matches!(origin.as_str(), "http://tauri.localhost" | "https://tauri.localhost")
+        || (cfg!(debug_assertions) && origin == "http://localhost:1420")
 }
 
 /// Answers WebView2's microphone requests: allowed for the app's own pages, so recording needs no
@@ -66,7 +70,46 @@ pub fn allow_for_app(window: &tauri::WebviewWindow) {
     }
 }
 
-#[cfg(not(windows))]
+/// Answers WebKitGTK's microphone requests the same way. WebKitGTK keeps `getUserMedia` off
+/// unless the view's settings turn it on, which wry does not, and refuses any request no handler
+/// answers. Naming the microphones (`enumerateDevices`, for Settings) is a request of its own.
+#[cfg(target_os = "linux")]
+pub fn allow_for_app(window: &tauri::WebviewWindow) {
+    use webkit2gtk::glib::prelude::{Cast, ObjectExt};
+    use webkit2gtk::{
+        DeviceInfoPermissionRequest, PermissionRequestExt, SettingsExt, UserMediaPermissionRequest,
+        UserMediaPermissionRequestExt, WebViewExt,
+    };
+
+    let hooked = window.with_webview(|webview| {
+        let view = webview.inner();
+        if let Some(settings) = WebViewExt::settings(&view) {
+            settings.set_enable_media_stream(true);
+        }
+        view.connect_permission_request(|view, request| {
+            let microphone = request
+                .downcast_ref::<UserMediaPermissionRequest>()
+                .is_some_and(|r| r.is_for_audio_device() && !r.is_for_video_device());
+            if !microphone && !request.is::<DeviceInfoPermissionRequest>() {
+                // Not a microphone request: WebKitGTK refuses it, as it did before.
+                return false;
+            }
+            let uri = view.uri().unwrap_or_default();
+            if is_app_origin(&uri) {
+                request.allow();
+            } else {
+                tracing::info!(%uri, "a page that is not the app's asked for the microphone; refused");
+                request.deny();
+            }
+            true
+        });
+    });
+    if let Err(e) = hooked {
+        tracing::warn!("could not reach the webview for microphone requests: {e}");
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn allow_for_app(_window: &tauri::WebviewWindow) {}
 
 /// Whether Windows' privacy settings keep desktop apps from the microphone: for this computer,
@@ -99,6 +142,10 @@ mod tests {
         assert!(is_app_origin("http://tauri.localhost/"));
         assert!(is_app_origin("https://tauri.localhost/index.html"));
         assert!(!is_app_origin("https://tauri.localhost.example.com/"));
+        assert!(is_app_origin("tauri://localhost"));
+        assert!(is_app_origin("tauri://localhost/index.html"));
+        assert!(!is_app_origin("tauri://localhost.example.com/"));
+        assert!(!is_app_origin("tauri://example.com/"));
         assert!(!is_app_origin("https://www.tradingview.com/chart/"));
         assert!(!is_app_origin("not a url"));
         assert_eq!(is_app_origin("http://localhost:1420/"), cfg!(debug_assertions));
