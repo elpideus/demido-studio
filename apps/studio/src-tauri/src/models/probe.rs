@@ -95,9 +95,17 @@ async fn ask(
     .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000 | 0x0000_4000); // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+    // The same lower priority, BELOW_NORMAL's counterpart.
+    // SAFETY: runs in the child between fork and exec; nice is async-signal-safe.
+    #[cfg(unix)]
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::nice(5);
+            Ok(())
+        });
+    }
 
-    let mut child = cmd.spawn().map_err(|e| format!("could not start llama-server: {e}"))?;
-    job::adopt(&child);
+    let mut child = job::spawn(&mut cmd).map_err(|e| format!("could not start llama-server: {e}"))?;
 
     let log = Arc::new(Mutex::new(Log::default()));
     for stream in [

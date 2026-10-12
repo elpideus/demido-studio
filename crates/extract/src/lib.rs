@@ -115,12 +115,15 @@ pub const CHILD_ARG: &str = "--demido-extract";
 /// Prefix of the line a child writes its answer on: anything a parser prints is ignored.
 const CHILD_ANSWER: &str = "DEMIDO-EXTRACT:";
 
+/// Starts a child process in place of `Command::spawn`.
+pub type Spawn = fn(&mut std::process::Command) -> std::io::Result<std::process::Child>;
+
 /// How files are read in a child process.
 struct Isolation {
     program: PathBuf,
     args: Vec<OsString>,
     timeout: Duration,
-    on_spawn: Option<fn(&std::process::Child)>,
+    spawn: Option<Spawn>,
 }
 
 static ISOLATION: OnceLock<Isolation> = OnceLock::new();
@@ -128,14 +131,14 @@ static ISOLATION: OnceLock<Isolation> = OnceLock::new();
 /// From now on [`extract`] reads every file in a child process: `program` started with `args`
 /// and then the file's path, which must call [`child_main`] with that path. A child that dies
 /// or runs past `timeout` costs only that file its text: the file is reported with a note.
-/// `on_spawn` sees each child as it starts (to tie it to the application's lifetime). Only the
-/// first call counts.
-pub fn isolate(program: PathBuf, args: Vec<OsString>, timeout: Duration, on_spawn: Option<fn(&std::process::Child)>) {
+/// `spawn` starts each child in place of `Command::spawn` (to tie it to the application's
+/// lifetime). Only the first call counts.
+pub fn isolate(program: PathBuf, args: Vec<OsString>, timeout: Duration, spawn: Option<Spawn>) {
     let _ = ISOLATION.set(Isolation {
         program,
         args,
         timeout,
-        on_spawn,
+        spawn,
     });
 }
 
@@ -185,10 +188,11 @@ impl Isolation {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        let mut child = command.spawn().map_err(|_| DAMAGED)?;
-        if let Some(on_spawn) = self.on_spawn {
-            on_spawn(&child);
+        let mut child = match self.spawn {
+            Some(spawn) => spawn(&mut command),
+            None => command.spawn(),
         }
+        .map_err(|_| DAMAGED)?;
         // Read the answer on another thread, so a large one never fills the pipe and stalls the
         // child, while this one keeps the time.
         let mut stdout = child.stdout.take().ok_or(DAMAGED)?;
@@ -377,7 +381,7 @@ mod isolation_tests {
             .map(OsString::from)
             .into(),
             timeout,
-            on_spawn: None,
+            spawn: None,
         }
     }
 

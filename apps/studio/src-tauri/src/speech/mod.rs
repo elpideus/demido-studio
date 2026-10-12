@@ -631,10 +631,8 @@ impl Transcriber {
             .kill_on_drop(true);
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("could not start the speech model: {e}"))?;
-        crate::runtime::job::adopt(&child);
+        let mut child =
+            crate::runtime::job::spawn(&mut cmd).map_err(|e| format!("could not start the speech model: {e}"))?;
 
         let health = format!("http://127.0.0.1:{port}/health");
         let deadline = Instant::now() + LOAD_TIMEOUT;

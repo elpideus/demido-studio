@@ -346,8 +346,7 @@ impl LocalRuntime {
             server.display(),
             args.join(" ")
         ));
-        let mut child = cmd.spawn().map_err(|e| format!("could not start llama-server: {e}"))?;
-        job::adopt(&child);
+        let mut child = job::spawn(&mut cmd).map_err(|e| format!("could not start llama-server: {e}"))?;
 
         for stream in [
             child

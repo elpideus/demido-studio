@@ -254,10 +254,8 @@ impl MarketService {
         }
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000);
-        let mut child = cmd
-            .spawn()
+        let mut child = crate::runtime::job::spawn(&mut cmd)
             .map_err(|e| RpcError::new("UNAVAILABLE", format!("could not start the market service: {e}")))?;
-        crate::runtime::job::adopt(&child);
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");

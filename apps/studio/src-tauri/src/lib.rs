@@ -109,7 +109,7 @@ fn build_state(
             exe,
             vec![demido_extract::CHILD_ARG.into()],
             std::time::Duration::from_secs(180),
-            Some(runtime::job::adopt_std),
+            Some(runtime::job::spawn_std),
         ),
         Err(e) => tracing::warn!("attached files are read in-process: {e}"),
     }
@@ -270,6 +270,40 @@ fn after_start(state: Arc<AppState>) {
     });
 }
 
+/// Closes the app the usual way when the session asks it to end (SIGTERM at logout or shutdown,
+/// SIGHUP, SIGINT from a terminal), so `RunEvent::Exit` stops the models and lets the market
+/// service flush its store. Unanswered, a signal ends the process at once and its helpers with it
+/// (`runtime::job`), unflushed. A second signal ends it at once: listening replaces the default
+/// action for good, and a shutdown that hangs must still be stoppable.
+#[cfg(unix)]
+fn exit_on_signals(app: tauri::AppHandle) {
+    use tokio::signal::unix::{SignalKind, signal};
+    tauri::async_runtime::spawn(async move {
+        let (Ok(mut term), Ok(mut hup), Ok(mut int)) = (
+            signal(SignalKind::terminate()),
+            signal(SignalKind::hangup()),
+            signal(SignalKind::interrupt()),
+        ) else {
+            tracing::warn!("cannot listen for signals to end the app");
+            return;
+        };
+        let mut asked = false;
+        loop {
+            tokio::select! {
+                _ = term.recv() => {}
+                _ = hup.recv() => {}
+                _ = int.recv() => {}
+            }
+            if asked {
+                std::process::exit(1);
+            }
+            asked = true;
+            tracing::info!("asked to end by a signal; closing");
+            app.exit(0);
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -305,6 +339,8 @@ pub fn run() {
                 speech::microphone::allow_for_app(&window);
             }
             after_start(state);
+            #[cfg(unix)]
+            exit_on_signals(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

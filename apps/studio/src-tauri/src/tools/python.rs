@@ -74,8 +74,7 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
         .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000);
-    let mut child = cmd.spawn().map_err(|e| format!("could not start Python: {e}"))?;
-    crate::runtime::job::adopt(&child);
+    let mut child = crate::runtime::job::spawn(&mut cmd).map_err(|e| format!("could not start Python: {e}"))?;
     let mut stdout = child.stdout.take().expect("piped stdout");
     let mut stderr = child.stderr.take().expect("piped stderr");
     let out_task = tokio::spawn(async move { read_capped(&mut stdout).await });
