@@ -370,7 +370,7 @@ mod tests {
         let path = staging.signature(&p);
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
-            "Demido-Studio-Setup-0.5.0.exe.sig"
+            format!("{}.sig", demido_core::brand::setup_file_name("0.5.0"))
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), p.signature);
         assert!(matches!(staging.read(), Read::Found(found) if found == p));

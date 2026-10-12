@@ -26,6 +26,7 @@ pub(crate) fn query() -> Vec<GpuInfo> {
 }
 
 fn candidates() -> Vec<PathBuf> {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut list = vec![PathBuf::from("nvidia-smi")];
     #[cfg(windows)]
     {

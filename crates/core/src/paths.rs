@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+#[cfg(any(windows, target_os = "macos"))]
 use crate::brand::APP_NAME;
 use crate::manifest::InstallScope;
 
