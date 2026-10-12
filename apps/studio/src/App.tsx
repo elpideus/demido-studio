@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Spinner } from '@demido/ui';
+import { Spinner, afterFirstPaint } from '@demido/ui';
 
 import { unreachableNote } from '@/chat/contextView';
 import { api, errorText } from '@/lib/api';
@@ -157,7 +157,7 @@ export function App() {
       setReady(true);
     })()
       .catch((e) => setFailure(errorText(e)))
-      .finally(() => requestAnimationFrame(() => void api.windowReady()));
+      .finally(() => afterFirstPaint(() => void api.windowReady()));
     return () => {
       for (const u of unsubs) void u.then((f) => f());
     };

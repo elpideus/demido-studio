@@ -39,4 +39,4 @@ export {
   type NoticeProps,
 } from './components/Feedback';
 export { useClickOutside, useEscape, useAnchoredPosition, useDebounced, type Placement } from './hooks';
-export { cx, formatBytes, formatDuration, formatCount, hueFor, initials, matchesQuery } from './utils';
+export { afterFirstPaint, cx, formatBytes, formatDuration, formatCount, hueFor, initials, matchesQuery } from './utils';

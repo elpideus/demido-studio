@@ -1,3 +1,19 @@
+/**
+ * Calls `show` once the page has painted, so a window that starts hidden appears without a flash
+ * of an empty frame. A hidden window may never paint (WebKitGTK runs no animation frame for one,
+ * where WebView2 does), so it waits for the paint `wait` milliseconds at most.
+ */
+export function afterFirstPaint(show: () => void, wait = 200): void {
+  let shown = false;
+  const once = () => {
+    if (shown) return;
+    shown = true;
+    show();
+  };
+  requestAnimationFrame(once);
+  setTimeout(once, wait);
+}
+
 /** Joins class names, skipping falsy values. */
 export function cx(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ');

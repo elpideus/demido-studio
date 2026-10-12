@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check } from 'lucide-react';
-import { Logo, Spinner, cx } from '@demido/ui';
+import { Logo, Spinner, afterFirstPaint, cx } from '@demido/ui';
 
 import { DonePage, InstallPage, useInstall } from './pages/Install';
 import { LocationPage } from './pages/Location';
@@ -46,7 +46,7 @@ export function Setup() {
         setState(initialState(c));
       })
       .catch((e) => setError(String(e)))
-      .finally(() => requestAnimationFrame(() => void invoke('window_ready')));
+      .finally(() => afterFirstPaint(() => void invoke('window_ready')));
   }, []);
 
   const update = (patch: Partial<WizardState>) => setState((s) => (s ? { ...s, ...patch } : s));
