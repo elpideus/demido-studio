@@ -74,5 +74,10 @@ webview2-com = "0.38"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# WebKitGTK's own settings and permission requests (the microphone, the page's console in
+# development): the same version and features wry uses.
+webkit2gtk = { version = "2.0", features = ["v2_40"] }
+
 [dev-dependencies]
 tempfile.workspace = true

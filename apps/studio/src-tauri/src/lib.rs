@@ -270,6 +270,31 @@ fn after_start(state: Arc<AppState>) {
     });
 }
 
+/// In development the page's console messages and errors go to the terminal: WebKitGTK has no
+/// DevTools protocol to read them from, as WebView2 has.
+#[cfg(all(debug_assertions, target_os = "linux"))]
+fn page_console_to_stdout(window: &tauri::WebviewWindow) {
+    use webkit2gtk::{SettingsExt, WebViewExt};
+    let _ = window.with_webview(|webview| {
+        if let Some(settings) = WebViewExt::settings(&webview.inner()) {
+            settings.set_enable_write_console_messages_to_stdout(true);
+        }
+    });
+}
+
+/// The window starts hidden and the UI shows it once it has painted (`window_ready`). Should that
+/// never come (a page that failed to load, a webview that paints nothing while hidden), it shows
+/// anyway: an app that runs where nobody can see it cannot even be closed.
+fn show_if_never_ready(window: tauri::WebviewWindow) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        if !window.is_visible().unwrap_or(true) {
+            tracing::warn!("the UI never said it was ready; showing the window anyway");
+            let _ = window.show();
+        }
+    });
+}
+
 /// Closes the app the usual way when the session asks it to end (SIGTERM at logout or shutdown,
 /// SIGHUP, SIGINT from a terminal), so `RunEvent::Exit` stops the models and lets the market
 /// service flush its store. Unanswered, a signal ends the process at once and its helpers with it
@@ -337,6 +362,9 @@ pub fn run() {
             app.manage(state.clone());
             if let Some(window) = app.get_webview_window("main") {
                 speech::microphone::allow_for_app(&window);
+                #[cfg(all(debug_assertions, target_os = "linux"))]
+                page_console_to_stdout(&window);
+                show_if_never_ready(window);
             }
             after_start(state);
             #[cfg(unix)]

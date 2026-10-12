@@ -113,6 +113,7 @@ pub fn update_settings(state: St<'_>, patch: serde_json::Value) -> CmdResult<Set
 /// Shows the main window once the UI has painted, so the app never flashes an empty frame.
 #[tauri::command]
 pub fn window_ready(app: tauri::AppHandle) {
+    tracing::debug!("the UI is ready; showing the window");
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();

@@ -84,6 +84,9 @@ pub async fn run(
         cmd.env("MANPAGER", "cat");
         cmd.env("SYSTEMD_PAGER", "cat");
     }
+    for key in demido_core::platform::set_for_webview() {
+        cmd.env_remove(key);
+    }
     for (key, value) in &req.env {
         cmd.env(key, value);
     }

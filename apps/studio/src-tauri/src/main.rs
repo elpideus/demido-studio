@@ -10,5 +10,6 @@ fn main() {
     {
         std::process::exit(demido_extract::child_main(std::path::Path::new(&path)));
     }
+    demido_core::platform::prepare_webview();
     demido_studio_lib::run();
 }
