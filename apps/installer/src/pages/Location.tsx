@@ -133,7 +133,9 @@ export function LocationPage({ ctx, state, onChange, onBack, onNext }: Props) {
                     .replace(/[\\/]+$/, '')
                     .split(/[\\/]/)
                     .pop();
-                  onChange({ installDir: leaf === 'Demido Studio' ? dir : `${dir}\\Demido Studio`, customDir: true });
+                  const sep = dir.includes('\\') ? '\\' : '/';
+                  const joined = `${dir.replace(/[\\/]+$/, '')}${sep}Demido Studio`;
+                  onChange({ installDir: leaf === 'Demido Studio' ? dir : joined, customDir: true });
                 }
               }}
             >
