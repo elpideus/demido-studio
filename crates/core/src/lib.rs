@@ -8,6 +8,8 @@
 pub mod backend;
 pub mod brand;
 pub mod fsx;
+#[cfg(unix)]
+pub mod lock;
 pub mod manifest;
 pub mod paths;
 pub mod platform;

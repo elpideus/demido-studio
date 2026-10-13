@@ -17,9 +17,9 @@ pub const UNINSTALL_KEY: &str = "Demido Studio";
 pub const APP_ID: &str = "app.demido.studio";
 /// Version of this build, shared by the installer and the app.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// Name of the lock setup holds while it installs or updates (a named mutex on Windows). A second
-/// setup does not start changing the same files, and the app does not open halfway through an
-/// update.
+/// Name of the lock setup holds while it installs or updates (a named mutex on Windows; on Unix a
+/// locked file, see [`crate::lock`]). A second setup does not start changing the same files, and
+/// the app does not open halfway through an update.
 pub const SETUP_LOCK: &str = "Local\\DemidoStudioSetup";
 
 /// GitHub repository that publishes the releases the app updates from (`owner/name`).

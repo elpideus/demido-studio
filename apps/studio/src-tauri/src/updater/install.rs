@@ -95,9 +95,9 @@ pub fn setup_is_running() -> bool {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
 pub fn setup_is_running() -> bool {
-    false
+    demido_core::lock::is_held(&demido_core::lock::path())
 }
 
 /// Starts `installer` to update the installation in `install_dir` once this process has exited,

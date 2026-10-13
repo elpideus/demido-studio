@@ -479,10 +479,12 @@ fn app_command(exe: &Path, args: &[&str]) -> std::process::Command {
 }
 
 /// Held while setup installs or updates (see `demido_core::brand::SETUP_LOCK`). Released when
-/// dropped, and by Windows when the process ends however it ends.
+/// dropped, and by the system when the process ends however it ends.
 pub struct SetupLock {
     #[cfg(windows)]
     handle: windows::Win32::Foundation::HANDLE,
+    #[cfg(unix)]
+    _held: demido_core::lock::Held,
 }
 
 // SAFETY: the mutex handle is only closed, once, on drop; Windows handles are process-wide.
@@ -490,8 +492,7 @@ unsafe impl Send for SetupLock {}
 unsafe impl Sync for SetupLock {}
 
 impl SetupLock {
-    /// Takes the lock, or `None` when another setup holds it. Where named locks do not exist the
-    /// lock is always granted.
+    /// Takes the lock, or `None` when another setup holds it.
     #[cfg(windows)]
     pub fn acquire() -> Option<Self> {
         use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError};
@@ -516,9 +517,14 @@ impl SetupLock {
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     pub fn acquire() -> Option<Self> {
-        Some(Self {})
+        let path = demido_core::lock::path();
+        let held = demido_core::lock::try_acquire(&path);
+        if held.is_none() {
+            tracing::info!("the setup lock {} is held by another setup", path.display());
+        }
+        Some(Self { _held: held? })
     }
 }
 
@@ -535,7 +541,6 @@ impl Drop for SetupLock {
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
     #[test]
     fn only_one_setup_holds_the_lock_until_it_lets_go() {
         let first = SetupLock::acquire().expect("nothing else holds the setup lock");
