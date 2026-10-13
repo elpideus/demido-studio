@@ -6,7 +6,10 @@ import { Button, Checkbox, Logo, Notice } from '@demido/ui';
 import type { Context } from '../types';
 import styles from '../Setup.module.css';
 
-/** `uninstall.exe --uninstall`: removes the app, and the person's data only when asked. */
+/**
+ * `uninstall.exe --uninstall`: removes the app, and the person's data only when asked. A
+ * runtimes-only setup (Linux) removes the runtimes and models it installed; the app is the package's.
+ */
 export function UninstallFlow({ ctx }: { ctx: Context }) {
   const [removeData, setRemoveData] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,11 +41,23 @@ export function UninstallFlow({ ctx }: { ctx: Context }) {
               ) : (
                 <Logo size={56} className={styles.heroLogo} />
               )}
-              <h1 className={styles.title}>{done ? 'Demido Studio was removed' : 'Uninstall Demido Studio'}</h1>
+              <h1 className={styles.title}>
+                {ctx.runtimesOnly
+                  ? done
+                    ? 'The local AI was removed'
+                    : 'Remove the local AI'
+                  : done
+                    ? 'Demido Studio was removed'
+                    : 'Uninstall Demido Studio'}
+              </h1>
               <p className={styles.lead}>
                 {done
-                  ? 'Thank you for trying it.'
-                  : `This removes the app, its runtimes and shortcuts from ${ctx.uninstallDir ?? 'this computer'}.`}
+                  ? ctx.runtimesOnly
+                    ? 'Uninstall its package, or delete the AppImage, to remove the app as well.'
+                    : 'Thank you for trying it.'
+                  : ctx.runtimesOnly
+                    ? `This removes the runtimes and the models setup put in ${ctx.uninstallDir ?? 'your folder'}. The app itself stays: it is your package manager's, or the AppImage's.`
+                    : `This removes the app, its runtimes and shortcuts from ${ctx.uninstallDir ?? 'this computer'}.`}
               </p>
             </div>
             {!done && (
