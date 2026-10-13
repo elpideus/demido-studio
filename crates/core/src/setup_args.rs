@@ -22,6 +22,14 @@ pub const RELAUNCH: &str = "--relaunch";
 /// starting the same update again.
 pub const SKIP_UPDATE: &str = "--skip-update";
 
+/// Passed to the *app*: do not start setup at this launch. Setup opens the app with it when the
+/// person chose to go on without the runtimes ("Not now"), where setup travels beside the app.
+pub const SKIP_SETUP: &str = "--skip-setup";
+
+/// Passed to the *app* where setup travels inside it (an AppImage): what follows is for setup,
+/// which the app starts in its place.
+pub const SETUP: &str = "--setup";
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UpdateArgs {
     /// The installation to update. Without it, setup updates the installation it finds.

@@ -596,6 +596,8 @@ export interface AppInfo {
   os: string;
   /** Which OS it is, for choices that differ between them. */
   platform: 'windows' | 'macos' | 'linux';
+  /** Setup travels beside the app and opens from it (Linux): to set up or change the runtimes. */
+  setupAvailable: boolean;
   cpu: string;
   memoryGb: number;
   gpu: string | null;

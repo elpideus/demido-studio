@@ -1,7 +1,10 @@
-import { Cloud, Download, LineChart, Lightbulb, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
+import { Cloud, Cpu, Download, LineChart, Lightbulb, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
 import { Button, Logo } from '@demido/ui';
 
+import { api, errorText } from '@/lib/api';
 import type { ModelEntry } from '@/lib/types';
+import { useApp } from '@/stores/app';
+import { toast } from '@/stores/toasts';
 import { useSkills } from '@/stores/skills';
 import { useWindows } from '@/stores/windows';
 import styles from './EmptyChat.module.css';
@@ -24,6 +27,33 @@ export function EmptyChat({ model, onSuggest }: Props) {
   const openWindow = useWindows((s) => s.open);
   const groups = useSkills((s) => s.groups);
   const on = (id: string) => groups.some((g) => g.id === id && g.enabled && g.available);
+  const info = useApp((s) => s.info);
+
+  // Where setup travels beside the app (Linux), the runtimes come from it: without them a
+  // downloaded model could not run.
+  if (!model && info?.setupAvailable && !info.backend) {
+    return (
+      <div className={styles.empty}>
+        <Logo size={52} />
+        <h1 className={styles.title}>No model is ready yet</h1>
+        <p className={styles.subtitle}>
+          Set up the AI that runs privately on this computer, or connect Google Gemini or OpenRouter with an API key.
+        </p>
+        <div className={styles.actions}>
+          <Button
+            variant="primary"
+            icon={Cpu}
+            onClick={() => void api.openSetup().catch((e) => toast.error('Could not open setup', errorText(e)))}
+          >
+            Set up local AI
+          </Button>
+          <Button variant="secondary" icon={Cloud} onClick={() => openWindow('settings', { tab: 'providers' })}>
+            Connect a provider
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (!model) {
     return (

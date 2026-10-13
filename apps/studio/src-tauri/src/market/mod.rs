@@ -121,7 +121,7 @@ impl MarketService {
         secrets: Arc<Secrets>,
     ) -> Arc<Self> {
         let reason = match (&node, script.is_file()) {
-            (None, _) => Some("Node.js is not installed. Run the Demido Studio installer again to add it.".to_string()),
+            (None, _) => Some(format!("Node.js is not installed. {}.", crate::setup::how_to_add())),
             (_, false) => Some(format!("The market data service is missing ({}).", script.display())),
             _ => None,
         };

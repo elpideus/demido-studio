@@ -20,6 +20,7 @@ mod providers;
 mod runtime;
 mod secrets;
 mod settings;
+mod setup;
 mod shell;
 mod skills;
 mod slash;
@@ -346,6 +347,11 @@ pub fn run() {
                 drop(app.state::<LogGuard>().0.lock().take());
                 std::process::exit(0);
             };
+            if setup::at_launch(&paths, &settings) {
+                // Setup installs or updates the runtimes and opens the app when it is done.
+                drop(app.state::<LogGuard>().0.lock().take());
+                std::process::exit(0);
+            }
             let state = build_state(app.handle(), paths, settings, launch)?;
             app.manage(state.clone());
             if let Some(window) = app.get_webview_window("main") {
@@ -369,6 +375,7 @@ pub fn run() {
             commands::app::get_settings,
             commands::app::update_settings,
             commands::app::window_ready,
+            commands::app::open_setup,
             commands::app::open_path,
             commands::app::reveal_path,
             commands::app::read_workspace_file,

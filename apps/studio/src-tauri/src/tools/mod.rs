@@ -395,7 +395,7 @@ fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
 fn tool_missing(state: &AppState, name: &str) -> Option<String> {
     match name {
         "run_python" if state.paths.python().is_none() => {
-            Some("Python is not installed. Run the installer again to add it.".into())
+            Some(format!("Python is not installed. {}.", crate::setup::how_to_add()))
         }
         // Offered until the search for a shell (at startup) finds none.
         "run_command" if crate::shell::missing() => Some("No shell was found on this computer.".into()),

@@ -79,6 +79,11 @@ export interface Context {
   version: string;
   mode: 'install' | 'uninstall' | 'update';
   hasPayload: boolean;
+  /**
+   * Setup travels beside the app instead of carrying it (Linux): it installs the runtimes and
+   * models into one folder of the person's own, without the location page or shortcuts.
+   */
+  runtimesOnly: boolean;
   hardware: Hardware;
   choices: BackendChoice[];
   defaultBackend: Backend;

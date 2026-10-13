@@ -1,8 +1,9 @@
 //! Where Demido Studio reads and writes.
 //!
 //! Program files come from the install folder the installer created (`install.json` beside the
-//! executable). Everything a person makes lives in the per-user data folder. In development the
-//! install folder is `.dev/install`, provisioned by `pnpm dev:runtime`.
+//! executable, or on Linux in the person's own folder, beside a packaged app). Everything a
+//! person makes lives in the per-user data folder. In development the install folder is
+//! `.dev/install`, provisioned by `pnpm dev:runtime`.
 
 use std::path::{Path, PathBuf};
 
@@ -141,6 +142,14 @@ fn find_install_dir() -> Option<PathBuf> {
         let dev = repo_root().join(".dev").join("install");
         if dev.join(InstallManifest::FILE_NAME).is_file() {
             return Some(dev);
+        }
+    }
+    // Where a package installs the app (Linux), setup puts the runtimes in the person's own
+    // folder instead (see `setup`).
+    if cfg!(not(windows)) {
+        let own = demido_core::paths::default_install_dir(demido_core::InstallScope::User);
+        if own.join(InstallManifest::FILE_NAME).is_file() {
+            return Some(own);
         }
     }
     None

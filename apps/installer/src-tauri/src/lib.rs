@@ -33,6 +33,40 @@ const HELPERS_EXIT_WAIT: Duration = Duration::from_secs(15);
 /// How long the app gets to close by itself before whatever is left is ended.
 const CLOSE_GRACE: Duration = Duration::from_secs(10);
 
+/// Whether this setup only lays down the runtimes, Node, uv, Python and the models: on Linux,
+/// where a package or an AppImage installs the app and setup travels beside it without the app
+/// inside. It then installs into one folder of the person's own ([`runtimes_dir`]), makes no
+/// shortcut (the package's are the app's), and opens the app beside it when it is done.
+fn runtimes_only() -> bool {
+    PAYLOAD.is_empty() && cfg!(target_os = "linux")
+}
+
+/// Where a runtimes-only setup installs: `DEMIDO_INSTALL_DIR` when set (the app reads the same
+/// variable), else the person's own install folder, where the app looks for it.
+fn runtimes_dir() -> PathBuf {
+    std::env::var_os(demido_core::paths::INSTALL_DIR_ENV)
+        .map(PathBuf::from)
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or_else(|| demido_core::paths::default_install_dir(InstallScope::User))
+}
+
+/// The app to open at the end: in `install_dir`, or for a runtimes-only setup the app it travels
+/// beside, through the AppImage it is in when there is one (its files are gone once it ends).
+fn app_exe(install_dir: &Path) -> PathBuf {
+    if runtimes_only() {
+        if let Some(appimage) = std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|p| p.is_file()) {
+            return appimage;
+        }
+        if let Some(dir) = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(Path::to_path_buf))
+        {
+            return dir.join(demido_core::platform::exe(demido_core::brand::STUDIO_BIN));
+        }
+    }
+    install_dir.join(demido_core::platform::exe(demido_core::brand::STUDIO_BIN))
+}
+
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum Mode {
@@ -210,6 +244,8 @@ struct Context {
     version: String,
     mode: Mode,
     has_payload: bool,
+    /// See [`runtimes_only`]: the wizard then has no install location page and no shortcuts.
+    runtimes_only: bool,
     hardware: HardwareReport,
     choices: Vec<BackendChoice>,
     default_backend: Backend,
@@ -239,6 +275,9 @@ fn existing_at(dir: &Path) -> Option<ExistingInstall> {
 }
 
 fn find_existing() -> Option<ExistingInstall> {
+    if runtimes_only() {
+        return existing_at(&runtimes_dir());
+    }
     let mut candidates: Vec<PathBuf> = vec![
         demido_core::paths::default_install_dir(InstallScope::User),
         demido_core::paths::default_install_dir(InstallScope::Machine),
@@ -318,17 +357,18 @@ fn setup_context(state: State<'_, Arc<SetupState>>) -> Context {
 
     let mut default_dirs = BTreeMap::new();
     for (key, scope) in [("user", InstallScope::User), ("machine", InstallScope::Machine)] {
-        default_dirs.insert(
-            key.to_string(),
+        let dir = if runtimes_only() {
+            runtimes_dir()
+        } else {
             demido_core::paths::default_install_dir(scope)
-                .to_string_lossy()
-                .into_owned(),
-        );
+        };
+        default_dirs.insert(key.to_string(), dir.to_string_lossy().into_owned());
     }
     Context {
         version: demido_core::brand::VERSION.to_string(),
         mode: state.mode,
         has_payload: !PAYLOAD.is_empty(),
+        runtimes_only: runtimes_only(),
         default_backend: demido_catalog::default_backend(&choices),
         choices,
         families: catalog.models.families.clone(),
@@ -444,7 +484,12 @@ fn start_install(app: AppHandle, state: State<'_, Arc<SetupState>>, request: Pla
         .family
         .as_ref()
         .and_then(|f| rec.picks.iter().find(|(id, _)| id == f).map(|(_, p)| p.clone()));
-    let install_dir = install_path(&request.install_dir);
+    // A runtimes-only setup installs where the app looks for it, for this person only.
+    let (install_dir, scope, shortcuts) = if runtimes_only() {
+        (runtimes_dir(), InstallScope::User, false)
+    } else {
+        (install_path(&request.install_dir), request.scope, request.shortcuts)
+    };
     if install_dir.as_os_str().is_empty() {
         return Err("Choose an install folder.".into());
     }
@@ -454,7 +499,7 @@ fn start_install(app: AppHandle, state: State<'_, Arc<SetupState>>, request: Pla
     state.lock()?;
     let payload = app_payload(false);
     let plan = InstallPlan {
-        scope: request.scope,
+        scope,
         install_dir,
         backend: request.backend,
         variant: choice.variant.clone().ok_or("No runtime build for this choice.")?,
@@ -464,10 +509,10 @@ fn start_install(app: AppHandle, state: State<'_, Arc<SetupState>>, request: Pla
         // Voice input works with any model; the many that cannot hear need this one to listen.
         speech_model: Some(demido_catalog::speech_model(choice, catalog).clone()),
         model_context: rec.context_length,
-        models_dir: demido_core::paths::starter_models_dir(request.scope),
+        models_dir: demido_core::paths::starter_models_dir(scope),
         python: true,
         node: true,
-        shortcuts: request.shortcuts,
+        shortcuts,
         register: payload.is_some(),
         payload,
         hardware: serde_json::to_value(&state.hardware).unwrap_or_default(),
@@ -502,9 +547,7 @@ fn spawn_run(app: AppHandle, state: Arc<SetupState>, plan: InstallPlan, wait: Op
     *state.cancel.lock() = Some(cancel.clone());
     // Before the run is under way, so closing the window from now on waits for it.
     state.run.lock().start();
-    let studio = plan
-        .install_dir
-        .join(demido_core::platform::exe(demido_core::brand::STUDIO_BIN));
+    let studio = app_exe(&plan.install_dir);
     tauri::async_runtime::spawn(async move {
         // In a task of its own, so even a panic in the run ends up here, as a failure.
         let result = tauri::async_runtime::spawn(execute(app.clone(), plan, wait, cancel))
@@ -641,19 +684,20 @@ fn start_update(app: AppHandle, state: State<'_, Arc<SetupState>>, dir: String) 
     let manifest = demido_provision::folder::installation(&dir)
         .ok_or_else(|| format!("No Demido Studio installation was found in {}.", dir.display()))?;
     let elevated = demido_provision::system::is_elevated();
-    let payload =
-        app_payload(signature_required(elevated, state.update.as_ref())).ok_or("This setup has no app inside it.")?;
+    // A runtimes-only setup updates the runtimes; the app is its package's to update.
+    let payload = if runtimes_only() {
+        None
+    } else {
+        Some(
+            app_payload(signature_required(elevated, state.update.as_ref()))
+                .ok_or("This setup has no app inside it.")?,
+        )
+    };
     state.lock()?;
     if manifest.scope == InstallScope::Machine && !elevated {
         return Err("Updating an installation for everyone needs administrator permission.".into());
     }
-    let plan = InstallPlan::for_update(
-        &dir,
-        &manifest,
-        &state.hardware,
-        demido_catalog::catalog(),
-        Some(payload),
-    );
+    let plan = InstallPlan::for_update(&dir, &manifest, &state.hardware, demido_catalog::catalog(), payload);
     let wait = AppExit::new(&dir, state.wait_pid.lock().take());
     spawn_run(app, state.inner().clone(), plan, Some(wait));
     Ok(())
@@ -695,29 +739,40 @@ fn cancel_install(state: State<'_, Arc<SetupState>>) {
 
 /// Starts the installed app (as the signed-in user) and closes the installer. `skip_update`
 /// keeps the app from installing a staged update at this launch: after an update that did not
-/// finish, opening the app must not start the same update again.
+/// finish, opening the app must not start the same update again. `skip_setup` opens the app
+/// without the runtimes a runtimes-only setup would have put in place ("Not now"), and the app
+/// does not start setup on its own again.
 #[tauri::command]
 fn launch_app(
     app: AppHandle,
     state: State<'_, Arc<SetupState>>,
     install_dir: String,
     skip_update: Option<bool>,
+    skip_setup: Option<bool>,
 ) -> Result<(), String> {
-    let exe = install_path(&install_dir).join(demido_core::platform::exe(demido_core::brand::STUDIO_BIN));
+    let exe = app_exe(&install_path(&install_dir));
     if !exe.is_file() {
         return Err(format!("{} was not found.", exe.display()));
     }
     // The app does not open while setup holds its lock (released when a run ends; this covers a
     // launch before any run).
     drop(state.lock.lock().take());
-    demido_provision::system::launch_app(&exe, app_args(skip_update.unwrap_or(false))).map_err(|e| e.to_string())?;
+    let args = app_args(skip_update.unwrap_or(false), skip_setup.unwrap_or(false));
+    demido_provision::system::launch_app(&exe, &args).map_err(|e| e.to_string())?;
     app.exit(0);
     Ok(())
 }
 
 /// The arguments setup starts the app with.
-fn app_args(skip_update: bool) -> &'static [&'static str] {
-    if skip_update { &[setup_args::SKIP_UPDATE] } else { &[] }
+fn app_args(skip_update: bool, skip_setup: bool) -> Vec<&'static str> {
+    let mut args = Vec::new();
+    if skip_update {
+        args.push(setup_args::SKIP_UPDATE);
+    }
+    if skip_setup {
+        args.push(setup_args::SKIP_SETUP);
+    }
+    args
 }
 
 #[tauri::command]
@@ -730,6 +785,7 @@ async fn uninstall(state: State<'_, Arc<SetupState>>, remove_user_data: bool) ->
         demido_provision::uninstall(&UninstallOptions {
             install_dir: dir,
             remove_user_data,
+            integration: !runtimes_only(),
         })
     })
     .await
@@ -781,6 +837,7 @@ fn uninstall_quietly(dir: Option<&Path>) -> i32 {
     match demido_provision::uninstall(&UninstallOptions {
         install_dir: dir.to_path_buf(),
         remove_user_data: false,
+        integration: !runtimes_only(),
     }) {
         Ok(notes) => {
             for note in notes {
@@ -820,7 +877,15 @@ pub fn run() {
     let own_dir = own_install_dir();
     let uninstalling = args.iter().any(|a| a == "--uninstall")
         || (own_dir.is_some() && std::env::current_exe().is_ok_and(|exe| is_uninstaller(&exe)));
-    let uninstall_dir = if uninstalling { own_dir } else { None };
+    // A runtimes-only setup is not in the folder it installed: `--uninstall` removes that folder.
+    let uninstall_dir = if uninstalling {
+        own_dir.or_else(|| {
+            let dir = runtimes_dir();
+            (runtimes_only() && dir.join(InstallManifest::FILE_NAME).is_file()).then_some(dir)
+        })
+    } else {
+        None
+    };
 
     if uninstalling {
         let quiet = args.iter().any(|a| a == "--quiet");
@@ -1005,7 +1070,7 @@ fn finish_unelevated(outcome: Elevation, dir: &Path, args: &UpdateArgs) {
         if let Some(pid) = args.wait_pid {
             demido_provision::system::wait_for_exit(pid, APP_EXIT_WAIT);
         }
-        let exe = dir.join(demido_core::platform::exe(demido_core::brand::STUDIO_BIN));
+        let exe = app_exe(dir);
         if let Err(err) = demido_provision::system::launch_app(&exe, &[]) {
             tracing::error!("could not start {}: {err:#}", exe.display());
         }
@@ -1289,8 +1354,28 @@ mod tests {
 
     #[test]
     fn opening_the_app_after_a_failed_update_skips_the_update() {
-        assert_eq!(app_args(true), [setup_args::SKIP_UPDATE]);
-        assert!(app_args(false).is_empty());
+        assert_eq!(app_args(true, false), [setup_args::SKIP_UPDATE]);
+        assert!(app_args(false, false).is_empty());
+    }
+
+    #[test]
+    fn not_now_opens_the_app_without_setup() {
+        assert_eq!(app_args(false, true), [setup_args::SKIP_SETUP]);
+    }
+
+    #[test]
+    fn a_setup_without_the_app_is_runtimes_only_on_linux_and_opens_the_app_beside_it() {
+        // Development builds carry no app either, so this is the Linux packaged setup there.
+        assert_eq!(runtimes_only(), PAYLOAD.is_empty() && cfg!(target_os = "linux"));
+        if runtimes_only() {
+            let beside = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+            let exe = app_exe(Path::new("/elsewhere"));
+            if std::env::var_os("APPIMAGE").is_none() {
+                assert_eq!(exe, beside.join(demido_core::brand::STUDIO_BIN));
+            }
+        } else {
+            assert!(app_exe(Path::new("/x")).starts_with("/x"));
+        }
     }
 
     #[test]

@@ -65,6 +65,12 @@ pub struct Settings {
     pub speech_model: Option<String>,
     /// Send the person's recorded voice to models that can hear it, rather than a transcript.
     pub send_voice: bool,
+    /// The person went on without the runtimes when setup first offered them (Linux), so the app
+    /// does not start setup on its own again.
+    pub local_setup_declined: bool,
+    /// The app version that last started setup to bring the runtimes up to date (Linux): once a
+    /// version, so an update that cannot finish (offline, say) does not run at every start.
+    pub runtime_update_tried: Option<String>,
 }
 
 impl Default for Settings {
@@ -93,6 +99,8 @@ impl Default for Settings {
             microphone: None,
             speech_model: None,
             send_voice: true,
+            local_setup_declined: false,
+            runtime_update_tried: None,
         }
     }
 }

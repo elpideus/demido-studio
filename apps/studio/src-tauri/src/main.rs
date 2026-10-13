@@ -10,6 +10,29 @@ fn main() {
     {
         std::process::exit(demido_extract::child_main(std::path::Path::new(&path)));
     }
+    // Started as `<AppImage> --setup …` (see `setup`): what follows is for the setup that travels
+    // inside, which takes this process's place, so the AppImage stays mounted while it runs.
+    #[cfg(unix)]
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == demido_core::setup_args::SETUP)
+    {
+        use std::os::unix::process::CommandExt;
+        let setup = std::env::current_exe().ok().and_then(|exe| {
+            Some(
+                exe.parent()?
+                    .join(demido_core::platform::exe(demido_core::brand::SETUP_BIN)),
+            )
+        });
+        let error = match setup {
+            Some(setup) => std::process::Command::new(setup)
+                .args(std::env::args_os().skip(2))
+                .exec(),
+            None => std::io::Error::other("this executable's folder is unknown"),
+        };
+        eprintln!("could not start setup: {error}");
+        std::process::exit(1);
+    }
     demido_core::platform::prepare_webview();
     demido_studio_lib::run();
 }

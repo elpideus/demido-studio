@@ -8,6 +8,9 @@ pub const PUBLISHER: &str = "Demido";
 pub const APP_SLUG: &str = "demido-studio";
 /// Stem of the app executable (without platform suffix).
 pub const STUDIO_BIN: &str = "demido-studio";
+/// Stem of the setup executable as it travels beside the app where it does not carry the app
+/// (Linux).
+pub const SETUP_BIN: &str = "demido-setup";
 /// Stem of the uninstaller copied into the install folder.
 pub const UNINSTALLER_BIN: &str = "uninstall";
 /// Registry key under `...\CurrentVersion\Uninstall` on Windows. Earlier generations of the

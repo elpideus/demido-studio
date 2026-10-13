@@ -15,8 +15,11 @@ interface Props {
 }
 
 export function WelcomePage({ ctx, onNext, onUpdate }: Props) {
-  // Without an app inside it, setup has nothing to update the installation with.
-  const existing = ctx.hasPayload ? ctx.existing : null;
+  // Without an app inside it, setup has nothing to update the installation with, unless the
+  // installation is only the runtimes.
+  const existing = ctx.hasPayload || ctx.runtimesOnly ? ctx.existing : null;
+  const notNow = () =>
+    void invoke('launch_app', { installDir: ctx.defaultDirs.user, skipSetup: true }).catch((e) => setError(String(e)));
   const [elevating, setElevating] = useState(false);
   const [declined, setDeclined] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,15 +56,18 @@ export function WelcomePage({ ctx, onNext, onUpdate }: Props) {
           <Logo size={56} className={styles.heroLogo} />
           <h1 className={styles.title}>Welcome to Demido Studio</h1>
           <p className={styles.lead}>
-            An AI workspace that runs on your own computer. Setup downloads everything it needs and picks what fits your
-            hardware, so it works as soon as it opens.
+            {ctx.runtimesOnly
+              ? 'An AI workspace that runs on your own computer. Setup puts in place the AI that runs privately on it, picked to fit your hardware, and downloads everything it needs.'
+              : 'An AI workspace that runs on your own computer. Setup downloads everything it needs and picks what fits your hardware, so it works as soon as it opens.'}
           </p>
         </div>
         {existing ? (
           <div className={styles.installed}>
             <div className={styles.installedText}>
               <div className={styles.installedTitle}>
-                Demido Studio {existing.version} is installed in {existing.dir}
+                {ctx.runtimesOnly
+                  ? `The local AI of Demido Studio ${existing.version} is set up in ${existing.dir}`
+                  : `Demido Studio ${existing.version} is installed in ${existing.dir}`}
               </div>
               <div className={styles.installedNote}>Your chats, models and settings are kept.</div>
               {existing.relation === 'newer' && (
@@ -94,7 +100,7 @@ export function WelcomePage({ ctx, onNext, onUpdate }: Props) {
             {error}
           </Notice>
         )}
-        {!ctx.hasPayload && (
+        {!ctx.hasPayload && !ctx.runtimesOnly && (
           <Notice tone="warning" title="Development build" className={styles.spacerTop}>
             This setup has no app inside it, so it only installs the runtimes.
           </Notice>
@@ -118,9 +124,16 @@ export function WelcomePage({ ctx, onNext, onUpdate }: Props) {
             </Button>
           </>
         ) : (
-          <Button variant="primary" size="lg" iconRight={ArrowRight} onClick={onNext}>
-            Get started
-          </Button>
+          <>
+            {ctx.runtimesOnly && ctx.mode === 'install' && (
+              <Button variant="ghost" onClick={notNow}>
+                Not now
+              </Button>
+            )}
+            <Button variant="primary" size="lg" iconRight={ArrowRight} onClick={onNext}>
+              Get started
+            </Button>
+          </>
         )}
       </div>
     </div>

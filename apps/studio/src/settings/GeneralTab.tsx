@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, CircleAlert, Cpu, Download, FolderOpen, Power, ScrollText, ShieldAlert, X } from 'lucide-react';
+import {
+  CheckCircle2,
+  CircleAlert,
+  Cpu,
+  Download,
+  FolderOpen,
+  Power,
+  ScrollText,
+  ShieldAlert,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch, TextField, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
@@ -317,6 +328,16 @@ export function GeneralTab() {
                     Unload
                   </Button>
                 )}
+                {info.setupAvailable && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={Wrench}
+                    onClick={() => void api.openSetup().catch((e) => toast.error('Could not open setup', errorText(e)))}
+                  >
+                    {info.backend ? 'Change…' : 'Set up'}
+                  </Button>
+                )}
               </div>
             </div>
             {info.components.map((c) => (
@@ -329,7 +350,11 @@ export function GeneralTab() {
                 <div className={s.rowMain}>
                   <div className={s.rowTitle}>{c.name}</div>
                   <div className={s.rowMeta}>
-                    {c.installed ? (c.version ?? 'Installed') : 'Not installed: run the installer again to add it.'}
+                    {c.installed
+                      ? (c.version ?? 'Installed')
+                      : info.setupAvailable
+                        ? 'Not installed: set up the AI runtime above to add it.'
+                        : 'Not installed: run the installer again to add it.'}
                   </div>
                 </div>
               </div>

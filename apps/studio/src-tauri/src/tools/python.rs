@@ -31,7 +31,7 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
         .state
         .paths
         .python()
-        .ok_or("Python is not installed. Run the Demido Studio installer again to add it.")?;
+        .ok_or_else(|| format!("Python is not installed. {}.", crate::setup::how_to_add()))?;
     std::fs::create_dir_all(&ctx.workspace).map_err(|e| e.to_string())?;
     let scratch = ctx.workspace.join(".demido");
     std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;

@@ -15,6 +15,7 @@ import type { Context, WizardState } from './types';
 import styles from './Setup.module.css';
 
 const STEPS = ['Welcome', 'AI runtime', 'Install location', 'Model', 'Review', 'Install', 'Finish'];
+const LOCATION = 2;
 
 function initialState(ctx: Context): WizardState {
   if (ctx.resume) return ctx.resume;
@@ -52,23 +53,25 @@ export function Setup() {
   const update = (patch: Partial<WizardState>) => setState((s) => (s ? { ...s, ...patch } : s));
   const go = (step: number) => update({ step });
 
-  const sidebar = useMemo(
-    () =>
-      state && (
-        <ol className={styles.steps}>
-          {STEPS.map((label, i) => (
-            <li
-              key={label}
-              className={cx(styles.step, i === state.step && styles.current, i < state.step && styles.completed)}
-            >
-              <span className={styles.stepMark}>{i < state.step ? <Check size={12} strokeWidth={3} /> : i + 1}</span>
-              {label}
-            </li>
-          ))}
-        </ol>
-      ),
-    [state],
-  );
+  // A runtimes-only setup installs where the app looks for it: there is no location to choose.
+  const skipLocation = !!ctx?.runtimesOnly;
+  const sidebar = useMemo(() => {
+    if (!state) return null;
+    const steps = STEPS.map((label, step) => ({ label, step })).filter((s) => !skipLocation || s.step !== LOCATION);
+    return (
+      <ol className={styles.steps}>
+        {steps.map(({ label, step }, i) => (
+          <li
+            key={label}
+            className={cx(styles.step, step === state.step && styles.current, step < state.step && styles.completed)}
+          >
+            <span className={styles.stepMark}>{step < state.step ? <Check size={12} strokeWidth={3} /> : i + 1}</span>
+            {label}
+          </li>
+        ))}
+      </ol>
+    );
+  }, [state, skipLocation]);
 
   if (error) return <div className={styles.fatal}>Setup could not start: {error}</div>;
   if (!ctx || !state) {
@@ -113,13 +116,21 @@ export function Setup() {
               update({ backend, family: ctx.recommendations[backend]?.defaultFamily ?? state.family })
             }
             onBack={() => go(0)}
-            onNext={() => go(2)}
+            onNext={() => go(skipLocation ? LOCATION + 1 : LOCATION)}
           />
         );
       case 2:
         return <LocationPage ctx={ctx} state={state} onChange={update} onBack={() => go(1)} onNext={() => go(3)} />;
       case 3:
-        return <ModelPage ctx={ctx} state={state} onChange={update} onBack={() => go(2)} onNext={() => go(4)} />;
+        return (
+          <ModelPage
+            ctx={ctx}
+            state={state}
+            onChange={update}
+            onBack={() => go(skipLocation ? LOCATION - 1 : LOCATION)}
+            onNext={() => go(4)}
+          />
+        );
       case 4:
         return (
           <ReviewPage

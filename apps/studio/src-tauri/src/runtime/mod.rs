@@ -166,8 +166,10 @@ impl LocalRuntime {
     /// Returns the server running `spec`, starting one if needed.
     pub async fn ensure(&self, spec: &LaunchSpec) -> Result<Served, String> {
         let server = self.server.clone().ok_or_else(|| {
-            "The local AI runtime is not installed. Run the Demido Studio installer again, or pick a cloud model."
-                .to_string()
+            format!(
+                "The local AI runtime is not installed. {}, or pick a cloud model.",
+                crate::setup::how_to_add()
+            )
         })?;
         if !spec.path.is_file() {
             return Err(format!("The model file is missing: {}", spec.path.display()));

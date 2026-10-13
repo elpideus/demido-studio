@@ -13,6 +13,9 @@ pub struct UninstallOptions {
     pub install_dir: PathBuf,
     /// Also delete chats, settings, skills and downloaded models.
     pub remove_user_data: bool,
+    /// Also remove the shortcuts and the OS registration. Not where a package installed the app
+    /// and setup only put the runtimes in place: the shortcuts are the package's.
+    pub integration: bool,
 }
 
 /// Uninstalls. Returns notes about anything that could not be removed right away (for example
@@ -26,17 +29,19 @@ pub fn uninstall(opts: &UninstallOptions) -> anyhow::Result<Vec<String>> {
     let scope = manifest.as_ref().map(|m| m.scope).unwrap_or(InstallScope::User);
     let mut notes = Vec::new();
 
-    if let Ok(links) = super::shortcuts::platform::shortcut_paths(scope) {
-        for link in links {
-            if link.exists()
-                && let Err(e) = std::fs::remove_file(&link)
-            {
-                notes.push(format!("Could not remove {}: {e}", link.display()));
+    if opts.integration {
+        if let Ok(links) = super::shortcuts::platform::shortcut_paths(scope) {
+            for link in links {
+                if link.exists()
+                    && let Err(e) = std::fs::remove_file(&link)
+                {
+                    notes.push(format!("Could not remove {}: {e}", link.display()));
+                }
             }
         }
-    }
-    if let Err(e) = super::shortcuts::platform::unregister(scope) {
-        notes.push(format!("Could not remove the Installed apps entry: {e}"));
+        if let Err(e) = super::shortcuts::platform::unregister(scope) {
+            notes.push(format!("Could not remove the Installed apps entry: {e}"));
+        }
     }
 
     if let Some(models) = shared_models_dir(manifest.as_ref()) {

@@ -82,6 +82,8 @@ export const api = {
   getSettings: () => invoke<Settings>('get_settings'),
   updateSettings: (patch: Partial<Settings>) => invoke<Settings>('update_settings', { patch }),
   windowReady: () => invoke<void>('window_ready'),
+  /** Opens setup and closes the app, which setup opens again when it is done. */
+  openSetup: () => invoke<void>('open_setup'),
   openPath: (path: string) => invoke<void>('open_path', { path }),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   readWorkspaceFile: (path: string, maxBytes?: number) => invoke<string>('read_workspace_file', { path, maxBytes }),

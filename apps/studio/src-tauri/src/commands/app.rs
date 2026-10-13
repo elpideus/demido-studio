@@ -37,6 +37,9 @@ pub struct AppInfo {
     pub backend: Option<String>,
     pub components: Vec<ComponentInfo>,
     pub dev: bool,
+    /// Setup travels beside the app and can be opened from it to set up or change the runtimes
+    /// and models (Linux, see `setup`).
+    pub setup_available: bool,
 }
 
 #[tauri::command]
@@ -93,6 +96,7 @@ pub fn app_info(state: St<'_>) -> AppInfo {
             ),
         ],
         dev: cfg!(debug_assertions),
+        setup_available: crate::setup::available(),
     }
 }
 
@@ -112,6 +116,15 @@ pub fn get_settings(state: St<'_>) -> Settings {
 #[tauri::command]
 pub fn update_settings(state: St<'_>, patch: serde_json::Value) -> CmdResult<Settings> {
     state.settings.patch(patch)
+}
+
+/// Opens setup, to set up or change the runtimes and models, and closes the app: setup opens it
+/// again when it is done, so the app reads what setup installed.
+#[tauri::command]
+pub fn open_setup(app: tauri::AppHandle) -> CmdResult<()> {
+    crate::setup::start(&[]).map_err(|e| crate::error::AppError::msg(format!("Could not open setup: {e}")))?;
+    app.exit(0);
+    Ok(())
 }
 
 /// Shows the main window once the UI has painted, so the app never flashes an empty frame.

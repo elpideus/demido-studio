@@ -92,12 +92,14 @@ export function ReviewPage({ ctx, state, onChange, onBack, onInstall }: Props) {
             <span className={styles.summarySize}>{formatBytes(download)}</span>
           </div>
         </div>
-        <Checkbox
-          className={styles.spacerTop}
-          checked={state.shortcuts}
-          onChange={(v) => onChange({ shortcuts: v })}
-          label="Create Start menu and desktop shortcuts"
-        />
+        {!ctx.runtimesOnly && (
+          <Checkbox
+            className={styles.spacerTop}
+            checked={state.shortcuts}
+            onChange={(v) => onChange({ shortcuts: v })}
+            label="Create Start menu and desktop shortcuts"
+          />
+        )}
         {info?.running && (
           <Notice
             tone="warning"
