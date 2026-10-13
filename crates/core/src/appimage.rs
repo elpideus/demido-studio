@@ -53,7 +53,11 @@ const HOOKED: [(&str, &str); 3] = [
 const RUNTIME: [&str; 4] = ["APPDIR", "APPIMAGE", "ARGV0", "OWD"];
 
 /// The AppImage's folder while running from one: `APPDIR`, which its runtime sets with `APPIMAGE`.
+/// AppImages are Linux's: elsewhere, never.
 pub fn appdir() -> Option<PathBuf> {
+    if cfg!(not(target_os = "linux")) {
+        return None;
+    }
     std::env::var_os("APPIMAGE")?;
     std::env::var_os("APPDIR")
         .map(PathBuf::from)
@@ -86,7 +90,8 @@ pub fn host_env() -> Vec<(&'static str, Option<OsString>)> {
     }
 }
 
-/// [`host_env`] for an AppImage in `appdir`, with the environment read through `get`.
+/// [`host_env`] for an AppImage in `appdir`, with the environment read through `get`. The lists
+/// are split as the platform splits them: a Linux one by `:`.
 fn host_env_from(appdir: &Path, get: impl Fn(&str) -> Option<OsString>) -> Vec<(&'static str, Option<OsString>)> {
     let inside = |p: &OsStr| Path::new(p).starts_with(appdir);
     let mut changes = Vec::new();
@@ -123,7 +128,8 @@ fn host_env_from(appdir: &Path, get: impl Fn(&str) -> Option<OsString>) -> Vec<(
     changes
 }
 
-#[cfg(test)]
+// Linux's lists of folders, which Windows splits by `;`.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use std::collections::HashMap;
