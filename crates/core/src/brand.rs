@@ -33,3 +33,23 @@ pub const RELEASES_REPO: &str = "elpideus/demido-studio";
 pub fn setup_file_name(version: &str) -> String {
     crate::platform::exe(&format!("Demido-Studio-Setup-{version}"))
 }
+
+/// File name of the AppImage for `version` and this machine's architecture, as each release
+/// publishes it: `Demido-Studio-0.5.0-x86_64.AppImage`.
+pub fn appimage_file_name(version: &str) -> String {
+    let arch = match crate::platform::Arch::current() {
+        crate::platform::Arch::X86_64 => "x86_64",
+        crate::platform::Arch::Aarch64 => "aarch64",
+    };
+    format!("Demido-Studio-{version}-{arch}.AppImage")
+}
+
+/// What the app downloads to update itself to `version`: on Linux the AppImage, which replaces
+/// the running one; elsewhere the installer, which updates the installation.
+pub fn update_file_name(version: &str) -> String {
+    if cfg!(target_os = "linux") {
+        appimage_file_name(version)
+    } else {
+        setup_file_name(version)
+    }
+}

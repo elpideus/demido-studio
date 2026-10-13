@@ -142,7 +142,7 @@ fn candidate(release: &GhRelease, channel: UpdateChannel, any_host: bool) -> Opt
     if prerelease && channel == UpdateChannel::Release {
         return None;
     }
-    let setup_name = brand::setup_file_name(&version.to_string());
+    let setup_name = brand::update_file_name(&version.to_string());
     let setup = asset(release, &setup_name, any_host)?;
     let signature = asset(release, &format!("{setup_name}.sig"), any_host)?;
     let url = if allowed_url(&release.html_url, any_host) {
@@ -339,7 +339,7 @@ mod tests {
     /// A complete release: installer and signature, both on github.com.
     fn release(tag: &str, prerelease: bool) -> GhRelease {
         let version = tag.trim_start_matches('v');
-        let setup = brand::setup_file_name(version);
+        let setup = brand::update_file_name(version);
         GhRelease {
             tag_name: tag.to_string(),
             body: Some(format!("Notes for {version}")),
@@ -451,8 +451,8 @@ mod tests {
         r.assets[0].digest = Some(format!("sha256:{}", "AB".repeat(32)));
         r.assets[0].size = 25_000_000;
         let c = select(&[r], UpdateChannel::Release, &v("0.4.0"), false).unwrap();
-        assert_eq!(c.setup.name, brand::setup_file_name("0.5.0"));
-        assert_eq!(c.signature.name, format!("{}.sig", brand::setup_file_name("0.5.0")));
+        assert_eq!(c.setup.name, brand::update_file_name("0.5.0"));
+        assert_eq!(c.signature.name, format!("{}.sig", brand::update_file_name("0.5.0")));
         assert_eq!(c.setup.sha256, Some("ab".repeat(32)));
         assert_eq!(c.signature.sha256, None);
         assert_eq!(c.release.size, 25_000_000);

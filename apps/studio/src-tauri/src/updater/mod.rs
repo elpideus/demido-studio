@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use demido_core::{InstallScope, brand, setup_args};
+use demido_core::{brand, setup_args};
 use demido_fetch::{CancellationToken, DownloadRequest, Downloader, FetchError, Progress};
 use parking_lot::Mutex;
 use semver::Version;
@@ -203,7 +203,7 @@ fn launch_action(settings: &Settings, target: &InstallTarget, pending: &Pending,
     let install = settings.auto_update
         && !skip
         && target.unsupported.is_none()
-        && target.scope == Some(InstallScope::User)
+        && target.installs_quietly()
         && pending.attempts < MAX_LAUNCH_ATTEMPTS;
     if install {
         LaunchAction::Install
@@ -213,13 +213,25 @@ fn launch_action(settings: &Settings, target: &InstallTarget, pending: &Pending,
 }
 
 /// Counts the attempt, then starts the staged installer. The count is saved first, so an attempt
-/// that dies halfway still counts; an installer that never started does not.
+/// that dies halfway still counts; an installer that never started does not. An AppImage is
+/// replaced by the new one instead, which starts once this copy has ended.
 fn run_installer(staging: &Staging, target: &InstallTarget, pending: &Pending) -> anyhow::Result<()> {
-    let dir = target.dir.as_deref().context("There is no installation to update")?;
     let counted = Pending {
         attempts: pending.attempts + 1,
         ..pending.clone()
     };
+    #[cfg(unix)]
+    if let Some(appimage) = &target.appimage {
+        staging.save(&counted).context("Could not record the install attempt")?;
+        install::replace_appimage(&staging.installer(pending), appimage)
+            .and_then(|()| install::relaunch_after_exit(appimage))
+            .map_err(|err| {
+                let _ = staging.save(pending);
+                anyhow::Error::new(err).context("The update could not be put in place")
+            })?;
+        return Ok(());
+    }
+    let dir = target.dir.as_deref().context("There is no installation to update")?;
     staging.save(&counted).context("Could not record the install attempt")?;
     if let Err(err) = install::launch_installer(&staging.installer(pending), dir, staging.dir()) {
         let _ = staging.save(pending);
@@ -654,7 +666,10 @@ impl Updater {
             self.staging.discard(pending);
         }
         drop(work);
-        if status.auto && status.phase == Phase::Available {
+        // Automatic mode downloads what this copy can install; a development build downloads all
+        // the same, to try the Updates tab.
+        let installable = self.target.unsupported.is_none() || cfg!(debug_assertions);
+        if status.auto && status.phase == Phase::Available && installable {
             return self.download(false);
         }
         status
@@ -1011,6 +1026,7 @@ impl Updater {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use demido_core::InstallScope;
 
     fn v(s: &str) -> Version {
         Version::parse(s).unwrap()
@@ -1045,8 +1061,8 @@ mod tests {
                 size: 10,
                 prerelease: false,
             },
-            setup: asset(brand::setup_file_name(version)),
-            signature: asset(format!("{}.sig", brand::setup_file_name(version))),
+            setup: asset(brand::update_file_name(version)),
+            signature: asset(format!("{}.sig", brand::update_file_name(version))),
         }
     }
 
@@ -1112,7 +1128,7 @@ mod tests {
 
     /// A release in the feed, complete with its installer and signature.
     fn gh_release(version: &str) -> feed::GhRelease {
-        let setup = brand::setup_file_name(version);
+        let setup = brand::update_file_name(version);
         let asset = |name: String| feed::GhAsset {
             browser_download_url: format!("https://github.com/elpideus/demido-studio/releases/download/x/{name}"),
             name,
@@ -1322,6 +1338,7 @@ mod tests {
         InstallTarget {
             dir: Some("C:\\Demido Studio".into()),
             scope: Some(scope),
+            appimage: None,
             unsupported: unsupported.map(str::to_string),
         }
     }
@@ -1357,6 +1374,13 @@ mod tests {
             ..user.clone()
         };
         assert_eq!(launch_action(&auto, &no_install, &ready, false), LaunchAction::Keep);
+        // An AppImage replaces itself, runtimes set up or not.
+        let appimage = InstallTarget {
+            scope: None,
+            appimage: Some("/home/x/Apps/Demido-Studio-0.5.0-x86_64.AppImage".into()),
+            ..user.clone()
+        };
+        assert_eq!(launch_action(&auto, &appimage, &ready, false), LaunchAction::Install);
     }
 
     #[test]

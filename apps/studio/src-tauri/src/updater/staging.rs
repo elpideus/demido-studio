@@ -148,10 +148,10 @@ fn remove(path: &Path) {
 }
 
 /// The version in an installer's file name or its `.part`, by the pattern
-/// [`brand::setup_file_name`] writes.
+/// [`brand::update_file_name`] writes.
 pub fn version_in(file_name: &str) -> Option<Version> {
     let name = file_name.strip_suffix(".part").unwrap_or(file_name);
-    let pattern = brand::setup_file_name("{version}");
+    let pattern = brand::update_file_name("{version}");
     let (prefix, suffix) = pattern.split_once("{version}")?;
     Version::parse(name.strip_prefix(prefix)?.strip_suffix(suffix)?).ok()
 }
@@ -216,7 +216,7 @@ fn judge(
     };
     // The installer's name is part of what the signature covers, and the only file the updater
     // will ever run from here.
-    if pending.file != brand::setup_file_name(&pending.version) {
+    if pending.file != brand::update_file_name(&pending.version) {
         remove(&staging.path(PENDING_FILE));
         return Reconciled::Discarded(format!("{:?} is not the installer of {version}", pending.file));
     }
@@ -262,7 +262,7 @@ mod tests {
     fn pending(version: &str, attempts: u32) -> Pending {
         Pending {
             version: version.to_string(),
-            file: brand::setup_file_name(version),
+            file: brand::update_file_name(version),
             signature: "sig".into(),
             release: ReleaseInfo {
                 version: version.to_string(),
@@ -333,11 +333,11 @@ mod tests {
     }
 
     fn part(version: &str) -> String {
-        format!("{}.part", brand::setup_file_name(version))
+        format!("{}.part", brand::update_file_name(version))
     }
 
     fn sig(version: &str) -> String {
-        format!("{}.sig", brand::setup_file_name(version))
+        format!("{}.sig", brand::update_file_name(version))
     }
 
     /// The files a staged `p` leaves in the folder, plus `more`, sorted.
@@ -370,7 +370,7 @@ mod tests {
         let path = staging.signature(&p);
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
-            format!("{}.sig", demido_core::brand::setup_file_name("0.5.0"))
+            format!("{}.sig", demido_core::brand::update_file_name("0.5.0"))
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), p.signature);
         assert!(matches!(staging.read(), Read::Found(found) if found == p));
@@ -460,7 +460,7 @@ mod tests {
             part("0.5.0"),
             part("0.4.0"),
             part("0.3.0"),
-            brand::setup_file_name("0.4.5"),
+            brand::update_file_name("0.4.5"),
             sig("0.4.5"),
             sig("0.6.0"),
             ".pending.json.123.tmp".to_string(),
@@ -488,10 +488,10 @@ mod tests {
 
     #[test]
     fn versions_are_read_back_from_installer_names() {
-        assert_eq!(version_in(&brand::setup_file_name("0.5.0")), Some(v("0.5.0")));
+        assert_eq!(version_in(&brand::update_file_name("0.5.0")), Some(v("0.5.0")));
         assert_eq!(version_in(&part("0.6.0-beta.1")), Some(v("0.6.0-beta.1")));
         assert_eq!(version_in("pending.json"), None);
-        assert_eq!(version_in(&brand::setup_file_name("latest")), None);
+        assert_eq!(version_in(&brand::update_file_name("latest")), None);
     }
 
     #[test]
@@ -500,7 +500,7 @@ mod tests {
         let (_d, staging) = folder(
             Some(&p),
             true,
-            &[&part("0.5.0"), &brand::setup_file_name("0.5.0"), &sig("0.5.0")],
+            &[&part("0.5.0"), &brand::update_file_name("0.5.0"), &sig("0.5.0")],
         );
         staging.keep_only(&p);
         assert_eq!(files(&staging), staged_files(&p, &[]));
