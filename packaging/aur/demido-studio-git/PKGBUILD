@@ -36,7 +36,7 @@ optdepends=(
 )
 provides=("$_pkgname")
 conflicts=("$_pkgname")
-options=('!debug')
+options=('!debug' '!lto')
 install=demido-studio.install
 source=("$_pkgname::git+$url.git")
 sha256sums=('SKIP')
