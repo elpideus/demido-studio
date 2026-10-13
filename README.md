@@ -8,7 +8,7 @@ agentic work and transparency.
   model sized for your memory. No manual hunting for runtimes, models or plugins.
 - **Agentic tools that work together.** Live and historical market data, your email, Python for
   analysis and charts, the programs already on your computer (yt-dlp, ffmpeg, git, ping ...) through your own
-  PowerShell, workspace files, and skills the assistant can write for itself.
+  shell (PowerShell on Windows, bash on Linux), workspace files, and skills the assistant can write for itself.
 - **Transparent.** Every answer records exactly what was sent to the model and what came back,
   with token counts and speed. Open any answer in the Inspector.
 - **Cloud when you want it.** Connect Google Gemini with an API key; its models appear next to
@@ -21,6 +21,10 @@ agentic work and transparency.
 > content they read. Review what the assistant does before letting it run code.
 
 ## Install
+
+Demido Studio runs on Windows 10 and 11 and on Linux (x86-64).
+
+### Windows
 
 Download `Demido-Studio-Setup-<version>.exe` from
 [Releases](https://github.com/elpideus/demido-studio/releases) and run it. Setup walks you
@@ -43,6 +47,68 @@ also how an installation older than 0.4.0 gets a new version.
 Uninstall from Windows' Installed apps. Your chats and models are kept unless you choose to
 delete them.
 
+### Linux
+
+Install it one of three ways:
+
+- **AppImage**, for any distribution: download `Demido-Studio-<version>-x86_64.AppImage` from
+  [Releases](https://github.com/elpideus/demido-studio/releases), make it executable and run it.
+  It updates itself.
+
+  ```bash
+  chmod +x Demido-Studio-*-x86_64.AppImage && ./Demido-Studio-*-x86_64.AppImage
+  ```
+
+- **Arch Linux and its derivatives** (CachyOS, EndeavourOS, Manjaro): install
+  [`demido-studio-bin`](https://aur.archlinux.org/packages/demido-studio-bin) from the AUR, or
+  `demido-studio-git` to build the latest commit. Your package manager updates it.
+
+  ```bash
+  yay -S demido-studio-bin
+  ```
+
+- **Tarball**: `demido-studio-<version>-linux-x86_64.tar.gz` holds the app as a `usr/` folder to
+  unpack anywhere; run `usr/bin/demido-studio` from it. You update it by hand.
+
+The first time it opens, Demido Studio starts its setup to put in place the AI that runs on your
+computer, as on Windows: the runtime for your graphics card, Python, Node.js, uv and a model, all
+downloaded from their official sources and checked. They go in `~/.local/opt/demido-studio`, your
+chats, settings and downloaded models in `~/.local/share/demido-studio`, both your own. **Not now**
+skips it and opens the app for online models only; **Set up local AI** in the empty chat, or
+Settings, General, brings it back, and there you can also change the runtime or the model later.
+When an update of the app needs a newer runtime, a small window brings it up to date the next time
+the app starts.
+
+What the runtimes need from your system:
+
+- **NVIDIA (CUDA):** the NVIDIA driver (`nvidia-utils` on Arch). The CUDA libraries come with the
+  runtime.
+- **AMD (ROCm):** ROCm itself (`rocm-hip-runtime` and `hipblas` on Arch), for the cards ROCm
+  supports (RX 6800 and newer). Setup offers ROCm only when it finds it, and Vulkan otherwise.
+- **Vulkan**, on any graphics card: the Vulkan loader and your card's Vulkan driver
+  (`vulkan-icd-loader` and `vulkan-radeon`, `vulkan-intel` or `nvidia-utils` on Arch).
+
+To remove it, uninstall the package (or delete the AppImage), and delete `~/.local/opt/demido-studio`
+and `~/.local/share/demido-studio` to remove the runtimes, models and chats too. Before uninstalling,
+`demido-studio --setup --uninstall` does that for you, asking about your chats first.
+
+**If something does not work on Linux:**
+
+- **The window stays blank or the app closes as it opens.** WebKitGTK, the webview Linux apps
+  use, has trouble with NVIDIA's driver under Wayland; Demido Studio works around it by itself
+  (`__NV_DISABLE_EXPLICIT_SYNC=1`). If the window still stays blank, start it with
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1 demido-studio`.
+- **API keys and mail passwords are forgotten when the app closes.** They are kept in your
+  desktop's keyring (the Secret Service): KWallet on KDE, GNOME Keyring on GNOME, or KeePassXC.
+  Without one running, the app keeps them for the session only, and says so.
+- **The desktop asks whether Demido Studio may use the camera.** WebKitGTK asks once, when it lists
+  the microphones (Settings, General, Voice) and a camera is plugged in. Either answer is fine:
+  Demido Studio only uses the microphone.
+- **Voice input finds no microphone.** WebKitGTK records through GStreamer: install its good
+  plugins and PipeWire plugin (`gst-plugins-good` and `gst-plugin-pipewire` on Arch).
+- **The AppImage does not start and mentions FUSE.** It mounts itself with FUSE: install your
+  distribution's FUSE package (`fuse3` on Arch), or start it with `--appimage-extract-and-run`.
+
 **Updates.** From 0.4.0 on, Demido Studio updates itself. In Settings, Updates you pick the
 channel (Release, or Pre-release for early versions) and whether it updates automatically. That is
 on by default and works like Discord: a new version downloads in the background and is installed
@@ -51,7 +117,9 @@ updates**, then **Update** downloads the new version and restarts the app to ins
 first if a reply is still being written. Every download is checked against the release's signature
 before it runs. If an automatic update fails, Setup says so and **Open Demido Studio** opens the
 app without trying it again; a later start tries once more, and after that the update waits for a
-click in Settings, Updates.
+click in Settings, Updates. On Linux the AppImage updates itself the same way, replacing its own
+file; a package is updated by your package manager, and Settings, Updates says when there is a new
+version.
 
 ## What is inside
 
@@ -63,7 +131,7 @@ click in Settings, Updates.
 | Slash commands: `/compact`, `/autocompact 12k` (or `off`, `auto`, `12.5k`, `twelve thousand`), and the commands skills bring, such as `/analyze` | Type `/` in the composer |
 | Send files with a message: images, PDFs, Word, PowerPoint, spreadsheets, text and code. Short ones are read in full, long ones are searched for the passages your question needs (RAG), by meaning as well as by words | The composer: **+**, drag and drop, or paste |
 | Talk instead of typing: models that can hear get your voice message; for the others a local speech model (Qwen3-ASR) writes down what you said into the composer, for you to check and send. Choose the microphone and speech model, or turn voice messages off | The composer: the microphone button; Settings, General, Voice |
-| Commands in your own shell (PowerShell 7 when installed, else Windows PowerShell), shown live like a terminal with a Stop button; each one asks first | The chat (Coding in the Tools menu) |
+| Commands in your own shell (on Windows PowerShell 7 when installed, else Windows PowerShell; on Linux bash), shown live like a terminal with a Stop button; each one asks first | The chat (Coding in the Tools menu) |
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
 | Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |
@@ -158,14 +226,17 @@ context until you use one, which keeps small models' prompts small.
 
 ## Develop
 
-Requirements: Rust (stable), Node.js 22+, pnpm 10+. Windows is the primary platform today.
+Requirements: Rust (stable), Node.js 22+, pnpm 10+, on Windows or Linux. On Linux, Tauri also
+needs WebKitGTK 4.1 and its build dependencies; [`docs/development.md`](docs/development.md) lists
+the packages.
 
 ```bash
 pnpm install
 pnpm dev:runtime      # download llama.cpp, Python, Node and uv into .dev/install (once)
 pnpm dev              # the app, with hot reload
 pnpm dev:installer    # the setup wizard (runtimes only, no app payload in dev)
-pnpm build            # release/Demido-Studio-Setup-<version>.exe
+pnpm build            # Windows: release/Demido-Studio-Setup-<version>.exe
+                      # Linux: release/Demido-Studio-<version>-x86_64.AppImage and the tarball
 ```
 
 `pnpm dev:runtime` runs the same installation engine as the setup wizard. Point the app at a
@@ -196,13 +267,15 @@ Driving the running app (screenshots, scripted conversations), cutting a release
 | `crates/catalog` | What gets installed (`catalog/*.json`) and how it is chosen for a machine |
 | `crates/fetch` | Resumable, verified downloads and archive extraction |
 | `crates/extract` | Reading attached files: kind, text, passages, a model-ready copy of an image |
+| `crates/drive` | Development only: drives the app and setup from scripts on Linux |
 | `crates/provision` | The installation engine |
 | `crates/setup-cli` | The engine from a terminal (`--detect`, `--dev`, `--pack`) |
 | `packages/ui` | Design tokens and shared React components |
 | `sidecars/market` | The market data service (Node): TradingView and Dukascopy |
 | `skills` | Skills shipped with the app |
 | `catalog` | Pinned runtimes and the model tiers, with checksums |
-| `docs` | Architecture and development notes |
+| `packaging` | The Linux desktop entry and AppStream metadata, and the AUR packages |
+| `docs` | Architecture, development and packaging notes |
 
 See [`docs/architecture.md`](docs/architecture.md) for how the pieces fit together.
 

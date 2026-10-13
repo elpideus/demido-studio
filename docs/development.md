@@ -188,22 +188,31 @@ The tag starts `.github/workflows/release.yml`:
    repository, runs `pnpm build` and keeps the unsigned `Demido-Studio-Setup-<version>.exe` as a
    workflow artifact, under its exact name (the signature names the file it was made for). The
    run's summary shows the installer's SHA-256. This job never sees the signing key.
-3. **Sign**, on a fresh Linux runner once the build is done: it checks nothing out, installs
-   nothing and has no token permissions. It downloads the installer, signs it with
-   `tauri signer sign --app-version` from the exact `@tauri-apps/cli` version in `pnpm-lock.yaml`
-   (fetched by `npx` into an empty directory, no install scripts), checks the `.sig` is not empty
-   and keeps the installer and its `.exe.sig` as the artifact Publish takes.
-4. **Publish**, once Checks and Sign have passed: a GitHub release "Demido Studio <version>" with
-   exactly those two files and the notes from `scripts/release-notes.mjs` (every commit subject
-   since the previous release, without the "Release v..." ones, then how to install). A
+3. **Build for Linux**, on Ubuntu 22.04 at the same time (the oldest system with WebKitGTK 4.1 the
+   release is for, so the binaries ask for no newer glibc): the same check, then `pnpm build` makes
+   `Demido-Studio-<version>-x86_64.AppImage` and `demido-studio-<version>-linux-x86_64.tar.gz`,
+   kept unsigned as an artifact. It never sees the key either.
+4. **Sign**, on a fresh Linux runner once both builds are done: it checks nothing out, installs
+   nothing and has no token permissions. It downloads both builds' artifacts, signs what the
+   updater downloads (the installer and the AppImage) with `tauri signer sign --app-version` from
+   the exact `@tauri-apps/cli` version in `pnpm-lock.yaml` (fetched by `npx` into an empty
+   directory, no install scripts), checks no `.sig` is empty and keeps all of it, signatures
+   included, as the artifact Publish takes.
+5. **Publish**, once Checks and Sign have passed: a GitHub release "Demido Studio <version>" with
+   those files, their `SHA256SUMS` and the notes from `scripts/release-notes.mjs` (every commit
+   subject since the previous release, without the "Release v..." ones, then how to install on
+   Windows and Linux). For a stable release it also points the AUR package at the release
+   (`scripts/aur.mjs`) and keeps its `PKGBUILD` and `.SRCINFO` as the artifact
+   `aur-demido-studio-bin-<version>`, to push to the AUR (`docs/packaging.md`). A
    pre-release counts from the previous `v*` tag of either kind; a stable release counts from the
    previous stable tag, so it also lists what its pre-releases shipped, which people on the Release
    channel have not seen. A version with a `-` becomes a pre-release and is never marked as the
    latest release. Running the workflow again for the same tag replaces the release's files and
    notes.
 
-Actions, Release, **Run workflow** builds the installer from any branch or tag and keeps it as an
-artifact, unsigned, publishing nothing: a build to test. Only a pushed `v*` tag is signed.
+Actions, Release, **Run workflow** builds the installer and the Linux release from any branch or
+tag and keeps them as artifacts, unsigned, publishing nothing: builds to test. Only a pushed `v*`
+tag is signed.
 
 Every action in both workflows is pinned to a commit, with its tag in a comment. To move one to a
 newer version, look up the commit of the new tag (`gh api repos/<owner>/<repo>/git/ref/tags/<tag>`;
@@ -218,21 +227,34 @@ two differ.
 runner: the version check, `pnpm format:check`, both frontends' builds (the Tauri crates embed
 them when they compile, so clippy and the Rust tests need them), `pnpm typecheck`,
 `pnpm test:web`, `pnpm test:scripts`, clippy with warnings as errors and the Rust tests, with
-`--locked`. A newer push to a pull request cancels its run in progress.
+`--locked`; and on an Ubuntu runner what can differ there: the frontends' builds, the web and
+script tests, clippy and the Rust tests (the code behind `cfg(unix)` and Linux, which Windows never
+compiles). A newer push to a pull request cancels its run in progress.
 
 ### Building by hand
 
 ```bash
-pnpm build    # → release/Demido-Studio-Setup-<version>.exe
+pnpm build                              # Windows → release/Demido-Studio-Setup-<version>.exe
+pnpm build                              # Linux → release/Demido-Studio-<version>-x86_64.AppImage
+                                        #         release/demido-studio-<version>-linux-x86_64.tar.gz
+node scripts/build-release.mjs --tree   # Linux, the usr/ tree only → release/linux/
 ```
 
-`scripts/build-release.mjs` bundles the market service, copies the default skills, builds the
-app, zips it (`setup-cli --pack`) and builds the installer with the zip compiled in
-(`DEMIDO_PAYLOAD`). The version is the one in the root `package.json`. With
-`TAURI_SIGNING_PRIVATE_KEY` (the key's text) or `TAURI_SIGNING_PRIVATE_KEY_PATH` (its file) in the
-environment it signs the installer the way the release workflow does, next to it as `.exe.sig`,
-and asks for the key's password unless `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` holds it. Without a
-key it says the installer is unsigned.
+`scripts/build-release.mjs` bundles the market service, copies the default skills and builds the
+app. On Windows it then zips it (`setup-cli --pack`) and builds the installer with the zip
+compiled in (`DEMIDO_PAYLOAD`). On Linux, where a package or the AppImage installs the app, it
+builds setup without the app inside (setup's runtimes-only mode), lays both out as a package
+installs them (`usr/lib/demido-studio`, a link in `usr/bin`, the desktop entry, icons and AppStream
+metadata from `packaging/linux`), packs that tree as the tarball and has Tauri's bundler make the
+AppImage, with setup beside the app and GStreamer inside (bundling GStreamer needs `patchelf`;
+`DEMIDO_APPIMAGE_GSTREAMER=0` leaves it out of a build to try). `--tree` stops after the tree,
+which is what the source PKGBUILD packages.
+
+The version is the one in the root `package.json`. With `TAURI_SIGNING_PRIVATE_KEY` (the key's
+text) or `TAURI_SIGNING_PRIVATE_KEY_PATH` (its file) in the environment it signs what the updater
+downloads (the installer, or the AppImage) the way the release workflow does, next to it as
+`.sig`, and asks for the key's password unless `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` holds it.
+Without a key it says the file is unsigned.
 
 ### The signing key
 
@@ -307,6 +329,12 @@ app's `updates` folder (the data folder is shared), and never installs. To try t
 The app leaves `DEMIDO_UPDATE_FEED` out of the installer's environment, so the app the update
 starts again at the end runs without it, per-user and machine-wide alike, and checks GitHub from
 then on. Start it with the variable again to keep testing against your feed.
+
+On Linux the same works with AppImages: build a lower version and a signed higher one with
+`pnpm build`, list `Demido-Studio-<version>-x86_64.AppImage` and its `.sig` in the feed, and start
+the lower AppImage with `DEMIDO_UPDATE_FEED`. **Update** puts the new AppImage in place of the
+running file, under the same name, and starts it once the old one has closed. A copy from a
+package or the tarball checks the feed and shows the new version, but does not install it.
 
 ## Changing the logo
 

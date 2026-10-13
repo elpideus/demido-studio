@@ -4,7 +4,9 @@ Demido Studio is two desktop programs built from one workspace: the **installer*
 working AI stack on the machine, and the **app**, which uses it. Nothing is installed from inside
 the app; everything it needs is laid down by the installer (or by `pnpm dev:runtime` in
 development) and described in `install.json`. Updates keep to that: the app only downloads the new
-installer and hands over to it.
+installer and hands over to it. On Linux a package or an AppImage installs the app instead, and
+the installer, there only *setup*, puts the runtimes in the person's own folder (see
+[Linux](#linux)).
 
 ```
 installer ──(catalog + hardware)──► install folder ──(install.json)──► app
@@ -47,6 +49,39 @@ Scope: a per-user install goes to `%LOCALAPPDATA%\Programs\Demido Studio` with n
 system-wide install relaunches the installer elevated (`--resume` with the choices in a file)
 and goes to `%ProgramFiles%\Demido Studio`. An elevated installer launches the app through
 Explorer, so the app never inherits administrator rights.
+
+### Linux
+
+On Linux the app is installed by a package (`/usr/lib/demido-studio`, see
+[Packaging](packaging.md)) or runs from an AppImage, and setup travels beside it without the app
+inside (`runtimes_only` in the installer). Setup then puts the runtime, Node, uv, Python and the
+models in one folder of the person's own, `~/.local/opt/demido-studio` (or `DEMIDO_INSTALL_DIR`),
+with its `install.json`, where the app looks when there is none beside it (`paths`). The wizard
+has no install location and no shortcuts (the package's are the app's); an existing runtimes
+folder is offered for Update or Repair; `--uninstall` removes that folder and, if asked, the
+person's data, and touches no shortcut. "Open Demido Studio" starts the app beside setup.
+
+The app starts setup and closes, in release builds where setup is beside it (`setup`): when no
+runtimes are installed (unless the person chose **Not now**, which opens the app with
+`--skip-setup` and is kept in settings), and once per app version when that version's catalog pins
+another llama.cpp, Node, uv or Python than `install.json` records: then as an update
+(`--update --dir … --wait-pid … --relaunch`), the same small window the Windows updater uses. The
+empty chat and Settings, General open setup on request. An AppImage's files exist only while it
+runs, so the app starts the setup inside it as `$APPIMAGE --setup …`, and `main.rs` hands over to
+it in the same process.
+
+What else differs on Linux:
+
+- **Hardware.** GPUs come from `/sys/class/drm`, named from the PCI ID database, AMD ones with
+  their architecture from the kernel's compute driver (`/sys/class/kfd`), which decides ROCm
+  support. llama.cpp's Linux builds take the Vulkan loader and ROCm from the system, so a runtime
+  whose library is not where the loader looks is not offered (`SystemLibraries`).
+- **The setup lock** is an exclusive `flock` on `$XDG_RUNTIME_DIR/demido-studio-setup.lock`
+  (`demido_core::lock`), which the kernel lets go of however setup ends.
+- **The webview** is WebKitGTK. With NVIDIA's driver under Wayland the app and setup set
+  `__NV_DISABLE_EXPLICIT_SYNC=1` for themselves first thing (`platform::prepare_webview`), else
+  the window ends the app as it shows. The app answers WebKitGTK's permission requests itself to
+  allow the microphone for its own page, as it does WebView2's.
 
 **The install folder only ever loses what setup put there** (`provision::folder`). Setup
 refuses a folder that already holds other files or overlaps the data folder, in the wizard
@@ -216,8 +251,10 @@ fits (`--fit-ctx` 16384 at least, layers move to the CPU before it goes lower), 
 1 GiB margin and the search model's `gpuMemoryMb` free (`--fit-target`). The runtime reads the
 context it took from `/props` and the turn fits the history to that. On the CPU or a GPU that
 shares system memory, where llama.cpp would take the whole trained context, it is 8, 16 or 32K
-tokens by how much memory the model leaves. On Windows every child
-process is in a job object that kills it when the app exits, however the app exits.
+tokens by how much memory the model leaves. Every child process ends with the app, however the
+app exits (`runtime::job`): on Windows it is in a job object that kills it, on Linux it asks the
+kernel for SIGKILL when its parent goes (`PR_SET_PDEATHSIG`). On Linux SIGTERM, SIGHUP and SIGINT
+close the app as quitting does, so the models stop and the market service flushes its store.
 
 **What models can do.** Every model carries its capabilities (`models/capabilities.rs`): vision,
 audio, tools and thinking, each yes, no or unknown. The UI shows them as icons in the model picker
@@ -454,8 +491,11 @@ listing names the other accounts, so a look at the wrong one is noticed.
 **Commands.** `run_command` runs a command line in the person's own shell (`shell/`): PowerShell
 7 when it is installed (on the PATH, where the Microsoft Store puts an app execution alias, or in
 Program Files; each candidate is asked its version once, at startup), Windows PowerShell 5.1
-otherwise, the login shell on macOS and Linux. The environment is the one a new terminal window
-gets, read from the registry, so a program installed while the app runs is found. The command runs
+otherwise, bash on Linux whatever the login shell (models write bash, which fish would refuse),
+the login shell on macOS. On Windows the environment is the one a new terminal window gets, read
+from the registry, so a program installed while the app runs is found; elsewhere it is the app's,
+with the login profile read (`bash -l`). On Linux `sudo` becomes `sudo -n` (it fails at once
+instead of waiting for a password nobody can type) and the pagers are `cat`. The command runs
 in a 160×40 pseudo-terminal (ConPTY through `portable-pty`), so programs print what they print for
 a person, and a terminal emulator (`avt`) turns the output into what the screen shows: a redrawn
 progress bar is its last state, colours are gone, a full-screen program such as btop is its current
@@ -550,7 +590,7 @@ vector, and without a search model, BM25 alone ranks them.
 caught inside a process: a PDF whose form draws itself overflows pdf-extract's stack, and a
 parser can loop or ask for more memory than there is. So the app reads every file in a child
 process: itself, started with `--demido-extract <file>` (`main.rs` handles that before anything of
-the app starts), tied to the app's job object, and given three minutes. A child that dies or runs
+the app starts), tied to the app's lifetime (`runtime::job`), and given three minutes. A child that dies or runs
 out of time costs only that file its text; the chip says it could not be read. Inside the reader,
 every parser also runs behind `catch_unwind`, Excel sheets are read cell by cell (calamine's
 ranges are dense grids, so one value in a sheet's far corner would ask for gigabytes), one file's
@@ -668,6 +708,13 @@ plus `.sig`. The release workflow builds the installer and signs it in a separat
   Only an installation made by Setup can update itself: the installer needs its `install.json`,
   and the running executable must be the one in that installation. A development build checks and
   downloads (into `.dev/updates`) but never installs.
+- **Linux.** An AppImage updates itself: the updater downloads
+  `Demido-Studio-<version>-<arch>.AppImage` and its `.sig` (`brand::update_file_name`), checks the
+  signature the same way, copies it beside the running AppImage and renames it over it, so the path
+  stays, then starts it once the old copy has ended (started earlier, it would hand itself over to
+  the one still running). A copy installed by a package manager (under `/usr` or `/opt`) or
+  unpacked from the tarball checks and shows new versions, with the reason it does not install
+  them, and automatic mode downloads nothing for it.
 
 ## Data
 
@@ -692,4 +739,6 @@ Everything a person makes is in the data folder, never in the install folder:
 | `logs/` | App log, rotated daily |
 
 Secrets are never in files: the Gemini API key, a Hugging Face token, the TradingView session and
-mail passwords are in Windows Credential Manager (service `Demido Studio`).
+mail passwords are in Windows Credential Manager, or on Linux the desktop's keyring through the
+Secret Service (service `Demido Studio`). Without a keyring they are kept in memory for the session
+only. On Linux the data folder is `~/.local/share/demido-studio`.
