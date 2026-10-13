@@ -51,7 +51,7 @@ describe('release.yml', () => {
   const all = jobs(release);
 
   test('has the jobs it is expected to have', () => {
-    assert.deepEqual(Object.keys(all), ['checks', 'build', 'sign', 'publish']);
+    assert.deepEqual(Object.keys(all), ['checks', 'build', 'build-linux', 'sign', 'publish']);
   });
 
   test('gives the signing secrets to the sign job alone', () => {
@@ -64,7 +64,7 @@ describe('release.yml', () => {
 
   test('signs on a runner that checks out, installs and caches nothing', () => {
     const sign = all.sign;
-    assert.match(sign, /^ {4}needs: \[checks, build\]$/m);
+    assert.match(sign, /^ {4}needs: \[checks, build, build-linux\]$/m);
     assert.match(sign, /^ {4}if: github\.event_name == 'push' && startsWith\(github\.ref, 'refs\/tags\/v'\)$/m);
     assert.match(sign, /^ {4}permissions: \{\}$/m);
     assert.match(sign, /^ {4}environment: release$/m);
@@ -84,16 +84,26 @@ describe('release.yml', () => {
     assert.equal(pinned, [...locked][0], 'TAURI_CLI_VERSION in release.yml differs from pnpm-lock.yaml');
     assert.match(
       all.sign,
-      /cd "\$\(mktemp -d\)"\n\s+npx --yes "@tauri-apps\/cli@\$TAURI_CLI_VERSION" signer sign --app-version "\$VERSION" "\$setup"/,
+      /cd "\$\(mktemp -d\)"\n\s+for file in "\$dir\/Demido-Studio-Setup-\$VERSION\.exe" "\$dir\/Demido-Studio-\$VERSION-x86_64\.AppImage"; do\n\s+npx --yes "@tauri-apps\/cli@\$TAURI_CLI_VERSION" signer sign --app-version "\$VERSION" "\$file"/,
     );
   });
 
-  test('uploads the installer unsigned from build, signed from sign, and publishes the signed one', () => {
+  test('uploads the builds unsigned, signs them in sign, and publishes the signed ones', () => {
     assert.match(all.build, /name: Demido-Studio-Setup-\$\{\{ steps\.version\.outputs\.version \}\}-unsigned\n/);
-    assert.doesNotMatch(all.build, /\.sig\b/);
-    assert.match(all.sign, /name: Demido-Studio-Setup-\$\{\{ needs\.build\.outputs\.version \}\}-unsigned\n/);
+    assert.match(
+      all['build-linux'],
+      /name: Demido-Studio-\$\{\{ steps\.version\.outputs\.version \}\}-linux-unsigned\n/,
+    );
+    for (const id of ['build', 'build-linux']) assert.doesNotMatch(all[id], /\.sig\b/, `${id} mentions a signature`);
+    assert.match(all.sign, /pattern: Demido-Studio-\*\$\{\{ needs\.build\.outputs\.version \}\}\*-unsigned\n/);
     assert.match(all.sign, /\.exe\.sig\n/);
-    assert.match(all.publish, /^ {4}needs: \[checks, build, sign\]$/m);
-    assert.match(all.publish, /name: Demido-Studio-Setup-\$\{\{ needs\.build\.outputs\.version \}\}\n/);
+    assert.match(all.sign, /\.AppImage\.sig\n/);
+    assert.match(all.sign, /name: Demido-Studio-\$\{\{ needs\.build\.outputs\.version \}\}-signed\n/);
+    assert.match(all.publish, /^ {4}needs: \[checks, build, build-linux, sign\]$/m);
+    assert.match(all.publish, /name: Demido-Studio-\$\{\{ needs\.build\.outputs\.version \}\}-signed\n/);
+  });
+
+  test('builds for Linux on the oldest system it is for, so the binaries ask for no newer glibc', () => {
+    assert.match(all['build-linux'], /^ {4}runs-on: ubuntu-22\.04$/m);
   });
 });

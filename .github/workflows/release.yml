@@ -1,11 +1,12 @@
 # Publishes a release when a v* tag is pushed (`pnpm release <version>` pushes one): the checks
-# from ci.yml, the installer built on Windows and signed by a job of its own, then a GitHub release
-# carrying the installer and its signature, which is what the app's updater downloads and
-# verifies. A tag with a "-" (v0.5.0-beta.1) is published as a pre-release.
+# from ci.yml, the Windows installer and the Linux AppImage and tarball, each built on its own
+# system, signed by a job of its own, then a GitHub release carrying them with the signatures of
+# what the app's updater downloads and verifies (the installer, the AppImage) and their SHA-256
+# sums. A tag with a "-" (v0.5.0-beta.1) is published as a pre-release.
 #
-# Run by hand (Actions, Release, Run workflow), it builds the installer from the chosen ref and
-# keeps it as a workflow artifact, unsigned, publishing nothing: a build to test. The signing key
-# is for releases only.
+# Run by hand (Actions, Release, Run workflow), it builds them from the chosen ref and keeps them
+# as workflow artifacts, unsigned, publishing nothing: builds to test. The signing key is for
+# releases only.
 #
 # Every action is pinned to a commit, with its tag in a comment: a tag can be moved to other code,
 # a commit cannot.
@@ -102,18 +103,86 @@ jobs:
           # Running the jobs again replaces the artifact instead of failing on it.
           overwrite: true
 
-  # Signs the installer the build job made, on a fresh runner: nothing checked out, nothing
-  # installed or restored from a cache, no token permissions, only the signer, pinned to the exact
-  # tauri CLI version in pnpm-lock.yaml (scripts/workflows.test.mjs keeps the two equal) and run
-  # from an empty directory. This keeps the key out of reach of code from the build. It does not
-  # vouch for the installer: what the build made is signed as it is.
+  # The Linux release: the AppImage and the tarball (scripts/build-release.mjs). Built on the oldest
+  # system with WebKitGTK 4.1 that it is meant for, Ubuntu 22.04, so the binaries ask for no newer
+  # glibc than it has. Like the Windows build, it never sees the signing key.
+  build-linux:
+    name: Build for Linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # What Tauri builds against, D-Bus for the keyring, and GStreamer's plugins, which the
+      # AppImage carries so voice input works on any system.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config file patchelf libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            librsvg2-dev libdbus-1-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pulseaudio
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: The tag matches the version in the repository
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/version.mjs --check "$GITHUB_REF_NAME"
+
+      - name: Version
+        id: version
+        run: echo "version=$(node scripts/version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: pnpm build
+
+      - name: Print the checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd release
+          sha256sum "Demido-Studio-$VERSION-x86_64.AppImage" "demido-studio-$VERSION-linux-x86_64.tar.gz" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Demido-Studio-${{ steps.version.outputs.version }}-linux-unsigned
+          path: |
+            release/Demido-Studio-${{ steps.version.outputs.version }}-x86_64.AppImage
+            release/demido-studio-${{ steps.version.outputs.version }}-linux-x86_64.tar.gz
+          if-no-files-found: error
+          overwrite: true
+
+  # Signs what the updater downloads, as the build jobs made it (the installer, the AppImage), on a
+  # fresh runner: nothing checked out, nothing installed or restored from a cache, no token
+  # permissions, only the signer, pinned to the exact tauri CLI version in pnpm-lock.yaml
+  # (scripts/workflows.test.mjs keeps the two equal) and run from an empty directory. This keeps
+  # the key out of reach of code from the builds. It does not vouch for what it signs: what the
+  # builds made is signed as it is.
   #
   # The key and its password are secrets of the release environment, which only v* tags may use.
   sign:
     name: Sign the installer
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    # Only an installer whose commit passed the checks gets signed.
-    needs: [checks, build]
+    # Only what was built from a commit that passed the checks gets signed.
+    needs: [checks, build, build-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions: {}
@@ -130,9 +199,11 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
+      # Both builds' artifacts, in one folder: the installer, the AppImage and the tarball.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: Demido-Studio-Setup-${{ needs.build.outputs.version }}-unsigned
+          pattern: Demido-Studio-*${{ needs.build.outputs.version }}*-unsigned
+          merge-multiple: true
           path: installer
 
       - name: Sign
@@ -148,25 +219,31 @@ jobs:
             echo "::error::The release environment has no TAURI_SIGNING_PRIVATE_KEY secret."
             exit 1
           fi
-          setup="$GITHUB_WORKSPACE/installer/Demido-Studio-Setup-$VERSION.exe"
+          dir="$GITHUB_WORKSPACE/installer"
           # An empty directory, so no package.json or .npmrc around it has a say in what npx runs.
           cd "$(mktemp -d)"
-          npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" signer sign --app-version "$VERSION" "$setup" < /dev/null
+          for file in "$dir/Demido-Studio-Setup-$VERSION.exe" "$dir/Demido-Studio-$VERSION-x86_64.AppImage"; do
+            npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" signer sign --app-version "$VERSION" "$file" < /dev/null
+          done
 
-      - name: Check the signature
+      - name: Check the signatures
         run: |
-          setup="installer/Demido-Studio-Setup-$VERSION.exe"
-          if [ ! -s "$setup.sig" ]; then
-            echo "::error::$setup.sig is missing or empty: the installer is not signed."
-            exit 1
-          fi
+          for file in "installer/Demido-Studio-Setup-$VERSION.exe" "installer/Demido-Studio-$VERSION-x86_64.AppImage"; do
+            if [ ! -s "$file.sig" ]; then
+              echo "::error::$file.sig is missing or empty: it is not signed."
+              exit 1
+            fi
+          done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Demido-Studio-Setup-${{ needs.build.outputs.version }}
+          name: Demido-Studio-${{ needs.build.outputs.version }}-signed
           path: |
             installer/Demido-Studio-Setup-${{ needs.build.outputs.version }}.exe
             installer/Demido-Studio-Setup-${{ needs.build.outputs.version }}.exe.sig
+            installer/Demido-Studio-${{ needs.build.outputs.version }}-x86_64.AppImage
+            installer/Demido-Studio-${{ needs.build.outputs.version }}-x86_64.AppImage.sig
+            installer/demido-studio-${{ needs.build.outputs.version }}-linux-x86_64.tar.gz
           if-no-files-found: error
           overwrite: true
 
@@ -174,7 +251,7 @@ jobs:
     name: Publish the release
     if: github.event_name == 'push'
     # build for its version; the files come from sign.
-    needs: [checks, build, sign]
+    needs: [checks, build, build-linux, sign]
     runs-on: windows-latest
     timeout-minutes: 15
     permissions:
@@ -199,7 +276,7 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: Demido-Studio-Setup-${{ needs.build.outputs.version }}
+          name: Demido-Studio-${{ needs.build.outputs.version }}-signed
           path: assets
 
       # Installed apps read releases without signing in: from a private repository they get 404.
@@ -214,9 +291,36 @@ jobs:
       - name: Release notes
         run: node scripts/release-notes.mjs "$TAG" > release-notes.md
 
+      - name: Checksums
+        run: |
+          cd assets
+          sha256sum Demido-Studio-Setup-*.exe Demido-Studio-*.AppImage demido-studio-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The AUR package demido-studio-bin follows stable releases: its PKGBUILD and .SRCINFO for
+      # this one, to push to the AUR (docs/packaging.md).
+      - name: AUR package
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: |
+          sha=$(sha256sum "assets/demido-studio-$VERSION-linux-x86_64.tar.gz" | cut -d' ' -f1)
+          node scripts/aur.mjs "$VERSION" "$sha"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !contains(github.ref_name, '-') }}
+        with:
+          name: aur-demido-studio-bin-${{ needs.build.outputs.version }}
+          path: packaging/aur/demido-studio-bin/
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+
       - name: Publish
         run: |
-          files=("assets/Demido-Studio-Setup-$VERSION.exe" "assets/Demido-Studio-Setup-$VERSION.exe.sig")
+          files=(
+            "assets/Demido-Studio-Setup-$VERSION.exe" "assets/Demido-Studio-Setup-$VERSION.exe.sig"
+            "assets/Demido-Studio-$VERSION-x86_64.AppImage" "assets/Demido-Studio-$VERSION-x86_64.AppImage.sig"
+            "assets/demido-studio-$VERSION-linux-x86_64.tar.gz" "assets/SHA256SUMS"
+          )
           # A pre-release is never marked as the latest release.
           if [[ "$TAG" == *-* ]]; then
             flags=(--prerelease --latest=false)

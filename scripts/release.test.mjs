@@ -288,6 +288,9 @@ describe('release-notes.mjs', () => {
     assert.doesNotMatch(r.stdout, /Release v/);
     assert.match(r.stdout, /`Demido-Studio-Setup-0\.1\.0\.exe`/);
     assert.match(r.stdout, /Settings, Updates/);
+    assert.match(r.stdout, /`Demido-Studio-0\.1\.0-x86_64\.AppImage`/);
+    assert.match(r.stdout, /`demido-studio-0\.1\.0-linux-x86_64\.tar\.gz`/);
+    assert.match(r.stdout, /`demido-studio-bin` from the AUR/);
   });
 
   test('lists only the commits since the previous v* tag', () => {
@@ -304,6 +307,9 @@ describe('release-notes.mjs', () => {
     assert.match(r.stdout, /- New work\n- Not a release tag\n\n/);
     assert.doesNotMatch(r.stdout, /Old work|Start/);
     assert.match(r.stdout, /`Demido-Studio-Setup-0\.2\.0-beta\.1\.exe`/);
+    assert.match(r.stdout, /`Demido-Studio-0\.2\.0-beta\.1-x86_64\.AppImage`/);
+    // The AUR package follows stable releases only.
+    assert.doesNotMatch(r.stdout, /AUR/);
   });
 
   test('a stable release lists everything since the previous stable one, pre-releases included', () => {

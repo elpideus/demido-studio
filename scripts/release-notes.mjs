@@ -64,10 +64,20 @@ const subjects = git('log', '--format=%s', previous ? `${previous}..${tag}` : ta
 const changes = subjects.length ? subjects.map((subject) => `- ${subject}`) : ['- No changes besides the version.'];
 
 // One line per paragraph: GitHub shows every line break in a release body.
-const install = [
-  `Download \`Demido-Studio-Setup-${version}.exe\` below and run it.`,
+const windows = [
+  `**Windows:** download \`Demido-Studio-Setup-${version}.exe\` below and run it.`,
   'If Demido Studio is already installed, Setup updates it in place and keeps your chats, models and settings.',
   'Installations from 0.4.0 on also update themselves: see Settings, Updates.',
 ].join(' ');
+// The AUR package follows stable releases only (scripts/aur.mjs).
+const stable = !version.includes('-');
+const linux = [
+  `**Linux:** download \`Demido-Studio-${version}-x86_64.AppImage\`, make it executable and run it; it updates itself.`,
+  stable ? 'On Arch Linux and its derivatives, install `demido-studio-bin` from the AUR.' : null,
+  `\`demido-studio-${version}-linux-x86_64.tar.gz\` holds the same app as a folder to unpack anywhere.`,
+  'The first start sets up the AI runtime and a model for your graphics card, in your own folder.',
+]
+  .filter(Boolean)
+  .join(' ');
 
-process.stdout.write(["## What's changed", '', ...changes, '', '## Install', '', install, ''].join('\n'));
+process.stdout.write(["## What's changed", '', ...changes, '', '## Install', '', windows, '', linux, ''].join('\n'));

@@ -1,6 +1,8 @@
-# Checks every push to main and every pull request: versions, formatting, types, tests and clippy.
-# The release workflow runs the same checks on a tag before it publishes it (workflow_call).
-# Every action is pinned to a commit, with its tag in a comment, as in release.yml.
+# Checks every push to main and every pull request: versions, formatting, types, tests and clippy,
+# on Windows, and on Linux what differs there (the Rust code behind cfg(unix) and Linux, and the
+# tests that run on each). The release workflow runs the same checks on a tag before it publishes
+# it (workflow_call). Every action is pinned to a commit, with its tag in a comment, as in
+# release.yml.
 name: CI
 
 on:
@@ -74,6 +76,57 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Web tests
+        run: pnpm test:web
+
+      - name: Release script tests
+        run: pnpm test:scripts
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace --locked
+
+  linux:
+    name: Checks on Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # What Tauri builds against on Linux: WebKitGTK and GTK, and D-Bus for the keyring.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libdbus-1-dev
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the frontends
+        run: |
+          pnpm --filter @demido/studio build
+          pnpm --filter @demido/installer build
 
       - name: Web tests
         run: pnpm test:web
