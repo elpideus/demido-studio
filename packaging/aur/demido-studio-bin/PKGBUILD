@@ -5,7 +5,7 @@
 
 pkgname=demido-studio-bin
 _pkgname=demido-studio
-pkgver=0.5.0
+pkgver=0.6.0
 pkgrel=1
 pkgdesc='An AI workspace that runs on your own computer: local models set up for your graphics card, tools, transparency'
 arch=('x86_64')
@@ -38,7 +38,7 @@ conflicts=("$_pkgname")
 options=('!strip' '!debug')
 install=demido-studio.install
 source=("$_pkgname-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('1486e27191951286cd9d463d095a442a71c19259f23ff97b634a175a80ca7278')
 
 package() {
   cp -a "$srcdir/$_pkgname-$pkgver-x86_64/usr" "$pkgdir/"
