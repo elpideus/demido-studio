@@ -51,6 +51,7 @@ fn enumerate() -> windows::core::Result<Vec<GpuInfo>> {
             integrated: dedicated < INTEGRATED_THRESHOLD,
             driver_version: None,
             compute_capability: None,
+            gfx_target: None,
             source: "dxgi".into(),
         });
     }

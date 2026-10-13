@@ -73,6 +73,7 @@ pub(crate) fn parse(csv: &str) -> Vec<GpuInfo> {
                 integrated: false,
                 driver_version: Some(cols[2].to_string()).filter(|d| !d.is_empty()),
                 compute_capability: cols.get(3).and_then(|c| c.parse().ok()),
+                gfx_target: None,
                 source: "nvidia-smi".into(),
             })
         })

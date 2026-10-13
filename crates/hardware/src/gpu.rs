@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+/// The architectures ROCm supports and llama.cpp's ROCm builds are made for: RX 6800 and 6900
+/// and PRO W6800 (gfx1030), RX 7000 and PRO W7000 (gfx1100, gfx1101, gfx1102), Strix Halo
+/// (gfx1151), RX 9000 and PRO W9000 (gfx1200, gfx1201). The names in `rocm_supported` say the
+/// same for Windows, where the architecture is not read.
+const ROCM_TARGETS: [&str; 7] = [
+    "gfx1030", "gfx1100", "gfx1101", "gfx1102", "gfx1151", "gfx1200", "gfx1201",
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GpuVendor {
@@ -34,6 +42,10 @@ pub struct GpuInfo {
     pub driver_version: Option<String>,
     /// CUDA compute capability, NVIDIA only (e.g. `8.6` for an RTX 3060).
     pub compute_capability: Option<f64>,
+    /// The GPU's architecture as ROCm names it (`gfx1100` for an RX 7900), AMD on Linux only:
+    /// what ROCm's support is decided by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gfx_target: Option<String>,
     /// Which probe produced this entry, for diagnostics.
     pub source: String,
 }
@@ -44,10 +56,14 @@ impl GpuInfo {
     }
 
     /// Whether AMD's ROCm stack officially targets this card (RDNA2 high end, RDNA3, RDNA4,
-    /// Strix Halo). Other Radeons are better served by Vulkan.
+    /// Strix Halo). Other Radeons are better served by Vulkan. By its architecture where known
+    /// (Linux), else by its name.
     pub fn rocm_supported(&self) -> bool {
         if self.vendor != GpuVendor::Amd {
             return false;
+        }
+        if let Some(target) = &self.gfx_target {
+            return ROCM_TARGETS.contains(&target.as_str());
         }
         let name = self.name.to_ascii_uppercase();
         let rx_series = name
@@ -126,6 +142,7 @@ fn apple_gpu(sys: &sysinfo::System) -> Option<GpuInfo> {
         integrated: false,
         driver_version: None,
         compute_capability: None,
+        gfx_target: None,
         source: "sysctl".into(),
     })
 }
@@ -142,6 +159,7 @@ mod tests {
             integrated: false,
             driver_version: None,
             compute_capability: None,
+            gfx_target: None,
             source: "test".into(),
         }
     }

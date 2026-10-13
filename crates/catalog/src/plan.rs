@@ -90,6 +90,13 @@ pub fn backend_choices(report: &HardwareReport, catalog: &Catalog) -> Vec<Backen
                 },
                 Backend::Rocm => match discrete(GpuVendor::Amd) {
                     None => choice.note = "No AMD Radeon graphics card found.".into(),
+                    // llama.cpp's ROCm build for Linux uses the system's ROCm.
+                    Some(gpu) if report.libraries.rocm == Some(false) => {
+                        choice.device = Some(describe(gpu));
+                        choice.note =
+                            "ROCm is not installed (rocm-hip-runtime and hipblas on Arch); Vulkan works without it."
+                                .into();
+                    }
                     Some(gpu) => {
                         use_gpu(&mut choice, gpu, candidates[0]);
                         choice.note = if gpu.rocm_supported() {
@@ -118,6 +125,13 @@ pub fn backend_choices(report: &HardwareReport, catalog: &Catalog) -> Vec<Backen
                     let best = report.gpus.iter().find(|g| g.vendor != GpuVendor::Apple);
                     match best {
                         None => choice.note = "No graphics card found.".into(),
+                        // llama.cpp's Vulkan build for Linux uses the system's Vulkan loader.
+                        Some(gpu) if report.libraries.vulkan == Some(false) => {
+                            choice.device = Some(describe(gpu));
+                            choice.note =
+                                "Vulkan is not installed (vulkan-icd-loader on Arch, libvulkan1 on Debian and Ubuntu)."
+                                    .into();
+                        }
                         Some(gpu) => {
                             use_gpu(&mut choice, gpu, candidates[0]);
                             if gpu.integrated {
@@ -316,7 +330,7 @@ fn short_cpu_name(name: &str) -> String {
 mod tests {
     use super::*;
     use demido_core::{Arch, Os};
-    use demido_hardware::{CpuInfo, GIB};
+    use demido_hardware::{CpuInfo, GIB, SystemLibraries};
 
     fn report(gpus: Vec<GpuInfo>, os: Os, arch: Arch, ram_gb: u64) -> HardwareReport {
         HardwareReport {
@@ -333,6 +347,7 @@ mod tests {
             total_memory: ram_gb * GIB,
             available_memory: ram_gb * GIB / 2,
             gpus,
+            libraries: Default::default(),
         }
     }
 
@@ -344,6 +359,7 @@ mod tests {
             integrated: false,
             driver_version: Some(driver.into()),
             compute_capability: Some(cc),
+            gfx_target: None,
             source: "test".into(),
         }
     }
@@ -406,12 +422,93 @@ mod tests {
             integrated: false,
             driver_version: None,
             compute_capability: None,
+            gfx_target: None,
             source: "test".into(),
         };
         let r = report(vec![radeon("AMD Radeon RX 7800 XT")], Os::Windows, Arch::X86_64, 32);
         assert_eq!(default_backend(&backend_choices(&r, crate::catalog())), Backend::Rocm);
         let r = report(vec![radeon("AMD Radeon RX 6600")], Os::Windows, Arch::X86_64, 32);
         assert_eq!(default_backend(&backend_choices(&r, crate::catalog())), Backend::Vulkan);
+    }
+
+    fn linux(gpus: Vec<GpuInfo>, vulkan: bool, rocm: bool) -> HardwareReport {
+        HardwareReport {
+            libraries: SystemLibraries {
+                vulkan: Some(vulkan),
+                rocm: Some(rocm),
+            },
+            ..report(gpus, Os::Linux, Arch::X86_64, 32)
+        }
+    }
+
+    #[test]
+    fn on_linux_rocm_follows_the_architecture_and_needs_the_systems_rocm() {
+        // Linux reads no marketing name for most Radeons, but the architecture.
+        let radeon = |target: &str| GpuInfo {
+            vendor: GpuVendor::Amd,
+            name: "AMD Radeon GPU".into(),
+            vram: 24 * GIB,
+            integrated: false,
+            driver_version: None,
+            compute_capability: None,
+            gfx_target: Some(target.into()),
+            source: "test".into(),
+        };
+        let choices = backend_choices(&linux(vec![radeon("gfx1100")], true, true), crate::catalog());
+        let rocm = find(&choices, Backend::Rocm);
+        assert!(rocm.available && rocm.recommended, "{rocm:?}");
+        assert_eq!(rocm.variant.as_deref(), Some("linux-rocm"));
+
+        // Without the system's ROCm: not offered, and Vulkan instead.
+        let choices = backend_choices(&linux(vec![radeon("gfx1100")], true, false), crate::catalog());
+        let rocm = find(&choices, Backend::Rocm);
+        assert!(
+            !rocm.available && rocm.note.contains("ROCm is not installed"),
+            "{rocm:?}"
+        );
+        assert_eq!(default_backend(&choices), Backend::Vulkan);
+
+        // An architecture ROCm does not support (RX 6600, gfx1032): Vulkan.
+        let choices = backend_choices(&linux(vec![radeon("gfx1032")], true, true), crate::catalog());
+        assert_eq!(default_backend(&choices), Backend::Vulkan);
+    }
+
+    #[test]
+    fn on_linux_vulkan_needs_the_systems_loader() {
+        let intel_arc = GpuInfo {
+            vendor: GpuVendor::Intel,
+            name: "Intel Arc A770".into(),
+            vram: 16 * GIB,
+            integrated: false,
+            driver_version: None,
+            compute_capability: None,
+            gfx_target: None,
+            source: "test".into(),
+        };
+        let choices = backend_choices(&linux(vec![intel_arc.clone()], true, false), crate::catalog());
+        assert_eq!(default_backend(&choices), Backend::Vulkan);
+        let choices = backend_choices(&linux(vec![intel_arc], false, false), crate::catalog());
+        let vulkan = find(&choices, Backend::Vulkan);
+        assert!(
+            !vulkan.available && vulkan.note.contains("Vulkan is not installed"),
+            "{vulkan:?}"
+        );
+        assert_eq!(default_backend(&choices), Backend::Cpu);
+    }
+
+    #[test]
+    fn nvidia_on_linux_gets_the_linux_cuda_build() {
+        let choices = backend_choices(
+            &linux(
+                vec![nvidia("NVIDIA GeForce RTX 3060", 12, "615.78.08", 8.6)],
+                true,
+                false,
+            ),
+            crate::catalog(),
+        );
+        let cuda = find(&choices, Backend::Cuda);
+        assert!(cuda.available && cuda.recommended);
+        assert_eq!(cuda.variant.as_deref(), Some("linux-cuda13"));
     }
 
     #[test]
@@ -445,6 +542,7 @@ mod tests {
             integrated: false,
             driver_version: None,
             compute_capability: None,
+            gfx_target: None,
             source: "test".into(),
         };
         let r = report(vec![apple], Os::Macos, Arch::Aarch64, 36);

@@ -41,6 +41,21 @@ pub struct HardwareReport {
     pub available_memory: u64,
     /// Every GPU found, best first (see [`HardwareReport::primary_gpu`]).
     pub gpus: Vec<GpuInfo>,
+    /// Libraries the runtimes load from the system, where they do (Linux).
+    #[serde(default)]
+    pub libraries: SystemLibraries,
+}
+
+/// Libraries a runtime loads from the system rather than bringing along, as found: on Linux,
+/// where llama.cpp's Vulkan build needs the system's Vulkan loader and its ROCm build the system's
+/// ROCm. `None` where nothing is looked for (the Windows builds carry what they need).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemLibraries {
+    /// The Vulkan loader, `libvulkan.so.1`.
+    pub vulkan: Option<bool>,
+    /// ROCm's HIP runtime, `libamdhip64.so`.
+    pub rocm: Option<bool>,
 }
 
 impl HardwareReport {
@@ -78,5 +93,9 @@ pub fn detect() -> HardwareReport {
         total_memory: sys.total_memory(),
         available_memory: sys.available_memory(),
         gpus,
+        #[cfg(target_os = "linux")]
+        libraries: sysfs::libraries(),
+        #[cfg(not(target_os = "linux"))]
+        libraries: SystemLibraries::default(),
     }
 }

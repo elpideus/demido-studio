@@ -302,6 +302,7 @@ mod tests {
             total_memory: 32 * GIB,
             available_memory: 16 * GIB,
             gpus,
+            libraries: Default::default(),
         }
     }
 
@@ -314,6 +315,7 @@ mod tests {
             integrated: false,
             driver_version: Some("596.49".into()),
             compute_capability: Some(8.6),
+            gfx_target: None,
             source: "test".into(),
         }
     }
