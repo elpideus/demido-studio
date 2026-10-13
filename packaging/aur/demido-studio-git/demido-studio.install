@@ -1,0 +1,18 @@
+post_install() {
+  cat <<'MSG'
+==> The first time Demido Studio opens, its setup puts in place the AI that runs on
+    your computer: a runtime for your graphics card, Python, Node.js and a model, in
+    ~/.local/opt/demido-studio (several GB, per person). Chats and settings are in
+    ~/.local/share/demido-studio.
+==> For AMD Radeon cards through ROCm, install rocm-hip-runtime and hipblas; Vulkan
+    (vulkan-icd-loader) works on any card without them.
+MSG
+}
+
+post_remove() {
+  cat <<'MSG'
+==> Each person's runtimes and models stay in ~/.local/opt/demido-studio, and their
+    chats, settings and downloaded models in ~/.local/share/demido-studio. Delete those
+    folders to remove them as well.
+MSG
+}

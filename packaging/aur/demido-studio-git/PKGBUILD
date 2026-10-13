@@ -1,0 +1,69 @@
+# Maintainer: Stefan Cucoranu <elpideus@gmail.com>
+#
+# Builds the latest commit of main from source. To build a local checkout instead:
+#   makepkg -si   with   source=("$_pkgname::git+file:///path/to/demido-studio")
+
+pkgname=demido-studio-git
+_pkgname=demido-studio
+pkgver=0.5.0.r0.g0000000
+pkgrel=1
+pkgdesc='An AI workspace that runs on your own computer: local models set up for your graphics card, tools, transparency (latest commit)'
+arch=('x86_64')
+url='https://github.com/elpideus/demido-studio'
+license=('GPL-3.0-or-later')
+depends=(
+  'cairo'
+  'dbus'
+  'gcc-libs'
+  'gdk-pixbuf2'
+  'glib2'
+  'glibc'
+  'gst-plugins-base'
+  'gst-plugins-good'
+  'gtk3'
+  'hicolor-icon-theme'
+  'libsoup3'
+  'webkit2gtk-4.1'
+)
+makedepends=('cargo' 'git' 'nodejs' 'pnpm')
+optdepends=(
+  'nvidia-utils: NVIDIA graphics cards (CUDA)'
+  'vulkan-icd-loader: any graphics card through Vulkan'
+  'rocm-hip-runtime: AMD Radeon cards through ROCm'
+  'hipblas: AMD Radeon cards through ROCm'
+  'gst-plugin-pipewire: voice input on PipeWire'
+  'org.freedesktop.secrets: keep API keys and mail passwords in the system keyring'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+options=('!debug')
+install=demido-studio.install
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  ( set -o pipefail
+    git describe --long --tags --abbrev=7 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf '%s.r%s.g%s' "$(node -p "require('./package.json').version")" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+  )
+}
+
+prepare() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+  pnpm install --frozen-lockfile
+}
+
+build() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  node scripts/build-release.mjs --tree
+}
+
+package() {
+  cd "$_pkgname"
+  cp -a release/linux/"$_pkgname"-*/usr "$pkgdir/"
+  mv "$pkgdir/usr/share/licenses/$_pkgname" "$pkgdir/usr/share/licenses/$pkgname"
+}

@@ -1,0 +1,46 @@
+# Maintainer: Stefan Cucoranu <elpideus@gmail.com>
+#
+# The release's prebuilt tarball (built on Ubuntu 22.04 by .github/workflows/release.yml).
+# scripts/aur.mjs sets pkgver and the checksum for a release, here and in .SRCINFO.
+
+pkgname=demido-studio-bin
+_pkgname=demido-studio
+pkgver=0.5.0
+pkgrel=1
+pkgdesc='An AI workspace that runs on your own computer: local models set up for your graphics card, tools, transparency'
+arch=('x86_64')
+url='https://github.com/elpideus/demido-studio'
+license=('GPL-3.0-or-later')
+depends=(
+  'cairo'
+  'dbus'
+  'gcc-libs'
+  'gdk-pixbuf2'
+  'glib2'
+  'glibc'
+  'gst-plugins-base'
+  'gst-plugins-good'
+  'gtk3'
+  'hicolor-icon-theme'
+  'libsoup3'
+  'webkit2gtk-4.1'
+)
+optdepends=(
+  'nvidia-utils: NVIDIA graphics cards (CUDA)'
+  'vulkan-icd-loader: any graphics card through Vulkan'
+  'rocm-hip-runtime: AMD Radeon cards through ROCm'
+  'hipblas: AMD Radeon cards through ROCm'
+  'gst-plugin-pipewire: voice input on PipeWire'
+  'org.freedesktop.secrets: keep API keys and mail passwords in the system keyring'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+options=('!strip' '!debug')
+install=demido-studio.install
+source=("$_pkgname-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cp -a "$srcdir/$_pkgname-$pkgver-x86_64/usr" "$pkgdir/"
+  mv "$pkgdir/usr/share/licenses/$_pkgname" "$pkgdir/usr/share/licenses/$pkgname"
+}
