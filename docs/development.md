@@ -69,11 +69,15 @@ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm dev
 ```
 
 On Linux WebKitGTK has no such protocol, so a debug build opens a bridge of its own
-(`src-tauri/src/drive.rs`) when started with a port for it:
+(`crates/drive`) when started with a port for it:
 
 ```bash
 DEMIDO_DRIVE_PORT=9223 pnpm dev
 ```
+
+Setup has one too, on the port in `DEMIDO_SETUP_DRIVE_PORT` (its own variable: setup started by the
+app inherits the app's environment). The scripts reach whichever `DEMIDO_DRIVE_PORT` names when they
+run: `DEMIDO_DRIVE_PORT=9224 node scripts/drive.mjs --screenshot setup.png` for setup on 9224.
 
 The scripts below pick the bridge on Linux and the DevTools Protocol elsewhere
 (`scripts/drive-transport.mjs`; `DRIVE=cdp` or `DRIVE=bridge` chooses by hand). Over the bridge,

@@ -75,12 +75,11 @@ webview2-com = "0.38"
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# WebKitGTK's own settings and permission requests (the microphone, the page's console in
-# development): the same version and features wry uses.
+# WebKitGTK's own settings and permission requests (the microphone): the same version and
+# features wry uses.
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
-# For `drive` in development: the page's answers and its snapshots, as WebKitGTK gives them.
-javascriptcore-rs = "1.1"
-cairo-rs = { version = "0.18", features = ["png"] }
+# Driving the app from scripts/drive.mjs, in debug builds.
+demido-drive.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

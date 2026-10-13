@@ -10,6 +10,7 @@ members = [
   "crates/provision",
   "crates/setup-cli",
   "crates/extract",
+  "crates/drive",
 ]
 
 [workspace.package]
@@ -27,6 +28,7 @@ demido-fetch = { path = "crates/fetch" }
 demido-core = { path = "crates/core" }
 demido-provision = { path = "crates/provision" }
 demido-extract = { path = "crates/extract" }
+demido-drive = { path = "crates/drive" }
 
 anyhow = "1"
 thiserror = "2"

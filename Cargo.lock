@@ -1022,6 +1022,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "demido-drive"
+version = "0.5.0"
+dependencies = [
+ "base64 0.22.1",
+ "cairo-rs",
+ "javascriptcore-rs",
+ "serde_json",
+ "tauri",
+ "tokio",
+ "tracing",
+ "webkit2gtk",
+]
+
+[[package]]
 name = "demido-extract"
 version = "0.5.0"
 dependencies = [
@@ -1099,6 +1113,7 @@ dependencies = [
  "anyhow",
  "demido-catalog",
  "demido-core",
+ "demido-drive",
  "demido-fetch",
  "demido-hardware",
  "demido-provision",
@@ -1142,16 +1157,15 @@ dependencies = [
  "async-imap",
  "avt",
  "base64 0.22.1",
- "cairo-rs",
  "chrono",
  "demido-catalog",
  "demido-core",
+ "demido-drive",
  "demido-extract",
  "demido-fetch",
  "demido-hardware",
  "futures-util",
  "hex",
- "javascriptcore-rs",
  "keyring",
  "libc",
  "mail-parser",

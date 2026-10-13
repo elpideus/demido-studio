@@ -10,8 +10,6 @@ mod agent;
 mod attachments;
 mod commands;
 mod db;
-#[cfg(all(debug_assertions, target_os = "linux"))]
-mod drive;
 mod error;
 mod llm;
 mod mail;
@@ -272,18 +270,6 @@ fn after_start(state: Arc<AppState>) {
     });
 }
 
-/// In development the page's console messages and errors go to the terminal: WebKitGTK has no
-/// DevTools protocol to read them from, as WebView2 has.
-#[cfg(all(debug_assertions, target_os = "linux"))]
-fn page_console_to_stdout(window: &tauri::WebviewWindow) {
-    use webkit2gtk::{SettingsExt, WebViewExt};
-    let _ = window.with_webview(|webview| {
-        if let Some(settings) = WebViewExt::settings(&webview.inner()) {
-            settings.set_enable_write_console_messages_to_stdout(true);
-        }
-    });
-}
-
 /// The window starts hidden and the UI shows it once it has painted (`window_ready`). Should that
 /// never come (a page that failed to load, a webview that paints nothing while hidden), it shows
 /// anyway: an app that runs where nobody can see it cannot even be closed.
@@ -364,10 +350,12 @@ pub fn run() {
             app.manage(state.clone());
             if let Some(window) = app.get_webview_window("main") {
                 speech::microphone::allow_for_app(&window);
+                // In development: the page's console in the terminal, and scripts/drive.mjs.
                 #[cfg(all(debug_assertions, target_os = "linux"))]
-                page_console_to_stdout(&window);
-                #[cfg(all(debug_assertions, target_os = "linux"))]
-                drive::start(app.handle().clone());
+                {
+                    demido_drive::console_to_stdout(&window);
+                    demido_drive::start(app.handle().clone(), "DEMIDO_DRIVE_PORT");
+                }
                 show_if_never_ready(window);
             }
             after_start(state);

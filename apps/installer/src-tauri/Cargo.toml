@@ -36,5 +36,9 @@ semver.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-registry.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Driving setup from scripts/drive.mjs, in debug builds.
+demido-drive.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

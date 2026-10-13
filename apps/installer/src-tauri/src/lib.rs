@@ -913,6 +913,12 @@ pub fn run() {
             let _ = window.hide();
         })
         .setup(move |app| {
+            // In development: the page's console in the terminal, and scripts/drive.mjs.
+            #[cfg(all(debug_assertions, target_os = "linux"))]
+            if let Some(window) = app.get_webview_window("main") {
+                demido_drive::console_to_stdout(&window);
+                demido_drive::start(app.handle().clone(), "DEMIDO_SETUP_DRIVE_PORT");
+            }
             // The window starts hidden; `window_ready` shows it once the page has drawn.
             if mode == Mode::Update
                 && let Some(window) = app.get_webview_window("main")

@@ -1,6 +1,8 @@
-//! Lets `scripts/drive.mjs` drive the app in development on Linux, where WebKitGTK has no DevTools
-//! protocol (on Windows the scripts use WebView2's). Debug builds only, and off unless
-//! `DEMIDO_DRIVE_PORT` names a port: the app then listens on 127.0.0.1 there and answers
+//! Lets `scripts/drive.mjs` drive the app and setup in development on Linux, where WebKitGTK has
+//! no DevTools protocol (on Windows the scripts use WebView2's). The apps start it in debug builds
+//! only, and it is off unless the environment variable they name holds a port (`DEMIDO_DRIVE_PORT`
+//! for the app, `DEMIDO_SETUP_DRIVE_PORT` for setup): the app then listens on 127.0.0.1 there and
+//! answers
 //!
 //! ```text
 //! POST /targets                         [{"label": "main", "url": "tauri://localhost/"}, …]
@@ -14,6 +16,8 @@
 //! `x-demido-drive: 1` and no `Origin`: a web page in a browser can send neither without the
 //! browser asking first, so only programs on this computer can drive the app.
 
+#![cfg(target_os = "linux")]
+
 use std::time::Duration;
 
 use base64::Engine;
@@ -23,15 +27,12 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 
-/// The environment variable that turns the bridge on, with the port to listen on.
-pub const PORT_ENV: &str = "DEMIDO_DRIVE_PORT";
-
 /// How long an evaluation or a snapshot may take.
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Starts listening when [`PORT_ENV`] names a port.
-pub fn start(app: AppHandle) {
-    let Some(port) = std::env::var(PORT_ENV).ok().and_then(|p| p.trim().parse::<u16>().ok()) else {
+/// Starts listening when the environment variable `port_env` holds a port.
+pub fn start(app: AppHandle, port_env: &str) {
+    let Some(port) = std::env::var(port_env).ok().and_then(|p| p.trim().parse::<u16>().ok()) else {
         return;
     };
     tauri::async_runtime::spawn(async move {
@@ -140,6 +141,16 @@ async fn answer(app: &AppHandle, path: &str, request: &Value) -> Result<Value, S
         }
         _ => Err(format!("unknown request {path}")),
     }
+}
+
+/// What the page logs to its console, and its errors, go to stdout: the terminal in development.
+pub fn console_to_stdout(window: &tauri::WebviewWindow) {
+    use webkit2gtk::{SettingsExt, WebViewExt};
+    let _ = window.with_webview(|webview| {
+        if let Some(settings) = WebViewExt::settings(&webview.inner()) {
+            settings.set_enable_write_console_messages_to_stdout(true);
+        }
+    });
 }
 
 /// Runs `script` in the page and returns its value, awaited, as JSON (`null` for `undefined`).
