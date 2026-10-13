@@ -193,13 +193,18 @@ fn updates_dir(debug: bool, data_dir: &Path, repo: &Path) -> PathBuf {
     }
 }
 
-/// Repository root at compile time (development builds only).
+/// Repository root at compile time, in development builds. A release build does not carry the
+/// path of the machine that built it (a package would hold a reference to its build folder), and
+/// gets an empty path: its files are never in the repository.
 pub fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    #[cfg(debug_assertions)]
+    return PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(3)
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
+        .unwrap_or_else(|| PathBuf::from("."));
+    #[cfg(not(debug_assertions))]
+    PathBuf::new()
 }
 
 #[cfg(test)]
