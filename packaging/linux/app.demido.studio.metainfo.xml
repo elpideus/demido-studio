@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What software centers (KDE Discover, GNOME Software) show about the app. -->
+<component type="desktop-application">
+  <id>app.demido.studio</id>
+  <name>Demido Studio</name>
+  <summary>An AI workspace that runs on your own computer</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="app.demido">
+    <name>Stefan Cucoranu</name>
+  </developer>
+  <description>
+    <p>
+      Demido Studio runs AI models on your own computer, set up for your graphics card, and
+      connects to Google Gemini or OpenRouter when you want a model in the cloud.
+    </p>
+    <ul>
+      <li>Local models from the Qwen and Gemma families, on NVIDIA CUDA, AMD ROCm, Vulkan or the CPU</li>
+      <li>Tools that work together: market data, your email, Python, your own programs and files</li>
+      <li>Every answer shows exactly what was sent to the model and what came back</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">demido-studio.desktop</launchable>
+  <url type="homepage">https://github.com/elpideus/demido-studio</url>
+  <url type="bugtracker">https://github.com/elpideus/demido-studio/issues</url>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+</component>

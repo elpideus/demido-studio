@@ -156,12 +156,23 @@ fn find_install_dir() -> Option<PathBuf> {
 }
 
 fn find_resources_dir() -> PathBuf {
-    if let Some(dir) = std::env::current_exe()
+    if let Some(exe_dir) = std::env::current_exe()
         .ok()
-        .and_then(|e| e.parent().map(|p| p.join("resources")))
-        .filter(|d| d.is_dir())
+        .and_then(|e| e.parent().map(Path::to_path_buf))
     {
-        return dir;
+        // Beside the executable: an installation by setup, and on Linux `/usr/lib/demido-studio`
+        // (a package or an unpacked tarball, run through the link in `/usr/bin`). In an AppImage
+        // the executable is in `usr/bin` and its resources in `usr/lib/<product name>`.
+        let lib = exe_dir.join("..").join("lib");
+        for dir in [
+            exe_dir.join("resources"),
+            lib.join(demido_core::brand::APP_NAME).join("resources"),
+            lib.join(demido_core::brand::APP_SLUG).join("resources"),
+        ] {
+            if dir.is_dir() {
+                return dir;
+            }
+        }
     }
     // Development: resources are assembled under `.dev/resources` by the dev scripts, falling
     // back to the repository layout.

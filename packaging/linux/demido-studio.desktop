@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Demido Studio
+GenericName=AI Workspace
+Comment=An AI workspace that runs on your own computer
+Exec=demido-studio
+Icon=demido-studio
+Terminal=false
+Categories=Utility;
+Keywords=AI;LLM;chat;assistant;model;llama;market;
+StartupWMClass=demido-studio
+StartupNotify=true
