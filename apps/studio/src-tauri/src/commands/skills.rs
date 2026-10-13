@@ -1,5 +1,3 @@
-use tauri_plugin_opener::OpenerExt;
-
 use super::St;
 use crate::error::{AppError, CmdResult};
 use crate::skills::Skill;
@@ -48,7 +46,5 @@ pub fn open_skills_folder(app: tauri::AppHandle, state: St<'_>, id: Option<Strin
         Some(id) => state.skills.resolve_file(&id, "")?,
         None => state.skills.dir().to_path_buf(),
     };
-    app.opener()
-        .open_path(dir.to_string_lossy(), None::<&str>)
-        .map_err(|e| AppError::msg(e.to_string()))
+    super::app::open_external(&app, &dir.to_string_lossy())
 }

@@ -140,13 +140,22 @@ pub(crate) fn libraries() -> SystemLibraries {
     let cache = ["/usr/bin/ldconfig", "/sbin/ldconfig", "/usr/sbin/ldconfig"]
         .into_iter()
         .find_map(|ldconfig| {
-            let out = std::process::Command::new(ldconfig).arg("-p").output().ok()?;
+            let mut cmd = std::process::Command::new(ldconfig);
+            demido_core::appimage::use_host_env(&mut cmd);
+            let out = cmd.arg("-p").output().ok()?;
             out.status
                 .success()
                 .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
         });
+    // Not the AppImage's own folders, which an AppImage's launcher puts in front: a runtime
+    // started from it does not get them (demido_core::appimage).
+    let appdir = demido_core::appimage::appdir();
     let mut dirs: Vec<std::path::PathBuf> = std::env::var_os("LD_LIBRARY_PATH")
-        .map(|p| std::env::split_paths(&p).collect())
+        .map(|p| {
+            std::env::split_paths(&p)
+                .filter(|d| appdir.as_ref().is_none_or(|a| !d.starts_with(a)))
+                .collect()
+        })
         .unwrap_or_default();
     if cache.is_none() {
         dirs.extend(

@@ -455,8 +455,9 @@ mod imp {
     /// Sends `signal` to `pid`. The exit code is not an error: the process may have exited
     /// meanwhile, and the caller checks what still runs.
     fn kill(pid: u32, signal: &str) -> anyhow::Result<()> {
-        Command::new("kill")
-            .args([signal, &pid.to_string()])
+        let mut cmd = Command::new("kill");
+        demido_core::appimage::use_host_env(&mut cmd);
+        cmd.args([signal, &pid.to_string()])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -475,6 +476,8 @@ fn app_command(exe: &Path, args: &[&str]) -> std::process::Command {
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
     }
+    // An AppImage started again sets its own environment up afresh.
+    demido_core::appimage::use_host_env(&mut cmd);
     cmd
 }
 

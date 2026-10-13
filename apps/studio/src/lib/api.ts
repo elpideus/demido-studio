@@ -85,6 +85,8 @@ export const api = {
   /** Opens setup and closes the app, which setup opens again when it is done. */
   openSetup: () => invoke<void>('open_setup'),
   openPath: (path: string) => invoke<void>('open_path', { path }),
+  /** Opens a web or mail link with the desktop's default app (http, https, mailto). */
+  openUrl: (url: string) => invoke<void>('open_url', { url }),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   readWorkspaceFile: (path: string, maxBytes?: number) => invoke<string>('read_workspace_file', { path, maxBytes }),
   listToolGroups: () => invoke<ToolGroup[]>('list_tool_groups'),

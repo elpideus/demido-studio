@@ -42,6 +42,7 @@ fn candidates() -> Vec<PathBuf> {
 
 fn run(exe: &PathBuf, fields: &str) -> Option<String> {
     let mut cmd = Command::new(exe);
+    demido_core::appimage::use_host_env(&mut cmd);
     cmd.arg(format!("--query-gpu={fields}"))
         .arg("--format=csv,noheader,nounits");
     #[cfg(windows)]

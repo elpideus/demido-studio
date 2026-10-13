@@ -53,6 +53,8 @@ fn command(args: &[String]) -> Option<Command> {
         None => Command::new(setup),
     };
     cmd.args(args);
+    // The AppImage sets its own environment up afresh; setup beside the app needs none of it.
+    demido_core::appimage::use_host_env(&mut cmd);
     Some(cmd)
 }
 

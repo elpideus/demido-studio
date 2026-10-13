@@ -128,6 +128,7 @@ pub fn replace_appimage(update: &Path, appimage: &Path) -> std::io::Result<()> {
 pub fn relaunch_after_exit(appimage: &Path) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new("/bin/sh");
+    demido_core::appimage::use_host_env(&mut cmd);
     cmd.arg("-c")
         .arg(r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2""#)
         .arg("sh")

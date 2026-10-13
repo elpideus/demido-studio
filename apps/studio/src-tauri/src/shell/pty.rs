@@ -87,6 +87,13 @@ pub async fn run(
     for key in demido_core::platform::set_for_webview() {
         cmd.env_remove(key);
     }
+    // From inside an AppImage, the person's shell gets their own environment, not the AppImage's.
+    for (key, value) in demido_core::appimage::host_env() {
+        match value {
+            Some(value) => cmd.env(key, value),
+            None => cmd.env_remove(key),
+        }
+    }
     for (key, value) in &req.env {
         cmd.env(key, value);
     }

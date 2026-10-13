@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   CircleAlert,
   CircleArrowDown,
@@ -21,6 +20,7 @@ import { useUpdates } from '@/stores/updates';
 import { type CardIcon, type StatusCard, statusCard } from './updateView';
 import s from './settings.module.css';
 import styles from './UpdatesTab.module.css';
+import { api } from '@/lib/api';
 
 const CHANNELS: Array<{ value: UpdateChannel; label: string }> = [
   { value: 'release', label: 'Release' },
@@ -53,7 +53,7 @@ function StatusIcon({ icon }: { icon: CardIcon }) {
 }
 
 function openExternal(url: string) {
-  if (/^https?:/i.test(url)) void openUrl(url);
+  if (/^https?:/i.test(url)) void api.openUrl(url);
 }
 
 function Action({ card, status }: { card: StatusCard; status: UpdateStatus }) {

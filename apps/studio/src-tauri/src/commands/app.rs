@@ -171,9 +171,44 @@ pub fn open_path(app: tauri::AppHandle, state: St<'_>, path: String) -> CmdResul
     if !allowed(&state, &p) {
         bail_msg!("That location is outside Demido Studio's folders.");
     }
-    app.opener()
-        .open_path(path, None::<&str>)
-        .map_err(|e| crate::error::AppError::msg(e.to_string()))
+    open_external(&app, &path)
+}
+
+/// Opens a web page in the browser, or a mail link in the mail app: http, https and mailto only.
+#[tauri::command]
+pub fn open_url(app: tauri::AppHandle, url: String) -> CmdResult<()> {
+    let scheme = url.split_once(':').map(|(s, _)| s.to_ascii_lowercase());
+    if !matches!(scheme.as_deref(), Some("http" | "https" | "mailto")) {
+        bail_msg!("Only web and mail links open from Demido Studio.");
+    }
+    open_external(&app, &url)
+}
+
+/// Opens `target`, a path or a URL, with the desktop's default app. From inside an AppImage that
+/// is the system's xdg-open with the system's environment: the AppImage's own xdg-open, first on
+/// its PATH, would start the person's apps with the AppImage's libraries (see
+/// `demido_core::appimage`).
+pub fn open_external(app: &tauri::AppHandle, target: &str) -> CmdResult<()> {
+    if cfg!(target_os = "linux") && demido_core::appimage::appdir().is_some() {
+        let mut cmd = std::process::Command::new("xdg-open");
+        demido_core::appimage::use_host_env(&mut cmd);
+        let mut child = cmd
+            .arg(target)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| crate::error::AppError::msg(format!("Could not start xdg-open: {e}")))?;
+        // Reaped once it is done handing over, so it leaves no zombie behind.
+        std::thread::spawn(move || child.wait());
+        return Ok(());
+    }
+    let result = if target.contains("://") || target.starts_with("mailto:") {
+        app.opener().open_url(target, None::<&str>)
+    } else {
+        app.opener().open_path(target, None::<&str>)
+    };
+    result.map_err(|e| crate::error::AppError::msg(e.to_string()))
 }
 
 /// Shows a file selected in the file manager.

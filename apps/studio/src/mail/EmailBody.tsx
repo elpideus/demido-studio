@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Spinner, cx } from '@demido/ui';
-import { openUrl } from '@tauri-apps/plugin-opener';
 
 import { linkTarget, prepareEmailHtml, splitLinks } from './emailHtml';
 import styles from './MailWindow.module.css';
+import { api } from '@/lib/api';
 
 /** The longest an email waits for its images before it shows; the rest arrive in place. */
 const IMAGES_WAIT_MS = 2500;
 
 function openLink(href: string | null | undefined) {
   const url = linkTarget(href);
-  if (url) void openUrl(url).catch(() => {});
+  if (url) void api.openUrl(url).catch(() => {});
 }
 
 /**

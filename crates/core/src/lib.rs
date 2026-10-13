@@ -5,6 +5,7 @@
 //! written once at install time as `install.json` next to the app binary, and [`paths`] knows the
 //! well-known folders both sides agree on.
 
+pub mod appimage;
 pub mod backend;
 pub mod brand;
 pub mod fsx;

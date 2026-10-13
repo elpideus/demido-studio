@@ -4,7 +4,6 @@ import rehypeHighlight from 'rehype-highlight';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { Check, Copy, Image as ImageIcon } from 'lucide-react';
 import { cx } from '@demido/ui';
 import 'katex/dist/katex.min.css';
@@ -12,6 +11,7 @@ import 'katex/dist/katex.min.css';
 import { fileUrl } from '@/lib/format';
 import styles from './Markdown.module.css';
 import { prepareMath } from './mathText';
+import { api } from '@/lib/api';
 
 const remarkPlugins = [remarkGfm, remarkMath];
 const rehypePlugins: ComponentProps<typeof ReactMarkdown>['rehypePlugins'] = [
@@ -74,7 +74,7 @@ function makeComponents(workspace: string | null): Components {
         href={href}
         onClick={(e) => {
           e.preventDefault();
-          if (href && /^(https?:|mailto:)/i.test(href)) void openUrl(href);
+          if (href && /^(https?:|mailto:)/i.test(href)) void api.openUrl(href);
         }}
         title={href}
       >
@@ -98,7 +98,7 @@ function makeComponents(workspace: string | null): Components {
         const open = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
           e.preventDefault();
           e.stopPropagation();
-          void openUrl(raw);
+          void api.openUrl(raw);
         };
         return (
           <span

@@ -12,6 +12,9 @@
 //! not the process, so a helper must be started from a thread that outlives it: a tokio worker
 //! (they live as long as the app), or a thread that waits for the child, as the file reader's
 //! does. Never from `spawn_blocking`, whose threads end after a few idle seconds.
+//!
+//! From inside an AppImage, a helper from the system gets the system's environment rather than
+//! the AppImage's (`demido_core::appimage`).
 
 #[cfg(windows)]
 mod imp {
@@ -47,6 +50,7 @@ mod imp {
     }
 
     pub fn spawn(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {
+        demido_core::appimage::use_host_env(cmd.as_std_mut());
         init();
         let child = cmd.spawn()?;
         let Some(Some(job)) = JOB.get() else {
@@ -63,6 +67,7 @@ mod imp {
     }
 
     pub fn spawn_std(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+        demido_core::appimage::use_host_env(cmd);
         use std::os::windows::io::AsRawHandle;
         init();
         let child = cmd.spawn()?;
@@ -85,11 +90,13 @@ mod imp {
     pub fn init() {}
 
     pub fn spawn(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {
+        demido_core::appimage::use_host_env(cmd.as_std_mut());
         die_with_parent(cmd.as_std_mut());
         cmd.spawn()
     }
 
     pub fn spawn_std(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+        demido_core::appimage::use_host_env(cmd);
         die_with_parent(cmd);
         cmd.spawn()
     }
@@ -118,10 +125,12 @@ mod imp {
     pub fn init() {}
 
     pub fn spawn(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {
+        demido_core::appimage::use_host_env(cmd.as_std_mut());
         cmd.spawn()
     }
 
     pub fn spawn_std(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+        demido_core::appimage::use_host_env(cmd);
         cmd.spawn()
     }
 }

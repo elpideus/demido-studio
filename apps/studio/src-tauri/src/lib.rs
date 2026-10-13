@@ -377,6 +377,7 @@ pub fn run() {
             commands::app::window_ready,
             commands::app::open_setup,
             commands::app::open_path,
+            commands::app::open_url,
             commands::app::reveal_path,
             commands::app::read_workspace_file,
             commands::app::list_tool_groups,

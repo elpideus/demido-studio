@@ -38,7 +38,6 @@ import {
   useDebounced,
 } from '@demido/ui';
 import { save } from '@tauri-apps/plugin-dialog';
-import { openUrl } from '@tauri-apps/plugin-opener';
 
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
@@ -814,7 +813,7 @@ function Reader({
         <div className={styles.subjectRow}>
           <h2 className={styles.readerSubject}>{s.subject || '(no subject)'}</h2>
           {gmail && (
-            <IconButton icon={ExternalLink} label="Open in Gmail" size="sm" onClick={() => void openUrl(gmail)} />
+            <IconButton icon={ExternalLink} label="Open in Gmail" size="sm" onClick={() => void api.openUrl(gmail)} />
           )}
         </div>
         <div className={styles.fromRow}>

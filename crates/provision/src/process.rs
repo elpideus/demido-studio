@@ -35,6 +35,9 @@ pub(crate) async fn run(
         cmd.current_dir(cwd);
     }
     hide_window(&mut cmd);
+    // From inside an AppImage: uv, Python, llama.cpp and Node get the system's environment, not
+    // the AppImage's (its PYTHONHOME leaves Python without a standard library).
+    demido_core::appimage::use_host_env(cmd.as_std_mut());
 
     let mut child = cmd
         .spawn()

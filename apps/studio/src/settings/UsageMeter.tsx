@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { ExternalLink } from 'lucide-react';
 import { ProgressBar } from '@demido/ui';
 
@@ -7,6 +6,7 @@ import type { Allowance } from '@/lib/types';
 import { useProviderUsage } from '@/stores/providerUsage';
 import { ALLOWANCE_LABELS, amount, leftInShort, resets, share, tightest, tone } from './usage';
 import styles from './UsageMeter.module.css';
+import { api } from '@/lib/api';
 
 const AI_STUDIO_LIMITS = 'https://aistudio.google.com/rate-limit';
 
@@ -53,7 +53,7 @@ export function ProviderUsageMeters({ providerId }: { providerId: string }) {
             href={AI_STUDIO_LIMITS}
             onClick={(e) => {
               e.preventDefault();
-              void openUrl(AI_STUDIO_LIMITS);
+              void api.openUrl(AI_STUDIO_LIMITS);
             }}
           >
             See it in AI Studio <ExternalLink size={11} />

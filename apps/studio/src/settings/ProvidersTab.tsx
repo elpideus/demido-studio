@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { Cloud, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, Tag, Trash2, Waypoints } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -157,7 +156,7 @@ function KeyForm({
               href={preset.keyUrl}
               onClick={(e) => {
                 e.preventDefault();
-                void openUrl(preset.keyUrl);
+                void api.openUrl(preset.keyUrl);
               }}
             >
               Get a key <ExternalLink size={11} />

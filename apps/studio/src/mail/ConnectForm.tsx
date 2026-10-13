@@ -1,13 +1,13 @@
 import { type KeyboardEvent, useId, useState } from 'react';
 import { AtSign, ExternalLink, KeyRound, Server, Tag, User } from 'lucide-react';
 import { Button, Field, Notice, SegmentedControl, TextField } from '@demido/ui';
-import { openUrl } from '@tauri-apps/plugin-opener';
 
 import { errorText } from '@/lib/api';
 import type { MailAccount, MailKind } from '@/lib/types';
 import { useMail } from '@/stores/mail';
 import { MAX_NAME } from './NameForm';
 import styles from './MailWindow.module.css';
+import { api } from '@/lib/api';
 
 const APP_PASSWORDS_URL = 'https://myaccount.google.com/apppasswords';
 
@@ -94,7 +94,7 @@ export function ConnectForm({
                 href={APP_PASSWORDS_URL}
                 onClick={(e) => {
                   e.preventDefault();
-                  void openUrl(APP_PASSWORDS_URL);
+                  void api.openUrl(APP_PASSWORDS_URL);
                 }}
               >
                 Create an app password <ExternalLink size={11} />
