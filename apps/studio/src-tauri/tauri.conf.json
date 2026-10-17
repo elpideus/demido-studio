@@ -14,6 +14,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Demido Studio",
         "width": 1380,
         "height": 880,
@@ -31,7 +32,7 @@
         "img-src": "'self' asset: http://asset.localhost data: blob: https:",
         "media-src": "'self' asset: http://asset.localhost blob:",
         "style-src": "'self' 'unsafe-inline'",
-        "font-src": "'self' data:",
+        "font-src": "'self' data: https:",
         "connect-src": "'self' ipc: http://ipc.localhost"
       },
       "assetProtocol": {

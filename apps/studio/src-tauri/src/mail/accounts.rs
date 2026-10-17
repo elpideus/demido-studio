@@ -11,8 +11,13 @@ use super::imap::Login;
 use crate::secrets::{Secrets, mail_key};
 
 pub const GMAIL_HOST: &str = "imap.gmail.com";
+pub const GMAIL_SMTP_HOST: &str = "smtp.gmail.com";
 /// IMAP over TLS.
 pub const IMAPS_PORT: u16 = 993;
+/// SMTP over TLS from the start ("SSL/TLS").
+pub const SMTPS_PORT: u16 = 465;
+/// SMTP for mail apps, where the connection turns to TLS with STARTTLS.
+pub const SUBMISSION_PORT: u16 = 587;
 /// The longest name an account can be given.
 const MAX_NICKNAME: usize = 40;
 
@@ -38,9 +43,38 @@ pub struct Account {
     pub port: u16,
     pub username: String,
     pub added_at: i64,
+    /// The server mail is sent through; empty for the one the IMAP server suggests
+    /// ([`Account::smtp`]).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub smtp_host: String,
+    /// Its port: 465 is TLS from the start, any other STARTTLS. 0 tries 465, then 587.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub smtp_port: u16,
+}
+
+fn is_zero(n: &u16) -> bool {
+    *n == 0
 }
 
 impl Account {
+    /// The SMTP server and port mail is sent through: the ones given, else Gmail's, else the
+    /// IMAP server's name with `smtp` for its first part (imap.example.com and
+    /// imapmail.example.com send through smtp.example.com, outlook.office365.com through
+    /// smtp.office365.com). Port 0 means try 465, then 587.
+    pub fn smtp(&self) -> (String, u16) {
+        if !self.smtp_host.is_empty() {
+            return (self.smtp_host.clone(), self.smtp_port);
+        }
+        if self.kind == Kind::Gmail {
+            return (GMAIL_SMTP_HOST.into(), SMTPS_PORT);
+        }
+        let rest = match self.host.split_once('.') {
+            Some((_, rest)) if rest.contains('.') => rest,
+            _ => self.host.as_str(),
+        };
+        (format!("smtp.{rest}"), self.smtp_port)
+    }
+
     /// The address, and the name after it when there is one: `ada@example.com ("Work")`.
     pub fn label(&self) -> String {
         if self.nickname.is_empty() {
@@ -72,6 +106,11 @@ pub struct NewAccount {
     pub username: Option<String>,
     #[serde(default)]
     pub nickname: Option<String>,
+    /// The server mail is sent through, when it is not the one the IMAP server suggests.
+    #[serde(default)]
+    pub smtp_host: Option<String>,
+    #[serde(default)]
+    pub smtp_port: Option<u16>,
 }
 
 impl NewAccount {
@@ -124,6 +163,18 @@ impl NewAccount {
             port,
             username,
             added_at: 0,
+            smtp_host: match self.kind {
+                Kind::Gmail => String::new(),
+                Kind::Imap => self
+                    .smtp_host
+                    .as_deref()
+                    .map(|h| h.trim().to_lowercase())
+                    .unwrap_or_default(),
+            },
+            smtp_port: match self.kind {
+                Kind::Gmail => 0,
+                Kind::Imap => self.smtp_port.unwrap_or(0),
+            },
         };
         Ok((account, password))
     }
@@ -234,6 +285,10 @@ impl Accounts {
             if account.nickname.is_empty() {
                 account.nickname = existing.nickname.clone();
             }
+            if account.smtp_host.is_empty() && account.smtp_port == 0 {
+                account.smtp_host = existing.smtp_host.clone();
+                account.smtp_port = existing.smtp_port;
+            }
         } else {
             account.id = crate::db::new_id();
             account.added_at = crate::db::now_ms();
@@ -283,6 +338,19 @@ impl Accounts {
     }
 
     /// What signing in to the account takes; None when its password is missing.
+    /// Remembers the SMTP port that worked when the account had none.
+    pub fn set_smtp_port(&self, id: &str, port: u16) -> anyhow::Result<()> {
+        let mut list = self.list.write();
+        let mut next = list.clone();
+        let Some(account) = next.iter_mut().find(|a| a.id == id) else {
+            return Ok(());
+        };
+        account.smtp_port = port;
+        demido_core::fsx::write_json(&self.path, &AccountsFile { accounts: next.clone() })?;
+        *list = next;
+        Ok(())
+    }
+
     pub fn login(&self, account: &Account) -> Option<Login> {
         let password = self.secrets.get(&mail_key(&account.id))?;
         Some(Login {
@@ -311,6 +379,8 @@ mod tests {
             port: None,
             username: None,
             nickname: None,
+            smtp_host: None,
+            smtp_port: None,
         }
     }
 
@@ -324,6 +394,8 @@ mod tests {
             port: IMAPS_PORT,
             username: email.into(),
             added_at: 0,
+            smtp_host: String::new(),
+            smtp_port: 0,
         }
     }
 
@@ -363,6 +435,27 @@ mod tests {
             ("imap.example.com", 993, "ada@example.com")
         );
         assert_eq!(password, "pw with spaces");
+    }
+
+    #[test]
+    fn mail_is_sent_through_the_server_the_imap_server_suggests() {
+        let gmail = new(Kind::Gmail, "ada@gmail.com", "pw").resolve().unwrap().0;
+        assert_eq!(gmail.smtp(), ("smtp.gmail.com".into(), 465));
+        let mut a = account("1", "ada@libero.it", "");
+        for (imap, smtp) in [
+            ("imapmail.libero.it", "smtp.libero.it"),
+            ("imap.example.com", "smtp.example.com"),
+            ("outlook.office365.com", "smtp.office365.com"),
+            ("example.com", "smtp.example.com"),
+        ] {
+            a.host = imap.into();
+            assert_eq!(a.smtp(), (smtp.into(), 0), "{imap}");
+        }
+        let mut n = new(Kind::Imap, "ada@example.com", "pw");
+        n.host = Some("mail.example.com".into());
+        n.smtp_host = Some(" Out.Example.com ".into());
+        n.smtp_port = Some(587);
+        assert_eq!(n.resolve().unwrap().0.smtp(), ("out.example.com".into(), 587));
     }
 
     #[test]

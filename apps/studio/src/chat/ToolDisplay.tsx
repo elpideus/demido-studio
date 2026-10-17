@@ -303,6 +303,16 @@ function MailMarkRead({ d }: { d: Display }) {
   );
 }
 
+/** What a change to email did: marked, moved, deleted, a folder changed, an email sent. */
+function MailAction({ d }: { d: Display }) {
+  return (
+    <>
+      <div className={styles.muted}>{str(d.text)}</div>
+      {str(d.stopped) && <div className={styles.error}>Stopped before the rest: {str(d.stopped)}</div>}
+    </>
+  );
+}
+
 const day = (ms: number) => new Date(ms).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 
 /** Many emails written to a file: how many have arrived while it runs, then the file. */
@@ -349,9 +359,10 @@ function MailExport({ d, message }: { d: Display; message: Message | undefined }
   const fetched = num(d.fetched) ?? 0;
   const cached = num(d.cached) ?? 0;
   const dates = newest && oldest ? (day(newest) === day(oldest) ? day(newest) : `${day(oldest)} – ${day(newest)}`) : '';
-  const source = [fetched ? `${fetched} downloaded` : '', cached ? `${cached} from the cache` : '']
-    .filter(Boolean)
-    .join(', ');
+  const source =
+    d.headersOnly === true
+      ? 'headers only'
+      : [fetched ? `${fetched} downloaded` : '', cached ? `${cached} from the cache` : ''].filter(Boolean).join(', ');
   return (
     <div className={styles.mailExport}>
       <div className={styles.muted}>
@@ -842,6 +853,8 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <MailMessageLine d={display} />;
     case 'mailMarkRead':
       return <MailMarkRead d={display} />;
+    case 'mailAction':
+      return <MailAction d={display} />;
     case 'mailExport':
       return <MailExport d={display} message={message} />;
     case 'python':
@@ -906,6 +919,7 @@ export function isProminent(display: Display | undefined): boolean {
       'chartDraw',
       'mailExport',
       'mailMarkRead',
+      'mailAction',
     ].includes(String(display.kind))
   );
 }

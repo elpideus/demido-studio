@@ -43,6 +43,15 @@ export function Switch({ checked, onChange, disabled, size = 'md', label, classN
   );
 }
 
+/** A switch's look alone, for a row that is itself the control, such as a menu item. */
+export function SwitchMark({ checked, size = 'sm' }: { checked: boolean; size?: 'sm' | 'md' }) {
+  return (
+    <span className={cx(styles.switch, styles[`switch-${size}`], checked && styles.on)} aria-hidden>
+      <span className={styles.thumb} />
+    </span>
+  );
+}
+
 /* -------------------------------------------------------------- Checkbox */
 
 export interface CheckboxProps {

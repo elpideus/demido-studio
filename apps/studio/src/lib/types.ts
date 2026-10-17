@@ -31,12 +31,15 @@ export interface ToolResult {
 }
 
 /**
- * A tool asking mid-run: a market download estimated to take longer than
- * `Settings.downloadApprovalSeconds` (1-minute candles, which serve every timeframe), saving a
- * Pine script to the user's TradingView account (`pine_publish`), or marking emails as read when
- * the user did not ask for it (`mail_mark_read`).
+ * A tool call waiting for the person's OK, as the permission mode asks (`Settings.permissionMode`).
+ * Most calls show the call itself (`tool`); some show a card of their own: a market download
+ * estimated to take longer than `Settings.downloadApprovalSeconds` (1-minute candles, which serve
+ * every timeframe), saving a Pine script to the user's TradingView account (`pine_publish`),
+ * changing emails (`mailAction`) or sending one (`mailSend`). `always` offers "Always allow".
+ * `mailMarkRead` is kept for chats from before `mail_mark`.
  */
-export type ToolApproval =
+export type ToolApproval = { always?: boolean } & (
+  | { kind: 'tool'; risk: ToolRisk }
   | { kind: 'download'; plan: MarketPlan }
   | {
       kind: 'pinePublish';
@@ -51,7 +54,41 @@ export type ToolApproval =
       count: number;
       /** The first few of them. */
       messages: Array<{ from: string; subject: string }>;
-    };
+    }
+  | {
+      kind: 'mailAction';
+      /** What will happen, like "Move 3 emails to Archive". */
+      title: string;
+      count: number;
+      /** The first few of the emails. */
+      messages: Array<{ from: string; subject: string }>;
+      detail?: string | null;
+      /** The labels of the buttons. */
+      confirm: string;
+      deny: string;
+    }
+  | {
+      kind: 'mailSend';
+      /** Saved in Drafts rather than sent. */
+      draft: boolean;
+      from: string;
+      to: string[];
+      cc: string[];
+      bcc: string[];
+      subject: string;
+      body: string;
+      attachments: Array<{ name: string; size: number }>;
+    }
+);
+
+/** What a tool call can do: whether the permission mode asks before it (see `PermissionMode`). */
+export type ToolRisk = 'none' | 'read' | 'change' | 'risky';
+
+/**
+ * When the assistant asks before using a tool: `cautious` before anything that reads or changes,
+ * `balanced` only before risky calls (code, sending email, deleting for good), `autonomous` never.
+ */
+export type PermissionMode = 'cautious' | 'balanced' | 'autonomous';
 
 export type ApprovalDecision = 'once' | 'always' | 'deny';
 
@@ -707,6 +744,8 @@ export interface Settings {
   defaultModel: string | null;
   preloadDefaultModel: boolean;
   toolGroups: Record<string, boolean>;
+  permissionMode: PermissionMode;
+  /** Tools allowed for good from an approval card; they count in `balanced` mode only. */
   alwaysAllowedTools: string[];
   extraModelDirs: string[];
   chatListOpen: boolean;
@@ -725,6 +764,8 @@ export interface Settings {
   mailShowImages: boolean;
   /** Opening a message in the Mail window marks it as read. */
   mailMarkRead: boolean;
+  /** The Mail window asks before it opens a link from an email in the browser. */
+  mailConfirmLinks: boolean;
   /** The microphone to record with (a browser device id); null for the system's default. */
   microphone: string | null;
   /** The speech model that writes down what is said (a catalog id); null picks by the GPU's memory. */
@@ -1338,6 +1379,10 @@ export interface NewMailAccount {
   port?: number | null;
   username?: string | null;
   nickname?: string | null;
+  /** The server mail is sent through; null for the one the IMAP server's name suggests. */
+  smtpHost?: string | null;
+  /** 465 (TLS) or 587 (STARTTLS); null tries both. */
+  smtpPort?: number | null;
 }
 
 export interface MailFolder {
@@ -1409,4 +1454,76 @@ export interface MailMessage {
   html: string | null;
   text: string;
   attachments: MailAttachment[];
+}
+
+/** What a change to many messages did. */
+export interface MailChanged {
+  changed: number;
+  /** Already as asked: starred already, or in the folder already. */
+  already: number;
+  /** Left the cache since they were listed. */
+  missing: number;
+  /** Why it ended before every message was done. */
+  stopped: string | null;
+  /** What `mailUndo` takes to put moved messages back (none for a copy or a flag). */
+  undo: number | null;
+}
+
+export interface MailDeleted {
+  /** Moved to the trash, from where they can be taken back. */
+  trashed: number;
+  /** Gone for good. */
+  destroyed: number;
+  missing: number;
+  stopped: string | null;
+  /** What `mailUndo` takes to bring the trashed messages back. */
+  undo: number | null;
+}
+
+/** What the editor starts from. */
+export type MailStart = 'reply' | 'replyAll' | 'forward' | 'draft';
+
+/** A reply, forward or draft to finish, with what it takes from the original. */
+export interface MailPrefill {
+  account: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  text: string;
+  /** The original's attachments that go with it unless taken off. */
+  attachments: MailAttachment[];
+  attachmentsOf: number | null;
+  replyTo: number | null;
+  forward: number | null;
+  /** The draft it goes on with, replaced once it is sent or saved again. */
+  draft: number | null;
+  inReplyTo: string | null;
+  references: string[];
+}
+
+/** A message written in the Mail window, sent as it is. */
+export interface MailOutgoing {
+  account: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  text: string;
+  /** Files on this computer to attach. */
+  files: string[];
+  /** Attachments of another message that go with it. */
+  carry: { id: number; sections: string[] } | null;
+  replyTo: number | null;
+  forward: number | null;
+  inReplyTo: string | null;
+  references: string[];
+  draft: number | null;
+}
+
+/** A file picked to attach. */
+export interface MailPickedFile {
+  path: string;
+  name: string;
+  size: number;
 }

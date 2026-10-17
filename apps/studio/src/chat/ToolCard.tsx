@@ -12,16 +12,22 @@ import {
   FileSearch,
   FileText,
   FlaskConical,
+  FolderCog,
+  FolderInput,
   LineChart,
   Mail,
   MailCheck,
   MailOpen,
   MailSearch,
   Mails,
+  MailPlus,
+  MailX,
   Paperclip,
   PenLine,
   Search,
+  Send,
   ShieldQuestion,
+  Star,
   SquareFunction,
   Sparkles,
   SquareTerminal,
@@ -69,12 +75,23 @@ const ICONS: Record<string, LucideIcon> = {
   mail_export: Mails,
   mail_attachment: Paperclip,
   mail_mark_read: MailCheck,
+  mail_mark: Star,
+  mail_move: FolderInput,
+  mail_delete: MailX,
+  mail_folder: FolderCog,
+  mail_send: Send,
+  mail_draft: MailPlus,
   load_tools: Wrench,
 };
 
 type DownloadCard = Extract<ToolApproval, { kind: 'download' }>;
 type PinePublishCard = Extract<ToolApproval, { kind: 'pinePublish' }>;
 type MailMarkReadCard = Extract<ToolApproval, { kind: 'mailMarkRead' }>;
+type MailActionCard = Extract<ToolApproval, { kind: 'mailAction' }>;
+type MailSendCard = Extract<ToolApproval, { kind: 'mailSend' }>;
+
+/** Tools that run code on the person's computer: their card shows the code. */
+const CODE_TOOLS = new Set(['run_command', 'run_python']);
 
 /** Answers an approval; the tool keeps waiting if the answer did not arrive, so the choices must stay usable. */
 function useDecide(message: Message) {
@@ -91,9 +108,13 @@ function useDecide(message: Message) {
   return { busy, decide };
 }
 
-function Approval({ message, call }: { message: Message; call: ToolCall }) {
-  const [busy, setBusy] = useState(false);
+/** Any call the permission mode asks about, shown as it is: the code it runs, or what it does and
+ *  its arguments. "Always allow" only where the card offers it (Balanced mode). */
+function Approval({ message, call, card }: { message: Message; call: ToolCall; card?: ToolApproval }) {
+  const { busy, decide } = useDecide(message);
   const args = (message.toolResult?.args ?? {}) as Record<string, unknown>;
+  const isCode = CODE_TOOLS.has(call.name);
+  const always = card?.always === true;
   const code =
     typeof args.command === 'string'
       ? args.command
@@ -102,27 +123,34 @@ function Approval({ message, call }: { message: Message; call: ToolCall }) {
         : typeof args.file === 'string'
           ? `# runs ${args.file}`
           : call.arguments;
-  const decide = async (decision: 'once' | 'always' | 'deny') => {
-    setBusy(true);
-    await api.resolveApproval(message.id, decision);
-  };
   return (
     <div className={styles.approval}>
       <div className={styles.approvalTitle}>
         <ShieldQuestion size={16} aria-hidden />
-        The assistant wants to run this on your computer
+        {isCode ? 'The assistant wants to run this on your computer' : 'The assistant asks before this step'}
       </div>
-      <pre className={cx(styles.code, 'selectable')}>{code}</pre>
-      {typeof args.directory === 'string' && <div className={styles.planAlt}>In {args.directory}</div>}
+      {isCode ? (
+        <>
+          <pre className={cx(styles.code, 'selectable')}>{code}</pre>
+          {typeof args.directory === 'string' && <div className={styles.planAlt}>In {args.directory}</div>}
+        </>
+      ) : (
+        <div className={styles.plan}>
+          <div className={styles.planLine}>{message.toolResult?.label ?? call.name}</div>
+          <pre className={cx(styles.code, styles.source, 'selectable')}>{formatArgs(call.arguments)}</pre>
+        </div>
+      )}
       <div className={styles.approvalActions}>
         <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
-          Run once
+          {isCode ? 'Run once' : 'Allow'}
         </Button>
-        <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('always')}>
-          Always allow
-        </Button>
+        {always && (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('always')}>
+            Always allow
+          </Button>
+        )}
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
-          Don’t run
+          {isCode ? 'Don’t run' : 'Don’t allow'}
         </Button>
       </div>
     </div>
@@ -187,9 +215,11 @@ function PinePublishApproval({ message, card }: { message: Message; card: PinePu
         <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
           Save once
         </Button>
-        <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('always')}>
-          Always allow
-        </Button>
+        {card.always !== false && (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('always')}>
+            Always allow
+          </Button>
+        )}
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
           Don’t save
         </Button>
@@ -228,6 +258,114 @@ function MailMarkReadApproval({ message, card }: { message: Message; card: MailM
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
           Don’t allow
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The emails a card names: the first few, and how many more. */
+function MailSample({ messages, count }: { messages: unknown; count: unknown }) {
+  const sample = Array.isArray(messages) ? (messages as Array<{ from: string; subject: string }>) : [];
+  const more = (typeof count === 'number' ? count : sample.length) - sample.length;
+  if (sample.length === 0) return null;
+  return (
+    <div className={styles.plan}>
+      {sample.map((m, i) => (
+        <div key={i} className={styles.mailLine}>
+          <span className={styles.mailFrom}>{m.from}</span> {m.subject || '(no subject)'}
+        </div>
+      ))}
+      {more > 0 && <div className={styles.planAlt}>and {more} more</div>}
+    </div>
+  );
+}
+
+/** Changing emails or folders (marking, moving, deleting): what will happen, to which emails. */
+function MailActionApproval({ message, call, card }: { message: Message; call: ToolCall; card: MailActionCard }) {
+  const { busy, decide } = useDecide(message);
+  const Icon = ICONS[call.name] ?? Mail;
+  return (
+    <div className={styles.approval}>
+      <div className={styles.approvalTitle}>
+        <Icon size={16} aria-hidden />
+        {card.title || message.toolResult?.label || 'The assistant wants to change your email'}
+      </div>
+      <MailSample messages={card.messages} count={card.count} />
+      {card.detail && <div className={styles.planAlt}>{card.detail}</div>}
+      <div className={styles.approvalActions}>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
+          {card.confirm || 'Allow'}
+        </Button>
+        {card.always === true && (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('always')}>
+            Always allow
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
+          {card.deny || 'Don’t allow'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function fileSize(bytes: number): string {
+  if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
+  if (bytes >= 1 << 10) return `${Math.ceil(bytes / (1 << 10))} KB`;
+  return `${bytes} bytes`;
+}
+
+/** An email about to be sent, or saved as a draft, shown whole: who it goes to, and what it says. */
+function MailSendApproval({ message, card }: { message: Message; card: MailSendCard }) {
+  const { busy, decide } = useDecide(message);
+  const list = (l: unknown) => (Array.isArray(l) ? (l as string[]).join(', ') : '');
+  const rows: Array<[string, string]> = [
+    ['From', card.from ?? ''],
+    ['To', list(card.to)],
+    ['Cc', list(card.cc)],
+    ['Bcc', list(card.bcc)],
+    ['Subject', card.subject || '(no subject)'],
+  ];
+  const attachments = Array.isArray(card.attachments) ? card.attachments : [];
+  return (
+    <div className={styles.approval}>
+      <div className={styles.approvalTitle}>
+        {card.draft ? <MailPlus size={16} aria-hidden /> : <Send size={16} aria-hidden />}
+        {card.draft ? 'The assistant wants to save this draft' : 'The assistant wants to send this email'}
+      </div>
+      <div className={styles.mailHeaders}>
+        {rows
+          .filter(([, value]) => value)
+          .map(([name, value]) => (
+            <div key={name} className={styles.mailHeader}>
+              <span className={styles.mailHeaderName}>{name}</span>
+              <span className="selectable">{value}</span>
+            </div>
+          ))}
+      </div>
+      <pre className={cx(styles.code, styles.source, styles.mailBody, 'selectable')}>{card.body}</pre>
+      {attachments.length > 0 && (
+        <div className={styles.plan}>
+          {attachments.map((a, i) => (
+            <div key={i} className={styles.mailLine}>
+              <Paperclip size={12} aria-hidden /> <span className={styles.mailFrom}>{a.name}</span>{' '}
+              {typeof a.size === 'number' ? fileSize(a.size) : ''}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className={styles.approvalActions}>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void decide('once')}>
+          {card.draft ? 'Save draft' : 'Send'}
+        </Button>
+        {card.always === true && (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide('always')}>
+            Always allow
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide('deny')}>
+          {card.draft ? 'Don’t save' : 'Don’t send'}
         </Button>
       </div>
     </div>
@@ -294,8 +432,12 @@ export function ToolCard({ messageId, call, result, orphaned, flat }: Props) {
           <PinePublishApproval message={result} card={tr.approval} />
         ) : tr?.approval?.kind === 'mailMarkRead' ? (
           <MailMarkReadApproval message={result} card={tr.approval} />
+        ) : tr?.approval?.kind === 'mailAction' ? (
+          <MailActionApproval message={result} call={call} card={tr.approval} />
+        ) : tr?.approval?.kind === 'mailSend' ? (
+          <MailSendApproval message={result} card={tr.approval} />
         ) : (
-          <Approval message={result} call={call} />
+          <Approval message={result} call={call} card={tr?.approval} />
         ))}
       {!awaiting && (prominent || open) && tr?.display && (
         <div className={styles.body}>

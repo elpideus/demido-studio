@@ -1,16 +1,20 @@
-//! Mail: reading the accounts connected over IMAP (Gmail with an app password, or any IMAP
-//! server over TLS), for the Mail window and the assistant's mail tools.
+//! Mail: the accounts connected over IMAP (Gmail with an app password, or any IMAP server over
+//! TLS), for the Mail window and the assistant's mail tools: reading, and changing ([`actions`]:
+//! flags, moving, deleting, folders) and writing mail, which is sent over SMTP ([`send`]).
 //!
 //! Everything shown comes from a local cache ([`store`]) and the server is asked only for what
 //! changed ([`sync`]). Each account has one connection for its requests, kept open while it is
 //! used, and from a moment after the app starts a second one waits on the inbox with IDLE, so
 //! new mail is in the cache before the Mail window opens and the inbox is never polled. Folders
 //! are opened read-only and bodies fetched with BODY.PEEK: reading never marks anything as read
-//! on the server; only [`MailService::mark_read`] does, when the person or the assistant asks.
+//! on the server; only [`MailService::mark_read`] and [`MailService::set_flag`] do, when the
+//! person or the assistant asks.
 
 pub mod accounts;
+mod actions;
 mod body;
 mod imap;
+mod send;
 mod store;
 mod sync;
 mod utf7;
@@ -29,10 +33,15 @@ use tokio_util::sync::CancellationToken;
 
 use accounts::Accounts;
 pub use accounts::{Account, Kind, NewAccount};
+pub use actions::{Changed, Compose, Deleted, Prefill, Start};
 pub use body::{Addr, Attachment};
 use imap::{Conn, IdleEnd, MailError};
+pub use send::{Draft, MAX_ATTACHMENTS, OutFile, mime_of, read_files};
 use store::Store;
 pub use store::{DateRange, FolderView, PageQuery, Summary};
+pub use store::{FLAGGED, SEEN};
+/// A folder's path on the server as people read it.
+pub use utf7::decode as folder_name;
 
 use crate::secrets::Secrets;
 
@@ -59,8 +68,6 @@ const POLL_CLOSED: Duration = Duration::from_secs(10 * 60);
 const DEBOUNCE: Duration = Duration::from_millis(1500);
 /// The inboxes start being watched this long after the app starts, once the window is up.
 const START_DELAY: Duration = Duration::from_secs(3);
-/// Messages marked read in one request.
-const MARK_BATCH: usize = 500;
 /// The longest wait between attempts to reconnect the watcher.
 const MAX_BACKOFF: Duration = Duration::from_secs(5 * 60);
 
@@ -122,19 +129,6 @@ pub struct OpenedMany {
     pub stopped: Option<String>,
 }
 
-/// What marking many messages read did (`MailService::mark_read`).
-#[derive(Debug, Default)]
-pub struct MarkedRead {
-    /// Unread before, read now.
-    pub marked: usize,
-    /// Read already.
-    pub already: usize,
-    /// Not in the mail cache any more.
-    pub missing: usize,
-    /// Why it ended before every message was marked, when it did.
-    pub stopped: Option<String>,
-}
-
 type Slot = Arc<tokio::sync::Mutex<Option<Conn>>>;
 
 struct Watcher {
@@ -155,6 +149,8 @@ pub struct MailService {
     /// When each account's folder list was last read from the server.
     listed: Mutex<HashMap<String, i64>>,
     watchers: Mutex<HashMap<String, Watcher>>,
+    /// What the latest moves and deletes took away, to be put back.
+    undos: Mutex<actions::Undos>,
     window_open: AtomicBool,
     janitor: AtomicBool,
     closing: AtomicBool,
@@ -180,7 +176,7 @@ macro_rules! with_conn {
             let $conn = guard.as_mut().expect("connected above");
             let result: anyhow::Result<_> = $body.await;
             match result {
-                Err(e) if is_broken(&e) => {
+                Err(e) if $crate::mail::is_broken(&e) => {
                     *guard = None;
                     tries += 1;
                     if tries < 2 {
@@ -193,6 +189,8 @@ macro_rules! with_conn {
         }
     }};
 }
+
+pub(crate) use with_conn;
 
 fn is_broken(e: &anyhow::Error) -> bool {
     matches!(e.downcast_ref::<MailError>(), Some(MailError::Network(_)))
@@ -215,6 +213,7 @@ impl MailService {
             session_only: Mutex::default(),
             listed: Mutex::default(),
             watchers: Mutex::default(),
+            undos: Mutex::default(),
             window_open: AtomicBool::new(false),
             janitor: AtomicBool::new(false),
             closing: AtomicBool::new(false),
@@ -702,59 +701,6 @@ impl MailService {
             missing,
             stopped,
         })
-    }
-
-    /// Marks messages as read on the server, many to a request, and in the cache: their copies in
-    /// other folders too (on Gmail, the folders of their other labels). Every folder that changed
-    /// is announced with `mail://changed`. It fails only when nothing could be marked; when it
-    /// ends partway, `stopped` says why.
-    pub async fn mark_read(&self, ids: &[i64]) -> anyhow::Result<MarkedRead> {
-        let mut report = MarkedRead::default();
-        let mut wanted: BTreeMap<(String, String), Vec<u32>> = BTreeMap::new();
-        let mut seen = HashSet::new();
-        for id in ids.iter().filter(|id| seen.insert(**id)) {
-            match self.store.message(*id)? {
-                Some(s) => {
-                    if !s.unread {
-                        report.already += 1;
-                    }
-                    wanted.entry((s.account, s.folder)).or_default().push(s.uid);
-                }
-                None => report.missing += 1,
-            }
-        }
-        let mut changed: HashSet<(String, String)> = HashSet::new();
-        let mut stored = false;
-        'folders: for ((account_id, folder), uids) in wanted {
-            let Some(account) = self.accounts.get(&account_id) else {
-                report.missing += uids.len();
-                continue;
-            };
-            for chunk in uids.chunks(MARK_BATCH) {
-                let set = sync::uid_set(chunk);
-                let result = with_conn!(self, &account, |conn| async {
-                    anyhow::Ok(conn.mark_seen(&folder, &set).await?)
-                });
-                if let Err(e) = result {
-                    if !stored {
-                        return Err(self.unless_gone(&account, &folder, e).await);
-                    }
-                    report.stopped = Some(format!("{e:#}"));
-                    break 'folders;
-                }
-                stored = true;
-                for (path, n) in self.store.mark_seen(&account_id, &folder, chunk)? {
-                    if path == folder {
-                        report.marked += n as usize;
-                    }
-                    changed.insert((account_id.clone(), path));
-                }
-            }
-        }
-        for (account, folder) in changed {
-            self.emit_changed(&account, &folder);
-        }
-        Ok(report)
     }
 
     /// An attachment's file name and contents.

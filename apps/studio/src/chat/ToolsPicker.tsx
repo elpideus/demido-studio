@@ -3,6 +3,7 @@ import {
   BookMarked,
   FileText,
   LineChart,
+  Mail,
   Settings2,
   Sparkles,
   SquareTerminal,
@@ -19,6 +20,7 @@ import styles from './Composer.module.css';
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
   market: LineChart,
+  mail: Mail,
   coding: SquareTerminal,
   files: FileText,
   skills: Sparkles,

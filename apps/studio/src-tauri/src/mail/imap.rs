@@ -1,16 +1,20 @@
-//! One IMAP connection: TLS, login, and the few commands browsing needs.
+//! One IMAP connection: TLS, login, the commands browsing needs, and those that change the
+//! mailbox.
 //!
 //! Folders are opened with EXAMINE (read-only) and bodies fetched with BODY.PEEK, so browsing
 //! never changes anything on the server: a message opened here stays unread in Gmail until it is
-//! marked read on purpose ([`Conn::mark_seen`], which opens its folder with SELECT).
+//! marked read on purpose. The commands that change something ([`Conn::store_flag`], moving,
+//! deleting, folders, APPEND) open their folder with SELECT first.
 //! Every command runs under a timeout; a connection that times out or breaks is dropped by its
 //! owner and a new one made.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use async_imap::imap_proto::{NameAttribute, Response};
+use async_imap::imap_proto::rfc4315::UidSetMember;
+use async_imap::imap_proto::{NameAttribute, Response, ResponseCode, Status};
 use async_imap::types::{Fetch, Flag, Mailbox, Name, UnsolicitedResponse};
 use futures_util::TryStreamExt;
 use tokio::net::TcpStream;
@@ -89,6 +93,40 @@ pub struct Caps {
     pub idle: bool,
     /// Literals may be sent without waiting (LITERAL+ / LITERAL-): searches outside ASCII.
     pub literal_plus: bool,
+    /// MOVE (RFC 6851); without it a move is COPY, then delete.
+    pub moves: bool,
+    /// UIDPLUS: UID EXPUNGE removes only the messages named.
+    pub uidplus: bool,
+}
+
+/// Where the server put messages it moved or copied, as it said with UIDPLUS's COPYUID: their
+/// UIDs in the folder they went to, by their UIDs where they were.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Copied {
+    /// The UIDVALIDITY of the folder they went to, for which the new UIDs hold.
+    pub validity: u32,
+    pub uids: HashMap<u32, u32>,
+}
+
+impl Copied {
+    fn from_code(code: Option<&ResponseCode<'_>>) -> Option<Self> {
+        let Some(ResponseCode::CopyUid(validity, from, to)) = code else {
+            return None;
+        };
+        let expand = |set: &[UidSetMember]| -> Vec<u32> {
+            set.iter()
+                .flat_map(|m| match m {
+                    UidSetMember::UidRange(r) => r.clone().collect::<Vec<_>>(),
+                    UidSetMember::Uid(u) => vec![*u],
+                })
+                .collect()
+        };
+        let (from, to) = (expand(from), expand(to));
+        (from.len() == to.len()).then(|| Copied {
+            validity: *validity,
+            uids: from.into_iter().zip(to).collect(),
+        })
+    }
 }
 
 pub struct Conn {
@@ -167,6 +205,8 @@ pub async fn connect(login: &Login) -> Result<Conn, MailError> {
         gmail: caps.has_str("X-GM-EXT-1"),
         idle: caps.has_str("IDLE"),
         literal_plus: caps.has_str("LITERAL+") || caps.has_str("LITERAL-"),
+        moves: caps.has_str("MOVE"),
+        uidplus: caps.has_str("UIDPLUS"),
     }
     .with_enable(caps.has_str("ENABLE"));
     let mut conn = Conn {
@@ -275,17 +315,177 @@ impl Conn {
         Ok(())
     }
 
-    /// Marks the messages of a UID set of `path` as read on the server.
-    pub async fn mark_seen(&mut self, path: &str, uid_set: &str) -> Result<(), MailError> {
+    /// Adds (`add`) or removes a flag, like `\Seen` or `\Flagged`, on the messages of a UID set
+    /// of `path`.
+    pub async fn store_flag(&mut self, path: &str, uid_set: &str, flag: &str, add: bool) -> Result<(), MailError> {
         self.ensure_writable(path).await?;
         let s = self.session()?;
+        let query = format!("{}FLAGS.SILENT ({flag})", if add { '+' } else { '-' });
         let _: Vec<Fetch> = timed(COMMAND_TIMEOUT, async {
-            s.uid_store(uid_set, r"+FLAGS.SILENT (\Seen)")
+            s.uid_store(uid_set, &query).await?.try_collect().await
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Moves the messages of a UID set of `path` to `dest`: MOVE where the server has it, else a
+    /// copy and a delete. Returns their UIDs in `dest` when the server says them.
+    pub async fn move_messages(&mut self, path: &str, uid_set: &str, dest: &str) -> Result<Option<Copied>, MailError> {
+        self.ensure_writable(path).await?;
+        if self.caps.moves {
+            return self.transfer("MOVE", uid_set, dest).await;
+        }
+        let copied = self.transfer("COPY", uid_set, dest).await?;
+        self.expunge_messages(path, uid_set).await?;
+        Ok(copied)
+    }
+
+    /// Runs UID MOVE or UID COPY on the selected folder, and returns the COPYUID it was answered
+    /// with: in the final OK after a copy, in an OK before it after a move. What else the server
+    /// says meanwhile (EXPUNGE, EXISTS) is dropped, as [`Conn::drain`] would.
+    async fn transfer(&mut self, verb: &str, uid_set: &str, dest: &str) -> Result<Option<Copied>, MailError> {
+        use async_imap::error::Error;
+        self.drain();
+        let command = format!("UID {verb} {uid_set} {}", quote(dest));
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, async {
+            let tag = s.run_command(&command).await?;
+            let mut copied = None;
+            loop {
+                let Some(response) = s.read_response().await? else {
+                    return Err(Error::ConnectionLost);
+                };
+                match response.parsed() {
+                    Response::Done {
+                        tag: done,
+                        status,
+                        outcome,
+                    } if *done == tag => {
+                        copied = Copied::from_code(outcome.code.as_ref()).or(copied);
+                        let text = || outcome.information.as_deref().unwrap_or_default().to_string();
+                        return match status {
+                            Status::Ok => Ok(copied),
+                            Status::No => Err(Error::No(text())),
+                            _ => Err(Error::Bad(text())),
+                        };
+                    }
+                    Response::Data {
+                        status: Status::Ok,
+                        outcome,
+                    } => copied = Copied::from_code(outcome.code.as_ref()).or(copied),
+                    _ => {}
+                }
+            }
+        })
+        .await
+    }
+
+    /// Copies the messages of a UID set of `path` into `dest` (on Gmail: adds that label).
+    pub async fn copy_messages(&mut self, path: &str, uid_set: &str, dest: &str) -> Result<(), MailError> {
+        self.ensure_selected(path).await?;
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, s.uid_copy(uid_set, dest)).await?;
+        Ok(())
+    }
+
+    /// Deletes the messages of a UID set of `path` for good: flagged deleted, then expunged. With
+    /// UIDPLUS only these go; without it, so does anything else already flagged deleted there.
+    pub async fn expunge_messages(&mut self, path: &str, uid_set: &str) -> Result<(), MailError> {
+        self.store_flag(path, uid_set, r"\Deleted", true).await?;
+        let uidplus = self.caps.uidplus;
+        let s = self.session()?;
+        if uidplus {
+            let _: Vec<_> = timed(COMMAND_TIMEOUT, async {
+                s.uid_expunge(uid_set).await?.try_collect().await
+            })
+            .await?;
+        } else {
+            let _: Vec<_> = timed(COMMAND_TIMEOUT, async { s.expunge().await?.try_collect().await }).await?;
+        }
+        self.drain();
+        Ok(())
+    }
+
+    /// The UIDs of `path` whose Message-ID header is `message_id`.
+    pub async fn find_message_id(&mut self, path: &str, message_id: &str) -> Result<Vec<u32>, MailError> {
+        self.ensure_selected(path).await?;
+        let id = message_id.trim().trim_start_matches('<').trim_end_matches('>');
+        self.uid_search(&format!("HEADER Message-ID {}", quote(id))).await
+    }
+
+    /// The UIDs of Gmail's `path` holding the messages with these X-GM-MSGIDs.
+    pub async fn find_gmail_ids(&mut self, path: &str, ids: &[u64]) -> Result<Vec<u32>, MailError> {
+        self.ensure_selected(path).await?;
+        let mut found = Vec::new();
+        for id in ids {
+            found.extend(self.uid_search(&format!("X-GM-MSGID {id}")).await?);
+        }
+        Ok(found)
+    }
+
+    /// Gives the messages of a UID set of Gmail's `path` these labels (as people name them), on
+    /// top of those they have.
+    pub async fn add_gmail_labels(&mut self, path: &str, uid_set: &str, labels: &[String]) -> Result<(), MailError> {
+        self.ensure_writable(path).await?;
+        let list: Vec<String> = labels.iter().map(|l| quote(&utf7::encode(l))).collect();
+        let s = self.session()?;
+        let _: Vec<Fetch> = timed(COMMAND_TIMEOUT, async {
+            s.uid_store(uid_set, format!("+X-GM-LABELS ({})", list.join(" ")))
                 .await?
                 .try_collect()
                 .await
         })
         .await?;
+        self.drain();
+        Ok(())
+    }
+
+    /// A message's header, whole, for replying to it.
+    pub async fn fetch_header(&mut self, path: &str, uid: u32) -> Result<Option<Vec<u8>>, MailError> {
+        self.ensure_selected(path).await?;
+        Ok(self
+            .fetch_one(uid, "BODY.PEEK[HEADER]")
+            .await?
+            .and_then(|f| f.header().map(<[u8]>::to_vec)))
+    }
+
+    /// Adds a whole message to `path`, with flags like `(\Seen)`.
+    pub async fn append(&mut self, path: &str, flags: &str, message: &[u8]) -> Result<(), MailError> {
+        self.drain();
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, s.append(path, Some(flags), None, message)).await?;
+        self.drain();
+        Ok(())
+    }
+
+    /// Makes a folder and subscribes to it, so other mail apps list it too.
+    pub async fn create_folder(&mut self, path: &str) -> Result<(), MailError> {
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, s.create(path)).await?;
+        let _ = timed(COMMAND_TIMEOUT, s.subscribe(path)).await;
+        Ok(())
+    }
+
+    pub async fn rename_folder(&mut self, from: &str, to: &str) -> Result<(), MailError> {
+        self.leave(from).await?;
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, s.rename(from, to)).await?;
+        let _ = timed(COMMAND_TIMEOUT, s.subscribe(to)).await;
+        Ok(())
+    }
+
+    pub async fn delete_folder(&mut self, path: &str) -> Result<(), MailError> {
+        self.leave(path).await?;
+        let s = self.session()?;
+        timed(COMMAND_TIMEOUT, s.delete(path)).await?;
+        Ok(())
+    }
+
+    /// Opens the inbox instead of `path`, which a server may not rename or delete while open.
+    async fn leave(&mut self, path: &str) -> Result<(), MailError> {
+        if self.selected.as_deref() == Some(path) {
+            self.examine("INBOX").await?;
+        }
         Ok(())
     }
 
@@ -695,6 +895,19 @@ mod tests {
             folders.iter().map(|f| f.position).collect::<Vec<_>>(),
             [0, 1, 2, 3, 4, 5]
         );
+    }
+
+    #[test]
+    fn reads_where_moved_messages_went() {
+        let parse = |line: &'static [u8]| match Response::parse(line).unwrap().1 {
+            Response::Data { outcome, .. } | Response::Done { outcome, .. } => Copied::from_code(outcome.code.as_ref()),
+            _ => None,
+        };
+        let moved = parse(b"* OK [COPYUID 38505 304,319:320 3956:3958] Done\r\n").unwrap();
+        assert_eq!(moved.validity, 38505);
+        assert_eq!(moved.uids, HashMap::from([(304, 3956), (319, 3957), (320, 3958)]));
+        assert!(parse(b"A3 OK [COPYUID 1 1:2 5] Done\r\n").is_none());
+        assert!(parse(b"A3 OK Done\r\n").is_none());
     }
 
     #[test]

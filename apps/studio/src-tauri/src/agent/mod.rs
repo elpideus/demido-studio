@@ -399,6 +399,7 @@ pub(crate) fn frame(
         voice: files.iter().any(|a| a.voice.is_some()),
         shell: crate::shell::current().map(|s| s.name.as_str()),
         mail_accounts: &mail_accounts,
+        permission_mode: settings.permission_mode,
         loadable: &loadable,
     });
     let system_tokens = prompt::estimate_tokens(&system);
@@ -948,8 +949,14 @@ async fn run_tool_call(
             .map(|()| false);
     }
 
-    if tools::needs_approval(&call.name, &settings) {
-        let decision = match row.request_approval(None, cancel).await {
+    if let Some(risk) = tools::needs_approval(&call.name, &settings) {
+        // "Always allow" is remembered in the Balanced mode only, which asks only about risky calls.
+        let card = json!({
+            "kind": "tool",
+            "risk": risk,
+            "always": tools::permissions::offers_always(&settings, true),
+        });
+        let decision = match row.request_approval(Some(card), cancel).await {
             Ok(d) => d,
             Err(Cancelled) => return row.cancel().map(|()| true),
         };
@@ -960,13 +967,13 @@ async fn run_tool_call(
                     .finish(false, json!({"error": msg}).to_string(), json!({"denied": true}), 0)
                     .map(|()| false);
             }
-            Approval::Always => {
+            Approval::Always if tools::permissions::offers_always(&settings, true) => {
                 let name = call.name.clone();
                 let _ = state.settings.update(|s| {
                     s.always_allowed_tools.insert(name);
                 });
             }
-            Approval::Once => {}
+            Approval::Once | Approval::Always => {}
         }
     }
 

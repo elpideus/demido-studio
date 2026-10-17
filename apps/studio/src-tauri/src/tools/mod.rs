@@ -14,7 +14,9 @@ mod changes;
 mod command;
 mod files;
 mod mail;
+mod mail_write;
 mod market;
+pub mod permissions;
 mod pine;
 mod python;
 mod skills;
@@ -32,6 +34,7 @@ use crate::db::{Message, Role};
 use crate::llm::ToolSpec;
 use crate::settings::Settings;
 use crate::state::AppState;
+pub use permissions::Risk;
 
 /// A tool group as the Tools menu shows it.
 #[derive(Clone, Debug, Serialize)]
@@ -66,6 +69,31 @@ impl ToolContext {
     /// Asks the person mid-run with `card` (see `agent::row`); `Err` when the turn is stopped.
     pub async fn request_approval(&self, card: Value) -> Result<Approval, Cancelled> {
         self.row.request_approval(Some(card), &self.cancel).await
+    }
+
+    /// Asks the person to allow a call of `tool` at `risk` with `card`, when the permission mode
+    /// says to; `always` lets the card offer "Always allow" (Balanced only). Returns whether it
+    /// may go ahead, or `Err` when the turn is stopped.
+    pub async fn confirm(&self, tool: &str, risk: Risk, mut card: Value, always: bool) -> Result<bool, Cancelled> {
+        let settings = self.state.settings.get();
+        if !permissions::must_ask(&settings, tool, risk) {
+            return Ok(true);
+        }
+        let always = permissions::offers_always(&settings, always);
+        card["always"] = always.into();
+        match self.request_approval(card).await? {
+            Approval::Deny => Ok(false),
+            Approval::Once => Ok(true),
+            Approval::Always => {
+                if always {
+                    let tool = tool.to_string();
+                    let _ = self.state.settings.update(|s| {
+                        s.always_allowed_tools.insert(tool);
+                    });
+                }
+                Ok(true)
+            }
+        }
     }
 }
 
@@ -102,8 +130,11 @@ struct ToolDef {
     group: &'static str,
     description: &'static str,
     parameters: fn() -> Value,
-    /// Asks the person before running, unless they chose "always allow".
-    approval: bool,
+    /// What a call can do, which says whether the person is asked first (see [`permissions`]).
+    risk: Risk,
+    /// The tool asks the person itself, with a card of its own ([`ToolContext::confirm`]),
+    /// since what it risks depends on its arguments or is best shown its own way.
+    confirms: bool,
 }
 
 const TOOLS: &[ToolDef] = &[
@@ -112,203 +143,272 @@ const TOOLS: &[ToolDef] = &[
         group: "market",
         description: "Find TradingView symbols for stocks, forex, crypto, indices and futures.",
         parameters: market::search_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "market_quote",
         group: "market",
         description: "Live prices of one or more symbols: last price, change, bid/ask and the day's range.",
         parameters: market::quote_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "market_candles",
         group: "market",
         description: "OHLCV candles of a symbol (needs a TradingView sign-in): recent ones from TradingView, older ones from the stored history. Saves every row to a CSV in the workspace and returns a summary with its path.",
         parameters: market::candles_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "market_history",
         group: "market",
         description: "Historical candles without a TradingView sign-in: years of forex, metals, commodities, indices and crypto from Dukascopy (stocks only from stored TradingView data). Saves a CSV in the workspace and returns a summary with its path.",
         parameters: market::history_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "market_download",
         group: "market",
         description: "Download a symbol's price history into the local store. Without from/to it fetches all the history the source has. Waits up to 90 seconds; a longer download goes on in the background with a progress bar in the chat.",
         parameters: market::download_schema,
-        approval: false,
+        risk: Risk::Change,
+        confirms: false,
     },
     ToolDef {
         name: "market_data_status",
         group: "market",
         description: "Which market history is stored locally: per market and source (Dukascopy, or TradingView per timeframe), the date ranges covered, gaps, size on disk and running downloads.",
         parameters: market::data_status_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "chart_add_indicator",
         group: "market",
         description: "Put an indicator on the user's chart in the Market window (opening it if closed): a script from Demido's Pine library or a TradingView indicator.",
         parameters: pine::add_indicator_schema,
-        approval: false,
+        risk: Risk::Change,
+        confirms: false,
     },
     ToolDef {
         name: "chart_draw",
         group: "market",
         description: "Draw on the user's chart in the Market window without writing an indicator, to show what you found: levels, trend lines, zones, labels, markers and series of values.",
         parameters: pine::draw_schema,
-        approval: false,
+        risk: Risk::Change,
+        confirms: false,
     },
     ToolDef {
         name: "pine_list",
         group: "market",
         description: "List the Pine scripts in Demido's library, and optionally the user's own scripts on TradingView.",
         parameters: pine::list_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "pine_read",
         group: "market",
         description: "Read a library Pine script with line numbers and its compile errors and warnings, or first import a TradingView script into the library to read and change it.",
         parameters: pine::read_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "pine_save",
         group: "market",
         description: "Save a whole Pine Script v6 indicator in Demido's library (not on TradingView) and compile it: returns errors and warnings with their lines, or the script's inputs and plots. Strategies and libraries can be saved but not run. To change part of a script, use pine_edit.",
         parameters: pine::save_schema,
-        approval: false,
+        risk: Risk::Change,
+        confirms: false,
     },
     ToolDef {
         name: "pine_edit",
         group: "market",
         description: "Replace old_string with new_string in a library script, then save and compile it: returns the errors and warnings left, with their lines, and the changed lines. Fix errors one change at a time. Nothing is saved to TradingView.",
         parameters: pine::edit_schema,
-        approval: false,
+        risk: Risk::Change,
+        confirms: false,
     },
     ToolDef {
         name: "pine_test",
         group: "market",
         description: "Run a Pine script on real bars of a symbol and timeframe as TradingView's chart does (needs a TradingView sign-in): returns compile or runtime errors with their lines, or each plot's latest values, ranges and signals, what it drew, and a CSV in the workspace with every bar's OHLCV and plot values.",
         parameters: pine::test_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "pine_publish",
         group: "market",
         description: "Save a library script to the user's TradingView account (My scripts): a new script the first time, its next version afterwards. It must compile. The user is asked first.",
         parameters: pine::publish_schema,
-        approval: false,
+        risk: Risk::Risky,
+        confirms: true,
     },
     ToolDef {
         name: "mail_list",
         group: "mail",
         description: "List the newest messages of an email folder with sender, subject, date, unread state and a preview, and name the account's folders. Never marks anything as read.",
         parameters: mail::list_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "mail_search",
         group: "mail",
         description: "Search the whole mailbox on the mail server, not only what was downloaded. Returns the newest matches with their ids.",
         parameters: mail::search_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "mail_export",
         group: "mail",
-        description: "Write many emails (up to 1000) with their whole text into a JSON Lines file in the workspace's mail folder, chosen by a mail_search query, a date range, both, or neither for the newest. Returns the file's path and a summary, not the emails. Use it to work through more than a handful of emails.",
+        description: "Write many emails into a JSON Lines file in the workspace's mail folder, chosen by a mail_search query, a date range, both, or neither for the newest: up to 1000 with their whole text, or up to 10000 with bodies false (headers and a preview, quick, enough to sort mail by sender and subject). Returns the file's path and a summary, not the emails. Use it to work through more than a handful of emails. Its ids stay good after some of the emails are moved or deleted: export once and keep working from the file.",
         parameters: mail::export_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "mail_read",
         group: "mail",
         description: "Read one email by id: sender, recipients, date, subject, whole text and attachment list. Does not mark it as read.",
         parameters: mail::read_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "mail_attachment",
         group: "mail",
         description: "Save an email's attachment in the workspace's mail folder and return its path, for read_file or run_python.",
         parameters: mail::attachment_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
-        name: "mail_mark_read",
+        name: "mail_mark",
         group: "mail",
-        description: "Mark emails as read on the mail server, many at once by id. Only when the user asked for it; otherwise the user is asked to allow it.",
-        parameters: mail::mark_read_schema,
-        approval: false,
+        description: "Mark emails as read or unread, starred or not, on the mail server, many at once: by ids, or by ids_file, a workspace file of ids (an export filtered in run_python, say).",
+        parameters: mail_write::mark_schema,
+        risk: Risk::Change,
+        confirms: true,
+    },
+    ToolDef {
+        name: "mail_move",
+        group: "mail",
+        description: "Move emails to another folder of their account (archive, a folder, a Gmail label, spam, inbox), or copy them there, many at once: by ids, or by ids_file, a workspace file of ids (an export filtered in run_python, say). A moved email gets a new id in its new folder; every other email keeps its id.",
+        parameters: mail_write::move_schema,
+        risk: Risk::Change,
+        confirms: true,
+    },
+    ToolDef {
+        name: "mail_delete",
+        group: "mail",
+        description: "Delete emails: into the trash, or for good with permanent (emails already in the trash always go for good). Many at once: by ids, or by ids_file, a workspace file of ids (an export filtered in run_python, say).",
+        parameters: mail_write::delete_schema,
+        risk: Risk::Change,
+        confirms: true,
+    },
+    ToolDef {
+        name: "mail_folder",
+        group: "mail",
+        description: "Create, rename or delete an email folder (a label on Gmail). The inbox, Sent, Drafts, Trash and the other system folders stay as they are.",
+        parameters: mail_write::folder_schema,
+        risk: Risk::Change,
+        confirms: true,
+    },
+    ToolDef {
+        name: "mail_send",
+        group: "mail",
+        description: "Send an email in plain text: new, a reply (threaded, with the original quoted) or a forward (with its attachments), with workspace files attached. A copy is kept in Sent. Write it the way the user would, and send only what the user asked to send.",
+        parameters: mail_write::send_schema,
+        risk: Risk::Risky,
+        confirms: true,
+    },
+    ToolDef {
+        name: "mail_draft",
+        group: "mail",
+        description: "Save an email in Drafts instead of sending it: same fields as mail_send. The user can finish and send it from their mail app.",
+        parameters: mail_write::draft_schema,
+        risk: Risk::Change,
+        confirms: true,
     },
     ToolDef {
         name: "run_python",
         group: "coding",
         description: "Run Python 3 in the chat's workspace folder, where files open by their relative path (numpy, pandas, matplotlib and requests are installed). Print what you need to see. Charts saved as PNG files are shown to the user. Every run is a fresh process.",
         parameters: python::schema,
-        approval: true,
+        risk: Risk::Risky,
+        confirms: false,
     },
     ToolDef {
         name: "run_command",
         group: "coding",
         description: "Run a command line in the user's own shell on their computer and get its output and exit code: for the programs they installed (yt-dlp, ffmpeg, git, their package manager…) and questions about the computer. The user approves each command. It runs in the chat's workspace folder (so downloads land there) unless directory is given.",
         parameters: command::schema,
-        approval: true,
+        risk: Risk::Risky,
+        confirms: false,
     },
     ToolDef {
         name: "list_files",
         group: "files",
         description: "List the files in the chat's workspace folder.",
         parameters: files::list_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "read_file",
         group: "files",
         description: "Read a workspace file as text: CSV, JSON, Markdown and code, and also PDF, Word, PowerPoint, Excel and web pages.",
         parameters: files::read_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "search_files",
         group: "files",
         description: "Search the files attached to this chat for passages about something; returns the best ones with their file and page. Matches by meaning and by words (words only while indexing): when nothing is found, try other words, synonyms or fewer words.",
         parameters: files::search_schema,
-        approval: false,
+        risk: Risk::Read,
+        confirms: false,
     },
     ToolDef {
         name: "write_file",
         group: "files",
         description: "Create or overwrite a text file in the chat's workspace folder.",
         parameters: files::write_schema,
-        approval: false,
+        risk: Risk::Change,
+        confirms: false,
     },
     ToolDef {
         name: "create_skill",
         group: "skills",
         description: "Save what you did as a reusable skill when the user asks: future conversations list it by its description and read its instructions when it applies. Write numbered steps naming the tools and parameters to use; put Python code in files, run with run_python's file as skill:<skill-id>/<file>.",
         parameters: skills::create_schema,
-        approval: false,
+        risk: Risk::Change,
+        confirms: false,
     },
     ToolDef {
         name: "read_skill_file",
         group: "skills",
         description: "Read a skill's instructions (SKILL.md, the default) or another of its files.",
         parameters: skills::read_schema,
-        approval: false,
+        risk: Risk::None,
+        confirms: false,
     },
     ToolDef {
         name: LOADER,
         group: "",
         description: "Load groups of tools the system prompt lists, to use their tools from your next step on.",
         parameters: || load_schema(&GROUPS.iter().map(|g| g.id).collect::<Vec<_>>()),
-        approval: false,
+        risk: Risk::None,
+        confirms: false,
     },
 ];
 
@@ -338,8 +438,9 @@ const GROUPS: &[GroupDef] = &[
     GroupDef {
         id: "mail",
         label: "Email",
-        description: "Read the email of the accounts connected in the Mail window, and mark it as read when you ask or allow it",
-        for_model: "the user's email: list, search, read and export messages, save attachments, mark them as read",
+        description: "Read, sort, delete, write and send the email of the accounts connected in the Mail window",
+        for_model: "the user's email: list, search, read and export messages, save attachments; mark, move and \
+                    delete them, manage folders and labels; write drafts and send email",
     },
     GroupDef {
         id: "coding",
@@ -607,8 +708,11 @@ pub async fn prepare(settings: &Settings) {
     }
 }
 
-pub fn needs_approval(name: &str, settings: &Settings) -> bool {
-    TOOLS.iter().find(|t| t.name == name).is_some_and(|t| t.approval) && !settings.always_allowed_tools.contains(name)
+/// Whether the agent loop asks the person before running `name`: never for a tool that asks
+/// itself. Returns the call's risk when it does.
+pub fn needs_approval(name: &str, settings: &Settings) -> Option<Risk> {
+    let tool = TOOLS.iter().find(|t| t.name == name)?;
+    (!tool.confirms && permissions::must_ask(settings, name, tool.risk)).then_some(tool.risk)
 }
 
 /// A short present-tense label for the UI, e.g. `Fetching FX:EURUSD 1h candles`.
@@ -673,9 +777,56 @@ pub fn describe(name: &str, args: &Value) -> String {
         }
         "mail_read" => "Reading an email".into(),
         "mail_attachment" => format!("Saving the attachment {}", s("attachment")),
+        // Chats from before mail_mark still show this one.
         "mail_mark_read" => match args["ids"].as_array().map_or(0, Vec::len) {
             1 => "Marking an email as read".into(),
             n => format!("Marking {n} emails as read"),
+        },
+        "mail_mark" | "mail_move" | "mail_delete" => {
+            let n = args["ids"].as_array().map_or(0, Vec::len);
+            let file = s("ids_file");
+            let emails = match (n, file.is_empty()) {
+                (1, true) => "an email".to_string(),
+                (n, true) => format!("{n} emails"),
+                (0, false) => format!("the emails in {file}"),
+                (n, false) => format!("{n} emails and those in {file}"),
+            };
+            match name {
+                "mail_mark" => {
+                    let mut how = Vec::new();
+                    match args["read"].as_bool() {
+                        Some(true) => how.push("read"),
+                        Some(false) => how.push("unread"),
+                        None => {}
+                    }
+                    match args["starred"].as_bool() {
+                        Some(true) => how.push("starred"),
+                        Some(false) => how.push("not starred"),
+                        None => {}
+                    }
+                    format!("Marking {emails} as {}", how.join(" and "))
+                }
+                "mail_move" if args["copy"] == true => format!("Copying {emails} to {}", s("folder")),
+                "mail_move" => format!("Moving {emails} to {}", s("folder")),
+                _ if args["permanent"] == true => format!("Deleting {emails} for good"),
+                _ => format!("Deleting {emails}"),
+            }
+        }
+        "mail_folder" => match s("action").as_str() {
+            "create" => format!("Creating the folder {}", s("name")),
+            "rename" => format!("Renaming {} to {}", s("folder"), s("name")),
+            "delete" => format!("Deleting the folder {}", s("folder")),
+            _ => "Changing a mail folder".into(),
+        },
+        "mail_send" if !s("reply_to").is_empty() => "Sending a reply".into(),
+        "mail_send" if !s("forward").is_empty() => "Forwarding an email".into(),
+        "mail_send" => match s("subject") {
+            subject if subject.is_empty() => "Sending an email".into(),
+            subject => format!("Sending “{subject}”"),
+        },
+        "mail_draft" => match s("subject") {
+            subject if subject.is_empty() => "Saving a draft".into(),
+            subject => format!("Saving the draft “{subject}”"),
         },
         "run_python" => {
             if s("file").is_empty() {
@@ -734,7 +885,12 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "mail_export" => mail::export(ctx, &args).await,
         "mail_read" => mail::read(ctx, &args).await,
         "mail_attachment" => mail::attachment(ctx, &args).await,
-        "mail_mark_read" => mail::mark_read(ctx, &args).await,
+        "mail_mark" => mail_write::mark(ctx, &args).await,
+        "mail_move" => mail_write::move_to(ctx, &args).await,
+        "mail_delete" => mail_write::delete(ctx, &args).await,
+        "mail_folder" => mail_write::folder(ctx, &args).await,
+        "mail_send" => mail_write::send(ctx, &args).await,
+        "mail_draft" => mail_write::draft(ctx, &args).await,
         "run_python" => python::run(ctx, &args).await,
         "run_command" => command::run(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
@@ -863,6 +1019,28 @@ mod tests {
         assert_eq!(
             describe("mail_mark_read", &serde_json::json!({"ids": ["m1", "m2"]})),
             "Marking 2 emails as read"
+        );
+        assert_eq!(
+            describe(
+                "mail_mark",
+                &serde_json::json!({"ids": ["m1"], "read": false, "starred": true})
+            ),
+            "Marking an email as unread and starred"
+        );
+        assert_eq!(
+            describe(
+                "mail_move",
+                &serde_json::json!({"ids": ["m1", "m2"], "folder": "Archive"})
+            ),
+            "Moving 2 emails to Archive"
+        );
+        assert_eq!(
+            describe("mail_delete", &serde_json::json!({"ids": ["m1"], "permanent": true})),
+            "Deleting an email for good"
+        );
+        assert_eq!(
+            describe("mail_send", &serde_json::json!({"subject": "Lunch", "body": "Hi"})),
+            "Sending “Lunch”"
         );
     }
 

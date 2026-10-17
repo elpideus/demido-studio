@@ -22,6 +22,20 @@ pub enum UpdateChannel {
     Prerelease,
 }
 
+/// When the assistant asks before it acts (see `tools::permissions`).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PermissionMode {
+    /// Asks before every tool call that reads or changes anything.
+    Cautious,
+    /// Asks only before what is risky: running code, sending email, deleting for good, saving to
+    /// an online account, a long download.
+    #[default]
+    Balanced,
+    /// Never asks.
+    Autonomous,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -33,7 +47,9 @@ pub struct Settings {
     pub preload_default_model: bool,
     /// Built-in tool groups the assistant may use, by id.
     pub tool_groups: BTreeMap<String, bool>,
-    /// Tools the person chose to always allow without asking.
+    /// When the assistant asks before it acts.
+    pub permission_mode: PermissionMode,
+    /// Tools the person chose to always allow without asking (in the Balanced mode).
     pub always_allowed_tools: BTreeSet<String>,
     /// Extra folders scanned for GGUF models (for example LM Studio's).
     pub extra_model_dirs: Vec<PathBuf>,
@@ -64,6 +80,8 @@ pub struct Settings {
     pub mail_show_images: bool,
     /// Opening a message in the Mail window marks it as read.
     pub mail_mark_read: bool,
+    /// The Mail window asks before it opens a link from an email in the browser.
+    pub mail_confirm_links: bool,
     /// The microphone the composer records with (the browser's device id); `None` for the
     /// system's default.
     pub microphone: Option<String>,
@@ -91,6 +109,7 @@ impl Default for Settings {
             default_model: None,
             preload_default_model: true,
             tool_groups,
+            permission_mode: PermissionMode::Balanced,
             always_allowed_tools: BTreeSet::new(),
             extra_model_dirs: Vec::new(),
             chat_list_open: true,
@@ -106,6 +125,7 @@ impl Default for Settings {
             auto_compact_tokens: None,
             mail_show_images: false,
             mail_mark_read: true,
+            mail_confirm_links: true,
             microphone: None,
             speech_model: None,
             send_voice: true,
@@ -243,6 +263,7 @@ mod tests {
         std::fs::write(&path, r#"{"defaultModel": "local:x", "chatListOpen": false}"#).unwrap();
         let loaded = SettingsStore::load(path).get();
         assert_eq!(loaded.download_approval_seconds, 60);
+        assert_eq!(loaded.permission_mode, PermissionMode::Balanced);
         assert_eq!(loaded.default_model.as_deref(), Some("local:x"));
         assert!(!loaded.chat_list_open);
     }

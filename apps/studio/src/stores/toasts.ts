@@ -12,7 +12,8 @@ export interface Toast {
 
 interface ToastStore {
   toasts: Toast[];
-  push: (toast: Omit<Toast, 'id'>, ttlMs?: number) => void;
+  /** Shows a toast; returns its id. */
+  push: (toast: Omit<Toast, 'id'>, ttlMs?: number) => number;
   dismiss: (id: number) => void;
 }
 
@@ -26,6 +27,7 @@ export const useToasts = create<ToastStore>((set, get) => ({
     const rest = get().toasts.filter((t) => !(t.title === toast.title && t.body === toast.body));
     set({ toasts: [...rest, { ...toast, id }].slice(-4) });
     if (ttlMs > 0) window.setTimeout(() => get().dismiss(id), ttlMs);
+    return id;
   },
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));

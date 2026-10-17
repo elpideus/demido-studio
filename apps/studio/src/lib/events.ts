@@ -75,6 +75,11 @@ interface EventMap {
   'mail://folders': { account: string };
   /** A dictation's words so far, as the speech model writes them down. */
   'voice://text': { job: string; text: string };
+  /**
+   * A link the page asked to open in a new window (http, https or mailto), which the app did not
+   * open. Only the links in an email do: its frame runs no scripts that could catch the click.
+   */
+  'app://new-window': string;
 }
 
 export function on<K extends keyof EventMap>(name: K, handler: (payload: EventMap[K]) => void): Promise<UnlistenFn> {

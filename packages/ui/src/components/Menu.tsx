@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 
 import type { Placement } from '../hooks';
 import { cx } from '../utils';
+import { SwitchMark } from './Controls';
 import { Popover } from './Popover';
 import styles from './Menu.module.css';
 
@@ -15,6 +16,8 @@ export type MenuEntry =
       danger?: boolean;
       disabled?: boolean;
       checked?: boolean;
+      /** An on/off setting, shown as a switch; the menu stays open when it is flipped. */
+      toggle?: boolean;
       onSelect: () => void;
     }
   | 'separator';
@@ -44,7 +47,7 @@ export function Menu({ open, onClose, anchorRef, items, placement = 'bottom-end'
   const run = (index: number) => {
     const item = actionable[index];
     if (!item || item.disabled) return;
-    onClose();
+    if (item.toggle === undefined) onClose();
     item.onSelect();
   };
 
@@ -74,7 +77,8 @@ export function Menu({ open, onClose, anchorRef, items, placement = 'bottom-end'
             <button
               key={item.id}
               type="button"
-              role="menuitem"
+              role={item.toggle === undefined ? 'menuitem' : 'menuitemcheckbox'}
+              aria-checked={item.toggle}
               disabled={item.disabled}
               className={cx(styles.item, item.danger && styles.danger, myIndex === active && styles.active)}
               onPointerMove={() => setActive(myIndex)}
@@ -83,6 +87,7 @@ export function Menu({ open, onClose, anchorRef, items, placement = 'bottom-end'
               <span className={styles.icon}>{Icon && <Icon size={15} strokeWidth={1.8} aria-hidden />}</span>
               <span className={styles.label}>{item.label}</span>
               {item.checked && <span className={styles.check} aria-label="selected" />}
+              {item.toggle !== undefined && <SwitchMark checked={item.toggle} />}
               {item.shortcut && <span className={styles.shortcut}>{item.shortcut}</span>}
             </button>
           );

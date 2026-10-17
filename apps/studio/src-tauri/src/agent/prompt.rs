@@ -52,6 +52,8 @@ pub struct PromptInputs<'a> {
     pub shell: Option<&'a str>,
     /// The connected mail accounts, the default first.
     pub mail_accounts: &'a [crate::mail::Account],
+    /// When the app asks the person before a tool call runs.
+    pub permission_mode: crate::settings::PermissionMode,
     /// Tool groups the model can load with `load_tools`: id and what they are for.
     pub loadable: &'a [(&'a str, &'a str)],
 }
@@ -116,6 +118,14 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
             "\n## Tools\nUse a tool only when the request needs it; never for greetings or general knowledge. \
              After using tools, answer the user in plain language and mention files you created.\n",
         );
+        // Said once tools act on something; a chat that has only loaded nothing yet learns it then.
+        let acts = p
+            .tools
+            .iter()
+            .any(|t| !matches!(t.name.as_str(), "load_tools" | "read_skill_file"));
+        if acts {
+            s.push_str(crate::tools::permissions::prompt_line(p.permission_mode));
+        }
         if !p.loadable.is_empty() {
             s.push_str(
                 "More tools come in groups. When a request needs one, load it with load_tools, then use its tools:\n",
@@ -148,6 +158,15 @@ pub fn system_prompt(p: &PromptInputs<'_>) -> String {
         }
         if has("mail_read") {
             s.push_str(&mail_accounts(p.mail_accounts));
+        }
+        if has("mail_export") && has("mail_move") && has("run_python") {
+            s.push_str(
+                "- To sort through many emails, export them once with mail_export (bodies false when sender, subject \
+                 and preview are enough), choose the emails in run_python, write their ids to a file, and pass it to \
+                 mail_move, mail_delete or mail_mark as ids_file rather than copying ids into the call. An email's id \
+                 stays the same until that email is moved, so keep working from the same export instead of exporting \
+                 again after each change.\n",
+            );
         }
     }
 
@@ -579,6 +598,8 @@ mod tests {
             port: 993,
             username: email.into(),
             added_at: 0,
+            smtp_host: String::new(),
+            smtp_port: 0,
         };
         let gmail = account(Kind::Gmail, "ada@gmail.com", "", "imap.gmail.com");
         let work = account(Kind::Imap, "ada@libero.it", "Work", "imapmail.libero.it");

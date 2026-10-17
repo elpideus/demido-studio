@@ -81,6 +81,43 @@ const MIGRATIONS: &[&str] = &[
     r#"
     CREATE INDEX messages_by_gm_msgid ON messages(account, gm_msgid);
     "#,
+    // 3: message ids are never handed out twice. A model keeps the ids it was shown (in exports,
+    // say), and after a move a reused id would name another message. The ids before this start
+    // well past the highest, so ones already gone are not reused either.
+    r#"
+    CREATE TABLE messages_new (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        account      TEXT NOT NULL,
+        folder       TEXT NOT NULL,
+        uid          INTEGER NOT NULL,
+        date         INTEGER NOT NULL,
+        from_name    TEXT NOT NULL DEFAULT '',
+        from_addr    TEXT NOT NULL DEFAULT '',
+        recipients   TEXT NOT NULL DEFAULT '{}',
+        subject      TEXT NOT NULL DEFAULT '',
+        message_id   TEXT,
+        flags        INTEGER NOT NULL DEFAULT 0,
+        labels       TEXT NOT NULL DEFAULT '[]',
+        size         INTEGER NOT NULL DEFAULT 0,
+        attachments  INTEGER NOT NULL DEFAULT 0,
+        snippet      TEXT NOT NULL DEFAULT '',
+        plan         TEXT NOT NULL DEFAULT '{}',
+        gm_msgid     INTEGER,
+        modseq       INTEGER,
+        UNIQUE (account, folder, uid)
+    );
+    INSERT INTO messages_new (id, account, folder, uid, date, from_name, from_addr, recipients, subject,
+        message_id, flags, labels, size, attachments, snippet, plan, gm_msgid, modseq)
+    SELECT id, account, folder, uid, date, from_name, from_addr, recipients, subject,
+        message_id, flags, labels, size, attachments, snippet, plan, gm_msgid, modseq
+    FROM messages;
+    DROP TABLE messages;
+    ALTER TABLE messages_new RENAME TO messages;
+    CREATE INDEX messages_by_date ON messages(account, folder, date DESC, uid DESC);
+    CREATE INDEX messages_by_gm_msgid ON messages(account, gm_msgid);
+    DELETE FROM sqlite_sequence WHERE name = 'messages';
+    INSERT INTO sqlite_sequence (name, seq) SELECT 'messages', COALESCE(MAX(id), 0) + 100000 FROM messages;
+    "#,
 ];
 
 /// A folder as the server lists it.
@@ -498,51 +535,158 @@ impl Store {
         Ok(changed > 0)
     }
 
-    /// Marks cached messages of `folder` read, with their copies in other folders (on Gmail, the
-    /// folders of the message's other labels), and lowers each folder's unread count to match.
-    /// Returns the folders whose messages changed, with how many turned read in each.
-    pub fn mark_seen(&self, account: &str, folder: &str, uids: &[u32]) -> anyhow::Result<Vec<(String, u32)>> {
+    /// Sets (`on`) or clears a flag bit ([`SEEN`], [`FLAGGED`]…) on cached messages of `folder`,
+    /// with their copies in other folders (on Gmail, the folders of the message's other labels).
+    /// Marking read or unread moves each folder's unread count to match. Returns the folders whose
+    /// messages changed, with how many changed in each.
+    pub fn set_flag(
+        &self,
+        account: &str,
+        folder: &str,
+        uids: &[u32],
+        bit: u8,
+        on: bool,
+    ) -> anyhow::Result<Vec<(String, u32)>> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         let mut turned: BTreeMap<String, u32> = BTreeMap::new();
         {
-            let mut find =
-                tx.prepare("SELECT id, gm_msgid FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3")?;
-            let mut copies = tx.prepare("SELECT id FROM messages WHERE account = ?1 AND gm_msgid = ?2")?;
-            let mut ids = Vec::new();
-            for uid in uids {
-                let found = find
-                    .query_row(params![account, folder, uid], |r| {
-                        Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
-                    })
-                    .optional()?;
-                let Some((id, gm_msgid)) = found else { continue };
-                ids.push(id);
-                if let Some(gm) = gm_msgid {
-                    for copy in copies.query_map(params![account, gm], |r| r.get::<_, i64>(0))? {
-                        ids.push(copy?);
-                    }
-                }
-            }
-            ids.sort_unstable();
-            ids.dedup();
-            let mut mark = tx.prepare(&format!(
-                "UPDATE messages SET flags = flags | {SEEN} WHERE id = ?1 AND (flags & {SEEN}) = 0 RETURNING folder"
-            ))?;
+            let ids = with_copies(&tx, account, folder, uids)?;
+            let sql = if on {
+                format!(
+                    "UPDATE messages SET flags = flags | {bit} WHERE id = ?1 AND (flags & {bit}) = 0 RETURNING folder"
+                )
+            } else {
+                format!(
+                    "UPDATE messages SET flags = flags & ~{bit} WHERE id = ?1 AND (flags & {bit}) != 0 RETURNING folder"
+                )
+            };
+            let mut set = tx.prepare(&sql)?;
             for id in ids {
-                if let Some(path) = mark.query_row([id], |r| r.get::<_, String>(0)).optional()? {
+                if let Some(path) = set.query_row([id], |r| r.get::<_, String>(0)).optional()? {
                     *turned.entry(path).or_default() += 1;
                 }
             }
-            let mut lower = tx.prepare(
-                "UPDATE folders SET unseen = MAX(unseen - ?3, 0) WHERE account = ?1 AND path = ?2 AND unseen IS NOT NULL",
-            )?;
-            for (path, n) in &turned {
-                lower.execute(params![account, path, n])?;
+            if bit == SEEN {
+                // Read lowers the unread count, unread raises it.
+                let sign = if on { -1 } else { 1 };
+                let mut count = tx.prepare(
+                    "UPDATE folders SET unseen = MAX(unseen + ?3, 0) WHERE account = ?1 AND path = ?2 AND unseen IS NOT NULL",
+                )?;
+                for (path, n) in &turned {
+                    count.execute(params![account, path, sign * i64::from(*n)])?;
+                }
             }
         }
         tx.commit()?;
         Ok(turned.into_iter().collect())
+    }
+
+    /// Marks cached messages read; see [`Store::set_flag`].
+    #[cfg(test)]
+    pub fn mark_seen(&self, account: &str, folder: &str, uids: &[u32]) -> anyhow::Result<Vec<(String, u32)>> {
+        self.set_flag(account, folder, uids, SEEN, true)
+    }
+
+    /// Takes messages moved or deleted on the server out of the cache, and out of their folders'
+    /// counts, so the next sync finds the cache matching the server. `copies` takes their copies
+    /// in other folders too (on Gmail, a message trashed or deleted leaves every label). Returns
+    /// the folders that changed.
+    pub fn remove_messages(
+        &self,
+        account: &str,
+        folder: &str,
+        uids: &[u32],
+        copies: bool,
+    ) -> anyhow::Result<Vec<String>> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let mut removed: BTreeMap<String, (i64, i64)> = BTreeMap::new();
+        {
+            let ids = if copies {
+                with_copies(&tx, account, folder, uids)?
+            } else {
+                let mut find = tx.prepare("SELECT id FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3")?;
+                let mut ids = Vec::new();
+                for uid in uids {
+                    if let Some(id) = find.query_row(params![account, folder, uid], |r| r.get(0)).optional()? {
+                        ids.push(id);
+                    }
+                }
+                ids
+            };
+            let mut delete = tx.prepare("DELETE FROM messages WHERE id = ?1 RETURNING folder, flags")?;
+            for id in ids {
+                let gone = delete
+                    .query_row([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u8>(1)?)))
+                    .optional()?;
+                if let Some((path, flags)) = gone {
+                    let entry = removed.entry(path).or_default();
+                    entry.0 += 1;
+                    entry.1 += i64::from(flags & SEEN == 0);
+                }
+            }
+            let mut count = tx.prepare(
+                "UPDATE folders SET exists_count = MAX(exists_count - ?3, 0), unseen = MAX(unseen - ?4, 0)
+                 WHERE account = ?1 AND path = ?2",
+            )?;
+            for (path, (all, unread)) in &removed {
+                count.execute(params![account, path, all, unread])?;
+            }
+        }
+        tx.commit()?;
+        let mut folders: Vec<String> = removed.into_keys().collect();
+        if !folders.iter().any(|f| f == folder) {
+            folders.push(folder.to_string());
+        }
+        Ok(folders)
+    }
+
+    /// The folder is asked again the next time it is shown: messages were moved or copied into
+    /// it, which only the server can number.
+    pub fn mark_stale(&self, account: &str, path: &str) -> anyhow::Result<()> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE folders SET checked_at = NULL WHERE account = ?1 AND path = ?2",
+                params![account, path],
+            )
+            .map(|_| ())
+        })
+    }
+
+    /// The character the account's server puts between a folder and its subfolders.
+    pub fn delimiter(&self, account: &str) -> anyhow::Result<Option<String>> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT delimiter FROM folders WHERE account = ?1 AND delimiter IS NOT NULL AND delimiter != '' LIMIT 1",
+                [account],
+                |r| r.get(0),
+            )
+            .optional()
+        })
+    }
+
+    /// The folders holding the cached copies of a Gmail message (one for each of its labels).
+    pub fn gmail_folders(&self, account: &str, gm_msgid: u64) -> anyhow::Result<Vec<String>> {
+        self.with(|c| {
+            let mut stmt = c.prepare("SELECT folder FROM messages WHERE account = ?1 AND gm_msgid = ?2")?;
+            let folders = stmt.query_map(params![account, gm_msgid as i64], |r| r.get(0))?;
+            folders.collect()
+        })
+    }
+
+    /// Gmail's ids of cached messages, for finding them again in another folder.
+    pub fn gmail_ids(&self, ids: &[i64]) -> anyhow::Result<Vec<u64>> {
+        self.with(|c| {
+            let mut stmt = c.prepare("SELECT gm_msgid FROM messages WHERE id = ?1 AND gm_msgid IS NOT NULL")?;
+            let mut out = Vec::new();
+            for id in ids {
+                if let Some(gm) = stmt.query_row([id], |r| r.get::<_, i64>(0)).optional()? {
+                    out.push(gm as u64);
+                }
+            }
+            Ok(out)
+        })
     }
 
     /// Cached UIDs at or above `from_uid`.
@@ -746,20 +890,57 @@ impl Store {
     }
 }
 
+/// The cache ids of the messages of `folder` with these UIDs, and of their copies in other
+/// folders (Gmail's labels, by X-GM-MSGID).
+fn with_copies(tx: &Connection, account: &str, folder: &str, uids: &[u32]) -> rusqlite::Result<Vec<i64>> {
+    let mut find = tx.prepare("SELECT id, gm_msgid FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3")?;
+    let mut copies = tx.prepare("SELECT id FROM messages WHERE account = ?1 AND gm_msgid = ?2")?;
+    let mut ids = Vec::new();
+    for uid in uids {
+        let found = find
+            .query_row(params![account, folder, uid], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
+            })
+            .optional()?;
+        let Some((id, gm_msgid)) = found else { continue };
+        ids.push(id);
+        if let Some(gm) = gm_msgid {
+            for copy in copies.query_map(params![account, gm], |r| r.get::<_, i64>(0))? {
+                ids.push(copy?);
+            }
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
 fn like_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 fn migrate(conn: &Connection) -> anyhow::Result<()> {
     let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
-        let tx = conn.unchecked_transaction()?;
-        tx.execute_batch(sql)
-            .with_context(|| format!("applying mail cache migration {}", i + 1))?;
-        tx.pragma_update(None, "user_version", i + 1)?;
-        tx.commit()?;
+    if version >= MIGRATIONS.len() {
+        return Ok(());
     }
-    Ok(())
+    // A migration that rebuilds a table drops the old one, which with foreign keys on would take
+    // every opened body with it. The setting only changes outside a transaction.
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
+    let applied = (|| -> anyhow::Result<()> {
+        for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
+            let tx = conn.unchecked_transaction()?;
+            tx.execute_batch(sql)
+                .with_context(|| format!("applying mail cache migration {}", i + 1))?;
+            let broken = tx.prepare("PRAGMA foreign_key_check")?.query([])?.next()?.is_some();
+            anyhow::ensure!(!broken, "mail cache migration {} broke a reference", i + 1);
+            tx.pragma_update(None, "user_version", i + 1)?;
+            tx.commit()?;
+        }
+        Ok(())
+    })();
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    applied
 }
 
 #[cfg(test)]
@@ -781,6 +962,45 @@ mod tests {
             },
             ..MessageMeta::default()
         }
+    }
+
+    #[test]
+    fn ids_are_never_handed_out_twice() {
+        // A cache from before ids were kept unique, with an opened body.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        for sql in &MIGRATIONS[..2] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        let s = Store { conn: Mutex::new(conn) };
+        s.upsert("a", "INBOX", &[meta(1, 10, "old"), meta(2, 20, "new")])
+            .unwrap();
+        let id = |s: &Store, folder, uid| s.summaries_by_uid("a", folder, &[uid]).unwrap()[0].id;
+        let old = id(&s, "INBOX", 1);
+        let body = Body {
+            html: None,
+            text: "hello".into(),
+        };
+        s.save_body(old, &body).unwrap();
+
+        let conn = s.conn.into_inner();
+        migrate(&conn).unwrap();
+        let fk: i64 = conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0)).unwrap();
+        assert_eq!(fk, 1);
+        let s = Store { conn: Mutex::new(conn) };
+        assert_eq!(id(&s, "INBOX", 1), old);
+        assert_eq!(s.body(old).unwrap().map(|b| b.text).as_deref(), Some("hello"));
+
+        // The newest message moves: its copy in the Trash does not get its id back.
+        let newest = id(&s, "INBOX", 2);
+        s.delete_uids("a", "INBOX", &[2]).unwrap();
+        s.upsert("a", "[Gmail]/Trash", &[meta(7, 20, "new")]).unwrap();
+        assert!(id(&s, "[Gmail]/Trash", 7) > newest + 1000);
+        let moved = id(&s, "[Gmail]/Trash", 7);
+        s.delete_uids("a", "[Gmail]/Trash", &[7]).unwrap();
+        s.upsert("a", "INBOX", &[meta(3, 30, "next")]).unwrap();
+        assert!(id(&s, "INBOX", 3) > moved);
     }
 
     #[test]
@@ -897,6 +1117,71 @@ mod tests {
         // Read already: nothing changes, and the counts stay.
         assert!(s.mark_seen("a", "INBOX", &[1]).unwrap().is_empty());
         assert_eq!(s.folder_state("a", "INBOX").unwrap().unseen, Some(1));
+        // Unread again, in both labels, and the counts go back up.
+        let turned = s.set_flag("a", "INBOX", &[1], SEEN, false).unwrap();
+        assert_eq!(turned, [("INBOX".to_string(), 1), ("[Gmail]/All Mail".to_string(), 1)]);
+        assert_eq!(s.folder_state("a", "INBOX").unwrap().unseen, Some(2));
+        assert_eq!(s.folder_state("a", "[Gmail]/All Mail").unwrap().unseen, Some(9));
+    }
+
+    #[test]
+    fn starring_leaves_the_unread_counts_alone() {
+        let s = Store::in_memory();
+        s.upsert("a", "INBOX", &[meta(1, 10, "x")]).unwrap();
+        let state = FolderState {
+            unseen: Some(1),
+            low_uid: Some(1),
+            ..FolderState::default()
+        };
+        s.save_folder_state("a", "INBOX", &state).unwrap();
+        assert_eq!(
+            s.set_flag("a", "INBOX", &[1], FLAGGED, true).unwrap(),
+            [("INBOX".to_string(), 1)]
+        );
+        let m = &s
+            .page(
+                "a",
+                "INBOX",
+                &PageQuery {
+                    limit: 1,
+                    ..PageQuery::default()
+                },
+            )
+            .unwrap()[0];
+        assert!(m.flagged && m.unread);
+        assert_eq!(s.folder_state("a", "INBOX").unwrap().unseen, Some(1));
+    }
+
+    #[test]
+    fn removed_messages_leave_the_cache_and_the_counts() {
+        let s = Store::in_memory();
+        let copy = |uid, gm_msgid| MessageMeta {
+            gm_msgid: Some(gm_msgid),
+            ..meta(uid, 10, "x")
+        };
+        s.upsert("a", "INBOX", &[copy(1, 100), copy(2, 200)]).unwrap();
+        s.upsert("a", "Work", &[copy(7, 100)]).unwrap();
+        for (path, exists) in [("INBOX", 2), ("Work", 1)] {
+            let state = FolderState {
+                exists: Some(exists),
+                unseen: Some(exists),
+                low_uid: Some(1),
+                ..FolderState::default()
+            };
+            s.save_folder_state("a", path, &state).unwrap();
+        }
+        // Moved out of the inbox: its copy in Work stays.
+        assert_eq!(s.remove_messages("a", "INBOX", &[1], false).unwrap(), ["INBOX"]);
+        assert_eq!(s.folder_state("a", "INBOX").unwrap().exists, Some(1));
+        assert_eq!(s.folder_state("a", "INBOX").unwrap().unseen, Some(1));
+        assert_eq!(s.count("a", "Work", 0).unwrap(), 1);
+        // Deleted: every copy goes.
+        s.upsert("a", "INBOX", &[copy(1, 100)]).unwrap();
+        let mut folders = s.remove_messages("a", "INBOX", &[1], true).unwrap();
+        folders.sort();
+        assert_eq!(folders, ["INBOX", "Work"]);
+        assert_eq!(s.count("a", "Work", 0).unwrap(), 0);
+        assert_eq!(s.folder_state("a", "Work").unwrap().exists, Some(0));
     }
 
     #[test]

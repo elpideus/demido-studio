@@ -15,8 +15,10 @@ import { clock } from '@/voice/wav';
 import { AttachmentTray, type StagedFile } from './Attachments';
 import { ATTACH_FILES_EVENT, MAX_FILE_BYTES, MAX_FILES, nameFromPath, pastedName } from './attachmentView';
 import { ContextMeter } from './ContextMeter';
+import { ModePicker } from './ModePicker';
 import { ModelPicker } from './ModelPicker';
 import { commandIn, completion, matchCommands, runsWhenPicked, typedName } from './slashView';
+import { ThinkingPicker } from './ThinkingPicker';
 import { ToolsPicker } from './ToolsPicker';
 import styles from './Composer.module.css';
 
@@ -416,6 +418,8 @@ export function Composer({ chatId, model, prefill }: Props) {
               />
               <ModelPicker model={model} onPick={pickModel} />
               <ToolsPicker model={model} />
+              <ModePicker />
+              <ThinkingPicker model={model} />
               <span className={styles.spacer} />
               <IconButton
                 icon={Mic}

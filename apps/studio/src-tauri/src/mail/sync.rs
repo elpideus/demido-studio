@@ -28,6 +28,9 @@ const INLINE_BUDGET: u64 = 8 * 1024 * 1024;
 const BATCH_MESSAGES: usize = 100;
 const BATCH_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Summaries a search asks for in one request.
+const META_BATCH: usize = 500;
+
 /// Updates the cache of `path`. Returns whether anything in it changed.
 pub async fn sync_folder(conn: &mut Conn, store: &Store, account: &str, path: &str) -> anyhow::Result<bool> {
     let prev = store.folder_state(account, path)?;
@@ -171,8 +174,9 @@ pub async fn search(
             .map(|s| s.uid)
             .collect();
         let missing: Vec<u32> = page.iter().copied().filter(|u| !cached.contains(u)).collect();
-        if !missing.is_empty() {
-            let list = conn.fetch_meta(&uid_set(&missing), true).await?;
+        // Many to a request, each kept as it comes: a search that fails partway is quicker again.
+        for part in missing.chunks(META_BATCH) {
+            let list = conn.fetch_meta(&uid_set(part), true).await?;
             store.upsert(account, path, &list)?;
         }
         found.extend(

@@ -27,10 +27,16 @@ import type {
   IndicatorMeta,
   IndicatorSetup,
   MailAccount,
+  MailChanged,
   MailDateRange,
+  MailDeleted,
   MailFolder,
   MailMessage,
+  MailOutgoing,
   MailPage,
+  MailPickedFile,
+  MailPrefill,
+  MailStart,
   MailSummary,
   MarketBarsPage,
   MarketCacheSummary,
@@ -254,7 +260,7 @@ export const api = {
   openSkillsFolder: (id?: string) => invoke<void>('open_skills_folder', { id: id ?? null }),
 
   // Market
-  // Mail: reading, and marking as read. `mailMessages` answers from the cache; `mailSync` asks the
+  // Mail. `mailMessages` answers from the cache; `mailSync` asks the
   // server for what changed, announced with `mail://changed`.
   mailAccounts: () => invoke<MailAccount[]>('mail_accounts'),
   mailAddAccount: (account: NewMailAccount) => invoke<MailAccount>('mail_add_account', { account }),
@@ -297,6 +303,32 @@ export const api = {
     invoke<void>('mail_save_attachment', { id, section, path }),
   /** Marks messages as read on the server; returns how many were unread. */
   mailMarkRead: (ids: number[]) => invoke<number>('mail_mark_read', { ids }),
+  mailSetFlag: (ids: number[], flag: 'read' | 'starred', on: boolean) =>
+    invoke<MailChanged>('mail_set_flag', { ids, flag, on }),
+  /** Moves messages to a folder (its path, or `archive`), or copies them there (a label on Gmail). */
+  mailMove: (ids: number[], folder: string, copy = false) => invoke<MailChanged>('mail_move', { ids, folder, copy }),
+  /** Moves messages to the trash, or deletes them for good. */
+  mailDelete: (ids: number[], permanent = false) => invoke<MailDeleted>('mail_delete', { ids, permanent }),
+  /** Puts back what a move or a delete into the trash took away, by the `undo` it returned. */
+  mailUndo: (undo: number) => invoke<MailChanged>('mail_undo', { undo }),
+  /** Whether `mailDelete` would delete any of them for good (they are in the trash already…). */
+  mailDeletesForGood: (ids: number[], permanent = false) =>
+    invoke<boolean>('mail_deletes_for_good', { ids, permanent }),
+  /** Returns the new folder's path. */
+  mailCreateFolder: (account: string, name: string, parent: string | null = null) =>
+    invoke<string>('mail_create_folder', { account, name, parent }),
+  mailRenameFolder: (account: string, folder: string, name: string) =>
+    invoke<string>('mail_rename_folder', { account, folder, name }),
+  mailDeleteFolder: (account: string, folder: string) => invoke<string>('mail_delete_folder', { account, folder }),
+  /** Deletes everything in the trash or spam for good; returns how many. */
+  mailEmptyFolder: (account: string, folder: string) => invoke<number>('mail_empty_folder', { account, folder }),
+  /** Marks a whole folder read; returns how many were unread. */
+  mailMarkFolderRead: (account: string, folder: string) => invoke<number>('mail_mark_folder_read', { account, folder }),
+  mailPrefill: (id: number, start: MailStart) => invoke<MailPrefill>('mail_prefill', { id, start }),
+  /** Returns notes on what went wrong after the message went. */
+  mailSend: (message: MailOutgoing) => invoke<string[]>('mail_send', { message }),
+  mailSaveDraft: (message: MailOutgoing) => invoke<string[]>('mail_save_draft', { message }),
+  mailAttachFiles: (paths: string[]) => invoke<MailPickedFile[]>('mail_attach_files', { paths }),
   mailWindowOpen: (open: boolean) => invoke<void>('mail_window_open', { open }),
 
   marketStatus: () => invoke<MarketStatus>('market_status'),

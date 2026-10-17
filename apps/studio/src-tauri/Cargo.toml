@@ -57,6 +57,9 @@ portable-pty = "0.9"
 avt = "0.18"
 async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
 mail-parser = { version = "0.11", features = ["full_encoding"] }
+# Sending mail over SMTP, with the same TLS as IMAP: rustls on aws-lc-rs and the system's
+# certificate verifier.
+lettre = { version = "0.11", default-features = false, features = ["builder", "hostname", "smtp-transport", "tokio1", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 tokio-rustls = "0.26"
 rustls-platform-verifier = "0.7"
 

@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useId, useState } from 'react';
-import { AtSign, ExternalLink, KeyRound, Server, Tag, User } from 'lucide-react';
+import { AtSign, ExternalLink, KeyRound, Send, Server, Tag, User } from 'lucide-react';
 import { Button, Field, Notice, SegmentedControl, TextField } from '@demido/ui';
 
 import { errorText } from '@/lib/api';
@@ -10,6 +10,15 @@ import styles from './MailWindow.module.css';
 import { api } from '@/lib/api';
 
 const APP_PASSWORDS_URL = 'https://myaccount.google.com/apppasswords';
+
+/** The SMTP server the backend picks when none is given (`Account::smtp`), shown as a hint. */
+function smtpGuess(imapHost: string): string {
+  const host = imapHost.trim().toLowerCase();
+  if (!host) return 'smtp.example.com';
+  const dot = host.indexOf('.');
+  const rest = dot > 0 && host.slice(dot + 1).includes('.') ? host.slice(dot + 1) : host;
+  return `smtp.${rest}`;
+}
 
 const KINDS = [
   { value: 'gmail' as const, label: 'Gmail' },
@@ -37,6 +46,8 @@ export function ConnectForm({
   const [host, setHost] = useState(initial?.kind === 'imap' ? initial.host : '');
   const [port, setPort] = useState('993');
   const [username, setUsername] = useState('');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('');
   const [nickname, setNickname] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +65,8 @@ export function ConnectForm({
         host: kind === 'imap' ? host.trim() : null,
         port: kind === 'imap' ? Number(port) || null : null,
         username: kind === 'imap' && username.trim() ? username.trim() : null,
+        smtpHost: kind === 'imap' && smtpHost.trim() ? smtpHost.trim() : null,
+        smtpPort: kind === 'imap' ? Number(smtpPort) || null : null,
         // Signing in again keeps the name the account has.
         nickname: initial ? null : nickname.trim() || null,
       });
@@ -141,6 +154,34 @@ export function ConnectForm({
               />
             </Field>
           </div>
+          <div className={styles.connectRow}>
+            <Field
+              label="Outgoing (SMTP) server"
+              htmlFor={`${id}-smtp`}
+              className={styles.grow}
+              description="Leave empty to use the one the IMAP server’s name suggests."
+            >
+              <TextField
+                id={`${id}-smtp`}
+                icon={Send}
+                placeholder={smtpGuess(host)}
+                value={smtpHost}
+                onChange={(e) => setSmtpHost(e.target.value)}
+                onKeyDown={submitOnEnter}
+                spellCheck={false}
+              />
+            </Field>
+            <Field label="Port" htmlFor={`${id}-smtp-port`} className={styles.port}>
+              <TextField
+                id={`${id}-smtp-port`}
+                inputMode="numeric"
+                placeholder="Auto"
+                value={smtpPort}
+                onChange={(e) => setSmtpPort(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                onKeyDown={submitOnEnter}
+              />
+            </Field>
+          </div>
           <Field label="Username" htmlFor={`${id}-user`} description="Leave empty to sign in with the email address.">
             <TextField
               id={`${id}-user`}
@@ -172,8 +213,9 @@ export function ConnectForm({
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       <p className={styles.connectNote}>
-        Demido reads your mail; it never sends, moves or deletes any. Opening a message marks it as read, unless you
-        switch that off. The password is kept in your system's credential store.
+        Demido reads your mail, and the assistant can sort, delete, write and send it when you ask: the permission mode
+        in the chat says when it asks you first. Opening a message marks it as read, unless you switch that off. The
+        password is kept in your system's credential store.
       </p>
       <div className={styles.connectActions}>
         {onCancel && (

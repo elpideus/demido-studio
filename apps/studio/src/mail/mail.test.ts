@@ -3,12 +3,15 @@ import { describe, expect, it } from 'vitest';
 import type { MailFolder, MailSummary } from '@/lib/types';
 import {
   contentPolicy,
+  dropSvgFonts,
   hasRemoteCss,
   isRemoteSrcset,
   isRemoteUrl,
   isUnsafeUrl,
+  linkHost,
   linkTarget,
   splitLinks,
+  stripRemoteCss,
 } from './emailHtml';
 import { Lru, accountLabel, folderOptions, listDate, personLabel, rowPeople, startFolder } from './mailView';
 
@@ -49,10 +52,31 @@ describe('email html', () => {
   it('loads remote images only once they are shown', () => {
     expect(contentPolicy(false)).toContain('img-src data:;');
     expect(contentPolicy(true)).toContain('img-src data: https:;');
+    expect(contentPolicy(false)).toContain('font-src data:;');
+    expect(contentPolicy(true)).toContain('font-src data: https:;');
     for (const policy of [contentPolicy(false), contentPolicy(true)]) {
       expect(policy).toContain("default-src 'none'");
+      expect(policy).toContain('upgrade-insecure-requests');
       expect(policy).not.toContain('script');
+      expect(policy).not.toMatch(/\bhttp:/);
     }
+  });
+
+  it('takes the SVG sources out of web fonts', () => {
+    const rule = (src: string) => `@font-face{font-family:"S";src:${src};font-weight:600}`;
+    expect(
+      dropSvgFonts(
+        rule(
+          'url(s.eot?#iefix) format(\'embedded-opentype\'),url("http://x.example/s.woff") format("woff"),url(s.svg#S) format(\'svg\')',
+        ),
+      ),
+    ).toBe(rule('url(s.eot?#iefix) format(\'embedded-opentype\'),url("http://x.example/s.woff") format("woff")'));
+    // Commas and semicolons inside a data: URL belong to it.
+    const data = 'url(data:font/woff;base64,AA,BB) format("woff")';
+    expect(dropSvgFonts(rule(`${data}, url('s.svgz')`))).toBe(rule(data));
+    expect(dropSvgFonts(rule('url(s.svg) format("svg")'))).toBe(rule(' none'));
+    const kept = `p{background:url(a.svg)} ${rule('local("Segoe UI"), url(s.woff2) format("woff2")')}`;
+    expect(dropSvgFonts(kept)).toBe(kept);
   });
 
   it('tells remote addresses from embedded ones', () => {
@@ -67,6 +91,15 @@ describe('email html', () => {
     expect(hasRemoteCss('color: red; background: url(data:image/png;base64,AA)')).toBe(false);
   });
 
+  it('takes the remote images out of CSS while they are hidden', () => {
+    expect(stripRemoteCss("background: url('https://x.example/a(1).png') no-repeat")).toBe(
+      'background: none no-repeat',
+    );
+    expect(stripRemoteCss('a{background:URL( //x.example/b.png )}')).toBe('a{background:none}');
+    const kept = 'background: url(data:image/png;base64,AA); list-style: url("dot.png")';
+    expect(stripRemoteCss(kept)).toBe(kept);
+  });
+
   it('drops links that run code', () => {
     expect(isUnsafeUrl('javascript:alert(1)')).toBe(true);
     expect(isUnsafeUrl(' JaVa\tScRipt:alert(1)')).toBe(true);
@@ -77,6 +110,14 @@ describe('email html', () => {
     expect(linkTarget('mailto:ada@example.com')).toBe('mailto:ada@example.com');
     expect(linkTarget('#top')).toBeNull();
     expect(linkTarget('file:///C:/x')).toBeNull();
+  });
+
+  it('names where a link leads', () => {
+    expect(linkHost('https://accounts.example.com/login?next=/')).toBe('accounts.example.com');
+    expect(linkHost('https://paypal.com@evil.example/x')).toBe('evil.example');
+    expect(linkHost('https://\u0430pple.com/')).toBe('xn--pple-43d.com');
+    expect(linkHost('mailto:ada%40example.com?subject=Hi')).toBe('ada@example.com');
+    expect(linkHost('https://')).toBe('https://');
   });
 
   it('finds the links in plain text', () => {

@@ -194,3 +194,28 @@
   color: var(--text-primary);
   font-weight: var(--weight-medium);
 }
+
+.mailHeaders {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.mailHeader {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.mailHeaderName {
+  flex: 0 0 56px;
+  color: var(--text-secondary);
+}
+
+.mailBody {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}

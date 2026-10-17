@@ -13,8 +13,8 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 
 use super::market::{arg_u64, call_live, parse_date, timeframe};
-use super::{ToolContext, ToolOutput, arg_str, clip, require_str, workspace_path};
-use crate::agent::{Approval, Cancelled};
+use super::{Risk, ToolContext, ToolOutput, arg_str, clip, require_str, workspace_path};
+use crate::agent::Cancelled;
 
 /// Library calls: local files, no TradingView.
 const LOCAL_CALL: Duration = Duration::from_secs(30);
@@ -1283,24 +1283,16 @@ pub async fn publish(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, Stri
         "update": linked.is_some(),
         "source": source,
     });
-    let settings = ctx.state.settings.get();
-    if !settings.always_allowed_tools.contains("pine_publish") {
-        match ctx.request_approval(card.clone()).await {
-            Err(Cancelled) => return Err("Cancelled.".into()),
-            Ok(Approval::Deny) => {
-                let content = json!({"status": "declined", "note": "The user chose not to save it to their TradingView account. Do not retry; the script stays in Demido's library, and runs on the chart from there."});
-                return Ok(ToolOutput::ok(
-                    content.to_string(),
-                    json!({"kind": "pinePublish", "name": name, "denied": true}),
-                ));
-            }
-            Ok(Approval::Always) => {
-                let _ = ctx.state.settings.update(|s| {
-                    s.always_allowed_tools.insert("pine_publish".into());
-                });
-            }
-            Ok(Approval::Once) => {}
+    match ctx.confirm("pine_publish", Risk::Risky, card, true).await {
+        Err(Cancelled) => return Err("Cancelled.".into()),
+        Ok(false) => {
+            let content = json!({"status": "declined", "note": "The user chose not to save it to their TradingView account. Do not retry; the script stays in Demido's library, and runs on the chart from there."});
+            return Ok(ToolOutput::ok(
+                content.to_string(),
+                json!({"kind": "pinePublish", "name": name, "denied": true}),
+            ));
         }
+        Ok(true) => {}
     }
     let mut params = json!({"id": id});
     if arg_str(args, "name").is_some() {

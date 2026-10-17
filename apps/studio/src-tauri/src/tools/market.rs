@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::{ToolContext, ToolOutput, arg_str, require_str};
-use crate::agent::{Approval, Cancelled};
+use super::{Risk, ToolContext, ToolOutput, arg_str, require_str};
+use crate::agent::Cancelled;
 use crate::market::auth::{self, LoginState};
 
 const LOGIN_WAIT: Duration = Duration::from_secs(120);
@@ -612,14 +612,15 @@ async fn ensure_downloaded(
         }
         next => {
             if next == Next::Ask {
+                // Over the person's limit: Balanced and Cautious ask, Autonomous starts it.
                 let card = json!({"kind": "download", "plan": plan});
-                match ctx.request_approval(card).await {
+                match ctx.confirm("market_download", Risk::Risky, card, false).await {
                     Err(Cancelled) => return Err("Cancelled.".into()),
-                    Ok(Approval::Deny) => {
+                    Ok(false) => {
                         out.denied = true;
                         return Ok(out);
                     }
-                    Ok(Approval::Once | Approval::Always) => {}
+                    Ok(true) => {}
                 }
             }
             start_download(ctx, symbol, from, to).await?

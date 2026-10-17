@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
 /** Calls `handler` on a pointer press outside every element in `refs`. */
-export function useClickOutside(refs: Array<RefObject<HTMLElement | null>>, handler: () => void, enabled = true): void {
+export function useClickOutside(
+  refs: Array<RefObject<HTMLElement | null>>,
+  handler: (event: PointerEvent) => void,
+  enabled = true,
+): void {
   const latest = useRef(handler);
   latest.current = handler;
   useEffect(() => {
@@ -9,7 +13,7 @@ export function useClickOutside(refs: Array<RefObject<HTMLElement | null>>, hand
     const onDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (refs.some((r) => r.current?.contains(target))) return;
-      latest.current();
+      latest.current(event);
     };
     // Capture phase, so a press on something that stops propagation still closes us.
     document.addEventListener('pointerdown', onDown, true);

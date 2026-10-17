@@ -11,19 +11,43 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { Badge, Button, Dialog, Field, IconButton, Select, Spinner, Switch, TextField, formatBytes } from '@demido/ui';
+import {
+  Badge,
+  Button,
+  Dialog,
+  Field,
+  IconButton,
+  SegmentedControl,
+  Select,
+  Spinner,
+  Switch,
+  TextField,
+  formatBytes,
+} from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
+import { PERMISSION_MODES, permissionMode } from '@/lib/permissionModes';
 import type { Settings, SpeechChoice } from '@/lib/types';
 import { useApp } from '@/stores/app';
-import { useModels } from '@/stores/models';
+import { unloadModel, useLoadedModelAnswering, useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import { microphones, unlockNames } from '@/voice/recorder';
 import s from './settings.module.css';
 import styles from './GeneralTab.module.css';
 
-const TOOL_LABELS: Record<string, string> = { run_python: 'Run Python code', run_command: 'Run commands' };
+const TOOL_LABELS: Record<string, string> = {
+  run_python: 'Run Python code',
+  run_command: 'Run commands',
+  pine_publish: 'Save Pine scripts to TradingView',
+  mail_mark: 'Mark emails read or starred',
+  mail_move: 'Move and copy emails',
+  mail_delete: 'Move emails to the trash',
+  mail_folder: 'Create and rename mail folders',
+  mail_draft: 'Save email drafts',
+};
+
+const MODE_OPTIONS = PERMISSION_MODES.map(({ value, label, icon }) => ({ value, label, icon }));
 
 const APPROVAL_CHOICES: Array<{ value: string; label: string }> = [
   { value: '30', label: '30 s' },
@@ -256,6 +280,7 @@ export function GeneralTab() {
   const settings = useApp((st) => st.settings);
   const patch = useApp((st) => st.patchSettings);
   const runtime = useModels((st) => st.runtime);
+  const answering = useLoadedModelAnswering();
   const [logsOpen, setLogsOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
 
@@ -326,7 +351,14 @@ export function GeneralTab() {
                   Log
                 </Button>
                 {runtime?.state === 'ready' && (
-                  <Button size="sm" variant="secondary" icon={Power} onClick={() => void api.unloadModel()}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={Power}
+                    disabled={answering}
+                    title={answering ? 'It is writing an answer' : undefined}
+                    onClick={unloadModel}
+                  >
                     Unload
                   </Button>
                 )}
@@ -394,12 +426,27 @@ export function GeneralTab() {
         <section className={s.section}>
           <h3 className={s.sectionTitle}>Permissions</h3>
           <div className={s.stack}>
+            <div className={`${s.card} ${s.cardPad}`}>
+              <Field
+                label="When the assistant asks before using a tool"
+                description={permissionMode(settings.permissionMode).description}
+              >
+                <SegmentedControl
+                  size="sm"
+                  value={permissionMode(settings.permissionMode).value}
+                  onChange={(v) => void patch({ permissionMode: v })}
+                  options={MODE_OPTIONS}
+                />
+              </Field>
+            </div>
             <div className={s.rows}>
               {settings.alwaysAllowedTools.length === 0 ? (
                 <div className={s.row}>
                   <div className={s.rowMain}>
-                    <div className={s.rowTitle}>The assistant asks before running code</div>
-                    <div className={s.rowMeta}>Choosing “Always allow” on a request adds it here.</div>
+                    <div className={s.rowTitle}>No tool skips the question</div>
+                    <div className={s.rowMeta}>
+                      Choosing “Always allow” on a request in Balanced mode adds it here. Cautious mode asks anyway.
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -407,7 +454,7 @@ export function GeneralTab() {
                   <div key={tool} className={s.row}>
                     <div className={s.rowMain}>
                       <div className={s.rowTitle}>{TOOL_LABELS[tool] ?? tool}</div>
-                      <div className={s.rowMeta}>Runs without asking</div>
+                      <div className={s.rowMeta}>Runs without asking in Balanced mode</div>
                     </div>
                     <IconButton
                       icon={X}
@@ -428,7 +475,7 @@ export function GeneralTab() {
               <Field
                 layout="inline"
                 label="Ask before downloads longer than"
-                description="For a longer market data download, the assistant shows the estimate and waits for your OK."
+                description="For a longer market data download, the assistant shows the estimate and waits for your OK (except in Autonomous mode)."
               >
                 <Select
                   size="sm"

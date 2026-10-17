@@ -289,6 +289,36 @@ fn after_start(state: Arc<AppState>) {
     });
 }
 
+/// A link the page asked to open in a new window, sent to the page to open (see `main_window`).
+const NEW_WINDOW_EVENT: &str = "app://new-window";
+
+/// The app's window, as `tauri.conf.json` describes it. It is made here rather than by Tauri
+/// (`create: false`) to give it a handler for new windows: the links in an email ask for one. The
+/// email's frame runs no scripts, and WebKitGTK runs none of the page's listeners in it either, so
+/// the page cannot catch the click itself. No window opens; the page is told the link and opens it
+/// in the browser (the Mail window asks first).
+fn main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    use tauri::Emitter;
+
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .cloned()
+        .unwrap_or_default();
+    let handle = app.clone();
+    tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .on_new_window(move |url, _| {
+            if matches!(url.scheme(), "http" | "https" | "mailto") {
+                let _ = handle.emit_to("main", NEW_WINDOW_EVENT, url.as_str());
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .build()
+}
+
 /// The window starts hidden and the UI shows it once it has painted (`window_ready`). Should that
 /// never come (a page that failed to load, a webview that paints nothing while hidden), it shows
 /// anyway: an app that runs where nobody can see it cannot even be closed.
@@ -392,16 +422,17 @@ pub fn run() {
             }
             let state = build_state(app.handle(), paths, settings, launch)?;
             app.manage(state.clone());
-            if let Some(window) = app.get_webview_window("main") {
-                speech::microphone::allow_for_app(&window);
-                // In development: the page's console in the terminal, and scripts/drive.mjs.
-                #[cfg(all(debug_assertions, target_os = "linux"))]
-                {
-                    demido_drive::console_to_stdout(&window);
-                    demido_drive::start(app.handle().clone(), "DEMIDO_DRIVE_PORT");
-                }
-                show_if_never_ready(window);
+            let window = main_window(app.handle())?;
+            speech::microphone::allow_for_app(&window);
+            #[cfg(target_os = "linux")]
+            allow_asset_images(&window);
+            // In development: the page's console in the terminal, and scripts/drive.mjs.
+            #[cfg(all(debug_assertions, target_os = "linux"))]
+            {
+                demido_drive::console_to_stdout(&window);
+                demido_drive::start(app.handle().clone(), "DEMIDO_DRIVE_PORT");
             }
+            show_if_never_ready(window);
             after_start(state);
             #[cfg(unix)]
             exit_on_signals(app.handle().clone());
@@ -549,6 +580,20 @@ pub fn run() {
             commands::mail::mail_open,
             commands::mail::mail_save_attachment,
             commands::mail::mail_mark_read,
+            commands::mail::mail_set_flag,
+            commands::mail::mail_move,
+            commands::mail::mail_delete,
+            commands::mail::mail_undo,
+            commands::mail::mail_deletes_for_good,
+            commands::mail::mail_create_folder,
+            commands::mail::mail_rename_folder,
+            commands::mail::mail_delete_folder,
+            commands::mail::mail_empty_folder,
+            commands::mail::mail_mark_folder_read,
+            commands::mail::mail_prefill,
+            commands::mail::mail_send,
+            commands::mail::mail_save_draft,
+            commands::mail::mail_attach_files,
             commands::mail::mail_window_open,
             commands::voice::voice_status,
             commands::voice::transcribe_recording,
