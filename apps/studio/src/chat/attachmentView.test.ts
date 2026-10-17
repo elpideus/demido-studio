@@ -68,6 +68,9 @@ const model = (over: Partial<ModelEntry> = {}, can: Partial<ModelCapabilities> =
   removable: true,
   projector: null,
   capabilities: { vision: null, audio: null, tools: true, thinking: null, ...can },
+  efforts: [],
+  defaultEffort: null,
+  alwaysThinks: false,
   checkingCapabilities: false,
   settings: {},
   effective: {
@@ -81,6 +84,7 @@ const model = (over: Partial<ModelEntry> = {}, can: Partial<ModelCapabilities> =
     contextLength: null,
     gpuLayers: null,
     thinking: null,
+    effort: null,
   },
   ...over,
 });

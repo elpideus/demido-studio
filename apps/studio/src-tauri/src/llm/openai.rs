@@ -168,9 +168,10 @@ impl OpenAiClient {
             }
             Dialect::OpenRouter { always_thinks } => {
                 set(&mut body, "repetition_penalty", p.repeat_penalty.map(|v| json!(v)));
-                match p.thinking {
-                    Some(true) => body["reasoning"] = json!({"enabled": true}),
-                    Some(false) if !always_thinks => body["reasoning"] = json!({"effort": "none"}),
+                match (p.thinking, &p.effort) {
+                    (Some(false), _) if !always_thinks => body["reasoning"] = json!({"effort": "none"}),
+                    (_, Some(effort)) => body["reasoning"] = json!({"effort": effort}),
+                    (Some(true), None) => body["reasoning"] = json!({"enabled": true}),
                     _ => {}
                 }
             }
@@ -651,6 +652,11 @@ mod tests {
                 .get("reasoning")
                 .is_none()
         );
+        // A level, when one is chosen.
+        let mut req = history_with_reasoning("x");
+        req.params.thinking = Some(true);
+        req.params.effort = Some("high".into());
+        assert_eq!(client(false).body(&req)["reasoning"], json!({"effort": "high"}));
         // Another model's reasoning is not sent back.
         let other = client(false).body(&history_with_reasoning("google/gemini-x"));
         assert!(other["messages"][0].get("reasoning_details").is_none());

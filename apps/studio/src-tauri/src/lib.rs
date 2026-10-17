@@ -8,6 +8,7 @@
 
 mod agent;
 mod attachments;
+mod claude_code;
 mod commands;
 mod db;
 mod error;
@@ -249,10 +250,18 @@ fn after_start(state: Arc<AppState>) {
     tauri::async_runtime::spawn(state.models.clone().check_capabilities(move |list| {
         let _ = app.emit(models::CHANGED_EVENT, list);
     }));
+    let providers = state.providers.clone();
+    tauri::async_runtime::spawn(async move { providers.name_claude_code_profiles().await });
     let catalog = state.clone();
     tauri::async_runtime::spawn(async move {
         if catalog.models.refresh_cloud_catalog(&catalog.http, false).await {
             let _ = catalog.app.emit(models::CHANGED_EVENT, catalog.models.list());
+        }
+    });
+    let relist = state.clone();
+    tauri::async_runtime::spawn(async move {
+        if relist.providers.refresh_old_listings().await {
+            let _ = relist.app.emit(models::CHANGED_EVENT, relist.models.list());
         }
     });
     tauri::async_runtime::spawn(async move {
@@ -454,6 +463,12 @@ pub fn run() {
             commands::providers::update_provider,
             commands::providers::refresh_provider,
             commands::providers::remove_provider,
+            commands::providers::claude_code_status,
+            commands::providers::claude_code_login,
+            commands::providers::claude_code_login_code,
+            commands::providers::claude_code_login_state,
+            commands::providers::claude_code_login_cancel,
+            commands::providers::claude_code_logout,
             commands::skills::list_skills,
             commands::skills::set_skill_enabled,
             commands::skills::delete_skill,

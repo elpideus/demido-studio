@@ -1,11 +1,14 @@
 //! Talking to models.
 //!
 //! [`ChatRequest`] is provider-neutral. [`Client`] turns it into the wire format of the model's
-//! provider (OpenAI-compatible for llama.cpp's server and OpenRouter, or Gemini's own), streams
+//! provider (OpenAI-compatible for llama.cpp's server and OpenRouter, Gemini's and Anthropic's own,
+//! or a run of the Claude Code CLI), streams
 //! the answer back as [`StreamEvent`]s and returns the assembled [`Completion`], including the
 //! exact request body for the trace. A model that is busy for a moment is asked again (see
 //! [`retry`]).
 
+pub mod anthropic;
+pub mod claude_code;
 pub mod gemini;
 pub mod openai;
 pub mod openrouter;
@@ -41,6 +44,34 @@ pub struct CloudModel {
     /// Costs nothing to use.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub free: bool,
+    /// Takes an effort level (Anthropic's models), which keeps its thinking short when asked to
+    /// answer directly.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub effort: bool,
+    /// The effort levels it takes, least first: Anthropic's `low` to `max`, OpenRouter's
+    /// `minimal` to `xhigh`. Empty when it takes none, or when it was listed before they were.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub efforts: Vec<String>,
+    /// The level of `efforts` it thinks at unless asked otherwise, when the provider says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
+}
+
+/// Every effort level a provider might take, least first.
+pub const EFFORTS: [&str; 6] = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+impl CloudModel {
+    /// The effort levels it takes. A model listed before the levels were takes Anthropic's
+    /// three that every effort model has.
+    pub fn effort_levels(&self) -> Vec<String> {
+        if !self.efforts.is_empty() {
+            return self.efforts.clone();
+        }
+        if self.effort {
+            return ["low", "medium", "high"].map(String::from).to_vec();
+        }
+        Vec::new()
+    }
 }
 
 /// Part of what a provider lets a key use, as the provider itself reports it.
@@ -129,6 +160,20 @@ pub fn redact_media(body: &serde_json::Value) -> serde_json::Value {
                         let mime = head.trim_start_matches("data:").split(';').next().unwrap_or("");
                         Value::String(note(mime, data.len()))
                     }
+                    // Anthropic's images: "source": {"type": "base64", "media_type", "data"}.
+                    ("source", Value::Object(inner)) if inner.get("type").and_then(Value::as_str) == Some("base64") => {
+                        let mut inner = inner.clone();
+                        let mime = inner
+                            .get("media_type")
+                            .and_then(Value::as_str)
+                            .unwrap_or("data")
+                            .to_string();
+                        if let Some(Value::String(data)) = inner.get("data") {
+                            let len = data.len();
+                            inner.insert("data".into(), Value::String(note(&mime, len)));
+                        }
+                        Value::Object(inner)
+                    }
                     // OpenAI-compatible sound, and Gemini's inline data.
                     ("input_audio" | "inlineData", Value::Object(inner)) => {
                         let mut inner = inner.clone();
@@ -176,6 +221,9 @@ pub struct GenParams {
     pub seed: Option<i64>,
     /// Ask thinking models to think (true) or answer directly (false).
     pub thinking: Option<bool>,
+    /// How hard a thinking model works, one of the levels it takes; `None` leaves its default.
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -237,6 +285,8 @@ pub struct Completion {
 pub enum Client {
     OpenAi(openai::OpenAiClient),
     Gemini(gemini::GeminiClient),
+    Anthropic(anthropic::AnthropicClient),
+    ClaudeCode(claude_code::ClaudeCodeClient),
 }
 
 impl Client {
@@ -254,6 +304,8 @@ impl Client {
             let result = match self {
                 Client::OpenAi(c) => c.stream(req, cancel, &mut on_event).await,
                 Client::Gemini(c) => c.stream(req, cancel, &mut on_event).await,
+                Client::Anthropic(c) => c.stream(req, cancel, &mut on_event).await,
+                Client::ClaudeCode(c) => c.stream(req, cancel, &mut on_event).await,
             };
             let err = match result {
                 Ok(completion) => return Ok(completion),
@@ -415,7 +467,8 @@ mod tests {
                 {"type": "text", "text": "what is this?"}
             ]}],
             "contents": [{"parts": [{"inlineData": {"mimeType": "image/png", "data": "C".repeat(8192)}}]}],
-            "short": {"url": "data:,x"}
+            "short": {"url": "data:,x"},
+            "anthropic": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "D".repeat(4096)}}]
         });
         let r = redact_media(&body);
         assert_eq!(
@@ -433,6 +486,10 @@ mod tests {
             "[image/png, 6 KB: left out of the trace]"
         );
         assert_eq!(r["short"]["url"], "data:,x");
+        assert_eq!(
+            r["anthropic"][0]["source"]["data"],
+            "[image/png, 3 KB: left out of the trace]"
+        );
     }
 
     #[test]

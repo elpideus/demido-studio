@@ -6,7 +6,7 @@ use chrono::{DateTime, Datelike, Days, Months, NaiveTime, Utc};
 use serde_json::Value;
 
 use super::openai::error_message;
-use super::{Allowance, AllowanceKind, CloudModel, LlmError};
+use super::{Allowance, AllowanceKind, CloudModel, EFFORTS, LlmError};
 use crate::models::capabilities::Capabilities;
 
 pub const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
@@ -91,6 +91,21 @@ fn parse_models(list: &Value) -> Vec<CloudModel> {
     models
 }
 
+/// The effort levels a model takes, least first. OpenRouter lists them, or says `null` for all of
+/// them, or leaves them out for a model that takes none. "none" turns thinking off: not a level.
+fn efforts(reasoning: &Value) -> Vec<String> {
+    let listed = match reasoning.get("supported_efforts") {
+        None => return Vec::new(),
+        Some(Value::Null) => EFFORTS.to_vec(),
+        Some(v) => v.as_array().into_iter().flatten().filter_map(Value::as_str).collect(),
+    };
+    EFFORTS
+        .into_iter()
+        .filter(|level| listed.contains(level))
+        .map(String::from)
+        .collect()
+}
+
 /// `None` for a model that draws or speaks: a chat shows only its text.
 fn parse_model(m: &Value) -> Option<CloudModel> {
     fn strings(v: &Value) -> Vec<&str> {
@@ -124,6 +139,12 @@ fn parse_model(m: &Value) -> Option<CloudModel> {
             thinking: Some(thinking),
         }),
         free: price("prompt") == Some(0.0) && price("completion") == Some(0.0),
+        effort: false,
+        efforts: if thinking { efforts(&m["reasoning"]) } else { Vec::new() },
+        default_effort: m["reasoning"]["default_effort"]
+            .as_str()
+            .filter(|e| thinking && EFFORTS.contains(e))
+            .map(String::from),
     })
 }
 
@@ -131,6 +152,27 @@ fn parse_model(m: &Value) -> Option<CloudModel> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn reads_effort_levels_least_first() {
+        let levels = |reasoning: Value| efforts(&reasoning);
+        assert_eq!(
+            levels(json!({"supported_efforts": ["max", "high", "medium", "low", "minimal", "none"]})),
+            ["minimal", "low", "medium", "high", "max"]
+        );
+        assert_eq!(levels(json!({"supported_efforts": null})), EFFORTS);
+        assert!(levels(json!({"mandatory": false})).is_empty());
+        let m = parse_model(&json!({
+            "id": "x/y", "architecture": {"output_modalities": ["text"]},
+            "supported_parameters": ["reasoning"],
+            "reasoning": {"supported_efforts": ["high", "medium", "none"], "default_effort": "high"}
+        }))
+        .unwrap();
+        assert_eq!(
+            (m.efforts.as_slice(), m.default_effort.as_deref()),
+            (&["medium".to_string(), "high".to_string()][..], Some("high"))
+        );
+    }
 
     #[test]
     fn reads_what_models_can_do_and_cost() {
@@ -191,6 +233,8 @@ mod tests {
 
         let step = &models[2];
         assert!(!step.free && step.thinking && step.always_thinks);
+        assert_eq!(step.efforts, ["low", "medium", "high"]);
+        assert_eq!(step.default_effort, None);
         assert_eq!((step.input_token_limit, step.output_token_limit), (1_000_000, 64_000));
         assert_eq!(
             step.capabilities,
@@ -204,6 +248,7 @@ mod tests {
 
         let gemma = &models[1];
         assert!(gemma.free && gemma.thinking && !gemma.always_thinks);
+        assert!(gemma.efforts.is_empty());
 
         let auto = &models[0];
         assert!(!auto.free && !auto.thinking);

@@ -34,6 +34,11 @@ pub async fn rescan_models(state: St<'_>) -> CmdResult<Vec<ModelEntry>> {
 
 #[tauri::command]
 pub fn update_model(state: St<'_>, id: String, settings: ModelSettings) -> CmdResult<ModelEntry> {
+    if let Some(effort) = &settings.effort
+        && !state.models.get(&id).is_some_and(|m| m.efforts.contains(effort))
+    {
+        return Err(AppError::msg(format!("This model has no “{effort}” effort level.")));
+    }
     state.models.set_settings(&id, settings)?;
     changed(&state);
     state

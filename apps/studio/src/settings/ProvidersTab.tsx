@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { Cloud, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, Tag, Trash2, Waypoints } from 'lucide-react';
+import { Cloud, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, Sparkles, Tag, Trash2, Waypoints } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Badge,
@@ -21,6 +21,7 @@ import { formatDateTime } from '@/lib/format';
 import type { ModelGroup, ProviderKind, ProviderView } from '@/lib/types';
 import { useProviderUsage } from '@/stores/providerUsage';
 import { toast } from '@/stores/toasts';
+import { ClaudeCodeAccountRow, SubscriptionForm } from './ClaudeCodeSetup';
 import s from './settings.module.css';
 import styles from './ProvidersTab.module.css';
 import { ProviderUsageMeters, useUsageRefresh } from './UsageMeter';
@@ -38,6 +39,8 @@ interface Preset {
   keyPlaceholder: string;
   /** Lists paid models next to free ones, so the person picks which it offers. */
   groups: boolean;
+  /** Signs in through Claude Code instead of taking an API key. */
+  keyless?: boolean;
 }
 
 const PRESETS: Record<ProviderKind, Preset> = {
@@ -59,9 +62,43 @@ const PRESETS: Record<ProviderKind, Preset> = {
     keyPlaceholder: 'sk-or-…',
     groups: true,
   },
+  anthropic: {
+    label: 'Anthropic',
+    pitch: 'Claude models with an API key from the Claude Console, billed per token.',
+    icon: Sparkles,
+    keyUrl: 'https://platform.claude.com/settings/keys',
+    keyHelp: 'Create a key in the Claude Console.',
+    keyPlaceholder: 'sk-ant-…',
+    groups: false,
+  },
+  claudecode: {
+    label: 'Anthropic',
+    pitch:
+      'Claude models with your Pro or Max plan, through Claude Code, Anthropic’s official app. Demido signs in with a configuration of its own, so your Claude Code setup is not touched.',
+    icon: Sparkles,
+    keyUrl: 'https://code.claude.com/docs/en/setup',
+    keyHelp: '',
+    keyPlaceholder: '',
+    groups: false,
+    keyless: true,
+  },
 };
 
-const KINDS = (Object.keys(PRESETS) as ProviderKind[]).map((k) => ({ value: k, label: PRESETS[k].label }));
+/** A Claude subscription is connected as Anthropic too, chosen by how it signs in. */
+type AddKind = Exclude<ProviderKind, 'claudecode'>;
+
+const KINDS = (['gemini', 'openrouter', 'anthropic'] as const).map((k) => ({ value: k, label: PRESETS[k].label }));
+
+const family = (kind: ProviderKind): AddKind => (kind === 'claudecode' ? 'anthropic' : kind);
+
+type Method = 'api' | 'subscription';
+
+const METHODS: Array<{ value: Method; label: string }> = [
+  { value: 'api', label: 'API key' },
+  { value: 'subscription', label: 'Claude subscription' },
+];
+
+const METHOD_NOTE = 'An API key is billed per token. A subscription uses your Claude Pro or Max plan and its limits.';
 
 const GROUPS: Array<{ value: ModelGroup; label: string }> = [
   { value: 'all', label: 'All models' },
@@ -284,7 +321,13 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
     renameButton.current?.focus();
   }, [renaming]);
 
-  const status = provider.hasKey ? <Badge tone="accent">Connected</Badge> : <Badge tone="warning">No key</Badge>;
+  const status = preset.keyless ? (
+    <Badge tone="accent">Subscription</Badge>
+  ) : provider.hasKey ? (
+    <Badge tone="accent">Connected</Badge>
+  ) : (
+    <Badge tone="warning">No key</Badge>
+  );
   return (
     <div className={s.card}>
       <div className={styles.providerHead}>
@@ -320,7 +363,9 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
           )}
           <div className={s.rowMeta}>
             {provider.name !== preset.label && `${preset.label} · `}
-            {countModels(provider)} available · key {provider.keyHint ?? 'missing'}
+            {preset.keyless && 'Claude subscription · '}
+            {countModels(provider)} available
+            {!preset.keyless && ` · key ${provider.keyHint ?? 'missing'}`}
             {provider.modelsFetchedAt ? ` · checked ${formatDateTime(provider.modelsFetchedAt)}` : ''}
           </div>
         </div>
@@ -335,7 +380,20 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
         />
       </div>
       {provider.hasKey && <ProviderUsageMeters providerId={provider.id} />}
-      {replacing ? (
+      {preset.keyless && (
+        <ClaudeCodeAccountRow
+          profile={provider.claudeCodeProfile ?? 'demido_studio'}
+          onChange={() => void onChange()}
+        />
+      )}
+      {preset.keyless ? (
+        <div className={styles.providerActions}>
+          <span className={styles.flex} />
+          <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setRemoving(true)}>
+            Remove
+          </Button>
+        </div>
+      ) : replacing ? (
         <div className={s.cardPad}>
           <KeyForm
             kind={provider.kind}
@@ -387,7 +445,11 @@ function ProviderCard({ provider, onChange }: { provider: ProviderView; onChange
         open={removing}
         onClose={() => setRemoving(false)}
         title={`Remove ${provider.name}?`}
-        description="Its API key is deleted from this computer and its models disappear from the model list."
+        description={
+          preset.keyless
+            ? 'Its models disappear from the model list. Claude Code stays signed in; sign out first to forget the account.'
+            : 'Its API key is deleted from this computer and its models disappear from the model list.'
+        }
         footer={
           <>
             <Button variant="ghost" onClick={() => setRemoving(false)}>
@@ -416,47 +478,71 @@ function connectedNote(p: ProviderView): string {
   return `${countModels(p)} are available. The free ones are switched on; switch on others under Models.`;
 }
 
-/** A provider being connected: which kind, then its name, models and key. */
+/** A provider being connected: which kind (and for Anthropic, how), then its name, models and key. */
 function AddCard({
   initialKind,
   onCancel,
   onAdded,
 }: {
-  initialKind: ProviderKind;
+  initialKind: AddKind;
   onCancel?: () => void;
   onAdded: () => void;
 }) {
+  const id = useId();
   const [kind, setKind] = useState(initialKind);
-  const preset = PRESETS[kind];
+  const [method, setMethod] = useState<Method>('api');
+  const connecting: ProviderKind = kind === 'anthropic' && method === 'subscription' ? 'claudecode' : kind;
+  const preset = PRESETS[connecting];
   return (
     <div className={s.card}>
       <div className={s.cardPad}>
         <SegmentedControl value={kind} onChange={setKind} options={KINDS} className={styles.kinds} />
         <div className={styles.addHead}>
-          <ProviderIcon kind={kind} />
+          <ProviderIcon kind={connecting} />
           <div>
             <div className={s.rowTitle}>{preset.label}</div>
             <div className={s.rowMeta}>{preset.pitch}</div>
           </div>
         </div>
-        <KeyForm
-          key={kind}
-          kind={kind}
-          submitLabel="Connect"
-          adding
-          onCancel={onCancel}
-          onSubmit={async (key, name, group) => {
-            const added = await api.addProvider(kind, key, name || undefined, preset.groups ? group : undefined);
-            toast.success(`${preset.label} connected`, connectedNote(added));
-            onAdded();
-          }}
-        />
+        <div className={s.stack}>
+          {kind === 'anthropic' && (
+            <Field label="Connect with" htmlFor={`${id}-method`} description={METHOD_NOTE}>
+              <Select
+                id={`${id}-method`}
+                options={METHODS}
+                value={method}
+                onChange={(e) => setMethod(e.target.value as Method)}
+              />
+            </Field>
+          )}
+          {preset.keyless ? (
+            <SubscriptionForm key={connecting} onCancel={onCancel} onAdded={onAdded} />
+          ) : (
+            <KeyForm
+              key={connecting}
+              kind={connecting}
+              submitLabel="Connect"
+              adding
+              onCancel={onCancel}
+              onSubmit={async (key, name, group) => {
+                const added = await api.addProvider(
+                  connecting,
+                  key,
+                  name || undefined,
+                  preset.groups ? group : undefined,
+                );
+                toast.success(`${preset.label} connected`, connectedNote(added));
+                onAdded();
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-/** Cloud model providers: Google Gemini and OpenRouter. */
+/** Cloud model providers: Google Gemini, OpenRouter and Anthropic, with an API key or a Claude subscription. */
 export function ProvidersTab() {
   const [providers, setProviders] = useState<ProviderView[] | null>(null);
   const [adding, setAdding] = useState(false);
@@ -464,7 +550,7 @@ export function ProvidersTab() {
   useEffect(() => void load(), []);
   useUsageRefresh();
   // The first kind not connected yet, so adding a second provider starts on the other one.
-  const nextKind = KINDS.find((k) => !providers?.some((p) => p.kind === k.value))?.value ?? 'gemini';
+  const nextKind = KINDS.find((k) => !providers?.some((p) => family(p.kind) === k.value))?.value ?? 'gemini';
 
   return (
     <div className={s.page}>

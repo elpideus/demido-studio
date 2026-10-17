@@ -37,7 +37,8 @@ export function EmptyChat({ model, onSuggest }: Props) {
         <Logo size={52} />
         <h1 className={styles.title}>No model is ready yet</h1>
         <p className={styles.subtitle}>
-          Set up the AI that runs privately on this computer, or connect Google Gemini or OpenRouter with an API key.
+          Set up the AI that runs privately on this computer, or connect Google Gemini, OpenRouter or Anthropic with an
+          API key, or your Claude subscription.
         </p>
         <div className={styles.actions}>
           <Button
@@ -61,14 +62,11 @@ export function EmptyChat({ model, onSuggest }: Props) {
         <Logo size={52} />
         <h1 className={styles.title}>No model is ready yet</h1>
         <p className={styles.subtitle}>
-          Download a model to run privately on this computer, or connect Google Gemini or OpenRouter with an API key.
+          Download a model to run privately on this computer, or connect Google Gemini, OpenRouter or Anthropic with an
+          API key, or your Claude subscription.
         </p>
         <div className={styles.actions}>
-          <Button
-            variant="primary"
-            icon={Download}
-            onClick={() => openWindow('settings', { tab: 'models', view: 'download' })}
-          >
+          <Button variant="primary" icon={Download} onClick={() => openWindow('models')}>
             Download a model
           </Button>
           <Button variant="secondary" icon={Cloud} onClick={() => openWindow('settings', { tab: 'providers' })}>

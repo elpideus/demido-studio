@@ -423,7 +423,7 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<(Cli
             let client = OpenAiClient::new(state.local_http.clone(), served.base_url, model.id.clone());
             Ok((Client::OpenAi(client), Some(served.context_length as usize)))
         }
-        ModelSource::Gemini | ModelSource::OpenRouter => {
+        ModelSource::Gemini | ModelSource::OpenRouter | ModelSource::Anthropic | ModelSource::ClaudeCode => {
             let Some((_, provider_id, remote)) = ModelRegistry::parse_cloud_id(&model.id) else {
                 bail_msg!("Unknown model id {}.", model.id);
             };
@@ -432,6 +432,14 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<(Cli
             };
             if !provider.enabled {
                 bail_msg!("{} is disabled in Settings, Providers.", provider.name);
+            }
+            if provider.kind == ProviderKind::ClaudeCode {
+                let client = ClaudeCodeClient::new(
+                    remote.to_string(),
+                    &provider.claude_code_tools,
+                    provider.claude_code_profile(),
+                );
+                return Ok((Client::ClaudeCode(client), None));
             }
             let Some(key) = state.providers.api_key(provider_id) else {
                 bail_msg!("{} has no API key. Add one in Settings, Providers.", provider.name);
@@ -453,6 +461,14 @@ async fn client_for(state: &Arc<AppState>, model: &ModelEntry) -> CmdResult<(Cli
                         always_thinks,
                     ))
                 }
+                ProviderKind::Anthropic => Client::Anthropic(AnthropicClient::new(
+                    state.http.clone(),
+                    provider.base_url(),
+                    key,
+                    remote.to_string(),
+                    provider.models.iter().find(|m| m.id == remote),
+                )),
+                ProviderKind::ClaudeCode => unreachable!("answered above"),
             };
             Ok((client, None))
         }
@@ -1019,6 +1035,8 @@ fn request_snapshot(client: &Client, request: &ChatRequest) -> Value {
     match client {
         Client::OpenAi(c) => c.body(request),
         Client::Gemini(c) => c.body(request),
+        Client::Anthropic(c) => c.body(request),
+        Client::ClaudeCode(c) => c.body(request),
     }
 }
 

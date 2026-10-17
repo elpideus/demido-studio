@@ -105,6 +105,13 @@ impl ModelAccess {
                 gemini: true,
                 clip_seconds: None,
             },
+            // Claude reads images, not sound.
+            ModelSource::Anthropic | ModelSource::ClaudeCode => ModelAccess {
+                images: caps.vision != Some(false),
+                audio: Vec::new(),
+                gemini: false,
+                clip_seconds: None,
+            },
             // OpenRouter passes sound on as `input_audio`, in the formats every provider takes.
             ModelSource::OpenRouter => ModelAccess {
                 images: caps.vision == Some(true),

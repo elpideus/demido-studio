@@ -48,6 +48,8 @@ pub struct ModelSettings {
     pub context_length: Option<u32>,
     pub gpu_layers: Option<u32>,
     pub thinking: Option<bool>,
+    /// How hard it thinks: one of its levels (`ModelEntry::efforts`).
+    pub effort: Option<String>,
     /// The tokens at which a chat with this model is compacted, instead of the threshold for
     /// every model (`Settings::auto_compact_tokens`). Never above what its window allows.
     pub auto_compact_tokens: Option<u32>,
@@ -69,6 +71,8 @@ pub struct Effective {
     pub context_length: Option<u32>,
     pub gpu_layers: Option<u32>,
     pub thinking: Option<bool>,
+    /// `None` leaves the model's own default.
+    pub effort: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -77,6 +81,9 @@ pub enum ModelSource {
     Local,
     Gemini,
     OpenRouter,
+    Anthropic,
+    #[serde(rename = "claudecode")]
+    ClaudeCode,
 }
 
 impl ModelSource {
@@ -84,6 +91,8 @@ impl ModelSource {
         match kind {
             ProviderKind::Gemini => ModelSource::Gemini,
             ProviderKind::OpenRouter => ModelSource::OpenRouter,
+            ProviderKind::Anthropic => ModelSource::Anthropic,
+            ProviderKind::ClaudeCode => ModelSource::ClaudeCode,
         }
     }
 }
@@ -114,6 +123,12 @@ pub struct ModelEntry {
     /// Lives in a folder Demido manages, so it can be deleted from the app.
     pub removable: bool,
     pub capabilities: Capabilities,
+    /// The effort levels it takes, least first; empty when it takes none.
+    pub efforts: Vec<String>,
+    /// The level of `efforts` it thinks at unless asked otherwise, when the provider says.
+    pub default_effort: Option<String>,
+    /// Thinks whatever it is asked: its provider refuses a request to answer directly.
+    pub always_thinks: bool,
     /// llama.cpp has yet to say what this local model can do.
     pub checking_capabilities: bool,
     pub settings: ModelSettings,
@@ -265,13 +280,20 @@ impl ModelRegistry {
                     .filter(|m| m.free)
                     .map(|m| m.id.clone())
                     .collect(),
+                ProviderKind::Anthropic => default_enabled_anthropic(&provider.models),
+                // The plan's models, all of them: they cost nothing more.
+                ProviderKind::ClaudeCode => provider.models.iter().map(|m| m.id.clone()).collect(),
             };
             for m in &provider.models {
                 let id = format!("{}:{}:{}", provider.kind.id_prefix(), provider.id, m.id);
                 let s = overrides.get(&id).cloned().unwrap_or_default();
                 let enabled = s.enabled.unwrap_or_else(|| defaults_on.contains(&m.id));
+                let efforts = m.effort_levels();
+                let mut effective = effective(&s, source, None, None, self.default_context());
+                // A level the model no longer takes leaves it at its default.
+                effective.effort = effective.effort.filter(|e| efforts.contains(e));
                 out.push(ModelEntry {
-                    effective: effective(&s, source, None, None, self.default_context()),
+                    effective,
                     id,
                     source,
                     provider_id: Some(provider.id.clone()),
@@ -295,6 +317,12 @@ impl ModelRegistry {
                     projector: None,
                     removable: false,
                     capabilities: m.capabilities.unwrap_or_else(|| catalog.gemini(&m.id, m.thinking)),
+                    efforts,
+                    default_effort: m.default_effort.clone(),
+                    // Claude's newest models think however they are asked: answering directly
+                    // lowers the effort instead.
+                    always_thinks: m.always_thinks
+                        || (matches!(provider.kind, ProviderKind::Anthropic | ProviderKind::ClaudeCode) && m.effort),
                     checking_capabilities: false,
                     settings: s,
                 });
@@ -378,6 +406,9 @@ impl ModelRegistry {
                 .map(|n| n.to_string_lossy().into_owned()),
             removable: managed,
             capabilities: checked.unwrap_or_default(),
+            efforts: Vec::new(),
+            default_effort: None,
+            always_thinks: false,
             checking_capabilities: runtime.is_some() && checked.is_none(),
             settings: s,
         }
@@ -629,6 +660,7 @@ impl ModelRegistry {
             } else {
                 e.thinking
             },
+            effort: e.effort.clone().filter(|_| entry.capabilities.thinking != Some(false)),
         }
     }
 
@@ -636,9 +668,14 @@ impl ModelRegistry {
     /// model name may have colons of its own (`google/gemma-4-31b-it:free`).
     pub fn parse_cloud_id(id: &str) -> Option<(ProviderKind, &str, &str)> {
         let (prefix, rest) = id.split_once(':')?;
-        let kind = [ProviderKind::Gemini, ProviderKind::OpenRouter]
-            .into_iter()
-            .find(|k| k.id_prefix() == prefix)?;
+        let kind = [
+            ProviderKind::Gemini,
+            ProviderKind::OpenRouter,
+            ProviderKind::Anthropic,
+            ProviderKind::ClaudeCode,
+        ]
+        .into_iter()
+        .find(|k| k.id_prefix() == prefix)?;
         let (provider, model) = rest.split_once(':')?;
         Some((kind, provider, model))
     }
@@ -809,6 +846,9 @@ impl ModelEntry {
             projector: None,
             removable: false,
             capabilities: Capabilities::default(),
+            efforts: Vec::new(),
+            default_effort: None,
+            always_thinks: false,
             checking_capabilities: false,
             effective: effective(&settings, ModelSource::Local, None, None, DefaultContext::FitGpu),
             settings,
@@ -826,7 +866,9 @@ fn effective(
 ) -> Effective {
     let arch = architecture.unwrap_or_default();
     let (temperature, top_p, top_k, min_p) = match source {
-        ModelSource::Gemini | ModelSource::OpenRouter => (None, None, None, None),
+        ModelSource::Gemini | ModelSource::OpenRouter | ModelSource::Anthropic | ModelSource::ClaudeCode => {
+            (None, None, None, None)
+        }
         ModelSource::Local if arch.starts_with("qwen") => (Some(0.6), Some(0.95), Some(20), Some(0.0)),
         ModelSource::Local if arch.starts_with("gemma") => (Some(1.0), Some(0.95), Some(64), Some(0.0)),
         ModelSource::Local => (Some(0.7), Some(0.9), Some(40), Some(0.05)),
@@ -863,6 +905,8 @@ fn effective(
         context_length,
         gpu_layers: s.gpu_layers,
         thinking: s.thinking.or(Some(true)),
+        // Only a cloud model takes a level; llama.cpp thinks or does not.
+        effort: s.effort.clone().filter(|_| source != ModelSource::Local),
     }
 }
 
@@ -872,6 +916,26 @@ fn default_enabled_gemini(models: &[crate::llm::CloudModel]) -> Vec<String> {
     let picked: Vec<String> = models
         .iter()
         .filter(|m| stable.is_match(&m.id))
+        .map(|m| m.id.clone())
+        .collect();
+    if picked.is_empty() {
+        models.iter().take(3).map(|m| m.id.clone()).collect()
+    } else {
+        picked
+    }
+}
+
+/// Anthropic lists older models next to the current ones; only the current ones are on by default.
+fn default_enabled_anthropic(models: &[crate::llm::CloudModel]) -> Vec<String> {
+    const CURRENT: [&str; 4] = [
+        "claude-fable-5-1",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+    ];
+    let picked: Vec<String> = models
+        .iter()
+        .filter(|m| CURRENT.contains(&m.id.as_str()))
         .map(|m| m.id.clone())
         .collect();
     if picked.is_empty() {
@@ -996,6 +1060,10 @@ mod tests {
             ModelRegistry::parse_cloud_id("openrouter:p2:google/gemma-4-31b-it:free"),
             Some((ProviderKind::OpenRouter, "p2", "google/gemma-4-31b-it:free"))
         );
+        assert_eq!(
+            ModelRegistry::parse_cloud_id("claude-code:p3:claude-opus-5-5"),
+            Some((ProviderKind::ClaudeCode, "p3", "claude-opus-5-5"))
+        );
         assert_eq!(ModelRegistry::parse_cloud_id("local:C:/models/a.gguf"), None);
     }
 
@@ -1011,6 +1079,9 @@ mod tests {
             always_thinks: false,
             capabilities: None,
             free: false,
+            effort: false,
+            efforts: Vec::new(),
+            default_effort: None,
         };
         let on = default_enabled_gemini(&[
             m("gemini-2.5-flash"),

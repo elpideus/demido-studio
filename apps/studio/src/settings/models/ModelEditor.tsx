@@ -18,6 +18,14 @@ import {
 import { unreachableNote } from '@/chat/contextView';
 import { api, errorText } from '@/lib/api';
 import { fileUrl } from '@/lib/format';
+import {
+  canThink,
+  currentThinking,
+  thinkingChoices,
+  thinkingInfo,
+  withThinking,
+  type ThinkingChoice,
+} from '@/lib/thinking';
 import type { ContextUsage, HfProjector, ModelEntry, ModelSettings } from '@/lib/types';
 import { useApp } from '@/stores/app';
 import { useModels } from '@/stores/models';
@@ -328,7 +336,27 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
                 onChange={(v) => set({ [p.key]: v } as Partial<ModelSettings>)}
               />
             ))}
-            {model.capabilities.thinking === true && (
+            {canThink(model) && model.efforts.length > 0 && (
+              <Field
+                layout="inline"
+                label="Thinking"
+                description="How hard it thinks before answering. Higher is slower, but better at multi-step problems. Also in the composer."
+              >
+                <Select
+                  aria-label="Thinking"
+                  value={currentThinking(model, draft)}
+                  onChange={(e) => set(withThinking({}, e.target.value as ThinkingChoice))}
+                  options={thinkingChoices(model).map((c) => ({
+                    value: c,
+                    label:
+                      c === 'default' && model.defaultEffort
+                        ? `Default (${thinkingInfo(model.defaultEffort).label})`
+                        : thinkingInfo(c).label,
+                  }))}
+                />
+              </Field>
+            )}
+            {canThink(model) && model.efforts.length === 0 && (
               <Field
                 layout="inline"
                 label="Think before answering"

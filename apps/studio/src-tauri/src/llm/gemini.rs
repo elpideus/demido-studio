@@ -74,8 +74,8 @@ impl GeminiClient {
         if let Some(v) = p.seed {
             config.insert("seed".into(), json!(v));
         }
-        if p.thinking != Some(false) {
-            config.insert("thinkingConfig".into(), json!({"includeThoughts": true}));
+        if let Some(thinking) = thinking_config(thinking_of(&self.model).0, p.thinking, p.effort.as_deref()) {
+            config.insert("thinkingConfig".into(), thinking);
         }
         if !config.is_empty() {
             body["generationConfig"] = Value::Object(config);
@@ -400,6 +400,106 @@ pub fn sanitize_schema(schema: &Value) -> Value {
     }
 }
 
+/// How a Gemini model is told how hard to think.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Thinking {
+    /// Gemini 3 and later: `thinkingLevel`, one of these, least first. Thinking cannot be turned
+    /// off.
+    Levels(&'static [&'static str]),
+    /// Gemini 2.5: `thinkingBudget` in tokens, up to `max`. 0 turns thinking off where `off`.
+    Budget { max: u32, off: bool },
+    /// Older models: thinking is on or off, no more.
+    Fixed,
+}
+
+const LOW_TO_HIGH: &[&str] = &["low", "medium", "high"];
+const MINIMAL_TO_HIGH: &[&str] = &["minimal", "low", "medium", "high"];
+
+/// Gemini 3 and later's thinking levels and the one each starts at, from Google's thinking guide
+/// (October 2026). Matched by the start of the id, the more specific first.
+const LEVELS: &[(&str, &[&str], &str)] = &[
+    ("gemini-4-argon", LOW_TO_HIGH, "medium"),
+    ("gemini-3.8-flash", LOW_TO_HIGH, "medium"),
+    ("gemini-3.7-flash", LOW_TO_HIGH, "medium"),
+    ("gemini-3.6-flash", MINIMAL_TO_HIGH, "medium"),
+    ("gemini-3.5-flash-lite", MINIMAL_TO_HIGH, "minimal"),
+    ("gemini-3.5-flash", MINIMAL_TO_HIGH, "medium"),
+    ("gemini-3.1-pro", LOW_TO_HIGH, "high"),
+    ("gemini-3.1-flash-lite", MINIMAL_TO_HIGH, "minimal"),
+    ("gemini-3-flash", MINIMAL_TO_HIGH, "high"),
+    ("gemini-3-pro", &["low", "high"], "high"),
+    ("gemini-nano-banana-2.1", &["minimal", "medium", "high"], "medium"),
+];
+
+/// How `model` is told how hard to think, and the level it starts at. A model the guide does not
+/// list (an alias such as `gemini-pro-latest`, or one newer than this list) is taken for Gemini 3
+/// or later, and offered the levels all of those take.
+fn thinking_of(model: &str) -> (Thinking, Option<&'static str>) {
+    if let Some((_, levels, default)) = LEVELS.iter().find(|(prefix, ..)| model.starts_with(prefix)) {
+        return (Thinking::Levels(levels), Some(default));
+    }
+    let thinking = if model.starts_with("gemini-2.5-pro") {
+        Thinking::Budget {
+            max: 32_768,
+            off: false,
+        }
+    } else if model.starts_with("gemini-2.5-flash") {
+        Thinking::Budget { max: 24_576, off: true }
+    } else if model.starts_with("gemini-1") || model.starts_with("gemini-2") {
+        Thinking::Fixed
+    } else {
+        Thinking::Levels(LOW_TO_HIGH)
+    };
+    (thinking, None)
+}
+
+/// Fills in how hard a thinking model can be asked to think, which Google's list leaves out.
+pub fn fill_thinking(m: &mut CloudModel) {
+    if !m.thinking {
+        return;
+    }
+    let (thinking, default) = thinking_of(&m.id);
+    let (levels, always_thinks) = match thinking {
+        Thinking::Levels(levels) => (levels, true),
+        Thinking::Budget { off, .. } => (LOW_TO_HIGH, !off),
+        Thinking::Fixed => (&[][..], false),
+    };
+    m.efforts = levels.iter().map(|l| l.to_string()).collect();
+    m.always_thinks = always_thinks;
+    m.default_effort = default.map(String::from);
+}
+
+/// A 2.5 model's thinking budget for a level: the most it allows at the top.
+fn budget(level: &str, max: u32) -> u32 {
+    match level {
+        "low" => 1_024,
+        "medium" => 8_192,
+        _ => max,
+    }
+}
+
+/// The request's `thinkingConfig`: the thoughts shown, at the level asked for. Answering
+/// directly turns thinking off where it can be, and keeps it short where it cannot.
+fn thinking_config(thinking: Thinking, on: Option<bool>, effort: Option<&str>) -> Option<Value> {
+    if on == Some(false) {
+        return match thinking {
+            Thinking::Levels(levels) => Some(json!({"thinkingLevel": levels[0].to_uppercase()})),
+            Thinking::Budget { off: true, .. } => Some(json!({"thinkingBudget": 0})),
+            Thinking::Budget { off: false, .. } => Some(json!({"thinkingBudget": 128})),
+            Thinking::Fixed => None,
+        };
+    }
+    let mut config = json!({"includeThoughts": true});
+    match (thinking, effort) {
+        (Thinking::Levels(levels), Some(level)) if levels.contains(&level) => {
+            config["thinkingLevel"] = json!(level.to_uppercase());
+        }
+        (Thinking::Budget { max, .. }, Some(level)) => config["thinkingBudget"] = json!(budget(level, max)),
+        _ => {}
+    }
+    Some(config)
+}
+
 /// Lists the chat models an API key can use. Also serves as the connection test.
 pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) -> Result<Vec<CloudModel>, LlmError> {
     let mut models = Vec::new();
@@ -429,7 +529,7 @@ pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) 
             if !methods.contains(&"generateContent") || !is_chat_model(&id) {
                 continue;
             }
-            models.push(CloudModel {
+            let mut model = CloudModel {
                 display_name: m["displayName"].as_str().unwrap_or(&id).to_string(),
                 description: m["description"].as_str().unwrap_or_default().to_string(),
                 input_token_limit: m["inputTokenLimit"].as_u64().unwrap_or(0),
@@ -438,8 +538,13 @@ pub async fn list_models(http: &reqwest::Client, base_url: &str, api_key: &str) 
                 always_thinks: false,
                 capabilities: None,
                 free: false,
+                effort: false,
+                efforts: Vec::new(),
+                default_effort: None,
                 id,
-            });
+            };
+            fill_thinking(&mut model);
+            models.push(model);
         }
         page_token = v["nextPageToken"].as_str().map(str::to_string);
         if page_token.is_none() {
@@ -471,6 +576,95 @@ fn is_chat_model(id: &str) -> bool {
 mod tests {
     use super::*;
     use crate::llm::{Client, GenParams};
+
+    #[test]
+    fn thinking_levels_follow_googles_guide() {
+        let levels = |id: &str| {
+            let mut m = CloudModel {
+                id: id.into(),
+                display_name: id.into(),
+                description: String::new(),
+                input_token_limit: 0,
+                output_token_limit: 0,
+                thinking: true,
+                always_thinks: false,
+                capabilities: None,
+                free: false,
+                effort: false,
+                efforts: Vec::new(),
+                default_effort: None,
+            };
+            fill_thinking(&mut m);
+            (m.efforts.join(","), m.default_effort, m.always_thinks)
+        };
+        assert_eq!(
+            levels("gemini-3.5-flash-lite"),
+            ("minimal,low,medium,high".into(), Some("minimal".into()), true)
+        );
+        assert_eq!(
+            levels("gemini-3.5-flash"),
+            ("minimal,low,medium,high".into(), Some("medium".into()), true)
+        );
+        assert_eq!(
+            levels("gemini-3.1-pro-preview-customtools"),
+            ("low,medium,high".into(), Some("high".into()), true)
+        );
+        assert_eq!(
+            levels("gemini-3-pro-preview"),
+            ("low,high".into(), Some("high".into()), true)
+        );
+        // An alias may point at any of the newest models: it gets the levels they all take.
+        assert_eq!(levels("gemini-pro-latest"), ("low,medium,high".into(), None, true));
+        // 2.5 takes a budget; Flash can stop thinking, Pro cannot.
+        assert_eq!(levels("gemini-2.5-flash"), ("low,medium,high".into(), None, false));
+        assert_eq!(levels("gemini-2.5-pro"), ("low,medium,high".into(), None, true));
+        assert_eq!(levels("gemini-2.0-flash-thinking-exp"), (String::new(), None, false));
+    }
+
+    #[test]
+    fn thinking_is_asked_for_by_level_or_budget() {
+        let config = |model: &str, thinking: Option<bool>, effort: Option<&str>| {
+            let client = GeminiClient::new(reqwest::Client::new(), String::new(), "k".into(), model.into());
+            let req = ChatRequest {
+                system: String::new(),
+                messages: vec![],
+                tools: vec![],
+                params: GenParams {
+                    thinking,
+                    effort: effort.map(String::from),
+                    ..Default::default()
+                },
+            };
+            client.body(&req)["generationConfig"]["thinkingConfig"].clone()
+        };
+        assert_eq!(
+            config("gemini-4-argon", Some(true), Some("high")),
+            json!({"includeThoughts": true, "thinkingLevel": "HIGH"})
+        );
+        assert_eq!(config("gemini-4-argon", None, None), json!({"includeThoughts": true}));
+        // A level the model does not take is left to its default.
+        assert_eq!(
+            config("gemini-4-argon", None, Some("minimal")),
+            json!({"includeThoughts": true})
+        );
+        assert_eq!(
+            config("gemini-3.6-flash", Some(false), None),
+            json!({"thinkingLevel": "MINIMAL"})
+        );
+        assert_eq!(
+            config("gemini-2.5-pro", None, Some("high")),
+            json!({"includeThoughts": true, "thinkingBudget": 32_768})
+        );
+        assert_eq!(
+            config("gemini-2.5-flash", Some(false), None),
+            json!({"thinkingBudget": 0})
+        );
+        assert_eq!(
+            config("gemini-2.5-pro", Some(false), None),
+            json!({"thinkingBudget": 128})
+        );
+        assert_eq!(config("gemini-2.0-flash", Some(false), None), Value::Null);
+    }
 
     #[test]
     fn tool_results_of_one_turn_are_grouped() {

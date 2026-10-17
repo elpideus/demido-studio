@@ -1,5 +1,7 @@
-//! Cloud model providers: Google Gemini and OpenRouter. Configuration lives in `providers.json`;
-//! API keys live in the OS credential store.
+//! Cloud model providers: Google Gemini, OpenRouter, Anthropic (an API key) and Claude Code (a
+//! Claude subscription, through the official CLI). Configuration lives in `providers.json`; API
+//! keys live in the OS credential store. Claude Code keeps its own sign-in (see
+//! [`crate::claude_code`]).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,7 +12,11 @@ use serde::{Deserialize, Serialize};
 use crate::bail_msg;
 use crate::db::{new_id, now_ms};
 use crate::error::CmdResult;
-use crate::llm::{Allowance, CloudModel, gemini, openrouter};
+use crate::llm::{Allowance, CloudModel, anthropic, claude_code, gemini, openrouter};
+
+/// What a saved list of models records. A list saved by an older version, before each model's
+/// effort levels were kept, is listed again at start.
+const LISTING: u32 = 1;
 use crate::secrets::{Secrets, provider_key};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,6 +24,9 @@ use crate::secrets::{Secrets, provider_key};
 pub enum ProviderKind {
     Gemini,
     OpenRouter,
+    Anthropic,
+    #[serde(rename = "claudecode")]
+    ClaudeCode,
 }
 
 impl ProviderKind {
@@ -25,7 +34,14 @@ impl ProviderKind {
         match self {
             ProviderKind::Gemini => "Google Gemini",
             ProviderKind::OpenRouter => "OpenRouter",
+            ProviderKind::Anthropic => "Anthropic",
+            ProviderKind::ClaudeCode => "Anthropic",
         }
+    }
+
+    /// Signs in with something other than an API key.
+    pub fn keyless(self) -> bool {
+        self == ProviderKind::ClaudeCode
     }
 
     /// Starts the ids of the provider's models: `<prefix>:<provider id>:<model>`.
@@ -33,6 +49,8 @@ impl ProviderKind {
         match self {
             ProviderKind::Gemini => "gemini",
             ProviderKind::OpenRouter => "openrouter",
+            ProviderKind::Anthropic => "anthropic",
+            ProviderKind::ClaudeCode => "claude-code",
         }
     }
 
@@ -40,6 +58,8 @@ impl ProviderKind {
         match self {
             ProviderKind::Gemini => gemini::DEFAULT_BASE_URL,
             ProviderKind::OpenRouter => openrouter::DEFAULT_BASE_URL,
+            ProviderKind::Anthropic => anthropic::DEFAULT_BASE_URL,
+            ProviderKind::ClaudeCode => "",
         }
     }
 }
@@ -77,7 +97,18 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub models: Vec<CloudModel>,
     pub models_fetched_at: Option<i64>,
+    /// The [`LISTING`] its models were listed with.
+    #[serde(default)]
+    pub listing: u32,
     pub created_at: i64,
+    /// Claude Code's own tools this provider lets the model use (`WebSearch`, say), from
+    /// [`crate::claude_code::BUILTIN_TOOLS`]. None by default: Demido's tools come first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claude_code_tools: Vec<String>,
+    /// The Claude Code profile a Claude subscription is signed in with (`demido_studio_2`, say):
+    /// its own config folder, so each subscription is a separate account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_code_profile: Option<String>,
 }
 
 impl ProviderConfig {
@@ -86,6 +117,13 @@ impl ProviderConfig {
             .clone()
             .filter(|u| !u.trim().is_empty())
             .unwrap_or_else(|| self.kind.default_base_url().to_string())
+    }
+
+    /// The Claude Code profile this provider runs with.
+    pub fn claude_code_profile(&self) -> &str {
+        self.claude_code_profile
+            .as_deref()
+            .unwrap_or(crate::claude_code::DEFAULT_PROFILE)
     }
 }
 
@@ -131,6 +169,7 @@ pub struct ProviderPatch {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
     pub model_group: Option<ModelGroup>,
+    pub claude_code_tools: Option<Vec<String>>,
 }
 
 /// Longest name a provider can be given; it is shown in one line of the model picker.
@@ -141,6 +180,15 @@ fn clean_name(name: &str) -> Option<String> {
     let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
     let name = name.trim_end();
     (!name.is_empty()).then(|| name.to_string())
+}
+
+/// The built-in Claude Code tools of `tools` that may be turned on, each once, in their usual order.
+fn clean_tools(tools: &[String]) -> Vec<String> {
+    crate::claude_code::BUILTIN_TOOLS
+        .iter()
+        .filter(|t| tools.iter().any(|x| x == *t))
+        .map(|t| t.to_string())
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -157,9 +205,25 @@ pub struct ProviderStore {
 
 impl ProviderStore {
     pub fn load(path: PathBuf, secrets: Arc<Secrets>, http: reqwest::Client) -> Self {
-        let list = demido_core::fsx::read_json::<ProvidersFile>(&path)
+        let mut list = demido_core::fsx::read_json::<ProvidersFile>(&path)
             .map(|f| f.providers)
             .unwrap_or_default();
+        // Google's list leaves out how hard each model can think; it is known here instead.
+        for config in list.iter_mut().filter(|c| c.kind == ProviderKind::Gemini) {
+            config.models.iter_mut().for_each(gemini::fill_thinking);
+        }
+        for config in list.iter_mut().filter(|c| c.kind == ProviderKind::ClaudeCode) {
+            // Claude Code's models are known, not listed: a saved list may predate what is known.
+            config.models = claude_code::models();
+            // A Claude subscription added before there could be several used the first profile.
+            if !config
+                .claude_code_profile
+                .as_deref()
+                .is_some_and(crate::claude_code::valid_profile)
+            {
+                config.claude_code_profile = Some(crate::claude_code::DEFAULT_PROFILE.to_string());
+            }
+        }
         Self {
             path,
             list: RwLock::new(list),
@@ -186,6 +250,57 @@ impl ProviderStore {
         self.list.read().iter().find(|p| p.id == id).cloned()
     }
 
+    fn claude_code_profile_used(&self, profile: &str) -> bool {
+        self.list
+            .read()
+            .iter()
+            .any(|c| c.kind == ProviderKind::ClaudeCode && c.claude_code_profile() == profile)
+    }
+
+    /// The first new Claude Code profile no provider uses, to sign the next subscription in with.
+    pub fn free_claude_code_profile(&self) -> String {
+        (1..)
+            .map(crate::claude_code::new_profile)
+            .find(|p| !self.claude_code_profile_used(p))
+            .expect("a free profile")
+    }
+
+    /// The profile name for an account's email that no provider or folder has yet:
+    /// `demido_studio_jane`, else `demido_studio_jane_2`...
+    fn claude_code_profile_for(&self, email: &str) -> String {
+        let base = crate::claude_code::profile_for_email(email);
+        (1..)
+            .map(|n| if n == 1 { base.clone() } else { format!("{base}_{n}") })
+            .find(|p| !self.claude_code_profile_used(p) && !crate::claude_code::config_dir(p).exists())
+            .expect("a free profile name")
+    }
+
+    /// Names each Claude subscription's profile after its account, when it is not yet (one added
+    /// before profiles were named, or one whose renaming failed). Run at start, before any chat.
+    pub async fn name_claude_code_profiles(&self) {
+        let unnamed: Vec<(String, String)> = self
+            .configs()
+            .into_iter()
+            .filter(|c| c.kind == ProviderKind::ClaudeCode)
+            .map(|c| (c.id.clone(), c.claude_code_profile().to_string()))
+            .filter(|(_, p)| !crate::claude_code::named_after_account(p))
+            .collect();
+        if unnamed.is_empty() || crate::claude_code::find_binary().is_none() {
+            return;
+        }
+        for (id, profile) in unnamed {
+            let account = crate::claude_code::status(&profile).await.account;
+            let Some(email) = account.email.filter(|_| account.logged_in) else {
+                continue;
+            };
+            let named = self.claude_code_profile_for(&email);
+            if crate::claude_code::rename_profile(&profile, &named).await {
+                tracing::info!("named Claude Code profile {profile} {named}");
+                let _ = self.edit(&id, |c| c.claude_code_profile = Some(named));
+            }
+        }
+    }
+
     pub fn api_key(&self, id: &str) -> Option<String> {
         self.secrets.get(&provider_key(id))
     }
@@ -207,21 +322,60 @@ impl ProviderStore {
             .collect()
     }
 
-    /// Adds a provider after checking the key works.
+    /// Adds a provider after checking the key works. Claude Code needs no key, only the CLI
+    /// signed in with `claude_code_profile` (the first free one when not given).
     pub async fn add(
         &self,
         kind: ProviderKind,
         name: Option<String>,
         api_key: String,
         model_group: ModelGroup,
+        claude_code_profile: Option<String>,
     ) -> CmdResult<ProviderConfig> {
         let key = api_key.trim().to_string();
-        if key.is_empty() {
+        let mut profile = None;
+        if kind.keyless() {
+            let wanted = claude_code_profile.unwrap_or_else(|| self.free_claude_code_profile());
+            let wanted = crate::claude_code::checked_profile(&wanted)?.to_string();
+            let others: Vec<String> = self
+                .configs()
+                .iter()
+                .filter(|c| c.kind == kind)
+                .map(|c| c.claude_code_profile().to_string())
+                .collect();
+            if others.contains(&wanted) {
+                bail_msg!("This Claude account is already added.");
+            }
+            let account = crate::claude_code::require_ready(&wanted).await?.account;
+            // The same account twice would only share its plan's limits.
+            let accounts = futures_util::future::join_all(others.iter().map(|p| crate::claude_code::status(p))).await;
+            if account.email.is_some()
+                && accounts
+                    .iter()
+                    .any(|s| s.account.email == account.email && s.account.auth_method == account.auth_method)
+            {
+                bail_msg!(
+                    "{} is already added. Sign in with another Claude account.",
+                    account.email.as_deref().unwrap_or("This account")
+                );
+            }
+            profile = Some((wanted, account.email));
+        } else if key.is_empty() {
             bail_msg!("Enter an API key.");
         }
         let models = self
             .fetch_models(kind, kind.default_base_url(), &key, model_group)
             .await?;
+        // The profile signed in with takes its account's name, when it can.
+        let profile = match profile {
+            Some((wanted, Some(email))) => {
+                let named = self.claude_code_profile_for(&email);
+                let moved = crate::claude_code::rename_profile(&wanted, &named).await;
+                Some(if moved { named } else { wanted })
+            }
+            Some((wanted, None)) => Some(wanted),
+            None => None,
+        };
         let config = ProviderConfig {
             id: new_id(),
             kind,
@@ -234,9 +388,14 @@ impl ProviderStore {
             model_group,
             models,
             models_fetched_at: Some(now_ms()),
+            listing: LISTING,
             created_at: now_ms(),
+            claude_code_tools: Vec::new(),
+            claude_code_profile: profile,
         };
-        self.secrets.set(&provider_key(&config.id), &key);
+        if !kind.keyless() {
+            self.secrets.set(&provider_key(&config.id), &key);
+        }
         let mut list = self.list.write();
         list.push(config.clone());
         self.save(&list)?;
@@ -251,7 +410,9 @@ impl ProviderStore {
         let group = patch.model_group.filter(|g| *g != config.model_group);
         // A new key is checked by listing the models with it before anything is saved; another
         // group of models is listed afresh.
-        let models = if key.is_some() || group.is_some() {
+        let models = if config.kind.keyless() {
+            None
+        } else if key.is_some() || group.is_some() {
             let Some(listing_key) = key.map(str::to_string).or_else(|| self.api_key(id)) else {
                 bail_msg!("This provider has no API key.");
             };
@@ -269,6 +430,7 @@ impl ProviderStore {
             if let Some(models) = models {
                 config.models = models;
                 config.models_fetched_at = Some(now_ms());
+                config.listing = LISTING;
             }
             if let Some(group) = group {
                 config.model_group = group;
@@ -282,8 +444,11 @@ impl ProviderStore {
             if let Some(base) = patch.base_url {
                 config.base_url = Some(base).filter(|b| !b.trim().is_empty());
             }
+            if let Some(tools) = patch.claude_code_tools {
+                config.claude_code_tools = clean_tools(&tools);
+            }
         })?;
-        if let Some(key) = key {
+        if let Some(key) = key.filter(|_| !config.kind.keyless()) {
             self.secrets.set(&provider_key(id), key);
         }
         Ok(updated)
@@ -293,8 +458,13 @@ impl ProviderStore {
         let Some(config) = self.get(id) else {
             bail_msg!("That provider no longer exists.");
         };
-        let Some(key) = self.api_key(id) else {
-            bail_msg!("This provider has no API key.");
+        let key = if config.kind.keyless() {
+            String::new()
+        } else {
+            let Some(key) = self.api_key(id) else {
+                bail_msg!("This provider has no API key.");
+            };
+            key
         };
         let models = self
             .fetch_models(config.kind, &config.base_url(), &key, config.model_group)
@@ -302,7 +472,28 @@ impl ProviderStore {
         self.edit(id, |config| {
             config.models = models;
             config.models_fetched_at = Some(now_ms());
+            config.listing = LISTING;
         })
+    }
+
+    /// Lists again the models of each provider whose list an older version saved. Run at start;
+    /// a provider that cannot be reached keeps its list and is tried at the next start. Says
+    /// whether any list changed.
+    pub async fn refresh_old_listings(&self) -> bool {
+        let old: Vec<String> = self
+            .configs()
+            .into_iter()
+            .filter(|c| c.enabled && !c.kind.keyless() && c.listing < LISTING)
+            .map(|c| c.id)
+            .collect();
+        let mut changed = false;
+        for id in old {
+            match self.refresh_models(&id).await {
+                Ok(_) => changed = true,
+                Err(e) => tracing::warn!("could not list the models of provider {id} again: {e}"),
+            }
+        }
+        changed
     }
 
     /// Changes a provider as it is now, not as it was before a request: a rename made while its
@@ -332,7 +523,9 @@ impl ProviderStore {
             let key = self.api_key(&config.id)?;
             Some(async move {
                 let report = match config.kind {
-                    ProviderKind::Gemini => UsageReport::Unreported,
+                    ProviderKind::Gemini | ProviderKind::Anthropic | ProviderKind::ClaudeCode => {
+                        UsageReport::Unreported
+                    }
                     ProviderKind::OpenRouter => {
                         match openrouter::allowances(&self.http, &config.base_url(), &key).await {
                             Ok(allowances) => UsageReport::Reported { allowances },
@@ -360,6 +553,8 @@ impl ProviderStore {
         let listed = match kind {
             ProviderKind::Gemini => gemini::list_models(&self.http, base, key).await,
             ProviderKind::OpenRouter => openrouter::list_models(&self.http, base, key).await,
+            ProviderKind::Anthropic => anthropic::list_models(&self.http, base, key).await,
+            ProviderKind::ClaudeCode => Ok(claude_code::models()),
         };
         let models =
             listed.map_err(|e| crate::error::AppError::msg(format!("{} rejected the key: {e}", kind.label())))?;
@@ -394,6 +589,12 @@ mod tests {
     }
 
     #[test]
+    fn only_known_claude_code_tools_are_kept() {
+        let asked = ["WebFetch", "WebSearch", "Bash", "WebSearch", "Nonsense"].map(String::from);
+        assert_eq!(clean_tools(&asked), vec!["WebSearch", "Bash"]);
+    }
+
+    #[test]
     fn the_free_group_admits_only_free_models() {
         let m = |free| CloudModel {
             id: "m".into(),
@@ -405,6 +606,9 @@ mod tests {
             always_thinks: false,
             capabilities: None,
             free,
+            effort: false,
+            efforts: Vec::new(),
+            default_effort: None,
         };
         assert!(ModelGroup::Free.admits(&m(true)) && !ModelGroup::Free.admits(&m(false)));
         assert!(ModelGroup::All.admits(&m(false)));

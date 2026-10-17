@@ -12,6 +12,9 @@ import type {
   ChartInfo,
   ChartLayout,
   ChartLayoutEntry,
+  ClaudeCodeAccount,
+  ClaudeCodeLoginState,
+  ClaudeCodeStatus,
   ContextUsage,
   DownloadJob,
   HfRepo,
@@ -203,14 +206,41 @@ export const api = {
   // Providers
   listProviders: () => invoke<ProviderView[]>('list_providers'),
   providerUsage: () => invoke<ProviderUsage[]>('provider_usage'),
-  addProvider: (kind: ProviderKind, apiKey: string, name?: string, modelGroup?: ModelGroup) =>
-    invoke<ProviderView>('add_provider', { kind, name: name ?? null, apiKey, modelGroup: modelGroup ?? null }),
+  addProvider: (
+    kind: ProviderKind,
+    apiKey: string,
+    name?: string,
+    modelGroup?: ModelGroup,
+    claudeCodeProfile?: string,
+  ) =>
+    invoke<ProviderView>('add_provider', {
+      kind,
+      name: name ?? null,
+      apiKey,
+      modelGroup: modelGroup ?? null,
+      claudeCodeProfile: claudeCodeProfile ?? null,
+    }),
   updateProvider: (
     id: string,
-    patch: { name?: string; enabled?: boolean; baseUrl?: string; apiKey?: string; modelGroup?: ModelGroup },
+    patch: {
+      name?: string;
+      enabled?: boolean;
+      baseUrl?: string;
+      apiKey?: string;
+      modelGroup?: ModelGroup;
+      claudeCodeTools?: string[];
+    },
   ) => invoke<ProviderView>('update_provider', { id, patch }),
   refreshProvider: (id: string) => invoke<ProviderView>('refresh_provider', { id }),
   removeProvider: (id: string) => invoke<void>('remove_provider', { id }),
+  /** Without a profile: the first one no provider uses, for a new subscription. */
+  claudeCodeStatus: (profile?: string) => invoke<ClaudeCodeStatus>('claude_code_status', { profile: profile ?? null }),
+  claudeCodeLogin: (profile: string, console = false) =>
+    invoke<ClaudeCodeLoginState>('claude_code_login', { profile, console }),
+  claudeCodeLoginCode: (code: string) => invoke<ClaudeCodeLoginState>('claude_code_login_code', { code }),
+  claudeCodeLoginState: () => invoke<ClaudeCodeLoginState>('claude_code_login_state'),
+  claudeCodeLoginCancel: () => invoke<void>('claude_code_login_cancel'),
+  claudeCodeLogout: (profile: string) => invoke<ClaudeCodeAccount>('claude_code_logout', { profile }),
 
   // Skills
   listSkills: () => invoke<Skill[]>('list_skills'),

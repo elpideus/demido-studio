@@ -79,3 +79,32 @@
   justify-content: flex-end;
   gap: var(--space-2);
 }
+
+/* An install command, with its copy button. */
+.command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.command code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.accountRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}

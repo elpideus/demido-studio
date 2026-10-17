@@ -97,6 +97,8 @@ export function CapabilityList({ model }: { model: ModelEntry }) {
 
 function sourceNote(m: ModelEntry): string {
   if (m.source === 'openrouter') return 'From OpenRouter’s list of models.';
+  if (m.source === 'anthropic') return 'From Anthropic’s list of models.';
+  if (m.source === 'claudecode') return 'What Claude models can do through Claude Code.';
   if (m.source !== 'local') {
     const { vision, audio, tools } = m.capabilities;
     return [vision, audio, tools].some((v) => v === null)

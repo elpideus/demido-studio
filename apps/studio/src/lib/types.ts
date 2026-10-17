@@ -303,7 +303,7 @@ export interface Trace {
   voice?: VoiceSent[];
 }
 
-export type ModelSource = 'local' | 'gemini' | 'openrouter';
+export type ModelSource = 'local' | 'gemini' | 'openrouter' | 'anthropic' | 'claudecode';
 
 export interface ModelSettings {
   name?: string | null;
@@ -320,6 +320,8 @@ export interface ModelSettings {
   contextLength?: number | null;
   gpuLayers?: number | null;
   thinking?: boolean | null;
+  /** How hard it thinks: one of the model's `efforts`. */
+  effort?: EffortLevel | null;
   /** Tokens at which chats with this model are compacted, instead of the threshold for every model. */
   autoCompactTokens?: number | null;
 }
@@ -336,7 +338,12 @@ export interface EffectiveSettings {
   contextLength: number | null;
   gpuLayers: number | null;
   thinking: boolean | null;
+  /** Null leaves the model's own default. */
+  effort: EffortLevel | null;
 }
+
+/** How hard a thinking model works. Anthropic takes `low` to `max`; OpenRouter `minimal` to `xhigh`. */
+export type EffortLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** What a model can do; null while nobody has said. */
 export interface ModelCapabilities {
@@ -372,6 +379,12 @@ export interface ModelEntry {
   /** File name of the projector found next to a local model, which lets it see pictures or hear sound. */
   projector: string | null;
   capabilities: ModelCapabilities;
+  /** The effort levels it takes, least first; empty when it takes none. */
+  efforts: EffortLevel[];
+  /** The level of `efforts` it thinks at unless asked otherwise, when the provider says. */
+  defaultEffort: EffortLevel | null;
+  /** Thinks whatever it is asked: its provider refuses a request to answer directly. */
+  alwaysThinks: boolean;
   /** llama.cpp has yet to say what this local model can do. */
   checkingCapabilities: boolean;
   settings: ModelSettings;
@@ -402,9 +415,14 @@ export interface CloudModel {
   capabilities?: ModelCapabilities;
   /** Costs nothing to use. */
   free?: boolean;
+  /** Takes an effort level (Anthropic's models). */
+  effort?: boolean;
+  /** The effort levels it takes, least first. */
+  efforts?: EffortLevel[];
 }
 
-export type ProviderKind = 'gemini' | 'openrouter';
+/** `claudecode`: a Claude subscription, through the official Claude Code CLI. */
+export type ProviderKind = 'gemini' | 'openrouter' | 'anthropic' | 'claudecode';
 
 /** Which of a provider's models are offered: OpenRouter lists paid models next to free ones. */
 export type ModelGroup = 'all' | 'free';
@@ -420,9 +438,44 @@ export interface ProviderView {
   models: CloudModel[];
   modelsFetchedAt: number | null;
   createdAt: number;
+  /** Claude Code's own tools the model may use (`WebSearch`, say); none unless turned on. */
+  claudeCodeTools?: string[];
+  /** A Claude subscription's Claude Code profile (`demido_studio_2`, say): one account each. */
+  claudeCodeProfile?: string;
   hasKey: boolean;
   keyHint: string | null;
 }
+
+/** The Claude account a Claude Code profile is signed in with. */
+export interface ClaudeCodeAccount {
+  loggedIn: boolean;
+  /** `claude.ai` for a subscription, `console` for a Console account. */
+  authMethod: string | null;
+  /** `pro`, `max`, `team`, `enterprise`… */
+  subscriptionType: string | null;
+  email: string | null;
+  orgName: string | null;
+}
+
+export interface ClaudeCodeStatus {
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  account: ClaudeCodeAccount;
+  /** The profile asked about, or for a new subscription the first free one. */
+  profile: string;
+  configDir: string;
+  /** How to install Claude Code on this system. */
+  install: { shell: string; command: string; docs: string };
+  /** Claude Code's own tools a provider may turn on. */
+  builtinTools: string[];
+}
+
+export type ClaudeCodeLoginState =
+  | { state: 'idle' }
+  | { state: 'waiting'; url: string | null }
+  | { state: 'done'; account: ClaudeCodeAccount }
+  | { state: 'failed'; message: string };
 
 /** Part of what a provider lets a key use, as the provider reports it. */
 export interface Allowance {

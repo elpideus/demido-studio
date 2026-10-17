@@ -35,8 +35,41 @@ interface Normalized {
 
 type Json = Record<string, unknown>;
 
-/** Reads both request shapes (OpenAI-compatible and Gemini) into one view. */
+/** Text of Anthropic content: a string, or blocks (images and tool blocks shown as JSON). */
+function blocksText(content: unknown): { text: string; extra?: string } {
+  if (typeof content === 'string') return { text: content };
+  const blocks = (content as Json[] | undefined) ?? [];
+  const text = blocks.map((b) => (b.type === 'text' ? String(b.text ?? '') : '')).join('');
+  const other = blocks.filter((b) => b.type !== 'text' && b.type !== 'thinking' && b.type !== 'redacted_thinking');
+  return { text, extra: other.length ? other.map((b) => JSON.stringify(b)).join('\n') : undefined };
+}
+
+/** Reads the request shapes (OpenAI-compatible, Gemini, Anthropic and Claude Code) into one view. */
 function normalize(request: Json): Normalized {
+  // Claude Code: the command line, the system prompt and one message holding the history.
+  if (Array.isArray(request.cli)) {
+    const input = (request.input as Json | undefined)?.message as Json | undefined;
+    return {
+      system: String(request.system ?? ''),
+      messages: input ? [{ role: 'user', ...blocksText(input.content) }] : [],
+      tools: [],
+      params: { cli: (request.cli as string[]).join(' ') },
+    };
+  }
+  // Anthropic's Messages API (always sent with top-level cache_control).
+  if (request.cache_control && Array.isArray(request.messages)) {
+    const { messages, tools, system, ...params } = request;
+    return {
+      system: String(system ?? ''),
+      messages: (messages as Json[]).map((m) => ({ role: String(m.role), ...blocksText(m.content) })),
+      tools: ((tools as Json[] | undefined) ?? []).map((t) => ({
+        name: String(t.name),
+        description: String(t.description ?? ''),
+        parameters: t.input_schema,
+      })),
+      params,
+    };
+  }
   if (Array.isArray(request.contents)) {
     const sys = (request.systemInstruction as Json | undefined)?.parts as Json[] | undefined;
     const decls = ((request.tools as Json[] | undefined)?.[0]?.functionDeclarations ?? []) as Json[];
