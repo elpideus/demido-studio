@@ -32,7 +32,26 @@ then starts the app with hot reload. The data folder is the real one,
 them in `.dev/updates`, away from the installed app's. The log goes to the data folder's `logs/`
 and the terminal; `DEMIDO_LOG` sets its filter (`DEMIDO_LOG=info,demido_studio_lib=debug`).
 
-On Linux:
+On Linux, `pnpm dev windows` (or `pnpm dev:windows`) runs the Windows build instead, under
+Proton, to test it without a Windows machine (`scripts/dev-windows.mjs`). It needs umu-run
+(`sudo pacman -S umu-launcher`), a Proton (GE-Proton, Proton-CachyOS, UMU-Proton or Steam's Proton
+Experimental; `DEMIDO_PROTON` names another) and, once:
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo install --locked cargo-xwin
+```
+
+The first run makes a Proton prefix in `.dev/proton` and installs WebView2 in it. The page hot
+reloads as with `pnpm dev`; Rust changes need a restart. Plain Wine does not work: WebView2
+needs DirectComposition, which Wine lacks. The app's data folder is inside the prefix
+(`C:\users\steamuser\AppData\Local\Demido Studio`) and its install folder is
+`.dev/install-windows`, so it never shares either with the Linux build. The prefix adds nothing
+to the desktop (no menu entries or file associations), and deleting `.dev/proton` removes it.
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` works as on Windows, so `scripts/drive.mjs` can reach
+the page over `--remote-debugging-port=9222`.
+
+Also on Linux:
 
 - Commands the assistant runs go to bash, whatever the login shell (fish, zsh), with `sudo`
   turned into `sudo -n`, so it fails at once instead of waiting for a password nobody can type.
