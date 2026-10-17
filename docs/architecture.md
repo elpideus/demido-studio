@@ -14,7 +14,7 @@ installer ──(catalog + hardware)──► install folder ──(install.json
                                         ├─ runtimes/llama.cpp          ├─ llama-server   (local models)
                                         ├─ tools/{node,uv,python}      ├─ market.mjs     (Node sidecar)
                                         ├─ resources/{sidecars,skills} ├─ python         (run_python tool)
-                                        └─ demido-studio.exe           └─ Gemini API     (cloud models)
+                                        └─ demido-studio.exe           └─ cloud APIs, claude (cloud models)
 ```
 
 ## The installer
@@ -150,8 +150,9 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `settings`, `secrets` | `settings.json`; API keys, the TradingView session and mail passwords in the OS credential store |
 | `runtime` | One `llama-server` process at a time, restarted only when the launch settings change |
 | `models` | GGUF discovery (built-in folder, extra folders, LM Studio), GGUF metadata, cloud models, per-model overrides, what each model can do, Hugging Face search and downloads |
-| `providers` | Gemini and OpenRouter: configuration, model listing, and what each key has left (`ProviderStore::usage`: OpenRouter's `GET /key` gives today's free requests and a key's credit limit; Google reports Gemini's quota only in AI Studio, so it is shown as unreported) |
-| `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE) or Gemini (native SSE); streams `StreamEvent`s and returns the exact request for the trace |
+| `providers` | Gemini, OpenRouter, Anthropic and Claude Code: configuration, model listing, and what each key has left (`ProviderStore::usage`: OpenRouter's `GET /key` gives today's free requests and a key's credit limit; Google reports Gemini's quota only in AI Studio, so it is shown as unreported) |
+| `claude_code` | Claude Code for the Claude subscription: finding and running the CLI with its own configuration, install instructions per system, sign-in and sign-out |
+| `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE), Gemini (native SSE), Anthropic (Messages API SSE) or Claude Code (`claude -p`, stream-json); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
 | `attachments` | Files attached to messages: staging, moving them into the chat's workspace, what the model reads of them (full text, passages, images and sound), passage search |
 | `tools` | Market data, email, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu, and loaded by the model a group at a time |
@@ -159,7 +160,7 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `skills` | Skill folders, enable/disable, the slash commands in their `commands.json`, and a file watcher that updates the UI live |
 | `slash` | Slash commands: the app's own (`/compact`, `/autocompact`) and those skills provide |
 | `market` | The Node sidecar's lifecycle and protocol, TradingView sign-in |
-| `mail` | Email over IMAP, read only: accounts (`accounts.rs`), the connection (`imap.rs`), parsing (`body.rs`), the cache (`store.rs`, `cache/mail.db`) and keeping it up to date (`sync.rs`); `MailService` holds one connection per account and watches the inboxes |
+| `mail` | Email over IMAP, sent over SMTP: accounts (`accounts.rs`), the connection (`imap.rs`), parsing (`body.rs`), the cache (`store.rs`, `cache/mail.db`) and keeping it up to date (`sync.rs`), changing mail (`actions.rs`: flags, moving, deleting, folders, drafts) and writing it (`send.rs`); `MailService` holds one connection per account and watches the inboxes |
 | `updater` | The releases feed, downloading and verifying a new installer, staging it, handing over to it (see [Updates](#updates)) |
 | `commands` | The functions the UI calls, one file per area |
 
@@ -170,11 +171,22 @@ results are shortened, those of its earlier steps first (`prompt::history`). Tok
 estimated there, and llama-server counts them exactly: a request it refuses as too long for its
 context is fitted once more at the ratio its count showed, before the turn fails. The model's
 answer streams to the UI as `ChatEvent`s while it is written to the database, so a crash loses
-nothing that was shown. Tool calls run one by one; `run_python` and `run_command` ask for approval first
-unless the person chose "always allow". A call that fails with the same tool and arguments as
+nothing that was shown. Tool calls run one by one, each asked about first as the permission mode
+says (`settings.permission_mode`, `tools/permissions.rs`). Every tool has a risk: none (loading
+tools, reading skills), read, change (something that can be undone: a workspace file, the chart,
+moving or flagging email, a draft) or risky (running code, sending email, deleting for good, an
+online account, a long download). Cautious asks before anything that reads or changes, Balanced
+only before risky calls, Autonomous never; "Always allow" is offered and remembered only in
+Balanced (`always_allowed_tools`). The agent loop asks with a card showing the call; a tool whose
+risk depends on its arguments, or that has more to show (the email about to be sent), is marked
+`confirms` and asks itself with `ToolContext::confirm`. The system prompt tells the model how the
+mode asks (`permissions::prompt_line`), and in Autonomous to ask in words before what it cannot
+undo and was not asked to do. A call that fails with the same tool and arguments as
 one that already failed in the turn gets a note saying so in its result, and the third such
 failure ends the turn (`MAX_SAME_FAILURES`): small models otherwise repeat a call that cannot
-work until the 16 steps run out. Each model call is saved as a trace (exact request, response,
+work until the steps run out. A turn takes at most 50 model calls (`MAX_STEPS`); the last one is
+told it cannot call tools any more and answers with what it did and what is left, so a long job
+ends with a summary the person can answer "continue" to, never in silence. Each model call is saved as a trace (exact request, response,
 token counts, speed) that the Inspector window shows. Two things are shortened, so a chat with
 files does not store them again for every model call: images and sound are replaced by their type
 and size (`llm::redact_media`), and an attached file's text is kept whole only in the first call of
@@ -328,6 +340,35 @@ model does not compete with the chat model while it answers. The Inspector shows
 request, whether each note went as the recording (in how many parts), as its transcript or as
 neither, and which speech model wrote it down in how long.
 
+**Anthropic.** The API provider (`llm/anthropic.rs`) uses adaptive thinking with summarized
+thoughts, prompt caching, and, on the models that offer them, server-side fallbacks when a
+request is refused (`fallbacks: "default"`) and `drop_block` for thinking that no longer matches
+the conversation. Thinking is replayed only to the model that wrote it.
+
+**Claude subscription.** Anthropic allows a Claude plan only in its own apps, so Demido runs
+Claude Code, Anthropic's CLI, which the person installs (Settings, Providers shows the command for
+their system). `claude_code.rs` runs it with a configuration of its own for each subscription
+added, named after its account's email, the part before `@` (`~/.claude/demido_studio_jane_doe`
+for `jane.doe@example.com`; the provider's `claude_code_profile`). Signing in happens in a new
+folder (`demido_studio__new`), renamed once the email is known; removing the provider signs out and
+deletes the folder. It runs in an empty working folder with a cleaned environment, so the
+person's own Claude Code settings, skills, MCP servers and CLAUDE.md files are not used; signing in runs `claude auth login`. Each turn is
+one `claude -p` (`llm/claude_code.rs`): the history goes in as one message, Demido's tools are
+described in the system prompt and their calls read back from the answer, written as
+`<tool_call>{json}</tool_call>`. Long conversations sometimes slip into Claude's native
+`<invoke name=…><parameter name=…>` form (with or without a namespace prefix); that is read as a
+call too, its parameters typed from the tool's schema, and JSON too broken to read still reaches
+the named tool, whose error makes the model write the call again. Calls in an older answer that
+were never read are replaced, in the history sent back, by a note that they did not run. The
+history message has a content block per turn (tool results join the turn that called them), the
+last marked for the prompt cache (one hour, as Claude Code's own marks) and followed by a fixed
+block, so the next request, which repeats those blocks, reads them all from the cache: Claude Code
+marks only the context it adds after the history. Claude Code's own tools are off
+(`--tools ""`); a provider's `claude_code_tools` turns chosen ones on (WebSearch, Read, Glob,
+Grep, Edit, Write, NotebookEdit, Bash; never WebFetch). With them on the history is not marked,
+since Claude Code marks its follow-up requests itself and the API takes at most four marks;
+should the API refuse the mark anyway, the run goes again without it.
+
 **Gemini.** Busy answers are retried as for any model (see Busy models, above). A model the API
 key cannot use is turned off, with a note in the chat, instead of failing every time; an empty or
 refused answer says why.
@@ -476,17 +517,85 @@ a large message with parts still gets its own part-by-part fetch), each saved in
 it arrives and with the connection released between requests, so the Mail window is not held up.
 The window renders HTML mail in a sandboxed
 frame without scripts, cleaned (`emailHtml.ts`) and under a content policy that blocks remote
-images until the person shows them. The tools (`tools/mail.rs`) give the model message ids
-(`m123`) and wrap every email in `<email>` tags with a note that it is the sender's content,
+images and fonts until the person shows them, and then takes them over https only (plain http is
+upgraded); SVG font sources are dropped. Nothing in the frame can see a click (WebKitGTK does not run
+even the page's own listeners there), so its links open in a new window: the main window's
+new-window handler (`main_window` in `lib.rs`) refuses it and sends the link to the page as
+`app://new-window`, and the reader asks before opening a web link in the browser
+(`LinkDialog.tsx`; "Don't ask again" clears `mail_confirm_links`, which the toolbar's shield sets
+again). The reading tools (`tools/mail.rs`) give the model message ids
+(`m123`, the cache's row id; `AUTOINCREMENT`, so an id is never given to another message once its
+own leaves the cache) and wrap every email in `<email>` tags with a note that it is the sender's content,
 never instructions. `mail_export` runs a search (or a date range, or neither for the newest) and
 writes up to a thousand matches with their text to a JSON Lines file in the workspace through
 `open_many`, so the model analyses them with `run_python` instead of reading them into its context;
-stopped early, it keeps what arrived, and the next export continues from the cache. An account
+stopped early, it keeps what arrived, and the next export continues from the cache. With
+`bodies: false` it writes headers and previews only, from the cache and up to ten thousand,
+without opening anything. The changing tools take their ids from a list or from `ids_file`, a
+workspace file holding them in any plain shape (a JSON array, JSON Lines with an `id`, or ids
+separated by spaces, commas or lines), up to five thousand: the model picks emails from an export
+in Python and passes the file, and since moving changes only the moved emails' ids, it keeps
+working from the same export instead of exporting again after each change. An account
 can have a name (`nickname` in `mail.json`, given when connecting it or from the account menu; no
 two accounts share one, and none is another's address). The system prompt lists the connected
 accounts with their provider and name, the tools' `account` takes an address or a name
 (`Accounts::find`, which also reads an address with the name written around it), and each
 listing names the other accounts, so a look at the wrong one is noticed.
+
+Changing mail (`mail/actions.rs`, the tools in `tools/mail_write.rs`) opens the folder with
+SELECT and works many messages to a request (five hundred; a request the server fails is tried
+again in parts of a hundred, since Gmail fails some large ones with "System Error"), on the server
+first and then in the cache, and announces each folder it touched. `mail_mark` sets `\Seen` and `\Flagged` (starring on Gmail also
+marks its Starred folder to be read again). `mail_move` uses MOVE where the server has it, else COPY
+and an expunge; the moved messages leave the cache and the destination is marked stale, since
+only the server knows their new UIDs, and the result tells the model their ids changed. On Gmail,
+"archive" is All Mail and a copy adds a label. `mail_delete` moves to the trash, or deletes for
+good: an expunge in the message's folder (UID EXPUNGE with UIDPLUS), or on Gmail a move to the
+trash and an expunge there, found by X-GM-MSGID, since Gmail deletes only from the trash. A
+message already in the trash, or an account without one, is deleted for good, which the card
+says and which counts as risky. `mail_folder` creates, renames and deletes folders (labels on
+Gmail): names are encoded in modified UTF-7, `/` becomes the server's separator, a server that
+keeps every folder in the inbox gets the name under `INBOX`, and the system folders (any with a
+role) cannot be renamed or deleted. `mail_send` and `mail_draft` put the message together with
+lettre (`mail/send.rs`): plain text, workspace files attached; a reply takes In-Reply-To and
+References from the original's header, goes to its Reply-To or sender (and with `reply_all` its
+other recipients, less the account itself), and quotes it; a forward carries the original's text
+and attachments (up to 25 MB). The message is built twice with one Message-ID and date: without
+Bcc to send, with it for the copy kept. It goes out over SMTP with the IMAP login, to the
+account's `smtp_host` or one derived from the IMAP host (`smtp.gmail.com:465` on Gmail;
+`imap.x.com` and `imapmail.x.com` send through `smtp.x.com`); with no port set, 465 and then 587
+are tried and the one that answers is saved. Gmail files sent mail itself; elsewhere Sent is
+searched for the Message-ID after a moment and the copy appended when the server did not keep
+one. A draft is appended to Drafts with `\Draft`; sending a draft deletes it. The send card shows
+the whole message, and no mode but Autonomous sends without it.
+
+The Mail window makes the same changes through commands (`commands/mail.rs`): `mail_set_flag`,
+`mail_move`, `mail_delete` (with `mail_deletes_for_good`, so it asks first only when nothing goes
+to the trash), the folder commands, `mail_mark_folder_read` and `mail_empty_folder` (the trash and
+spam only), which search the whole folder on the server rather than the cache. The window names
+folders by their exact path, which `resolve_folder` takes before a name or role; a new or renamed
+folder comes back as its path, so mail can go straight into it. Its editor starts from
+`mail_prefill`: a reply's recipients (`reply_people`: Reply-To or the sender, the original's
+recipients when the account sent it, everyone else with reply all, never the account), subject,
+quote and thread; a forward's text and attachments; a draft's fields, Bcc from its header. What
+comes back to `mail_send` and `mail_save_draft` is sent as written (`Compose::as_written`): nothing
+is added, the thread comes along as given, and only the original attachments the person kept
+(`carry`) are fetched, with files from the computer read by path. An attachment that cannot go
+fails the send rather than being left out. In the list, messages are picked like files (Ctrl- and
+Shift-click, Shift+arrows, Ctrl+A); a right-click (or a row's ⋯ button, or the menu key) acts on
+the selection when the row is in it, else on that row alone, and a row's star and delete buttons
+act on it alone. Moved and deleted messages leave the list at once and the next one shows; flags
+change in the list before the server answers and go back if it fails.
+
+A move or a delete into the trash can be undone (`mail_undo`). Each one keeps, under the key its
+report returns, where its messages went (`Trip`; the latest 20 are kept): their UIDs there when the
+server says them (UIDPLUS's COPYUID, which `Conn::transfer` reads from the answer to UID MOVE or
+COPY, since async-imap drops it), else Gmail's id or the Message-ID to search for. Undoing finds
+them (a UID the server gave counts only while the folder's UIDVALIDITY is the same and the message
+is still there), moves them back and syncs the folder they came from, so they show at once. On
+Gmail, a message that already had the label it was moved to is copied back instead, keeping the
+label, and one taken from the trash or spam gets its labels back and, if it was in the inbox,
+goes back there too. When nothing could be put back, the undo can be tried again.
 
 **Commands.** `run_command` runs a command line in the person's own shell (`shell/`): PowerShell
 7 when it is installed (on the PATH, where the Microsoft Store puts an app execution alias, or in
@@ -634,7 +743,7 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
 | `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, General, Updates |
 | `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends, indicators (the Indicators menu, legends, the settings dialog, panes, script drawings, the assistant's drawings, the local fallback), the Pine Editor. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
-| `mail` | The Mail window: accounts and folders, the message list (filtered from the cache as you type, Enter searches the server), the reader (`EmailBody.tsx`; `emailHtml.ts` cleans HTML mail for its sandboxed frame), the connect form |
+| `mail` | The Mail window: accounts and folders (the folder menu, `FolderNameForm.tsx`), the message list (filtered from the cache as you type, Enter searches the server; picking several, the context menu, each row's buttons under the pointer, undo toasts), the reader (`EmailBody.tsx`; `emailHtml.ts` cleans HTML mail for its sandboxed frame), what can be done with messages (`MessageActions.tsx`: menus, the toolbar, the folder picker; `mailActions.ts`: which actions fit, selection ranges, unit tested), the editor (`Composer.tsx`), the connect form |
 | `inspector` | A turn's traces: request, response, timings |
 | `stores` | App state per area; `windows.ts` holds window geometry, focus order, pinning |
 
@@ -735,10 +844,11 @@ Everything a person makes is in the data folder, never in the install folder:
 | `cache/market/tradingview/` | TradingView bars stored from charts and downloads, one file per symbol and timeframe, and `index.json` with what they cover |
 | `cache/market/jobs/` | One file per history download, so downloads resume after a restart and chat cards find them |
 | `cache/mail.db` | Mail downloaded from the accounts: folders, message headers and flags, opened bodies (SQLite) |
+| `cache/xet/` | The working folder of Hugging Face's Xet engine, for model downloads with Transfer set to Xet. Only empty folders: downloads keep no chunk cache |
 | `updates/` | A downloaded update: the installer (a `.part` file while it downloads), then its `.sig` and `pending.json` once its signature is verified. Emptied once the update is installed. A development build uses `<repo>/.dev/updates` instead |
 | `logs/` | App log, rotated daily |
 
-Secrets are never in files: the Gemini API key, a Hugging Face token, the TradingView session and
+Secrets are never in files: the Gemini, OpenRouter and Anthropic API keys, a Hugging Face token, the TradingView session and
 mail passwords are in Windows Credential Manager, or on Linux the desktop's keyring through the
 Secret Service (service `Demido Studio`). Without a keyring they are kept in memory for the session
 only. On Linux the data folder is `~/.local/share/demido-studio`.

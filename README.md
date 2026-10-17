@@ -11,8 +11,8 @@ agentic work and transparency.
   shell (PowerShell on Windows, bash on Linux), workspace files, and skills the assistant can write for itself.
 - **Transparent.** Every answer records exactly what was sent to the model and what came back,
   with token counts and speed. Open any answer in the Inspector.
-- **Cloud when you want it.** Connect Google Gemini with an API key; its models appear next to
-  the local ones.
+- **Cloud when you want it.** Connect Google Gemini, OpenRouter or Anthropic with an API key, or
+  your Claude plan through Claude Code; their models appear next to the local ones.
 - **A desktop, not a web page.** The chat is always there; Settings, Market, Mail and the
   Inspector are windows you can move, resize, maximize or pin to a side, a corner, the top or the bottom,
   like Windows 11's snap layouts.
@@ -133,7 +133,7 @@ version.
 | Talk instead of typing: models that can hear get your voice message; for the others a local speech model (Qwen3-ASR) writes down what you said into the composer, for you to check and send. Choose the microphone and speech model, or turn voice messages off | The composer: the microphone button; Settings, General, Voice |
 | Commands in your own shell (on Windows PowerShell 7 when installed, else Windows PowerShell; on Linux bash), shown live like a terminal with a Stop button; each one asks first | The chat (Coding in the Tools menu) |
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
-| Providers (Gemini), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
+| Providers (Gemini, OpenRouter, Anthropic, Claude subscription), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |
 | Indicators on the chart, computed by TradingView: your Favorites and your own scripts, the indicators of your saved TradingView chart layouts, TradingView's built-ins and community scripts; signed out, SMA, EMA, Bollinger Bands and RSI are computed on your computer | Chart tab, **Indicators** |
 | Each indicator's settings as in TradingView: Inputs, Style (colors, opacity, widths, line styles, plot types, levels, precision) and Visibility (per timeframe) | The gear on the indicator's legend |
@@ -142,8 +142,11 @@ version.
 | What history is stored per market (one timeline: every timeframe reads the same 1-minute history), where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
 | History downloads with a progress bar you can pause and resume, from a chart, the Data tab or the chat | Chart, Data tab, chat cards |
 | Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, General |
-| Your Gmail (or another IMAP mailbox): folders, messages and attachments, read only; new mail shows up on its own while the window is open | Mail window |
-| The assistant lists, searches and reads your email, exports hundreds of emails to a file for analysis, and saves attachments to its workspace | The chat (Email in the Tools menu) |
+| Your Gmail (or another IMAP mailbox): folders, messages and attachments; new mail shows up on its own while the window is open | Mail window |
+| Write, reply, reply all, forward and send email, with attachments; save drafts and finish them later | Mail window (the pen button, the buttons over a message, right-click) |
+| Mark read or unread, star, archive, move, label (Gmail), report spam and delete, one email or many (Ctrl-click, Shift-click), and undo a move or delete; make, rename and delete folders, mark a folder read, empty the trash | Mail window (right-click a message or hover it, the buttons over it, the folder menu) |
+| The assistant lists, searches and reads your email, exports hundreds of emails to a file for analysis, and saves attachments to its workspace; it marks, moves and deletes emails, manages folders and labels, writes drafts, and replies, forwards and sends | The chat (Email in the Tools menu) |
+| How often the assistant asks before it acts: Cautious (before anything it reads or changes), Balanced (only before risky steps like running code, sending email or deleting for good) or Autonomous (never) | The chat (next to Tools), Settings → General |
 | Updates: Release or Pre-release channel, automatic in the background or checked by hand | Settings, Updates |
 | Exact request and response of any answer | Inspector (from an answer's toolbar) |
 
@@ -191,8 +194,14 @@ trend lines, markers and labels, kept per market until you remove them from the 
 **Email.** The Mail window connects Gmail with an
 [app password](https://myaccount.google.com/apppasswords) (it needs 2-Step Verification on the
 Google account; work and school accounts can have app passwords turned off by their admin), or
-any mailbox that offers IMAP over TLS on port 993. Demido only reads: opening a message never marks
-it as read, and nothing is moved or deleted. Messages are kept on your computer once downloaded, and
+any mailbox that offers IMAP over TLS on port 993 (mail is sent over SMTP with the same login).
+In the Mail window you write, reply, forward and send email, save drafts, and mark, star, archive,
+move, label and delete messages (right-click one or use the buttons that show when you point at it,
+use the buttons over the open message, or pick several with Ctrl- and Shift-click; R, A, F, E, S, U,
+M and Delete do the same from the keyboard), and the folder menu makes, renames and deletes folders.
+A move, an archive or a delete into the trash can be undone for a few seconds from its toast, or
+with Ctrl+Z. The assistant can do all of it too: in Balanced mode it
+shows you each email before it is sent and asks before deleting anything for good. Messages are kept on your computer once downloaded, and
 each check asks the server only for what changed since the last one; while the window is open the
 inbox is watched, so new mail arrives without asking. The assistant reads the same mail, treated as
 the sender's words and never as instructions. With several accounts, give each a name (Work,
