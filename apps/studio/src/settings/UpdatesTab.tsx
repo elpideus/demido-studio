@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   CircleAlert,
-  CircleArrowDown,
+  CircleFadingArrowUp,
   CircleCheck,
   Download,
   ExternalLink,
@@ -30,7 +30,7 @@ const CHANNELS: Array<{ value: UpdateChannel; label: string }> = [
 const ICONS: Record<Exclude<CardIcon, 'busy'>, { icon: LucideIcon; tone: string | undefined }> = {
   ok: { icon: CircleCheck, tone: styles.accent },
   idle: { icon: RefreshCw, tone: undefined },
-  available: { icon: CircleArrowDown, tone: styles.accent },
+  available: { icon: CircleFadingArrowUp, tone: styles.accent },
   download: { icon: Download, tone: styles.accent },
   ready: { icon: RotateCw, tone: styles.accent },
   error: { icon: CircleAlert, tone: styles.danger },

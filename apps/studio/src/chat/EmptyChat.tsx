@@ -1,4 +1,16 @@
-import { Cloud, Cpu, Download, LineChart, Lightbulb, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
+import {
+  Cloud,
+  Cpu,
+  Download,
+  LineChart,
+  Lightbulb,
+  ListChecks,
+  MessagesSquare,
+  PenLine,
+  Sparkles,
+  SquareTerminal,
+  Terminal,
+} from 'lucide-react';
 import { Button, Logo } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
@@ -99,10 +111,26 @@ export function EmptyChat({ model, onSuggest }: Props) {
       title: 'Teach it a skill',
       text: 'Create a skill that summarises any market symbol: its latest price, the change over the last week, and a one-paragraph outlook.',
     },
+    // Need no tools: they fill the rows the tools that are off leave empty.
     {
       icon: Lightbulb,
       title: 'Explain a concept',
       text: 'Explain what a moving average crossover is, with a simple example.',
+    },
+    {
+      icon: PenLine,
+      title: 'Write something',
+      text: 'Write a short, friendly email asking a client to confirm our meeting on Thursday.',
+    },
+    {
+      icon: ListChecks,
+      title: 'Make a plan',
+      text: 'Help me plan two weeks of evening study to learn the basics of investing.',
+    },
+    {
+      icon: MessagesSquare,
+      title: 'Brainstorm',
+      text: 'Give me ten name ideas for a small café that also sells second-hand books.',
     },
   ]
     .filter(Boolean)

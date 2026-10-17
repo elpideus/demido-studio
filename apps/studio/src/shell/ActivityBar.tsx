@@ -1,6 +1,15 @@
-import { CandlestickChart, CircleArrowDown, Mail, MessagesSquare, Settings, type LucideIcon } from 'lucide-react';
+import {
+  Boxes,
+  CandlestickChart,
+  CircleFadingArrowUp,
+  Mail,
+  MessagesSquare,
+  Settings,
+  type LucideIcon,
+} from 'lucide-react';
 import { Logo, Tooltip, cx } from '@demido/ui';
 
+import { DownloadsButton } from '@/downloads/Downloads';
 import { updateButton } from '@/settings/updateView';
 import { useApp } from '@/stores/app';
 import { useChats } from '@/stores/chats';
@@ -58,7 +67,7 @@ function UpdateItem() {
         className={cx(styles.item, styles.update)}
         onClick={() => (button.restart ? restart() : useWindows.getState().open('settings', { tab: 'updates' }))}
       >
-        <CircleArrowDown size={22} strokeWidth={1.7} aria-hidden />
+        <CircleFadingArrowUp size={22} strokeWidth={1.7} aria-hidden />
       </button>
     </Tooltip>
   );

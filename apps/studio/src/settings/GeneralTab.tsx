@@ -170,9 +170,11 @@ function Voice({ settings }: { settings: Settings }) {
   };
 
   const chosenMic = settings.microphone ?? '';
+  // Before the app has used a microphone, the browser lists them without ids as well: none can
+  // be picked, and each would be another "System default".
   const micOptions = [
     { value: '', label: 'System default' },
-    ...mics.map((m, i) => ({ value: m.deviceId, label: m.label || `Microphone ${i + 1}` })),
+    ...mics.filter((m) => m.deviceId).map((m, i) => ({ value: m.deviceId, label: m.label || `Microphone ${i + 1}` })),
   ];
   if (chosenMic && !mics.some((m) => m.deviceId === chosenMic)) {
     micOptions.push({ value: chosenMic, label: 'A microphone not plugged in' });

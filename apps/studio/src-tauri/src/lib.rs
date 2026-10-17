@@ -302,6 +302,26 @@ fn show_if_never_ready(window: tauri::WebviewWindow) {
     });
 }
 
+/// Lets the page show `asset:` files (attached images, avatars) when it is not itself served
+/// from a custom scheme, as in development, where it comes from Vite on `http://localhost`.
+/// WebKitGTK 2.54 refuses an `<img>` from another scheme unless the scheme takes CORS and the
+/// view's CORS allowlist names it; wry sets neither.
+#[cfg(target_os = "linux")]
+fn allow_asset_images(window: &tauri::WebviewWindow) {
+    use webkit2gtk::{SecurityManagerExt, WebContextExt, WebViewExt};
+
+    let hooked = window.with_webview(|webview| {
+        let view = webview.inner();
+        if let Some(security) = view.context().and_then(|c| c.security_manager()) {
+            security.register_uri_scheme_as_cors_enabled("asset");
+        }
+        view.set_cors_allowlist(&["asset://*/*"]);
+    });
+    if let Err(e) = hooked {
+        tracing::warn!("could not reach the webview to allow asset images: {e}");
+    }
+}
+
 /// Closes the app the usual way when the session asks it to end (SIGTERM at logout or shutdown,
 /// SIGHUP, SIGINT from a terminal), so `RunEvent::Exit` stops the models and lets the market
 /// service flush its store. Unanswered, a signal ends the process at once and its helpers with it

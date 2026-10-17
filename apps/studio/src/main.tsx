@@ -7,6 +7,9 @@ import '@demido/ui/base.css';
 import './styles/app.css';
 
 import { App } from './App';
+import { installDevConsole } from './lib/devConsole';
+
+if (import.meta.env.DEV) installDevConsole();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
