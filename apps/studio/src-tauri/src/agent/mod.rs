@@ -29,17 +29,26 @@ use crate::attachments::meaning::QueryVector;
 use crate::bail_msg;
 use crate::db::{Attachment, Chat, CommandUse, Message, MessageStatus, Role, Trace, VoiceSent, new_id, now_ms};
 use crate::error::{AppError, CmdResult};
+use crate::llm::anthropic::AnthropicClient;
+use crate::llm::claude_code::ClaudeCodeClient;
 use crate::llm::gemini::GeminiClient;
 use crate::llm::openai::OpenAiClient;
-use crate::llm::{ChatRequest, Client, LlmError, StreamEvent, ToolSpec};
+use crate::llm::{ChatRequest, Client, LlmError, LlmMessage, StreamEvent, ToolSpec};
 use crate::models::{ModelEntry, ModelRegistry, ModelSource};
 use crate::providers::ProviderKind;
 use crate::settings::Settings;
 use crate::state::AppState;
 use crate::tools::{self, ToolContext};
 
-/// A turn stops after this many model calls, so a confused model cannot loop forever.
-const MAX_STEPS: usize = 16;
+/// A turn stops after this many model calls, so a confused model cannot loop forever. The last
+/// one runs no tools: the model is asked to say where the work stands (see [`WRAP_UP`]).
+const MAX_STEPS: usize = 50;
+/// What the last step of a turn adds after the history, so the turn ends with an answer the person
+/// can read and carry on from, not an error.
+const WRAP_UP: &str = "(A note from Demido, not from the user: this answer has used all its steps, so tool \
+    calls are not run any more. Do not call a tool. Tell the user what you have done so far and what is \
+    left, with anything they need to pick it up again, and that they can reply \"continue\" for you to \
+    carry on.)";
 /// How often one call (the same tool with the same arguments) may fail in a turn before the turn
 /// stops: a small model otherwise repeats a call that cannot work until the steps run out.
 const MAX_SAME_FAILURES: usize = 3;
@@ -669,8 +678,16 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         let mut retried = false;
         // Times the model was busy and the request went again.
         let mut busy_retries = 0u32;
+        let wrap_up = step + 1 == MAX_STEPS;
         let (trace_keep, result) = loop {
             request.messages = prompt::history(&messages, budget, &files);
+            // After the history, where the prompt cache still hits on all of it.
+            if wrap_up {
+                request.messages.push(LlmMessage::User {
+                    content: WRAP_UP.into(),
+                    media: Vec::new(),
+                });
+            }
             // The files of the message this turn answers are kept whole in its first call's trace only.
             let trace_keep = (step == 0)
                 .then(|| {
@@ -820,6 +837,15 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         reply.content = completion.content.clone();
         reply.reasoning = Some(completion.reasoning.clone()).filter(|r| !r.trim().is_empty());
         reply.tool_calls = completion.tool_calls.clone();
+        if wrap_up {
+            // Calls made anyway are not run, so they are not kept either.
+            reply.tool_calls.clear();
+            if reply.content.trim().is_empty() {
+                reply.content = format!(
+                    "I used all {MAX_STEPS} steps one answer may take before finishing. Reply \"continue\" and I will carry on from here."
+                );
+            }
+        }
         reply.provider_meta = completion.provider_meta.clone();
         reply.status = MessageStatus::Done;
         reply.stats = Some(stats(
@@ -878,9 +904,6 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                     );
                 }
             }
-        }
-        if step + 1 == MAX_STEPS {
-            bail_msg!("Stopped after {MAX_STEPS} steps without a final answer.");
         }
     }
     Ok(())
