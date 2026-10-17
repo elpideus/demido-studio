@@ -60,7 +60,7 @@ minisign-verify = "0.2"
 tempfile = "3"
 walkdir = "2"
 base64 = "0.22"
-windows = "0.61"
+windows = "0.62"
 windows-registry = "0.5"
 
 tauri = { version = "2.12" }
