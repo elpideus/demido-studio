@@ -1095,7 +1095,7 @@ dependencies = [
 
 [[package]]
 name = "demido-catalog"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "demido-core",
  "demido-hardware",
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "demido-core"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1120,7 +1120,7 @@ dependencies = [
 
 [[package]]
 name = "demido-drive"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "cairo-rs",
@@ -1134,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "demido-extract"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "calamine",
  "chrono",
@@ -1151,7 +1151,7 @@ dependencies = [
 
 [[package]]
 name = "demido-fetch"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1172,7 +1172,7 @@ dependencies = [
 
 [[package]]
 name = "demido-hardware"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "demido-core",
  "serde",
@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "demido-provision"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "demido-setup"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "demido-catalog",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "demido-setup-cli"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "demido-catalog",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "demido-studio"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-imap",
