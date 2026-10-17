@@ -5,6 +5,7 @@ import { unreachableNote } from '@/chat/contextView';
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
 import { chartPatch } from '@/market/chartCommands';
+import { announceDownloaded } from '@/models/actions';
 import { Disclaimer } from '@/shell/Disclaimer';
 import { RestartDialog } from '@/shell/RestartDialog';
 import { Shell } from '@/shell/Shell';
@@ -51,12 +52,12 @@ function subscribe(): Array<Promise<() => void>> {
     on('downloads://changed', (job) => {
       const before = useModels.getState().downloads.find((j) => j.id === job.id);
       useModels.getState().upsertDownload(job);
-      if (job.state === 'done' && before?.state !== 'done')
-        toast.success('Download complete', `${job.name} is ready to use.`);
+      if (job.state === 'done' && before && before.state !== 'done') announceDownloaded(job);
       if (job.state === 'failed' && before?.state !== 'failed' && job.error !== 'cancelled') {
         toast.error('Download failed', job.error ?? job.name);
       }
     }),
+    on('downloads://list', (jobs) => useModels.getState().setDownloads(jobs)),
     on('skills://changed', (skills) => {
       useSkills.getState().setSkills(skills);
       void useSkills.getState().refreshGroups();

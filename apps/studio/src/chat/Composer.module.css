@@ -119,6 +119,24 @@
   color: var(--accent-text);
 }
 
+.loadedBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.loadedBarText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .notice,
 .noticeError {
   display: flex;

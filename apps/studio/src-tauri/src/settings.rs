@@ -44,6 +44,13 @@ pub struct Settings {
     pub last_chat_id: Option<String>,
     /// A market download the assistant starts asks first when its estimate exceeds this.
     pub download_approval_seconds: u32,
+    /// Model downloads that run at once (1 to 3). One gives the file being waited for the whole
+    /// connection.
+    pub download_concurrency: u8,
+    /// Bytes per second all model downloads may take together; 0 is no limit.
+    pub download_limit: u64,
+    /// Fetch model files through Hugging Face's Xet engine rather than plain HTTP.
+    pub download_xet: bool,
     /// Which releases the updater offers.
     pub update_channel: UpdateChannel,
     /// Download new versions in the background and install them the next time the app starts.
@@ -90,6 +97,9 @@ impl Default for Settings {
             window_layout: serde_json::Value::Null,
             last_chat_id: None,
             download_approval_seconds: 60,
+            download_concurrency: 1,
+            download_limit: 0,
+            download_xet: false,
             update_channel: UpdateChannel::Release,
             auto_update: true,
             auto_compact: true,

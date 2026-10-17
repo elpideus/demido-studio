@@ -4,7 +4,7 @@ import { Spinner, Tooltip, cx } from '@demido/ui';
 import type { ModelCapabilities, ModelEntry } from '@/lib/types';
 import styles from './Capabilities.module.css';
 
-interface Capability {
+export interface Capability {
   key: keyof ModelCapabilities;
   icon: LucideIcon;
   label: string;
@@ -13,7 +13,7 @@ interface Capability {
 }
 
 /** Every capability, in the order they are shown everywhere. */
-const CAPABILITIES: Capability[] = [
+export const CAPABILITIES: Capability[] = [
   { key: 'vision', icon: Eye, label: 'Vision', meaning: 'Understands images' },
   { key: 'audio', icon: Ear, label: 'Audio', meaning: 'Understands audio' },
   { key: 'tools', icon: Wrench, label: 'Tools', meaning: 'Uses tools, like market data and Python' },
@@ -26,12 +26,21 @@ const CHECKING = 'Checking what this model can do';
  * An icon for each thing a model can do, explained on hover. While llama.cpp checks a local
  * model, a spinner stands in for them.
  */
-export function CapabilityIcons({ model, className }: { model: ModelEntry; className?: string }) {
-  const present = CAPABILITIES.filter((c) => model.capabilities[c.key] === true);
-  if (!model.checkingCapabilities && present.length === 0) return null;
+export function CapabilityIcons({
+  capabilities,
+  checking = false,
+  className,
+}: {
+  capabilities: ModelCapabilities;
+  /** Still being found out: a spinner stands in for the icons. */
+  checking?: boolean;
+  className?: string;
+}) {
+  const present = CAPABILITIES.filter((c) => capabilities[c.key] === true);
+  if (!checking && present.length === 0) return null;
   return (
     <span className={cx(styles.icons, className)}>
-      {model.checkingCapabilities ? (
+      {checking ? (
         <Tooltip content={CHECKING}>
           <span role="img" aria-label={CHECKING} className={styles.icon}>
             <Spinner size={11} />

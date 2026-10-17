@@ -47,7 +47,7 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
   );
 }
 
-function CodeBlock({ children }: { children?: ReactNode }) {
+export function CodeBlock({ children }: { children?: ReactNode }) {
   const child = Array.isArray(children) ? children[0] : children;
   const className =
     child && typeof child === 'object' && 'props' in child

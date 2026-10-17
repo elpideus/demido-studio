@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 
-import { api } from '@/lib/api';
+import { api, errorText } from '@/lib/api';
 import type { DownloadJob, ModelEntry, RuntimeStatus } from '@/lib/types';
+import { useChats } from './chats';
+import { toast } from './toasts';
 
 interface ModelsStore {
   models: ModelEntry[];
@@ -52,4 +54,15 @@ export function enabledModels(models: ModelEntry[]): ModelEntry[] {
 
 export function findModel(models: ModelEntry[], id: string | null | undefined): ModelEntry | undefined {
   return id ? models.find((m) => m.id === id) : undefined;
+}
+
+/** Frees the memory the local model holds; the next message to it loads it again. */
+export function unloadModel(): void {
+  api.unloadModel().catch((e) => toast.error('Could not unload the model', errorText(e)));
+}
+
+/** Whether a chat is being answered by the loaded local model, which unloading would cut off. */
+export function useLoadedModelAnswering(): boolean {
+  const loadedId = useModels((s) => (s.runtime?.state === 'ready' ? s.runtime.modelId : null));
+  return useChats((s) => loadedId !== null && s.chats.some((c) => s.running[c.id] && c.modelId === loadedId));
 }

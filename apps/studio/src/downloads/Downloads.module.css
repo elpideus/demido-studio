@@ -1,0 +1,486 @@
+/* The downloads button on the navigation rail, its hover summary, and the panel it opens. */
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.error {
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------- the button */
+
+.button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.button:hover,
+.buttonOpen {
+  color: var(--text-primary);
+  background: var(--surface-4);
+}
+
+.ring {
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+}
+
+.ringTrack,
+.ringFill {
+  fill: none;
+  stroke-width: 2;
+}
+
+.ringTrack {
+  stroke: var(--surface-6);
+}
+
+.ringFill {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  transition: stroke-dashoffset var(--duration-slow) linear;
+}
+
+.ringIdle {
+  stroke: var(--text-tertiary);
+}
+
+.badge {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  color: var(--text-on-accent);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 0 2px var(--surface-2);
+}
+
+.badgePaused {
+  color: var(--text-primary);
+  background: var(--surface-6);
+}
+
+.badgeFailed {
+  color: var(--text-on-accent);
+  background: var(--danger);
+}
+
+.tip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 200px;
+}
+
+.tipTitle {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: 2px;
+  font-weight: var(--weight-semibold);
+}
+
+.tipKey {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+}
+
+.tipLine {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.tipMuted {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* ---------------------------------------------------------------- the panel */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: inherit;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 10px 10px var(--space-4);
+}
+
+.title {
+  font-size: var(--text-lg);
+}
+
+.summary {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.total {
+  margin: 0 var(--space-4) 10px;
+}
+
+.totalMeta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 var(--space-4) 10px;
+  padding: 10px var(--space-3);
+  background: var(--surface-3);
+  border-radius: var(--radius-md);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.option > span:first-child {
+  flex: none;
+  white-space: nowrap;
+}
+
+.folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 2px 6px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+}
+
+.folder:hover {
+  color: var(--text-primary);
+  background: var(--surface-5);
+}
+
+.token {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tokenRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.tokenRow > :first-child {
+  flex: 1;
+}
+
+.tokenSaved {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--text-xs);
+}
+
+.optionNote {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: var(--leading);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--space-2) var(--space-2);
+  overflow-y: auto;
+}
+
+.section {
+  margin-bottom: var(--space-1);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2) 2px;
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sectionNote {
+  color: var(--text-disabled);
+  font-weight: var(--weight-regular);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sectionHead :global(button) {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 8px var(--space-4);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ---------------------------------------------------------------- one download */
+
+.job {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space-1);
+  padding: 9px var(--space-2) 9px 10px;
+  background: var(--surface-3);
+  border-radius: var(--radius-md);
+  outline: none;
+}
+
+.job:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.jobWaiting {
+  padding-left: var(--space-1);
+}
+
+.dragging {
+  opacity: 0.45;
+}
+
+.dropBefore::before,
+.dropAfter::after {
+  position: absolute;
+  right: 6px;
+  left: 6px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  box-shadow: 0 0 0 2px var(--surface-2);
+  content: '';
+}
+
+.dropBefore::before {
+  top: -3px;
+}
+
+.dropAfter::after {
+  bottom: -3px;
+}
+
+.jobTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.grip {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 28px;
+  color: var(--text-disabled);
+  border-radius: var(--radius-xs);
+  cursor: grab;
+  touch-action: none;
+}
+
+.grip:hover {
+  color: var(--text-secondary);
+  background: var(--surface-4);
+}
+
+.jobTitle {
+  flex: 1;
+  min-width: 0;
+  padding-left: 2px;
+}
+
+.jobName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.quant {
+  flex: none;
+  padding: 0 5px;
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  background: var(--accent-muted);
+  border-radius: var(--radius-xs);
+}
+
+.jobRepo {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.inUse {
+  padding: 0 var(--space-2);
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.cancel:hover {
+  color: var(--danger);
+  background: var(--danger-muted);
+}
+
+.bar {
+  height: 4px;
+  overflow: hidden;
+  background: var(--surface-5);
+  border-radius: 2px;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--duration-slow) linear;
+}
+
+.bar-paused > span,
+.bar-queued > span {
+  background: var(--text-tertiary);
+}
+
+.bar-failed > span {
+  background: var(--danger);
+}
+
+.bar-verifying > span {
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.1s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: 0 0;
+  }
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 2px -2px -2px;
+  padding: var(--space-2) 10px;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  background: var(--danger-muted);
+  border-radius: var(--radius-sm);
+}

@@ -35,7 +35,16 @@ export function useEscape(handler: () => void, enabled = true): void {
 }
 
 export type Placement =
-  'top-start' | 'top-end' | 'top' | 'bottom-start' | 'bottom-end' | 'bottom' | 'right' | 'right-start' | 'left';
+  | 'top-start'
+  | 'top-end'
+  | 'top'
+  | 'bottom-start'
+  | 'bottom-end'
+  | 'bottom'
+  | 'right'
+  | 'right-start'
+  | 'right-end'
+  | 'left';
 
 interface Position {
   top: number;
@@ -109,6 +118,10 @@ export function useAnchoredPosition(
           break;
         case 'right-start':
           top = a.top;
+          left = a.right + GAP;
+          break;
+        case 'right-end':
+          top = a.bottom - f.height;
           left = a.right + GAP;
           break;
         case 'left':

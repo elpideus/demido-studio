@@ -14,7 +14,7 @@ its source distribution.
 | [Lightweight Charts](https://github.com/tradingview/lightweight-charts) by TradingView | Apache-2.0 | Price charts |
 | [TradingView-API](https://github.com/Mathieu2301/TradingView-API) by Mathieu Colmon | ISC | Real-time market data |
 | [dukascopy-node](https://github.com/Leo4815162342/dukascopy-node) by Leonid Pyrlia | MIT | Historical market data |
-| [react-markdown](https://github.com/remarkjs/react-markdown), remark-gfm, remark-math, rehype-katex, rehype-highlight | MIT | Rendering answers |
+| [react-markdown](https://github.com/remarkjs/react-markdown), remark-gfm, remark-math, rehype-katex, rehype-highlight, rehype-raw, rehype-sanitize | MIT | Rendering answers and model cards |
 | [KaTeX](https://katex.org) | MIT | Math |
 | [Inter](https://rsms.me/inter/) by Rasmus Andersson, [JetBrains Mono](https://www.jetbrains.com/lp/mono/) by JetBrains, through [Fontsource](https://fontsource.org) | SIL Open Font License 1.1 | Type, on systems without Segoe UI and Cascadia (Linux) |
 | [highlight.js](https://highlightjs.org) | BSD-3-Clause | Code highlighting |
@@ -23,6 +23,7 @@ its source distribution.
 | [SQLite](https://sqlite.org) via rusqlite | Public domain, MIT | Chat storage |
 | [portable-pty](https://github.com/wezterm/wezterm) from WezTerm, [avt](https://github.com/asciinema/avt) from asciinema | MIT; Apache-2.0 | The terminal the assistant's commands run in, and reading its screen |
 | [pdf-extract](https://github.com/jrmuizel/pdf-extract) and [lopdf](https://github.com/J-F-Liu/lopdf), [calamine](https://github.com/tafia/calamine), [quick-xml](https://github.com/tafia/quick-xml), [image](https://github.com/image-rs/image), [encoding_rs](https://github.com/hsivonen/encoding_rs) | MIT; MIT; MIT; MIT; MIT or Apache-2.0; (Apache-2.0 or MIT) and BSD-3-Clause | Reading attached files: PDF, spreadsheets, Word, PowerPoint and OpenDocument, images, old text encodings |
+| [hf-xet](https://github.com/huggingface/xet-core) by Hugging Face | Apache-2.0 | Model downloads with Transfer set to Xet |
 | Rust crates (tokio, serde, reqwest, notify, keyring, sysinfo, zip, sha2 and others) | MIT or Apache-2.0 | Backend |
 
 Lightweight Charts shows TradingView's attribution logo on every chart, as its license asks.

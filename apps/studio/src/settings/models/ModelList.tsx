@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Pencil,
   Play,
+  Power,
   Search,
   SearchX,
   Star,
@@ -36,7 +37,7 @@ import {
 import { api, errorText } from '@/lib/api';
 import { fileUrl } from '@/lib/format';
 import type { ModelEntry, ModelFolder } from '@/lib/types';
-import { useModels } from '@/stores/models';
+import { unloadModel, useLoadedModelAnswering, useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
 import s from '../settings.module.css';
 import { UsageChip, useUsageRefresh } from '../UsageMeter';
@@ -59,6 +60,7 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
   const anchor = useRef<HTMLButtonElement>(null);
   const loaded = runtime?.modelId === model.id && runtime.state === 'ready';
   const loading = runtime?.modelId === model.id && runtime.state === 'loading';
+  const answering = useLoadedModelAnswering();
 
   const toggle = (enabled: boolean) =>
     void api
@@ -76,13 +78,24 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
     },
   ];
   if (model.source === 'local') {
-    items.push({
-      id: 'load',
-      label: loaded ? 'Loaded' : 'Load now',
-      icon: Play,
-      disabled: loaded || loading,
-      onSelect: () => void api.loadModel(model.id).catch((e) => toast.error('Could not load the model', errorText(e))),
-    });
+    items.push(
+      loaded
+        ? {
+            id: 'unload',
+            label: answering ? 'Unload (answering)' : 'Unload',
+            icon: Power,
+            disabled: answering,
+            onSelect: unloadModel,
+          }
+        : {
+            id: 'load',
+            label: 'Load now',
+            icon: Play,
+            disabled: loading,
+            onSelect: () =>
+              void api.loadModel(model.id).catch((e) => toast.error('Could not load the model', errorText(e))),
+          },
+    );
     if (model.path) {
       items.push({
         id: 'reveal',
@@ -114,7 +127,7 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelEntry; onEdit: () =
           {model.isDefault && <Badge tone="accent">Default</Badge>}
           {loaded && <Badge tone="info">Loaded</Badge>}
           {loading && <Badge tone="info">Loading</Badge>}
-          <CapabilityIcons model={model} />
+          <CapabilityIcons capabilities={model.capabilities} checking={model.checkingCapabilities} />
         </div>
         <div className={s.rowMeta}>{meta(model)}</div>
       </div>

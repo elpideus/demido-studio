@@ -7,12 +7,16 @@ license.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 
+[features]
+# Hugging Face's Xet transfer engine, for files the Hub stores there.
+xet = ["dep:hf-xet", "dep:serde"]
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-futures-util.workspace = true
+bytes.workspace = true
 reqwest.workspace = true
 sha2.workspace = true
 hex.workspace = true
@@ -20,6 +24,8 @@ zip.workspace = true
 flate2.workspace = true
 tar.workspace = true
 tracing.workspace = true
+hf-xet = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

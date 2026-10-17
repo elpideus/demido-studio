@@ -184,9 +184,17 @@ fn build_state(
     let rescan_models = models.clone();
     let rescan_app = app.clone();
     let rescan_embedder = embedder.clone();
+    let queue = settings.get();
     let downloads = DownloadManager::new(
         app.clone(),
         paths.models_dir.clone(),
+        paths.data_dir.join("downloads.json"),
+        paths.cache_dir.join("xet"),
+        models::downloads::QueueOptions {
+            concurrency: queue.download_concurrency,
+            limit: queue.download_limit,
+            xet: queue.download_xet,
+        },
         Arc::new(move || token_secrets.get(HF_TOKEN)),
         Arc::new(move || {
             rescan_models.rescan();
@@ -230,6 +238,7 @@ fn after_start(state: Arc<AppState>) {
 
     state.updater.spawn_scheduler();
     state.mail.start();
+    state.downloads.start();
     state.embedder.spawn();
     state.speech.spawn();
     // Find the shell commands run in now, so neither the first command nor the Tools menu waits.
@@ -415,6 +424,7 @@ pub fn run() {
             commands::models::unload_model,
             commands::models::hf_search,
             commands::models::hf_repo_files,
+            commands::models::hf_model_card,
             commands::models::recommended_models,
             commands::models::download_model,
             commands::models::find_projector,
@@ -424,6 +434,14 @@ pub fn run() {
             commands::models::resume_download,
             commands::models::cancel_download,
             commands::models::clear_downloads,
+            commands::models::pause_all_downloads,
+            commands::models::resume_all_downloads,
+            commands::models::reorder_download,
+            commands::models::start_download_now,
+            commands::models::remove_download,
+            commands::models::download_options,
+            commands::models::set_download_options,
+            commands::models::model_budget,
             commands::models::has_hf_token,
             commands::models::set_hf_token,
             commands::models::model_folders,

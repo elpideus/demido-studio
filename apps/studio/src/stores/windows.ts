@@ -24,7 +24,7 @@ import {
   sideOf,
 } from '@/wm/geometry';
 
-export type WindowKind = 'settings' | 'market' | 'mail' | 'inspector';
+export type WindowKind = 'settings' | 'models' | 'market' | 'mail' | 'inspector';
 
 export interface WindowSpec {
   title: string;
@@ -47,6 +47,15 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     singleton: true,
     defaultDockWidth: 560,
     defaultDockHeight: 380,
+  },
+  models: {
+    title: 'Models',
+    defaultSize: { w: 1120, h: 720 },
+    minSize: { w: 720, h: 460 },
+    maxSize: { w: 1600, h: 1200 },
+    singleton: true,
+    defaultDockWidth: 720,
+    defaultDockHeight: 440,
   },
   market: {
     title: 'Market',

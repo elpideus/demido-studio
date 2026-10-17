@@ -93,12 +93,14 @@ export function ActivityBar() {
           active={chatListOpen}
           onClick={() => void patchSettings({ chatListOpen: !chatListOpen })}
         />
+        <Item icon={Boxes} label="Models" active={isOpen('models')} onClick={() => toggle('models')} />
         <Item icon={CandlestickChart} label="Market" active={isOpen('market')} onClick={() => toggle('market')} />
         <Item icon={Mail} label="Mail" active={isOpen('mail')} onClick={() => toggle('mail')} />
       </div>
       <div className={styles.spacer} />
       <div className={styles.group}>
         <UpdateItem />
+        <DownloadsButton />
         <Item
           icon={Settings}
           label="Settings"

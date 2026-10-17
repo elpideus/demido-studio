@@ -1,0 +1,171 @@
+/*
+ * A model card on top of the chat's Markdown styles: what cards have that answers do not. Their
+ * pictures, the HTML layout tags they lean on (align, center, details), and the badge rows of
+ * linked images most of them open with. Colours and type stay Demido's: a card's own styles never
+ * get this far, the sanitizer removes them.
+ */
+
+.card {
+  max-width: 82ch;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.card img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+  border-radius: var(--radius-sm);
+}
+
+/* A row of badges: linked pictures side by side in one paragraph. */
+.card a img,
+.card p > img + img {
+  display: inline-block;
+  margin: 2px var(--space-1) 2px 0;
+  border-radius: 0;
+}
+
+.card [align='center'],
+.card center {
+  text-align: center;
+}
+
+.card [align='right'] {
+  text-align: right;
+}
+
+.card img[align='right'] {
+  float: right;
+  margin: 0 0 var(--space-3) var(--space-3);
+}
+
+.card img[align='left'] {
+  float: left;
+  margin: 0 var(--space-3) var(--space-3) 0;
+}
+
+.card hr {
+  clear: both;
+}
+
+.card figure {
+  margin: var(--space-4) 0;
+}
+
+.card figcaption {
+  margin-top: var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.card details {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-3);
+  border-radius: var(--radius-md);
+}
+
+.card summary {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.card details[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.card mark {
+  padding: 0 2px;
+  color: var(--text-primary);
+  background: var(--warning-muted);
+  border-radius: var(--radius-xs);
+}
+
+.card h1 {
+  font-size: var(--text-xl);
+}
+
+.card h1,
+.card h2 {
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.broken {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px 6px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  background: var(--surface-3);
+  border-radius: var(--radius-xs);
+}
+
+/* GitHub's callouts: `> [!NOTE]` and its kin, in Demido's notice colours. */
+.alert {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  background: var(--info-muted);
+  border-radius: var(--radius-md);
+}
+
+.alert > :last-child {
+  margin-bottom: 0;
+}
+
+.alertLabel {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--info);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.alert-tip {
+  background: var(--accent-muted);
+}
+
+.alert-tip .alertLabel {
+  color: var(--accent-text);
+}
+
+.alert-warning,
+.alert-important {
+  background: var(--warning-muted);
+}
+
+.alert-warning .alertLabel,
+.alert-important .alertLabel {
+  color: var(--warning);
+}
+
+.alert-caution {
+  background: var(--danger-muted);
+}
+
+.alert-caution .alertLabel {
+  color: var(--danger);
+}
+
+/* Tables keep whole words and scroll sideways in their wrapper, rather than squeezing a column
+   down to a letter at a time. */
+.card table {
+  overflow-wrap: normal;
+}
+
+.card th,
+.card td {
+  min-width: 4em;
+}
+
+/* Chat templates are about exact characters: `<|im_start|>` is not to be drawn as an arrow. */
+.card code {
+  font-variant-ligatures: none;
+}

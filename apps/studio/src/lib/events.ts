@@ -59,7 +59,10 @@ interface EventMap {
   'chat://event': ChatEvent;
   'models://changed': ModelEntry[];
   'runtime://status': RuntimeStatus;
+  /** One download's progress or state. */
   'downloads://changed': DownloadJob;
+  /** The queue as a whole, in order: a download was added, moved or removed. */
+  'downloads://list': DownloadJob[];
   'skills://changed': Skill[];
   'market://status': MarketStatus;
   'market://event': MarketEvent;

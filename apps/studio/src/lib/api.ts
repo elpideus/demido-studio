@@ -16,6 +16,7 @@ import type {
   DownloadJob,
   HfRepo,
   HfRepoFiles,
+  HfSort,
   HfModelFile,
   HfProjector,
   IndicatorCatalog,
@@ -37,6 +38,7 @@ import type {
   MarketPlan,
   MarketRange,
   MarketStatus,
+  MemoryBudget,
   Message,
   ModelEntry,
   ModelFolder,
@@ -50,6 +52,7 @@ import type {
   ProviderKind,
   ProviderUsage,
   ProviderView,
+  QueueOptions,
   Quote,
   Recommendation,
   RuntimeStatus,
@@ -155,8 +158,11 @@ export const api = {
   runtimeLogs: () => invoke<string[]>('runtime_logs'),
   loadModel: (id: string) => invoke<RuntimeStatus>('load_model', { id }),
   unloadModel: () => invoke<RuntimeStatus>('unload_model'),
-  hfSearch: (query: string) => invoke<HfRepo[]>('hf_search', { query }),
+  hfSearch: (query: string, sort: HfSort) => invoke<HfRepo[]>('hf_search', { query, sort }),
+  modelBudget: () => invoke<MemoryBudget>('model_budget'),
   hfRepoFiles: (repo: string) => invoke<HfRepoFiles>('hf_repo_files', { repo }),
+  /** The repository's model card as Markdown, without its front matter; null when it has none. */
+  hfModelCard: (repo: string) => invoke<string | null>('hf_model_card', { repo }),
   recommendedModels: () => invoke<Recommendation[]>('recommended_models'),
   downloadModel: (repo: string, file: HfModelFile, projector: HfProjector | null) =>
     invoke<DownloadJob>('download_model', {
@@ -177,6 +183,16 @@ export const api = {
   resumeDownload: (id: string) => invoke<void>('resume_download', { id }),
   cancelDownload: (id: string) => invoke<void>('cancel_download', { id }),
   clearDownloads: () => invoke<DownloadJob[]>('clear_downloads'),
+  pauseAllDownloads: () => invoke<void>('pause_all_downloads'),
+  resumeAllDownloads: () => invoke<void>('resume_all_downloads'),
+  /** Moves a waiting download before `before` in the queue, or to its end. */
+  reorderDownload: (id: string, before: string | null) => invoke<void>('reorder_download', { id, before }),
+  /** Runs it now, taking a slot from the download that started last when all are taken. */
+  startDownloadNow: (id: string) => invoke<void>('start_download_now', { id }),
+  /** Takes a finished download off the list. */
+  removeDownload: (id: string) => invoke<void>('remove_download', { id }),
+  downloadOptions: () => invoke<QueueOptions>('download_options'),
+  setDownloadOptions: (options: QueueOptions) => invoke<QueueOptions>('set_download_options', { options }),
   hasHfToken: () => invoke<boolean>('has_hf_token'),
   setHfToken: (token: string | null) => invoke<boolean>('set_hf_token', { token }),
   modelFolders: () => invoke<ModelFolder[]>('model_folders'),

@@ -6,8 +6,8 @@ use tauri::Emitter;
 use super::St;
 use crate::bail_msg;
 use crate::error::{AppError, CmdResult};
-use crate::models::downloads::{DownloadJob, DownloadSpec};
-use crate::models::hf::{self, HfProjector, HfRepo, HfRepoFiles};
+use crate::models::downloads::{DownloadJob, DownloadSpec, QueueOptions};
+use crate::models::hf::{self, HfProjector, HfRepo, HfRepoFiles, SearchSort};
 use crate::models::{CHANGED_EVENT, ModelEntry, ModelSettings, ModelSource};
 use crate::runtime::RuntimeStatus;
 use crate::secrets::HF_TOKEN;
@@ -110,10 +110,11 @@ pub async fn unload_model(state: St<'_>) -> CmdResult<RuntimeStatus> {
     Ok(state.runtime.status())
 }
 
+/// GGUF repositories on Hugging Face; with no query, the most popular ones.
 #[tauri::command]
-pub async fn hf_search(state: St<'_>, query: String) -> CmdResult<Vec<HfRepo>> {
+pub async fn hf_search(state: St<'_>, query: String, sort: Option<SearchSort>) -> CmdResult<Vec<HfRepo>> {
     let token = state.secrets.get(HF_TOKEN);
-    hf::search(&state.http, query.trim(), token.as_deref())
+    hf::search(&state.http, query.trim(), sort.unwrap_or_default(), token.as_deref())
         .await
         .map_err(|e| AppError::msg(format!("Hugging Face search failed: {e}")))
 }
@@ -121,17 +122,92 @@ pub async fn hf_search(state: St<'_>, query: String) -> CmdResult<Vec<HfRepo>> {
 #[tauri::command]
 pub async fn hf_repo_files(state: St<'_>, repo: String) -> CmdResult<HfRepoFiles> {
     let token = state.secrets.get(HF_TOKEN);
-    let vram = state::budget(&state);
-    hf::repo_files(&state.http, repo.trim(), token.as_deref(), Some(vram))
+    hf::repo_files(&state.http, repo.trim(), token.as_deref())
         .await
         .map_err(|e| AppError::msg(format!("Could not list the files of {repo}: {e}")))
 }
 
-mod state {
-    use super::St;
+/// A repository's model card, as Markdown. Fetched apart from its files, so a long card never
+/// holds up the download options.
+#[tauri::command]
+pub async fn hf_model_card(state: St<'_>, repo: String) -> CmdResult<Option<String>> {
+    let token = state.secrets.get(HF_TOKEN);
+    Ok(hf::model_card(&state.http, repo.trim(), token.as_deref()).await)
+}
 
-    pub fn budget(state: &St<'_>) -> f64 {
-        crate::state::AppState::memory_budget_gb(&state.hardware)
+/// GPU memory a chat model leaves free for its conversation, beyond llama.cpp's own margin: it
+/// fits the context into what is free when it loads, so this is the least worth having.
+const CONTEXT_RESERVE: u64 = 1 << 30;
+
+/// What a model downloaded here has to fit in.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryBudget {
+    /// The GPU, when there is one with memory of its own.
+    pub gpu: Option<String>,
+    /// Bytes a model may take and run at full speed: the GPU's memory, or a share of system memory
+    /// without one (what the starter models are picked by).
+    pub memory: u64,
+    /// System memory, which a model larger than `memory` spills into, more slowly.
+    pub system: u64,
+    /// What stays free beside the chat model, each part with its reason.
+    pub reserve: Vec<Reserved>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reserved {
+    pub label: String,
+    pub bytes: u64,
+}
+
+#[tauri::command]
+pub fn model_budget(state: St<'_>) -> MemoryBudget {
+    let hardware = &state.hardware;
+    let gpu = hardware.primary_gpu().filter(|g| !g.integrated);
+    let memory = gpu.map_or((hardware.total_memory as f64 * 0.5) as u64, |g| g.vram);
+    let mb = |mb: u32| u64::from(mb) << 20;
+    // The search and speech models run beside the chat model: those installed, or those this
+    // computer would get.
+    let backend = state
+        .paths
+        .manifest
+        .as_ref()
+        .and_then(|m| m.runtime.as_ref())
+        .map(|r| r.backend);
+    let search = state.embedder.installed().map(|i| i.model).unwrap_or_else(|| {
+        let catalog = demido_catalog::catalog();
+        let choices = demido_catalog::backend_choices(hardware, catalog);
+        let backend = backend.unwrap_or_else(|| demido_catalog::default_backend(&choices));
+        choices
+            .iter()
+            .find(|c| c.backend == backend)
+            .map(|c| demido_catalog::search_model(c, catalog))
+            .unwrap_or_else(|| catalog.models.search.for_memory(None))
+            .clone()
+    });
+    let speech = state
+        .speech
+        .installed()
+        .map_or_else(|| state.speech.wanted(), |i| i.model);
+    MemoryBudget {
+        gpu: gpu.map(|g| g.name.clone()),
+        memory,
+        system: hardware.total_memory,
+        reserve: vec![
+            Reserved {
+                label: "Conversation".into(),
+                bytes: CONTEXT_RESERVE,
+            },
+            Reserved {
+                label: format!("Search ({})", search.name),
+                bytes: mb(search.gpu_memory_mb),
+            },
+            Reserved {
+                label: format!("Speech ({})", speech.name),
+                bytes: mb(speech.gpu_memory_mb),
+            },
+        ],
     }
 }
 
@@ -209,7 +285,7 @@ pub async fn find_projector(state: St<'_>, id: String) -> CmdResult<Option<HfPro
 
 async fn repo_projector(state: &St<'_>, repo: &str) -> CmdResult<Option<HfProjector>> {
     let token = state.secrets.get(HF_TOKEN);
-    let files = hf::repo_files(&state.http, repo, token.as_deref(), None)
+    let files = hf::repo_files(&state.http, repo, token.as_deref())
         .await
         .map_err(|e| AppError::msg(format!("Could not list the files of {repo}: {e}")))?;
     Ok(files.projector)
@@ -261,6 +337,49 @@ pub fn cancel_download(state: St<'_>, id: String) {
 pub fn clear_downloads(state: St<'_>) -> Vec<DownloadJob> {
     state.downloads.clear_finished();
     state.downloads.list()
+}
+
+#[tauri::command]
+pub fn pause_all_downloads(state: St<'_>) {
+    state.downloads.pause_all();
+}
+
+#[tauri::command]
+pub fn resume_all_downloads(state: St<'_>) {
+    state.downloads.resume_all();
+}
+
+/// Moves a waiting download before `before` in the queue, or to its end.
+#[tauri::command]
+pub fn reorder_download(state: St<'_>, id: String, before: Option<String>) {
+    state.downloads.reorder(&id, before.as_deref());
+}
+
+#[tauri::command]
+pub fn start_download_now(state: St<'_>, id: String) {
+    state.downloads.start_now(&id);
+}
+
+/// Takes a finished download off the list.
+#[tauri::command]
+pub fn remove_download(state: St<'_>, id: String) {
+    state.downloads.remove(&id);
+}
+
+#[tauri::command]
+pub fn download_options(state: St<'_>) -> QueueOptions {
+    state.downloads.options()
+}
+
+#[tauri::command]
+pub fn set_download_options(state: St<'_>, options: QueueOptions) -> CmdResult<QueueOptions> {
+    let options = state.downloads.set_options(options);
+    state.settings.update(|s| {
+        s.download_concurrency = options.concurrency;
+        s.download_limit = options.limit;
+        s.download_xet = options.xet;
+    })?;
+    Ok(options)
 }
 
 #[tauri::command]

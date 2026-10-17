@@ -1,11 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Cloud, Settings2 } from 'lucide-react';
-import { Avatar, Popover, SearchList, formatBytes, type SearchListItem } from '@demido/ui';
+import { Check, ChevronDown, Cloud, Power, Settings2 } from 'lucide-react';
+import { Avatar, Button, Popover, SearchList, formatBytes, type SearchListItem } from '@demido/ui';
 
 import { fileUrl } from '@/lib/format';
 import type { ModelEntry } from '@/lib/types';
 import { CapabilityIcons } from '@/settings/models/Capabilities';
-import { useModels } from '@/stores/models';
+import { unloadModel, useLoadedModelAnswering, useModels } from '@/stores/models';
 import { useWindows } from '@/stores/windows';
 import styles from './Composer.module.css';
 
@@ -28,6 +28,7 @@ export function ModelPicker({ model, onPick }: Props) {
   const anchor = useRef<HTMLButtonElement>(null);
   const models = useModels((s) => s.models);
   const runtime = useModels((s) => s.runtime);
+  const answering = useLoadedModelAnswering();
   const openWindow = useWindows((s) => s.open);
 
   const items: SearchListItem[] = useMemo(
@@ -43,7 +44,7 @@ export function ModelPicker({ model, onPick }: Props) {
           leading: <Avatar name={m.name} src={fileUrl(m.avatarPath)} size={26} />,
           trailing: (
             <>
-              <CapabilityIcons model={m} />
+              <CapabilityIcons capabilities={m.capabilities} checking={m.checkingCapabilities} />
               {runtime?.state === 'ready' && runtime.modelId === m.id && (
                 <span className={styles.loadedTag}>Loaded</span>
               )}
@@ -87,6 +88,23 @@ export function ModelPicker({ model, onPick }: Props) {
           selectedId={model?.id}
           placeholder="Search models"
           emptyText="No models are ready. Download one or connect a provider in Settings."
+          header={
+            runtime?.state === 'ready' && (
+              <div className={styles.loadedBar}>
+                <span className={styles.loadedBarText}>{runtime.modelName} is loaded</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={Power}
+                  disabled={answering}
+                  title={answering ? 'It is writing an answer' : undefined}
+                  onClick={unloadModel}
+                >
+                  Unload
+                </Button>
+              </div>
+            )
+          }
           onSelect={(item) => {
             onPick(item.id);
             setOpen(false);

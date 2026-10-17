@@ -507,8 +507,10 @@ export interface MarketStatus {
   loginPending: boolean;
 }
 
-export type JobState = 'queued' | 'downloading' | 'paused' | 'done' | 'failed';
+/** `verifying`: every byte is here and the files are being checked against their SHA-256. */
+export type JobState = 'queued' | 'downloading' | 'verifying' | 'paused' | 'done' | 'failed';
 
+/** A model download. The list is in queue order: the front of the queue starts first. */
 export interface DownloadJob {
   id: string;
   repo: string;
@@ -520,18 +522,46 @@ export interface DownloadJob {
   state: JobState;
   error: string | null;
   createdAt: number;
+  /** Files it fetches: the model's parts and its projector. */
+  files: number;
+  /** The repo's projector comes with it. */
+  projector: boolean;
 }
 
+/** How many model downloads run at once, how fast they may go together, and how they travel. */
+export interface QueueOptions {
+  /** 1 to 3. */
+  concurrency: number;
+  /** Bytes per second for all of them together; 0 is no limit. */
+  limit: number;
+  /** Fetch files through Hugging Face's Xet engine rather than plain HTTP. */
+  xet: boolean;
+}
+
+export type HfSort = 'recommended' | 'downloads' | 'likes' | 'updated' | 'trending';
+
+/** A GGUF repository on Hugging Face, with what its GGUF header and model card state. */
 export interface HfRepo {
   id: string;
   author: string;
   downloads: number;
   likes: number;
   lastModified: string | null;
+  /** Quantized by unsloth, Demido's preferred publisher. */
   preferred: boolean;
+  /** Needs an account that accepted the publisher's terms. */
+  gated: boolean;
+  parameters: number | null;
+  architecture: string | null;
+  /** The context it was trained for, in tokens. */
+  contextLength: number | null;
+  license: string | null;
+  /** Hugging Face's task, e.g. `image-text-to-text`. */
+  pipeline: string | null;
+  baseModel: string | null;
+  /** As the publisher states them. */
+  capabilities: ModelCapabilities;
 }
-
-export type Fit = 'fits' | 'tight' | 'large' | 'unknown';
 
 export interface HfModelFile {
   name: string;
@@ -540,8 +570,18 @@ export interface HfModelFile {
   sha256: Array<string | null>;
   size: number;
   quant: string | null;
-  fit: Fit;
-  recommended: boolean;
+}
+
+/** What a downloaded model has to fit in. */
+export interface MemoryBudget {
+  /** The GPU, when there is one with memory of its own. */
+  gpu: string | null;
+  /** Bytes a model may take and run at full speed: GPU memory, or a share of system memory. */
+  memory: number;
+  /** System memory, which a larger model spills into. */
+  system: number;
+  /** What stays free beside the chat model. */
+  reserve: Array<{ label: string; bytes: number }>;
 }
 
 /** A repo's projector (mmproj), which lets its models see pictures and, for some, hear sound. */
@@ -557,6 +597,8 @@ export interface HfRepoFiles {
   files: HfModelFile[];
   /** Downloaded with whichever file is picked. */
   projector: HfProjector | null;
+  /** The repository's facts, read again with its files. */
+  info: HfRepo;
 }
 
 export interface Recommendation {
@@ -636,6 +678,10 @@ export interface Settings {
   speechModel: string | null;
   /** Send the recorded voice to models that can hear it, rather than a transcript. */
   sendVoice: boolean;
+  /** Change through `api.setDownloadOptions`, which applies it to the running queue. */
+  downloadConcurrency: number;
+  downloadLimit: number;
+  downloadXet: boolean;
 }
 
 export type UpdateChannel = 'release' | 'prerelease';
