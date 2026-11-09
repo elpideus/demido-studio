@@ -308,7 +308,7 @@ impl Transcriber {
     ) -> Result<Transcript, String> {
         let Some(m) = self.installed() else {
             return Err(format!(
-                "No speech model is installed. Download {} in the composer or in Settings, General.",
+                "No speech model is installed. Download {} in the composer or in Settings, Voice.",
                 self.wanted().name
             ));
         };

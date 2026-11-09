@@ -132,7 +132,7 @@ impl ModelAccess {
     }
 
     /// Voice notes go as the recording to a model known to hear it, unless the person turned
-    /// that off (Settings, General, Voice); any other model, one whose hearing is unknown
+    /// that off (Settings, Voice); any other model, one whose hearing is unknown
     /// included, gets what a speech model wrote down.
     pub fn voice_route(&self, send_voice: bool) -> VoiceRoute {
         if send_voice && self.hears("audio/wav") {

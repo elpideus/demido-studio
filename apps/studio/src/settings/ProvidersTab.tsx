@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Cloud, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, Sparkles, Tag, Trash2, Waypoints } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -21,7 +21,9 @@ import { formatDateTime } from '@/lib/format';
 import type { ModelGroup, ProviderKind, ProviderView } from '@/lib/types';
 import { useProviderUsage } from '@/stores/providerUsage';
 import { toast } from '@/stores/toasts';
+import { type WindowState, useWindows } from '@/stores/windows';
 import { ClaudeCodeAccountRow, SubscriptionForm } from './ClaudeCodeSetup';
+import { PageHeader } from './layout';
 import s from './settings.module.css';
 import styles from './ProvidersTab.module.css';
 import { ProviderUsageMeters, useUsageRefresh } from './UsageMeter';
@@ -99,6 +101,12 @@ const METHODS: Array<{ value: Method; label: string }> = [
 ];
 
 const METHOD_NOTE = 'An API key is billed per token. A subscription uses your Claude Pro or Max plan and its limits.';
+
+/** What a window's `connect` prop asks the add card to start on. */
+function connectRequest(value: unknown): { kind: AddKind; method: Method } | null {
+  if (value === 'claudecode') return { kind: 'anthropic', method: 'subscription' };
+  return KINDS.some((k) => k.value === value) ? { kind: value as AddKind, method: 'api' } : null;
+}
 
 const GROUPS: Array<{ value: ModelGroup; label: string }> = [
   { value: 'all', label: 'All models' },
@@ -481,20 +489,22 @@ function connectedNote(p: ProviderView): string {
 /** A provider being connected: which kind (and for Anthropic, how), then its name, models and key. */
 function AddCard({
   initialKind,
+  initialMethod = 'api',
   onCancel,
   onAdded,
 }: {
   initialKind: AddKind;
+  initialMethod?: Method;
   onCancel?: () => void;
   onAdded: () => void;
 }) {
   const id = useId();
   const [kind, setKind] = useState(initialKind);
-  const [method, setMethod] = useState<Method>('api');
+  const [method, setMethod] = useState<Method>(initialMethod);
   const connecting: ProviderKind = kind === 'anthropic' && method === 'subscription' ? 'claudecode' : kind;
   const preset = PRESETS[connecting];
   return (
-    <div className={s.card}>
+    <div className={s.card} data-setting="add-provider">
       <div className={s.cardPad}>
         <SegmentedControl value={kind} onChange={setKind} options={KINDS} className={styles.kinds} />
         <div className={styles.addHead}>
@@ -543,30 +553,47 @@ function AddCard({
 }
 
 /** Cloud model providers: Google Gemini, OpenRouter and Anthropic, with an API key or a Claude subscription. */
-export function ProvidersTab() {
+export function ProvidersTab({ win }: { win: WindowState }) {
+  const setProps = useWindows((st) => st.setProps);
   const [providers, setProviders] = useState<ProviderView[] | null>(null);
   const [adding, setAdding] = useState(false);
+  // A search result that connects a provider; counted, so choosing one again starts over.
+  const [asked, setAsked] = useState<{ kind: AddKind; method: Method; n: number } | null>(null);
   const load = () => api.listProviders().then(setProviders);
   useEffect(() => void load(), []);
   useUsageRefresh();
   // The first kind not connected yet, so adding a second provider starts on the other one.
   const nextKind = KINDS.find((k) => !providers?.some((p) => family(p.kind) === k.value))?.value ?? 'gemini';
 
+  // Before the window looks for the add card to point at it, so it finds the card and not the button.
+  const connect = win.props.connect;
+  useLayoutEffect(() => {
+    const request = connectRequest(connect);
+    if (!request) return;
+    setAsked((prev) => ({ ...request, n: (prev?.n ?? 0) + 1 }));
+    setAdding(true);
+    setProps(win.id, { connect: undefined });
+  }, [connect, setProps, win.id]);
+
+  const done = () => {
+    setAdding(false);
+    setAsked(null);
+  };
+
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <div className={s.headerText}>
-          <h2 className={s.title}>Providers</h2>
-          <p className={s.subtitle}>Connect cloud AI services. Their models appear next to your local ones.</p>
-        </div>
-        {providers && providers.length > 0 && !adding && (
-          <div className={s.headerActions}>
-            <Button icon={Plus} onClick={() => setAdding(true)}>
+      <PageHeader
+        page="providers"
+        actions={
+          providers &&
+          providers.length > 0 &&
+          !adding && (
+            <Button icon={Plus} data-setting="add-provider" onClick={() => setAdding(true)}>
               Add provider
             </Button>
-          </div>
-        )}
-      </header>
+          )
+        }
+      />
       <div className={s.scroll}>
         <div className={s.stack}>
           {providers?.map((p) => (
@@ -574,10 +601,12 @@ export function ProvidersTab() {
           ))}
           {providers && (providers.length === 0 || adding) && (
             <AddCard
-              initialKind={nextKind}
-              onCancel={providers.length > 0 ? () => setAdding(false) : undefined}
+              key={asked ? `asked-${asked.n}` : 'add'}
+              initialKind={asked?.kind ?? nextKind}
+              initialMethod={asked?.method}
+              onCancel={providers.length > 0 ? done : undefined}
               onAdded={() => {
-                setAdding(false);
+                done();
                 void load();
                 void useProviderUsage.getState().refresh(true);
               }}

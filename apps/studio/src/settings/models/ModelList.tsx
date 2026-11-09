@@ -411,7 +411,7 @@ function Folders({ hidden }: { hidden: boolean }) {
     }
   };
   return (
-    <section className={s.section} hidden={hidden}>
+    <section className={s.section} hidden={hidden} data-setting="model-folders">
       <h3 className={s.sectionTitle}>
         Model folders
         <Button
@@ -500,7 +500,7 @@ export function ModelList({
 
   return (
     <>
-      <div className={styles.searchBar}>
+      <div className={styles.searchBar} data-setting="models-search">
         <SearchField value={query} onChange={onQueryChange} placeholder="Search all models" />
       </div>
       <div className={s.scroll}>

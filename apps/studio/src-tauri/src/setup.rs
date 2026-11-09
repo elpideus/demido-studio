@@ -35,7 +35,7 @@ pub fn available() -> bool {
 /// installed. {how}."
 pub fn how_to_add() -> &'static str {
     if available() {
-        "Open setup from Settings, General, to add it"
+        "Open setup from Settings, AI runtime, to add it"
     } else {
         "Run the Demido Studio installer again to add it"
     }

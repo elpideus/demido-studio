@@ -180,7 +180,7 @@ export function useVoice(chatId: string | null, model: ModelEntry | undefined, h
         setProblem({ text: `Recording could not start: ${errorText(e)}` });
       } else if (e.problem === 'none') {
         setProblem({
-          text: 'No microphone was found. Plug one in, or choose another in Settings, General, Voice.',
+          text: 'No microphone was found. Plug one in, or choose another in Settings, Voice.',
         });
       } else if (e.problem === 'denied') {
         setProblem(

@@ -12,15 +12,16 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
-import { Button, Field, Notice, ProgressBar, SegmentedControl, Spinner, Switch, cx } from '@demido/ui';
+import { Button, Notice, ProgressBar, SegmentedControl, Spinner, Switch, cx } from '@demido/ui';
 
 import { Markdown } from '@/chat/Markdown';
 import type { UpdateChannel, UpdateStatus } from '@/lib/types';
 import { useUpdates } from '@/stores/updates';
+import { api } from '@/lib/api';
+import { Group, PageHeader, Row } from './layout';
 import { type CardIcon, type StatusCard, statusCard } from './updateView';
 import s from './settings.module.css';
 import styles from './UpdatesTab.module.css';
-import { api } from '@/lib/api';
 
 const CHANNELS: Array<{ value: UpdateChannel; label: string }> = [
   { value: 'release', label: 'Release' },
@@ -144,12 +145,7 @@ export function UpdatesTab() {
 
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <div className={s.headerText}>
-          <h2 className={s.title}>Updates</h2>
-          <p className={s.subtitle}>Get new versions of Demido Studio as they come out.</p>
-        </div>
-      </header>
+      <PageHeader page="updates" />
       <div className={s.scroll}>
         <section className={s.section}>
           <div className={s.stack}>
@@ -164,7 +160,7 @@ export function UpdatesTab() {
               </Notice>
             )}
             <div className={s.rows}>
-              <div className={cx(s.row, styles.status)} aria-live="polite">
+              <div className={cx(s.row, styles.status)} aria-live="polite" data-setting="update-status">
                 <StatusIcon icon={card.icon} />
                 <div className={s.rowMain}>
                   <div className={s.rowTitle}>{card.title}</div>
@@ -203,34 +199,31 @@ export function UpdatesTab() {
           </div>
         </section>
 
-        <section className={s.section}>
-          <h3 className={s.sectionTitle}>Preferences</h3>
-          <div className={cx(s.card, s.cardPad, styles.prefs)}>
-            <Field
-              layout="inline"
-              label="Update channel"
-              description="Pre-releases get new features first and may have rough edges."
-            >
-              <SegmentedControl
-                size="sm"
-                value={status.channel}
-                onChange={(channel) => void setPreferences({ channel })}
-                options={CHANNELS}
-              />
-            </Field>
-            <Field
-              layout="inline"
+        <Group title="Preferences">
+          <Row
+            setting="update-channel"
+            label="Update channel"
+            description="Pre-releases get new features first and may have rough edges."
+          >
+            <SegmentedControl
+              size="sm"
+              value={status.channel}
+              onChange={(channel) => void setPreferences({ channel })}
+              options={CHANNELS}
+            />
+          </Row>
+          <Row
+            setting="auto-update"
+            label="Update automatically"
+            description="Downloads new versions in the background and installs them the next time Demido Studio starts. Turn it off to check and update yourself."
+          >
+            <Switch
+              checked={status.auto}
+              onChange={(auto) => void setPreferences({ auto })}
               label="Update automatically"
-              description="Downloads new versions in the background and installs them the next time Demido Studio starts. Turn it off to check and update yourself."
-            >
-              <Switch
-                checked={status.auto}
-                onChange={(auto) => void setPreferences({ auto })}
-                label="Update automatically"
-              />
-            </Field>
-          </div>
-        </section>
+            />
+          </Row>
+        </Group>
 
         {release && release.notes.trim() && (
           <section className={s.section}>

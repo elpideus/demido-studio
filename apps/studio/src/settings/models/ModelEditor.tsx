@@ -85,6 +85,7 @@ const PARAMS: Array<{
 const CONTEXTS = [4096, 8192, 16384, 24576, 32768, 49152, 65536, 98304, 131072, 196608, 262144];
 
 function ParamRow({
+  setting,
   label,
   hint,
   value,
@@ -94,6 +95,8 @@ function ParamRow({
   step,
   onChange,
 }: {
+  /** What a search result for it points at. */
+  setting: string;
   label: string;
   hint: string;
   value: number | null | undefined;
@@ -105,7 +108,7 @@ function ParamRow({
 }) {
   const shown = value ?? fallback ?? min;
   return (
-    <div className={styles.paramRow}>
+    <div className={styles.paramRow} data-setting={setting}>
       <div className={styles.paramLabel}>
         <span className={styles.paramName}>{label}</span>
         <span className={styles.paramHint}>{hint}</span>
@@ -273,13 +276,15 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
           <h3 className={s.sectionTitle}>Identity</h3>
           <div className={`${s.card} ${s.cardPad} ${s.stack}`}>
             <div className={s.grid2}>
-              <Field label="Name">
-                <TextField
-                  value={draft.name ?? ''}
-                  placeholder={model.defaultName}
-                  onChange={(e) => set({ name: e.target.value || null })}
-                />
-              </Field>
+              <div data-setting="model-name">
+                <Field label="Name">
+                  <TextField
+                    value={draft.name ?? ''}
+                    placeholder={model.defaultName}
+                    onChange={(e) => set({ name: e.target.value || null })}
+                  />
+                </Field>
+              </div>
               <Field label="Picture">
                 <div style={{ display: 'flex', gap: 8 }}>
                   <Button size="md" variant="secondary" icon={ImagePlus} onClick={() => void pickAvatar()}>
@@ -305,7 +310,7 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
 
         <section className={s.section}>
           <h3 className={s.sectionTitle}>Instructions</h3>
-          <div className={`${s.card} ${s.cardPad}`}>
+          <div className={`${s.card} ${s.cardPad}`} data-setting="model-system-prompt">
             <Field
               label="System prompt"
               description="Added to every conversation with this model: its role, tone, or rules to follow."
@@ -326,6 +331,7 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
             {PARAMS.filter((p) => local || !p.local).map((p) => (
               <ParamRow
                 key={p.key}
+                setting={`model-${p.key}`}
                 label={p.label}
                 hint={p.hint}
                 value={draft[p.key]}
@@ -337,37 +343,41 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
               />
             ))}
             {canThink(model) && model.efforts.length > 0 && (
-              <Field
-                layout="inline"
-                label="Thinking"
-                description="How hard it thinks before answering. Higher is slower, but better at multi-step problems. Also in the composer."
-              >
-                <Select
-                  aria-label="Thinking"
-                  value={currentThinking(model, draft)}
-                  onChange={(e) => set(withThinking({}, e.target.value as ThinkingChoice))}
-                  options={thinkingChoices(model).map((c) => ({
-                    value: c,
-                    label:
-                      c === 'default' && model.defaultEffort
-                        ? `Default (${thinkingInfo(model.defaultEffort).label})`
-                        : thinkingInfo(c).label,
-                  }))}
-                />
-              </Field>
+              <div data-setting="model-thinking">
+                <Field
+                  layout="inline"
+                  label="Thinking"
+                  description="How hard it thinks before answering. Higher is slower, but better at multi-step problems. Also in the composer."
+                >
+                  <Select
+                    aria-label="Thinking"
+                    value={currentThinking(model, draft)}
+                    onChange={(e) => set(withThinking({}, e.target.value as ThinkingChoice))}
+                    options={thinkingChoices(model).map((c) => ({
+                      value: c,
+                      label:
+                        c === 'default' && model.defaultEffort
+                          ? `Default (${thinkingInfo(model.defaultEffort).label})`
+                          : thinkingInfo(c).label,
+                    }))}
+                  />
+                </Field>
+              </div>
             )}
             {canThink(model) && model.efforts.length === 0 && (
-              <Field
-                layout="inline"
-                label="Think before answering"
-                description="Slower, but better at multi-step problems. The thinking is shown collapsed above the answer."
-              >
-                <Switch
-                  checked={draft.thinking ?? model.effective.thinking ?? true}
-                  onChange={(v) => set({ thinking: v })}
-                  label="Thinking"
-                />
-              </Field>
+              <div data-setting="model-thinking">
+                <Field
+                  layout="inline"
+                  label="Think before answering"
+                  description="Slower, but better at multi-step problems. The thinking is shown collapsed above the answer."
+                >
+                  <Switch
+                    checked={draft.thinking ?? model.effective.thinking ?? true}
+                    onChange={(v) => set({ thinking: v })}
+                    label="Thinking"
+                  />
+                </Field>
+              </div>
             )}
           </div>
         </section>
@@ -376,71 +386,79 @@ export function ModelEditor({ id, onBack }: { id: string; onBack: () => void }) 
           <h3 className={s.sectionTitle}>Length and memory</h3>
           <div className={`${s.card} ${s.cardPad} ${s.stack}`}>
             <div className={s.grid2}>
-              <Field label="Longest answer" description="In tokens. Leave empty for no limit.">
-                <TextField
-                  type="number"
-                  min={1}
-                  value={draft.maxTokens ?? ''}
-                  placeholder="No limit"
-                  onChange={(e) => set({ maxTokens: e.target.value ? Math.max(1, Number(e.target.value)) : null })}
-                />
-              </Field>
-              {local && (
-                <Field
-                  label="Context length"
-                  description={`How much of the conversation the model can see. Automatic makes it as long as the memory left free allows. Trained up to ${maxContext.toLocaleString()} tokens.`}
-                >
-                  <Select
-                    value={draft.contextLength == null ? '' : String(draft.contextLength)}
-                    onChange={(e) => set({ contextLength: e.target.value ? Number(e.target.value) : null })}
-                    options={[
-                      {
-                        value: '',
-                        label: autoContext ? `Automatic (${autoContext.toLocaleString()} tokens)` : 'Automatic',
-                      },
-                      ...contextOptions.map((c) => ({ value: String(c), label: `${c.toLocaleString()} tokens` })),
-                    ]}
-                  />
-                </Field>
-              )}
-              <Field
-                label="Compact at"
-                description={
-                  !autoCompact ? (
-                    'Auto-compact is off for every model, in Settings, General.'
-                  ) : compactNote ? (
-                    <span className={styles.warning}>{compactNote}</span>
-                  ) : (
-                    'Tokens at which chats with this model are summarized. Leave empty to use the setting for ' +
-                    `every model${inheritedAt ? `, ${inheritedAt.toLocaleString()} tokens for this one` : ''}.`
-                  )
-                }
-              >
-                <TextField
-                  type="number"
-                  min={1000}
-                  value={draft.autoCompactTokens ?? ''}
-                  placeholder={allCompactAt ? `${allCompactAt.toLocaleString()} (every model)` : 'Automatic'}
-                  disabled={!autoCompact}
-                  onChange={(e) => set({ autoCompactTokens: e.target.value ? Number(e.target.value) : null })}
-                  onBlur={() =>
-                    draft.autoCompactTokens != null &&
-                    set({ autoCompactTokens: Math.max(1000, draft.autoCompactTokens) })
-                  }
-                />
-              </Field>
-              {local && (
-                <Field label="GPU layers" description="Auto fits as much of the model on the GPU as fits.">
+              <div data-setting="model-max-tokens">
+                <Field label="Longest answer" description="In tokens. Leave empty for no limit.">
                   <TextField
                     type="number"
-                    min={0}
-                    value={draft.gpuLayers ?? ''}
-                    placeholder="Auto"
-                    onChange={(e) =>
-                      set({ gpuLayers: e.target.value === '' ? null : Math.max(0, Number(e.target.value)) })
+                    min={1}
+                    value={draft.maxTokens ?? ''}
+                    placeholder="No limit"
+                    onChange={(e) => set({ maxTokens: e.target.value ? Math.max(1, Number(e.target.value)) : null })}
+                  />
+                </Field>
+              </div>
+              {local && (
+                <div data-setting="model-context">
+                  <Field
+                    label="Context length"
+                    description={`How much of the conversation the model can see. Automatic makes it as long as the memory left free allows. Trained up to ${maxContext.toLocaleString()} tokens.`}
+                  >
+                    <Select
+                      value={draft.contextLength == null ? '' : String(draft.contextLength)}
+                      onChange={(e) => set({ contextLength: e.target.value ? Number(e.target.value) : null })}
+                      options={[
+                        {
+                          value: '',
+                          label: autoContext ? `Automatic (${autoContext.toLocaleString()} tokens)` : 'Automatic',
+                        },
+                        ...contextOptions.map((c) => ({ value: String(c), label: `${c.toLocaleString()} tokens` })),
+                      ]}
+                    />
+                  </Field>
+                </div>
+              )}
+              <div data-setting="model-compact-at">
+                <Field
+                  label="Compact at"
+                  description={
+                    !autoCompact ? (
+                      'Auto-compact is off for every model, in Settings, Chats.'
+                    ) : compactNote ? (
+                      <span className={styles.warning}>{compactNote}</span>
+                    ) : (
+                      'Tokens at which chats with this model are summarized. Leave empty to use the setting for ' +
+                      `every model${inheritedAt ? `, ${inheritedAt.toLocaleString()} tokens for this one` : ''}.`
+                    )
+                  }
+                >
+                  <TextField
+                    type="number"
+                    min={1000}
+                    value={draft.autoCompactTokens ?? ''}
+                    placeholder={allCompactAt ? `${allCompactAt.toLocaleString()} (every model)` : 'Automatic'}
+                    disabled={!autoCompact}
+                    onChange={(e) => set({ autoCompactTokens: e.target.value ? Number(e.target.value) : null })}
+                    onBlur={() =>
+                      draft.autoCompactTokens != null &&
+                      set({ autoCompactTokens: Math.max(1000, draft.autoCompactTokens) })
                     }
                   />
                 </Field>
+              </div>
+              {local && (
+                <div data-setting="model-gpu-layers">
+                  <Field label="GPU layers" description="Auto fits as much of the model on the GPU as fits.">
+                    <TextField
+                      type="number"
+                      min={0}
+                      value={draft.gpuLayers ?? ''}
+                      placeholder="Auto"
+                      onChange={(e) =>
+                        set({ gpuLayers: e.target.value === '' ? null : Math.max(0, Number(e.target.value)) })
+                      }
+                    />
+                  </Field>
+                </div>
               )}
             </div>
           </div>

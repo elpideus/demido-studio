@@ -141,7 +141,9 @@ export function ContextMeter({ chatId, model, draft, running, onCompact }: Props
             // Where the threshold in force is set: the model's own, or the one for every model.
             openWindow(
               'settings',
-              usage.custom?.scope === 'model' ? { tab: 'models', model: model.id } : { tab: 'general' },
+              usage.custom?.scope === 'model'
+                ? { tab: 'models', model: model.id, focus: 'model-compact-at' }
+                : { tab: 'chats', focus: 'compact-at' },
             );
           }}
         />

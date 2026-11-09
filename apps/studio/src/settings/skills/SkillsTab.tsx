@@ -21,6 +21,7 @@ import type { Skill } from '@/lib/types';
 import { useSkills } from '@/stores/skills';
 import { toast } from '@/stores/toasts';
 import { type WindowState, useWindows } from '@/stores/windows';
+import { Group, PageHeader } from '../layout';
 import s from '../settings.module.css';
 import styles from './Skills.module.css';
 
@@ -124,7 +125,7 @@ function SkillDetail({ skill, onBack }: { skill: Skill; onBack: () => void }) {
 
   const isMarkdown = file.toLowerCase().endsWith('.md');
   return (
-    <div className={s.page}>
+    <div className={cx(s.page, s.pageWide)}>
       <header className={s.header}>
         <div className={s.headerText}>
           <button type="button" className={s.back} onClick={onBack}>
@@ -280,23 +281,24 @@ export function SkillsTab({ win }: { win: WindowState }) {
 
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <div className={s.headerText}>
-          <h2 className={s.title}>Skills</h2>
-          <p className={s.subtitle}>
-            Saved procedures the assistant follows when a request matches. Enabled skills are part of every
-            conversation.
-          </p>
-        </div>
-        <div className={s.headerActions}>
-          <Button variant="ghost" icon={FolderOpen} onClick={() => void api.openSkillsFolder()}>
-            Folder
-          </Button>
-          <Button icon={Plus} onClick={() => setCreating(true)}>
-            New skill
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        page="skills"
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              icon={FolderOpen}
+              data-setting="skills-folder"
+              onClick={() => void api.openSkillsFolder()}
+            >
+              Folder
+            </Button>
+            <Button icon={Plus} data-setting="new-skill" onClick={() => setCreating(true)}>
+              New skill
+            </Button>
+          </>
+        }
+      />
       <div className={s.scroll}>
         {skills.length === 0 ? (
           <div className={s.card}>
@@ -312,7 +314,7 @@ export function SkillsTab({ win }: { win: WindowState }) {
             />
           </div>
         ) : (
-          <div className={s.rows}>
+          <Group footer="Enabled skills are part of every conversation.">
             {skills.map((sk) => (
               <div
                 key={sk.id}
@@ -352,7 +354,7 @@ export function SkillsTab({ win }: { win: WindowState }) {
                 </div>
               </div>
             ))}
-          </div>
+          </Group>
         )}
         <Notice tone="info" icon={Blocks} className={styles.notice}>
           A skill is a folder with a <code>SKILL.md</code> file (a short frontmatter with <code>name</code> and{' '}

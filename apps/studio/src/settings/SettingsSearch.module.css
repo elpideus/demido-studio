@@ -1,0 +1,256 @@
+/* The field on top of the rail. */
+.field {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 32px;
+  margin: var(--space-1) 0 var(--space-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.field:hover {
+  border-color: var(--border);
+}
+
+.field:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+/* In the popover the collapsed rail opens, the field heads the results. */
+.inPopover,
+.inPopover:hover,
+.inPopover:focus-within {
+  height: 44px;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.inPopover .searchIcon {
+  left: 14px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-2) 0 29px;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+}
+
+.inPopover .input {
+  padding-left: 36px;
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.shortcut {
+  display: inline-flex;
+  flex: none;
+  margin-right: 6px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.field:focus-within .shortcut {
+  opacity: 0;
+}
+
+.clear {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 7px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--surface-5);
+  color: var(--text-secondary);
+}
+
+.clear:hover {
+  background: var(--surface-6);
+  color: var(--text-primary);
+}
+
+.inPopover .clear {
+  margin-right: 12px;
+}
+
+/* The collapsed rail's search button, the size of its tabs. */
+.anchor {
+  display: flex;
+  flex-direction: column;
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  margin-bottom: 2px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.iconButton:hover,
+.iconButtonOpen {
+  background: var(--surface-4);
+  color: var(--text-primary);
+}
+
+.tip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tipKey {
+  color: var(--text-tertiary);
+}
+
+.hint {
+  padding: var(--space-4);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* Results */
+.list {
+  max-height: 352px;
+  overflow-y: auto;
+  padding: var(--space-1);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.active {
+  background: var(--surface-4);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.label {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label mark {
+  background: none;
+  color: var(--accent-text);
+  font-weight: var(--weight-semibold);
+}
+
+.where {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.where svg {
+  flex: none;
+  opacity: 0.7;
+}
+
+.whereDetail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.enter {
+  flex: none;
+  margin-right: 2px;
+  color: var(--text-tertiary);
+}
+
+.empty {
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+}
+
+.emptyTitle {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.emptyText {
+  margin-top: var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.hints {
+  display: flex;
+  gap: var(--space-4);
+  padding: 7px var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.hints span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.hints kbd {
+  min-width: 18px;
+  justify-content: center;
+}

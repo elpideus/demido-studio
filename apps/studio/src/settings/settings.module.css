@@ -1,18 +1,30 @@
 /* Shared layout of the Settings window's pages. */
 
+/*
+ * Pages read as one centered column, however wide the window: the header, the scrolling content
+ * and anything between them pad themselves to it, so the scroll bar still sits at the window's edge.
+ */
 .page {
+  --column: 720px;
+  --gutter: max(var(--space-6), calc((100% - var(--column)) / 2));
+
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
 }
 
+/* An editor beside a list, which uses more of a wide window. */
+.pageWide {
+  --column: 1040px;
+}
+
 .header {
   display: flex;
   flex: none;
-  align-items: flex-start;
-  gap: var(--space-4);
-  padding: var(--space-5) var(--space-6) var(--space-4);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--gutter) var(--space-4);
 }
 
 .headerText {
@@ -21,12 +33,14 @@
 }
 
 .title {
+  font-family: var(--font-display);
   font-size: var(--text-xl);
   font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
 }
 
 .subtitle {
-  margin-top: var(--space-1);
+  margin-top: 2px;
   color: var(--text-tertiary);
   font-size: var(--text-md);
 }
@@ -34,7 +48,22 @@
 .headerActions {
   display: flex;
   flex: none;
+  align-items: center;
   gap: var(--space-2);
+}
+
+/* A page's icon: its glyph on a tile of its color, as in the rail. */
+.tile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--tint) 17%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 22%, transparent);
+  color: var(--tint);
 }
 
 .back {
@@ -57,7 +86,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 var(--space-6) var(--space-7);
+  padding: 0 var(--gutter) var(--space-7);
 }
 
 .section {
@@ -72,12 +101,20 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-3);
+  min-height: 20px;
+  margin: 0 var(--space-1) var(--space-2);
   color: var(--text-secondary);
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.02em;
+}
+
+/* What a group's settings have in common, under it. */
+.footer {
+  margin: var(--space-2) var(--space-1) 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  line-height: var(--leading);
 }
 
 .card {
@@ -96,6 +133,7 @@
   gap: var(--space-4);
 }
 
+/* A group of settings, one per row, divided by hairlines that start where the text does. */
 .rows {
   display: flex;
   flex-direction: column;
@@ -106,16 +144,29 @@
 }
 
 .row {
+  position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  min-height: 56px;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
+  gap: var(--space-2) var(--space-4);
+  min-height: 48px;
+  padding: 10px var(--space-4);
 }
 
-.row:last-child {
-  border-bottom: none;
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--space-4);
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
+
+/* Under a row with an icon, the hairline starts at its text: 16px padding, 20px icon, 16px gap. */
+.row + .row:has(> .rowIcon)::before {
+  left: calc(var(--space-4) * 2 + 20px);
 }
 
 .rowButton {
@@ -127,9 +178,25 @@
   background: var(--surface-3);
 }
 
+.rowButton:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* A row's leading icon, centered on its first line. */
+.rowIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  color: var(--text-tertiary);
+}
+
+/* Takes the row's free width, and wraps the control under it before squeezing below 220px. */
 .rowMain {
   display: flex;
-  flex: 1;
+  flex: 1 1 220px;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
@@ -155,11 +222,155 @@
   white-space: nowrap;
 }
 
+/* A setting's explanation wraps; a list row's details do not. */
+.rowDescription {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
 .rowActions {
   display: flex;
   flex: none;
   align-items: center;
   gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* The app's name and version, heading About. */
+.identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+
+.identityLogo {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--surface-5), var(--surface-3));
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--accent);
+}
+
+.identityName {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+/* The log of a process, in a dialog. */
+.logs {
+  max-height: 60vh;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: #141414;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Controls sized to what they hold. */
+.narrow {
+  width: 150px;
+}
+
+.wide {
+  width: 240px;
+  max-width: 100%;
+}
+
+/* One choice of several, a whole row you press; the chosen one is checked. */
+.choices {
+  display: contents;
+}
+
+.choice {
+  flex-wrap: nowrap;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.choice .rowIcon {
+  align-self: flex-start;
+  margin-top: 1px;
+}
+
+.choiceIconOn {
+  color: var(--accent);
+}
+
+.check {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 20px;
+  color: var(--accent);
+}
+
+/* A row that opens something says so on its right. */
+.chevron {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+/* A row's status icon: present, or missing. */
+.ok {
+  color: var(--accent-text);
+}
+
+.missing {
+  color: var(--warning);
+}
+
+/* A row that shows a value: the label keeps its width and the value gives way, cut short. */
+.valueRow {
+  flex-wrap: nowrap;
+}
+
+.valueRow .rowMain {
+  flex: 0 0 auto;
+  max-width: 50%;
+}
+
+.valueRow .rowActions {
+  flex: 1 1 0;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* A read-only value on the right of its row. */
+.value {
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .muted {

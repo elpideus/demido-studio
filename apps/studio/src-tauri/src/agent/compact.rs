@@ -65,7 +65,7 @@ pub fn threshold(context_tokens: usize, reserve: usize, custom: Option<u32>) -> 
 pub enum Scope {
     /// This model, in its settings.
     Model,
-    /// Every model without one of its own: Settings, General, or `/autocompact`.
+    /// Every model without one of its own: Settings, Chats, or `/autocompact`.
     All,
 }
 
