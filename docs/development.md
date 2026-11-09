@@ -104,7 +104,7 @@ clicks, hovers, drags, typing and keys are DOM events the page dispatches, point
 included, rather than input from the system: CSS `:hover` does not apply, and files cannot be
 dropped. Screenshots are WebKitGTK's snapshots of the page.
 
-Two things about the microphone on Linux. Listing the devices (Settings, General, Voice) makes
+Two things about the microphone on Linux. Listing the devices (Settings, Voice) makes
 WebKitGTK ask the desktop's camera portal once, when a camera is plugged in, and the desktop
 asks the person; either answer leaves the microphone working. The portal names the app from its
 systemd scope, so an app started from a terminal is named after the terminal; start it as
@@ -129,12 +129,61 @@ node scripts/drive.mjs --invoke market_status
 node scripts/drive.mjs --eval "document.querySelectorAll('[data-window]').length"
 ```
 
+Each tab of the built-in browser is a webview of its own, so the bridge lists it as a target
+(`/targets`: `main`, `browser-1`, `browser-2`, …) and `--target` picks one by label or by a piece
+of its URL. `--target browser-1 --eval 'document.contentType'` runs in the tab's page; without
+`--target` the scripts drive the app's own page. A tab's native view is not in the app's
+screenshots (they are snapshots of the app's page), so take one of the tab with `--target`.
+`pnpm dev` rebuilds and restarts the app when a Rust file changes, and the tabs are gone then: to
+wait for it, compare `target/debug/demido-studio`'s time with the file's, then poll
+`--invoke browser_tabs` until it answers.
+
 `scripts/scenario.mjs` runs a whole conversation the way a person would, one prompt per turn,
 with a screenshot after each and a list of the tools every turn called:
 
 ```bash
 node scripts/scenario.mjs --out .dev/scenario --approve "Price of EUR/USD now?" "Chart gold, 4h, 3 months"
 ```
+
+## The web and the browser
+
+The search parsers and the page reader are tested offline against saved pages
+(`apps/studio/src-tauri/tests/fixtures/search`, kept as the engines served them, so Prettier
+leaves them alone). Two tests ask the real web and are left out of `cargo test`:
+
+```bash
+cd apps/studio/src-tauri
+cargo test --lib -- --ignored live_engines --nocapture   # every search engine, one question each
+cargo test --lib -- --ignored live_reads --nocapture     # a few real pages and documents
+```
+
+Engines change their pages and how they treat programs from week to week; `live_engines` shows
+which rung answers today, and a parser that finds nothing on a page that has results needs a new
+fixture. What WebKitGTK and wry do on Linux, learned the hard way:
+
+- wry gives every webview a download handler by default (`WebViewAttributes::default` sets
+  `download_started_handler`), and on Linux all of them hook the one web context the tabs share.
+  That handler chooses the destination itself and stops later handlers, and remembers a failed
+  download for good. So the app handles downloads once, from the context (`handle_downloads`), and
+  blocks wry's `decide-destination` handlers on each download; `on_download` is used only on
+  Windows and macOS.
+- A PDF is shown inline (PDF.js), not downloaded, and its text is not in the page's DOM: its
+  `document.contentType` is `application/pdf` and the body is an iframe of the viewer.
+- `page.js` must stay one synchronous function: the app takes the value the call returns, which
+  for an `async` action would be a promise, and WebKitGTK hands back an empty answer for a script
+  that throws. The app calls the file as an expression and drops the `;` a formatter puts at its
+  end.
+- Once a window holds more than one webview, `get_webview_window` finds nothing for it: look the
+  app's page up with `get_webview("main")`.
+- `input.rs` builds the mouse and key events it hands a view with `gtk::Widget::event` by hand
+  (window, time, device, root coordinates; for keys the keycode and group from the keymap), and
+  WebKit takes them for real input (`isTrusted`). WebKit grabs GTK's focus on
+  a click, which `input.rs` hands back; keys and `InsertText` still reach the page without it.
+- A right click WebKit hands on as its own opens a GTK menu (an override-redirect window) on the
+  person's screen, wherever the tab is; the `context-menu` signal's event says whether a program
+  sent it (`is_send_event`).
+- `snapshot(Visible)` draws the view even while it is parked out of the window, at the parked
+  size (1280 × 900), so a screenshot never needs the Browser window open.
 
 ## What a model gets from a file
 

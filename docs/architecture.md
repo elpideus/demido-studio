@@ -66,7 +66,7 @@ runtimes are installed (unless the person chose **Not now**, which opens the app
 `--skip-setup` and is kept in settings), and once per app version when that version's catalog pins
 another llama.cpp, Node, uv or Python than `install.json` records: then as an update
 (`--update --dir … --wait-pid … --relaunch`), the same small window the Windows updater uses. The
-empty chat and Settings, General open setup on request. An AppImage's files exist only while it
+empty chat and Settings, AI runtime open setup on request. An AppImage's files exist only while it
 runs, so the app starts the setup inside it as `$APPIMAGE --setup …`, and `main.rs` hands over to
 it in the same process.
 
@@ -155,8 +155,9 @@ that fails is logged and the app opens anyway, showing what is missing where it 
 | `llm` | Provider-neutral `ChatRequest` → llama.cpp (OpenAI-compatible SSE), Gemini (native SSE), Anthropic (Messages API SSE) or Claude Code (`claude -p`, stream-json); streams `StreamEvent`s and returns the exact request for the trace |
 | `agent` | The turn loop: prompt → model → tool calls → results → model, until it answers |
 | `attachments` | Files attached to messages: staging, moving them into the chat's workspace, what the model reads of them (full text, passages, images and sound), passage search |
-| `tools` | Market data, email, Python, terminal commands, workspace and attached files, skills. Grouped for the Tools menu, and loaded by the model a group at a time |
+| `tools` | Market data, email, Python, terminal commands, opening apps, computer use, workspace and attached files, skills. Grouped for the Tools menu, and loaded by the model a group at a time |
 | `shell` | The person's own shell, found once; a command run in a pseudo-terminal and read back as the screen shows it |
+| `desktop` | The person's own screen, mouse and keyboard for computer use: XTEST on X11, the Screenshot and RemoteDesktop portals on Wayland |
 | `skills` | Skill folders, enable/disable, the slash commands in their `commands.json`, and a file watcher that updates the UI live |
 | `slash` | Slash commands: the app's own (`/compact`, `/autocompact`) and those skills provide |
 | `market` | The Node sidecar's lifecycle and protocol, TradingView sign-in |
@@ -216,7 +217,7 @@ attempt is dropped, and the stats tooltip says how many tries it took.
 **Compaction.** Before a model call whose request reaches the threshold, the turns before the
 latest message are summarized (`agent::compact`). The threshold is 85% of what the context window
 leaves after the answer's share, or a lower one set: the model's own (`autoCompactTokens` in its
-settings, Settings, Models), else the one for every model (Settings, General, or `/autocompact`).
+settings, Settings, Models), else the one for every model (Settings, Chats, or `/autocompact`).
 The window is what a local model's server took for the memory free, never more than the model is
 made for (`agent::model_limit`: the trained context its GGUF gives, or the limit its provider
 gives), so however large the GPU, a chat compacts before the model reads past what it was trained
@@ -298,7 +299,7 @@ model cannot use tools. Nothing is guessed from names or templates:
 
 **Voice input.** The microphone button in the composer records the person's voice (`src/voice/`):
 `getUserMedia` with echo cancellation, noise suppression and automatic gain, mono, from the
-microphone chosen in Settings, General, Voice (Windows' default otherwise). An AudioWorklet,
+microphone chosen in Settings, Voice (Windows' default otherwise). An AudioWorklet,
 loaded from the app's own files as the CSP asks, hands the samples over, and the recording is
 averaged down to 16 kHz and written as a 16-bit PCM WAV in TypeScript, so nothing needs a codec. A
 recording stops itself at five minutes (9.2 MiB, under the 10 MiB a sound may be); Esc or Cancel
@@ -414,6 +415,30 @@ CFDs (not split-adjusted), whose history comes from TradingView. History lives i
   TradingView serves per timeframe) pages every timeframe back to its start and fills the holes
   between stored runs afterwards. The old flat cache is migrated once by `migrate` before anything
   is served.
+- `metatrader` makes a MetaTrader 5 terminal on the computer the fetcher's second source of
+  1-minute days, once the person agreed to its notice in the Data tab. In `fallback` mode it takes
+  the days Dukascopy cannot serve right now (a 429 pause, an open breaker, an outage); in
+  `preferred` mode every day first, Dukascopy filling in what it lacks; in `only` mode it is the
+  sole source of 1-minute days and Dukascopy is never asked for one: a day it does not have stays
+  missing (a job counts it skipped and asks again on Try again), a market the account has no
+  symbol for stops the job with the reason, and while it cannot be used (not set up yet, cooling
+  down after a failure, paused) the days and jobs wait, saying why. It drives the terminal
+  through `bridge.py`, a Python program on MetaQuotes' MetaTrader5 package that speaks JSON lines
+  (under Wine on Linux). A session starts the terminal when it is closed (minimized, without
+  focus, outliving Demido), attaches, makes the chosen account the active one with the password the
+  terminal saved (switching back afterwards when it switched), maps the broker's symbols to
+  Dukascopy instruments and works out the server's clock, and closes after 5 idle minutes. The
+  terminal answers only within its newest "Max bars in chart" bars, so a chunk within that reach
+  is one M1 request, and older days (or closed days the terminal left unanswered) are read a year
+  at a time from its history files (`bases/<server>/history/<symbol>/<year>.hcc`), which asks the
+  terminal nothing. Either is converted to UTC days in Dukascopy's format
+  and stored as theirs, marked `metatrader` in the manifest; a day it does not know goes back to
+  Dukascopy (or, alone, stays missing), so nothing it lacks is recorded empty. A day already asked
+  is answered at once, without starting the terminal again. Prices far from Dukascopy's stored ones mean the
+  symbol is something else, and the terminal's disk writes are watched: too fast pauses it, too
+  much stops it. Reads label those bars' spans `metatrader` (their volume counts ticks). Plans
+  name who downloads the days first (`via`) and jobs count the days each source downloaded for
+  them (`supplied`), so a download MetaTrader fills is labelled as its own.
 
 The backend's `commands::market` passes the store's calls through for the chart and the Data tab.
 The assistant's market tools share `ensure_downloaded`: plan the 1-minute history that is missing,
@@ -429,6 +454,22 @@ TradingView's sign-in page, the `sessionid` cookies are read from that profile, 
 sidecar, and saved in the credential store. When a market tool needs a session and there is none,
 the sign-in window opens; if the person does not sign in within the timeout, the tool result tells
 the model to ask them to.
+
+`market::metatrader` is MetaTrader's side in the backend. `detect` finds the terminals from their
+files only: the Program Files folders of Windows, or of every Wine prefix on Linux (`WINEPREFIX`,
+`~/.wine`, `~/.mt5`, `wineprefixes/`, the prefixes desktop entries name), each terminal's data
+folder (in AppData, named by `origin.txt`, or the install folder for a portable one) and the
+accounts it logged into (`Bases/<server>/trades/<login>`, the last one from `Config/common.ini`).
+The Data tab's MetaTrader card shows the notice, then the terminal, account and source order to
+pick; the choices are in the settings (`metatrader*`, `marketSource`, `dukascopyFallback`: the
+four source orders are Dukascopy first, MetaTrader first, MetaTrader only and Dukascopy only, as
+the modes `fallback`, `preferred`, `only` and `off`), and the service gets them
+as `DEMIDO_METATRADER` at start and through `metatrader.configure` after a change, as `off` until
+the current notice was accepted. The first save installs the bridge with uv into
+`tools/metatrader/`: a Windows CPython 3.13 and the MetaTrader5 wheel (Windows only, so on Linux
+both are for Windows and run under the terminal's Wine prefix, with `winemenubuilder` off so
+nothing is added to the desktop's menus). The Windows job lets the terminal break away, so it keeps
+running when Demido closes.
 
 **Indicators.** TradingView computes the chart's indicators; Demido only draws them.
 `sidecars/market/src/indicators/` has four parts:
@@ -604,23 +645,161 @@ otherwise, bash on Linux whatever the login shell (models write bash, which fish
 the login shell on macOS. On Windows the environment is the one a new terminal window gets, read
 from the registry, so a program installed while the app runs is found; elsewhere it is the app's,
 with the login profile read (`bash -l`). On Linux `sudo` becomes `sudo -n` (it fails at once
-instead of waiting for a password nobody can type) and the pagers are `cat`. The command runs
+instead of waiting for a password nobody can type), the pagers are `cat`, and the hang-up the
+terminal sends when the shell ends is ignored (`trap '' HUP`), by the programs it starts too. The command runs
 in a 160×40 pseudo-terminal (ConPTY through `portable-pty`), so programs print what they print for
 a person, and a terminal emulator (`avt`) turns the output into what the screen shows: a redrawn
 progress bar is its last state, colours are gone, a full-screen program such as btop is its current
 screen. The model reads that text (clipped, keeping both ends) and the exit code; the chat shows it
 live, with a Stop button (`stop_tool`) that ends the command and lets the turn go on with what it
-printed. PowerShell gets the command base64-encoded (`-EncodedCommand`, with `-NoProfile
+printed, and a Keep running button (`release_tool`) that leaves it running instead: for a program
+that keeps the chat waiting, such as one that opened a window. The model can ask for that itself
+(`background`, for servers and watchers): the command is left running after 5 s, and the model
+reads what it printed by then, its process id and how to stop it. A command left running runs
+until it ends or the app closes (the job object on Windows; on Linux the app ends its session). PowerShell gets the command base64-encoded (`-EncodedCommand`, with `-NoProfile
 -NonInteractive -ExecutionPolicy Bypass`) after one line that makes its output UTF-8, and exits
 with the failing program's own exit code. A command ends at its timeout (120 s unless the model
 asks for up to an hour); ending it ends every process it started (a job object on Windows, the
-process group elsewhere), while a command that finishes by itself leaves a program it opened in a
-window of its own running. It starts in the chat's workspace unless the model names a folder, and
+process group and the rest of its session elsewhere), while a command that finishes by itself
+leaves a program it opened in a window of its own running. On Windows the job is released; on
+Linux the runner sorts out what the shell left behind (`cmd &`) from `/proc`: a program that loaded
+the Wayland or X11 client library (it opens windows), one that no longer uses the terminal (nohup,
+output to a file) and one that started a program in a session of its own stay open, with their
+launchers and helpers; what still writes to the terminal gets 5 s to open a window and then ends.
+The model reads which programs stayed open and which ended. It starts in the chat's workspace unless the model names a folder, and
 files it creates there show on its card. Models write bash out of habit, so on Windows the system
 prompt's line about the shell says it is PowerShell, not bash, with PowerShell's ways and the
 Windows programs' own options (`ping -n 4`, not `ping -c 4`, which asks for administrator rights
 instead of counting); for Windows PowerShell 5.1 it adds that `&&` and `||` are missing and that
 `curl` is `Invoke-WebRequest` there.
+
+**Apps.** `open_app` (the Computer use group, `tools/apps.rs`) opens an installed app in a window of its
+own, as the app menu does, so the model does not run its program in a command, where it would hold
+the turn, or run the command-line program of the same name instead. On Linux the apps are the
+menu's .desktop entries (GIO, those the menu shows), found by name (also the untranslated one), by
+program or desktop id (`shelly-ui`, `nautilus`), then by generic name and keywords ("terminal").
+The best match opens; the same app twice (natively and as a Flatpak) opens the first, while
+several different apps that match as well come back as a list to choose from. It is launched on
+GTK's thread with the display's launch context (startup notification, so its window comes to the
+front), with the person's own environment rather than the AppImage's or what Demido set for its
+webview. Other systems do not have it yet.
+
+**Computer use.** The Computer use group holds `run_command`, `open_app` and the tools that use
+the person's own screen, mouse and keyboard (`tools/computer.rs` over `desktop/`), for what no
+other tool reaches: an app's window, a dialog, the desktop. `computer_screenshot` takes the whole
+desktop, shrinks it as `browser_screenshot` does and saves it in the workspace's `screenshots/`;
+`computer_click` (double, triple, right and middle clicks, keys held), `computer_move`,
+`computer_drag`, `computer_scroll`, `computer_type` and `computer_key` take positions in the
+pixels of the chat's latest screenshot, which are scaled onto the desktop (the root window on
+X11, the union of the monitors the portal reports on Wayland), and take a new screenshot 600 ms
+after acting, which the model sees with the result (the latest two pictures go, as for the
+browser). They and the screenshot are hidden from models that do not take images. Acting is risky
+and asks under one permission, `computer_control`, so "Always allow" covers every click and key;
+while another call waits for an answer the tools refuse, so the model cannot click its own
+approval card. Text is typed a character at a time by keysym, and keys are the browser's names
+(`Key::parse`) with Super, PrintScreen and Menu besides. On X11 (`desktop/x11.rs`) XTEST moves the
+pointer and presses buttons and keys, through libX11 and libXtst loaded when first used
+(`x11-dl`); a character no key makes is put on a spare keycode for the moment it is typed, and the
+screen is the root window read with `XGetImage`. On Wayland no program may do either, so
+`desktop/portal.rs` asks the desktop's portals over D-Bus (`zbus`): the Screenshot portal,
+non-interactive, for pictures (the desktop asks once whether Demido may), and a RemoteDesktop
+session with a screen-cast source of every monitor (the portal moves the pointer only within
+streams) for input, by keysym, absolute motion per monitor stream, buttons and wheel steps (KWin
+takes a wheel step as 15 units, so it gets 15 per notch). The person allows the session in the
+desktop's own dialog; its restore token is kept in the settings (`remote_desktop_token`), so the
+dialog comes once, the session ends after 3 idle minutes and is restored without asking, and when
+the person ends it from the desktop the token is dropped and the next use asks again. Before its
+first portal call Demido registers with the portal (`org.freedesktop.host.portal.Registry`) so the
+dialogs and the stored permissions name it rather than "an unidentifiable application". The portal
+takes an app id only when a `.desktop` entry of that name has a program that exists, so it tries
+`demido-studio` (the packages' entry) and then the entries that start with "demido" (an AppImage
+integrated by the desktop gets one of its own, such as `demido-studio-0.6.1-x86_64`). When the
+person shares only some of their monitors, the screenshot (every monitor) and the streams differ in
+shape, and the tools ask for every screen to be shared instead of clicking in the wrong place. KDE's
+Screenshot portal saves the picture in the pictures folder and fails without one, so the folder is
+made first; the file is deleted once read. A character the keyboard layout lacks is typed for a
+Wayland app by KWin, which makes a keymap that has it; an X11 keymap cannot hold that keymap's keys,
+so when the active window is an X11 one (Xwayland's `_NET_ACTIVE_WINDOW` is in its
+`_NET_CLIENT_LIST`), those characters are put on spare keys of Xwayland's own keymap and pressed by
+keycode through the portal, and the keys are cleared afterwards. (Xwayland's XTEST is not used: KWin
+asks the person before an X11 app may send input.) Windows and macOS do not have the screen tools
+yet.
+
+**The web.** `web_search` and `web_fetch` (the Web search group, `tools/web.rs` over `web/`) ask
+over plain HTTP first, as a browser asks (its user agent and headers), which answers most pages in
+well under a second. A search climbs a ladder of engines until one answers with results
+(`web/search.rs`): the person's own SearXNG server if they set one, Exa's free search service (if
+allowed in Settings, Web & browser), DuckDuckGo's HTML and lite pages, Brave, Bing, and last the
+search page of the person's chosen engine rendered in the built-in browser. Engines refuse
+programs now and then, each in its own way (a captcha, "unusual traffic", an empty page; Bing
+answers with unrelated results, which a check against the question's words catches), so a rung
+that fails is reported with the results and the model can tell "nothing found" from "nobody would
+answer". The parsers are pure functions of a page, tested against trimmed copies of real result
+pages in `tests/fixtures/search`. `web_fetch` (`web/fetch.rs`) boils an HTML page down to its
+article as Markdown (dom_smoothie's readability, or the whole text when there is no article),
+reads text as it is, and reads a PDF or Office file like an attached one (`demido_extract`, from
+a copy in `cache/web/` deleted once read). A page that refuses a program (401, 403, 429 or 503, a
+bot check such as Cloudflare's) or shows next to nothing until its scripts run climbs on: the
+chat's tab in the built-in browser runs its scripts and waits out checks that pass by themselves;
+when the browser too is stopped at a check, Exa's crawler (if allowed; never for an address on the
+person's own computer or network, `web::on_this_network`); last the person, who is shown the tab
+to solve the check (`Browser::ask`, three minutes), after which the browser reads on. What was
+fetched lately is kept in memory for 15 minutes, so reading on through a long page does not fetch
+it again.
+
+**The built-in browser** (`web/browser/`, the Browser window in `src/browser/`). Each tab is a
+native webview of its own in the app's window, laid over the spot the Browser window leaves for it
+(`browser_place`, sent every frame while a window is dragged and on a 120 ms timer). Windows and
+macOS place a child webview anywhere (`set_bounds`); on Linux Tauri packs a window's webviews into
+one GtkBox, so the app's page moves once into a GtkOverlay and each tab becomes an overlay child
+placed by its `get-child-position` signal (`place.rs`). Nothing the app draws can show above a
+native view, so while a menu, a toast or another window covers any of the spot, the tab is parked
+far out of the window, still laid out and running, and the spot shows the tab's title; the page is
+inset inside the window's resize handles so they stay reachable. Once tabs are in the main window,
+Tauri no longer calls it a webview window: the app's page is found with `get_webview("main")`, not
+`get_webview_window`. Every tab shares one profile (`webview-browser/`), apart from the app's page,
+so a sign-in the person makes holds in the assistant's tabs too; Browsing data, **Clear…** in
+Settings, Web & browser, forgets it. A tab goes only to http and https addresses, never to the app's own pages.
+The person's tabs are theirs; each chat that browses gets a tab of its own (four at most, the one
+that browsed longest ago closing for a new one, and one idle for 20 minutes closing when another
+chat starts browsing), marked with a robot in the tab strip, which `web_fetch` falls back to and
+the `browser_*` tools drive (the Browser group). Those tools evaluate `page.js` afresh for each
+call as `(file)(action, args)`: it reads the page as text with a numbered reference for everything
+that can be clicked or typed in (kept on the elements as `data-demido-ref`), and clicks, types and
+scrolls by those references; nothing else stays in the page. A click at a point (`browser_click`'s
+x and y), keys (`browser_type`'s `key`) and typing where the page has the keyboard go to the tab
+as the person's own mouse and keyboard would (`web/browser/input.rs`), since events a script sends
+are marked as not the person's and some pages heed only real ones (every chart drawn on a
+canvas): on Linux GDK events handed to the tab's WebKitGTK view (text by WebKit's `InsertText`
+command), on Windows WebView2's DevTools protocol (`Input.*`); on macOS they are events a script
+sends. A click takes the keyboard for the tab in GTK, so it goes back to what had it, and the
+person's typing in the app never lands in the tab. Typing is refused in a password or payment
+field, as are keys that copy, cut or paste (the person's clipboard may hold a password), and a
+middle click is sent by script, since the real one pastes the text the person last selected. The
+assistant's clicks open no native menu (on Linux WebKit's `context-menu` is refused for events
+marked as sent; on Windows `ContextMenuRequested` for 1.5 s after its input): it could not use
+one, and the menu would take the person's mouse. `browser_screenshot`, for models that see
+pictures, draws each reference's number on the page (`marks`), takes WebKit's snapshot of the
+visible view (WebView2's `Page.captureScreenshot`), shrinks it to at most 1568 pixels on its long
+side and 1.15 megapixels, saves it as a JPEG in the workspace's `screenshots/`, and keeps the scale
+so the x and y the model reads off the picture land on the page. The picture rides on the tool
+result (`LlmMessage::Tool`'s `media`: inside the result for Anthropic and Claude Code, inline data
+after it for Gemini, a user message after the results for OpenAI-compatible APIs), and only the
+latest two screenshots go as pictures; older ones say to take a new one. `browser_run_js` (asks
+first) runs a script in the page as an expression, else as the body of an async function, and
+waits up to 30 seconds for what it gives back, which returns as JSON (Stop ends the wait).
+`browser_ask_user` and the fallback's
+checks raise a banner over the Browser window (`browser://attention`) and open it; the assistant
+waits until the person clicks Done or Skip, or the check clears by itself. Downloads in the
+person's tabs go to the Downloads folder (`name (1).ext` when the name is taken) with a toast that
+shows the file in its folder (`browser://download`); a response WebKitGTK cannot show and that is
+not marked an attachment (a zip, an installer) is made a download in `decide-policy`, as browsers
+do. The assistant's tabs never download: the response is dropped and the tool says the address is
+a file, pointing to `web_fetch` for documents. A PDF the browser shows in its own viewer (PDF.js
+in WebKitGTK) has no text in the page, so `browser_open` says so and `web_fetch`, when it read the
+page in a tab, reads the file the tab loaded (on Linux the bytes WebKit kept,
+`WebResource::data`, since asking again, even from the page, lacks what a navigation sends; on
+Windows and macOS the page asks for it again with the tab's cookies).
 
 **Attached files.** The composer's **+** button, drag and drop onto the window, and pasting add
 files to a message (at most 20, 100 MB each). The file is copied to `staging/<id>/` and read once
@@ -741,7 +920,7 @@ React with zustand stores, CSS Modules and the tokens in `packages/ui`.
 | `shell` | Activity bar (Chats, Market, Mail, Settings), the safety notice, toasts |
 | `chat` | Chat list, message list (markdown, math, code, tool cards, thinking; runs of file calls fold into one card, `steps.ts`; a divider where the chat was compacted), composer (the slash command list, `slashView.ts`; the context ring, `ContextMeter.tsx` and `contextView.ts`), model and tools pickers, attached files (`Attachments.tsx`: the composer's tray and a sent message's files; `attachmentView.ts`: what a chip says) |
 | `wm` | The window manager: `WindowFrame` (title bar, drag, resize edges, snap), `SnapLayouts` (the pinning flyout), `WindowLayer`, `TabbedLayout` (tab rail on the left, icons only in narrow windows). `geometry.ts` holds the pure math, unit tested |
-| `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, General, Updates |
+| `settings` | Providers, Models (list, editor, download; `Capabilities` draws what a model can do, here and in the model picker), Skills, Chats, Permissions, Voice, Mail, AI runtime, Updates, About; `searchIndex` finds a setting, model or skill and where it lives |
 | `market` | The Market window's tabs. Chart: symbol search, live chart (Lightweight Charts), timeframes, paging back through stored history, the download popup where it ends, indicators (the Indicators menu, legends, the settings dialog, panes, script drawings, the assistant's drawings, the local fallback), the Pine Editor. Data (`data/`): what is stored per market on one timeline coloured by source (every timeframe reads the same 1-minute history), downloads, delete. `DownloadProgress` is the progress bar the chart, the Data tab and chat cards share |
 | `mail` | The Mail window: accounts and folders (the folder menu, `FolderNameForm.tsx`), the message list (filtered from the cache as you type, Enter searches the server; picking several, the context menu, each row's buttons under the pointer, undo toasts), the reader (`EmailBody.tsx`; `emailHtml.ts` cleans HTML mail for its sandboxed frame), what can be done with messages (`MessageActions.tsx`: menus, the toolbar, the folder picker; `mailActions.ts`: which actions fit, selection ranges, unit tested), the editor (`Composer.tsx`), the connect form |
 | `inspector` | A turn's traces: request, response, timings |
@@ -840,9 +1019,14 @@ Everything a person makes is in the data folder, never in the install folder:
 | `staging/` | Files added in the composer and not sent yet; emptied at every start |
 | `avatars/` | Model pictures |
 | `webview-tradingview/` | The TradingView sign-in browser profile |
+| `webview-browser/` | The built-in browser's profile: cookies, sign-ins, site data and its cache, shared by every tab |
 | `cache/market/dukascopy/` | Downloaded Dukascopy history, 1-minute candles: `<instrument>/m1/<year>/<day>.json.gz` and a `manifest.json` per instrument; `stats.json` holds the learned request rate |
 | `cache/market/tradingview/` | TradingView bars stored from charts and downloads, one file per symbol and timeframe, and `index.json` with what they cover |
 | `cache/market/jobs/` | One file per history download, so downloads resume after a restart and chat cards find them |
+| `cache/market/metatrader/` | `clock.json`: each MetaTrader server's clock (its offset from UTC), kept 30 days |
+| `tools/metatrader/` | The MetaTrader bridge, installed after the person agreed: `bridge.py`, a Windows Python (`python/`), the MetaTrader5 package (`site/`) and `ready.json` |
+| `cache/uv/` | uv's download cache while it installs the MetaTrader bridge |
+| `cache/web/` | A PDF or Office file from the web while it is read (deleted once read) |
 | `cache/mail.db` | Mail downloaded from the accounts: folders, message headers and flags, opened bodies (SQLite) |
 | `cache/xet/` | The working folder of Hugging Face's Xet engine, for model downloads with Transfer set to Xet. Only empty folders: downloads keep no chunk cache |
 | `updates/` | A downloaded update: the installer (a `.part` file while it downloads), then its `.sig` and `pending.json` once its signature is verified. Emptied once the update is installed. A development build uses `<repo>/.dev/updates` instead |

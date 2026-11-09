@@ -75,7 +75,7 @@ computer, as on Windows: the runtime for your graphics card, Python, Node.js, uv
 downloaded from their official sources and checked. They go in `~/.local/opt/demido-studio`, your
 chats, settings and downloaded models in `~/.local/share/demido-studio`, both your own. **Not now**
 skips it and opens the app for online models only; **Set up local AI** in the empty chat, or
-Settings, General, brings it back, and there you can also change the runtime or the model later.
+Settings, AI runtime, brings it back, and there you can also change the runtime or the model later.
 When an update of the app needs a newer runtime, a small window brings it up to date the next time
 the app starts.
 
@@ -102,7 +102,7 @@ and `~/.local/share/demido-studio` to remove the runtimes, models and chats too.
   desktop's keyring (the Secret Service): KWallet on KDE, GNOME Keyring on GNOME, or KeePassXC.
   Without one running, the app keeps them for the session only, and says so.
 - **The desktop asks whether Demido Studio may use the camera.** WebKitGTK asks once, when it lists
-  the microphones (Settings, General, Voice) and a camera is plugged in. Either answer is fine:
+  the microphones (Settings, Voice) and a camera is plugged in. Either answer is fine:
   Demido Studio only uses the microphone.
 - **Voice input finds no microphone.** WebKitGTK records through GStreamer: install its good
   plugins and PipeWire plugin (`gst-plugins-good` and `gst-plugin-pipewire` on Arch).
@@ -127,26 +127,32 @@ version.
 |---|---|
 | Chat with local or cloud models, streaming, thinking, tool calls | The main screen |
 | Model picker and tools/skills picker | The composer |
-| Long chats compact themselves: near the end of the model's context window, the earlier conversation becomes a summary the model reads instead (when, in Settings, General, or for one model in Settings, Models), never past what the model was trained on. A ring by the Send button fills up as that nears: hover for how far, click for what the context holds | The chat; `/compact` to do it now |
+| Long chats compact themselves: near the end of the model's context window, the earlier conversation becomes a summary the model reads instead (when, in Settings, Chats, or for one model in Settings, Models), never past what the model was trained on. A ring by the Send button fills up as that nears: hover for how far, click for what the context holds | The chat; `/compact` to do it now |
 | Slash commands: `/compact`, `/autocompact 12k` (or `off`, `auto`, `12.5k`, `twelve thousand`), and the commands skills bring, such as `/analyze` | Type `/` in the composer |
 | Send files with a message: images, PDFs, Word, PowerPoint, spreadsheets, text and code. Short ones are read in full, long ones are searched for the passages your question needs (RAG), by meaning as well as by words | The composer: **+**, drag and drop, or paste |
-| Talk instead of typing: models that can hear get your voice message; for the others a local speech model (Qwen3-ASR) writes down what you said into the composer, for you to check and send. Choose the microphone and speech model, or turn voice messages off | The composer: the microphone button; Settings, General, Voice |
-| Commands in your own shell (on Windows PowerShell 7 when installed, else Windows PowerShell; on Linux bash), shown live like a terminal with a Stop button; each one asks first | The chat (Coding in the Tools menu) |
+| Talk instead of typing: models that can hear get your voice message; for the others a local speech model (Qwen3-ASR) writes down what you said into the composer, for you to check and send. Choose the microphone and speech model, or turn voice messages off | The composer: the microphone button; Settings, Voice |
+| Commands in your own shell (on Windows PowerShell 7 when installed, else Windows PowerShell; on Linux bash), shown live like a terminal with Stop and Keep running buttons; each one asks first. Servers and watchers run on in the background; an app a command opens in its own window stays open | The chat (Computer use in the Tools menu) |
+| The assistant opens the apps installed on your computer, as the app menu does (Linux) | The chat (Computer use in the Tools menu) |
+| Computer use: models that see pictures look at your screen and use your mouse and keyboard in any app's window: click, drag, scroll, type and press keys, with a screenshot after each action. It asks before it acts (Always allow covers every click and key), never types passwords, and stays still while it waits for your answer. On Wayland your desktop asks once whether Demido may take screenshots and control the input (Linux; X11 and Wayland) | The chat (Computer use in the Tools menu) |
+| The assistant searches the web and reads pages, PDFs and documents on it, without an account or key: your own SearXNG server if you set one, Exa, DuckDuckGo, Brave or Bing, whichever answers. Pages that are empty until their scripts run, or that turn programs away, are read in the built-in browser, and a check only a person can pass (a captcha) is shown to you to solve | The chat (Web search in the Tools menu); Settings, Web & browser |
+| A browser inside the app: tabs, an address bar that also searches (with the engine you choose), back, forward and reload, and downloads to your Downloads folder. The assistant browses in a tab of its own for each chat, marked with a robot, that you can watch: it reads pages, clicks (by element or anywhere on the page, right and double clicks too), types, presses keys and fills in forms; models that see pictures take screenshots of the tab to look at it and to click by position; and it can run a script in the page (asks first). It does not download files, and never types passwords or touches your clipboard. When a page wants a person (a captcha, a sign-in, a choice), the window comes up with a banner and the assistant waits until you click Done or Skip | Browser window (the globe in the activity bar); the chat (Browser in the Tools menu) |
+| Forget the browser's cookies, sign-ins and cached files | Settings, Web & browser |
 | What each model can do, as icons: vision, audio, tools, thinking (hover for what each means) | Model picker, Settings, Models |
-| Providers (Gemini, OpenRouter, Anthropic, Claude subscription), models (enable, edit, download from Hugging Face), skills, general settings | Settings window |
+| Providers (Gemini, OpenRouter, Anthropic, Claude subscription), models (enable, edit, download from Hugging Face), skills, and every app setting, grouped into pages, with a search (Ctrl+F) that jumps to any setting, model or skill | Settings window |
 | Live charts from TradingView, history from Dukascopy | Market window, Chart tab |
+| History from your own MetaTrader 5 terminal when Dukascopy is rate limited or down, or first: pick the terminal and account, Demido opens MetaTrader when it is closed (asks first, reads prices only) | Market window, Data tab, **MetaTrader** |
 | Indicators on the chart, computed by TradingView: your Favorites and your own scripts, the indicators of your saved TradingView chart layouts, TradingView's built-ins and community scripts; signed out, SMA, EMA, Bollinger Bands and RSI are computed on your computer | Chart tab, **Indicators** |
 | Each indicator's settings as in TradingView: Inputs, Style (colors, opacity, widths, line styles, plot types, levels, precision) and Visibility (per timeframe) | The gear on the indicator's legend |
 | Pine scripts: write, compile and run your own, or open one of your TradingView scripts; save them to your TradingView account to use them on tradingview.com | Chart tab, **Pine Editor**; Indicators, Pine scripts |
 | The assistant writes and tests Pine indicators, puts indicators on your chart, and draws on it (levels, zones, markers) | The chat |
 | What history is stored per market (one timeline: every timeframe reads the same 1-minute history), where it came from, and what is missing; download missing parts, delete | Market window, Data tab |
 | History downloads with a progress bar you can pause and resume, from a chart, the Data tab or the chat | Chart, Data tab, chat cards |
-| Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, General |
+| Ask before long downloads the assistant wants to start (30 s to 5 min) | Settings, Permissions |
 | Your Gmail (or another IMAP mailbox): folders, messages and attachments; new mail shows up on its own while the window is open | Mail window |
 | Write, reply, reply all, forward and send email, with attachments; save drafts and finish them later | Mail window (the pen button, the buttons over a message, right-click) |
 | Mark read or unread, star, archive, move, label (Gmail), report spam and delete, one email or many (Ctrl-click, Shift-click), and undo a move or delete; make, rename and delete folders, mark a folder read, empty the trash | Mail window (right-click a message or hover it, the buttons over it, the folder menu) |
 | The assistant lists, searches and reads your email, exports hundreds of emails to a file for analysis, and saves attachments to its workspace; it marks, moves and deletes emails, manages folders and labels, writes drafts, and replies, forwards and sends | The chat (Email in the Tools menu) |
-| How often the assistant asks before it acts: Cautious (before anything it reads or changes), Balanced (only before risky steps like running code, sending email or deleting for good) or Autonomous (never) | The chat (next to Tools), Settings → General |
+| How often the assistant asks before it acts: Cautious (before anything it reads or changes), Balanced (only before risky steps like running code, sending email or deleting for good) or Autonomous (never) | The chat (next to Tools), Settings → Permissions |
 | Updates: Release or Pre-release channel, automatic in the background or checked by hand | Settings, Updates |
 | Exact request and response of any answer | Inspector (from an answer's toolbar) |
 
@@ -163,6 +169,15 @@ download more where it ends: one more month or year than the stored 1-minute his
 from a date, or all of it, each up to today, so one download leaves the whole stretch stored. Where
 TradingView's candles are stored they are shown, and Dukascopy's fill the rest. The assistant
 downloads what it needs the same way, and asks first when the estimate is longer than your limit.
+
+When MetaTrader 5 is installed (on Windows, or under Wine on Linux), the Data tab offers it as a
+second source of history. After you agree to what it does, choose the terminal, one of the accounts
+it has logged into, and whether it fills in while Dukascopy is rate limited or down (the default),
+downloads first, or not at all. Demido starts the terminal minimized when it is closed, logs in with
+the password the terminal saved, switching accounts only if you allow it and back afterwards, and
+only reads candles: it never trades. The days it downloads are marked MetaTrader in the Data tab
+and on the chart; your broker's prices can differ slightly from Dukascopy's, its volume counts
+ticks, and its depth is what MetaTrader's "Max bars in chart" allows.
 
 **Indicators.** Signed in, the chart's indicators are TradingView's own: the Indicators menu lists
 your Favorites and your scripts as TradingView's Indicators menu does, its built-ins, and the
