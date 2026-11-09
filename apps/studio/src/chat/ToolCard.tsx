@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  AppWindow,
   Check,
   ChevronRight,
   CircleSlash,
@@ -55,6 +56,7 @@ const ICONS: Record<string, LucideIcon> = {
   market_data_status: Database,
   run_python: Terminal,
   run_command: SquareTerminal,
+  open_app: AppWindow,
   list_files: FileText,
   read_file: FileText,
   write_file: FileText,

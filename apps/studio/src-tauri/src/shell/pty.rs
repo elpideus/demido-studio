@@ -1,6 +1,11 @@
 //! A command running in a pseudo-terminal (ConPTY on Windows), as in a terminal window: programs
 //! see a console, so they print what they print for a person and full-screen ones run. Nothing
 //! types into it; a command that waits for input simply runs until its timeout.
+//!
+//! A command can also be left running: the model asks for that for a server or a watcher, and
+//! the person can choose it for a command that keeps the chat waiting (a program that opened a
+//! window, say). Its terminal then stays open, read and thrown away, until it ends or the app
+//! closes.
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -32,6 +37,9 @@ pub struct Request<'a> {
     /// Added to the environment a new terminal window would get.
     pub env: Vec<(&'static str, OsString)>,
     pub timeout: Duration,
+    /// Leave the command running after this long instead of stopping it at the timeout: a
+    /// server, a watcher, anything meant to keep running.
+    pub background: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +50,16 @@ pub enum Ending {
     TimedOut,
     /// The person stopped it.
     Stopped,
+    /// It was still running and was left to run on: the request asked for that, or the person
+    /// did. It runs until it ends or the app closes.
+    LeftRunning,
+}
+
+/// A program a command started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Program {
+    pub pid: u32,
+    pub name: String,
 }
 
 #[derive(Debug)]
@@ -50,13 +68,22 @@ pub struct Outcome {
     /// What the terminal showed at the end.
     pub shown: Shown,
     pub elapsed: Duration,
+    /// The shell's process id, which on Linux and macOS is also its process group's.
+    pub pid: Option<u32>,
+    /// Programs the command left running when it finished that stay open: in a window of their
+    /// own, or away from its terminal (nohup, output to a file). Linux only.
+    pub left_open: Vec<Program>,
+    /// Programs it left running in its terminal, which ended with it. Linux only.
+    pub ended: Vec<Program>,
 }
 
 /// Runs the command. `on_output` gets what the terminal shows while it changes. `stop` ends the
-/// command and keeps what it printed; `cancel` (the turn was stopped) ends it and returns `None`.
+/// command and keeps what it printed; `release` leaves it running and returns what it printed so
+/// far; `cancel` (the turn was stopped) ends it and returns `None`.
 pub async fn run(
     req: Request<'_>,
     stop: &CancellationToken,
+    release: &CancellationToken,
     cancel: &CancellationToken,
     mut on_output: impl FnMut(&Shown),
 ) -> Result<Option<Outcome>, String> {
@@ -103,6 +130,13 @@ pub async fn run(
         .map_err(|e| format!("could not start {}: {e}", req.shell.name))?;
     drop(pair.slave);
     let tree = tree::Tree::adopt(&*child);
+    let pid = child.process_id();
+    // The terminal's own name (/dev/pts/N), to tell the programs still using it from those
+    // that left it. Windows has no such name, and needs none (`leftovers`).
+    #[cfg(unix)]
+    let tty = pair.master.tty_name();
+    #[cfg(not(unix))]
+    let tty: Option<std::path::PathBuf> = None;
     let mut killer = child.clone_killer();
 
     let screen = Arc::new(Mutex::new(Screen::new(COLS.into(), ROWS.into())));
@@ -123,15 +157,20 @@ pub async fn run(
         let _ = exit_tx.send(child.wait().ok().map(|s| s.exit_code()));
     });
 
-    let deadline = tokio::time::sleep(req.timeout);
+    // In the background, the time is how long to wait before leaving it running.
+    let deadline = tokio::time::sleep(req.background.unwrap_or(req.timeout));
     tokio::pin!(deadline);
     let mut tick = tokio::time::interval(REFRESH);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let ending = loop {
         tokio::select! {
             code = &mut exited => break Some(Ending::Exited(code.ok().flatten().unwrap_or(1))),
-            _ = &mut deadline => break Some(Ending::TimedOut),
+            _ = &mut deadline => break Some(match req.background {
+                Some(_) => Ending::LeftRunning,
+                None => Ending::TimedOut,
+            }),
             _ = stop.cancelled() => break Some(Ending::Stopped),
+            _ = release.cancelled() => break Some(Ending::LeftRunning),
             _ = cancel.cancelled() => break None,
             _ = tick.tick() => {
                 if changed.swap(false, Ordering::AcqRel) {
@@ -142,15 +181,41 @@ pub async fn run(
     };
 
     let master = pair.master;
-    let close = move || drop(master);
+    let mut left_open = Vec::new();
+    let mut ended = Vec::new();
     let shown = match ending {
         Some(Ending::Exited(_)) => {
-            // Closing the pseudo console ends what is still attached to it and lets the last
-            // output through; a program the command opened in its own window stays open.
+            (left_open, ended) = leftovers(&tree, tty.as_deref()).await;
+            // A program the command opened in its own window stays open.
             tree.release();
-            let _ = tokio::time::timeout(DRAIN, tokio::task::spawn_blocking(close)).await;
-            let _ = tokio::time::timeout(DRAIN, drained).await;
+            if left_open.is_empty() {
+                // Closing the pseudo console ends what is still attached to it and lets the last
+                // output through.
+                let _ = tokio::time::timeout(DRAIN, tokio::task::spawn_blocking(move || drop(master))).await;
+                let _ = tokio::time::timeout(DRAIN, drained).await;
+            } else {
+                // The programs left open keep a terminal that works, so writing to it does not
+                // fail, until the last of them closes it.
+                tokio::time::sleep(REFRESH).await;
+                tokio::spawn(close_when_unused(master, drained));
+            }
             screen.lock().shown()
+        }
+        Some(Ending::LeftRunning) => {
+            let shown = screen.lock().shown();
+            tree.end_with_app();
+            tokio::spawn(async move {
+                let _ = exited.await;
+                let (left_open, _) = leftovers(&tree, tty.as_deref()).await;
+                tree.ended();
+                tree.release();
+                if left_open.is_empty() {
+                    let _ = tokio::task::spawn_blocking(move || drop(master)).await;
+                } else {
+                    close_when_unused(master, drained).await;
+                }
+            });
+            shown
         }
         _ => {
             // The screen as it is, before a full-screen program is torn down.
@@ -158,7 +223,7 @@ pub async fn run(
             tree.kill();
             let _ = killer.kill();
             let _ = tokio::time::timeout(DRAIN, exited).await;
-            tokio::task::spawn_blocking(close);
+            tokio::task::spawn_blocking(move || drop(master));
             shown
         }
     };
@@ -166,7 +231,78 @@ pub async fn run(
         ending,
         shown,
         elapsed: started.elapsed(),
+        pid,
+        left_open,
+        ended,
     }))
+}
+
+/// Ends the commands left running; for when the app closes.
+pub fn end_left_running() {
+    tree::end_left_running();
+}
+
+/// Closes the terminal once nothing uses it any more: the reader has seen its end.
+async fn close_when_unused(master: Box<dyn portable_pty::MasterPty + Send>, drained: oneshot::Receiver<()>) {
+    let _ = drained.await;
+    let _ = tokio::task::spawn_blocking(move || drop(master)).await;
+}
+
+/// How long a program a finished command left running in its terminal has to open a window
+/// before it is ended: long enough for a Python or Java program to load its toolkit.
+#[cfg(target_os = "linux")]
+const WINDOW_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 5 });
+
+/// Sorts out what a command left running when its shell ended (`cmd &`), as Windows does by
+/// itself: a program in a window of its own stays open, and so does one that left the terminal
+/// (nohup, its output sent to a file) or started a program in a session of its own, with whatever
+/// belongs with it; the rest, still writing to the terminal, end with the command. A program that is still starting gets [`WINDOW_WAIT`] to open
+/// its window. Returns those left open and those ended.
+#[cfg(target_os = "linux")]
+async fn leftovers(tree: &tree::Tree, tty: Option<&Path>) -> (Vec<Program>, Vec<Program>) {
+    let Some(session) = tree.session() else {
+        return Default::default();
+    };
+    let program = |p: &procs::Proc| Program {
+        pid: p.pid as u32,
+        name: p.name.clone(),
+    };
+    let deadline = Instant::now() + WINDOW_WAIT;
+    loop {
+        let (all, others): (Vec<procs::Proc>, Vec<procs::Proc>) =
+            procs::all().into_iter().partition(|p| p.sid == session);
+        // A launcher whose program went off into a session of its own (a sandbox, say) stays
+        // with it.
+        let launchers: std::collections::HashSet<i32> = others.iter().map(|p| p.ppid).collect();
+        // Without the terminal's name every program counts as using it.
+        let roots: Vec<i32> = all
+            .iter()
+            .filter(|p| {
+                procs::has_window(p.pid)
+                    || launchers.contains(&p.pid)
+                    || !tty.is_none_or(|tty| procs::on_terminal(p.pid, tty))
+            })
+            .map(|p| p.pid)
+            .collect();
+        let kept = procs::with_relatives(&all, &roots);
+        let rest: Vec<&procs::Proc> = all.iter().filter(|p| !kept.contains(&p.pid)).collect();
+        if rest.is_empty() || Instant::now() >= deadline {
+            for p in &rest {
+                // SAFETY: signals one process of the command's own session; no memory is touched.
+                unsafe {
+                    libc::kill(p.pid, libc::SIGKILL);
+                }
+            }
+            let left_open = all.iter().filter(|p| kept.contains(&p.pid)).map(program).collect();
+            return (left_open, rest.into_iter().map(program).collect());
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn leftovers(_tree: &tree::Tree, _tty: Option<&Path>) -> (Vec<Program>, Vec<Program>) {
+    Default::default()
 }
 
 /// Plays the terminal's output onto the screen, answering its cursor position queries.
@@ -247,7 +383,15 @@ mod tree {
                 set_limits(job, JOB_OBJECT_LIMIT(0));
             }
         }
+
+        /// The job ends the command when the app closes: nothing to do.
+        pub fn end_with_app(&self) {}
+
+        pub fn ended(&self) {}
     }
+
+    /// The jobs end the commands left running as the app's handles to them close.
+    pub fn end_left_running() {}
 
     impl Drop for Tree {
         fn drop(&mut self) {
@@ -280,6 +424,16 @@ mod tree {
     /// of its own, and the programs it runs belong to it.
     pub struct Tree(Option<i32>);
 
+    /// The commands left running, by their shell's process id. Their programs ignore the hang-up
+    /// a closing terminal sends (see the shell's preamble), so the app ends them itself.
+    static LEFT_RUNNING: parking_lot::Mutex<Vec<i32>> = parking_lot::Mutex::new(Vec::new());
+
+    pub fn end_left_running() {
+        for pid in std::mem::take(&mut *LEFT_RUNNING.lock()) {
+            Tree(Some(pid)).kill();
+        }
+    }
+
     impl Tree {
         pub fn adopt(child: &(dyn portable_pty::Child + Send + Sync)) -> Self {
             Self(child.process_id().and_then(|pid| i32::try_from(pid).ok()))
@@ -291,10 +445,130 @@ mod tree {
                 unsafe {
                     libc::kill(-pid, libc::SIGKILL);
                 }
+                // And what moved to a group of its own in the same session.
+                #[cfg(target_os = "linux")]
+                for p in super::procs::session(pid) {
+                    // SAFETY: as above, one process of the session the shell leads.
+                    unsafe {
+                        libc::kill(p.pid, libc::SIGKILL);
+                    }
+                }
             }
         }
 
         pub fn release(&self) {}
+
+        /// Ends the command when the app closes, as closing a terminal window would: it was
+        /// left running.
+        pub fn end_with_app(&self) {
+            if let Some(pid) = self.0 {
+                LEFT_RUNNING.lock().push(pid);
+            }
+        }
+
+        /// It ended by itself.
+        pub fn ended(&self) {
+            if let Some(pid) = self.0 {
+                LEFT_RUNNING.lock().retain(|&p| p != pid);
+            }
+        }
+
+        /// The session the shell leads: its process id.
+        #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+        pub fn session(&self) -> Option<i32> {
+            self.0
+        }
+    }
+}
+
+/// The processes of a command's session, read from /proc.
+#[cfg(target_os = "linux")]
+mod procs {
+    use std::collections::{HashMap, HashSet};
+    use std::path::Path;
+
+    #[derive(Debug)]
+    pub struct Proc {
+        pub pid: i32,
+        pub ppid: i32,
+        pub sid: i32,
+        pub name: String,
+    }
+
+    /// The live processes (zombies are done already).
+    pub fn all() -> Vec<Proc> {
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
+            .filter_map(|pid| {
+                let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+                let (name, state, ppid, sid) = parse_stat(&stat)?;
+                (state != 'Z' && state != 'X').then_some(Proc { pid, ppid, sid, name })
+            })
+            .collect()
+    }
+
+    /// The live processes of `session`.
+    pub fn session(session: i32) -> Vec<Proc> {
+        all().into_iter().filter(|p| p.sid == session).collect()
+    }
+
+    /// The name, state, parent and session in a /proc/<pid>/stat line:
+    /// `pid (name) state ppid pgrp session …`, where the name may hold spaces and parentheses.
+    pub fn parse_stat(stat: &str) -> Option<(String, char, i32, i32)> {
+        let open = stat.find('(')?;
+        let close = stat.rfind(')')?;
+        let name = stat.get(open + 1..close)?.to_string();
+        let mut rest = stat.get(close + 1..)?.split_whitespace();
+        let state = rest.next()?.chars().next()?;
+        let ppid = rest.next()?.parse().ok()?;
+        let _pgrp = rest.next()?;
+        let session = rest.next()?.parse().ok()?;
+        Some((name, state, ppid, session))
+    }
+
+    /// Whether the process reads or writes the terminal `tty`: its input, output or errors.
+    pub fn on_terminal(pid: i32, tty: &Path) -> bool {
+        (0..3).any(|fd| std::fs::read_link(format!("/proc/{pid}/fd/{fd}")).is_ok_and(|target| target == tty))
+    }
+
+    /// Whether the process talks to the display server: it loaded the Wayland or X11 client
+    /// library, which programs load to open windows.
+    pub fn has_window(pid: i32) -> bool {
+        std::fs::read_to_string(format!("/proc/{pid}/maps")).is_ok_and(|maps| maps_have_window(&maps))
+    }
+
+    pub fn maps_have_window(maps: &str) -> bool {
+        ["/libwayland-client.so", "/libX11.so", "/libxcb.so"]
+            .iter()
+            .any(|lib| maps.contains(lib))
+    }
+
+    /// `roots` with their ancestors and descendants among `all`: a program's launcher and its
+    /// helper processes go with it.
+    pub fn with_relatives(all: &[Proc], roots: &[i32]) -> HashSet<i32> {
+        let parent: HashMap<i32, i32> = all.iter().map(|p| (p.pid, p.ppid)).collect();
+        let mut kept = HashSet::new();
+        for &root in roots {
+            let mut pid = root;
+            while parent.contains_key(&pid) && kept.insert(pid) {
+                pid = parent[&pid];
+            }
+        }
+        loop {
+            let before = kept.len();
+            for p in all {
+                if kept.contains(&p.ppid) {
+                    kept.insert(p.pid);
+                }
+            }
+            if kept.len() == before {
+                return kept;
+            }
+        }
     }
 }
 
@@ -313,7 +587,9 @@ mod tests {
                 dir: dir.path(),
                 env: vec![("DEMIDO_TEST", "from Demido".into())],
                 timeout,
+                background: None,
             },
+            &never,
             &never,
             &never,
             |_| {},
@@ -346,7 +622,9 @@ mod tests {
                 dir: dir.path(),
                 env: Vec::new(),
                 timeout: Duration::from_secs(60),
+                background: None,
             },
+            &never,
             &never,
             &never,
             |_| {},
@@ -384,19 +662,25 @@ mod tests {
     async fn stop_and_cancel_end_a_running_command() {
         let shell = super::super::detect().expect("a PowerShell");
         let dir = tempfile::tempdir().unwrap();
-        let (stop, cancel) = (CancellationToken::new(), CancellationToken::new());
+        let (stop, cancel, never) = (
+            CancellationToken::new(),
+            CancellationToken::new(),
+            CancellationToken::new(),
+        );
         let request = |command| Request {
             shell,
             command,
             dir: dir.path(),
             env: Vec::new(),
             timeout: Duration::from_secs(60),
+            background: None,
         };
         let stopper = stop.clone();
         let mut seen = String::new();
         let out = run(
             request("Write-Output working; Start-Sleep 30"),
             &stop,
+            &never,
             &cancel,
             |shown| {
                 seen = shown.text.clone();
@@ -418,8 +702,9 @@ mod tests {
             tokio::time::sleep(Duration::from_secs(2)).await;
             canceller.cancel();
         });
-        let never = CancellationToken::new();
-        let cancelled = run(request("Start-Sleep 30"), &never, &cancel, |_| {}).await.unwrap();
+        let cancelled = run(request("Start-Sleep 30"), &never, &never, &cancel, |_| {})
+            .await
+            .unwrap();
         assert!(cancelled.is_none());
     }
 }
@@ -435,13 +720,14 @@ mod linux_tests {
             dir,
             env: vec![("DEMIDO_TEST", "from Demido".into())],
             timeout,
+            background: None,
         }
     }
 
     async fn run_command(command: &str, timeout: Duration) -> (Outcome, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let never = CancellationToken::new();
-        let out = run(request(command, dir.path(), timeout), &never, &never, |_| {})
+        let out = run(request(command, dir.path(), timeout), &never, &never, &never, |_| {})
             .await
             .unwrap()
             .expect("not cancelled");
@@ -490,12 +776,17 @@ mod linux_tests {
     #[tokio::test]
     async fn stop_and_cancel_end_a_running_command() {
         let dir = tempfile::tempdir().unwrap();
-        let (stop, cancel) = (CancellationToken::new(), CancellationToken::new());
+        let (stop, cancel, never) = (
+            CancellationToken::new(),
+            CancellationToken::new(),
+            CancellationToken::new(),
+        );
         let stopper = stop.clone();
         let mut seen = String::new();
         let out = run(
             request("echo working; sleep 30", dir.path(), Duration::from_secs(60)),
             &stop,
+            &never,
             &cancel,
             |shown| {
                 seen = shown.text.clone();
@@ -517,9 +808,9 @@ mod linux_tests {
             tokio::time::sleep(Duration::from_secs(2)).await;
             canceller.cancel();
         });
-        let never = CancellationToken::new();
         let cancelled = run(
             request("sleep 30", dir.path(), Duration::from_secs(60)),
+            &never,
             &never,
             &cancel,
             |_| {},
@@ -533,5 +824,154 @@ mod linux_tests {
     async fn pagers_never_wait_for_keys() {
         let (out, _dir) = run_command("echo \"$PAGER $MANPAGER $SYSTEMD_PAGER\"", Duration::from_secs(60)).await;
         assert_eq!(out.shown.text, "cat cat cat");
+    }
+
+    fn pid_in(dir: &std::path::Path, file: &str) -> libc::pid_t {
+        std::fs::read_to_string(dir.join(file)).unwrap().trim().parse().unwrap()
+    }
+
+    fn alive(pid: libc::pid_t) -> bool {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|stat| procs::parse_stat(&stat))
+            .is_some_and(|(_, state, _, _)| state != 'Z')
+    }
+
+    fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(Instant::now() < deadline, "{what}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_program_left_in_the_terminal_ends_with_the_command() {
+        let (out, dir) = run_command("sleep 300 & echo $! > sleeper; echo done", Duration::from_secs(60)).await;
+        assert_eq!(out.ending, Ending::Exited(0));
+        assert_eq!(out.shown.text, "done");
+        let pid = pid_in(dir.path(), "sleeper");
+        assert_eq!(
+            out.ended,
+            vec![Program {
+                pid: pid as u32,
+                name: "sleep".into()
+            }]
+        );
+        assert!(out.left_open.is_empty());
+        wait_for("the sleep outlived the command", || !alive(pid));
+    }
+
+    #[tokio::test]
+    async fn a_program_that_left_the_terminal_stays_running() {
+        // As a program in a window of its own does; nohup and a log file are how servers leave.
+        let (out, dir) = run_command(
+            "nohup sleep 300 > /dev/null 2>&1 & echo $! > sleeper",
+            Duration::from_secs(60),
+        )
+        .await;
+        assert_eq!(out.ending, Ending::Exited(0));
+        let pid = pid_in(dir.path(), "sleeper");
+        assert_eq!(
+            out.left_open,
+            vec![Program {
+                pid: pid as u32,
+                name: "sleep".into()
+            }]
+        );
+        assert!(out.ended.is_empty());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(alive(pid), "the sleep that left the terminal was ended");
+        // SAFETY: ends the test's own sleep.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+
+    #[tokio::test]
+    async fn a_command_in_the_background_runs_on_after_it_returns() {
+        let dir = tempfile::tempdir().unwrap();
+        let never = CancellationToken::new();
+        let mut req = request(
+            "echo started; sleep 2; echo later > marker",
+            dir.path(),
+            Duration::from_secs(1),
+        );
+        req.background = Some(Duration::from_secs(1));
+        let out = run(req, &never, &never, &never, |_| {}).await.unwrap().unwrap();
+        assert_eq!(out.ending, Ending::LeftRunning);
+        assert_eq!(out.shown.text, "started");
+        assert!(out.elapsed < Duration::from_secs(2));
+        assert!(!dir.path().join("marker").exists());
+        wait_for("the command did not run on", || dir.path().join("marker").exists());
+
+        // A command that ends sooner is done as usual.
+        let mut req = request("echo quick", dir.path(), Duration::from_secs(60));
+        req.background = Some(Duration::from_secs(10));
+        let out = run(req, &never, &never, &never, |_| {}).await.unwrap().unwrap();
+        assert_eq!(out.ending, Ending::Exited(0));
+        assert_eq!(out.shown.text, "quick");
+    }
+
+    #[tokio::test]
+    async fn the_person_can_leave_a_command_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let (never, release) = (CancellationToken::new(), CancellationToken::new());
+        let releaser = release.clone();
+        let out = run(
+            request(
+                "echo working; sleep 2; echo later > marker",
+                dir.path(),
+                Duration::from_secs(60),
+            ),
+            &never,
+            &release,
+            &never,
+            |shown| {
+                if shown.text.contains("working") {
+                    releaser.cancel();
+                }
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(out.ending, Ending::LeftRunning);
+        assert_eq!(out.shown.text, "working");
+        assert!(out.pid.is_some());
+        wait_for("the command did not run on", || dir.path().join("marker").exists());
+    }
+
+    #[test]
+    fn stat_lines_with_odd_names_are_read() {
+        assert_eq!(
+            procs::parse_stat("4242 (my (odd) prog) S 4200 4242 4200 34816 4242 4194304 1 0"),
+            Some(("my (odd) prog".into(), 'S', 4200, 4200))
+        );
+        assert_eq!(procs::parse_stat("garbage"), None);
+    }
+
+    #[test]
+    fn a_window_is_told_by_the_display_libraries() {
+        let gtk = "7f00-7f01 r-xp 00000000 00:1f 123 /usr/lib/libwayland-client.so.0.23.1\n";
+        let x11 = "7f00-7f01 r-xp 00000000 00:1f 123 /usr/lib/libX11.so.6.4.0\n";
+        let console = "7f00-7f01 r-xp 00000000 00:1f 123 /usr/lib/libc.so.6\n";
+        assert!(procs::maps_have_window(gtk));
+        assert!(procs::maps_have_window(x11));
+        assert!(!procs::maps_have_window(console));
+    }
+
+    #[test]
+    fn a_kept_program_keeps_its_launcher_and_helpers() {
+        let p = |pid, ppid| procs::Proc {
+            pid,
+            ppid,
+            sid: 10,
+            name: String::new(),
+        };
+        // 10 launches 11 (the window), which starts 12; 20 is unrelated.
+        let all = [p(10, 1), p(11, 10), p(12, 11), p(20, 1)];
+        let mut kept: Vec<i32> = procs::with_relatives(&all, &[11]).into_iter().collect();
+        kept.sort();
+        assert_eq!(kept, [10, 11, 12]);
+        assert!(procs::with_relatives(&all, &[]).is_empty());
     }
 }

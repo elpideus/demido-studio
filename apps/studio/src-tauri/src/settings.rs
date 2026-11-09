@@ -127,7 +127,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let tool_groups = ["market", "coding", "files", "skills"]
+        let tool_groups = ["market", "coding", "computer", "files", "skills"]
             .into_iter()
             .map(|g| (g.to_string(), true))
             .collect();
@@ -177,12 +177,17 @@ impl Settings {
 
     /// Brings switches saved by an older version up to date. Python and the terminal became one
     /// group, Coding, which stays off if either was switched off; Pine scripts joined Market data.
+    /// Then commands left Coding for Computer use, which is on where Coding was.
     fn upgrade(&mut self) {
         if !self.tool_groups.contains_key("coding") {
             let coding = ["python", "terminal"].iter().all(|g| self.tool_group_enabled(g));
             self.tool_groups.insert("coding".into(), coding);
         }
-        for old in ["python", "terminal", "pine"] {
+        if !self.tool_groups.contains_key("computer") {
+            let computer = self.tool_group_enabled("coding");
+            self.tool_groups.insert("computer".into(), computer);
+        }
+        for old in ["python", "terminal", "pine", "apps"] {
             self.tool_groups.remove(old);
         }
     }
@@ -278,6 +283,7 @@ mod tests {
         .unwrap();
         let loaded = SettingsStore::load(path.clone()).get();
         assert!(!loaded.tool_group_enabled("coding"));
+        assert!(!loaded.tool_group_enabled("computer"), "commands were off with Python");
         assert!(!loaded.tool_groups.contains_key("python"));
 
         std::fs::write(
@@ -287,8 +293,27 @@ mod tests {
         .unwrap();
         let loaded = SettingsStore::load(path).get();
         assert!(loaded.tool_group_enabled("coding"));
+        assert!(loaded.tool_group_enabled("computer"));
         assert!(loaded.tool_group_enabled("market"));
-        assert_eq!(loaded.tool_groups.len(), 1);
+        assert_eq!(loaded.tool_groups.len(), 2);
+    }
+
+    #[test]
+    fn computer_use_follows_coding_where_commands_were() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"toolGroups": {"coding": false, "files": true}}"#).unwrap();
+        let loaded = SettingsStore::load(path.clone()).get();
+        assert!(!loaded.tool_group_enabled("computer"));
+
+        std::fs::write(&path, r#"{"toolGroups": {"coding": true, "apps": false}}"#).unwrap();
+        let loaded = SettingsStore::load(path.clone()).get();
+        assert!(loaded.tool_group_enabled("computer"));
+        assert!(!loaded.tool_groups.contains_key("apps"));
+
+        // Switched off on its own, it stays off.
+        std::fs::write(&path, r#"{"toolGroups": {"coding": true, "computer": false}}"#).unwrap();
+        assert!(!SettingsStore::load(path).get().tool_group_enabled("computer"));
     }
 
     #[test]

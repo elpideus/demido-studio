@@ -7,5 +7,5 @@ mod pty;
 mod screen;
 
 pub use detect::{MAX_COMMAND_CHARS, Shell, current, detect, missing};
-pub use pty::{Ending, Request, run};
+pub use pty::{Ending, Program, Request, end_left_running, run};
 pub use screen::Shown;

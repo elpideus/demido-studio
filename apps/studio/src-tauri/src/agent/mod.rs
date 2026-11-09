@@ -65,8 +65,15 @@ pub enum Approval {
 pub struct Agent {
     turns: Mutex<HashMap<String, CancellationToken>>,
     approvals: Mutex<HashMap<String, oneshot::Sender<Approval>>>,
-    /// Running tool calls by row id, for ending one early while its turn goes on.
-    tool_stops: Mutex<HashMap<String, CancellationToken>>,
+    /// Running tool calls by row id, for ending one early (or leaving it running) while its
+    /// turn goes on.
+    tool_stops: Mutex<HashMap<String, ToolControls>>,
+}
+
+/// What the person can do to a running tool call from its card.
+struct ToolControls {
+    stop: CancellationToken,
+    release: CancellationToken,
 }
 
 #[derive(Serialize)]
@@ -232,8 +239,20 @@ impl Agent {
     /// it has so far and the turn goes on. False when the call is not running.
     pub fn stop_tool(&self, row_id: &str) -> bool {
         match self.tool_stops.lock().get(row_id) {
-            Some(token) => {
-                token.cancel();
+            Some(controls) => {
+                controls.stop.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Leaves a running command running on its own (its Keep running button): the tool hands
+    /// the model what it printed so far and the turn goes on. False when the call is not running.
+    pub fn release_tool(&self, row_id: &str) -> bool {
+        match self.tool_stops.lock().get(row_id) {
+            Some(controls) => {
+                controls.release.cancel();
                 true
             }
             None => false,
@@ -1001,14 +1020,21 @@ async fn run_tool_call(
     }
 
     row.update(|m| m.status = MessageStatus::Running)?;
-    let stop = CancellationToken::new();
-    state.agent.tool_stops.lock().insert(row.id(), stop.clone());
+    let (stop, release) = (CancellationToken::new(), CancellationToken::new());
+    state.agent.tool_stops.lock().insert(
+        row.id(),
+        ToolControls {
+            stop: stop.clone(),
+            release: release.clone(),
+        },
+    );
     let ctx = ToolContext {
         state: state.clone(),
         chat_id: chat_id.to_string(),
         workspace: workspace.to_path_buf(),
         cancel: cancel.clone(),
         stop,
+        release,
         row: row.clone(),
     };
     let started = Instant::now();

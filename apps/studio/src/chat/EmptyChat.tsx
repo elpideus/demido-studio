@@ -101,7 +101,7 @@ export function EmptyChat({ model, onSuggest }: Props) {
         title: 'Analyse data',
         text: 'Get the last 3 months of daily gold (XAUUSD) candles, plot the closing price with a 20-day moving average, and describe the trend.',
       },
-    on('coding') && {
+    on('computer') && {
       icon: SquareTerminal,
       title: 'Use your programs',
       text: 'Ping google.com four times and tell me the average response time.',

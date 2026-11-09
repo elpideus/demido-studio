@@ -81,6 +81,8 @@ libc = "0.2"
 # WebKitGTK's own settings and permission requests (the microphone): the same version and
 # features wry uses.
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
+# The app menu's apps, opened through GIO (`tools::apps`).
+gtk = "0.18"
 # Driving the app from scripts/drive.mjs, in debug builds.
 demido-drive.workspace = true
 

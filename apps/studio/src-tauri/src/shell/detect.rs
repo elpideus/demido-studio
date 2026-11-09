@@ -42,8 +42,11 @@ const EPILOGUE: &str = "if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
 /// Runs before a bash command: nobody can type into the command's terminal, so `sudo` asking for a
 /// password would wait until the command times out. `-n` makes it fail at once and say a password
-/// is needed (and changes nothing where sudo needs none). One line, as with PowerShell's.
-const BASH_PREAMBLE: &str = r#"sudo() { command sudo -n "$@"; }"#;
+/// is needed (and changes nothing where sudo needs none). And the hang-up the terminal sends when
+/// the shell ends is ignored, by the programs it starts too: a program started with `&` lives on
+/// as on Windows, and the runner then ends those still using the terminal itself. One line, as
+/// with PowerShell's.
+const BASH_PREAMBLE: &str = r#"trap '' HUP; sudo() { command sudo -n "$@"; }"#;
 
 impl Shell {
     pub fn is_powershell(&self) -> bool {

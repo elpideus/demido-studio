@@ -14,6 +14,9 @@ const DEFAULT_TIMEOUT: u64 = 120;
 const MAX_TIMEOUT: u64 = 3_600;
 const MAX_FOR_MODEL: usize = 10_000;
 const MAX_DISPLAY: usize = 40_000;
+/// How long a command meant to keep running (`background`) runs before it is left to run on:
+/// long enough to show that it started, or why it could not.
+const BACKGROUND_WAIT: Duration = Duration::from_secs(5);
 
 pub fn schema() -> Value {
     json!({
@@ -21,7 +24,12 @@ pub fn schema() -> Value {
         "properties": {
             "command": {"type": "string", "description": "In the shell's own syntax"},
             "directory": {"type": "string", "description": "Absolute path, ~ for the home folder, or a workspace folder"},
-            "timeout": {"type": "integer", "description": "Seconds before it is stopped (default 120, max 3600): longer for downloads and other long jobs; 3 to 5 for full-screen programs such as btop, whose screen is then returned"}
+            "timeout": {"type": "integer", "description": "Seconds before it is stopped (default 120, max 3600): longer for downloads and other long jobs; 3 to 5 for full-screen programs such as btop, whose screen is then returned"},
+            "background": {"type": "boolean", "description": if super::apps::SUPPORTED {
+                "For a server, a watcher or anything else meant to keep running: what it printed in its first 5 s is returned and it runs on until it ends or the app closes. Not for apps with windows: open those with open_app"
+            } else {
+                "For a server, a watcher or anything else meant to keep running: what it printed in its first 5 s is returned and it runs on until it ends or the app closes"
+            }}
         },
         "required": ["command"]
     })
@@ -48,6 +56,7 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
         .map(|s| s.round().max(1.0) as u64)
         .unwrap_or(DEFAULT_TIMEOUT)
         .min(MAX_TIMEOUT);
+    let background = args.get("background").and_then(Value::as_bool).unwrap_or(false);
     // Only the workspace is watched for new files: walking a home folder would take long.
     let before = (dir == ctx.workspace).then(|| snapshot(&ctx.workspace));
 
@@ -57,7 +66,9 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
         "shell": shell.name,
         "powershell": shell.is_powershell(),
         "directory": dir.to_string_lossy(),
+        "background": background,
     });
+    let powershell = shell.is_powershell();
     let live = |shown: &Shown| {
         let mut display = base.clone();
         display["output"] = json!(clip(&shown.text, MAX_DISPLAY));
@@ -72,14 +83,20 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
         dir: &dir,
         env: vec![("DEMIDO_WORKSPACE", ctx.workspace.clone().into_os_string())],
         timeout: Duration::from_secs(timeout),
+        background: background.then_some(BACKGROUND_WAIT),
     };
-    let Some(outcome) = shell::run(request, &ctx.stop, &ctx.cancel, |shown| ctx.set_display(live(shown))).await? else {
+    let Some(outcome) = shell::run(request, &ctx.stop, &ctx.release, &ctx.cancel, |shown| {
+        ctx.set_display(live(shown))
+    })
+    .await?
+    else {
         return Err("Cancelled.".into());
     };
 
     let files = before
         .map(|before| changed_files(&ctx.workspace, &before))
         .unwrap_or_default();
+    let seconds = outcome.elapsed.as_secs();
     let (exit_code, ending, note) = match outcome.ending {
         Ending::Exited(code) => (Some(code), "exited", None),
         Ending::TimedOut => (
@@ -93,17 +110,54 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
             None,
             "stopped",
             Some(format!(
-                "The user stopped the command after {} s. The output is what it showed until then.",
-                outcome.elapsed.as_secs()
+                "The user stopped the command after {seconds} s. The output is what it showed until then."
             )),
         ),
+        Ending::LeftRunning => {
+            let how = if ctx.release.is_cancelled() {
+                format!("The user left the command running after {seconds} s so the chat could go on")
+            } else {
+                "The command is running in the background".to_string()
+            };
+            (
+                None,
+                "leftRunning",
+                Some(format!(
+                    "{how}; the output is what it showed until then. It runs until it ends or the app closes.{}",
+                    outcome.pid.map(|pid| stop_hint(pid, powershell)).unwrap_or_default()
+                )),
+            )
+        }
     };
+    let names = |programs: &[shell::Program]| {
+        programs
+            .iter()
+            .map(|p| format!("{} ({})", p.name, p.pid))
+            .collect::<Vec<_>>()
+    };
+    let mut notes: Vec<String> = note.into_iter().collect();
+    if !outcome.left_open.is_empty() {
+        notes.push(format!(
+            "Still open after the command ended: {}.",
+            names(&outcome.left_open).join(", ")
+        ));
+    }
+    if !outcome.ended.is_empty() {
+        notes.push(format!(
+            "Ended with the command, as they were still using its terminal: {}. To keep a program running, run it with background: true; to open an app with a window, use open_app.",
+            names(&outcome.ended).join(", ")
+        ));
+    }
     let mut for_model = json!({
         "exitCode": exit_code,
         "output": clip(&outcome.shown.text, MAX_FOR_MODEL),
     });
-    if let Some(note) = note {
-        for_model["note"] = json!(note);
+    if outcome.ending == Ending::LeftRunning {
+        for_model["running"] = json!(true);
+        for_model["pid"] = json!(outcome.pid);
+    }
+    if !notes.is_empty() {
+        for_model["note"] = json!(notes.join(" "));
     }
     if !files.is_empty() {
         for_model["filesCreatedOrChanged"] = files.iter().map(|f| f["path"].clone()).collect();
@@ -117,13 +171,24 @@ pub async fn run(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> 
     display["timeout"] = json!(timeout);
     display["files"] = json!(files);
     display["durationMs"] = json!(outcome.elapsed.as_millis() as u64);
+    display["pid"] = json!(outcome.pid);
+    display["leftOpen"] = outcome.left_open.iter().map(|p| json!(p.name)).collect();
     Ok(ToolOutput {
-        // A command stopped on purpose (a full-screen program's timeout, the Stop button) did
-        // what was asked; only a non-zero exit code is a failure.
+        // A command stopped on purpose (a full-screen program's timeout, the Stop button) or left
+        // running did what was asked; only a non-zero exit code is a failure.
         ok: !matches!(outcome.ending, Ending::Exited(code) if code != 0),
         content: for_model.to_string(),
         display,
     })
+}
+
+/// How to stop a command left running: its whole process tree.
+fn stop_hint(pid: u32, powershell: bool) -> String {
+    if powershell {
+        format!(" To stop it: taskkill /PID {pid} /T /F")
+    } else {
+        format!(" To stop it: kill -- -{pid}")
+    }
 }
 
 fn home() -> Option<PathBuf> {

@@ -473,6 +473,7 @@ pub fn run() {
             commands::chats::context_usage,
             commands::chats::resolve_approval,
             commands::chats::stop_tool,
+            commands::chats::release_tool,
             commands::chats::rename_chat,
             commands::chats::pin_chat,
             commands::chats::delete_chat,
@@ -625,6 +626,7 @@ pub fn run() {
             && let Some(state) = handle.try_state::<Arc<AppState>>()
         {
             state.agent.stop_all();
+            shell::end_left_running();
             state.runtime.kill_now();
             state.embedder.kill_now();
             state.speech.kill_now();

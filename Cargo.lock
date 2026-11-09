@@ -1264,6 +1264,7 @@ dependencies = [
  "demido-fetch",
  "demido-hardware",
  "futures-util",
+ "gtk",
  "hex",
  "keyring",
  "lettre",

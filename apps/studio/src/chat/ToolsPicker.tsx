@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import {
   BookMarked,
   FileText,
+  Monitor,
   LineChart,
   Mail,
   Settings2,
@@ -22,6 +23,7 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   market: LineChart,
   mail: Mail,
   coding: SquareTerminal,
+  computer: Monitor,
   files: FileText,
   skills: Sparkles,
 };

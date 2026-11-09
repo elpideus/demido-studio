@@ -1,8 +1,8 @@
 //! The assistant's tools.
 //!
 //! Tools come in groups the person can switch on and off from the composer's Tools menu:
-//! market data (Pine scripts and the chart among them), coding (Python and the terminal), workspace
-//! files and skill authoring. Every call runs in the context of one chat, whose workspace folder
+//! market data (Pine scripts and the chart among them), coding (Python), computer use (commands
+//! and apps), workspace files and skill authoring. Every call runs in the context of one chat, whose workspace folder
 //! holds the files tools produce (market data CSVs, charts, downloads).
 //!
 //! A chat starts with none of the groups loaded: the system prompt lists them in a line each, and
@@ -10,6 +10,7 @@
 //! of the chat, which is read back from the chat's tool calls (see [`loaded_groups`]), so a
 //! greeting does not carry thousands of tokens of tool schemas.
 
+mod apps;
 mod changes;
 mod command;
 mod files;
@@ -56,6 +57,9 @@ pub struct ToolContext {
     pub cancel: CancellationToken,
     /// Set when the person ends this call early; a tool that can stop keeps what it has.
     pub stop: CancellationToken,
+    /// Set when the person leaves this call running on its own (a command); the tool returns
+    /// what it has so far.
+    pub release: CancellationToken,
     /// The call's chat row, shared with the agent loop.
     pub row: ToolRow,
 }
@@ -348,10 +352,22 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "run_command",
-        group: "coding",
-        description: "Run a command line in the user's own shell on their computer and get its output and exit code: for the programs they installed (yt-dlp, ffmpeg, git, their package manager…) and questions about the computer. The user approves each command. It runs in the chat's workspace folder (so downloads land there) unless directory is given.",
+        group: "computer",
+        description: if apps::SUPPORTED {
+            "Run a command line in the user's own shell on their computer and get its output and exit code: for the programs they installed (yt-dlp, ffmpeg, git, their package manager…) and questions about the computer. The user approves each command. It runs in the chat's workspace folder (so downloads land there) unless directory is given. It waits until the command ends, so open apps with windows with open_app, not here; start servers and watchers with background."
+        } else {
+            "Run a command line in the user's own shell on their computer and get its output and exit code: for the programs they installed (yt-dlp, ffmpeg, git, their package manager…) and questions about the computer. The user approves each command. It runs in the chat's workspace folder (so downloads land there) unless directory is given. Start servers and watchers with background."
+        },
         parameters: command::schema,
         risk: Risk::Risky,
+        confirms: false,
+    },
+    ToolDef {
+        name: "open_app",
+        group: "computer",
+        description: "Open an app installed on the user's computer in its own window, as the app menu does, by its name. It runs on its own after that. For the app itself rather than a command-line program of the same name.",
+        parameters: apps::schema,
+        risk: Risk::Change,
         confirms: false,
     },
     ToolDef {
@@ -445,8 +461,15 @@ const GROUPS: &[GroupDef] = &[
     GroupDef {
         id: "coding",
         label: "Coding",
-        description: "Run Python analysis and the programs installed on this computer",
-        for_model: "run Python (data analysis, charts, file conversion) and command lines on the user's computer",
+        description: "Run Python for analysis, charts and file conversion",
+        for_model: "run Python (data analysis, charts, file conversion)",
+    },
+    GroupDef {
+        id: "computer",
+        label: "Computer use",
+        description: "Run commands and open apps on this computer",
+        for_model: "use the user's own computer: run command lines and the programs they installed, and open \
+                    (launch, start) their apps",
     },
     GroupDef {
         id: "files",
@@ -487,8 +510,9 @@ fn group_availability(state: &AppState, group: &str) -> (bool, Option<String>) {
         );
     }
     let tools: Vec<&ToolDef> = TOOLS.iter().filter(|t| t.group == group).collect();
-    let missing: Vec<String> = tools.iter().filter_map(|t| tool_missing(state, t.name)).collect();
+    let mut missing: Vec<String> = tools.iter().filter_map(|t| tool_missing(state, t.name)).collect();
     let available = missing.len() < tools.len();
+    missing.dedup();
     (available, (!missing.is_empty()).then(|| missing.join(" ")))
 }
 
@@ -500,6 +524,7 @@ fn tool_missing(state: &AppState, name: &str) -> Option<String> {
         }
         // Offered until the search for a shell (at startup) finds none.
         "run_command" if crate::shell::missing() => Some("No shell was found on this computer.".into()),
+        "open_app" if !apps::SUPPORTED => Some("Apps can be opened this way on Linux only.".into()),
         _ => None,
     }
 }
@@ -703,7 +728,7 @@ fn load(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
 /// Finds what the system prompt says about the tools: which shell commands run in. The first
 /// time, on Windows, that takes a second or two.
 pub async fn prepare(settings: &Settings) {
-    if settings.tool_group_enabled("coding") {
+    if settings.tool_group_enabled("computer") {
         let _ = tokio::task::spawn_blocking(crate::shell::detect).await;
     }
 }
@@ -836,6 +861,7 @@ pub fn describe(name: &str, args: &Value) -> String {
             }
         }
         "run_command" => format!("Running {}", command::one_line(&s("command"), 60)),
+        "open_app" => format!("Opening {}", s("name")),
         "list_files" => "Listing workspace files".into(),
         "read_file" => match s("pages") {
             pages if pages.is_empty() => format!("Reading {}", s("path")),
@@ -893,6 +919,7 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "mail_draft" => mail_write::draft(ctx, &args).await,
         "run_python" => python::run(ctx, &args).await,
         "run_command" => command::run(ctx, &args).await,
+        "open_app" => apps::open(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
         "read_file" => files::read(ctx, &args).await,
         "search_files" => files::search(ctx, &args).await,
@@ -1089,6 +1116,8 @@ mod tests {
         let mut ids: Vec<&str> = loaded.into_iter().collect();
         ids.sort();
         assert_eq!(ids, ["coding", "files", "mail", "market"]);
+        let chat = [calls(&[("run_command", "{}"), ("open_app", "{}")])];
+        assert_eq!(loaded_groups(&chat).into_iter().collect::<Vec<_>>(), ["computer"]);
     }
 
     #[test]

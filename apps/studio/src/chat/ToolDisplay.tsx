@@ -4,6 +4,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
   ExternalLink,
+  AppWindow,
   FileCode,
   FileImage,
   FileSpreadsheet,
@@ -14,6 +15,7 @@ import {
   SquareFunction,
   CircleStop,
   File as FileIcon,
+  Unplug,
 } from 'lucide-react';
 import { Button, ProgressBar, cx, formatBytes } from '@demido/ui';
 
@@ -438,6 +440,9 @@ function Python({ d }: { d: Display }) {
 function commandEnding(d: Display): { text: string; failed: boolean } | null {
   if (d.ending === 'timedOut') return { text: `Stopped at its time limit of ${num(d.timeout)} s`, failed: false };
   if (d.ending === 'stopped') return { text: 'You stopped it', failed: false };
+  if (d.ending === 'leftRunning') {
+    return { text: d.background === true ? 'Running in the background' : 'You left it running', failed: false };
+  }
   const code = num(d.exitCode);
   return code !== undefined && code !== 0 ? { text: `Exited with code ${code}`, failed: true } : null;
 }
@@ -449,7 +454,8 @@ function Command({ d, message }: { d: Display; message: Message | undefined }) {
   const screen = useRef<HTMLPreElement>(null);
   // Follows the newest output, unless the person scrolled up to read.
   const follow = useRef(true);
-  const [stopping, setStopping] = useState(false);
+  // Stop or Keep running was pressed: both wait for the command to end.
+  const [leaving, setLeaving] = useState(false);
   useLayoutEffect(() => {
     const el = screen.current;
     if (el && follow.current) el.scrollTop = el.scrollHeight;
@@ -461,12 +467,13 @@ function Command({ d, message }: { d: Display; message: Message | undefined }) {
     kind: string;
   }>;
   const ending = commandEnding(d);
-  const stop = () => {
+  const leftOpen = (Array.isArray(d.leftOpen) ? d.leftOpen : []).filter((n): n is string => typeof n === 'string');
+  const leave = (how: 'stop' | 'release') => {
     if (!message) return;
-    setStopping(true);
-    api.stopTool(message.id).catch((e) => {
-      setStopping(false);
-      toast.error('Could not stop the command', errorText(e));
+    setLeaving(true);
+    (how === 'stop' ? api.stopTool(message.id) : api.releaseTool(message.id)).catch((e) => {
+      setLeaving(false);
+      toast.error(how === 'stop' ? 'Could not stop the command' : 'Could not leave the command running', errorText(e));
     });
   };
   return (
@@ -487,17 +494,24 @@ function Command({ d, message }: { d: Display; message: Message | undefined }) {
       <div className={styles.commandFoot}>
         <span className={styles.shell}>{str(d.shell)}</span>
         {ending && <span className={ending.failed ? styles.error : styles.muted}>{ending.text}</span>}
+        {leftOpen.length > 0 && <span className={styles.muted}>Still open: {leftOpen.join(', ')}</span>}
         {running && message && (
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={CircleStop}
-            disabled={stopping}
-            onClick={stop}
-            className={styles.stop}
-          >
-            Stop
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={Unplug}
+              disabled={leaving}
+              onClick={() => leave('release')}
+              className={styles.stop}
+              title="Let the command run on by itself and the chat go on"
+            >
+              Keep running
+            </Button>
+            <Button size="sm" variant="ghost" icon={CircleStop} disabled={leaving} onClick={() => leave('stop')}>
+              Stop
+            </Button>
+          </>
         )}
       </div>
       {files.length > 0 && (
@@ -506,6 +520,38 @@ function Command({ d, message }: { d: Display; message: Message | undefined }) {
             <FileChip key={f.absolute} path={f.absolute} name={f.path} size={f.size} kind={f.kind} />
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** An app opened in its own window. */
+function OpenedApp({ d }: { d: Display }) {
+  return (
+    <div className={styles.skill}>
+      <AppWindow size={16} className={styles.skillIcon} aria-hidden />
+      <div className={styles.skillText}>
+        <div className={styles.symbol}>{str(d.name)}</div>
+        <div className={styles.muted}>Opened in its own window</div>
+      </div>
+    </div>
+  );
+}
+
+/** The person's screen after a computer_* call: what was done, and the screenshot taken after it. */
+function ComputerScreen({ d }: { d: Display }) {
+  const status = str(d.status);
+  if (status) return <div className={styles.muted}>{status}…</div>;
+  const shot = (d.shot ?? {}) as { path?: unknown; file?: unknown };
+  const shotPath = str(shot.path);
+  const done = str(d.done);
+  return (
+    <div className={styles.python}>
+      {done && <div className={styles.muted}>{done}</div>}
+      {shotPath && (
+        <button type="button" className={styles.imageButton} onClick={() => openFile(shotPath)} title={str(shot.file)}>
+          <img src={fileUrl(shotPath) ?? ''} alt="The screen" className={styles.image} />
+        </button>
       )}
     </div>
   );
@@ -864,6 +910,10 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <Python d={display} />;
     case 'command':
       return <Command d={display} message={message} />;
+    case 'app':
+      return <OpenedApp d={display} />;
+    case 'computer':
+      return <ComputerScreen d={display} />;
     case 'skill':
       return <Skill d={display} />;
     case 'files':
