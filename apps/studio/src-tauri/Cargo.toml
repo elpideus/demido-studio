@@ -22,7 +22,8 @@ demido-hardware.workspace = true
 demido-fetch = { workspace = true, features = ["xet"] }
 demido-extract.workspace = true
 
-tauri = { workspace = true, features = ["protocol-asset"] }
+# `unstable`: webviews inside the app's window (`Window::add_child`), for the built-in browser.
+tauri = { workspace = true, features = ["protocol-asset", "unstable"] }
 tauri-plugin-dialog.workspace = true
 tauri-plugin-opener.workspace = true
 tauri-plugin-single-instance.workspace = true
@@ -44,6 +45,7 @@ parking_lot.workspace = true
 regex.workspace = true
 base64.workspace = true
 url.workspace = true
+dirs.workspace = true
 walkdir.workspace = true
 sha2.workspace = true
 hex.workspace = true
@@ -62,6 +64,16 @@ mail-parser = { version = "0.11", features = ["full_encoding"] }
 lettre = { version = "0.11", default-features = false, features = ["builder", "hostname", "smtp-transport", "tokio1", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 tokio-rustls = "0.26"
 rustls-platform-verifier = "0.7"
+# Web pages as their readable part (Mozilla's Readability), and HTML as Markdown and CSS selectors
+# for search results: the same author's pair, on the html5ever the tree already has.
+dom_smoothie = "0.18"
+dom_query = "0.28"
+# Pages read from the web in the character set they name (already in the tree through reqwest).
+encoding_rs = "0.8"
+# The built-in browser's screenshots, as JPEG for the model (already in the tree through
+# demido-extract).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+percent-encoding = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
@@ -81,10 +93,14 @@ libc = "0.2"
 # WebKitGTK's own settings and permission requests (the microphone): the same version and
 # features wry uses.
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
-# The app menu's apps, opened through GIO (`tools::apps`).
+# The built-in browser's place over the page: a GtkOverlay (see `web::browser::place`).
 gtk = "0.18"
 # Driving the app from scripts/drive.mjs, in debug builds.
 demido-drive.workspace = true
+# Computer use (`desktop`): XTEST on X11, loaded when used as GTK loads Xlib, and the desktop
+# portals over D-Bus on Wayland. Both are already in the tree through tao and the opener.
+x11-dl = "2.21"
+zbus = "5"
 
 [dev-dependencies]
 tempfile.workspace = true

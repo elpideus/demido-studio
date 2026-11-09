@@ -3,6 +3,7 @@ import {
   BookOpenText,
   Boxes,
   CandlestickChart,
+  Globe,
   Mail,
   PanelLeft,
   PanelRight,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button, cx } from '@demido/ui';
 
+import { BrowserWindow } from '@/browser/BrowserWindow';
 import { InspectorWindow } from '@/inspector/InspectorWindow';
 import { MailWindow } from '@/mail/MailWindow';
 import { MarketWindow } from '@/market/MarketWindow';
@@ -27,6 +29,7 @@ const ICONS: Record<WindowKind, LucideIcon> = {
   market: CandlestickChart,
   mail: Mail,
   inspector: BookOpenText,
+  browser: Globe,
 };
 
 function content(win: WindowState) {
@@ -41,6 +44,8 @@ function content(win: WindowState) {
       return <MailWindow win={win} />;
     case 'inspector':
       return <InspectorWindow win={win} />;
+    case 'browser':
+      return <BrowserWindow />;
   }
 }
 

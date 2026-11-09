@@ -20,6 +20,7 @@ use crate::settings::SettingsStore;
 use crate::skills::SkillRegistry;
 use crate::speech::Transcriber;
 use crate::updater::Updater;
+use crate::web::Web;
 
 pub struct AppState {
     pub app: AppHandle,
@@ -40,6 +41,10 @@ pub struct AppState {
     pub market: Arc<MarketService>,
     pub mail: Arc<MailService>,
     pub updater: Arc<Updater>,
+    /// Web search, reading pages, and the built-in browser.
+    pub web: Arc<Web>,
+    /// The person's own screen, mouse and keyboard, for computer use.
+    pub desktop: Arc<crate::desktop::Desktop>,
     pub agent: Agent,
     /// Client for the internet (Hugging Face, Gemini).
     pub http: reqwest::Client,

@@ -108,19 +108,21 @@ async fn serve(stream: TcpStream, app: &AppHandle) -> std::io::Result<()> {
 async fn answer(app: &AppHandle, path: &str, request: &Value) -> Result<Value, String> {
     if path == "/targets" {
         let targets: Vec<Value> = app
-            .webview_windows()
+            .webviews()
             .into_iter()
-            .map(|(label, window)| {
-                let url = window.url().map(|u| u.to_string()).unwrap_or_default();
+            .map(|(label, webview)| {
+                let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
                 json!({ "label": label, "url": url })
             })
             .collect();
         return Ok(Value::Array(targets));
     }
     let label = request["target"].as_str().unwrap_or("main");
+    // By webview, not by window: a window that holds more than one webview is no "webview
+    // window" to Tauri.
     let window = app
-        .get_webview_window(label)
-        .ok_or_else(|| format!("no window is labelled {label}"))?;
+        .get_webview(label)
+        .ok_or_else(|| format!("no webview is labelled {label}"))?;
     match path {
         "/eval" => {
             let script = request["script"].as_str().ok_or("no script")?;
@@ -144,9 +146,9 @@ async fn answer(app: &AppHandle, path: &str, request: &Value) -> Result<Value, S
 }
 
 /// What the page logs to its console, and its errors, go to stdout: the terminal in development.
-pub fn console_to_stdout(window: &tauri::WebviewWindow) {
+pub fn console_to_stdout(window: impl AsRef<tauri::Webview>) {
     use webkit2gtk::{SettingsExt, WebViewExt};
-    let _ = window.with_webview(|webview| {
+    let _ = window.as_ref().with_webview(|webview| {
         if let Some(settings) = WebViewExt::settings(&webview.inner()) {
             settings.set_enable_write_console_messages_to_stdout(true);
         }
@@ -154,7 +156,7 @@ pub fn console_to_stdout(window: &tauri::WebviewWindow) {
 }
 
 /// Runs `script` in the page and returns its value, awaited, as JSON (`null` for `undefined`).
-async fn evaluate(window: &tauri::WebviewWindow, script: &str) -> Result<Value, String> {
+async fn evaluate(window: &tauri::Webview, script: &str) -> Result<Value, String> {
     use javascriptcore::ValueExt;
     use webkit2gtk::WebViewExt;
 
@@ -186,7 +188,7 @@ async fn evaluate(window: &tauri::WebviewWindow, script: &str) -> Result<Value, 
 }
 
 /// A PNG of what the webview shows.
-async fn snapshot(window: &tauri::WebviewWindow) -> Result<Vec<u8>, String> {
+async fn snapshot(window: &tauri::Webview) -> Result<Vec<u8>, String> {
     use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
 
     let (tx, rx) = oneshot::channel::<Result<Vec<u8>, String>>();

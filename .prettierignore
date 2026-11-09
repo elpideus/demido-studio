@@ -7,3 +7,5 @@ pnpm-lock.yaml
 apps/*/src-tauri/gen
 apps/*/src-tauri/icons
 *.md
+# Pages saved as the sites served them, for the parsers' tests.
+apps/*/src-tauri/tests/fixtures

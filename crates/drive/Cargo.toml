@@ -9,7 +9,8 @@ rust-version.workspace = true
 publish = false
 
 [target.'cfg(target_os = "linux")'.dependencies]
-tauri.workspace = true
+# `unstable` for the webviews by label: the app's window holds the browser's tabs too.
+tauri = { workspace = true, features = ["unstable"] }
 serde_json.workspace = true
 base64.workspace = true
 tokio.workspace = true

@@ -336,22 +336,39 @@ fn contents(messages: &[LlmMessage]) -> Vec<Value> {
                     out.push(json!({"role": "model", "parts": parts}));
                 }
             }
-            LlmMessage::Tool { name, content, .. } => {
+            LlmMessage::Tool {
+                name, content, media, ..
+            } => {
                 let result: Value = serde_json::from_str(content).unwrap_or_else(|_| json!(content));
                 let part = json!({"functionResponse": {"name": name, "response": {"result": result}}});
-                // Responses to calls made in the same turn travel together.
+                let pictures: Vec<Value> = media
+                    .iter()
+                    .filter(|m| m.is_image())
+                    .map(|m| json!({"inlineData": {"mimeType": m.mime, "data": m.data}}))
+                    .collect();
+                // Responses to calls made in the same turn travel together, then the pictures any
+                // of them attach.
                 let appended = out.last_mut().is_some_and(|last| {
                     let is_responses = last["role"] == "user"
-                        && last["parts"]
-                            .as_array()
-                            .is_some_and(|p| p.iter().all(|x| x.get("functionResponse").is_some()));
+                        && last["parts"].as_array().is_some_and(|p| {
+                            p.iter()
+                                .all(|x| x.get("functionResponse").is_some() || x.get("inlineData").is_some())
+                        });
                     if is_responses {
-                        last["parts"].as_array_mut().unwrap().push(part.clone());
+                        let parts = last["parts"].as_array_mut().unwrap();
+                        let at = parts
+                            .iter()
+                            .position(|x| x.get("inlineData").is_some())
+                            .unwrap_or(parts.len());
+                        parts.insert(at, part.clone());
+                        parts.extend(pictures.iter().cloned());
                     }
                     is_responses
                 });
                 if !appended {
-                    out.push(json!({"role": "user", "parts": [part]}));
+                    let mut parts = vec![part];
+                    parts.extend(pictures);
+                    out.push(json!({"role": "user", "parts": parts}));
                 }
             }
         }
@@ -575,7 +592,7 @@ fn is_chat_model(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{Client, GenParams};
+    use crate::llm::{Client, GenParams, Media};
 
     #[test]
     fn thinking_levels_follow_googles_guide() {
@@ -694,11 +711,13 @@ mod tests {
                 call_id: "a".into(),
                 name: "one".into(),
                 content: "{\"ok\":true}".into(),
+                media: Vec::new(),
             },
             LlmMessage::Tool {
                 call_id: "b".into(),
                 name: "two".into(),
                 content: "plain text".into(),
+                media: Vec::new(),
             },
         ];
         let c = contents(&history);
@@ -708,6 +727,51 @@ mod tests {
         assert_eq!(c[1]["parts"][0]["functionCall"]["args"]["x"], 1);
         assert_eq!(c[2]["parts"].as_array().unwrap().len(), 2);
         assert_eq!(c[2]["parts"][1]["functionResponse"]["response"]["result"], "plain text");
+    }
+
+    #[test]
+    fn pictures_follow_the_responses_of_their_turn() {
+        let history = vec![
+            LlmMessage::User {
+                content: "look".into(),
+                media: vec![],
+            },
+            LlmMessage::Assistant {
+                content: String::new(),
+                reasoning: None,
+                tool_calls: vec![
+                    ToolCall {
+                        id: "s".into(),
+                        name: "browser_screenshot".into(),
+                        arguments: "{}".into(),
+                    },
+                    ToolCall {
+                        id: "r".into(),
+                        name: "browser_read".into(),
+                        arguments: "{}".into(),
+                    },
+                ],
+                provider_meta: None,
+            },
+            LlmMessage::Tool {
+                call_id: "s".into(),
+                name: "browser_screenshot".into(),
+                content: "A screenshot".into(),
+                media: vec![Media::new("image/jpeg", &[1, 2, 3])],
+            },
+            LlmMessage::Tool {
+                call_id: "r".into(),
+                name: "browser_read".into(),
+                content: "The page".into(),
+                media: Vec::new(),
+            },
+        ];
+        let c = contents(&history);
+        let parts = c[2]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0]["functionResponse"]["name"], "browser_screenshot");
+        assert_eq!(parts[1]["functionResponse"]["name"], "browser_read");
+        assert_eq!(parts[2]["inlineData"]["data"], "AQID");
     }
 
     #[test]

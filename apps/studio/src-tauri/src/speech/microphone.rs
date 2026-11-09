@@ -1,8 +1,8 @@
 //! The microphone: allowed to the app's own pages, and whether Windows lets desktop apps use it.
 
-/// The origins of the app's own pages: the bundled UI, and Vite's server while developing.
-#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
-fn is_app_origin(uri: &str) -> bool {
+/// The origins of the app's own pages: the bundled UI, and Vite's server while developing. The
+/// built-in browser keeps its tabs away from them too (`web::browser::allowed`).
+pub(crate) fn is_app_origin(uri: &str) -> bool {
     let Ok(url) = url::Url::parse(uri) else {
         return false;
     };

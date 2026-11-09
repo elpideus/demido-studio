@@ -38,6 +38,8 @@ pub struct AppPaths {
     pub cache_dir: PathBuf,
     /// Isolated browser profile for the TradingView sign-in window.
     pub tradingview_profile_dir: PathBuf,
+    /// The built-in browser's profile: its cookies, sign-ins and cache, apart from the app's page.
+    pub browser_profile_dir: PathBuf,
     /// Downloaded updates waiting to be installed (see `updater::staging`). A development build
     /// has its own, see [`updates_dir`].
     pub updates_dir: PathBuf,
@@ -63,6 +65,7 @@ impl AppPaths {
             logs_dir: data_dir.join("logs"),
             cache_dir: data_dir.join("cache"),
             tradingview_profile_dir: data_dir.join("webview-tradingview"),
+            browser_profile_dir: data_dir.join("webview-browser"),
             updates_dir: updates_dir(cfg!(debug_assertions), &data_dir, &repo_root()),
             data_dir,
             install_dir,

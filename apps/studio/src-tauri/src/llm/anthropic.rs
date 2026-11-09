@@ -532,13 +532,29 @@ fn messages(history: &[LlmMessage], model: &str) -> Vec<Value> {
                     });
                 push("assistant", blocks, &mut out);
             }
-            LlmMessage::Tool { call_id, content, .. } => {
+            LlmMessage::Tool {
+                call_id,
+                content,
+                media,
+                ..
+            } => {
                 let text = if content.is_empty() {
                     "(no output)"
                 } else {
                     content.as_str()
                 };
-                let block = json!({"type": "tool_result", "tool_use_id": tool_id(call_id), "content": text});
+                let mut pictures: Vec<Value> = media
+                    .iter()
+                    .filter(|m| m.is_image())
+                    .map(|m| json!({"type": "image", "source": {"type": "base64", "media_type": m.mime, "data": m.data}}))
+                    .collect();
+                let content = if pictures.is_empty() {
+                    json!(text)
+                } else {
+                    pictures.insert(0, json!({"type": "text", "text": text}));
+                    Value::Array(pictures)
+                };
+                let block = json!({"type": "tool_result", "tool_use_id": tool_id(call_id), "content": content});
                 // Results go first in their user turn, before anything the person adds.
                 match out.last_mut() {
                     Some(("user", existing)) => {
@@ -783,11 +799,13 @@ mod tests {
                 call_id: "gemini_call:1".into(),
                 name: "one".into(),
                 content: "ok".into(),
+                media: Vec::new(),
             },
             LlmMessage::Tool {
                 call_id: "b".into(),
                 name: "two".into(),
                 content: String::new(),
+                media: Vec::new(),
             },
             LlmMessage::User {
                 content: "and now?".into(),
@@ -803,6 +821,53 @@ mod tests {
         assert_eq!(user[0]["tool_use_id"], "gemini_call_1");
         assert_eq!(user[1]["content"], "(no output)");
         assert_eq!(user[2]["text"], "and now?");
+    }
+
+    #[test]
+    fn results_carry_their_pictures() {
+        let history = vec![
+            LlmMessage::User {
+                content: "look".into(),
+                media: vec![],
+            },
+            LlmMessage::Assistant {
+                content: String::new(),
+                reasoning: None,
+                tool_calls: vec![
+                    ToolCall {
+                        id: "s".into(),
+                        name: "browser_screenshot".into(),
+                        arguments: "{}".into(),
+                    },
+                    ToolCall {
+                        id: "r".into(),
+                        name: "browser_read".into(),
+                        arguments: "{}".into(),
+                    },
+                ],
+                provider_meta: None,
+            },
+            LlmMessage::Tool {
+                call_id: "s".into(),
+                name: "browser_screenshot".into(),
+                content: "A screenshot".into(),
+                media: vec![Media::new("image/jpeg", &[1, 2, 3])],
+            },
+            LlmMessage::Tool {
+                call_id: "r".into(),
+                name: "browser_read".into(),
+                content: "The page".into(),
+                media: Vec::new(),
+            },
+        ];
+        let m = messages(&history, "claude-opus-5-5");
+        let results = m[2]["content"].as_array().unwrap();
+        assert_eq!(
+            results[0]["content"][0],
+            json!({"type": "text", "text": "A screenshot"})
+        );
+        assert_eq!(results[0]["content"][1]["source"]["data"], "AQID");
+        assert_eq!(results[1]["content"], "The page");
     }
 
     #[test]

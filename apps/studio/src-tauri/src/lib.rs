@@ -11,6 +11,7 @@ mod attachments;
 mod claude_code;
 mod commands;
 mod db;
+mod desktop;
 mod error;
 mod llm;
 mod mail;
@@ -29,6 +30,7 @@ mod speech;
 mod state;
 mod tools;
 mod updater;
+mod web;
 
 use std::sync::Arc;
 
@@ -215,7 +217,14 @@ fn build_state(
     )?;
 
     let updater = Updater::new(app.clone(), http.clone(), settings.clone(), &paths, launch)?;
+    let web = web::Web::new(
+        app.clone(),
+        settings.clone(),
+        paths.browser_profile_dir.clone(),
+        paths.cache_dir.join("web"),
+    )?;
 
+    let desktop = Arc::new(desktop::Desktop::new(settings.clone()));
     Ok(Arc::new(AppState {
         app: app.clone(),
         paths,
@@ -233,6 +242,8 @@ fn build_state(
         market,
         mail,
         updater,
+        web,
+        desktop,
         agent: Agent::default(),
         http,
         local_http,
@@ -398,7 +409,8 @@ fn exit_on_signals(app: tauri::AppHandle) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
+            // The window, not the "webview window": with the browser's tabs in it, it is no longer one.
+            if let Some(w) = app.get_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
@@ -460,6 +472,17 @@ pub fn run() {
             commands::app::list_tool_groups,
             commands::app::set_tool_group,
             commands::app::revoke_tool_permission,
+            commands::browser::browser_tabs,
+            commands::browser::browser_attention,
+            commands::browser::browser_new_tab,
+            commands::browser::browser_close_tab,
+            commands::browser::browser_activate,
+            commands::browser::browser_navigate,
+            commands::browser::browser_history,
+            commands::browser::browser_place,
+            commands::browser::browser_answer,
+            commands::browser::browser_clear_data,
+            commands::browser::browser_reveal_download,
             commands::chats::list_chats,
             commands::chats::get_messages,
             commands::chats::send_message,

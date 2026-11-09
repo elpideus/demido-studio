@@ -143,7 +143,7 @@ impl ModelAccess {
     }
 
     /// Tokens an image of `width` × `height` costs once scaled to the copy models get.
-    fn image_tokens(&self, width: Option<u32>, height: Option<u32>) -> usize {
+    pub(crate) fn image_tokens(&self, width: Option<u32>, height: Option<u32>) -> usize {
         let (Some(w), Some(h)) = (width.filter(|w| *w > 0), height.filter(|h| *h > 0)) else {
             return 1_000;
         };

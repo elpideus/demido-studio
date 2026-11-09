@@ -39,7 +39,12 @@ export interface ToolResult {
  * `mailMarkRead` is kept for chats from before `mail_mark`.
  */
 export type ToolApproval = { always?: boolean } & (
-  | { kind: 'tool'; risk: ToolRisk }
+  | {
+      kind: 'tool';
+      risk: ToolRisk;
+      /** What the card asks, when the tool says it itself (the computer tools). */
+      title?: string;
+    }
   | { kind: 'download'; plan: MarketPlan }
   | {
       kind: 'pinePublish';
@@ -791,7 +796,15 @@ export interface Settings {
   metatraderServer: string | null;
   /** Demido may log the terminal into this account when it is on another (and back afterwards). */
   metatraderSwitch: boolean;
+  /** A SearXNG server web searches ask first (its address), or null. */
+  searxngUrl: string | null;
+  /** Searches and pages that refuse the app may go through Exa's free service. */
+  webExa: boolean;
+  /** What the browser's address bar searches with. */
+  browserSearchEngine: SearchEngine;
 }
+
+export type SearchEngine = 'duckduckgo' | 'brave' | 'bing' | 'google';
 
 export type UpdateChannel = 'release' | 'prerelease';
 
@@ -1632,4 +1645,41 @@ export interface MailPickedFile {
   path: string;
   name: string;
   size: number;
+}
+
+/** Whose a browser tab is: the person's, or a chat's (the assistant reads and acts there). */
+export type BrowserOwner = { kind: 'user' } | { kind: 'chat'; chatId: string };
+
+/** A tab of the built-in browser, as `browser://tabs` lists them. */
+export interface BrowserTab {
+  id: number;
+  url: string;
+  title: string;
+  loading: boolean;
+  owner: BrowserOwner;
+  active: boolean;
+}
+
+/** The assistant waits for the person in a tab: a check to pass, a sign-in, a choice. */
+export interface BrowserAttention {
+  tab: number;
+  chatId: string;
+  message: string;
+  /** When it stops waiting, in milliseconds since the epoch. */
+  until: number;
+}
+
+/** Where the Browser window shows its active tab, in the page's CSS pixels. */
+export interface BrowserRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A file the browser downloaded (or failed to). */
+export interface BrowserDownload {
+  url: string;
+  path: string | null;
+  success: boolean;
 }

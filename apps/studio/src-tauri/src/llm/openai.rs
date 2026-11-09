@@ -62,7 +62,10 @@ impl OpenAiClient {
         if !req.system.is_empty() {
             messages.push(json!({"role": "system", "content": req.system}));
         }
-        for m in &req.messages {
+        // Pictures of tool results, which a tool message cannot hold: they follow the results, as
+        // a message of the user's of their own.
+        let mut pictures: Vec<Value> = Vec::new();
+        for (i, m) in req.messages.iter().enumerate() {
             messages.push(match m {
                 LlmMessage::User { content, media } if media.is_empty() => {
                     json!({"role": "user", "content": content})
@@ -117,10 +120,22 @@ impl OpenAiClient {
                     }
                     msg
                 }
-                LlmMessage::Tool { call_id, content, .. } => {
+                LlmMessage::Tool {
+                    call_id,
+                    content,
+                    media,
+                    ..
+                } => {
+                    pictures.extend(media.iter().filter(|m| m.is_image()).map(media_part));
                     json!({"role": "tool", "tool_call_id": call_id, "content": content})
                 }
             });
+            let results_end = !matches!(req.messages.get(i + 1), Some(LlmMessage::Tool { .. }));
+            if results_end && !pictures.is_empty() {
+                let mut parts = vec![json!({"type": "text", "text": TOOL_PICTURES})];
+                parts.append(&mut pictures);
+                messages.push(json!({"role": "user", "content": parts}));
+            }
         }
 
         let mut body = json!({
@@ -279,6 +294,9 @@ fn stream_failure(err: &Value, local: bool) -> LlmError {
 }
 
 /// An image as a data URL, sound as `input_audio` (llama.cpp reads WAV and MP3).
+/// What goes before the pictures of tool results, in the message that carries them.
+const TOOL_PICTURES: &str = "(The pictures the tool results above attach, in order.)";
+
 fn media_part(m: &Media) -> Value {
     if m.is_image() {
         json!({"type": "image_url", "image_url": {"url": format!("data:{};base64,{}", m.mime, m.data)}})
@@ -548,6 +566,7 @@ mod tests {
                     call_id: "c1".into(),
                     name: "t".into(),
                     content: "ok".into(),
+                    media: Vec::new(),
                 },
             ],
             tools: vec![ToolSpec {
@@ -575,6 +594,61 @@ mod tests {
         assert_eq!(body["top_k"], 20);
         assert_eq!(body["chat_template_kwargs"]["enable_thinking"], false);
         assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn pictures_of_results_follow_them_as_a_user_message() {
+        let client = OpenAiClient::new(reqwest::Client::new(), "http://x/v1".into(), "m".into());
+        let req = ChatRequest {
+            system: String::new(),
+            messages: vec![
+                LlmMessage::User {
+                    content: "look".into(),
+                    media: vec![],
+                },
+                LlmMessage::Assistant {
+                    content: String::new(),
+                    reasoning: None,
+                    tool_calls: vec![
+                        ToolCall {
+                            id: "s".into(),
+                            name: "browser_screenshot".into(),
+                            arguments: "{}".into(),
+                        },
+                        ToolCall {
+                            id: "r".into(),
+                            name: "browser_read".into(),
+                            arguments: "{}".into(),
+                        },
+                    ],
+                    provider_meta: None,
+                },
+                LlmMessage::Tool {
+                    call_id: "s".into(),
+                    name: "browser_screenshot".into(),
+                    content: "A screenshot".into(),
+                    media: vec![Media::new("image/jpeg", &[1, 2, 3])],
+                },
+                LlmMessage::Tool {
+                    call_id: "r".into(),
+                    name: "browser_read".into(),
+                    content: "The page".into(),
+                    media: Vec::new(),
+                },
+            ],
+            tools: vec![],
+            params: GenParams::default(),
+        };
+        let body = client.body(&req);
+        let m = body["messages"].as_array().unwrap();
+        assert_eq!(m.len(), 5);
+        assert_eq!(
+            (m[2]["role"].as_str(), m[3]["role"].as_str()),
+            (Some("tool"), Some("tool"))
+        );
+        assert_eq!(m[4]["role"], "user");
+        assert_eq!(m[4]["content"][0]["text"], TOOL_PICTURES);
+        assert_eq!(m[4]["content"][1]["image_url"]["url"], "data:image/jpeg;base64,AQID");
     }
 
     #[test]

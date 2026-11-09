@@ -115,6 +115,9 @@ pub enum LlmMessage {
         call_id: String,
         name: String,
         content: String,
+        /// Images that go with the result (a screenshot), after its text.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        media: Vec<Media>,
     },
 }
 

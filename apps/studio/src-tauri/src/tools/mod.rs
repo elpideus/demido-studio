@@ -1,8 +1,8 @@
 //! The assistant's tools.
 //!
 //! Tools come in groups the person can switch on and off from the composer's Tools menu:
-//! market data (Pine scripts and the chart among them), coding (Python), computer use (commands
-//! and apps), workspace files and skill authoring. Every call runs in the context of one chat, whose workspace folder
+//! market data (Pine scripts and the chart among them), coding (Python), computer use (commands,
+//! apps, and the screen, mouse and keyboard), workspace files and skill authoring. Every call runs in the context of one chat, whose workspace folder
 //! holds the files tools produce (market data CSVs, charts, downloads).
 //!
 //! A chat starts with none of the groups loaded: the system prompt lists them in a line each, and
@@ -13,6 +13,7 @@
 mod apps;
 mod changes;
 mod command;
+pub(crate) mod computer;
 mod files;
 mod mail;
 mod mail_write;
@@ -21,6 +22,7 @@ pub mod permissions;
 mod pine;
 mod python;
 mod skills;
+pub(crate) mod web;
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
@@ -62,6 +64,8 @@ pub struct ToolContext {
     pub release: CancellationToken,
     /// The call's chat row, shared with the agent loop.
     pub row: ToolRow,
+    /// The model takes images, so it can be shown screenshots.
+    pub sees_images: bool,
 }
 
 impl ToolContext {
@@ -371,6 +375,70 @@ const TOOLS: &[ToolDef] = &[
         confirms: false,
     },
     ToolDef {
+        name: "computer_screenshot",
+        group: "computer",
+        description: "See the user's whole screen as a picture: for what no other tool reaches, such as an app's \
+                      window, a dialog or the desktop. The other computer tools take positions in its pixels.",
+        parameters: computer::screenshot_schema,
+        risk: Risk::Read,
+        confirms: false,
+    },
+    ToolDef {
+        name: "computer_click",
+        group: "computer",
+        description: "Click on the user's screen, as their mouse does, at a point of the latest computer_screenshot: \
+                      buttons, menus, fields and icons of any app. Double, triple and right clicks, and keys held \
+                      (Control-click). Returns a new screenshot.",
+        parameters: computer::click_schema,
+        risk: Risk::Risky,
+        confirms: true,
+    },
+    ToolDef {
+        name: "computer_move",
+        group: "computer",
+        description: "Move the mouse pointer to a point of the latest computer_screenshot without clicking: for \
+                      tooltips and menus that open on hover.",
+        parameters: computer::move_schema,
+        risk: Risk::Risky,
+        confirms: true,
+    },
+    ToolDef {
+        name: "computer_drag",
+        group: "computer",
+        description: "Press the left mouse button at one point of the latest computer_screenshot, move to another and \
+                      let go: drag and drop, sliders, selecting text or an area, moving a window by its title bar.",
+        parameters: computer::drag_schema,
+        risk: Risk::Risky,
+        confirms: true,
+    },
+    ToolDef {
+        name: "computer_scroll",
+        group: "computer",
+        description: "Turn the mouse wheel on the user's screen, over a point of the latest computer_screenshot or \
+                      where the pointer is.",
+        parameters: computer::scroll_schema,
+        risk: Risk::Risky,
+        confirms: true,
+    },
+    ToolDef {
+        name: "computer_type",
+        group: "computer",
+        description: "Type text with the user's keyboard into what has the focus on their screen (click the field \
+                      first). Never passwords or payment details: ask the user to type those.",
+        parameters: computer::type_schema,
+        risk: Risk::Risky,
+        confirms: true,
+    },
+    ToolDef {
+        name: "computer_key",
+        group: "computer",
+        description: "Press a key or a combination on the user's keyboard: Enter, Escape, Tab, Control+c, Alt+Tab, \
+                      Control+Shift+t, F5, Super (the app launcher).",
+        parameters: computer::key_schema,
+        risk: Risk::Risky,
+        confirms: true,
+    },
+    ToolDef {
         name: "list_files",
         group: "files",
         description: "List the files in the chat's workspace folder.",
@@ -415,6 +483,91 @@ const TOOLS: &[ToolDef] = &[
         group: "skills",
         description: "Read a skill's instructions (SKILL.md, the default) or another of its files.",
         parameters: skills::read_schema,
+        risk: Risk::None,
+        confirms: false,
+    },
+    ToolDef {
+        name: "web_search",
+        group: "web",
+        description: "Search the web. Returns titles, addresses and snippets; read the pages you rely on with web_fetch.",
+        parameters: web::search_schema,
+        risk: Risk::Read,
+        confirms: false,
+    },
+    ToolDef {
+        name: "web_fetch",
+        group: "web",
+        description: "Read a web page, or a PDF or Office file on the web, as text (Markdown). Long pages come in parts: \
+                      read on with \"from\". Pages that refuse programs or need JavaScript are read in the built-in \
+                      browser, where the user can solve a captcha if one stops it.",
+        parameters: web::fetch_schema,
+        risk: Risk::Read,
+        confirms: true,
+    },
+    ToolDef {
+        name: "browser_open",
+        group: "browser",
+        description: "Open a page in this chat's tab of the built-in browser, which the user can watch. Returns the page \
+                      as text with its links, buttons and fields numbered [n].",
+        parameters: web::open_schema,
+        risk: Risk::Read,
+        confirms: true,
+    },
+    ToolDef {
+        name: "browser_read",
+        group: "browser",
+        description: "Read the page in this chat's browser tab again (after it changed), read on with \"from\", or scroll first.",
+        parameters: web::read_schema,
+        risk: Risk::Read,
+        confirms: false,
+    },
+    ToolDef {
+        name: "browser_click",
+        group: "browser",
+        description: "Click in this chat's browser tab: an element [n] (or a CSS selector), or a point x, y of the \
+                      last browser_screenshot, as the mouse does. Right and double clicks too. Returns the page after it.",
+        parameters: web::click_schema,
+        risk: Risk::Change,
+        confirms: false,
+    },
+    ToolDef {
+        name: "browser_type",
+        group: "browser",
+        description: "Type into a field [n] in this chat's browser tab, or choose an option of a list; without a \
+                      field, type where the keyboard is (after a click). \"key\" presses keys as the keyboard does: \
+                      Enter, Tab, Escape, arrows, Control+a… Never passwords or payment details: the user types \
+                      those (browser_ask_user).",
+        parameters: web::type_schema,
+        risk: Risk::Change,
+        confirms: false,
+    },
+    ToolDef {
+        name: "browser_screenshot",
+        group: "browser",
+        description: "See this chat's browser tab as a picture, with the number of each element drawn on it: for \
+                      what the page text leaves out (charts, pictures, canvases, where things are) and to click by \
+                      position with browser_click's x and y.",
+        parameters: web::screenshot_schema,
+        risk: Risk::Read,
+        confirms: false,
+    },
+    ToolDef {
+        name: "browser_run_js",
+        group: "browser",
+        description: "Run JavaScript in the page of this chat's browser tab and get back what it returns: to read \
+                      data the page holds, or to do what clicks and keys cannot. It runs as the page, with the \
+                      user's sign-in on that site.",
+        parameters: web::run_js_schema,
+        risk: Risk::Risky,
+        confirms: false,
+    },
+    ToolDef {
+        name: "browser_ask_user",
+        group: "browser",
+        description: "Show the user this chat's browser tab with a message and wait (up to 10 minutes) until they say \
+                      they are done: to sign in, solve a captcha, type a password or payment details, or decide \
+                      something on the page.",
+        parameters: web::ask_schema,
         risk: Risk::None,
         confirms: false,
     },
@@ -467,15 +620,30 @@ const GROUPS: &[GroupDef] = &[
     GroupDef {
         id: "computer",
         label: "Computer use",
-        description: "Run commands and open apps on this computer",
-        for_model: "use the user's own computer: run command lines and the programs they installed, and open \
-                    (launch, start) their apps",
+        description: "Run commands, open apps, and see and use the screen, mouse and keyboard",
+        for_model: "use the user's own computer: run command lines and the programs they installed, open (launch, \
+                    start) their apps, see the screen and use the mouse and keyboard in any app's window",
     },
     GroupDef {
         id: "files",
         label: "Workspace files",
         description: "Read and write files in the chat's folder, and search attached files",
         for_model: "list, read and write files in the chat's workspace folder; search attached files",
+    },
+    GroupDef {
+        id: "web",
+        label: "Web search",
+        description: "Search the web and read pages, PDFs and documents on it",
+        for_model: "search the web and read web pages and online documents: news, documentation, facts that may have \
+                    changed since your training. The web holds nothing of the user's own files, email or computer",
+    },
+    GroupDef {
+        id: "browser",
+        label: "Browser",
+        description: "Let the assistant browse in a tab of its own in the Browser window",
+        for_model: "browse in a real browser tab the user can watch: click, type and fill in forms, see the page in \
+                    screenshots, run scripts in it, use pages that need JavaScript or a sign-in; the user can sign in \
+                    or solve captchas for you. The web holds nothing of the user's own files or computer",
     },
     GroupDef {
         id: "skills",
@@ -525,6 +693,12 @@ fn tool_missing(state: &AppState, name: &str) -> Option<String> {
         // Offered until the search for a shell (at startup) finds none.
         "run_command" if crate::shell::missing() => Some("No shell was found on this computer.".into()),
         "open_app" if !apps::SUPPORTED => Some("Apps can be opened this way on Linux only.".into()),
+        name if name.starts_with("computer_") && !computer::SUPPORTED => {
+            Some("The screen, mouse and keyboard can be used on Linux only for now.".into())
+        }
+        "browser_screenshot" if !crate::web::browser::input::NATIVE => {
+            Some("The browser takes no screenshots on this system.".into())
+        }
         _ => None,
     }
 }
@@ -712,6 +886,7 @@ fn load(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, String> {
             let names: Vec<&str> = TOOLS
                 .iter()
                 .filter(|t| t.group == g.id && tool_missing(&ctx.state, t.name).is_none())
+                .filter(|t| !needs_sight(t.name) || ctx.sees_images)
                 .map(|t| t.name)
                 .collect();
             (g.id.to_string(), json!(names))
@@ -731,6 +906,12 @@ pub async fn prepare(settings: &Settings) {
     if settings.tool_group_enabled("computer") {
         let _ = tokio::task::spawn_blocking(crate::shell::detect).await;
     }
+}
+
+/// Whether `name` shows the model pictures of a screen, which only a model that takes images can
+/// use: the browser's screenshot and the computer tools, whose results are screenshots.
+pub fn needs_sight(name: &str) -> bool {
+    name == "browser_screenshot" || name.starts_with("computer_")
 }
 
 /// Whether the agent loop asks the person before running `name`: never for a tool that asks
@@ -862,6 +1043,7 @@ pub fn describe(name: &str, args: &Value) -> String {
         }
         "run_command" => format!("Running {}", command::one_line(&s("command"), 60)),
         "open_app" => format!("Opening {}", s("name")),
+        name if name.starts_with("computer_") => computer::describe(name, args),
         "list_files" => "Listing workspace files".into(),
         "read_file" => match s("pages") {
             pages if pages.is_empty() => format!("Reading {}", s("path")),
@@ -869,6 +1051,43 @@ pub fn describe(name: &str, args: &Value) -> String {
         },
         "search_files" => format!("Searching attached files for “{}”", s("query")),
         "write_file" => format!("Writing {}", s("path")),
+        "web_search" => format!("Searching the web for “{}”", s("query")),
+        "web_fetch" => match args["from"].as_u64() {
+            Some(from) if from > 0 => format!("Reading on in {}", short_url(&s("url"))),
+            _ => format!("Reading {}", short_url(&s("url"))),
+        },
+        "browser_open" => format!("Opening {} in the browser", short_url(&s("url"))),
+        "browser_read" => match s("scroll") {
+            scroll if scroll.is_empty() => "Reading the browser tab".into(),
+            _ => "Scrolling the page in the browser".into(),
+        },
+        "browser_click" => {
+            let how = match (args["double"].as_bool() == Some(true), s("button").as_str()) {
+                (true, _) => "Double-clicking",
+                (false, "right") => "Right-clicking",
+                _ => "Clicking",
+            };
+            match element_label(args) {
+                Some(element) => format!("{how} {element} in the browser"),
+                None => match (args["x"].as_f64(), args["y"].as_f64()) {
+                    (Some(x), Some(y)) => format!("{how} at {}, {} in the browser", x.round(), y.round()),
+                    _ => format!("{how} in the browser"),
+                },
+            }
+        }
+        "browser_type" => {
+            let text: String = s("text").chars().take(40).collect();
+            match (text.is_empty(), element_label(args)) {
+                (true, _) if !s("key").is_empty() => format!("Pressing {} in the browser", s("key")),
+                (true, Some(element)) => format!("Typing into {element}"),
+                (true, None) => "Typing in the browser".into(),
+                (false, Some(element)) => format!("Typing “{text}” into {element}"),
+                (false, None) => format!("Typing “{text}” in the browser"),
+            }
+        }
+        "browser_screenshot" => "Looking at the browser tab".into(),
+        "browser_run_js" => "Running a script in the browser tab".into(),
+        "browser_ask_user" => "Asking you for help in the browser".into(),
         "create_skill" => format!("Creating the skill “{}”", s("name")),
         "read_skill_file" => format!("Reading skill {}", s("skill")),
         LOADER => {
@@ -920,16 +1139,61 @@ pub async fn run(name: &str, args: Value, ctx: &ToolContext) -> ToolOutput {
         "run_python" => python::run(ctx, &args).await,
         "run_command" => command::run(ctx, &args).await,
         "open_app" => apps::open(ctx, &args).await,
+        "computer_screenshot" => computer::screenshot(ctx, &args).await,
+        "computer_click" => computer::click(ctx, &args).await,
+        "computer_move" => computer::move_to(ctx, &args).await,
+        "computer_drag" => computer::drag(ctx, &args).await,
+        "computer_scroll" => computer::scroll(ctx, &args).await,
+        "computer_type" => computer::type_text(ctx, &args).await,
+        "computer_key" => computer::key(ctx, &args).await,
         "list_files" => files::list(ctx, &args),
         "read_file" => files::read(ctx, &args).await,
         "search_files" => files::search(ctx, &args).await,
         "write_file" => files::write(ctx, &args),
+        "web_search" => web::search(ctx, &args).await,
+        "web_fetch" => web::fetch(ctx, &args).await,
+        "browser_open" => web::open(ctx, &args).await,
+        "browser_read" => web::read(ctx, &args).await,
+        "browser_click" => web::click(ctx, &args).await,
+        "browser_type" => web::type_text(ctx, &args).await,
+        "browser_screenshot" => web::screenshot(ctx, &args).await,
+        "browser_run_js" => web::run_js(ctx, &args).await,
+        "browser_ask_user" => web::ask_user(ctx, &args).await,
         "create_skill" => skills::create(ctx, &args),
         "read_skill_file" => skills::read(ctx, &args),
         LOADER => load(ctx, &args),
         other => Err(format!("There is no tool called {other}.")),
     };
     result.unwrap_or_else(ToolOutput::error)
+}
+
+/// A web address as labels show it: the site and the start of the path.
+fn short_url(raw: &str) -> String {
+    let shown = match url::Url::parse(raw.trim()) {
+        Ok(u) => format!(
+            "{}{}",
+            u.host_str().unwrap_or_default().trim_start_matches("www."),
+            u.path().trim_end_matches('/')
+        ),
+        Err(_) => raw.trim().to_string(),
+    };
+    if shown.chars().count() > 60 {
+        format!("{}…", shown.chars().take(59).collect::<String>())
+    } else {
+        shown
+    }
+}
+
+/// The element a browser call names, as a label shows it: `[12]`, or its CSS selector.
+fn element_label(args: &Value) -> Option<String> {
+    match &args["ref"] {
+        Value::Number(n) => return Some(format!("[{n}]")),
+        Value::String(s) if !s.trim().is_empty() => return Some(format!("[{}]", s.trim().trim_matches(['[', ']']))),
+        _ => {}
+    }
+    let selector = args["selector"].as_str().map(str::trim).filter(|s| !s.is_empty())?;
+    let short: String = selector.chars().take(40).collect();
+    Some(format!("“{short}”"))
 }
 
 /// The title a Pine source declares (`indicator("Title", …)`), for labels.
@@ -1116,7 +1380,7 @@ mod tests {
         let mut ids: Vec<&str> = loaded.into_iter().collect();
         ids.sort();
         assert_eq!(ids, ["coding", "files", "mail", "market"]);
-        let chat = [calls(&[("run_command", "{}"), ("open_app", "{}")])];
+        let chat = [calls(&[("run_command", "{}"), ("computer_click", "{}")])];
         assert_eq!(loaded_groups(&chat).into_iter().collect::<Vec<_>>(), ["computer"]);
     }
 

@@ -4,6 +4,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type {
   Bar,
+  BrowserAttention,
+  BrowserDownload,
+  BrowserTab,
   ChartDrawing,
   ChatEvent,
   DownloadJob,
@@ -86,6 +89,11 @@ interface EventMap {
    * open. Only the links in an email do: its frame runs no scripts that could catch the click.
    */
   'app://new-window': string;
+  /** The built-in browser's tabs, in order, on every change. */
+  'browser://tabs': BrowserTab[];
+  /** The assistant waits for the person in a tab, or (null) no longer does. */
+  'browser://attention': BrowserAttention | null;
+  'browser://download': BrowserDownload;
 }
 
 export function on<K extends keyof EventMap>(name: K, handler: (payload: EventMap[K]) => void): Promise<UnlistenFn> {

@@ -319,6 +319,11 @@ impl Agent {
         Ok(())
     }
 
+    /// Whether a call waits for the person's answer to an approval in some chat.
+    pub(crate) fn awaiting_approval(&self) -> bool {
+        !self.approvals.lock().is_empty()
+    }
+
     /// Waits for the person to answer the approval shown on row `row_id`.
     pub(crate) async fn wait_approval(&self, row_id: &str, cancel: &CancellationToken) -> Result<Approval, Cancelled> {
         let (tx, rx) = oneshot::channel();
@@ -416,7 +421,11 @@ pub(crate) fn frame(
     if attached {
         loaded.insert("files");
     }
-    let tools = tools::specs(state, settings, &loaded);
+    let mut tools = tools::specs(state, settings, &loaded);
+    // Screenshots are for a model that takes images.
+    if !attachments::context::ModelAccess::of(model).images {
+        tools.retain(|t| !tools::needs_sight(&t.name));
+    }
     let loadable = tools::loadable(state, settings, &loaded);
     let mail_accounts = state.mail.account_list();
     let system = prompt::system_prompt(&prompt::PromptInputs {
@@ -441,6 +450,35 @@ pub(crate) fn frame(
         system_tokens,
         tool_tokens,
     }
+}
+
+/// Screenshots (of the browser or the screen) the model sees again with the history: the latest
+/// few. Older ones it reads of as text only (see `prompt::history`).
+const SCREENSHOTS_SHOWN: usize = 2;
+
+/// The pictures of the latest screenshots the tools took in `messages` (`browser_screenshot`, and
+/// the computer tools after each action), by the id of the result each goes with.
+fn screenshots(
+    messages: &[Message],
+    access: &attachments::context::ModelAccess,
+) -> Vec<(String, attachments::context::Extras)> {
+    messages
+        .iter()
+        .rev()
+        .filter(|m| m.role == Role::Tool && m.tool_name.as_deref().is_some_and(tools::needs_sight))
+        .filter_map(|m| {
+            let shot = &m.tool_result.as_ref()?["display"]["shot"];
+            let bytes = std::fs::read(shot["path"].as_str()?).ok()?;
+            let size = |k: &str| shot[k].as_u64().map(|n| n as u32);
+            let extras = attachments::context::Extras {
+                media: vec![crate::llm::Media::new("image/jpeg", &bytes)],
+                tokens: access.image_tokens(size("width"), size("height")),
+                ..Default::default()
+            };
+            Some((m.id.clone(), extras))
+        })
+        .take(SCREENSHOTS_SHOWN)
+        .collect()
 }
 
 /// The client for `model`, and for a local model the context its server gave it.
@@ -610,7 +648,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             question = question_vector(state, chat_id, &messages, budget, cancel).await;
         }
         let plan = |budget: usize, messages: &[Message]| {
-            attachments::context::plan(
+            let mut files = attachments::context::plan(
                 &attachments::context::Inputs {
                     db: &state.db,
                     chat_id,
@@ -621,7 +659,11 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
                     query_vector: question.as_ref().map(|(id, q)| (id.as_str(), q)),
                 },
                 messages,
-            )
+            );
+            if access.images {
+                files.extend(screenshots(messages, &access));
+            }
+            files
         };
         let mut files = plan(budget, &messages);
 
@@ -1036,6 +1078,7 @@ async fn run_tool_call(
         stop,
         release,
         row: row.clone(),
+        sees_images: attachments::context::ModelAccess::of(model).images,
     };
     let started = Instant::now();
     let output = tools::run(&call.name, args, &ctx).await;

@@ -2,6 +2,7 @@ import {
   Boxes,
   CandlestickChart,
   CircleFadingArrowUp,
+  Globe,
   Mail,
   MessagesSquare,
   Settings,
@@ -12,6 +13,7 @@ import { Logo, Tooltip, cx } from '@demido/ui';
 import { DownloadsButton } from '@/downloads/Downloads';
 import { updateButton } from '@/settings/updateView';
 import { useApp } from '@/stores/app';
+import { useBrowser } from '@/stores/browser';
 import { useChats } from '@/stores/chats';
 import { useUpdates } from '@/stores/updates';
 import { type WindowKind, useWindows } from '@/stores/windows';
@@ -23,9 +25,11 @@ interface ItemProps {
   active: boolean;
   onClick: () => void;
   shortcut?: string;
+  /** Something there waits for the person. */
+  alert?: boolean;
 }
 
-function Item({ icon: Icon, label, active, onClick, shortcut }: ItemProps) {
+function Item({ icon: Icon, label, active, onClick, shortcut, alert }: ItemProps) {
   return (
     <Tooltip
       content={
@@ -45,6 +49,7 @@ function Item({ icon: Icon, label, active, onClick, shortcut }: ItemProps) {
         onClick={onClick}
       >
         <Icon size={22} strokeWidth={1.7} aria-hidden />
+        {alert && <span className={styles.alert} aria-hidden />}
       </button>
     </Tooltip>
   );
@@ -81,6 +86,7 @@ export function ActivityBar() {
   const toggle = useWindows((s) => s.toggle);
 
   const isOpen = (kind: WindowKind) => windows.some((w) => w.kind === kind);
+  const waiting = useBrowser((s) => s.attention !== null);
 
   return (
     <nav className={styles.bar} aria-label="Main">
@@ -105,6 +111,13 @@ export function ActivityBar() {
         <Item icon={Boxes} label="Models" active={isOpen('models')} onClick={() => toggle('models')} />
         <Item icon={CandlestickChart} label="Market" active={isOpen('market')} onClick={() => toggle('market')} />
         <Item icon={Mail} label="Mail" active={isOpen('mail')} onClick={() => toggle('mail')} />
+        <Item
+          icon={Globe}
+          label={waiting ? 'Browser · the assistant needs you' : 'Browser'}
+          active={isOpen('browser')}
+          alert={waiting}
+          onClick={() => toggle('browser')}
+        />
       </div>
       <div className={styles.spacer} />
       <div className={styles.group}>

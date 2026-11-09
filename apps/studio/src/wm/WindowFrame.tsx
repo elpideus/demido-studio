@@ -290,7 +290,12 @@ export function WindowFrame({ win, focused, icon: Icon, title, children }: Props
       </div>
       <div className={styles.body}>{children}</div>
       {handles.map((edge) => (
-        <div key={edge} className={cx(styles.handle, styles[`h-${edge}`])} onPointerDown={onResizeDown(edge)} />
+        <div
+          key={edge}
+          className={cx(styles.handle, styles[`h-${edge}`])}
+          data-resize-handle={edge}
+          onPointerDown={onResizeDown(edge)}
+        />
       ))}
       <SnapLayouts
         open={flyout !== null}

@@ -23,6 +23,7 @@ its source distribution.
 | [SQLite](https://sqlite.org) via rusqlite | Public domain, MIT | Chat storage |
 | [portable-pty](https://github.com/wezterm/wezterm) from WezTerm, [avt](https://github.com/asciinema/avt) from asciinema | MIT; Apache-2.0 | The terminal the assistant's commands run in, and reading its screen |
 | [pdf-extract](https://github.com/jrmuizel/pdf-extract) and [lopdf](https://github.com/J-F-Liu/lopdf), [calamine](https://github.com/tafia/calamine), [quick-xml](https://github.com/tafia/quick-xml), [image](https://github.com/image-rs/image), [encoding_rs](https://github.com/hsivonen/encoding_rs) | MIT; MIT; MIT; MIT; MIT or Apache-2.0; (Apache-2.0 or MIT) and BSD-3-Clause | Reading attached files: PDF, spreadsheets, Word, PowerPoint and OpenDocument, images, old text encodings |
+| [dom_smoothie](https://github.com/niklak/dom_smoothie) and [dom_query](https://github.com/niklak/dom_query) | MIT | Reading web pages: the article of a page, as Markdown |
 | [hf-xet](https://github.com/huggingface/xet-core) by Hugging Face | Apache-2.0 | Model downloads with Transfer set to Xet |
 | Rust crates (tokio, serde, reqwest, notify, keyring, sysinfo, zip, sha2 and others) | MIT or Apache-2.0 | Backend |
 

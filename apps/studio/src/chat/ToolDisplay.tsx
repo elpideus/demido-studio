@@ -23,6 +23,7 @@ import { api, errorText } from '@/lib/api';
 import { fileUrl, formatDateTime, formatPercent, formatPrice } from '@/lib/format';
 import type { BarSource, Message, PineSummary, Quote, ToolDisplay as Display } from '@/lib/types';
 import { DownloadProgress, SOURCE_NAMES } from '@/market/DownloadProgress';
+import { useBrowser } from '@/stores/browser';
 import { currentModel, useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
@@ -843,6 +844,158 @@ function PinePublish({ d }: { d: Display }) {
   );
 }
 
+/** An address's host, for the line under a title. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+/** A web address: the title opens it in the Browser window, the icon in the desktop's browser. */
+function WebLink({ url, title }: { url: string; title: string }) {
+  return (
+    <span className={styles.webLink}>
+      <button type="button" className={styles.webTitle} title={url} onClick={() => useBrowser.getState().openTab(url)}>
+        {title || url}
+      </button>
+      <button
+        type="button"
+        className={styles.webOut}
+        title="Open in your browser"
+        aria-label="Open in your browser"
+        onClick={() => void api.openUrl(url).catch((e) => toast.error('Could not open the link', errorText(e)))}
+      >
+        <ExternalLink size={12} strokeWidth={1.9} aria-hidden />
+      </button>
+    </span>
+  );
+}
+
+/** What web_search found: each result's title, site and snippet. */
+function WebResults({ d }: { d: Display }) {
+  const hits = (Array.isArray(d.hits) ? d.hits : []) as Array<{
+    title: string;
+    url: string;
+    snippet: string;
+    date?: string;
+  }>;
+  const engine = str(d.engine);
+  if (!hits.length) return <div className={styles.muted}>Nothing was found{engine ? ` on ${engine}` : ''}.</div>;
+  return (
+    <div className={styles.web}>
+      {hits.map((h, i) => (
+        <div key={`${h.url}-${i}`} className={styles.webHit}>
+          <WebLink url={h.url} title={h.title} />
+          <div className={styles.webSite}>
+            {hostOf(h.url)}
+            {h.date ? ` · ${h.date}` : ''}
+          </div>
+          {h.snippet && <div className={styles.webSnippet}>{h.snippet}</div>}
+        </div>
+      ))}
+      {engine && <div className={styles.muted}>From {engine}</div>}
+    </div>
+  );
+}
+
+const VIA: Record<string, string> = {
+  http: 'Read directly',
+  browser: 'Read in the built-in browser',
+  exa: 'Read through Exa',
+};
+
+/** Which part of a long text was read: "characters 10,000–20,000 of 54,210". */
+function partLine(d: Display): string | null {
+  const from = num(d.from) ?? 0;
+  const to = num(d.to);
+  const total = num(d.total);
+  if (to === undefined || total === undefined || (from === 0 && to >= total)) return null;
+  return `characters ${from.toLocaleString()}–${to.toLocaleString()} of ${total.toLocaleString()}`;
+}
+
+/** The page web_fetch read, or what it is doing while it reads. */
+function WebPage({ d }: { d: Display }) {
+  const url = str(d.url);
+  if (d.running === true) {
+    const status = str(d.status);
+    return (
+      <div className={styles.skill}>
+        <div className={styles.skillText}>
+          <div className={styles.muted}>{status ? `${status}…` : 'Reading…'}</div>
+          <div className={styles.webSite}>{hostOf(url)}</div>
+        </div>
+        {/browser/i.test(status) && (
+          <Button size="sm" variant="secondary" icon={AppWindow} onClick={() => useWindows.getState().open('browser')}>
+            Show in Browser
+          </Button>
+        )}
+      </div>
+    );
+  }
+  const about = [str(d.site) || hostOf(url), str(d.published), VIA[str(d.via)], partLine(d)].filter(Boolean);
+  return (
+    <div className={styles.web}>
+      <WebLink url={url} title={str(d.title)} />
+      <div className={styles.webSite}>{about.join(' · ')}</div>
+      {str(d.note) && <div className={styles.muted}>{str(d.note)}</div>}
+    </div>
+  );
+}
+
+/** The chat's browser tab after a browser_* call: its page, and a way to see it. */
+function BrowserPage({ d }: { d: Display }) {
+  const tab = num(d.tab);
+  const running = d.running === true;
+  const show = tab !== undefined && (
+    <Button size="sm" variant="secondary" icon={AppWindow} onClick={() => useBrowser.getState().show(tab)}>
+      Show in Browser
+    </Button>
+  );
+  if (running) {
+    return (
+      <div className={styles.skill}>
+        <div className={styles.skillText}>
+          <div className={styles.muted}>{str(d.status) || 'Working'}…</div>
+          {str(d.message) && <div className={styles.webSnippet}>{str(d.message)}</div>}
+          {!str(d.message) && str(d.url) && <div className={styles.webSite}>{hostOf(str(d.url))}</div>}
+        </div>
+        {show}
+      </div>
+    );
+  }
+  const url = str(d.url);
+  const check = str(d.check);
+  const part = partLine(d);
+  // A screenshot the assistant took, and what a script of its gave back.
+  const shot = (d.shot ?? {}) as { path?: unknown; file?: unknown };
+  const shotPath = str(shot.path);
+  const script = str(d.script);
+  const page = (
+    <div className={styles.skill}>
+      <div className={styles.skillText}>
+        <div className={styles.symbol}>{str(d.title) || hostOf(url) || 'Blank page'}</div>
+        <div className={styles.webSite}>{[url && hostOf(url), part].filter(Boolean).join(' · ')}</div>
+        {check && <div className={styles.webCheck}>The page shows {check}.</div>}
+      </div>
+      {show}
+    </div>
+  );
+  if (!shotPath && !script) return page;
+  return (
+    <div className={styles.python}>
+      {page}
+      {script && <pre className={cx(styles.output, 'selectable')}>{script}</pre>}
+      {shotPath && (
+        <button type="button" className={styles.imageButton} onClick={() => openFile(shotPath)} title={str(shot.file)}>
+          <img src={fileUrl(shotPath) ?? ''} alt="The browser tab" className={styles.image} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Something the assistant put on the chart: an indicator, or a set of drawings. */
 function ChartChange({ d }: { d: Display }) {
   const drawing = d.kind === 'chartDraw';
@@ -896,6 +1049,12 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
       return <Search d={display} />;
     case 'passages':
       return <Passages d={display} />;
+    case 'webResults':
+      return <WebResults d={display} />;
+    case 'webPage':
+      return <WebPage d={display} />;
+    case 'browser':
+      return <BrowserPage d={display} />;
     case 'mail':
       return <MailList d={display} />;
     case 'mailMessage':
@@ -954,6 +1113,12 @@ export function ToolDisplay({ display, message }: { display: Display | undefined
 
 /** Whether a result is shown without expanding the card. */
 export function isProminent(display: Display | undefined): boolean {
+  // Reading the web shows what it is doing, and a page that waits for the person shows itself.
+  if (display && !display.error && (display.kind === 'webPage' || display.kind === 'browser')) {
+    return display.running === true || (display.kind === 'browser' && !!display.check);
+  }
+  // Waiting on the desktop's own dialog, which the person must answer.
+  if (display?.kind === 'computer') return !display.error && !!display.status;
   return (
     !!display &&
     !display.error &&

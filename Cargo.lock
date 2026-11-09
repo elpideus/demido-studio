@@ -1263,9 +1263,14 @@ dependencies = [
  "demido-extract",
  "demido-fetch",
  "demido-hardware",
+ "dirs 6.0.0",
+ "dom_query",
+ "dom_smoothie",
+ "encoding_rs",
  "futures-util",
  "gtk",
  "hex",
+ "image",
  "keyring",
  "lettre",
  "libc",
@@ -1274,6 +1279,7 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "parking_lot",
+ "percent-encoding",
  "portable-pty",
  "regex",
  "reqwest",
@@ -1303,6 +1309,8 @@ dependencies = [
  "webview2-com",
  "windows 0.62.2",
  "windows-registry",
+ "x11-dl",
+ "zbus 5.19.0",
 ]
 
 [[package]]
@@ -1454,9 +1462,28 @@ dependencies = [
  "cssparser",
  "foldhash 0.2.0",
  "html5ever",
+ "nom",
  "precomputed-hash",
  "selectors",
  "tendril",
+]
+
+[[package]]
+name = "dom_smoothie"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1afbed996f0bcb119c068504c7c504d625700d58c8bd862d6f66abd7ae7d3859"
+dependencies = [
+ "dom_query",
+ "flagset",
+ "foldhash 0.2.0",
+ "gjson",
+ "html-escape",
+ "once_cell",
+ "phf",
+ "tendril",
+ "thiserror 2.0.21",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1740,6 +1767,12 @@ name = "find-msvc-tools"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef25905e51abafe4dcea6c15fec58c57b601cdbd0ee53d22ea1d3016c587d39b"
+
+[[package]]
+name = "flagset"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7ac824320a75a52197e8f2d787f6a38b6718bb6897a35142d749af3c0e8f4fe"
 
 [[package]]
 name = "flate2"
@@ -2139,6 +2172,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "gjson"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43503cc176394dd30a6525f5f36e838339b8b5619be33ed9a7783841580a97b6"
+
+[[package]]
 name = "glib"
 version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2409,6 +2448,12 @@ dependencies = [
  "libc",
  "windows-link 0.2.1",
 ]
+
+[[package]]
+name = "html-escape"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9356095b4b41197bba32173600e1582792cda618f65d12f68e2e77d273413c5"
 
 [[package]]
 name = "html5ever"

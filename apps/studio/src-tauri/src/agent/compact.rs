@@ -106,7 +106,7 @@ fn message_tokens(m: &Message, files: &HashMap<String, Extras>) -> usize {
                     .sum::<usize>()
         }
         // The history clips older results to fewer characters than this.
-        Role::Tool => prompt::estimate_tokens(&m.content).min(4_000),
+        Role::Tool => prompt::estimate_tokens(&m.content).min(4_000) + files.get(&m.id).map_or(0, |x| x.tokens),
         Role::Summary => prompt::estimate_tokens(&m.content),
     }
 }

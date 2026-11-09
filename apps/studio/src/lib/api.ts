@@ -8,6 +8,9 @@ import type {
   ApprovalDecision,
   Attachment,
   Bar,
+  BrowserAttention,
+  BrowserRect,
+  BrowserTab,
   Chat,
   ChartInfo,
   ChartLayout,
@@ -432,6 +435,27 @@ export const api = {
   marketMetaTraderStatus: () => invoke<MetaTraderStatus | null>('market_metatrader_status'),
   /** Opens the terminal when it is closed and connects to the chosen account; can take minutes. */
   marketMetaTraderConnect: () => invoke<MetaTraderStatus>('market_metatrader_connect'),
+
+  // Browser: tabs shown in the Browser window; `browser://tabs` follows every change. The page
+  // is a native view the app lays over the window where `browserPlace` says.
+  browserTabs: () => invoke<BrowserTab[]>('browser_tabs'),
+  browserAttention: () => invoke<BrowserAttention | null>('browser_attention'),
+  /** Opens a tab at an address or a search (what was typed), or a blank one. */
+  browserNewTab: (input?: string) => invoke<number>('browser_new_tab', { input: input ?? null }),
+  browserCloseTab: (id: number) => invoke<void>('browser_close_tab', { id }),
+  browserActivate: (id: number) => invoke<void>('browser_activate', { id }),
+  /** Goes to what was typed in the address bar: an address, or a search. */
+  browserNavigate: (id: number, input: string) => invoke<void>('browser_navigate', { id, input }),
+  browserHistory: (id: number, action: 'back' | 'forward' | 'stop' | 'reload') =>
+    invoke<void>('browser_history', { id, action }),
+  /** Null hides the page (the window is closed, or something covers it). */
+  browserPlace: (rect: BrowserRect | null) => invoke<void>('browser_place', { rect }),
+  /** The person's answer when the assistant waits for them: done, or go on without them. */
+  browserAnswer: (done: boolean) => invoke<void>('browser_answer', { done }),
+  /** Shows a file the browser downloaded in its folder. */
+  browserRevealDownload: (path: string) => invoke<void>('browser_reveal_download', { path }),
+  /** Forgets cookies, sign-ins and cached files. */
+  browserClearData: () => invoke<void>('browser_clear_data'),
 
   // Updates
   updateStatus: () => invoke<UpdateStatus>('update_status'),

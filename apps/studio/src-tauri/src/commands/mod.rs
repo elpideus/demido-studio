@@ -2,6 +2,7 @@
 //! services in `AppState`; the logic lives in those services.
 
 pub mod app;
+pub mod browser;
 pub mod chats;
 pub mod mail;
 pub mod market;

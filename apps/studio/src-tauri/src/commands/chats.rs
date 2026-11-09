@@ -169,6 +169,7 @@ pub fn pin_chat(state: St<'_>, chat_id: String, pinned: bool) -> CmdResult<Chat>
 #[tauri::command]
 pub fn delete_chat(state: St<'_>, chat_id: String) -> CmdResult<()> {
     state.agent.stop(&chat_id);
+    state.web.browser.close_chat(&chat_id);
     state.db.delete_chat(&chat_id)?;
     let workspace = state.paths.workspace(&chat_id);
     if workspace.exists() {

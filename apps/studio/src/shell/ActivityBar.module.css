@@ -93,6 +93,18 @@
   height: 20px;
 }
 
+.alert {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface-2);
+  border-radius: 50%;
+  background: var(--accent);
+  box-sizing: content-box;
+}
+
 .tip {
   display: inline-flex;
   align-items: center;

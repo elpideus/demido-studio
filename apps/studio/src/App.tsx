@@ -11,13 +11,14 @@ import { RestartDialog } from '@/shell/RestartDialog';
 import { Shell } from '@/shell/Shell';
 import { Toaster } from '@/shell/Toaster';
 import { useApp } from '@/stores/app';
+import { useBrowser } from '@/stores/browser';
 import { useChats } from '@/stores/chats';
 import { useMail } from '@/stores/mail';
 import { useMarket } from '@/stores/market';
 import { findModel, useModels } from '@/stores/models';
 import { usePine } from '@/stores/pine';
 import { useSkills } from '@/stores/skills';
-import { toast } from '@/stores/toasts';
+import { toast, useToasts } from '@/stores/toasts';
 import { useUpdates } from '@/stores/updates';
 import { useWindows } from '@/stores/windows';
 import styles from './App.module.css';
@@ -80,6 +81,26 @@ function subscribe(): Array<Promise<() => void>> {
     }),
     on('updater://status', (status) => useUpdates.getState().receive(status)),
     on('mail://accounts', (accounts) => useMail.getState().set(accounts)),
+    on('browser://tabs', (tabs) => useBrowser.getState().setTabs(tabs)),
+    // The assistant waits for the person in a tab (a captcha, a sign-in): the window comes up on it.
+    on('browser://attention', (attention) => {
+      useBrowser.getState().setAttention(attention);
+      if (attention) useWindows.getState().open('browser');
+    }),
+    on('browser://download', (d) => {
+      const name = d.path?.split(/[\\/]/).pop() || d.url;
+      if (!d.success) toast.error('Download failed', name);
+      else {
+        useToasts.getState().push({
+          tone: 'success',
+          title: 'Downloaded',
+          body: name,
+          action: d.path
+            ? { label: 'Show in folder', run: () => void api.browserRevealDownload(d.path!).catch(() => {}) }
+            : undefined,
+        });
+      }
+    }),
   ];
 }
 
@@ -147,6 +168,7 @@ export function App() {
         usePine.getState().load(),
         useChats.getState().loadChats(),
         useUpdates.getState().load(),
+        useBrowser.getState().load(),
       ]);
       for (const r of results) {
         if (r.status === 'rejected') toast.error('Part of the app did not load', errorText(r.reason));

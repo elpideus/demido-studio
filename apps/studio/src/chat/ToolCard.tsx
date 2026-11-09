@@ -15,6 +15,9 @@ import {
   FlaskConical,
   FolderCog,
   FolderInput,
+  Globe,
+  Hand,
+  Keyboard,
   LineChart,
   Mail,
   MailCheck,
@@ -22,11 +25,18 @@ import {
   MailSearch,
   Mails,
   MailPlus,
+  Mouse,
   MailX,
+  Monitor,
+  MousePointer2,
+  MousePointerClick,
+  Move,
+  PanelTop,
   Paperclip,
   PenLine,
   Search,
   Send,
+  ScrollText,
   ShieldQuestion,
   Star,
   SquareFunction,
@@ -57,6 +67,13 @@ const ICONS: Record<string, LucideIcon> = {
   run_python: Terminal,
   run_command: SquareTerminal,
   open_app: AppWindow,
+  computer_screenshot: Monitor,
+  computer_click: MousePointerClick,
+  computer_move: MousePointer2,
+  computer_drag: Move,
+  computer_scroll: Mouse,
+  computer_type: Keyboard,
+  computer_key: Keyboard,
   list_files: FileText,
   read_file: FileText,
   write_file: FileText,
@@ -84,6 +101,13 @@ const ICONS: Record<string, LucideIcon> = {
   mail_send: Send,
   mail_draft: MailPlus,
   load_tools: Wrench,
+  web_search: Search,
+  web_fetch: Globe,
+  browser_open: PanelTop,
+  browser_read: ScrollText,
+  browser_click: MousePointerClick,
+  browser_type: Keyboard,
+  browser_ask_user: Hand,
 };
 
 type DownloadCard = Extract<ToolApproval, { kind: 'download' }>;
@@ -129,7 +153,9 @@ function Approval({ message, call, card }: { message: Message; call: ToolCall; c
     <div className={styles.approval}>
       <div className={styles.approvalTitle}>
         <ShieldQuestion size={16} aria-hidden />
-        {isCode ? 'The assistant wants to run this on your computer' : 'The assistant asks before this step'}
+        {isCode
+          ? 'The assistant wants to run this on your computer'
+          : (card?.kind === 'tool' && card.title) || 'The assistant asks before this step'}
       </div>
       {isCode ? (
         <>

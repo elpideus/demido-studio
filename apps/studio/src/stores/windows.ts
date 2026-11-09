@@ -24,7 +24,7 @@ import {
   sideOf,
 } from '@/wm/geometry';
 
-export type WindowKind = 'settings' | 'models' | 'market' | 'mail' | 'inspector';
+export type WindowKind = 'settings' | 'models' | 'market' | 'mail' | 'inspector' | 'browser';
 
 export interface WindowSpec {
   title: string;
@@ -83,6 +83,15 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
     singleton: true,
     defaultDockWidth: 560,
     defaultDockHeight: 360,
+  },
+  browser: {
+    title: 'Browser',
+    defaultSize: { w: 1100, h: 760 },
+    minSize: { w: 480, h: 360 },
+    maxSize: { w: 2560, h: 1600 },
+    singleton: true,
+    defaultDockWidth: 640,
+    defaultDockHeight: 440,
   },
 };
 

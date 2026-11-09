@@ -36,6 +36,17 @@ pub enum PermissionMode {
     Autonomous,
 }
 
+/// The search engine the browser's address bar searches with (see `web::browser`).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchEngine {
+    #[default]
+    Duckduckgo,
+    Brave,
+    Bing,
+    Google,
+}
+
 /// Where market history downloads come from first.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -117,17 +128,28 @@ pub struct Settings {
     pub speech_model: Option<String>,
     /// Send the person's recorded voice to models that can hear it, rather than a transcript.
     pub send_voice: bool,
+    /// A SearXNG server that web searches ask first, by its address: one the person runs or
+    /// trusts (see `web::search`).
+    pub searxng_url: Option<String>,
+    /// Web searches and pages that refuse the app may go through Exa's free service, which is
+    /// sent the search or the page's address.
+    pub web_exa: bool,
+    /// The search engine the browser's address bar searches with.
+    pub browser_search_engine: SearchEngine,
     /// The person went on without the runtimes when setup first offered them (Linux), so the app
     /// does not start setup on its own again.
     pub local_setup_declined: bool,
     /// The app version that last started setup to bring the runtimes up to date (Linux): once a
     /// version, so an update that cannot finish (offline, say) does not run at every start.
     pub runtime_update_tried: Option<String>,
+    /// What the desktop gave back when the person allowed Demido the mouse and keyboard
+    /// (Wayland's remote desktop portal), which starts the next session without asking again.
+    pub remote_desktop_token: Option<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        let tool_groups = ["market", "coding", "computer", "files", "skills"]
+        let tool_groups = ["market", "coding", "computer", "files", "skills", "web", "browser"]
             .into_iter()
             .map(|g| (g.to_string(), true))
             .collect();
@@ -164,8 +186,12 @@ impl Default for Settings {
             microphone: None,
             speech_model: None,
             send_voice: true,
+            searxng_url: None,
+            web_exa: true,
+            browser_search_engine: SearchEngine::Duckduckgo,
             local_setup_declined: false,
             runtime_update_tried: None,
+            remote_desktop_token: None,
         }
     }
 }

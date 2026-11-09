@@ -357,15 +357,22 @@ fn input_message(history: &[LlmMessage], mark: bool) -> Value {
                 turn.push_str("</assistant>\n");
                 text(&mut blocks, &turn, false);
             }
-            LlmMessage::Tool { call_id, name, content } => {
-                text(
-                    &mut blocks,
-                    &format!(
-                        "<tool_result call_id=\"{call_id}\" name=\"{name}\">\n{}\n</tool_result>\n",
-                        content.trim_end()
-                    ),
-                    true,
+            LlmMessage::Tool {
+                call_id,
+                name,
+                content,
+                media,
+            } => {
+                let open = format!(
+                    "<tool_result call_id=\"{call_id}\" name=\"{name}\">\n{}\n",
+                    content.trim_end()
                 );
+                text(&mut blocks, &open, true);
+                // The pictures it attaches, inside it.
+                for image in media.iter().filter(|m| m.is_image()) {
+                    blocks.push(json!({"type": "image", "source": {"type": "base64", "media_type": image.mime, "data": image.data}}));
+                }
+                text(&mut blocks, "</tool_result>\n", true);
             }
         }
     }
@@ -1067,6 +1074,7 @@ mod tests {
                 call_id: "x".into(),
                 name: "look".into(),
                 content: "a cat".into(),
+                media: Vec::new(),
             },
         ];
         let m = input_message(&history, true);
@@ -1086,6 +1094,60 @@ mod tests {
         assert!(content[4].get("cache_control").is_none());
         let unmarked = input_message(&history, false);
         assert!(unmarked.to_string().matches("cache_control").next().is_none());
+    }
+
+    #[test]
+    fn pictures_go_inside_their_result() {
+        let history = vec![
+            LlmMessage::User {
+                content: "look".into(),
+                media: vec![],
+            },
+            LlmMessage::Assistant {
+                content: String::new(),
+                reasoning: None,
+                tool_calls: vec![
+                    ToolCall {
+                        id: "s".into(),
+                        name: "browser_screenshot".into(),
+                        arguments: "{}".into(),
+                    },
+                    ToolCall {
+                        id: "r".into(),
+                        name: "browser_read".into(),
+                        arguments: "{}".into(),
+                    },
+                ],
+                provider_meta: None,
+            },
+            LlmMessage::Tool {
+                call_id: "s".into(),
+                name: "browser_screenshot".into(),
+                content: "A screenshot".into(),
+                media: vec![Media::new("image/jpeg", &[1, 2, 3])],
+            },
+            LlmMessage::Tool {
+                call_id: "r".into(),
+                name: "browser_read".into(),
+                content: "The page".into(),
+                media: Vec::new(),
+            },
+        ];
+        let m = input_message(&history, false);
+        let content = m["message"]["content"].as_array().unwrap();
+        assert!(
+            content[1]["text"]
+                .as_str()
+                .unwrap()
+                .ends_with("name=\"browser_screenshot\">\nA screenshot\n")
+        );
+        assert_eq!(content[2]["source"]["data"], "AQID");
+        assert!(
+            content[3]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("</tool_result>\n<tool_result call_id=\"r\"")
+        );
     }
 
     #[test]
@@ -1110,6 +1172,7 @@ mod tests {
                     call_id: id.into(),
                     name: "look".into(),
                     content: "seen".into(),
+                    media: Vec::new(),
                 },
             ]
         };

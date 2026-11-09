@@ -131,7 +131,8 @@ pub fn open_setup(app: tauri::AppHandle) -> CmdResult<()> {
 #[tauri::command]
 pub fn window_ready(app: tauri::AppHandle) {
     tracing::debug!("the UI is ready; showing the window");
-    if let Some(w) = app.get_webview_window("main") {
+    // The window, not the "webview window": with the browser's tabs in it, it is no longer one.
+    if let Some(w) = app.get_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
     }
