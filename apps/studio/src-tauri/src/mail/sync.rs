@@ -3,8 +3,8 @@
 //! A sync opens the folder (one EXAMINE, whose answer carries the message count, UIDNEXT and,
 //! with CONDSTORE, HIGHESTMODSEQ) and asks for more only when that answer says something changed:
 //! new UIDs are fetched from the last UIDNEXT, changed flags since the last mod-sequence, and
-//! deletions are looked for only when the count dropped below what the additions explain. When
-//! nothing changed a sync costs that one EXAMINE.
+//! deletions are looked for only when the count dropped below what the additions explain, or the
+//! cache holds more than the server does. When nothing changed a sync costs that one EXAMINE.
 
 use std::collections::{HashMap, HashSet};
 
@@ -74,24 +74,36 @@ pub async fn sync_folder(conn: &mut Conn, store: &Store, account: &str, path: &s
                 store.upsert(account, path, &list)?;
                 changed |= added > 0;
             }
+            // Searches cache messages older than `low` too; they are checked along with the range.
+            let cached = store.uids_from(account, path, 0)?;
+            let sets = checked_sets(low, &cached);
             let condstore = conn.caps.condstore && mbox.highest_modseq.is_some() && prev.modseq.is_some();
             if condstore {
                 modseq_moved = mbox.highest_modseq != prev.modseq;
                 if modseq_moved {
-                    let changes = conn.fetch_flags(&format!("{low}:*"), prev.modseq).await?;
-                    changed |= store.update_flags(account, path, &changes)?;
+                    for set in &sets {
+                        let changes = conn.fetch_flags(set, prev.modseq).await?;
+                        changed |= store.update_flags(account, path, &changes)?;
+                    }
                 }
-                if removed_some(prev.exists, added, mbox.exists) {
-                    let present: HashSet<u32> = conn.uid_search(&format!("UID {low}:*")).await?.into_iter().collect();
-                    changed |= drop_gone(store, account, path, low, &present)?;
+                // More cached than the server holds: some are gone, whatever the counts said before.
+                if removed_some(prev.exists, added, mbox.exists) || cached.len() > mbox.exists as usize {
+                    let mut present = HashSet::new();
+                    for set in &sets {
+                        present.extend(conn.uid_search(&format!("UID {set}")).await?);
+                    }
+                    changed |= drop_gone(store, account, path, &cached, &present)?;
                 }
             } else {
-                // Without CONDSTORE the cached range's flags are read again; the same answer
-                // shows which messages are gone.
-                let current = conn.fetch_flags(&format!("{low}:*"), None).await?;
-                changed |= store.update_flags(account, path, &current)?;
-                let present: HashSet<u32> = current.iter().map(|c| c.uid).collect();
-                changed |= drop_gone(store, account, path, low, &present)?;
+                // Without CONDSTORE the cached messages' flags are read again; the same answers
+                // show which messages are gone.
+                let mut present = HashSet::new();
+                for set in &sets {
+                    let current = conn.fetch_flags(set, None).await?;
+                    changed |= store.update_flags(account, path, &current)?;
+                    present.extend(current.iter().map(|c| c.uid));
+                }
+                changed |= drop_gone(store, account, path, &cached, &present)?;
             }
         }
     }
@@ -107,10 +119,19 @@ pub async fn sync_folder(conn: &mut Conn, store: &Store, account: &str, path: &s
     Ok(changed)
 }
 
-fn drop_gone(store: &Store, account: &str, path: &str, low: u32, present: &HashSet<u32>) -> anyhow::Result<bool> {
-    let gone = gone_uids(&store.uids_from(account, path, low)?, present);
+fn drop_gone(store: &Store, account: &str, path: &str, cached: &[u32], present: &HashSet<u32>) -> anyhow::Result<bool> {
+    let gone = gone_uids(cached, present);
     store.delete_uids(account, path, &gone)?;
     Ok(!gone.is_empty())
+}
+
+/// The UID sets a sync checks: the range from `low` up, then the cached messages below it (those
+/// a search brought in), [`META_BATCH`] to a set so each request stays short.
+fn checked_sets(low: u32, cached: &[u32]) -> Vec<String> {
+    let older: Vec<u32> = cached.iter().copied().filter(|u| *u < low).collect();
+    std::iter::once(format!("{low}:*"))
+        .chain(older.chunks(META_BATCH).map(uid_set))
+        .collect()
 }
 
 /// Fetches the page of messages just older than the cached ones. Returns how many arrived.
@@ -490,6 +511,18 @@ mod tests {
         // A message larger than a request still gets one.
         assert_eq!(body_batches([(1, 20_000_000, false)]), [Whole(vec![1])]);
         assert!(body_batches([]).is_empty());
+    }
+
+    #[test]
+    fn messages_a_search_cached_below_the_range_are_checked_too() {
+        assert_eq!(checked_sets(100, &[100, 101, 150]), ["100:*"]);
+        assert_eq!(checked_sets(100, &[3, 4, 5, 9, 100, 120]), ["100:*", "3:5,9"]);
+        let older: Vec<u32> = (1..=1200).map(|u| u * 2).collect();
+        let sets = checked_sets(5000, &older);
+        assert_eq!(sets.len(), 4);
+        assert_eq!(sets[0], "5000:*");
+        assert!(sets[1].starts_with("2,4,") && sets[1].ends_with(",1000"));
+        assert!(sets[3].starts_with("2002,") && sets[3].ends_with(",2400"));
     }
 
     #[test]
