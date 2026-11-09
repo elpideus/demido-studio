@@ -1,6 +1,6 @@
 pkgbase = demido-studio-bin
 	pkgdesc = An AI workspace that runs on your own computer: local models set up for your graphics card, tools, transparency
-	pkgver = 0.7.0
+	pkgver = 0.8.0
 	pkgrel = 1
 	url = https://github.com/elpideus/demido-studio
 	install = demido-studio.install
@@ -28,7 +28,7 @@ pkgbase = demido-studio-bin
 	conflicts = demido-studio
 	options = !strip
 	options = !debug
-	source = demido-studio-0.7.0-linux-x86_64.tar.gz::https://github.com/elpideus/demido-studio/releases/download/v0.7.0/demido-studio-0.7.0-linux-x86_64.tar.gz
-	sha256sums = 39dfe2ccfdcbf275f485c89fd61a9c52f03c1d884c5a774a3c8b734b7825dcfd
+	source = demido-studio-0.8.0-linux-x86_64.tar.gz::https://github.com/elpideus/demido-studio/releases/download/v0.8.0/demido-studio-0.8.0-linux-x86_64.tar.gz
+	sha256sums = e0a3eacb0b135865255b8cba91da4aeb7be461416ee2350fa38295256b5b3e24
 
 pkgname = demido-studio-bin
