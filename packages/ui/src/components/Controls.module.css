@@ -186,6 +186,7 @@
   background: transparent;
   outline: none;
   font-size: var(--text-md);
+  -webkit-user-select: text;
   user-select: text;
 }
 
@@ -221,6 +222,7 @@
   font-size: var(--text-md);
   line-height: var(--leading);
   resize: vertical;
+  -webkit-user-select: text;
   user-select: text;
   transition: border-color var(--duration-fast) var(--ease-out);
 }

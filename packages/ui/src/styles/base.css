@@ -20,6 +20,8 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+  /* Nothing is selectable unless it opts in (.selectable). WebKitGTK only reads the prefixed form. */
+  -webkit-user-select: none;
   user-select: none;
   cursor: default;
 }
@@ -84,6 +86,7 @@ kbd {
 /* Text the user may want to copy */
 .selectable,
 .selectable * {
+  -webkit-user-select: text;
   user-select: text;
   cursor: text;
 }

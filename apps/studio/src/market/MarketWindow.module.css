@@ -788,6 +788,7 @@
   border-right: 1px solid var(--border-subtle);
   color: var(--text-disabled);
   text-align: right;
+  -webkit-user-select: none;
   user-select: none;
 }
 

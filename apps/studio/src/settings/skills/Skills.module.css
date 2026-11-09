@@ -136,6 +136,7 @@
   font-size: 12.5px;
   line-height: 1.6;
   resize: none;
+  -webkit-user-select: text;
   user-select: text;
 }
 
@@ -145,6 +146,7 @@
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
+  -webkit-user-select: text;
   user-select: text;
 }
 

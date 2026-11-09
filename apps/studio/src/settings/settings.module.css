@@ -171,6 +171,7 @@
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
   user-select: text;
 }
 
@@ -195,6 +196,7 @@
   margin: 0;
   color: var(--text-primary);
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
   user-select: text;
 }
 

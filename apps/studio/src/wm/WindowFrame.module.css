@@ -26,6 +26,7 @@
 /* No geometry animation while the pointer is moving or resizing the window. */
 .interacting {
   transition: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 
