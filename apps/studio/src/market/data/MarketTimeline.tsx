@@ -1,14 +1,15 @@
 // A market's history on one timeline, in the Data tab and in the assistant's data-status card.
 // History is 1-minute candles and every timeframe is built from them, so there is one row per market,
-// never one per timeframe: stored time in its source's colour (Dukascopy, or TradingView where only
-// TradingView has bars), time the source has nothing for hatched, time not downloaded blank.
+// never one per timeframe: stored time in its source's colour (Dukascopy, MetaTrader for the days it
+// supplied instead, or TradingView where only TradingView has bars), time the source has nothing for
+// hatched, time not downloaded blank.
 // Hovering reads out the dates under the pointer.
 
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { cx, formatBytes } from '@demido/ui';
 
-import type { MarketCoverageItem, MarketSource } from '@/lib/types';
+import type { BarSource, MarketCoverageItem } from '@/lib/types';
 import { SOURCE_NAMES } from '../DownloadProgress';
 import {
   axisTicks,
@@ -54,7 +55,7 @@ interface Hover {
 
 interface ReadoutText {
   kind: ReadoutKind;
-  source?: MarketSource;
+  source?: BarSource;
   title: string;
   body: string;
 }
@@ -170,6 +171,21 @@ export function MarketTimeline({ item, domain }: MarketTimelineProps) {
 }
 
 /** Round dates under a market's timeline. */
+/** The source head's MetaTrader entry: its days are part of the Dukascopy history. */
+export function MetaTraderSource({ days }: { days: number }) {
+  return (
+    <span
+      className={styles.sourceItem}
+      data-source="metatrader"
+      title="Days your MetaTrader terminal supplied instead of Dukascopy, stored with the Dukascopy history"
+    >
+      <span className={palette.dot} aria-hidden />
+      {SOURCE_NAMES.metatrader}
+      <span className={styles.sourceBytes}>{days === 1 ? '1 day' : `${days.toLocaleString()} days`}</span>
+    </span>
+  );
+}
+
 export function TimelineAxis({ domain }: { domain: Range }) {
   // Labels right at an edge would hang out of the axis.
   const ticks = axisTicks(domain[0], domain[1]).filter((t) => {

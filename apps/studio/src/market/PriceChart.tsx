@@ -25,12 +25,12 @@ import { Spinner, cx } from '@demido/ui';
 import { formatPrice } from '@/lib/format';
 import type {
   Bar,
+  BarSource,
   IndicatorGraphics,
   IndicatorMeta,
   IndicatorPlot,
   IndicatorRow,
   IndicatorTable,
-  MarketSource,
   MarketSpan,
 } from '@/lib/types';
 import { mergeSpans, sourceAt, sourcesOf } from './chartData';
@@ -750,7 +750,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
   }));
 
   const current = legend ?? data.current[data.current.length - 1] ?? null;
-  const source: MarketSource | null = current ? sourceAt(spans.current, current.t) : null;
+  const source: BarSource | null = current ? sourceAt(spans.current, current.t) : null;
 
   // Legend rows by pane: the price pane lists overlays and whatever is not drawn (yet).
   const byPane = new Map<number, IndicatorView[]>();

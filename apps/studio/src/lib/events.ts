@@ -13,6 +13,8 @@ import type {
   MarketJob,
   MarketStatus,
   MarketStoreUpdate,
+  MetaTraderSetup,
+  MetaTraderStatus,
   ModelEntry,
   PineSummary,
   RuntimeStatus,
@@ -39,6 +41,10 @@ export type MarketEvent =
   | { event: 'indicator.error'; params: { id: string; code: string; message: string } }
   /** A library script was saved (`script`) or deleted (null). */
   | { event: 'pine.changed'; params: { id: string; script: PineSummary | null } }
+  /** The MetaTrader source's state changed. */
+  | { event: 'metatrader.status'; params: MetaTraderStatus }
+  /** The MetaTrader bridge's installation progressed (sent by the app, not the sidecar). */
+  | { event: 'metatrader.setup'; params: MetaTraderSetup }
   | { event: 'ready'; params: { version: string } };
 
 /** What the assistant puts on the Market window's chart (src-tauri tools/pine.rs). */

@@ -7,6 +7,7 @@ target/
 *.tsbuildinfo
 apps/*/src-tauri/gen/schemas/
 sidecars/market/build/
+__pycache__/
 
 # Local development runtime and profiles (see docs/development.md)
 .dev/

@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { type Bar } from '../src/protocol.ts';
 import { type Tier, TIER_BAR_SECONDS, bucketStart, nextBucket } from '../src/store/buckets.ts';
-import { type DukascopyStore } from '../src/store/dukascopy-store.ts';
+import { type DukascopyStore, type Origin } from '../src/store/dukascopy-store.ts';
 import { type FetchRequest, type FetchResult, type FetcherEvent, type FetcherStatus } from '../src/store/fetcher.ts';
 
 export const s = (iso: string) => Date.parse(iso) / 1000;
@@ -134,6 +134,9 @@ export async function putBucket(
  * what the store has (like the real one), dedupes by bucket, and records every request it makes.
  * `hold` keeps requests waiting until release().
  */
+/** What the fake fetcher answers per bucket: bars, Dukascopy's 404, the only source's nothing, or an error. */
+export type FakeData = (instrument: string, tier: Tier, start: number) => Bar[] | 'unavailable' | 'missing' | Error;
+
 export class FakeFetcher {
   requests: string[] = [];
   cancelled: string[] = [];
@@ -142,19 +145,18 @@ export class FakeFetcher {
   calls: string[] = [];
   hold = false;
   breaker: FetcherStatus['breaker'] = { state: 'closed', reason: null, message: null, retryAt: null };
+  alternate: FetcherStatus['alternate'] = null;
+  /** Who answers what it fetches (and downloads first). */
+  origin: Origin = 'dukascopy';
   #held: Array<() => void> = [];
   #inflight = new Map<string, Promise<FetchResult>>();
   #waiters = new Map<string, number>();
   #listeners = new Set<(e: FetcherEvent) => void>();
   readonly store: DukascopyStore;
-  readonly data: (instrument: string, tier: Tier, start: number) => Bar[] | 'unavailable';
+  readonly data: FakeData;
   readonly now: () => number;
 
-  constructor(
-    store: DukascopyStore,
-    data: (instrument: string, tier: Tier, start: number) => Bar[] | 'unavailable',
-    now: () => number,
-  ) {
+  constructor(store: DukascopyStore, data: FakeData, now: () => number) {
     this.store = store;
     this.data = data;
     this.now = now;
@@ -184,6 +186,9 @@ export class FakeFetcher {
           this.store.markUnavailable(req.instrument, req.tier, start);
           return { status: 'unavailable', http: 404 };
         }
+        // The only source has nothing for it (nothing recorded), or fails the request.
+        if (bars === 'missing') return { status: 'missing' };
+        if (bars instanceof Error) throw bars;
         const builtAt = nextBucket(req.tier, start) + 7200;
         const put = await this.store.put(
           req.instrument,
@@ -192,7 +197,14 @@ export class FakeFetcher {
           bars.length ? bucketBody(req.tier, start, bars) : null,
           { builtAt, final: builtAt <= Math.floor(this.now() / 1000) },
         );
-        return { status: 'fetched', final: put.final, empty: put.empty, bars: put.bars, bytes: put.bytes };
+        return {
+          status: 'fetched',
+          final: put.final,
+          empty: put.empty,
+          bars: put.bars,
+          bytes: put.bytes,
+          origin: this.origin,
+        };
       })().finally(() => {
         this.#inflight.delete(key);
         this.#waiters.delete(key);
@@ -235,6 +247,10 @@ export class FakeFetcher {
     return 0;
   }
 
+  firstSource(): Origin {
+    return this.origin;
+  }
+
   status(): FetcherStatus {
     return {
       rate: 3,
@@ -245,6 +261,7 @@ export class FakeFetcher {
       bytesPerSecond: 0,
       pausedUntil: null,
       breaker: { ...this.breaker },
+      alternate: this.alternate && { ...this.alternate },
     };
   }
 

@@ -1,12 +1,14 @@
 /*
- * The two source colours of the Data tab: Demido green for Dukascopy, blue for TradingView. They
- * differ in hue (not just lightness), so they stay apart for red-green colour blindness, and both
- * clear 3:1 against the dark surfaces. Set on every root that draws them: the tab's page and the
- * hover readout, which is portalled out of it.
+ * The source colours of the Data tab: Demido green for Dukascopy, blue for TradingView, orange for
+ * the days MetaTrader supplied. They differ in hue (not just lightness), so they stay apart for
+ * red-green colour blindness (the orange is darker than the green, which keeps those two apart
+ * there too), and all clear 3:1 against the dark surfaces. Set on every root that draws them: the
+ * tab's page and the hover readout, which is portalled out of it.
  */
 .palette {
   --source-dukascopy: var(--accent);
   --source-tradingview: var(--info);
+  --source-metatrader: #ee8a4f;
   /* The blank of "not downloaded", opaque so a gap drawn over stored data reads as the same blank. */
   --track: var(--surface-5);
   /* Stripes over the blank for "no data at source". */
@@ -21,6 +23,11 @@
 .palette[data-source='tradingview'],
 .palette [data-source='tradingview'] {
   --source: var(--source-tradingview);
+}
+
+.palette[data-source='metatrader'],
+.palette [data-source='metatrader'] {
+  --source: var(--source-metatrader);
 }
 
 /* A small swatch in the element's source colour, for badges and legends. */

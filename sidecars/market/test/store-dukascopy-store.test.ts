@@ -533,3 +533,24 @@ test('changes are announced to subscribers', async () => {
   ]);
   await assert.rejects(store.put('eurusd', 'm1', DAY + 5, null, final('m1', DAY)), /not the start/);
 });
+
+test('provenance: the days MetaTrader supplied are recorded, persist, and a Dukascopy copy takes them back', async () => {
+  const { cache, store, open } = harness();
+  const next = DAY + 86400;
+  await store.put('eurusd', 'm1', DAY, body(DAY, 2), { ...final('m1', DAY), origin: 'metatrader' });
+  await store.put('eurusd', 'm1', next, null, { ...final('m1', next), origin: 'metatrader' });
+  await store.put('eurusd', 'm1', next + 86400, body(next + 86400, 2), final('m1', next + 86400));
+  assert.deepEqual(store.sets('eurusd', 'm1').metatrader.toJSON(), [[DAY, next + 86400]]);
+  assert.deepEqual(store.summary('eurusd').tiers.m1.metatrader, [[DAY, next + 86400]]);
+  await store.flush();
+  assert.deepEqual(readManifest(cache, 'eurusd').tiers.m1.metatrader, [[DAY, next + 86400]]);
+  assert.equal(readManifest(cache, 'eurusd').tiers.h1.metatrader, undefined, 'only where there is some');
+  const reopened = open();
+  assert.deepEqual(reopened.sets('eurusd', 'm1').metatrader.toJSON(), [[DAY, next + 86400]]);
+  // Dukascopy's copy of a day replaces MetaTrader's mark with its data.
+  await reopened.put('eurusd', 'm1', DAY, body(DAY, 3), final('m1', DAY));
+  assert.deepEqual(reopened.sets('eurusd', 'm1').metatrader.toJSON(), [[next, next + 86400]]);
+  // A forgotten bucket is no one's.
+  await reopened.remove('eurusd');
+  assert.ok(reopened.sets('eurusd', 'm1').metatrader.isEmpty);
+});

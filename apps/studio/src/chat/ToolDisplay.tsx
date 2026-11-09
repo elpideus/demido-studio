@@ -19,8 +19,8 @@ import { Button, ProgressBar, cx, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { fileUrl, formatDateTime, formatPercent, formatPrice } from '@/lib/format';
-import type { Message, PineSummary, Quote, ToolDisplay as Display } from '@/lib/types';
-import { DownloadProgress } from '@/market/DownloadProgress';
+import type { BarSource, Message, PineSummary, Quote, ToolDisplay as Display } from '@/lib/types';
+import { DownloadProgress, SOURCE_NAMES } from '@/market/DownloadProgress';
 import { currentModel, useChats } from '@/stores/chats';
 import { useModels } from '@/stores/models';
 import { toast } from '@/stores/toasts';
@@ -132,6 +132,9 @@ function sourceCounts(d: Display): Array<{ source: string; count: number }> {
   return [...counts].map(([source, count]) => ({ source, count }));
 }
 
+// A source without a name here reads as Dukascopy, the default.
+const sourceName = (source: string) => SOURCE_NAMES[source as BarSource] ?? SOURCE_NAMES.dukascopy;
+
 function Candles({ d, message }: { d: Display; message: Message | undefined }) {
   const change = num(d.changePercent);
   const sources = sourceCounts(d);
@@ -160,7 +163,7 @@ function Candles({ d, message }: { d: Display; message: Message | undefined }) {
         </span>
         {sources.map((s) => (
           <span key={s.source} className={styles.source}>
-            {s.source === 'tradingview' ? 'TradingView' : 'Dukascopy'} · {num(s.count)?.toLocaleString()}
+            {sourceName(s.source)} · {num(s.count)?.toLocaleString()}
           </span>
         ))}
       </div>

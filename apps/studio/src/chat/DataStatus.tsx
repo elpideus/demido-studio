@@ -9,16 +9,18 @@ import { cx, formatBytes } from '@demido/ui';
 import type { MarketCoverageItem, ToolDisplay } from '@/lib/types';
 import { DownloadProgress, SOURCE_NAMES } from '@/market/DownloadProgress';
 import {
+  barSources,
   isUnfinished,
   leadJob,
   marketBytes,
   marketDomain,
+  metaTraderDays,
   monthRangeText,
   sortMarkets,
   sortSources,
   storedExtent,
 } from '@/market/data/coverage';
-import { MarketTimeline, TimelineAxis } from '@/market/data/MarketTimeline';
+import { MarketTimeline, MetaTraderSource, TimelineAxis } from '@/market/data/MarketTimeline';
 import palette from '@/market/data/sources.module.css';
 import timeline from '@/market/data/Timeline.module.css';
 import { dataStatusView, gapsText, marketGaps } from './dataStatusView';
@@ -29,7 +31,7 @@ function StatusMarket({ item, open, onToggle }: { item: MarketCoverageItem; open
   const extent = useMemo(() => storedExtent(item), [item]);
   const sources = useMemo(() => sortSources(item.sources), [item]);
   const gaps = useMemo(() => marketGaps(item), [item]);
-  const sourceNames = [...new Set(sources.map((s) => s.source))];
+  const sourceNames = useMemo(() => barSources(item), [item]);
   const jobs = item.jobs.filter((j) => isUnfinished(j.status));
   const lead = leadJob(jobs);
 
@@ -64,6 +66,7 @@ function StatusMarket({ item, open, onToggle }: { item: MarketCoverageItem; open
                     </span>
                   </span>
                 ))}
+                {sourceNames.includes('metatrader') && <MetaTraderSource days={metaTraderDays(item)} />}
               </div>
               <MarketTimeline item={item} domain={domain} />
               <TimelineAxis domain={domain} />

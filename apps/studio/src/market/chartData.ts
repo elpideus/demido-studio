@@ -3,6 +3,7 @@
 
 import type {
   Bar,
+  BarSource,
   MarketGap,
   MarketJob,
   MarketJobStatus,
@@ -42,8 +43,8 @@ export function mergeSpans(a: MarketSpan[], b: MarketSpan[]): MarketSpan[] {
 
 /** The source of the bar at `t`: the last span starting at or before it, so a live bar newer than every
  *  span belongs to the newest run. Null only when there are no spans. */
-export function sourceAt(spans: MarketSpan[], t: number): MarketSource | null {
-  let found: MarketSource | null = spans[0]?.source ?? null;
+export function sourceAt(spans: MarketSpan[], t: number): BarSource | null {
+  let found: BarSource | null = spans[0]?.source ?? null;
   for (const span of spans) {
     if (span.from > t) break;
     found = span.source;
@@ -52,10 +53,10 @@ export function sourceAt(spans: MarketSpan[], t: number): MarketSource | null {
 }
 
 /** `sourceAt` for every bar of a time-ordered list, in one pass. */
-export function sourcesOf(bars: Bar[], spans: MarketSpan[]): Array<MarketSource | null> {
-  const out: Array<MarketSource | null> = [];
+export function sourcesOf(bars: Bar[], spans: MarketSpan[]): Array<BarSource | null> {
+  const out: Array<BarSource | null> = [];
   let i = 0;
-  let current: MarketSource | null = spans[0]?.source ?? null;
+  let current: BarSource | null = spans[0]?.source ?? null;
   for (const bar of bars) {
     while (i < spans.length && spans[i]!.from <= bar.t) current = spans[i++]!.source;
     out.push(current);
@@ -170,7 +171,8 @@ export type LatestView = { mode: 'history'; offer: boolean } | { mode: 'signin' 
 /**
  * A market with Dukascopy history shows as history even with no bars: nothing stored near now (a first
  * open, or a weekend whose empty days were all the read reached) is an edge to download from, not a
- * failure. Only a fetch that really failed says Dukascopy could not be reached.
+ * failure. Only a fetch that really failed says the history could not be downloaded (from Dukascopy
+ * or, set up as the only source, MetaTrader).
  */
 export function latestView(res: Pick<MarketLatestBars, 'bars' | 'more' | 'stale' | 'keys' | 'fetchError'>): LatestView {
   if (res.bars.length) return { mode: 'history', offer: false };
@@ -179,7 +181,7 @@ export function latestView(res: Pick<MarketLatestBars, 'bars' | 'more' | 'stale'
   if (res.fetchError) {
     return {
       mode: 'error',
-      message: `Nothing is stored for this market yet, and Dukascopy could not be reached: ${res.fetchError}`,
+      message: `Nothing is stored for this market yet, and its history could not be downloaded: ${res.fetchError}`,
     };
   }
   if (res.more === 'none') return { mode: 'error', message: 'Dukascopy has no history for this market.' };

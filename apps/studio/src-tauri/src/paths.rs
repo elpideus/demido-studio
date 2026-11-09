@@ -98,6 +98,11 @@ impl AppPaths {
         self.install_path(&tool.exe).filter(|p| p.is_file())
     }
 
+    pub fn uv(&self) -> Option<PathBuf> {
+        let tool = self.manifest.as_ref()?.uv.as_ref()?;
+        self.install_path(&tool.exe).filter(|p| p.is_file())
+    }
+
     pub fn python(&self) -> Option<PathBuf> {
         let tool = self.manifest.as_ref()?.python.as_ref()?;
         self.install_path(&tool.exe).filter(|p| p.is_file())

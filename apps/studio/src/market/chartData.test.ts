@@ -216,10 +216,10 @@ describe('latestView', () => {
     expect(latestView({ bars: [bar(1)], more: 'gap', keys })).toEqual({ mode: 'history', offer: false });
   });
 
-  it('says Dukascopy could not be reached only when a fetch failed', () => {
+  it('says the history could not be downloaded only when a fetch failed', () => {
     const view = latestView({ bars: [], more: 'gap', keys, fetchError: 'Offline' });
     expect(view).toMatchObject({ mode: 'error' });
-    expect(view.mode === 'error' && view.message).toMatch(/could not be reached: Offline/);
+    expect(view.mode === 'error' && view.message).toMatch(/could not be downloaded: Offline/);
     expect(latestView({ bars: [], more: 'none', keys })).toEqual({
       mode: 'error',
       message: 'Dukascopy has no history for this market.',

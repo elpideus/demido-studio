@@ -1,5 +1,6 @@
-// The market window's Data tab: what the market store holds and where it came from. Downloads
-// still running come first, then one row per market with a coverage timeline per tier.
+// The market window's Data tab: what the market store holds and where it came from. MetaTrader,
+// when a terminal is found, comes first; then downloads still running, then one row per market with
+// its coverage timeline.
 
 import { useMemo, useState } from 'react';
 import { Database, RefreshCw, X } from 'lucide-react';
@@ -9,8 +10,9 @@ import { api, errorText } from '@/lib/api';
 import type { MarketJob } from '@/lib/types';
 import { toast } from '@/stores/toasts';
 import { DownloadProgress } from './DownloadProgress';
-import { jobsFor, sortMarkets } from './data/coverage';
+import { jobsFor, metaTraderRanges, sortMarkets } from './data/coverage';
 import { MarketRow } from './data/MarketRow';
+import { MetaTraderCard } from './data/MetaTraderCard';
 import { useStoredData } from './data/useStoredData';
 import palette from './data/sources.module.css';
 import styles from './data/DataTab.module.css';
@@ -23,6 +25,7 @@ export function DataTab({ onOpenChart }: { onOpenChart: (symbol: string) => void
   const initial = items.length === 1 && items[0] ? [items[0].market] : [];
   const openSet = open ?? new Set(initial);
   const learned = items.some((i) => i.sources.some((s) => s.tiers.some((t) => typeof t.learnedStart === 'number')));
+  const metatrader = items.some((i) => metaTraderRanges(i).length > 0);
 
   const toggle = (market: string) =>
     setOpen((prev) => {
@@ -48,9 +51,11 @@ export function DataTab({ onOpenChart }: { onOpenChart: (symbol: string) => void
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={reload} />
       </header>
 
-      {items.length > 0 && <Legend learned={learned} />}
+      {items.length > 0 && <Legend learned={learned} metatrader={metatrader} />}
 
       <div className={styles.scroll}>
+        <MetaTraderCard />
+
         {error && (
           <Notice
             tone="danger"
@@ -143,13 +148,19 @@ function JobCard({ job, onChanged }: { job: MarketJob; onChanged: () => void }) 
 }
 
 // What the timelines' colours and patterns mean.
-function Legend({ learned }: { learned: boolean }) {
+function Legend({ learned, metatrader }: { learned: boolean; metatrader: boolean }) {
   return (
     <div className={styles.legend} aria-label="Legend">
       <span className={styles.legendItem} data-source="dukascopy">
         <span className={cx(styles.swatch, palette.fillData)} aria-hidden />
         Dukascopy
       </span>
+      {metatrader && (
+        <span className={styles.legendItem} data-source="metatrader">
+          <span className={cx(styles.swatch, palette.fillData)} aria-hidden />
+          MetaTrader
+        </span>
+      )}
       <span className={styles.legendItem} data-source="tradingview">
         <span className={cx(styles.swatch, palette.fillData)} aria-hidden />
         TradingView

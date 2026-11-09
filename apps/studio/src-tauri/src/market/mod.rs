@@ -6,9 +6,11 @@
 //! starts that service on first use (or at launch when a download was left running), speaks JSON
 //! lines with it over stdio, forwards its live updates to the UI, asks it to flush on exit, and
 //! owns the TradingView session: the person signs in once in a pop-up window whose cookies are
-//! captured (see [`auth`]).
+//! captured (see [`auth`]). MetaTrader, the downloads' second source, is set up from here too
+//! (see [`metatrader`]).
 
 pub mod auth;
+pub mod metatrader;
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -97,6 +99,7 @@ pub struct MarketService {
     log_file: PathBuf,
     pub(crate) profile_dir: PathBuf,
     secrets: Arc<Secrets>,
+    pub metatrader: metatrader::MetaTrader,
     proc: tokio::sync::Mutex<Option<Proc>>,
     pending: Pending,
     next_id: AtomicU64,
@@ -119,6 +122,7 @@ impl MarketService {
         logs_dir: PathBuf,
         profile_dir: PathBuf,
         secrets: Arc<Secrets>,
+        metatrader: metatrader::MetaTrader,
     ) -> Arc<Self> {
         let reason = match (&node, script.is_file()) {
             (None, _) => Some(format!("Node.js is not installed. {}.", crate::setup::how_to_add())),
@@ -145,6 +149,7 @@ impl MarketService {
             log_file: logs_dir.join("market.log"),
             profile_dir,
             secrets,
+            metatrader,
             proc: tokio::sync::Mutex::new(None),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),
@@ -252,6 +257,11 @@ impl MarketService {
             cmd.env("DEMIDO_TV_SESSION", &session.session)
                 .env("DEMIDO_TV_SIGNATURE", &session.signature);
         }
+        // So is MetaTrader's setup, once the person consented to it.
+        let metatrader = self.metatrader.config();
+        if !metatrader.is_null() {
+            cmd.env("DEMIDO_METATRADER", metatrader.to_string());
+        }
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000);
         let mut child = crate::runtime::job::spawn(&mut cmd)
@@ -286,7 +296,45 @@ impl MarketService {
         *proc = Some(Proc { child, stdin });
         drop(proc);
         self.update_status(|s| s.running = true);
+        // The bridge went missing (or was never installed) since the person chose MetaTrader.
+        if self.metatrader.needs_install()
+            && let Some(service) = self.me.upgrade()
+        {
+            tokio::spawn(async move {
+                let _ = service.setup_metatrader().await;
+            });
+        }
         Ok(())
+    }
+
+    /// Installs the MetaTrader bridge when it is missing, then hands the service the new setup.
+    /// Progress arrives as `market://event` `metatrader.setup` events.
+    pub async fn setup_metatrader(&self) -> Result<(), String> {
+        let app = self.app.clone();
+        let progress = move |state: &metatrader::SetupState| {
+            let _ = app.emit(EVENT, json!({"event": "metatrader.setup", "params": state}));
+        };
+        let result = self.metatrader.install(&progress).await;
+        if let Err(e) = &result {
+            tracing::warn!("the MetaTrader bridge could not be installed: {e}");
+        }
+        self.apply_metatrader().await;
+        result
+    }
+
+    /// Tells a running service the person's MetaTrader setup; one that is not running reads it
+    /// when it starts. Boxed: `ensure_started` spawns the setup that ends here, and a future that
+    /// contains itself has no type the compiler can call `Send`.
+    pub fn apply_metatrader(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            if !self.status().running {
+                return;
+            }
+            let config = self.metatrader.config();
+            if let Err(e) = self.call("metatrader.configure", config, Duration::from_secs(60)).await {
+                tracing::warn!("the market service did not take the MetaTrader setup: {e}");
+            }
+        })
     }
 
     /// Handles one line from the service: a response, a live update or a log line.

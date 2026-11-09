@@ -9,8 +9,10 @@
 // - A run's plan is the days of its range the manifest lacks, plus provisional copies due for their
 //   one re-fetch (a day stored while it was still open). Every planned day that becomes covered while
 //   the job runs counts as done with its bytes, whoever fetched it (a boost, a chart, another job).
-//   Days below a learned start are `skipped` (reported apart from `total`); nothing else leaves the
-//   plan undone.
+//   Days below a learned start are `skipped` (reported apart from `total`), and so are days the only
+//   source (MetaTrader alone) does not have: they stay missing, for Dukascopy to fill in later. A
+//   market that source does not have stops the job with the reason. Nothing else leaves the plan
+//   undone.
 // - Empty streak (a backstop for bad metadata), armed once the walk returned a non-empty day: 20
 //   consecutive empty weekdays start a sparse walk that asks for one weekday a month (the probes).
 //   Where a probe finds data, walk densely again from just below the streak, so nothing the probes
@@ -23,10 +25,14 @@
 //   pages meet the run below (the first page covers up to the run above, `to` being exclusive); a
 //   hole TradingView serves nothing for is recorded as covered without bars. They need a session.
 // - Statuses: queued | running | waiting (the fetcher's breaker is open or Dukascopy asked for a
-//   pause) | paused | done | error. Records live in <cache>/jobs/<id>.json (atomic writes); running,
+//   pause, and no MetaTrader terminal serves the days meanwhile; or MetaTrader, the only source,
+//   cannot be used now) | paused | done | error. Records live in <cache>/jobs/<id>.json (atomic writes); running,
 //   queued and waiting jobs resume when the sidecar starts. Jobs are never pruned: old chat cards
 //   must still resolve; `cancel` removes one (event `download.removed {jobId}`). Progress events at
 //   most 4 per second per job.
+// - Dukascopy jobs count the days each source downloaded for them (`supplied`) and, while they move,
+//   name who downloads first now (`via`): the 1-minute pipeline is Dukascopy's, but MetaTrader may be
+//   the one filling it.
 //
 // API (class Jobs): load(), start({symbol, from?, back?, to?, tiers?, origin}) -> {jobId, plan},
 //   pause(id), resume(id), cancel(id), get(id), list(symbol?), views() (for the planner),
@@ -38,8 +44,8 @@ import path from 'node:path';
 import { RpcError } from '../protocol.ts';
 import { type Timeframe } from '../timeframes.ts';
 import { TIERS, type Tier, bucketKey, bucketStart, bucketsIn, isActive, nextBucket } from './buckets.ts';
-import { type DukascopyStore, type StoreChange, writeAtomic } from './dukascopy-store.ts';
-import { type FetchResult, type Fetcher, MAX_IN_FLIGHT } from './fetcher.ts';
+import { type DukascopyStore, type Origin as BarOrigin, type StoreChange, writeAtomic } from './dukascopy-store.ts';
+import { FetchError, type FetchResult, type Fetcher, MAX_IN_FLIGHT } from './fetcher.ts';
 import { type Range } from './intervals.ts';
 import { type Back, type JobStatus, type JobView, type Plan, type Planner, TV_TIMEFRAMES, tvHoles } from './planner.ts';
 import { type Series, type Source } from './series.ts';
@@ -70,6 +76,10 @@ export interface Job {
   createdAt: number;
   updatedAt: number;
   message?: string;
+  /** Dukascopy: the days each source downloaded for this job. */
+  supplied?: Partial<Record<BarOrigin, number>>;
+  /** Dukascopy, while it moves: who downloads its days first now. */
+  via?: BarOrigin;
 }
 
 export interface JobRecord extends Job {
@@ -78,6 +88,8 @@ export interface JobRecord extends Job {
   openEnd: boolean;
   /** Buckets that failed for good in the current run. */
   failed: number;
+  /** Of `skipped`, the current run's days the only source did not have: a resume plans them again. */
+  lacked?: number;
   /** Dukascopy: the planned buckets not yet counted, per tier, as runs of consecutive buckets. A
    *  resume starts from them, so ones covered meanwhile (a chart, a tool read) still count as done. */
   pending?: Partial<Record<Tier, Range[]>>;
@@ -101,7 +113,7 @@ export interface TvSession {
 export interface JobsDeps {
   cacheDir: string;
   store: DukascopyStore;
-  fetcher: Pick<Fetcher, 'request' | 'cancelJob' | 'status' | 'effectiveRate' | 'subscribe'>;
+  fetcher: Pick<Fetcher, 'request' | 'cancelJob' | 'status' | 'effectiveRate' | 'subscribe' | 'firstSource'>;
   planner: Planner;
   series: Series;
   tv: TvStore;
@@ -179,6 +191,7 @@ function publicJob(r: JobRecord): Job {
     version: _v,
     openEnd: _o,
     failed: _f,
+    lacked: _l,
     pending: _p,
     migratedFrom: _m,
     ...job
@@ -227,6 +240,8 @@ interface Run {
   requesting: Map<string, number>;
   /** Dukascopy: `plans` hold the whole plan (the record's `pending` may be taken from them). */
   planned: boolean;
+  /** Why nothing of the market can be downloaded (the only source lacks it): the run stops. */
+  halt: string | null;
 }
 
 type Outcome = 'data' | 'empty' | 'skip' | 'aborted';
@@ -249,6 +264,8 @@ export class Jobs {
   readonly #lastProgress = new Map<string, number>();
   #closing = false;
   #pauseTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The status message the fetcher's state last gave running jobs (cleared with that state). */
+  #fetcherMessage: string | null = null;
   readonly #unsubscribe: Array<() => void> = [];
 
   constructor(deps: JobsDeps) {
@@ -375,6 +392,7 @@ export class Jobs {
   #refresh(r: JobRecord): JobRecord {
     const run = this.#runs.get(r.id);
     const now = this.#nowMs();
+    if (r.source === 'dukascopy' && r.status !== 'done') r.via = this.#d.fetcher.firstSource(r.key);
     if (!run || !MOVING.has(r.status)) {
       r.rate = 0;
       r.inFlight = 0;
@@ -548,6 +566,7 @@ export class Jobs {
       plans: new Map(),
       requesting: new Map(),
       planned: false,
+      halt: null,
     };
     this.#runs.set(r.id, run);
     run.promise = (async () => {
@@ -585,12 +604,26 @@ export class Jobs {
       this.#pauseTimer = setTimeout(() => this.#applyFetcherState(), status.pausedUntil - now + 50);
       this.#pauseTimer.unref?.();
     }
+    // The second source (a MetaTrader terminal) keeps the job moving while Dukascopy cannot. As the
+    // only source, it alone moves the job, or the job waits for it.
+    const alt = status.alternate;
+    let next: JobStatus = 'waiting';
+    if (alt?.mode === 'only') {
+      next = alt.blocked ? 'waiting' : 'running';
+      message = alt.blocked ?? (alt.serving ? `Downloading from ${alt.name}` : null);
+    } else if (alt?.serving) {
+      next = 'running';
+      message = message ? `${message}; downloading from ${alt.name} meanwhile` : `Downloading from ${alt.name}`;
+    }
     for (const id of this.#runs.keys()) {
       const r = this.#jobs.get(id);
       if (!r || r.source !== 'dukascopy' || (r.status !== 'running' && r.status !== 'waiting')) continue;
-      if (message && (r.status !== 'waiting' || r.message !== message)) this.#setStatus(r, 'waiting', message);
-      else if (!message && r.status === 'waiting') this.#setStatus(r, 'running');
+      if (message && (r.status !== next || r.message !== message)) this.#setStatus(r, next, message);
+      else if (!message && (r.status === 'waiting' || (r.message && r.message === this.#fetcherMessage))) {
+        this.#setStatus(r, 'running');
+      }
     }
+    this.#fetcherMessage = message;
   }
 
   #begin(r: JobRecord): void {
@@ -600,6 +633,10 @@ export class Jobs {
 
   #finish(r: JobRecord, run: Run): void {
     if (run.controller.signal.aborted) return;
+    if (run.halt !== null) {
+      this.#setStatus(r, 'error', run.halt);
+      return;
+    }
     if (r.failed > 0) {
       this.#setStatus(r, 'error', r.message ?? `${r.failed} file(s) could not be downloaded`);
       return;
@@ -659,6 +696,13 @@ export class Jobs {
     r.total += 1;
   }
 
+  /** A planned bucket the only source has nothing for: skipped, and still missing in the store. */
+  #drop(r: JobRecord, run: Run, tier: Tier, start: number): void {
+    if (this.#runs.get(r.id) !== run || !run.plans.get(tier)?.buckets.delete(start)) return;
+    r.lacked = (r.lacked ?? 0) + 1;
+    this.#skip(r, tier, 1);
+  }
+
   /** Planned buckets the source has nothing for: out of `total`, into `skipped`. */
   #skip(r: JobRecord, tier: string | null, n: number): void {
     if (n <= 0) return;
@@ -705,6 +749,12 @@ export class Jobs {
       });
     }
     return true;
+  }
+
+  /** A bucket this job's request downloaded: it counts, and so does who downloaded it. */
+  #fetched(r: JobRecord, run: Run, tier: Tier, start: number, result: FetchResult & { status: 'fetched' }): void {
+    if (!this.#settle(r, run, tier, start, result.bytes)) return;
+    r.supplied = { ...r.supplied, [result.origin]: (r.supplied?.[result.origin] ?? 0) + 1 };
   }
 
   /** Size of a stored bucket (the store's layout: <instrument>/<tier>/<yyyy>/<key>.json.gz); an empty
@@ -768,6 +818,9 @@ export class Jobs {
     const signal = run.controller.signal;
     r.failed = 0;
     delete r.message;
+    // The days the only source did not have last time are asked again (the re-plan finds them).
+    r.skipped = Math.max(0, r.skipped - (r.lacked ?? 0));
+    r.lacked = 0;
     // 1-minute candles only; a record from an earlier version may name coarser tiers too (load()
     // keeps only m1 of them).
     const tiers = (['m1'] as const).filter((t) => r.tiers.includes(t));
@@ -855,11 +908,23 @@ export class Jobs {
         this.#settle(r, run, tier, start, 0);
         return 'skip';
       }
-      this.#settle(r, run, tier, start, result.status === 'fetched' ? result.bytes : 'disk');
-      if (result.status === 'fetched') return result.empty ? 'empty' : 'data';
+      if (result.status === 'missing') {
+        this.#drop(r, run, tier, start);
+        return 'skip';
+      }
+      if (result.status === 'fetched') {
+        this.#fetched(r, run, tier, start, result);
+        return result.empty ? 'empty' : 'data';
+      }
+      this.#settle(r, run, tier, start, 'disk');
       return this.#emptyAt(r.key, tier, start) ? 'empty' : 'data';
     } catch (error) {
       if (signal.aborted) return 'aborted';
+      if (error instanceof FetchError && error.code === 'UNSERVED') {
+        // Every other day of the market would fail the same way.
+        run.halt ??= error.message;
+        return 'aborted';
+      }
       r.failed += 1;
       r.message = `${r.failed} file(s) could not be downloaded: ${(error as Error).message}`;
       this.#log('warn', `Download ${r.id}: ${(error as Error).message}`);
@@ -965,8 +1030,8 @@ export class Jobs {
       this.#skip(r, tier, n);
     };
 
-    while (!signal.aborted) {
-      while (!stopped && pending.length < WINDOW && next >= first && !signal.aborted) {
+    while (!signal.aborted && run.halt === null) {
+      while (!stopped && pending.length < WINDOW && next >= first && !signal.aborted && run.halt === null) {
         const start = next;
         next = previousBucket(tier, start);
         if (sparse && !isProbe(tier, start)) continue;
@@ -1021,6 +1086,7 @@ export class Jobs {
       sparseFrom = previousBucket(tier, runOldest);
       emptyRun = 0;
     }
+    if (run.halt !== null) dropPending();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1153,8 +1219,9 @@ export class Jobs {
           .then(
             (result) => {
               if (!mine) return;
-              if (result.status === 'fetched') this.#settle(r!, run, need.tier, need.start, result.bytes);
+              if (result.status === 'fetched') this.#fetched(r!, run, need.tier, need.start, result);
               else if (result.status === 'unavailable') this.#settle(r!, run, need.tier, need.start, 0);
+              else if (result.status === 'missing') this.#drop(r!, run, need.tier, need.start);
               else if (result.status === 'cached') this.#settle(r!, run, need.tier, need.start, 'disk');
             },
             () => undefined,

@@ -26,6 +26,7 @@ function tierOf(v: unknown): MarketTierCoverage | null {
     tier: t.tier,
     intervals: ranges(t.intervals),
     empty: ranges(t.empty),
+    metatrader: ranges(t.metatrader),
     available: isRange(t.available) ? t.available : null,
     learnedStart: typeof t.learnedStart === 'number' ? t.learnedStart : null,
     bytes: num(t.bytes),

@@ -31,6 +31,7 @@ import { type MarketEvent, on } from '@/lib/events';
 import { formatPercent, formatPrice } from '@/lib/format';
 import type {
   Bar,
+  BarSource,
   ChartInfo,
   ChartLayout,
   ChartLayoutStudy,
@@ -42,7 +43,6 @@ import type {
   MarketKeys,
   MarketLatestBars,
   MarketMore,
-  MarketSource,
   MarketSpan,
   MarketStoreUpdate,
   PineSummary,
@@ -268,7 +268,7 @@ function ChartView({ win, hidden }: { win: WindowState; hidden: boolean }) {
   const [error, setError] = useState<string | null>(null);
   // Signed out, showing TradingView bars stored earlier: no live source until sign-in.
   const [stale, setStale] = useState(false);
-  const [newestSource, setNewestSource] = useState<MarketSource | null>(null);
+  const [newestSource, setNewestSource] = useState<BarSource | null>(null);
   const [keys, setKeys] = useState<MarketKeys>({});
   const [oldest, setOldest] = useState<number | null>(null);
   const [gap, setGap] = useState<MarketGap | null>(null);

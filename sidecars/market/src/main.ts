@@ -6,7 +6,8 @@
 // TradingView bars (store/tv-store) and download jobs (store/jobs). The Pine scripts written in
 // Demido are not a cache: they live under DEMIDO_PINE_DIR (indicators/pine). Every Dukascopy request goes
 // through the one fetcher queue; every read goes through store/series. The old caches are migrated
-// first: store requests wait for it.
+// first: store requests wait for it. With the user's consent a MetaTrader 5 terminal is the
+// fetcher's second source of 1-minute days (metatrader/source), configured by the app.
 
 import os from 'node:os';
 import path from 'node:path';
@@ -19,6 +20,7 @@ import * as catalog from './indicators/catalog.ts';
 import { type LayoutState, describe as describeMeta } from './indicators/describe.ts';
 import * as pine from './indicators/pine.ts';
 import * as studies from './indicators/studies.ts';
+import { MetaTraderSource, parseConfig } from './metatrader/source.ts';
 import { type Bar, RpcError, emit, fail, log, reply } from './protocol.ts';
 import { instrumentMeta } from './store/buckets.ts';
 import { DukascopyStore } from './store/dukascopy-store.ts';
@@ -66,6 +68,23 @@ jobs = new Jobs({
 });
 const jobList = jobs;
 const reads = new Reads({ store, fetcher, planner, series });
+const metatrader = new MetaTraderSource({
+  store,
+  cacheDir,
+  log,
+  onStatus: (status) => emit('metatrader.status', status),
+  // After a cool-down or a new setup the queue looks at what it may take again.
+  onReady: () => fetcher.setAlternate(metatrader),
+});
+fetcher.setAlternate(metatrader);
+// The app's setup at start: the same object as metatrader.configure.
+if (process.env.DEMIDO_METATRADER) {
+  try {
+    void metatrader.configure(parseConfig(JSON.parse(process.env.DEMIDO_METATRADER)));
+  } catch (error) {
+    log('warn', `DEMIDO_METATRADER is not valid JSON: ${(error as Error).message}`);
+  }
+}
 
 // ---------------------------------------------------------------------------------------------
 // store.updated: at most one per second per key, carrying the union of what changed.
@@ -276,6 +295,8 @@ interface TierCoverage {
   tier: string;
   intervals: Range[];
   empty?: Range[];
+  /** The covered days MetaTrader supplied. */
+  metatrader?: Range[];
   available: [number, number] | null;
   learnedStart?: number | null;
   bytes: number;
@@ -314,6 +335,7 @@ async function summary(symbol?: string): Promise<{ bytes: number; items: Coverag
         tier,
         intervals: new IntervalSet(t.covered).addSet(unavailable).toJSON(),
         empty: new IntervalSet(t.empty).addSet(unavailable).toJSON(),
+        metatrader: t.metatrader,
         available: t.effectiveStart === null ? null : [t.effectiveStart, now],
         learnedStart: t.learnedStart?.t ?? null,
         bytes: t.bytes,
@@ -380,6 +402,7 @@ function shutdown(): Promise<void> {
     await ready.catch(() => undefined);
     await jobList.close();
     await fetcher.close(500);
+    await metatrader.close();
     await store.close();
     await tvStore.flush();
   })().catch((error: unknown) => log('error', `Could not save everything on exit: ${(error as Error).message}`));
@@ -531,6 +554,15 @@ const handlers: Record<string, (params: Params) => Promise<unknown> | unknown> =
     };
     return jobList.wait(params);
   },
+
+  /** The user's MetaTrader setup ({mode, bridge, terminal, terminalArgs, login, server, allowSwitch};
+   *  null turns it off). Returns its status. */
+  'metatrader.configure': (p) => metatrader.configure(p && Object.keys(p).length > 0 ? parseConfig(p) : null),
+
+  'metatrader.status': () => metatrader.status(),
+
+  /** Starts MetaTrader and logs in now (the user's "Test connection"); rejects with why it could not. */
+  'metatrader.connect': () => metatrader.connect(),
 
   'cache.summary': async (p) => {
     await ready;

@@ -3,11 +3,14 @@
 //   <cache>/dukascopy/<instrument>/<tier>/<yyyy>/<bucketKey>.json.gz   gzip of the raw response
 //   <cache>/dukascopy/<instrument>/manifest.json
 //     {version: 1, tiers: {m1: {fetched: [[f, t]...], empty: [[f, t]...], provisional: {"<start>": builtAt},
-//      unavailable: [[f, t]...], learnedStart: {t, evidence} | null, bytes}, h1: {...}, d1: {...}}}
+//      unavailable: [[f, t]...], learnedStart: {t, evidence} | null, bytes, metatrader?: [[f, t]...]},
+//      h1: {...}, d1: {...}}}
 //
 // `fetched` holds final buckets (never requested again), `provisional` buckets built too early to be
 // trusted as complete (served, re-fetched once when due), `empty` the fetched or provisional buckets
 // that held no candles (no file is written for them), `unavailable` permanent 400/404 answers.
+// `metatrader` marks the covered buckets whose copy came from a MetaTrader terminal instead of
+// Dukascopy (same file format, see metatrader/encode.ts); a later Dukascopy copy clears the mark.
 // Invariants: fetched and provisional are disjoint; every bucket in (fetched ∪ provisional) − empty
 // has a file; a file is always written before the manifest records it, and deleted before the
 // manifest stops recording it, so a crash leaves at worst a file the next load picks up again.
@@ -21,8 +24,9 @@
 //   status(instr, tier, start)       'missing' | 'final' | 'provisional' | 'unavailable'
 //   needsFetch(instr, tier, start, now?, {activeMaxAge?})   missing, due provisional, or a stale
 //                                    active bucket (older than activeMaxAge s, default 60)
-//   put(instr, tier, start, buffer | null, {builtAt, final?, fsync?})   stores a response (null = empty);
-//                                    `final` defaults to "built >= 1 h after the bucket closed";
+//   put(instr, tier, start, buffer | null, {builtAt, final?, fsync?, origin?})   stores a response
+//                                    (null = empty); `final` defaults to "built >= 1 h after the
+//                                    bucket closed"; `origin` 'metatrader' marks the copy's provenance;
 //                                    refuses (DecodeError) a response whose timestamp is outside the bucket
 //   markUnavailable(instr, tier, start), clearUnavailable(instr, tier?)
 //   learnedStart / setLearnedStart(instr, tier, {t, evidence} | null), recheck(instr) (clears both)
@@ -30,7 +34,7 @@
 //   readNative(instr, tier, from, to)   bars of the tier's data buckets in [from, to), ascending;
 //                                    self-heals: a data bucket whose file is gone or unreadable is
 //                                    dropped from the manifest (it becomes missing) and logged
-//   sets(instr, tier)                {fetched, empty, provisional, unavailable, covered, data} copies
+//   sets(instr, tier)                {fetched, empty, provisional, unavailable, covered, data, metatrader}
 //   missingBuckets(instr, tier, from, to)   starts neither covered nor unavailable
 //   dueBuckets(instr, tier, now?)    provisional buckets due for their one re-fetch
 //   refreshedAt(instr, tier, start)  when a provisional copy was last asked for (null otherwise)
@@ -81,9 +85,14 @@ export interface LearnedStart {
   evidence: unknown;
 }
 
+/** Where a bucket's copy came from. */
+export type Origin = 'dukascopy' | 'metatrader';
+
 export interface PutMeta {
   builtAt: number;
   final?: boolean;
+  /** Default 'dukascopy'. */
+  origin?: Origin;
   /** Flush the bucket file to disk before it is recorded (the migration deletes originals after). */
   fsync?: boolean;
 }
@@ -108,6 +117,8 @@ export interface TierSets {
   covered: IntervalSet;
   /** covered − empty: where bars exist. */
   data: IntervalSet;
+  /** The covered buckets MetaTrader supplied. */
+  metatrader: IntervalSet;
 }
 
 export interface TierSummary {
@@ -119,6 +130,7 @@ export interface TierSummary {
   provisional: Range[];
   unavailable: Range[];
   covered: Range[];
+  metatrader: Range[];
   learnedStart: LearnedStart | null;
   bytes: number;
 }
@@ -157,6 +169,7 @@ interface TierState {
   unavailable: IntervalSet;
   learnedStart: LearnedStart | null;
   bytes: number;
+  metatrader: IntervalSet;
 }
 
 type InstrumentState = Record<Tier, TierState>;
@@ -253,6 +266,7 @@ function emptyTier(): TierState {
     unavailable: new IntervalSet(),
     learnedStart: null,
     bytes: 0,
+    metatrader: new IntervalSet(),
   };
 }
 
@@ -274,6 +288,7 @@ function parseTier(json: unknown): TierState {
   state.fetched = IntervalSet.fromJSON(t.fetched ?? []);
   state.empty = IntervalSet.fromJSON(t.empty ?? []);
   state.unavailable = IntervalSet.fromJSON(t.unavailable ?? []);
+  state.metatrader = IntervalSet.fromJSON(t.metatrader ?? []);
   const prov = t.provisional ?? {};
   if (typeof prov !== 'object' || Array.isArray(prov)) throw new Error('provisional is not an object');
   for (const [key, builtAt] of Object.entries(prov as Record<string, unknown>)) {
@@ -312,6 +327,8 @@ function serializeManifest(state: InstrumentState): unknown {
       unavailable: s.unavailable.toJSON(),
       learnedStart: s.learnedStart,
       bytes: s.bytes,
+      // Only when there is one: manifests without MetaTrader copies stay as they were.
+      ...(s.metatrader.isEmpty ? {} : { metatrader: s.metatrader.toJSON() }),
     };
   }
   return { version: MANIFEST_VERSION, tiers };
@@ -534,6 +551,12 @@ export class DukascopyStore {
         `Dukascopy ${instrument} ${tier}: recorded ${adopted} bucket file(s) missing from the manifest`,
       );
 
+    const kept = s.metatrader.intersect(s.fetched.union(provisionalSet(tier, s.provisional)));
+    if (!kept.equals(s.metatrader)) {
+      s.metatrader = kept;
+      changed = true;
+    }
+
     if (changed || recountBytes) {
       let bytes = 0;
       for (const file of present.values()) {
@@ -605,6 +628,7 @@ export class DukascopyStore {
       unavailable: s.unavailable.clone(),
       covered,
       data: covered.minus(s.empty),
+      metatrader: s.metatrader.intersect(covered),
     };
   }
 
@@ -657,6 +681,7 @@ export class DukascopyStore {
         provisional: sets.provisional.toJSON(),
         unavailable: sets.unavailable.toJSON(),
         covered: sets.covered.toJSON(),
+        metatrader: sets.metatrader.toJSON(),
         learnedStart: s.learnedStart,
         bytes: s.bytes,
       };
@@ -759,6 +784,8 @@ export class DukascopyStore {
         s.fetched.subtract(start, end);
         s.provisional.set(start, builtAt);
       }
+      if (meta.origin === 'metatrader') s.metatrader.add(start, end);
+      else s.metatrader.subtract(start, end);
       this.#lastFetch.set(key, now);
       this.#bump(key);
       if (bars.length > 0) this.#remember(key, bars);
@@ -956,6 +983,7 @@ export class DukascopyStore {
     }
     s.fetched.subtract(start, end);
     s.provisional.delete(start);
+    s.metatrader.subtract(start, end);
     this.#bump(key);
     this.#lru.delete(key);
     this.#log('warn', `Dukascopy ${instrument} ${tier} ${bucketKey(tier, start)}: ${reason}; it will be fetched again`);

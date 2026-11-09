@@ -27,14 +27,24 @@
 // - Finality: a completed bucket is final when its build time (Date header; without one, receive
 //   time minus Age) is at least an hour after the bucket closed; otherwise it is stored provisional.
 //   Active buckets (`?from=` URL) are always provisional.
+// - A second source (`setAlternate`, a MetaTrader terminal) may serve 1-minute days, one chunk at a
+//   time, outside Dukascopy's rate and breaker. In 'fallback' mode it takes the days Dukascopy cannot
+//   serve right now (a 429 pause, an open breaker, a day failing on outages); in 'preferred' mode it
+//   takes every day first. A chunk stores every day it answered that the store still needs, and
+//   settles the queued entries inside it; a day it does not know (beyond its depth) goes back to
+//   Dukascopy's queue and is never offered to it again, so nothing it lacks is ever recorded empty.
+//   In 'only' mode Dukascopy is never asked for 1-minute days: a day the second source does not know
+//   settles `missing` (nothing recorded), a market it never serves fails (UNSERVED), and while it
+//   cannot be used (`blocked`) the days wait, a chunk that failed backing off like a request.
 //
 // API (class Fetcher, one per process: `new Fetcher(store, opts?)`):
 //   request({instrument, tier, start, lane, jobId?, signal?, failFast?, activeMaxAge?}) -> Promise<FetchResult>
-//       {status: 'fetched', final, empty, bars, bytes} | {status: 'cached'} (the store had it at
-//       dispatch) | {status: 'unavailable', http} | {status: 'cancelled'} (signal, cancelJob, close).
-//       Rejects with FetchError only for permanent failures (unknown instrument, repeatedly invalid
-//       responses, store write errors) or, with `failFast`, as soon as it would have to wait out an
-//       open breaker, a 429 pause or a retry. Aborting `signal` removes only that waiter; to boost a
+//       {status: 'fetched', final, empty, bars, bytes, origin} | {status: 'cached'} (the store had it at
+//       dispatch) | {status: 'unavailable', http} | {status: 'missing'} (the only source has nothing for
+//       it) | {status: 'cancelled'} (signal, cancelJob, close). Rejects with FetchError only for
+//       permanent failures (unknown instrument, repeatedly invalid responses, store write errors, a
+//       market the only source lacks) or, with `failFast`, as soon as it would have to wait out an
+//       open breaker, a 429 pause, a retry or an only source that cannot be used now. Aborting `signal` removes only that waiter; to boost a
 //       range into the waiting lane, request it again with lane 'waiting' and a signal aborted when
 //       the wait ends.
 //   cancelJob(jobId) -> waiters cancelled (their entries leave the queue unless someone else waits)
@@ -44,6 +54,10 @@
 //       pausedUntil (ms or null), breaker;  breaker -> BreakerState {state, reason, message, retryAt}
 //   effectiveRate() requests/s to plan with;  tierStats(tier) rolling {secondsPerRequest, bytesPerBucket}
 //   subscribe(listener) -> unsubscribe: {type: 'breaker', breaker} | {type: 'paused', until} | {type: 'rate', rate}
+//       | {type: 'alternate', serving} (the second source started or stopped serving days)
+//   setAlternate(source | null) (also: look again, its mode or state changed);
+//   status().alternate -> {name, mode, serving, blocked} | null;  firstSource(instrument) -> who
+//       downloads that market's 1-minute days first now ('metatrader' or 'dukascopy')
 //   flush() writes stats.json;  close(graceMs?) stops, lets in-flight requests finish briefly, flushes
 // Options: fetch and clock (tests), random (jitter), log, statsDelayMs.
 
@@ -63,7 +77,14 @@ import {
   nextBucket,
 } from './buckets.ts';
 import { DecodeError, parseResponse } from './decode.ts';
-import { CLOSE_GRACE_SECONDS, type DukascopyStore, type PutResult, writeAtomic } from './dukascopy-store.ts';
+import {
+  CLOSE_GRACE_SECONDS,
+  type DukascopyStore,
+  type Origin,
+  type PutResult,
+  writeAtomic,
+} from './dukascopy-store.ts';
+import { type Range } from './intervals.ts';
 
 export type Lane = 'interactive' | 'waiting' | 'bulk';
 export const LANES: readonly Lane[] = ['interactive', 'waiting', 'bulk'];
@@ -100,11 +121,18 @@ const DEFAULT_BYTES: Record<Tier, number> = { m1: 9 * KB, h1: 5 * KB, d1: 4 * KB
 const DEFAULT_SECONDS = 0.3;
 // Errors that mean this machine has no network, not that Dukascopy is unwell.
 const OFFLINE_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'ENETDOWN', 'EHOSTUNREACH']);
+/** Retries that mean Dukascopy is not answering (rather than a day not built yet). */
+const OUTAGE_CODES: ReadonlySet<FetchErrorCode> = new Set(['THROTTLED', 'OFFLINE', 'NETWORK', 'TIMEOUT']);
+/** Failed attempts on outages before a day counts as one Dukascopy cannot serve now. */
+const ALTERNATE_AFTER_ATTEMPTS = 2;
 
 export type FetchResult =
-  | { status: 'fetched'; final: boolean; empty: boolean; bars: number; bytes: number }
+  /** `origin`: the source that answered it. */
+  | { status: 'fetched'; final: boolean; empty: boolean; bars: number; bytes: number; origin: Origin }
   | { status: 'cached' }
   | { status: 'unavailable'; http: number | null }
+  /** The only source asked has nothing for it; the store still lacks it. */
+  | { status: 'missing' }
   | { status: 'cancelled' };
 
 export type FetchErrorCode =
@@ -116,7 +144,11 @@ export type FetchErrorCode =
   | 'OFFLINE'
   | 'NETWORK'
   | 'TIMEOUT'
-  | 'CLOSED';
+  | 'CLOSED'
+  /** The only source never serves this market. */
+  | 'UNSERVED'
+  /** The only source cannot be used right now (failFast). */
+  | 'UNREACHABLE';
 
 export class FetchError extends Error {
   code: FetchErrorCode;
@@ -159,6 +191,47 @@ export interface TierStats {
   buckets: number;
 }
 
+export type AlternateMode = 'off' | 'fallback' | 'preferred' | 'only';
+
+/** One day a second source answered: its bars as a Dukascopy-format response, or empty. */
+export interface AlternateDay {
+  /** A CandleResponse JSON; null for a day without bars. */
+  buffer: Buffer | null;
+  final: boolean;
+  builtAt: number;
+}
+
+/** A chunk of 1-minute days: every day of `range` it answered; the others it does not know. */
+export interface AlternateChunk {
+  range: Range;
+  days: Map<number, AlternateDay>;
+}
+
+export interface AlternateSource {
+  /** "MetaTrader", for messages. */
+  readonly name: string;
+  mode(): AlternateMode;
+  /** Whether it may be asked for this instrument now (mapped, not cooling down after a failure). */
+  serves(instrument: string): boolean;
+  /** Why it never serves this instrument while its setup stays (no such symbol), or null. */
+  lacks(instrument: string): string | null;
+  /** Why it cannot take days at the moment (not set up, stopped, cooling down), or null. */
+  blocked(): string | null;
+  /** When it can take the next chunk (ms); it paces itself. */
+  readyAt(): number;
+  /** The chunk around the 1-minute day `start`; rejects when it cannot answer at all. */
+  fetchChunk(instrument: string, start: number, signal: AbortSignal): Promise<AlternateChunk>;
+}
+
+export interface AlternateStatus {
+  name: string;
+  mode: AlternateMode;
+  /** It is answering days right now (a chunk in flight, or days it is taking over). */
+  serving: boolean;
+  /** Why it cannot take days now (see AlternateSource.blocked); null while off. */
+  blocked: string | null;
+}
+
 export interface FetcherStatus {
   rate: number;
   safeRate: number | null;
@@ -168,10 +241,14 @@ export interface FetcherStatus {
   bytesPerSecond: number;
   pausedUntil: number | null;
   breaker: BreakerState;
+  alternate: AlternateStatus | null;
 }
 
 export type FetcherEvent =
-  { type: 'breaker'; breaker: BreakerState } | { type: 'paused'; until: number } | { type: 'rate'; rate: number };
+  | { type: 'breaker'; breaker: BreakerState }
+  | { type: 'paused'; until: number }
+  | { type: 'rate'; rate: number }
+  | { type: 'alternate'; serving: boolean };
 
 export type FetcherListener = (event: FetcherEvent) => void;
 
@@ -240,6 +317,10 @@ interface Entry {
   attempts: number;
   invalid: number;
   abort: AbortController | undefined;
+  /** The last retry was an outage (throttled, offline, unreachable). */
+  outage: boolean;
+  /** The second source was asked and does not have it: Dukascopy's alone from now on. */
+  alternateTried: boolean;
 }
 
 /** `notBefore` (ms): a retry that must wait for a known moment, whatever the backoff says. */
@@ -308,6 +389,10 @@ export class Fetcher {
   #breakerOpens = 0;
   #probing = false;
 
+  #alternate: AlternateSource | null = null;
+  #alternateBusy = false;
+  #alternateServing = false;
+
   #tiers: Record<Tier, TierStats>;
   #latency = DEFAULT_SECONDS;
   #latencySamples = 0;
@@ -342,7 +427,13 @@ export class Fetcher {
 
   request(req: FetchRequest): Promise<FetchResult> {
     if (this.#closed || req.signal?.aborted) return Promise.resolve({ status: 'cancelled' });
-    const blocked = req.failFast ? this.#blockedError() : null;
+    const only = this.#only(req.tier);
+    const lacking = only ? this.#alternate!.lacks(req.instrument) : null;
+    if (lacking) return Promise.reject(new FetchError('UNSERVED', lacking));
+    // A day the second source can answer need not wait for Dukascopy.
+    let blocked: FetchError | null = null;
+    if (req.failFast && only) blocked = this.#alternateDown();
+    else if (req.failFast && !this.#alternateCould(req.instrument, req.tier)) blocked = this.#blockedError();
     if (blocked) return Promise.reject(blocked);
     const start = bucketStart(req.tier, req.start);
     const key = `${req.instrument}/${req.tier}/${start}`;
@@ -364,6 +455,8 @@ export class Fetcher {
           attempts: 0,
           invalid: 0,
           abort: undefined,
+          outage: false,
+          alternateTried: false,
         };
         this.#entries.set(key, entry);
       }
@@ -437,7 +530,28 @@ export class Fetcher {
       bytesPerSecond: this.#bytesPerSecond(now),
       pausedUntil: this.#pausedUntil > now ? this.#pausedUntil : null,
       breaker: this.breaker,
+      alternate: this.#alternateStatus(),
     };
+  }
+
+  /** Who downloads this market's 1-minute days first right now: the second source when it is the
+   *  only one, or preferred and serving the market; else Dukascopy (with the second source maybe
+   *  stepping in). */
+  firstSource(instrument: string): Origin {
+    const mode = this.#alternate?.mode();
+    if (mode === 'only' || (mode === 'preferred' && this.#alternateCould(instrument, 'm1'))) return 'metatrader';
+    return 'dukascopy';
+  }
+
+  /** Sets (or with null removes) the second source; again when its mode or state changed. Entries it
+   *  declined are offered again. */
+  setAlternate(source: AlternateSource | null): void {
+    this.#alternate = source;
+    for (const entry of this.#entries.values()) entry.alternateTried = false;
+    this.#rejectFailFast();
+    // Jobs show why it cannot be used, which may have changed whatever it serves.
+    this.#updateServing(this.#clock.now(), true);
+    this.#pump();
   }
 
   /** Requests per second to plan with: the rate, or fewer when latency with 4 in flight caps it. */
@@ -519,11 +633,14 @@ export class Fetcher {
 
   #requeue(entry: Entry, error: FetchError, notBefore = 0): void {
     entry.attempts += 1;
+    entry.outage = OUTAGE_CODES.has(error.code);
     const now = this.#clock.now();
     const exp = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (entry.attempts - 1));
     // Equal jitter: half the backoff is fixed, half random, so retries of a burst spread out.
     entry.notBefore = Math.max(now + exp / 2 + this.#random() * (exp / 2), this.#pausedUntil, notBefore);
-    for (const waiter of [...entry.waiters]) if (waiter.failFast) this.#settle(entry, waiter, error);
+    if (!this.#alternateCould(entry.instrument, entry.tier) || entry.alternateTried) {
+      for (const waiter of [...entry.waiters]) if (waiter.failFast) this.#settle(entry, waiter, error);
+    }
     this.#relane(entry);
   }
 
@@ -531,6 +648,7 @@ export class Fetcher {
     if (this.#closed || this.#pumping) return;
     this.#pumping = true;
     try {
+      this.#pumpAlternate(this.#clock.now());
       while (this.#inFlight < MAX_IN_FLIGHT) {
         const now = this.#clock.now();
         if (now < this.#pausedUntil) {
@@ -572,8 +690,14 @@ export class Fetcher {
     let best: Entry | null = null;
     const bulk = new Map<string, Entry>();
     const bulkAllowed = this.#bulkAllowed();
+    const preferred = this.#alternate?.mode() === 'preferred';
+    const only = this.#alternate?.mode() === 'only';
     for (const entry of this.#entries.values()) {
       if (entry.inFlight || entry.notBefore > now) continue;
+      // The second source goes first: Dukascopy gets what it declined, or, when it is the only one,
+      // no 1-minute day at all.
+      if (only && entry.tier === 'm1') continue;
+      if (preferred && this.#alternateEligible(entry, now)) continue;
       if (entry.lane === 'bulk') {
         if (!bulkAllowed) continue;
         const current = bulk.get(entry.owner);
@@ -711,7 +835,16 @@ export class Fetcher {
         return this.#invalid(entry, error);
       }
       this.#succeeded(tier, receivedAt - startedAt, put);
-      return { done: { status: 'fetched', final: put.final, empty: put.empty, bars: put.bars, bytes: put.bytes } };
+      return {
+        done: {
+          status: 'fetched',
+          final: put.final,
+          empty: put.empty,
+          bars: put.bars,
+          bytes: put.bytes,
+          origin: 'dukascopy',
+        },
+      };
     }
     if (res.status === 400 || res.status === 404) {
       // An answer all the same: it counts as one for the breaker and the rate, never as a failure.
@@ -774,6 +907,197 @@ export class Fetcher {
     this.#failed(offline);
     const code: FetchErrorCode = timeout ? 'TIMEOUT' : offline ? 'OFFLINE' : 'NETWORK';
     return { retry: new FetchError(code, `Dukascopy could not be reached: ${asError(error).message}`) };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The second source: one chunk at a time, outside Dukascopy's rate.
+
+  /** It could answer this instrument's tier at all (whatever Dukascopy is doing). */
+  #alternateCould(instrument: string, tier: Tier): boolean {
+    const alt = this.#alternate;
+    return alt !== null && tier === 'm1' && alt.mode() !== 'off' && alt.serves(instrument);
+  }
+
+  /** Dukascopy cannot serve this entry now: paused, breaker not closed, or failing on outages. */
+  #dukascopyBlocked(entry: Entry, now: number): boolean {
+    if (now < this.#pausedUntil || this.#breaker.state !== 'closed') return true;
+    return entry.outage && entry.attempts >= ALTERNATE_AFTER_ATTEMPTS;
+  }
+
+  #alternateEligible(entry: Entry, now: number): boolean {
+    if (entry.inFlight || entry.alternateTried || !this.#alternateCould(entry.instrument, entry.tier)) return false;
+    const mode = this.#alternate!.mode();
+    // Alone, its own failures back off (Dukascopy's never apply).
+    if (mode === 'only') return entry.notBefore <= now;
+    return mode === 'preferred' || this.#dukascopyBlocked(entry, now);
+  }
+
+  /** The second source is the only one for this tier: Dukascopy is never asked. */
+  #only(tier: Tier): boolean {
+    return tier === 'm1' && this.#alternate?.mode() === 'only';
+  }
+
+  /** Why the only source cannot take days right now, as a failFast caller's error. */
+  #alternateDown(): FetchError | null {
+    const why = this.#alternate?.blocked() ?? null;
+    return why === null ? null : new FetchError('UNREACHABLE', why);
+  }
+
+  /** The only source's verdicts: a day it declined is missing, a market it lacks fails. */
+  #settleOnly(alt: AlternateSource, now: number): void {
+    let wake = Infinity;
+    for (const entry of [...this.#entries.values()]) {
+      if (entry.inFlight || entry.tier !== 'm1') continue;
+      const lacking = alt.lacks(entry.instrument);
+      if (lacking) this.#finish(entry, new FetchError('UNSERVED', lacking));
+      else if (entry.alternateTried) this.#finish(entry, this.#recheck(entry, now) ?? { status: 'missing' });
+      else if (entry.notBefore > now) wake = Math.min(wake, entry.notBefore);
+    }
+    if (wake !== Infinity) this.#wake(wake);
+  }
+
+  #alternateStatus(): AlternateStatus | null {
+    const alt = this.#alternate;
+    if (!alt) return null;
+    const mode = alt.mode();
+    return { name: alt.name, mode, serving: this.#alternateServing, blocked: mode === 'off' ? null : alt.blocked() };
+  }
+
+  /** Serving: a chunk in flight, or days waiting that only it will take now. `always` tells the
+   *  listeners even when that did not change. */
+  #updateServing(now = this.#clock.now(), always = false): void {
+    let serving = this.#alternateBusy;
+    if (!serving && this.#alternate) {
+      for (const entry of this.#entries.values()) {
+        if (this.#alternateEligible(entry, now)) {
+          serving = true;
+          break;
+        }
+      }
+    }
+    if (serving === this.#alternateServing && !always) return;
+    this.#alternateServing = serving;
+    this.#emit({ type: 'alternate', serving });
+  }
+
+  /** The best entry the second source should take: by lane, then arrival. */
+  #nextAlternate(now: number): Entry | null {
+    let best: Entry | null = null;
+    for (const entry of this.#entries.values()) {
+      if (!this.#alternateEligible(entry, now)) continue;
+      if (!best || PRIORITY[entry.lane] < PRIORITY[best.lane] || (entry.lane === best.lane && entry.seq < best.seq)) {
+        best = entry;
+      }
+    }
+    return best;
+  }
+
+  #pumpAlternate(now: number): void {
+    const alt = this.#alternate;
+    if (alt?.mode() === 'only') this.#settleOnly(alt, now);
+    if (!alt || this.#alternateBusy) return this.#updateServing(now);
+    for (;;) {
+      const entry = this.#nextAlternate(now);
+      if (!entry) break;
+      // What the store has meanwhile settles here, without asking anyone.
+      const early = this.#recheck(entry, now);
+      if (early) {
+        this.#finish(entry, early);
+        continue;
+      }
+      const ready = alt.readyAt();
+      if (ready > now) {
+        this.#wake(ready);
+        break;
+      }
+      this.#alternateBusy = true;
+      entry.inFlight = true;
+      const run = this.#runAlternate(alt, entry).finally(() => this.#running.delete(run));
+      this.#running.add(run);
+      break;
+    }
+    this.#updateServing(now);
+  }
+
+  async #runAlternate(alt: AlternateSource, entry: Entry): Promise<void> {
+    const { instrument, tier, start } = entry;
+    const controller = new AbortController();
+    entry.abort = controller;
+    let chunk: AlternateChunk | null = null;
+    try {
+      chunk = await alt.fetchChunk(instrument, start, controller.signal);
+    } catch (error) {
+      if (!this.#closed)
+        this.#log(
+          'warn',
+          `${alt.name} could not serve ${instrument} ${bucketKey(tier, start)}: ${asError(error).message}`,
+        );
+    }
+    entry.abort = undefined;
+    const results = new Map<number, FetchResult>();
+    // Days it answered that could not be stored are Dukascopy's too: asking again would not help.
+    const unstored = new Map<number, string>();
+    if (chunk && !this.#closed) {
+      const nowSec = Math.floor(this.#clock.now() / 1000);
+      for (const [day, answer] of [...chunk.days].sort((a, b) => b[0] - a[0])) {
+        if (bucketStart(tier, day) !== day) continue;
+        // The entry's own day is in flight: the store may still need it whatever the queue says.
+        if (day !== start && !this.#store.needsFetch(instrument, tier, day, nowSec)) continue;
+        if (day === start && this.#store.status(instrument, tier, day) === 'final') continue;
+        try {
+          const put = await this.#store.put(instrument, tier, day, answer.buffer, {
+            builtAt: answer.builtAt,
+            final: answer.final,
+            origin: 'metatrader',
+          });
+          results.set(day, {
+            status: 'fetched',
+            final: put.final,
+            empty: put.empty,
+            bars: put.bars,
+            bytes: put.bytes,
+            origin: 'metatrader',
+          });
+        } catch (error) {
+          const message = `${alt.name} ${instrument} ${bucketKey(tier, day)}: ${asError(error).message}`;
+          unstored.set(day, message);
+          this.#log('warn', message);
+        }
+      }
+    }
+    entry.inFlight = false;
+    this.#alternateBusy = false;
+    if (this.#closed) {
+      this.#finish(entry, { status: 'cancelled' });
+      return;
+    }
+    // Settle the chunk's queued days (and always the entry's own): answered ones with what was
+    // stored, unknown or unstorable ones back to Dukascopy. One the store had meanwhile settles as
+    // cached on the next pump. Alone, it keeps a day it failed on for another try after a backoff,
+    // fails one it could not store, and leaves the unknown ones missing (on the next pump).
+    const only = this.#only(tier);
+    const [from, to] = chunk?.range ?? [start, start + 1];
+    for (const e of [...this.#entries.values()]) {
+      if (e.instrument !== instrument || e.tier !== tier || e.inFlight) continue;
+      if (e !== entry && (e.start < from || e.start >= to)) continue;
+      const result = results.get(e.start);
+      const unstorable = unstored.get(e.start);
+      if (result) this.#finish(e, result);
+      else if (only && unstorable) this.#finish(e, new FetchError('STORE', unstorable));
+      else if (only && !chunk) {
+        e.attempts += 1;
+        const wait = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (e.attempts - 1));
+        e.notBefore = Math.max(this.#clock.now() + wait, alt.readyAt());
+        this.#relane(e);
+      } else if (!chunk?.days.has(e.start) || unstorable) {
+        e.alternateTried = true;
+        this.#relane(e);
+      }
+    }
+    if (entry.waiters.size === 0) this.#relane(entry);
+    // Callers that will not wait for Dukascopy are told now when it is what is left.
+    this.#rejectFailFast();
+    this.#pump();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -894,10 +1218,15 @@ export class Fetcher {
   /** Callers that asked not to wait through an outage or a pause learn about it at once. */
   #rejectFailFast(): void {
     const error = this.#blockedError();
-    if (!error) return;
+    const down = this.#alternate?.mode() === 'only' ? this.#alternateDown() : null;
+    if (!error && !down) return;
     for (const entry of [...this.#entries.values()]) {
       if (entry.inFlight) continue;
-      for (const waiter of [...entry.waiters]) if (waiter.failFast) this.#settle(entry, waiter, error);
+      let reason = error;
+      if (this.#only(entry.tier)) reason = down;
+      else if (!entry.alternateTried && this.#alternateCould(entry.instrument, entry.tier)) continue;
+      if (!reason) continue;
+      for (const waiter of [...entry.waiters]) if (waiter.failFast) this.#settle(entry, waiter, reason);
       this.#relane(entry);
     }
   }

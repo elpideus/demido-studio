@@ -48,6 +48,9 @@ import type {
   MarketRange,
   MarketStatus,
   MemoryBudget,
+  MetaTraderChoice,
+  MetaTraderDetection,
+  MetaTraderStatus,
   Message,
   ModelEntry,
   ModelFolder,
@@ -418,6 +421,15 @@ export const api = {
   marketCacheDelete: (market: string) => invoke<{ bytes: number }>('market_cache_delete', { market }),
   /** Forgets learned starts and "unavailable" answers, so older data is looked for again. */
   marketCacheRecheck: (market: string) => invoke<void>('market_cache_recheck', { market }),
+
+  // MetaTrader: the downloads' second source. Detecting reads the terminals' files only.
+  marketMetaTraderDetect: () => invoke<MetaTraderDetection>('market_metatrader_detect'),
+  /** Saves and applies; the first time, installs the bridge too (`metatrader.setup` events). */
+  marketMetaTraderChoose: (choice: MetaTraderChoice) => invoke<Settings>('market_metatrader_choose', { choice }),
+  /** Null while the market service is not running. */
+  marketMetaTraderStatus: () => invoke<MetaTraderStatus | null>('market_metatrader_status'),
+  /** Opens the terminal when it is closed and connects to the chosen account; can take minutes. */
+  marketMetaTraderConnect: () => invoke<MetaTraderStatus>('market_metatrader_connect'),
 
   // Updates
   updateStatus: () => invoke<UpdateStatus>('update_status'),

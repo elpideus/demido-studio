@@ -11,17 +11,19 @@ import type { MarketCoverageItem, MarketJob, MarketPlan } from '@/lib/types';
 import { toast } from '@/stores/toasts';
 import { DownloadProgress, SOURCE_NAMES } from '../DownloadProgress';
 import {
+  barSources,
   chartSymbol,
   formatDay,
   leadJob,
   marketBytes,
   marketDomain,
+  metaTraderDays,
   minuteTier,
   monthRangeText,
   sortSources,
   storedExtent,
 } from './coverage';
-import { MarketTimeline, TimelineAxis } from './MarketTimeline';
+import { MarketTimeline, MetaTraderSource, TimelineAxis } from './MarketTimeline';
 import { PlanPanel } from './PlanPanel';
 import palette from './sources.module.css';
 import styles from './DataTab.module.css';
@@ -58,7 +60,8 @@ export function MarketRow({ item, jobs, expanded, onToggle, onOpenChart, onChang
   const extent = useMemo(() => storedExtent(item), [item]);
   const sources = useMemo(() => sortSources(item.sources), [item]);
   // A market can hold several TradingView symbols (FX:EURUSD, OANDA:EURUSD); name each source once.
-  const sourceNames = [...new Set(sources.map((s) => s.source))];
+  const sourceNames = useMemo(() => barSources(item), [item]);
+  const mtDays = useMemo(() => metaTraderDays(item), [item]);
   const bytes = marketBytes(item);
   const lead = leadJob(jobs);
   const moving = jobs.some((j) => j.status === 'running' || j.status === 'queued' || j.status === 'waiting');
@@ -175,6 +178,7 @@ export function MarketRow({ item, jobs, expanded, onToggle, onOpenChart, onChang
                     </span>
                   </span>
                 ))}
+                {sourceNames.includes('metatrader') && <MetaTraderSource days={mtDays} />}
               </div>
               <MarketTimeline item={item} domain={domain} />
               <TimelineAxis domain={domain} />

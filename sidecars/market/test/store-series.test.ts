@@ -398,3 +398,22 @@ test('ranges cap at the limit keeping the newest bars; the CSV export streams wi
   assert.equal(small.truncated, true);
   assert.equal(small.to, whole.bars.at(-1)!.t);
 });
+
+test('days MetaTrader supplied are read as its own source', async () => {
+  const { store, series } = harness();
+  const from = s('2026-09-14T00:00:00Z');
+  await putDays(store, 'eurusd', from, from + 2 * DAY);
+  const mt = from + 2 * DAY;
+  const bars = bucketBars('m1', mt, { every: 3600 });
+  await store.put('eurusd', 'm1', mt, bucketBody('m1', mt, bars), {
+    builtAt: mt + 2 * DAY,
+    final: true,
+    origin: 'metatrader',
+  });
+  const page = await series.read({ symbol: 'EURUSD', tf: '1h', before: mt + DAY, count: 72 });
+  assert.deepEqual(
+    page.spans.map((sp) => sp.source),
+    ['dukascopy', 'metatrader'],
+  );
+  assert.ok(page.bars.every((b, i) => page.sources[i] === (b.t >= mt ? 'metatrader' : 'dukascopy')));
+});

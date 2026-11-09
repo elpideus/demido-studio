@@ -9,6 +9,9 @@
 // (its time is a gap), except the bucket containing now. (The store can hold coarser tiers; nothing
 // reads them.)
 //
+// A bar built from 1-minute candles a MetaTrader terminal supplied (the store marks those days) is
+// tagged 'metatrader' instead of 'dukascopy'; a bar that mixes both counts as MetaTrader's.
+//
 // TradingView (store/tv-store) holds bars per timeframe with interval coverage. TradingView wins
 // wherever its coverage for T includes a time; Dukascopy fills the rest. A stretch between two
 // TradingView intervals, or at a TradingView/Dukascopy seam, is not a gap when it is shorter than
@@ -38,7 +41,7 @@ import { type DukascopyStore } from './dukascopy-store.ts';
 import { IntervalSet, type Range } from './intervals.ts';
 import { type TvStore, toleratedGap } from './tv-store.ts';
 
-export type Source = 'dukascopy' | 'tradingview';
+export type Source = 'dukascopy' | 'metatrader' | 'tradingview';
 export type More = 'cached' | 'gap' | 'none';
 
 export interface Keys {
@@ -127,6 +130,8 @@ interface Context {
   /** Eligible tiers with their data, coarsest first. */
   tiers: Array<{ tier: Tier; data: IntervalSet }>;
   dukaCovered: IntervalSet;
+  /** The stored minutes MetaTrader supplied. */
+  metatrader: IntervalSet;
   tvBars: readonly Bar[];
   tvCovered: IntervalSet;
   /** Everything covered, with the TradingView tolerance. */
@@ -214,6 +219,7 @@ export class Series {
     const tiers: Context['tiers'] = [];
     const dukaCovered = new IntervalSet();
     const dukaData = new IntervalSet();
+    const metatrader = new IntervalSet();
     let dukaStart: number | null = null;
     if (route.instrument) {
       // Finest first: each tier is the finest available one from its start up to the next finer start.
@@ -223,6 +229,7 @@ export class Series {
         const eff = this.#store.effectiveStart(route.instrument, tier);
         tiers.unshift({ tier, data: sets.data });
         dukaData.addSet(sets.data);
+        metatrader.addSet(sets.metatrader);
         if (eff === null) continue;
         if (eff < upper) dukaCovered.addSet(sets.covered.union(sets.unavailable).clip(eff, upper));
         upper = Math.min(upper, eff);
@@ -255,6 +262,7 @@ export class Series {
       route,
       tiers,
       dukaCovered,
+      metatrader,
       tvBars,
       tvCovered,
       covered,
@@ -355,7 +363,7 @@ export class Series {
         const [s, e] = bucketSpan(bar.t, tf, opts);
         if (s < from || s >= to) continue;
         if (!ctx.tvCovered.clip(s, e).isEmpty) continue;
-        items.push({ bar, source: 'dukascopy' });
+        items.push({ bar, source: ctx.metatrader.clip(s, e).isEmpty ? 'dukascopy' : 'metatrader' });
       }
     }
     if (ctx.tvBars.length && tvTo > from) {

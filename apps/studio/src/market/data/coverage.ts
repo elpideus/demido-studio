@@ -2,6 +2,7 @@
 // be tested. Every time is in seconds; ranges are half-open [from, to).
 
 import type {
+  BarSource,
   MarketCoverageItem,
   MarketJob,
   MarketJobStatus,
@@ -109,7 +110,7 @@ export interface Segment {
   from: number;
   to: number;
   /** Whose bars a `data` segment holds, when a timeline shows more than one source. */
-  source?: MarketSource;
+  source?: BarSource;
 }
 
 /** Consecutive segments tiling `span` exactly. The source may or may not count empties as covered. */
@@ -161,7 +162,7 @@ export function simplify(segments: readonly Segment[], minLength: number): Segme
     let data = 0;
     let empty = 0;
     // Stored time per source, so a folded run keeps the colour of whoever holds most of it.
-    const bySource = new Map<MarketSource | undefined, number>();
+    const bySource = new Map<BarSource | undefined, number>();
     for (const seg of run) {
       if (seg.kind === 'data') {
         data += seg.to - seg.from;
@@ -199,15 +200,30 @@ export function tradingViewRanges(item: MarketCoverageItem): Range[] {
   );
 }
 
+/** A stored 1-minute segment in the parts MetaTrader supplied and the rest, Dukascopy's. */
+function bySupplier(seg: Segment, metatrader: readonly Range[]): Segment[] {
+  const out: Segment[] = [];
+  let at = seg.from;
+  for (const [f, t] of clip(metatrader, seg.from, seg.to)) {
+    if (f > at) out.push({ ...seg, from: at, to: f, source: 'dukascopy' });
+    out.push({ ...seg, from: f, to: t, source: 'metatrader' });
+    at = t;
+  }
+  if (at < seg.to) out.push({ ...seg, from: at, to: seg.to, source: 'dukascopy' });
+  return out;
+}
+
 /**
  * One timeline for a whole market, tiling `span`: its Dukascopy 1-minute history (stored, no data at
- * the source, not downloaded), and where that is not downloaded but TradingView has bars stored,
- * TradingView's. Never one row per timeframe: every timeframe is built from the same history.
+ * the source, not downloaded), with the days MetaTrader supplied apart, and where that is not
+ * downloaded but TradingView has bars stored, TradingView's. Never one row per timeframe: every
+ * timeframe is built from the same history.
  */
 export function marketSegments(item: MarketCoverageItem, span: Range): Segment[] {
   const minute = minuteTier(item);
+  const metatrader = normalize(minute?.metatrader);
   const base: Segment[] = minute
-    ? segmentsOf(minute, span).map((seg) => (seg.kind === 'data' ? { ...seg, source: 'dukascopy' as const } : seg))
+    ? segmentsOf(minute, span).flatMap((seg) => (seg.kind === 'data' ? bySupplier(seg, metatrader) : [seg]))
     : [{ kind: 'gap', from: span[0], to: span[1] }];
   const tv = tradingViewRanges(item);
   if (!tv.length) return base;
@@ -395,6 +411,30 @@ export function sortTiers<T extends { tier: string }>(source: MarketSource, tier
 /** Dukascopy first; it is the deeper history. */
 export function sortSources<T extends { source: MarketSource }>(sources: readonly T[]): T[] {
   return [...sources].sort((a, b) => Number(a.source !== 'dukascopy') - Number(b.source !== 'dukascopy'));
+}
+
+/** The stored 1-minute days MetaTrader supplied (part of the Dukascopy history). */
+export function metaTraderRanges(item: MarketCoverageItem): Range[] {
+  return normalize(minuteTier(item)?.metatrader);
+}
+
+/** Whole days MetaTrader supplied, for "MetaTrader · 12 days". */
+export function metaTraderDays(item: MarketCoverageItem): number {
+  return Math.round(length(metaTraderRanges(item)) / DAY_SECONDS);
+}
+
+/** Each source a market's stored bars came from, once, in `sortSources` order; MetaTrader right
+ *  after Dukascopy, whose history its days are part of. */
+export function barSources(item: MarketCoverageItem): BarSource[] {
+  const out: BarSource[] = [];
+  const add = (source: BarSource) => {
+    if (!out.includes(source)) out.push(source);
+  };
+  for (const s of sortSources(item.sources)) {
+    add(s.source);
+    if (s.source === 'dukascopy' && metaTraderRanges(item).length) add('metatrader');
+  }
+  return out;
 }
 
 /** What "Open chart" and "Download missing" pass on: the first TradingView symbol, else the Dukascopy key. */

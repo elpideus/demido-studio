@@ -4,7 +4,8 @@ use serde_json::{Value, json};
 
 use super::St;
 use crate::error::{AppError, CmdResult};
-use crate::market::{MarketStatus, auth};
+use crate::market::{MarketStatus, auth, metatrader};
+use crate::settings::Settings;
 
 fn rpc(e: crate::market::RpcError) -> AppError {
     AppError::msg(e.message)
@@ -396,6 +397,50 @@ pub async fn market_cache_delete(state: St<'_>, market: String) -> CmdResult<Val
 pub async fn market_cache_recheck(state: St<'_>, market: String) -> CmdResult<()> {
     store_call(&state, "cache.recheck", json!({"market": market}), 15).await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// MetaTrader: the downloads' second source (see `market::metatrader`).
+
+/// The MetaTrader terminals on this computer and the accounts each logged into; reads their
+/// files only.
+#[tauri::command]
+pub async fn market_metatrader_detect(state: St<'_>) -> CmdResult<metatrader::Detection> {
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || state.market.metatrader.detect())
+        .await
+        .map_err(|e| AppError::msg(format!("looking for MetaTrader failed: {e}")))
+}
+
+/// Saves the person's MetaTrader choices (the notice, the terminal and account, which source
+/// comes first), installs the bridge the first time it is needed and applies them. Installation
+/// progress arrives as `market://event` `metatrader.setup` events.
+#[tauri::command]
+pub async fn market_metatrader_choose(state: St<'_>, choice: metatrader::Choice) -> CmdResult<Settings> {
+    let saved = state.market.metatrader.choose(choice)?;
+    let wanted = metatrader::consented(&saved) && saved.metatrader_terminal.is_some();
+    if wanted && !state.market.metatrader.setup_state().installed {
+        state.market.setup_metatrader().await.map_err(AppError::msg)?;
+    } else {
+        state.market.apply_metatrader().await;
+    }
+    Ok(saved)
+}
+
+/// What the market service's MetaTrader source is doing; null while the service is not running.
+#[tauri::command]
+pub async fn market_metatrader_status(state: St<'_>) -> CmdResult<Value> {
+    if !state.market.status().running {
+        return Ok(Value::Null);
+    }
+    store_call(&state, "metatrader.status", json!({}), 15).await
+}
+
+/// Opens MetaTrader (when it is closed) and connects to the chosen account now: the Data window's
+/// test. Starting the terminal and logging in can take minutes.
+#[tauri::command]
+pub async fn market_metatrader_connect(state: St<'_>) -> CmdResult<Value> {
+    store_call(&state, "metatrader.connect", json!({}), 10 * 60).await
 }
 
 #[cfg(test)]

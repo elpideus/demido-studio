@@ -36,6 +36,17 @@ pub enum PermissionMode {
     Autonomous,
 }
 
+/// Where market history downloads come from first.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MarketSource {
+    /// Dukascopy, with MetaTrader as the fallback when the person allows it.
+    #[default]
+    Dukascopy,
+    /// MetaTrader, with Dukascopy for what it does not have when the person allows it.
+    Metatrader,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -67,6 +78,22 @@ pub struct Settings {
     pub download_limit: u64,
     /// Fetch model files through Hugging Face's Xet engine rather than plain HTTP.
     pub download_xet: bool,
+    /// Where market history downloads come from first (see `market::metatrader`).
+    pub market_source: MarketSource,
+    /// Downloads go on from MetaTrader while Dukascopy refuses or fails.
+    pub metatrader_fallback: bool,
+    /// With MetaTrader first, Dukascopy downloads what it does not have; off, MetaTrader is the only
+    /// source and Dukascopy is never asked.
+    pub dukascopy_fallback: bool,
+    /// Which version of the MetaTrader notice was accepted: nothing touches MetaTrader without it.
+    pub metatrader_consent: Option<String>,
+    /// The MetaTrader terminal downloads use (its terminal64.exe).
+    pub metatrader_terminal: Option<PathBuf>,
+    /// The account they use, by its login and server.
+    pub metatrader_login: Option<u64>,
+    pub metatrader_server: Option<String>,
+    /// The terminal may be logged into that account when it is on another one, and back after.
+    pub metatrader_switch: bool,
     /// Which releases the updater offers.
     pub update_channel: UpdateChannel,
     /// Download new versions in the background and install them the next time the app starts.
@@ -119,6 +146,14 @@ impl Default for Settings {
             download_concurrency: 1,
             download_limit: 0,
             download_xet: false,
+            market_source: MarketSource::Dukascopy,
+            metatrader_fallback: true,
+            dukascopy_fallback: true,
+            metatrader_consent: None,
+            metatrader_terminal: None,
+            metatrader_login: None,
+            metatrader_server: None,
+            metatrader_switch: true,
             update_channel: UpdateChannel::Release,
             auto_update: true,
             auto_compact: true,

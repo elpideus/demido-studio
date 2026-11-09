@@ -8,10 +8,28 @@ import { Button, ProgressBar, cx, formatBytes } from '@demido/ui';
 
 import { api, errorText } from '@/lib/api';
 import { on } from '@/lib/events';
-import type { MarketJob, MarketJobStatus, MarketPlan, MarketSource } from '@/lib/types';
+import type { BarSource, MarketJob, MarketJobStatus, MarketPlan, MarketSource } from '@/lib/types';
 import styles from './DownloadProgress.module.css';
 
-export const SOURCE_NAMES: Record<MarketSource, string> = { dukascopy: 'Dukascopy', tradingview: 'TradingView' };
+export const SOURCE_NAMES: Record<BarSource, string> = {
+  dukascopy: 'Dukascopy',
+  tradingview: 'TradingView',
+  metatrader: 'MetaTrader',
+};
+
+/** Who a plan's days come from: MetaTrader fills Dukascopy's 1-minute files when it goes first. */
+export function planSource(plan: MarketPlan): string {
+  return SOURCE_NAMES[plan.via ?? plan.source];
+}
+
+/** Who a job's days came from, most first ("MetaTrader + Dukascopy"); before any, who goes first. */
+export function jobSource(job: MarketJob): string {
+  const supplied = Object.entries(job.supplied ?? {})
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([source]) => SOURCE_NAMES[source as BarSource]);
+  return supplied.length > 0 ? supplied.join(' + ') : SOURCE_NAMES[job.via ?? job.source];
+}
 
 const TIER_LABELS: Record<string, string> = { m1: '1-minute', h1: 'hourly', d1: 'daily' };
 
@@ -56,7 +74,7 @@ export function planDetail(plan: MarketPlan): string {
 
 /** "EUR/USD from Dukascopy · ~8,400 files · ~75 MB · about 40 min · 1-minute candles for every timeframe". */
 export function planLine(plan: MarketPlan): string {
-  return `${plan.name} from ${SOURCE_NAMES[plan.source]} · ${planSummary(plan)} · ${planDetail(plan)}`;
+  return `${plan.name} from ${planSource(plan)} · ${planSummary(plan)} · ${planDetail(plan)}`;
 }
 
 const active = (status: MarketJobStatus) => status === 'running' || status === 'waiting' || status === 'queued';
@@ -329,7 +347,7 @@ export function DownloadProgress({ jobId, initialJob, plan, compact, inline, onC
         <div className={styles.head}>
           <span className={styles.title}>
             <span className={styles.name}>{plan?.name ?? 'Download'}</span>
-            {plan && <span className={styles.source}>{SOURCE_NAMES[plan.source]}</span>}
+            {plan && <span className={styles.source}>{planSource(plan)}</span>}
           </span>
         </div>
         {loadError ? (
@@ -352,7 +370,7 @@ export function DownloadProgress({ jobId, initialJob, plan, compact, inline, onC
   const value = fraction(job);
   const note =
     job.status === 'waiting'
-      ? (job.message ?? `Waiting for ${SOURCE_NAMES[job.source]}; it retries on its own.`)
+      ? (job.message ?? `Waiting for ${jobSource(job)}; it retries on its own.`)
       : job.status === 'error'
         ? job.message
         : job.status === 'queued'
@@ -362,9 +380,9 @@ export function DownloadProgress({ jobId, initialJob, plan, compact, inline, onC
   return (
     <div className={styles.progress}>
       <div className={styles.head}>
-        <span className={styles.title} title={`${job.name} · ${SOURCE_NAMES[job.source]}`}>
+        <span className={styles.title} title={`${job.name} · ${jobSource(job)}`}>
           <span className={styles.name}>{job.name}</span>
-          <span className={styles.source}>{SOURCE_NAMES[job.source]}</span>
+          <span className={styles.source}>{jobSource(job)}</span>
         </span>
         <span className={cx(styles.status, styles[`status-${job.status}`])}>{STATUS_LABELS[job.status]}</span>
         <span className={styles.spacer} />

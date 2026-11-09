@@ -776,6 +776,21 @@ export interface Settings {
   downloadConcurrency: number;
   downloadLimit: number;
   downloadXet: boolean;
+  /** Change the MetaTrader settings through `api.marketMetaTraderChoose`, which applies them. */
+  marketSource: 'dukascopy' | 'metatrader';
+  /** MetaTrader downloads while Dukascopy cannot (with `marketSource` 'dukascopy'). */
+  metatraderFallback: boolean;
+  /** Dukascopy downloads what MetaTrader lacks (with `marketSource` 'metatrader'); off, MetaTrader is
+   *  the only source. */
+  dukascopyFallback: boolean;
+  /** The notice version accepted; MetaTrader is off without the current one. */
+  metatraderConsent: string | null;
+  /** terminal64.exe on this computer. */
+  metatraderTerminal: string | null;
+  metatraderLogin: number | null;
+  metatraderServer: string | null;
+  /** Demido may log the terminal into this account when it is on another (and back afterwards). */
+  metatraderSwitch: boolean;
 }
 
 export type UpdateChannel = 'release' | 'prerelease';
@@ -875,6 +890,9 @@ export interface Quote {
 
 export type MarketSource = 'dukascopy' | 'tradingview';
 
+/** Where stored bars came from: a Dukascopy market's days can come from MetaTrader instead. */
+export type BarSource = MarketSource | 'metatrader';
+
 /** The store keys a symbol reads from; charts match `store.updated` events against them. */
 export interface MarketKeys {
   dukascopy?: string;
@@ -883,7 +901,7 @@ export interface MarketKeys {
 
 /** A contiguous run of returned bars from one source; `from`/`to` are the first and last bar times. */
 export interface MarketSpan {
-  source: MarketSource;
+  source: BarSource;
   from: number;
   to: number;
   count: number;
@@ -930,6 +948,10 @@ export interface MarketJob {
   createdAt: number;
   updatedAt: number;
   message?: string;
+  /** Dukascopy-format downloads: the days each source downloaded for this job. */
+  supplied?: Partial<Record<'dukascopy' | 'metatrader', number>>;
+  /** Dukascopy-format downloads, while not done: who downloads the days first now. */
+  via?: 'dukascopy' | 'metatrader';
 }
 
 /** What a download would fetch, without fetching anything. */
@@ -951,6 +973,8 @@ export interface MarketPlan {
   job: { id: string; status: MarketJobStatus } | null;
   /** Dukascopy: where the newest run of stored 1-minute history starts (null: nothing stored). */
   storedFrom?: number | null;
+  /** Dukascopy: who downloads the days first (MetaTrader when it is the only or preferred source). */
+  via?: 'dukascopy' | 'metatrader';
 }
 
 export interface MarketTierCoverage {
@@ -959,6 +983,8 @@ export interface MarketTierCoverage {
   intervals: Array<[number, number]>;
   /** Fetched, but the source has no data there. */
   empty?: Array<[number, number]>;
+  /** The covered days MetaTrader supplied (a part of `intervals`). */
+  metatrader?: Array<[number, number]>;
   available: [number, number] | null;
   learnedStart?: number | null;
   bytes: number;
@@ -1017,6 +1043,86 @@ export interface MarketStoreUpdate {
   key: string;
   from: number;
   to: number;
+}
+
+// MetaTrader 5 (src-tauri market::metatrader, sidecars/market/src/metatrader): a terminal on this
+// computer that fills Dukascopy markets' 1-minute history when Dukascopy cannot, or first.
+
+export interface MetaTraderAccount {
+  login: number;
+  server: string;
+  /** The terminal was last logged into this one. */
+  last: boolean;
+}
+
+/** A terminal64.exe found on this computer, with the accounts it has logged into. */
+export interface MetaTraderTerminal {
+  path: string;
+  /** The same file as Windows programs see it (under Wine, from inside its prefix). */
+  windowsPath: string;
+  name: string;
+  /** Linux: the Wine prefix it is installed in. */
+  prefix: string | null;
+  dataDir: string;
+  portable: boolean;
+  /** The one it was last on first. */
+  accounts: MetaTraderAccount[];
+  /** Its "Max bars in chart": how much 1-minute history it serves. */
+  maxBars: number | null;
+}
+
+/** The bridge's installation (a Windows Python and the MetaTrader5 package). */
+export interface MetaTraderSetup {
+  installed: boolean;
+  installing: boolean;
+  /** The last line the installer printed. */
+  message: string | null;
+  /** Why the last installation failed; saving the choices again retries it. */
+  error: string | null;
+}
+
+export interface MetaTraderDetection {
+  supported: boolean;
+  /** Why it cannot be used here, when it cannot. */
+  reason: string | null;
+  terminals: MetaTraderTerminal[];
+  setup: MetaTraderSetup;
+  /** The notice version `Settings.metatraderConsent` must name. */
+  consentVersion: string;
+}
+
+/** What `api.marketMetaTraderChoose` changes; left-out fields stay as they are. */
+export interface MetaTraderChoice {
+  consent?: boolean;
+  source?: 'dukascopy' | 'metatrader';
+  fallback?: boolean;
+  dukascopyFallback?: boolean;
+  terminal?: string;
+  login?: number;
+  server?: string;
+  switchAccount?: boolean;
+}
+
+export type MetaTraderState = 'off' | 'idle' | 'starting' | 'connecting' | 'ready' | 'downloading' | 'paused' | 'error';
+
+/** What the market service's MetaTrader source is doing. */
+export interface MetaTraderStatus {
+  mode: 'off' | 'fallback' | 'preferred' | 'only';
+  state: MetaTraderState;
+  message: string | null;
+  account: { login: number; server: string; name: string; company: string; currency: string } | null;
+  terminal: { build: number | null; maxBars: number | null; connected: boolean } | null;
+  clock: { model: string; assumed: boolean; fit: number; of: number } | null;
+  /** The broker's symbols that are Demido markets (null before the first connection). */
+  markets: number | null;
+  /** Days it supplied since the service started. */
+  days: number;
+  /** When it is tried again after a failure or a pause (ms). */
+  retryAt: number | null;
+  /** The terminal was on another account and was logged into this one. */
+  switched: boolean;
+  /** Windows: the terminal Demido opened closes with Demido. */
+  tied: boolean;
 }
 
 // Chart indicators (sidecars/market/src/indicators). TradingView computes them on the live chart;

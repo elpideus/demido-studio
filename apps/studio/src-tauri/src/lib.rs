@@ -163,6 +163,13 @@ fn build_state(
     skills.rescan();
     skills.watch();
 
+    let metatrader = market::metatrader::MetaTrader::new(
+        settings.clone(),
+        paths.data_dir.join("tools").join("metatrader"),
+        paths.uv(),
+        paths.python(),
+        paths.cache_dir.join("uv"),
+    );
     let market = MarketService::new(
         app.clone(),
         paths.node(),
@@ -172,6 +179,7 @@ fn build_state(
         paths.logs_dir.clone(),
         paths.tradingview_profile_dir.clone(),
         secrets.clone(),
+        metatrader,
     );
 
     let mail = MailService::new(
@@ -563,6 +571,10 @@ pub fn run() {
             commands::market::market_cache_summary,
             commands::market::market_cache_delete,
             commands::market::market_cache_recheck,
+            commands::market::market_metatrader_detect,
+            commands::market::market_metatrader_choose,
+            commands::market::market_metatrader_status,
+            commands::market::market_metatrader_connect,
             commands::updates::update_status,
             commands::updates::check_for_updates,
             commands::updates::apply_update,

@@ -9,7 +9,8 @@
 // unavailable, and not queued by another running job (those are `queuedAhead`). A provisional copy
 // due for its one re-fetch (a day stored while still open) is missing too, as a job counts it; an
 // active bucket and a provisional one not yet due count as covered. Estimates use the fetcher's
-// learned rate and rolling bytes per bucket. `back` ('month' | 'year') sets `from` to that much before
+// learned rate and rolling bytes per bucket; `via` names who downloads the days first (MetaTrader
+// when it is the only or the preferred source and serves the market). `back` ('month' | 'year') sets `from` to that much before
 // the stored 1-minute history (where its newest stretch starts, gaps shorter than two months bridged:
 // the download fills them anyway; now when nothing is stored): the chart's "1 more month / year", the
 // same whatever timeframe the chart shows.
@@ -27,7 +28,7 @@
 
 import { TIMEFRAMES, type Timeframe } from '../timeframes.ts';
 import { type Tier, bucketStart, bucketsIn, isActive } from './buckets.ts';
-import { type DukascopyStore } from './dukascopy-store.ts';
+import { type DukascopyStore, type Origin } from './dukascopy-store.ts';
 import { type Fetcher } from './fetcher.ts';
 import { IntervalSet, type Range } from './intervals.ts';
 import { type Series, type Source, eligibleTiers } from './series.ts';
@@ -83,6 +84,8 @@ export interface Plan {
   job: { id: string; status: JobStatus } | null;
   /** Dukascopy: where the newest stretch of stored 1-minute history starts (null: nothing stored). */
   storedFrom: number | null;
+  /** Dukascopy: who downloads the days first (MetaTrader as the only or preferred source). */
+  via?: Origin;
 }
 
 /** What the planner needs to know about unfinished jobs. */
@@ -107,7 +110,7 @@ export interface Need {
 
 export interface PlannerDeps {
   store: DukascopyStore;
-  fetcher: Pick<Fetcher, 'backlog' | 'effectiveRate' | 'tierStats'>;
+  fetcher: Pick<Fetcher, 'backlog' | 'effectiveRate' | 'tierStats' | 'firstSource'>;
   tv: TvStore;
   series: Series;
   /** Unfinished jobs (every status but done). */
@@ -257,6 +260,7 @@ export class Planner {
       perTier: [perTier],
       job: job ? { id: job.id, status: job.status } : null,
       storedFrom,
+      via: fetcher.firstSource(instrument),
     };
   }
 

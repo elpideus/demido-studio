@@ -5,7 +5,9 @@
 //! after the app is gone.
 //!
 //! On Windows every child is placed in a job object created with "kill on close": the OS closes
-//! the job with the app and ends the children.
+//! the job with the app and ends the children. The job lets a child start a process outside it
+//! when it asks to (`CREATE_BREAKAWAY_FROM_JOB`): the MetaTrader terminal the market service opens
+//! stays open after the app, as one the person opened would.
 //!
 //! On Linux every child asks the kernel for SIGKILL when its parent goes (`PR_SET_PDEATHSIG`),
 //! set between fork and exec. The kernel sends it when the *thread* that started the child ends,
@@ -22,7 +24,7 @@ mod imp {
 
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
     };
 
@@ -37,7 +39,7 @@ mod imp {
         JOB.get_or_init(|| unsafe {
             let job = CreateJobObjectW(None, None).ok()?;
             let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
             SetInformationJobObject(
                 job,
                 JobObjectExtendedLimitInformation,

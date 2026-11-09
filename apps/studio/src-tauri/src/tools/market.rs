@@ -301,10 +301,12 @@ pub async fn download(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, Str
 /// who stopped it and what it takes to go on. Only a job that says `done` is reported as stored.
 fn download_result(symbol: &str, d: &Downloaded) -> (bool, Value) {
     let plan = &d.plan;
+    // MetaTrader may be the one downloading a Dukascopy plan's days (`via`).
+    let source = plan.get("via").filter(|v| v.is_string()).unwrap_or(&plan["source"]);
     let mut content = json!({
         "symbol": symbol,
         "name": plan["name"],
-        "source": plan["source"],
+        "source": source,
         "from": iso(&plan["from"]),
         "to": iso(&plan["to"]),
     });
@@ -349,11 +351,18 @@ pub async fn data_status(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, 
     let summary = store(ctx, "cache.summary", params).await?;
     let items = summary["items"].as_array().cloned().unwrap_or_default();
     let markets: Vec<Value> = items.iter().map(compact_market).collect();
-    let note = match (markets.is_empty(), symbol) {
+    let mut note = match (markets.is_empty(), symbol) {
         (true, Some(s)) => format!("Nothing is stored for {s} yet."),
         (true, None) => "No market history is stored yet.".to_string(),
         _ => "Times are UTC and ranges are [from, to): the end is excluded. gaps: periods the source has that are not stored. noData: periods the source has no candles for (weekends, holidays).".to_string(),
     };
+    let tiers = markets
+        .iter()
+        .flat_map(|m| m["sources"].as_array().into_iter().flatten());
+    let tiers = tiers.flat_map(|s| s["detail"].as_array().into_iter().flatten());
+    if tiers.clone().any(|t| t.get("fromMetaTrader").is_some()) {
+        note.push_str(" fromMetaTrader: stored days the user's MetaTrader terminal supplied instead of Dukascopy; their volume counts ticks, a different unit.");
+    }
     let content = json!({"totalSize": fmt_bytes(num(&summary, "bytes")), "markets": markets, "note": note});
     Ok(ToolOutput::ok(
         content.to_string(),
@@ -1111,6 +1120,10 @@ fn compact_tier(tier: &Value) -> Value {
     if !empty.is_empty() {
         out["noData"] = json!(fmt_ranges(&empty, 6));
     }
+    let metatrader = ranges(&tier["metatrader"]);
+    if !metatrader.is_empty() {
+        out["fromMetaTrader"] = json!(fmt_ranges(&metatrader, 6));
+    }
     if let Some(start) = tier["learnedStart"].as_f64() {
         out["learnedStart"] = fmt_time(start as i64).into();
     }
@@ -1567,6 +1580,16 @@ mod tests {
     }
 
     #[test]
+    fn the_result_names_who_downloads_the_days() {
+        let (_, c) = download_result("EURUSD", &job("j1"));
+        assert_eq!(c["source"], "dukascopy");
+        let mut d = job("j1");
+        d.plan["via"] = json!("metatrader");
+        let (_, c) = download_result("EURUSD", &d);
+        assert_eq!(c["source"], "metatrader");
+    }
+
+    #[test]
     fn a_paused_download_says_it_will_not_continue() {
         let paused = Downloaded {
             status: Some("paused".into()),
@@ -1733,6 +1756,20 @@ mod tests {
         assert_eq!(shown.len(), 12);
         assert!(shown[6].contains("19 more"), "{shown:?}");
         assert_eq!(shown[0], "1970-01-01 → 1970-01-02");
+    }
+
+    #[test]
+    fn days_from_metatrader_are_told_apart() {
+        let tier = json!({"tier": "m1", "intervals": [[0, 2 * DAY]], "metatrader": [[DAY, 2 * DAY]], "bytes": 0});
+        assert_eq!(
+            compact_tier(&tier)["fromMetaTrader"],
+            json!(["1970-01-02 → 1970-01-03"])
+        );
+        assert!(
+            compact_tier(&json!({"tier": "m1", "intervals": [[0, DAY]], "metatrader": []}))
+                .get("fromMetaTrader")
+                .is_none()
+        );
     }
 
     #[test]

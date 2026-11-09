@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { MarketCoverageItem, MarketJob, MarketPlan, MarketTierCoverage } from '@/lib/types';
 import {
   axisTicks,
+  barSources,
   chartSymbol,
   coveredShare,
   jobsFor,
@@ -12,6 +13,7 @@ import {
   marketCoverage,
   marketDomain,
   marketSegments,
+  metaTraderDays,
   normalize,
   planIdle,
   rangeText,
@@ -457,6 +459,43 @@ describe('one timeline per market', () => {
       [utc(2022), utc(2023)],
     ]);
     expect(cov.bytes).toBe(1050);
+  });
+
+  it('colours the days MetaTrader supplied apart from the rest of the Dukascopy history', () => {
+    const day = 86_400;
+    const mixed = item({
+      sources: [
+        {
+          source: 'dukascopy',
+          key: 'eurusd',
+          bytes: 10,
+          tiers: [
+            tier({
+              intervals: [[utc(2024), utc(2024) + 10 * day]],
+              // Overlapping and touching ranges count once; anything outside the covered days is not drawn.
+              metatrader: [
+                [utc(2024) + 2 * day, utc(2024) + 4 * day],
+                [utc(2024) + 3 * day, utc(2024) + 5 * day],
+                [utc(2024) + 9 * day, utc(2024) + 10 * day],
+              ],
+              available: [utc(2024), utc(2024) + 10 * day],
+            }),
+          ],
+        },
+        { source: 'tradingview', key: 'FX:EURUSD', bytes: 1, tiers: [tier({ tier: '1d', intervals: [[0, 1]] })] },
+      ],
+    });
+    expect(
+      marketSegments(mixed, [utc(2024), utc(2024) + 10 * day]).map((seg) => [seg.kind, seg.source, seg.from, seg.to]),
+    ).toEqual([
+      ['data', 'dukascopy', utc(2024), utc(2024) + 2 * day],
+      ['data', 'metatrader', utc(2024) + 2 * day, utc(2024) + 5 * day],
+      ['data', 'dukascopy', utc(2024) + 5 * day, utc(2024) + 9 * day],
+      ['data', 'metatrader', utc(2024) + 9 * day, utc(2024) + 10 * day],
+    ]);
+    expect(metaTraderDays(mixed)).toBe(4);
+    expect(barSources(mixed)).toEqual(['dukascopy', 'metatrader', 'tradingview']);
+    expect(barSources(eurusd)).toEqual(['dukascopy', 'tradingview']);
   });
 
   it('draws a market only TradingView serves from where its stored timelines start', () => {

@@ -4,7 +4,7 @@ import { CircleCheck, Download, Play } from 'lucide-react';
 import { Button } from '@demido/ui';
 
 import type { MarketPlan } from '@/lib/types';
-import { SOURCE_NAMES, planLine, tierLabel } from '../DownloadProgress';
+import { planLine, planSource, tierLabel } from '../DownloadProgress';
 import { planIdle, rangeText, type PlanIdle } from './coverage';
 import styles from './DataTab.module.css';
 
@@ -19,7 +19,7 @@ export interface PlanPanelProps {
 function idleText(idle: PlanIdle, plan: MarketPlan): string {
   switch (idle) {
     case 'complete':
-      return `Everything ${SOURCE_NAMES[plan.source]} has for ${plan.name} is downloaded.`;
+      return `Everything ${planSource(plan)} has for ${plan.name} is downloaded.`;
     case 'stopped':
       return `A stopped download already covers the rest of ${plan.name}.`;
     case 'busy':

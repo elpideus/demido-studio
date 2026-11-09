@@ -71,7 +71,12 @@ describe('dataStatusView', () => {
         {
           market: 'gbpchf',
           sources: [
-            { source: 'dukascopy', key: 'gbpchf', bytes: 10, tiers: [{ tier: 'm1', intervals: [[1, 2], 'bad'] }, {}] },
+            {
+              source: 'dukascopy',
+              key: 'gbpchf',
+              bytes: 10,
+              tiers: [{ tier: 'm1', intervals: [[1, 2], 'bad'], metatrader: [[1, 2], 'bad'] }, {}],
+            },
             { source: 'yahoo', key: 'GBPCHF', tiers: [] },
           ],
           jobs: [{ id: 'j1', total: 3, perTier: [] }, { id: 'old' }],
@@ -85,7 +90,15 @@ describe('dataStatusView', () => {
     expect(view.bytes).toBe(10);
     expect(item.sources).toHaveLength(1);
     expect(item.sources[0]!.tiers).toEqual([
-      { tier: 'm1', intervals: [[1, 2]], empty: [], available: null, learnedStart: null, bytes: 0 },
+      {
+        tier: 'm1',
+        intervals: [[1, 2]],
+        empty: [],
+        metatrader: [[1, 2]],
+        available: null,
+        learnedStart: null,
+        bytes: 0,
+      },
     ]);
     expect(item.jobs.map((j) => j.id)).toEqual(['j1']);
   });

@@ -4,7 +4,15 @@ import { describe, expect, it } from 'vitest';
 import { formatBytes } from '@demido/ui';
 
 import type { MarketJob, MarketPlan } from '@/lib/types';
-import { estimateText, jobLine, planDetail, planLine, planSummary, tierLabel } from '@/market/DownloadProgress';
+import {
+  estimateText,
+  jobLine,
+  jobSource,
+  planDetail,
+  planLine,
+  planSummary,
+  tierLabel,
+} from '@/market/DownloadProgress';
 import { downloadView } from './downloadView';
 
 const n = (v: number) => v.toLocaleString();
@@ -67,6 +75,11 @@ describe('plan text', () => {
     expect(planLine(plan())).toBe(
       `EUR/USD from Dukascopy · ~${n(8400)} files · ~${formatBytes(75_000_000)} · about 40 min · 1-minute candles for every timeframe`,
     );
+  });
+
+  it('names MetaTrader when it downloads the days first', () => {
+    expect(planLine(plan({ via: 'metatrader' }))).toMatch(/^EUR\/USD from MetaTrader · /);
+    expect(planLine(plan({ via: 'dukascopy' }))).toMatch(/^EUR\/USD from Dukascopy · /);
   });
 
   it('says every Dukascopy download is 1-minute candles, whatever tiers an older plan named', () => {
@@ -168,5 +181,16 @@ describe('tierLabel', () => {
     expect(tierLabel('h1')).toBe('hourly');
     expect(tierLabel('d1')).toBe('daily');
     expect(tierLabel('4h')).toBe('4h');
+  });
+});
+
+describe('jobSource', () => {
+  it('names who supplied the days, most first; before any, who goes first', () => {
+    expect(jobSource(job())).toBe('Dukascopy');
+    expect(jobSource(job({ via: 'metatrader' }))).toBe('MetaTrader');
+    expect(jobSource(job({ via: 'metatrader', supplied: { metatrader: 1779 } }))).toBe('MetaTrader');
+    expect(jobSource(job({ supplied: { dukascopy: 3, metatrader: 1779 } }))).toBe('MetaTrader + Dukascopy');
+    expect(jobSource(job({ via: 'metatrader', supplied: { dukascopy: 0 } }))).toBe('MetaTrader');
+    expect(jobSource(job({ source: 'tradingview' }))).toBe('TradingView');
   });
 });

@@ -9,12 +9,24 @@ import { afterEach, test } from 'node:test';
 import { type Bar, RpcError } from '../src/protocol.ts';
 import { type Tier } from '../src/store/buckets.ts';
 import { DukascopyStore } from '../src/store/dukascopy-store.ts';
+import { FetchError } from '../src/store/fetcher.ts';
 import { Jobs, type TvSession, isProbe } from '../src/store/jobs.ts';
 import { Planner } from '../src/store/planner.ts';
 import { Series } from '../src/store/series.ts';
 import { TvStore } from '../src/store/tv-store.ts';
 import { walkBack } from '../src/tradingview.ts';
-import { DAY, FakeFetcher, bucketBars, bucketBody, cleanup, iso, s, tempDir, until } from './store-helpers.ts';
+import {
+  DAY,
+  type FakeData,
+  FakeFetcher,
+  bucketBars,
+  bucketBody,
+  cleanup,
+  iso,
+  s,
+  tempDir,
+  until,
+} from './store-helpers.ts';
 
 const NOW = s('2024-06-01T12:00:00Z');
 const opened: Jobs[] = [];
@@ -24,7 +36,7 @@ afterEach(async () => {
   cleanup();
 });
 
-type Data = (instrument: string, tier: Tier, start: number) => Bar[] | 'unavailable';
+type Data = FakeData;
 
 /** Every bucket full of forex-session bars (m1 thinned to one bar an hour). */
 const fx: Data = (_i, tier, start) => bucketBars(tier, start, { every: tier === 'm1' ? 3600 : undefined });
@@ -373,6 +385,34 @@ test('running jobs wait while the fetcher breaker is open', async () => {
   fetcher.breaker = { state: 'closed', reason: null, message: null, retryAt: null };
   fetcher.emit({ type: 'breaker', breaker: fetcher.breaker });
   assert.equal(status(jobs, jobId), 'running');
+  fetcher.release();
+  await until(() => status(jobs, jobId) === 'done', 10_000, 'done');
+});
+
+test('a job keeps running on MetaTrader while the breaker is open, and says so', async () => {
+  const { jobs, fetcher } = harness();
+  fetcher.hold = true;
+  const { jobId } = await jobs.start({
+    symbol: 'EURUSD',
+    from: s('2024-03-01T00:00:00Z'),
+    to: s('2024-04-01T00:00:00Z'),
+    origin: 'chat',
+  });
+  await until(() => status(jobs, jobId) === 'running', 5000, 'running');
+  fetcher.alternate = { name: 'MetaTrader', mode: 'fallback', serving: true, blocked: null };
+  fetcher.breaker = { state: 'open', reason: 'offline', message: 'Offline', retryAt: NOW * 1000 + 30_000 };
+  fetcher.emit({ type: 'breaker', breaker: fetcher.breaker });
+  assert.equal(status(jobs, jobId), 'running');
+  assert.equal(jobs.get(jobId)!.message, 'Offline; downloading from MetaTrader meanwhile');
+  // MetaTrader stops serving: the job waits for Dukascopy.
+  fetcher.alternate = { name: 'MetaTrader', mode: 'fallback', serving: false, blocked: null };
+  fetcher.emit({ type: 'alternate', serving: false });
+  assert.equal(status(jobs, jobId), 'waiting');
+  assert.equal(jobs.get(jobId)!.message, 'Offline');
+  fetcher.breaker = { state: 'closed', reason: null, message: null, retryAt: null };
+  fetcher.emit({ type: 'breaker', breaker: fetcher.breaker });
+  assert.equal(status(jobs, jobId), 'running');
+  assert.equal(jobs.get(jobId)!.message, undefined);
   fetcher.release();
   await until(() => status(jobs, jobId) === 'done', 10_000, 'done');
 });
@@ -750,4 +790,83 @@ test('a job restarted from its record resumes its saved plan', async () => {
   await until(() => status(second.jobs, jobId) === 'done', 10_000, 'the job to finish');
   const job = second.jobs.get(jobId)!;
   assert.deepEqual([job.done, job.total, job.skipped], [plan.requests, plan.requests, 0]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// MetaTrader as the only source
+
+const march = { symbol: 'EURUSD', from: s('2024-03-01T00:00:00Z'), to: s('2024-04-01T00:00:00Z') };
+
+test('days the only source has nothing for are skipped, and stay missing in the store', async () => {
+  const gone = new Set([s('2024-03-11T00:00:00Z'), s('2024-03-12T00:00:00Z')]);
+  const { jobs, store } = harness((i, tier, start) => (gone.has(start) ? 'missing' : fx(i, tier, start)));
+  const { jobId, plan } = await jobs.start({ ...march, origin: 'chat' });
+  await until(() => status(jobs, jobId) === 'done', 10_000, 'done');
+  const job = jobs.get(jobId)!;
+  assert.deepEqual([job.done, job.total, job.skipped], [plan.requests - 2, plan.requests - 2, 2]);
+  for (const d of gone) assert.equal(store.status('eurusd', 'm1', d), 'missing');
+  assert.equal('lacked' in job, false);
+});
+
+test('a market the only source lacks stops the job with the reason; Try again asks again', async () => {
+  const reason = 'MetaQuotes-Demo has no symbol for EUR/USD';
+  const gone = s('2024-03-31T00:00:00Z');
+  let lacking = true;
+  const { jobs, fetcher } = harness((i, tier, start) => {
+    if (start === gone) return 'missing';
+    return lacking ? new FetchError('UNSERVED', reason) : fx(i, tier, start);
+  });
+  const { jobId, plan } = await jobs.start({ ...march, origin: 'chat' });
+  await until(() => status(jobs, jobId) === 'error', 10_000, 'the job to stop');
+  let job = jobs.get(jobId)!;
+  assert.equal(job.message, reason);
+  assert.ok(fetcher.requests.length <= 8, `it stopped within a window, not after ${fetcher.requests.length} days`);
+  assert.equal(job.skipped, 1);
+  lacking = false;
+  jobs.resume(jobId);
+  await until(() => status(jobs, jobId) === 'done', 10_000, 'the job to finish');
+  job = jobs.get(jobId)!;
+  // The day it lacked was asked again, and is skipped once.
+  assert.equal(fetcher.requests.filter((k) => k.endsWith(`/${gone}`)).length, 2);
+  assert.deepEqual([job.done, job.total, job.skipped], [plan.requests - 1, plan.requests - 1, 1]);
+});
+
+test('with MetaTrader the only source a job waits while it cannot be used, whatever Dukascopy does', async () => {
+  const { jobs, fetcher } = harness();
+  fetcher.hold = true;
+  const { jobId } = await jobs.start({ ...march, origin: 'chat' });
+  await until(() => status(jobs, jobId) === 'running', 5000, 'running');
+  fetcher.alternate = { name: 'MetaTrader', mode: 'only', serving: false, blocked: 'MetaTrader is closed' };
+  fetcher.emit({ type: 'alternate', serving: false });
+  assert.equal(status(jobs, jobId), 'waiting');
+  assert.equal(jobs.get(jobId)!.message, 'MetaTrader is closed');
+  // Dukascopy's breaker says nothing about it.
+  fetcher.breaker = { state: 'open', reason: 'offline', message: 'Offline', retryAt: NOW * 1000 + 30_000 };
+  fetcher.emit({ type: 'breaker', breaker: fetcher.breaker });
+  assert.equal(jobs.get(jobId)!.message, 'MetaTrader is closed');
+  fetcher.alternate = { name: 'MetaTrader', mode: 'only', serving: true, blocked: null };
+  fetcher.emit({ type: 'alternate', serving: true });
+  assert.equal(status(jobs, jobId), 'running');
+  assert.equal(jobs.get(jobId)!.message, 'Downloading from MetaTrader');
+  fetcher.release();
+  await until(() => status(jobs, jobId) === 'done', 10_000, 'done');
+});
+
+test('a job counts the days each source downloaded for it, and names who downloads first', async () => {
+  const { jobs, fetcher } = harness();
+  fetcher.origin = 'metatrader';
+  fetcher.hold = true;
+  const { jobId, plan } = await jobs.start({ ...march, origin: 'chat' });
+  assert.equal(plan.via, 'metatrader');
+  await until(() => fetcher.held > 0, 5000, 'queued requests');
+  fetcher.release(5);
+  await until(() => (jobs.get(jobId)!.supplied?.metatrader ?? 0) >= 5, 5000, 'five days from MetaTrader');
+  assert.equal(jobs.get(jobId)!.via, 'metatrader');
+  fetcher.origin = 'dukascopy';
+  fetcher.release();
+  await until(() => status(jobs, jobId) === 'done', 10_000, 'done');
+  const job = jobs.get(jobId)!;
+  const { metatrader = 0, dukascopy = 0 } = job.supplied ?? {};
+  assert.ok(metatrader >= 5 && dukascopy > 0, JSON.stringify(job.supplied));
+  assert.equal(metatrader + dukascopy, job.done);
 });

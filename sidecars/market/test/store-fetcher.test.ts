@@ -28,6 +28,9 @@ import {
   buildTime,
   retryAfterMs,
   type Clock,
+  type AlternateChunk,
+  type AlternateMode,
+  type AlternateSource,
   type FetchLike,
   type FetchRequest,
   type FetchResult,
@@ -852,6 +855,7 @@ test('finality from the Date header, stored in the real store', async () => {
     empty: false,
     bars: 2,
     bytes: (r0 as { bytes: number }).bytes,
+    origin: 'dukascopy',
   });
   assert.equal(r1!.status === 'fetched' && r1!.final, true);
   assert.equal(r2!.status === 'fetched' && r2!.final, true);
@@ -925,4 +929,319 @@ test('close cancels queued waiters and writes the stats', async () => {
   assert.equal((await first).status, 'fetched');
   assert.deepEqual(await req(day(2)), { status: 'cancelled' });
   assert.equal(fs.existsSync(path.join(store.root, 'stats.json')), true);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The second source
+
+/** A MetaTrader double: answers a chunk of `span` days around the day asked, each with bars, except
+ *  the days in `unknown`. */
+class FakeAlternate implements AlternateSource {
+  readonly name = 'MetaTrader';
+  current: AlternateMode;
+  span = 1;
+  unknown = new Set<number>();
+  failing: Error | null = null;
+  calls: number[] = [];
+  servesIt = true;
+  ready = 0;
+  /** Why it cannot be used now (it serves nothing meanwhile). */
+  down: string | null = null;
+  /** Why it never serves eurusd. */
+  lacking: string | null = null;
+
+  constructor(mode: AlternateMode) {
+    this.current = mode;
+  }
+
+  mode(): AlternateMode {
+    return this.current;
+  }
+
+  serves(): boolean {
+    return this.servesIt && this.down === null && this.lacking === null;
+  }
+
+  lacks(): string | null {
+    return this.lacking;
+  }
+
+  blocked(): string | null {
+    return this.down;
+  }
+
+  readyAt(): number {
+    return this.ready;
+  }
+
+  async fetchChunk(_instrument: string, start: number): Promise<AlternateChunk> {
+    this.calls.push(start);
+    await Promise.resolve();
+    if (this.failing) throw this.failing;
+    const days = new Map<number, { buffer: Buffer | null; final: boolean; builtAt: number }>();
+    for (let d = start; d < start + this.span * 86400; d += 86400) {
+      if (!this.unknown.has(d)) days.set(d, { buffer: candles(3, d), final: true, builtAt: NOW });
+    }
+    return { range: [start, start + this.span * 86400], days };
+  }
+}
+
+test('fallback: during a 429 pause the second source serves 1-minute days, tagged as its own', async () => {
+  const { req, calls, clock, fetcher, events, store } = setup({ respond: () => answer(429, { 'retry-after': '120' }) });
+  const alt = new FakeAlternate('fallback');
+  fetcher.setAlternate(alt);
+  const first = track(req(day(0)));
+  await clock.advance(0);
+  // The 429 paused Dukascopy; MetaTrader took the day over at once.
+  assert.equal(calls.length, 1);
+  await clock.advance(0);
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.deepEqual(first.value, {
+    status: 'fetched',
+    final: true,
+    empty: false,
+    bars: 3,
+    bytes: 300,
+    origin: 'metatrader',
+  });
+  const puts = (store as FakeStore).puts;
+  assert.equal(puts.at(-1)!.origin, 'metatrader');
+  // Days asked during the pause go to it too, and Dukascopy is not asked.
+  assert.equal((await req(day(1))).status, 'fetched');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    events.filter((e) => e.type === 'alternate'),
+    [
+      // setAlternate tells, whatever it changed.
+      { type: 'alternate', serving: false },
+      { type: 'alternate', serving: true },
+      { type: 'alternate', serving: false },
+      { type: 'alternate', serving: true },
+      { type: 'alternate', serving: false },
+    ],
+  );
+  assert.deepEqual(fetcher.status().alternate, { name: 'MetaTrader', mode: 'fallback', serving: false, blocked: null });
+  // Hours are Dukascopy's alone.
+  const hour = track(req(bucketStart('h1', day(0)), 'bulk', { tier: 'h1' }));
+  await clock.advance(0);
+  assert.equal(alt.calls.length, 2);
+  assert.equal(hour.settled, false);
+});
+
+test('fallback: with Dukascopy working the second source is never asked', async () => {
+  const { req, fetcher } = setup();
+  const alt = new FakeAlternate('fallback');
+  fetcher.setAlternate(alt);
+  assert.equal((await req(day(0))).status, 'fetched');
+  assert.deepEqual(alt.calls, []);
+});
+
+test('preferred: every 1-minute day goes to the second source first; a chunk settles the days inside it', async () => {
+  const { req, calls, clock, fetcher } = setup();
+  const alt = new FakeAlternate('preferred');
+  alt.span = 3;
+  fetcher.setAlternate(alt);
+  const ps = [req(day(0)), req(day(1)), req(day(2))].map(track);
+  await clock.advance(0);
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.equal(calls.length, 0);
+  assert.ok(ps.every((p) => (p.value as FetchResult | undefined)?.status === 'fetched'));
+});
+
+test('a day the second source does not know goes back to Dukascopy and is never offered again', async () => {
+  const { req, calls, clock, fetcher, store } = setup();
+  const alt = new FakeAlternate('preferred');
+  alt.span = 2;
+  alt.unknown.add(day(1));
+  fetcher.setAlternate(alt);
+  const a = track(req(day(0)));
+  const b = track(req(day(1)));
+  await clock.advance(2_000);
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    [url(day(1))],
+  );
+  assert.equal((a.value as FetchResult).status, 'fetched');
+  assert.equal((b.value as FetchResult).status, 'fetched');
+  const origins = (store as FakeStore).puts.map((p) => [p.key.split('/')[2], p.origin ?? 'dukascopy']);
+  assert.deepEqual(origins, [
+    [String(day(0)), 'metatrader'],
+    [String(day(1)), 'dukascopy'],
+  ]);
+});
+
+test('a second source that fails hands its day back to Dukascopy', async () => {
+  const { req, calls, clock, fetcher, logs } = setup();
+  const alt = new FakeAlternate('preferred');
+  alt.failing = new Error('MetaTrader did not answer');
+  fetcher.setAlternate(alt);
+  const p = track(req(day(0)));
+  await clock.advance(2_000);
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.equal(calls.length, 1);
+  assert.equal((p.value as FetchResult).status, 'fetched');
+  assert.ok(logs.some((l) => l.includes('MetaTrader could not serve eurusd 2024-03-05')));
+});
+
+test('failFast waits for a second source that could serve the day, and fails once it could not', async () => {
+  const { req, clock, fetcher, respondWith } = setup({ respond: () => answer(429, { 'retry-after': '120' }) });
+  void req(day(0));
+  await clock.advance(0);
+  const alt = new FakeAlternate('fallback');
+  alt.unknown.add(day(5));
+  fetcher.setAlternate(alt);
+  // Paused: without the second source this would reject at once.
+  assert.equal((await req(day(4), 'interactive', { failFast: true })).status, 'fetched');
+  const unknown = track(req(day(5), 'interactive', { failFast: true }));
+  await clock.advance(0);
+  assert.ok(unknown.error instanceof FetchError && unknown.error.code === 'THROTTLED');
+  respondWith(() => ok());
+  // Off: back to the old rule.
+  alt.current = 'off';
+  await assert.rejects(req(day(6), 'interactive', { failFast: true }), /retrying in/);
+});
+
+test('the second source paces itself: the queue waits for readyAt', async () => {
+  const { req, clock, fetcher } = setup();
+  const alt = new FakeAlternate('preferred');
+  alt.ready = NOW * 1000 + 10_000;
+  fetcher.setAlternate(alt);
+  const p = track(req(day(0)));
+  await clock.advance(9_000);
+  assert.deepEqual(alt.calls, []);
+  assert.equal(p.settled, false);
+  await clock.advance(2_000);
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.equal((p.value as FetchResult).status, 'fetched');
+});
+
+test('only: Dukascopy is never asked for 1-minute days; a day the second source lacks settles missing', async () => {
+  const { req, calls, clock, fetcher, store } = setup();
+  const alt = new FakeAlternate('only');
+  alt.span = 2;
+  alt.unknown.add(day(1));
+  fetcher.setAlternate(alt);
+  const a = track(req(day(0)));
+  const b = track(req(day(1)));
+  await clock.advance(5_000);
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.equal(calls.length, 0);
+  assert.equal((a.value as FetchResult).status, 'fetched');
+  assert.deepEqual(b.value, { status: 'missing' });
+  // Nothing is recorded for it: it stays missing.
+  assert.deepEqual(
+    (store as FakeStore).puts.map((p) => p.key),
+    [`eurusd/m1/${day(0)}`],
+  );
+  assert.equal(store.status('eurusd', 'm1', day(1)), 'missing');
+  // Hours are still Dukascopy's.
+  assert.equal((await req(bucketStart('h1', day(0)), 'bulk', { tier: 'h1' })).status, 'fetched');
+  assert.equal(calls.length, 1);
+});
+
+test('only: while the second source cannot be used the days wait, and failFast callers learn why', async () => {
+  const { req, calls, clock, fetcher, events } = setup();
+  const alt = new FakeAlternate('only');
+  alt.down = 'MetaTrader is closed';
+  fetcher.setAlternate(alt);
+  assert.deepEqual(fetcher.status().alternate, {
+    name: 'MetaTrader',
+    mode: 'only',
+    serving: false,
+    blocked: 'MetaTrader is closed',
+  });
+  // Jobs hear of it even though nothing it serves changed.
+  assert.deepEqual(
+    events.filter((e) => e.type === 'alternate'),
+    [{ type: 'alternate', serving: false }],
+  );
+  const waiting = track(req(day(0)));
+  await assert.rejects(
+    req(day(1), 'interactive', { failFast: true }),
+    (e: unknown) => e instanceof FetchError && e.code === 'UNREACHABLE' && e.message === 'MetaTrader is closed',
+  );
+  await clock.advance(60_000);
+  assert.equal(waiting.settled, false);
+  assert.deepEqual(alt.calls, []);
+  // Back: the days go to it, never to Dukascopy.
+  alt.down = null;
+  fetcher.setAlternate(alt);
+  await clock.advance(0);
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.equal((waiting.value as FetchResult).status, 'fetched');
+  // A failFast caller already queued is told once it goes down.
+  alt.ready = clock.t + 10_000;
+  const queued = track(req(day(2), 'interactive', { failFast: true }));
+  await clock.advance(0);
+  assert.equal(queued.settled, false);
+  alt.down = 'Choose a MetaTrader account';
+  fetcher.setAlternate(alt);
+  await clock.advance(0);
+  assert.ok(queued.error instanceof FetchError && queued.error.code === 'UNREACHABLE');
+  assert.equal((queued.error as FetchError).message, 'Choose a MetaTrader account');
+  assert.equal(calls.length, 0);
+});
+
+test('only: a chunk that failed is tried again after a backoff, never by Dukascopy', async () => {
+  const { req, calls, clock, fetcher, logs } = setup();
+  const alt = new FakeAlternate('only');
+  alt.failing = new Error('MetaTrader did not answer');
+  fetcher.setAlternate(alt);
+  const p = track(req(day(0)));
+  await clock.advance(0);
+  assert.deepEqual(alt.calls, [day(0)]);
+  // 1 s, then 2 s.
+  await clock.advance(999);
+  assert.equal(alt.calls.length, 1);
+  await clock.advance(1);
+  assert.equal(alt.calls.length, 2);
+  alt.failing = null;
+  await clock.advance(1_999);
+  assert.equal(alt.calls.length, 2);
+  await clock.advance(1);
+  assert.deepEqual(alt.calls, [day(0), day(0), day(0)]);
+  assert.equal((p.value as FetchResult).status, 'fetched');
+  assert.equal(calls.length, 0);
+  assert.ok(logs.some((l) => l.includes('MetaTrader could not serve eurusd 2024-03-05')));
+});
+
+test('only: a market the second source lacks fails, the days queued and new ones alike', async () => {
+  const { req, calls, clock, fetcher } = setup();
+  const alt = new FakeAlternate('only');
+  const reason = 'MetaQuotes-Demo has no symbol for EUR/USD';
+  // It learns so on its first chunk.
+  alt.failing = new Error(reason);
+  const fetchChunk = alt.fetchChunk.bind(alt);
+  alt.fetchChunk = (instrument, start) => {
+    alt.lacking = reason;
+    return fetchChunk(instrument, start);
+  };
+  fetcher.setAlternate(alt);
+  const a = track(req(day(0)));
+  const b = track(req(day(1)));
+  await clock.advance(0);
+  for (const p of [a, b]) {
+    assert.ok(p.error instanceof FetchError && p.error.code === 'UNSERVED');
+    assert.equal((p.error as FetchError).message, reason);
+  }
+  await assert.rejects(req(day(2)), (e: unknown) => e instanceof FetchError && e.code === 'UNSERVED');
+  assert.deepEqual(alt.calls, [day(0)]);
+  assert.equal(calls.length, 0);
+});
+
+test('firstSource: MetaTrader when it is the only source, or preferred and serving the market', () => {
+  const { fetcher } = setup();
+  assert.equal(fetcher.firstSource('eurusd'), 'dukascopy');
+  const alt = new FakeAlternate('fallback');
+  fetcher.setAlternate(alt);
+  assert.equal(fetcher.firstSource('eurusd'), 'dukascopy');
+  alt.current = 'preferred';
+  assert.equal(fetcher.firstSource('eurusd'), 'metatrader');
+  // Preferred but unusable: Dukascopy downloads meanwhile.
+  alt.down = 'MetaTrader is closed';
+  assert.equal(fetcher.firstSource('eurusd'), 'dukascopy');
+  // The only source, usable or not: Dukascopy never downloads.
+  alt.current = 'only';
+  assert.equal(fetcher.firstSource('eurusd'), 'metatrader');
 });

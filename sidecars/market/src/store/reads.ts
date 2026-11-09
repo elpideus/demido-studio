@@ -1,6 +1,7 @@
 // What chart and tool reads fetch before they read the store (the read itself is store/series, which
 // never touches the network). Reads ride the fetcher's interactive lane within a request budget and
-// a deadline, and serve what the store has when Dukascopy cannot answer.
+// a deadline, and serve what the store has when Dukascopy (or MetaTrader, as the only source) cannot
+// answer.
 //
 // API (class Reads):
 //   fetchFor(symbol, tf, from, to, budget, ms) -> {asked, ok, error?}   the 1-minute days reading
@@ -90,7 +91,7 @@ export class Reads {
         ),
         Math.max(0, deadline - Date.now()),
       );
-      if (!results) return { asked, ok: false, error: 'Dukascopy did not answer in time' };
+      if (!results) return { asked, ok: false, error: 'No answer came in time' };
       const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
       if (failed) return { asked, ok: false, error: (failed.reason as Error)?.message ?? String(failed.reason) };
     }
