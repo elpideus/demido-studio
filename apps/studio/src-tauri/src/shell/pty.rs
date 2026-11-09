@@ -865,8 +865,11 @@ mod linux_tests {
     #[tokio::test]
     async fn a_program_that_left_the_terminal_stays_running() {
         // As a program in a window of its own does; nohup and a log file are how servers leave.
+        // The command waits for the sleep to start: the program that left the terminal is kept
+        // as it is when the shell ends, and until then it can still be the shell's fork (bash).
         let (out, dir) = run_command(
-            "nohup sleep 300 > /dev/null 2>&1 & echo $! > sleeper",
+            "nohup sleep 300 > /dev/null 2>&1 & echo $! > sleeper; \
+             until [ \"$(cat /proc/$!/comm)\" = sleep ]; do sleep 0.01; done",
             Duration::from_secs(60),
         )
         .await;
