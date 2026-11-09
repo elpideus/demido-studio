@@ -10,7 +10,8 @@ pub mod prompt;
 pub mod row;
 pub mod usage;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -52,6 +53,18 @@ const WRAP_UP: &str = "(A note from Demido, not from the user: this answer has u
 /// How often one call (the same tool with the same arguments) may fail in a turn before the turn
 /// stops: a small model otherwise repeats a call that cannot work until the steps run out.
 const MAX_SAME_FAILURES: usize = 3;
+/// How often the calls of a turn may bring back what they brought back before until the turn
+/// stops calling tools: a small model otherwise goes round in circles, such as opening a menu and
+/// closing it again, until the person stops it.
+const MAX_STALLS: usize = 4;
+/// What the last step adds instead of [`WRAP_UP`] when the turn went round in circles.
+const STUCK: &str = "(A note from Demido, not from the user: your last calls kept bringing back what they \
+    brought back before, so this answer is going round in circles, and tool calls are not run any more. \
+    Do not call a tool. Tell the user what you tried, what is in the way, and what they could do or tell \
+    you to get past it.)";
+/// What a call's result gets when it is what the same call brought back before.
+const AGAIN: &str = "This call brought back the same as when you made it before, so it got you no further. \
+    Making it again will not change that: try another way, or tell the user what is in the way.";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -587,6 +600,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
     let mut question: Option<(String, QueryVector)> = None;
     // Failed calls of this turn, by `call_key`.
     let mut failures: HashMap<String, usize> = HashMap::new();
+    let mut circles = Circles::default();
     // Tokens per estimated token: raised when the local server counts a request that does not fit.
     let mut token_ratio = 1.0f64;
     // A turn compacts the chat once at most: when no summary could be written, the history is
@@ -739,13 +753,14 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
         let mut retried = false;
         // Times the model was busy and the request went again.
         let mut busy_retries = 0u32;
-        let wrap_up = step + 1 == MAX_STEPS;
+        let stuck = circles.stalls >= MAX_STALLS;
+        let wrap_up = stuck || step + 1 == MAX_STEPS;
         let (trace_keep, result) = loop {
             request.messages = prompt::history(&messages, budget, &files);
             // After the history, where the prompt cache still hits on all of it.
             if wrap_up {
                 request.messages.push(LlmMessage::User {
-                    content: WRAP_UP.into(),
+                    content: if stuck { STUCK } else { WRAP_UP }.into(),
                     media: Vec::new(),
                 });
             }
@@ -902,9 +917,13 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             // Calls made anyway are not run, so they are not kept either.
             reply.tool_calls.clear();
             if reply.content.trim().is_empty() {
-                reply.content = format!(
-                    "I used all {MAX_STEPS} steps one answer may take before finishing. Reply \"continue\" and I will carry on from here."
-                );
+                reply.content = if stuck {
+                    "I stopped: my last steps kept bringing back what they brought back before, so I was going round in circles. Tell me more about how to get there and I will try again.".into()
+                } else {
+                    format!(
+                        "I used all {MAX_STEPS} steps one answer may take before finishing. Reply \"continue\" and I will carry on from here."
+                    )
+                };
             }
         }
         reply.provider_meta = completion.provider_meta.clone();
@@ -954,7 +973,7 @@ async fn run_turn(state: &Arc<AppState>, chat_id: &str, model_id: &str, cancel: 
             }
             let key = call_key(&call);
             let before = failures.get(&key).copied().unwrap_or(0);
-            if !run_tool_call(state, chat_id, &model, &workspace, cancel, &call, before).await? {
+            if !run_tool_call(state, chat_id, &model, &workspace, cancel, &call, before, &mut circles).await? {
                 let times = failures.entry(key).or_default();
                 *times += 1;
                 if *times >= MAX_SAME_FAILURES {
@@ -978,6 +997,50 @@ fn call_key(call: &crate::db::ToolCall) -> String {
     format!("{}\u{0}{args}", call.name)
 }
 
+/// What the calls of a turn brought back, to tell when the model goes round in circles.
+#[derive(Default)]
+struct Circles {
+    /// Each call, by `call_key`, with what it brought back, by `gist`.
+    seen: HashSet<(String, u64)>,
+    /// Times a call brought back what it brought back before.
+    stalls: usize,
+}
+
+impl Circles {
+    /// Records what `call` brought back; whether it brought back the same before.
+    fn again(&mut self, call: &crate::db::ToolCall, content: &str) -> bool {
+        let again = !self.seen.insert((call_key(call), gist(content)));
+        self.stalls += usize::from(again);
+        again
+    }
+}
+
+/// What a result says, with its numbers left out: they move on their own (a live price, a count
+/// of characters), and a page that shows them is still the same page.
+fn gist(content: &str) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    let mut digits = false;
+    for c in content.chars() {
+        let digit = c.is_ascii_digit();
+        if !(digit && digits) {
+            (if digit { '#' } else { c }).hash(&mut hasher);
+        }
+        digits = digit;
+    }
+    hasher.finish()
+}
+
+/// `content` with `note` added: as `key` of a JSON object, or after plain text.
+fn with_note(content: &str, key: &str, note: &str) -> String {
+    match serde_json::from_str::<Value>(content) {
+        Ok(Value::Object(mut o)) => {
+            o.insert(key.into(), note.into());
+            Value::Object(o).to_string()
+        }
+        _ => format!("{content}\n\n{note}"),
+    }
+}
+
 /// A failed call's answer when the model already made this same call and saw it fail.
 fn with_repeat_note(content: &str, times: usize) -> String {
     let note = format!(
@@ -988,17 +1051,12 @@ fn with_repeat_note(content: &str, times: usize) -> String {
             format!("{times} times")
         }
     );
-    match serde_json::from_str::<Value>(content) {
-        Ok(Value::Object(mut o)) => {
-            o.insert("repeated".into(), note.into());
-            Value::Object(o).to_string()
-        }
-        _ => format!("{content}\n\n{note}"),
-    }
+    with_note(content, "repeated", &note)
 }
 
 /// Runs one call and records its result; `false` when it failed. `failed_before` counts the
-/// times this same call already failed in the turn.
+/// times this same call already failed in the turn; `circles` what the turn's calls brought back.
+#[allow(clippy::too_many_arguments)]
 async fn run_tool_call(
     state: &Arc<AppState>,
     chat_id: &str,
@@ -1007,6 +1065,7 @@ async fn run_tool_call(
     cancel: &CancellationToken,
     call: &crate::db::ToolCall,
     failed_before: usize,
+    circles: &mut Circles,
 ) -> CmdResult<bool> {
     let mut first = Message::new(chat_id, state.db.next_seq(chat_id)?, Role::Tool, "");
     first.tool_call_id = Some(call.id.clone());
@@ -1089,6 +1148,8 @@ async fn run_tool_call(
     }
     let content = if !output.ok && failed_before > 0 {
         with_repeat_note(&output.content, failed_before)
+    } else if output.ok && circles.again(call, &output.content) {
+        with_note(&output.content, "again", AGAIN)
     } else {
         output.content
     };
@@ -1370,6 +1431,23 @@ mod tests {
             with_repeat_note("plain", 2)
                 .ends_with("Change the arguments as the error says, use another tool, or answer the user.")
         );
+    }
+
+    #[test]
+    fn a_call_bringing_back_the_same_again_is_a_stall() {
+        let click = |r: &str| crate::db::ToolCall {
+            id: "c".into(),
+            name: "browser_click".into(),
+            arguments: format!(r#"{{"ref":"{r}"}}"#),
+        };
+        let mut circles = Circles::default();
+        assert!(!circles.again(&click("115"), "Palette open. EURCHF 0.9238"));
+        assert!(!circles.again(&click("115"), "Palette closed."));
+        // A live price moved, and it is still the same page.
+        assert!(circles.again(&click("115"), "Palette open. EURCHF 0.9241"));
+        assert!(!circles.again(&click("116"), "Palette open. EURCHF 0.9241"));
+        assert_eq!(circles.stalls, 1);
+        assert!(with_note("plain", "again", AGAIN).ends_with("tell the user what is in the way."));
     }
 
     #[tokio::test]
