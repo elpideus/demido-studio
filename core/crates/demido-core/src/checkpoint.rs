@@ -168,7 +168,9 @@ pub fn compared(folder: &Path, saved: &Path) -> Result<Vec<Differs>, String> {
     for file in was.files.union(&now.files) {
         let (before, after) = (was.files.contains(file).then(|| contents(&saved.join(file))).flatten(), now.files.contains(file).then(|| contents(&folder.join(file))).flatten());
         if before != after {
-            out.push((file.to_string_lossy().into_owned(), before, after));
+            // Written with `/` on every system, as a diff names its files.
+            let path = file.components().map(|part| part.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+            out.push((path, before, after));
         }
     }
     Ok(out)
