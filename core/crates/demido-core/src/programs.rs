@@ -7,9 +7,10 @@
 //!
 //! The rules both programs come with (research note 18):
 //!
-//! - **The program as the person installed it, run as documented.** Claude Code through `claude -p` in its
-//!   stream mode; OpenCode through `opencode acp`, the interface it documents for editors. Never a copy,
-//!   never a changed one, never one Demido downloads.
+//! - **Demido's own copy, unchanged, run as documented** (`copies`): downloaded from its maker when the
+//!   person asks, checked, kept in Demido's folder with a profile of its own. Claude Code through `claude -p`
+//!   in its stream mode; OpenCode through `opencode acp`, the interface it documents for editors. Never one
+//!   installed on the system, never a changed one.
 //! - **Its login is its own.** Demido never reads, keeps or passes on a program's login or token. A person
 //!   signs in in the program itself (`claude`, `/login`; `opencode auth login`).
 //! - **Only for the person's own messages.** No program is run while nobody is there: OpenCode's terms for
@@ -20,6 +21,7 @@
 
 mod acp;
 mod claude_code;
+pub mod copies;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -159,7 +161,7 @@ impl Spawner for ProcessSpawner {
     }
 }
 
-/// A program Demido can run, and where it was found.
+/// A program Demido runs, as it says it is.
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct Found {
     /// `claude-code` or `opencode`.
@@ -172,40 +174,6 @@ pub struct Found {
     pub signed_in: Option<String>,
     /// Why it cannot be used, when it cannot.
     pub problem: Option<String>,
-}
-
-/// Where each program is usually installed, besides the `PATH`.
-fn usual_places(provider: &str) -> Vec<PathBuf> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
-    let exe = if cfg!(windows) { ".exe" } else { "" };
-    let mut places = Vec::new();
-    if let Some(home) = home {
-        match provider {
-            "claude-code" => {
-                places.push(home.join(".local/bin").join(format!("claude{exe}")));
-                places.push(home.join(".claude/local").join(format!("claude{exe}")));
-            }
-            _ => places.push(home.join(".opencode/bin").join(format!("opencode{exe}"))),
-        }
-    }
-    places
-}
-
-/// The program's file name.
-fn command_of(provider: &str) -> &'static str {
-    if provider == "claude-code" { "claude" } else { "opencode" }
-}
-
-/// Finds a program: the path the person set, or on the `PATH`, or where its installer puts it.
-pub fn find(provider: &str, set: Option<&str>) -> Option<PathBuf> {
-    if let Some(set) = set.map(str::trim).filter(|s| !s.is_empty()) {
-        let path = PathBuf::from(set);
-        return path.is_file().then_some(path);
-    }
-    let name = command_of(provider);
-    let names: Vec<String> = if cfg!(windows) { vec![format!("{name}.exe"), format!("{name}.cmd")] } else { vec![name.to_string()] };
-    let on_path = std::env::var_os("PATH").into_iter().flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).flat_map(|dir| names.iter().map(move |n| dir.join(n))).find(|p| p.is_file());
-    on_path.or_else(|| usual_places(provider).into_iter().find(|p| p.is_file()))
 }
 
 /// What a program printed for a terminal, without the codes that colour it (OpenCode colours its version).
@@ -231,25 +199,22 @@ pub(crate) fn plain(text: &str) -> String {
 }
 
 /// What a program says about itself: its version and, for Claude Code, how it is signed in. Asks nothing
-/// of any model.
-pub async fn look(provider: &str, set: Option<&str>) -> Found {
-    let Some(path) = find(provider, set) else {
-        return Found {
-            provider: provider.into(),
-            path: None,
-            version: None,
-            signed_in: None,
-            problem: Some(format!(
-                "{} is not on this computer, or not where Demido looks (the PATH, and where its installer puts it). Install it from its makers, or set its path in Settings.",
-                if provider == "claude-code" { "Claude Code" } else { "OpenCode" }
-            )),
-        };
+/// of any model. `path` is the program to look at (`None`: there is none, and `missing` says why); `env` is
+/// what it is run with (Demido's own copy is run with its own profile).
+pub async fn look(provider: &str, path: Option<PathBuf>, env: &[(&str, String)], missing: &str) -> Found {
+    let Some(path) = path else {
+        return Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(missing.to_string()) };
     };
+    let env: Vec<(String, String)> = env.iter().map(|(n, v)| (n.to_string(), v.clone())).collect();
     let run = |args: &'static [&'static str]| {
-        let path = path.clone();
+        let (path, env) = (path.clone(), env.clone());
         async move {
-            let out = tokio::time::timeout(std::time::Duration::from_secs(15), tokio::process::Command::new(&path).args(args).env("NO_COLOR", "1").stdin(std::process::Stdio::null()).output()).await;
-            match out {
+            let mut command = tokio::process::Command::new(&path);
+            command.args(args).env("NO_COLOR", "1").stdin(std::process::Stdio::null());
+            for (name, value) in &env {
+                command.env(name, value);
+            }
+            match tokio::time::timeout(std::time::Duration::from_secs(15), command.output()).await {
                 Ok(Ok(out)) => Some((out.status.success(), plain(String::from_utf8_lossy(&out.stdout).trim()))),
                 _ => None,
             }
@@ -273,7 +238,7 @@ pub async fn look(provider: &str, set: Option<&str>) -> Found {
     let problem = if version.is_none() {
         Some(format!("{} is there but did not say its version: it may not start.", path.display()))
     } else if signed_in.as_deref() == Some("not signed in") {
-        Some("Claude Code is not signed in. Sign in in a terminal: run claude, then /login. Demido never sees or keeps the login.".into())
+        Some("Claude Code is not signed in. Sign in with the button here: it opens Anthropic's own page. Demido never sees or keeps the login.".into())
     } else {
         None
     };

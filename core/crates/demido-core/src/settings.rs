@@ -331,28 +331,6 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             true,
         ),
         def(
-            "providers.claudeCodePath",
-            "Where Claude Code is",
-            "The full path of the claude program, if Demido does not find it by itself.",
-            Some(
-                "Default: found by itself, on the PATH and where its installer puts it (~/.local/bin/claude). Demido runs the Claude Code you installed, as its makers published it; it never downloads, changes or bundles it.",
-            ),
-            Kind::Text { secret: false, code: true },
-            json!(""),
-            true,
-        ),
-        def(
-            "providers.opencodePath",
-            "Where OpenCode is",
-            "The full path of the opencode program, if Demido does not find it by itself.",
-            Some(
-                "Default: found by itself, on the PATH and where its installer puts it (~/.opencode/bin/opencode). Demido runs the OpenCode you installed; it never downloads, changes or bundles it.",
-            ),
-            Kind::Text { secret: false, code: true },
-            json!(""),
-            true,
-        ),
-        def(
             "permissions.level",
             "New sessions start at",
             "How much a model may do in a new session without asking you. Each session can be changed by itself.",

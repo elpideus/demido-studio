@@ -89,7 +89,7 @@ pub const ALL: [Def; 5] = [
         program: true,
         base: "",
         keys_at: "https://code.claude.com/docs/en/setup",
-        note: "Runs the Claude Code you installed, signed in with your own Claude plan or key, with its own tools and its own loop: Demido is the window onto it. It uses your plan's limits (its five-hour and weekly ones); Demido shows what it reports and does not count it against the limit you set here. Demido never sees or keeps its login. Not made or endorsed by Anthropic.",
+        note: "Runs Claude Code, Anthropic's own program, with its own tools and its own loop: Demido is the window onto it. Demido keeps its own copy, downloaded from Anthropic when you ask and run with a profile of its own, so nothing is installed on your system and none of your own settings come with it. You sign in once, with your Claude plan, on Anthropic's page. It uses your plan's limits (its five-hour and weekly ones); Demido shows what it reports and does not count it against the limit you set here. Demido never sees or keeps the login. Not made or endorsed by Anthropic.",
     },
     Def {
         id: "opencode",
@@ -97,7 +97,7 @@ pub const ALL: [Def; 5] = [
         program: true,
         base: "",
         keys_at: "https://opencode.ai/docs/",
-        note: "Runs the OpenCode you installed, with its own tools and its own loop: Demido is the window onto it. Its free models need no account; several of them use what is sent to improve them, and each says so here. Other models bill through the providers you set up in OpenCode, not through Demido's limit. Used only for your own messages: OpenCode's terms do not allow its free models to be run with nobody there.",
+        note: "Runs OpenCode, with its own tools and its own loop: Demido is the window onto it. Demido keeps its own copy, downloaded from OpenCode's package when you ask and run with folders of its own, so nothing is installed on your system. Its free models need no account; several of them use what is sent to improve them, and each says so here. Used only for your own messages: OpenCode's terms do not allow its free models to be run with nobody there.",
     },
 ];
 
@@ -220,6 +220,13 @@ pub struct ProviderView {
     pub program: Option<crate::programs::Found>,
     /// For a program: its plan's limit, as it last said it while running.
     pub plan: Option<PlanLimit>,
+    /// For a program: Demido's own copy, when it keeps one.
+    pub copy: Option<crate::programs::copies::Kept>,
+    /// For a program: the download of Demido's copy under way.
+    pub downloading: Option<crate::programs::copies::Downloading>,
+    /// For Claude Code: a sign-in under way, and the command that signs in from a terminal.
+    pub signing: Option<SignIn>,
+    pub sign_in_command: Option<String>,
     pub keys_at: String,
     pub note: String,
     /// The key, when one is kept. Never its value.
@@ -230,6 +237,17 @@ pub struct ProviderView {
     pub spent_usd: f64,
     /// Whether all of that is the provider's own figure.
     pub spent_exact: bool,
+}
+
+/// A sign-in to Claude Code under way: Claude Code's own (`claude auth login`), on Anthropic's page.
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SignIn {
+    /// `started`, `done` or `failed`.
+    pub state: String,
+    /// The address of Anthropic's sign-in page, as Claude Code printed it, for when no browser opened.
+    pub url: Option<String>,
+    /// What Claude Code said, when it failed.
+    pub said: Option<String>,
 }
 
 /// A program's plan limit, as it last said it (Claude Code's `rate_limit_event`).
@@ -402,6 +420,10 @@ pub struct Providers {
     found: Mutex<HashMap<String, (Instant, crate::programs::Found)>>,
     /// Each program's plan limit, as it last said it.
     plans: Mutex<HashMap<String, PlanLimit>>,
+    /// Demido's own copies of the programs.
+    copies: Arc<crate::programs::copies::Copies>,
+    /// Sign-ins under way, by provider.
+    signing: Mutex<HashMap<String, SignIn>>,
 }
 
 /// A program is looked at again after this long.
@@ -437,6 +459,7 @@ impl Providers {
                 bases.insert(d.id, format!("{base}/{}", d.id));
             }
         }
+        let copies = Arc::new(crate::programs::copies::Copies::new(&std::env::temp_dir().join("demido-copies"), events.clone()));
         Self {
             db,
             vault,
@@ -450,43 +473,165 @@ impl Providers {
             listing_in: std::env::temp_dir().join("demido-program-listing"),
             found: Mutex::default(),
             plans: Mutex::default(),
+            copies,
+            signing: Mutex::default(),
         }
     }
 
-    /// The same, asking OpenCode for its models in a folder under `home`, and starting programs with `spawner`.
+    /// The same, keeping Demido's copies of the programs under `home`, asking OpenCode for its models in a
+    /// folder there, and starting programs with `spawner`.
     pub fn with_programs(mut self, home: &std::path::Path, spawner: Arc<dyn crate::programs::Spawner>) -> Self {
         self.listing_in = home.join("programs").join("listing");
+        self.copies = Arc::new(crate::programs::copies::Copies::new(home, self.events.clone()));
         self.spawner = spawner;
         self
+    }
+
+    /// The same, with these copies. For tests.
+    #[cfg(test)]
+    pub(crate) fn with_copies(mut self, copies: Arc<crate::programs::copies::Copies>) -> Self {
+        self.copies = copies;
+        self
+    }
+
+    pub fn copies(&self) -> &Arc<crate::programs::copies::Copies> {
+        &self.copies
+    }
+
+    /// What Demido's copy of a program is run with: its own profile, and no self-update.
+    pub fn program_env(&self, provider: &str) -> Vec<(&'static str, String)> {
+        self.copies.env(provider)
+    }
+
+    /// Downloads Demido's copy of a program, in the background. Told as it goes.
+    pub fn start_download(self: &Arc<Self>, provider: &str) -> Result<()> {
+        if !ALL.iter().any(|d| d.id == provider && d.program) {
+            return Err(Error::NotFound(format!("\"{provider}\" is not a program Demido runs.")));
+        }
+        if self.copies.downloading(provider).is_some() {
+            return Err(Error::Busy("It is being downloaded already.".into()));
+        }
+        let (me, provider) = (self.clone(), provider.to_string());
+        tokio::spawn(async move {
+            let _ = me.copies.download(&provider).await;
+            me.forget_look(&provider);
+        });
+        Ok(())
+    }
+
+    /// Forgets what a program said about itself, so it is asked again.
+    fn forget_look(&self, provider: &str) {
+        self.found.lock().unwrap_or_else(|e| e.into_inner()).retain(|key, _| !key.starts_with(&format!("{provider}:")));
+    }
+
+    /// Deletes Demido's copy of a program. Its profile, with its settings and login, stays.
+    pub fn remove_copy(&self, provider: &str) -> Result<crate::programs::copies::Kept> {
+        let gone = self.copies.remove(provider)?;
+        self.forget_look(provider);
+        Ok(gone)
+    }
+
+    /// The command that signs Demido's copy of Claude Code in from a terminal: for when Anthropic's page
+    /// shows a code to paste, which Demido does not carry.
+    fn sign_in_command(&self) -> Option<String> {
+        let kept = self.copies.kept("claude-code")?;
+        let profile = self.copies.profile("claude-code").display().to_string();
+        Some(if cfg!(windows) { format!("$env:CLAUDE_CONFIG_DIR=\"{profile}\"; & \"{}\" auth login", kept.path) } else { format!("CLAUDE_CONFIG_DIR='{profile}' '{}' auth login", kept.path) })
+    }
+
+    /// Starts Claude Code's own sign-in for the copy in use: it opens Anthropic's page in the browser, and
+    /// Claude Code keeps the login in its profile. Demido never reads it, asks for it or passes it on; it
+    /// only shows the page's address, for when no browser opened.
+    pub fn sign_in(self: &Arc<Self>, provider: &str) -> Result<()> {
+        if provider != "claude-code" {
+            return Err(Error::Invalid("Only Claude Code is signed in from here. OpenCode's free models need no account.".into()));
+        }
+        let program = self.program(provider)?;
+        let env = self.program_env(provider);
+        let mut command = tokio::process::Command::new(&program);
+        command.args(["auth", "login"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
+        for (name, value) in &env {
+            command.env(name, value);
+        }
+        let mut child = command.spawn().map_err(|e| Error::Invalid(format!("Claude Code's sign-in could not be started: {e}")))?;
+        self.signing.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.into(), SignIn { state: "started".into(), url: None, said: None });
+        self.events.tell("program.signin", Some(provider), json!({ "state": "started" }));
+        let me = self.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut said = String::new();
+            let mut lines = tokio::io::BufReader::new(child.stdout.take().expect("piped")).lines();
+            let mut errors = tokio::io::BufReader::new(child.stderr.take().expect("piped")).lines();
+            // Ten minutes for the person to sign in on Anthropic's page.
+            let ended = tokio::time::timeout(std::time::Duration::from_secs(600), async {
+                loop {
+                    let line = tokio::select! {
+                        l = lines.next_line() => l,
+                        l = errors.next_line() => l,
+                    };
+                    let Ok(Some(line)) = line else { break };
+                    let line = crate::programs::plain(&line);
+                    if let Some(url) = line.split_whitespace().find(|w| w.starts_with("https://")) {
+                        let mut signing = me.signing.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(s) = signing.get_mut("claude-code")
+                            && s.url.is_none()
+                        {
+                            s.url = Some(url.to_string());
+                            me.events.tell("program.signin", Some("claude-code"), json!({ "state": "started", "url": url }));
+                        }
+                    }
+                    said.push_str(&line);
+                    said.push('\n');
+                }
+                child.wait().await
+            })
+            .await;
+            let ok = matches!(ended, Ok(Ok(status)) if status.success());
+            let tail: String = said.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" ");
+            me.signing.lock().unwrap_or_else(|e| e.into_inner()).insert(
+                "claude-code".into(),
+                SignIn {
+                    state: if ok { "done" } else { "failed" }.into(),
+                    url: None,
+                    said: (!ok).then(|| if tail.trim().is_empty() { "Claude Code ended the sign-in without saying why.".into() } else { tail }),
+                },
+            );
+            me.forget_look("claude-code");
+            me.events.tell("program.signin", Some("claude-code"), json!({ "state": if ok { "done" } else { "failed" } }));
+        });
+        Ok(())
     }
 
     pub fn spawner(&self) -> &Arc<dyn crate::programs::Spawner> {
         &self.spawner
     }
 
-    /// The path the person set for a program, if they set one.
-    pub fn program_path_set(&self, provider: &str) -> Option<String> {
-        let id = if provider == "claude-code" { "providers.claudeCodePath" } else { "providers.opencodePath" };
-        self.settings.value::<String>(id).ok().filter(|s| !s.trim().is_empty())
+    /// Where Demido's copy of a program is. Only Demido's own copy is run, never one installed on the system
+    /// (the owner's direction, DECISIONS U26): everything stays in Demido's folder.
+    fn program_path(&self, provider: &str) -> Option<std::path::PathBuf> {
+        self.copies.kept(provider).map(|k| std::path::PathBuf::from(k.path))
+    }
+
+    /// Why there is no program to run, for a person.
+    fn missing(&self, provider: &str) -> String {
+        let name = if provider == "claude-code" { "Claude Code" } else { "OpenCode" };
+        format!("Demido has no copy of {name} yet. Download it on the Providers screen: it comes from its makers and stays in Demido's own folder; nothing is installed on your system.")
     }
 
     /// Where a program is, or why it cannot be used.
     pub fn program(&self, provider: &str) -> Result<std::path::PathBuf> {
-        let set = self.program_path_set(provider);
-        crate::programs::find(provider, set.as_deref()).ok_or_else(|| {
-            let name = if provider == "claude-code" { "Claude Code" } else { "OpenCode" };
-            Error::Invalid(format!("{name} is not on this computer, or not where Demido looks. Install it from its makers, or set its path in Settings › Providers and spending."))
-        })
+        self.program_path(provider).ok_or_else(|| Error::Invalid(self.missing(provider)))
     }
 
     /// What a program says about itself, looked at again after a minute.
     pub async fn look_at(&self, provider: &str) -> crate::programs::Found {
-        let kept = self.found.lock().unwrap_or_else(|e| e.into_inner()).get(provider).filter(|(at, _)| at.elapsed() < PROGRAM_LOOKED_AT_FOR).map(|(_, f)| f.clone());
+        let key = format!("{provider}:");
+        let kept = self.found.lock().unwrap_or_else(|e| e.into_inner()).get(&key).filter(|(at, _)| at.elapsed() < PROGRAM_LOOKED_AT_FOR).map(|(_, f)| f.clone());
         if let Some(found) = kept {
             return found;
         }
-        let found = crate::programs::look(provider, self.program_path_set(provider).as_deref()).await;
-        self.found.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.to_string(), (Instant::now(), found.clone()));
+        let found = crate::programs::look(provider, self.program_path(provider), &self.program_env(provider), &self.missing(provider)).await;
+        self.found.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now(), found.clone()));
         found
     }
 
@@ -553,7 +698,7 @@ impl Providers {
                 // Demido's own, read and deleted. Nothing is sent to a model.
                 let program = self.program("opencode")?;
                 std::fs::create_dir_all(&self.listing_in)?;
-                let started = self.spawner.spawn(&program, &["acp".to_string()], &self.listing_in, &[])?;
+                let started = self.spawner.spawn(&program, &["acp".to_string()], &self.listing_in, &self.program_env("opencode"))?;
                 let list: Vec<RemoteModel> = crate::programs::opencode_models(started, &self.listing_in).await?.iter().map(|(value, name)| opencode_model(value, name)).collect();
                 self.listed.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.to_string(), (Instant::now(), list.clone()));
                 list
@@ -694,6 +839,10 @@ impl Providers {
                     kind: if d.program { "program" } else { "api" }.into(),
                     program: programs.get(d.id).cloned(),
                     plan: plans.get(d.id).cloned(),
+                    copy: if d.program { self.copies.kept(d.id) } else { None },
+                    downloading: if d.program { self.copies.downloading(d.id) } else { None },
+                    signing: self.signing.lock().unwrap_or_else(|e| e.into_inner()).get(d.id).cloned(),
+                    sign_in_command: (d.id == "claude-code").then(|| self.sign_in_command()).flatten(),
                     keys_at: d.keys_at.into(),
                     note: d.note.into(),
                     key: self.vault.facts(d.id),

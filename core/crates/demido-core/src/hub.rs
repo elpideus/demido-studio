@@ -607,9 +607,7 @@ impl Hub {
 
     /// Free bytes on the disk the models folder is on. `None` when it cannot be told.
     fn room_on_disk(&self) -> Option<u64> {
-        let folder = self.models_dir.canonicalize().ok()?;
-        let disks = sysinfo::Disks::new_with_refreshed_list().ok()?;
-        disks.iter().filter(|d| folder.starts_with(d.mount_point())).max_by_key(|d| d.mount_point().as_os_str().len()).map(|d| d.available_space())
+        crate::system::free_bytes(&self.models_dir)
     }
 
     /// Starts downloading a quantization of a model. Gives the download back at once; it goes on by itself.

@@ -292,7 +292,9 @@ impl Chat {
                 self.live().insert(token.clone(), live.clone());
                 let effort = (session.thinking != "off").then_some(session.thinking.as_str());
                 let options = programs::ClaudeCodeOptions { model: name, effort, mode: claude_code_mode(level), session: &external, resume, approve_at: approve_at.as_deref(), append: INSTRUCTIONS };
-                let started = providers.spawner().spawn(&program, &programs::claude_code_args(&options), &cwd, &programs::claude_code_env());
+                // Demido's own copy runs with its own profile and no self-update; the one installed here as it is.
+                let env: Vec<(&str, String)> = programs::claude_code_env().into_iter().chain(providers.program_env(def.id)).collect();
+                let started = providers.spawner().spawn(&program, &programs::claude_code_args(&options), &cwd, &env);
                 let turn = match started {
                     Ok(started) => programs::claude_code(started, &prompt, &running.stop, &mut on).await,
                     Err(e) => Err(e),
@@ -313,7 +315,8 @@ impl Chat {
                     })
                 };
                 let resume = known.as_ref().map(|(id, _, _)| id.as_str());
-                let started = providers.spawner().spawn(&program, &["acp".to_string()], &cwd, &programs::opencode_env(level));
+                let env: Vec<(&str, String)> = programs::opencode_env(level).into_iter().chain(providers.program_env(def.id)).collect();
+                let started = providers.spawner().spawn(&program, &["acp".to_string()], &cwd, &env);
                 let turn = match started {
                     Ok(started) => programs::opencode(started, &cwd, name, resume, Some(INSTRUCTIONS), &prompt, &running.stop, &mut on, approve).await,
                     Err(e) => Err(e),

@@ -22,6 +22,8 @@ dom_smoothie = "0.20"
 # Pages that are not written in UTF-8.
 encoding_rs = "0.8"
 flate2 = "1.1"
+# The SHA-512 npm lists for a package is written in base64. 0.23, MIT OR Apache-2.0; already in the build through other crates.
+base64 = "0.23"
 # Dates and times with the system's own time zone. Read from crates.io on 2026-11-21: 1.0.1, Unlicense OR MIT.
 jiff = "1"
 # Where keys are kept: the system's own keyring, one crate per system. Read from crates.io on 2026-11-21:

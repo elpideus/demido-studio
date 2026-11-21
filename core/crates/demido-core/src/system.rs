@@ -337,6 +337,13 @@ pub fn advise(family: &str, arch: &str, gpus: &[Gpu]) -> Advice {
     Advice { runtime: "llama.cpp".into(), source: "https://github.com/ggml-org/llama.cpp/releases".into(), recommended, others: options }
 }
 
+/// Free bytes on the disk a folder is on. `None` when it cannot be told.
+pub fn free_bytes(folder: &std::path::Path) -> Option<u64> {
+    let folder = folder.canonicalize().ok()?;
+    let disks = sysinfo::Disks::new_with_refreshed_list().ok()?;
+    disks.iter().filter(|d| folder.starts_with(d.mount_point())).max_by_key(|d| d.mount_point().as_os_str().len()).map(|d| d.available_space())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

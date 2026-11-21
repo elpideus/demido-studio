@@ -271,9 +271,15 @@ fn world(spawner: Arc<StandSpawner>) -> World {
     let events = Arc::new(EventLog::new(db.clone()));
     let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
     // A program has to be somewhere: any file stands in for it.
-    let exe = std::env::current_exe().unwrap().display().to_string();
-    settings.set("providers.claudeCodePath", json!(exe)).unwrap();
-    settings.set("providers.opencodePath", json!(exe)).unwrap();
+    // Demido runs only its own copies: one of each stands in, as if downloaded (the stand-in spawner never
+    // runs them).
+    for (provider, file) in [("claude-code", "claude"), ("opencode", "opencode")] {
+        let place = home.join("programs").join(provider).join("versions/1.0.0");
+        std::fs::create_dir_all(&place).unwrap();
+        std::fs::write(place.join(file), b"#!/bin/sh\n").unwrap();
+        let kept = copies::Kept { provider: provider.into(), version: "1.0.0".into(), path: place.join(file).display().to_string(), size: 10, checked: "test".into(), from: "test".into(), kept_at: 0 };
+        std::fs::write(home.join("programs").join(provider).join("kept.json"), serde_json::to_string(&kept).unwrap()).unwrap();
+    }
     let vault = Arc::new(crate::vault::Vault::in_file(&home));
     let providers = Arc::new(crate::providers::Providers::new(db.clone(), vault, settings.clone(), events.clone()).with_programs(&home, spawner));
     let runtimes = Arc::new(Runtimes::new(&home, events.clone(), Source::default()).unwrap());
@@ -436,6 +442,177 @@ fn a_programs_colours_are_taken_out_of_what_it_says() {
 
 #[tokio::test]
 async fn a_program_that_is_not_there_is_said_plainly() {
-    let found = look("claude-code", Some("/nowhere/claude")).await;
-    assert!(found.path.is_none() && found.problem.unwrap().contains("not on this computer"));
+    let found = look("claude-code", None, &[], "Demido has no copy of Claude Code yet.").await;
+    assert!(found.path.is_none() && found.problem.unwrap().contains("no copy"));
+}
+
+// ───────── Demido's own copies ─────────
+
+/// A stand-in for both makers' download services: Anthropic's releases, OpenCode's version, npm.
+async fn publisher(claude: Vec<u8>, claude_sum: String, tgz: Vec<u8>, integrity: String) -> (String, Arc<Mutex<Vec<String>>>) {
+    use axum::extract::Request;
+    use axum::response::IntoResponse;
+    let asked: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = asked.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let here = base.clone();
+    let platform = copies::claude_code_platform().unwrap();
+    let target = copies::opencode_target().unwrap();
+    let binary = if cfg!(windows) { "claude.exe" } else { "claude" };
+    let app = axum::Router::new().fallback(move |request: Request| {
+        let (seen, claude, claude_sum, tgz, integrity, platform, target, here) =
+            (seen.clone(), claude.clone(), claude_sum.clone(), tgz.clone(), integrity.clone(), platform.clone(), target.clone(), here.clone());
+        async move {
+            let path = request.uri().path().to_string();
+            seen.lock().unwrap().push(path.clone());
+            if path == "/claude/latest" {
+                return "2.1.330\n".into_response();
+            }
+            if path == "/claude/2.1.330/manifest.json" {
+                return axum::Json(json!({ "version": "2.1.330", "platforms": { platform.clone(): { "binary": binary, "checksum": claude_sum, "size": claude.len() } } })).into_response();
+            }
+            if path == format!("/claude/2.1.330/{platform}/{binary}") {
+                return claude.into_response();
+            }
+            if path == "/opencode-latest" {
+                return axum::Json(json!({ "channel": "latest", "version": "2.3.2", "metadata": { "package": "@opencode/cli" } })).into_response();
+            }
+            if path == format!("/npm/@opencode%2fcli-{target}/2.3.2") {
+                return axum::Json(
+                    json!({ "name": format!("@opencode/cli-{target}"), "version": "2.3.2", "license": "MIT", "dist": { "tarball": format!("{here}/files/cli.tgz"), "integrity": integrity } }),
+                )
+                .into_response();
+            }
+            if path == "/files/cli.tgz" {
+                return tgz.into_response();
+            }
+            axum::http::StatusCode::NOT_FOUND.into_response()
+        }
+    });
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (base, asked)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// An npm package as OpenCode's is laid out: `package/bin/opencode`.
+fn opencode_package(program: &[u8]) -> (Vec<u8>, String) {
+    use base64::Engine;
+    use sha2::Digest;
+    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
+    let mut header = tar::Header::new_gnu();
+    header.set_size(program.len() as u64);
+    header.set_mode(0o755);
+    header.set_cksum();
+    tar.append_data(&mut header, format!("package/bin/{}", if cfg!(windows) { "opencode.exe" } else { "opencode" }), program).unwrap();
+    let tgz = tar.into_inner().unwrap().finish().unwrap();
+    let integrity = format!("sha512-{}", base64::engine::general_purpose::STANDARD.encode(sha2::Sha512::digest(&tgz)));
+    (tgz, integrity)
+}
+
+fn copies_at(home: &Path, base: &str) -> Arc<copies::Copies> {
+    let db = Arc::new(crate::db::Db::memory().unwrap());
+    Arc::new(copies::Copies::new(home, Arc::new(crate::events::EventLog::new(db))).from(base))
+}
+
+#[tokio::test]
+async fn demidos_copies_come_from_their_makers_checked_and_stay_in_its_folder() {
+    let claude = b"#!/bin/sh\necho 'stand-in claude'\n".to_vec();
+    let (tgz, integrity) = opencode_package(b"#!/bin/sh\necho 'stand-in opencode'\n");
+    let (base, asked) = publisher(claude.clone(), sha256_hex(&claude), tgz, integrity).await;
+    let home = std::env::temp_dir().join(format!("demido-copies-{}", uuid::Uuid::new_v4()));
+    let c = copies_at(&home, &base);
+    assert_eq!(c.kept("claude-code"), None);
+    assert_eq!(c.latest("claude-code").await.unwrap().version, "2.1.330");
+
+    let kept = c.download("claude-code").await.unwrap();
+    assert_eq!((kept.version.as_str(), kept.size, kept.checked.as_str()), ("2.1.330", claude.len() as u64, "SHA-256 from Anthropic's manifest"));
+    assert!(kept.path.starts_with(home.join("programs").join("claude-code").to_str().unwrap()), "{}", kept.path);
+    assert_eq!(std::fs::read(&kept.path).unwrap(), claude, "unchanged");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&kept.path).unwrap().permissions().mode() & 0o777, 0o755);
+    }
+    assert_eq!(c.kept("claude-code"), Some(kept.clone()));
+    // Asked again for the same version: nothing is downloaded twice.
+    let before = asked.lock().unwrap().iter().filter(|p| p.ends_with("/claude") || p.ends_with("/claude.exe")).count();
+    c.download("claude-code").await.unwrap();
+    assert_eq!(asked.lock().unwrap().iter().filter(|p| p.ends_with("/claude") || p.ends_with("/claude.exe")).count(), before);
+    // It runs with a profile of its own, beside it, and does not update itself.
+    let env = c.env("claude-code");
+    assert!(env.contains(&("CLAUDE_CONFIG_DIR", home.join("programs/claude-code/profile").display().to_string())));
+    assert!(env.contains(&("DISABLE_AUTOUPDATER", "1".to_string())));
+
+    let kept = c.download("opencode").await.unwrap();
+    assert_eq!((kept.version.as_str(), kept.checked.as_str()), ("2.3.2", "SHA-512 from npm"));
+    assert_eq!(std::fs::read(&kept.path).unwrap(), b"#!/bin/sh\necho 'stand-in opencode'\n");
+    assert!(!Path::new(&kept.path).with_file_name("opencode.tgz").exists(), "the package goes once unpacked");
+    let env = c.env("opencode");
+    assert!(env.iter().any(|(n, v)| *n == "XDG_DATA_HOME" && v.starts_with(home.join("programs/opencode/profile").to_str().unwrap())));
+    assert!(env.contains(&("OPENCODE_DISABLE_AUTOUPDATE", "1".to_string())));
+
+    // Removed: the program goes, its profile (its settings and login) stays.
+    std::fs::write(home.join("programs/claude-code/profile/settings.json"), "{}").unwrap();
+    c.remove("claude-code").unwrap();
+    assert_eq!(c.kept("claude-code"), None);
+    assert!(home.join("programs/claude-code/profile/settings.json").exists());
+    std::fs::remove_dir_all(&home).ok();
+}
+
+#[tokio::test]
+async fn a_copy_that_is_not_what_its_maker_published_is_not_kept() {
+    let claude = b"the real program".to_vec();
+    let (tgz, _) = opencode_package(b"real");
+    let (base, _) = publisher(b"something else entirely".to_vec(), sha256_hex(&claude), tgz, "sha512-AAAA".into()).await;
+    let home = std::env::temp_dir().join(format!("demido-copies-bad-{}", uuid::Uuid::new_v4()));
+    let c = copies_at(&home, &base);
+    let said = c.download("claude-code").await.unwrap_err().to_string();
+    assert!(said.contains("checksum does not match"), "{said}");
+    assert_eq!(c.kept("claude-code"), None);
+    let said = c.download("opencode").await.unwrap_err().to_string();
+    assert!(said.contains("SHA-512 does not match"), "{said}");
+    assert_eq!(c.kept("opencode"), None);
+    std::fs::remove_dir_all(&home).ok();
+}
+
+#[tokio::test]
+async fn only_demidos_own_copy_is_run_and_with_its_own_profile() {
+    let claude = b"#!/bin/sh\n".to_vec();
+    let (tgz, integrity) = opencode_package(b"#!/bin/sh\n");
+    let (base, _) = publisher(claude.clone(), sha256_hex(&claude), tgz, integrity).await;
+    let home = std::env::temp_dir().join(format!("demido-copies-only-{}", uuid::Uuid::new_v4()));
+    let c = copies_at(&home, &base);
+    let db = Arc::new(crate::db::Db::memory().unwrap());
+    let events = Arc::new(crate::events::EventLog::new(db.clone()));
+    let settings = Arc::new(crate::settings::Settings::load(db.clone(), events.clone()).unwrap());
+    let p = crate::providers::Providers::new(db, Arc::new(crate::vault::Vault::in_file(&home)), settings, events).with_copies(c.clone());
+    // Not downloaded: nothing is run, whatever is installed on the computer (Claude Code is, here).
+    assert!(p.program("claude-code").unwrap_err().to_string().contains("Download it on the Providers screen"));
+    c.download("claude-code").await.unwrap();
+    assert_eq!(p.program("claude-code").unwrap(), PathBuf::from(c.kept("claude-code").unwrap().path));
+    assert!(p.program_env("claude-code").iter().any(|(n, _)| *n == "CLAUDE_CONFIG_DIR"));
+    std::fs::remove_dir_all(&home).ok();
+}
+
+#[tokio::test]
+async fn a_session_on_claude_code_runs_demidos_copy_with_its_own_profile() {
+    let (spawner, mut sides, env) = stand();
+    let w = world(spawner);
+    w.providers.choose("claude-code", "haiku", true).await.unwrap();
+    let session = w.chat.start(None, Some("claude-code/haiku")).await.unwrap();
+    w.chat.say(&session.id, "Hi.").unwrap();
+    let mut side = sides.recv().await.unwrap();
+    {
+        let names = env.lock().unwrap();
+        assert!(names.iter().any(|n| n == "CLAUDE_CONFIG_DIR") && names.iter().any(|n| n == "DISABLE_AUTOUPDATER"), "{names:?}");
+    }
+    side.line().await;
+    side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "Hello.", "total_cost_usd": 0.0, "session_id": "cc-9", "usage": {} })).await;
+    assert_eq!(w.answered(&session.id).await.content, "Hello.");
+    std::fs::remove_dir_all(&w.home).ok();
 }

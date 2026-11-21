@@ -133,6 +133,18 @@ installed one here: v2.2.7.
   wrote (`cat todo.txt`); the step now shows what was asked. The window's figures missed the turn's cost until
   a reload: a refresh asked while another was on its way shared the older answer; a second one is now read.
 
+## Demido's own copies of the programs
+
+Read today (22 November 2026): Anthropic's installers (`claude.ai/install.sh`, `install.ps1`, read and not
+run) and OpenCode's (`opencode.ai/v2/install`, read and not run); Claude Code's authentication page.
+
+| Fact | How sure |
+|---|---|
+| Anthropic's installer reads the version from `downloads.claude.ai/claude-code-releases/latest`, then `<version>/manifest.json`, whose `platforms` list for each platform (`linux-x64`, `linux-arm64`, their `-musl` forms, `darwin-x64`, `darwin-arm64`, `win32-x64`, `win32-arm64`) the file's name, SHA-256 and size; it downloads `<version>/<platform>/claude` (`claude.exe`), checks the SHA-256, and then runs `claude install`, which sets up the launcher in `~/.local/bin` and the shell. A `manifest.json.sig` is published; the installer does not check it | Read; Tried: 2.1.330 for linux-x64, 381,121,040 bytes, matched |
+| OpenCode's installer reads the version and package from `opencode.ai/update/api/latest/cli/npm` (2.3.2, `@opencode/cli`), takes `@opencode/cli-<target>` from npm (target `linux-x64`, with `-baseline` without AVX2 and `-musl` on musl), and unpacks `package/bin/opencode` into `~/.opencode/bin`; npm lists a SHA-512 (`integrity`) for the package, MIT | Read; Tried: 2.3.2, 252,848,304 bytes unpacked, matched |
+| `CLAUDE_CONFIG_DIR` gives Claude Code a folder of its own for settings, history and its login: on Linux and Windows the login is kept in `.credentials.json` under it, on macOS in a Keychain entry keyed to it | Read (authentication) |
+| Run with an empty home folder and its own profile, Demido's Claude Code copy wrote nothing in the home: `.claude.json`, its backups, `projects`, `sessions` and its plugin store went into the profile. It said it was not signed in, though the owner's own Claude Code is: the profiles are apart. Demido's OpenCode copy, run the same way, put its database, logs and caches in its own folders, and listed its 12 free models | Tried |
+
 ## What was tried with the providers, and what was not
 
 - **Tried:** the keyring on this computer, with a throwaway entry. The whole flow in the app against

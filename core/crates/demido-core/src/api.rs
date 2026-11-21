@@ -75,7 +75,7 @@ impl Core {
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
                 .with_providers(providers.clone())
-                .keeping_programs_in(paths.home().join("programs"))
+                .keeping_programs_in(paths.home().join("programs").join("sessions"))
                 .keeping_in(paths.home().join("saved-folders"))
                 .keeping_outputs_in(paths.home().join("outputs"))
                 .with_sandbox(crate::sandbox::Sandbox::find())
@@ -729,6 +729,42 @@ async fn provider_account(State(app): State<App>, Path(id): Path<String>) -> Res
     Ok(Json(app.providers.account(&id).await?))
 }
 
+/// Downloads Demido's own copy of a program (`claude-code`, `opencode`) from its maker, checked, into Demido's
+/// own folder. Answers at once; the download is told as it goes (`program.download`), and its end is in the
+/// log (`program.downloaded`, `program.download.failed`). Nothing is installed on the system.
+#[utoipa::path(post, path = "/api/v1/providers/{id}/program", tag = "providers", params(("id" = String, Path, description = "claude-code or opencode")), responses((status = 202, body = Stopped), (status = 404, body = Problem), (status = 409, body = Problem)))]
+async fn program_download(State(app): State<App>, Path(id): Path<String>) -> Result<Response> {
+    app.providers.start_download(&id)?;
+    Ok((StatusCode::ACCEPTED, Json(Stopped { stopped: false })).into_response())
+}
+
+/// Deletes Demido's copy of a program. Its profile (its settings and, for Claude Code, its login) stays.
+#[utoipa::path(delete, path = "/api/v1/providers/{id}/program", tag = "providers", params(("id" = String, Path, description = "claude-code or opencode")), responses((status = 200, body = crate::programs::copies::Kept), (status = 404, body = Problem)))]
+async fn program_remove(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::programs::copies::Kept>> {
+    Ok(Json(app.providers.remove_copy(&id)?))
+}
+
+/// Stops the download of Demido's copy. What was downloaded is kept, so the next try goes on from there.
+#[utoipa::path(delete, path = "/api/v1/providers/{id}/program/download", tag = "providers", params(("id" = String, Path, description = "claude-code or opencode")), responses((status = 200, body = Stopped)))]
+async fn program_stop(State(app): State<App>, Path(id): Path<String>) -> Json<Stopped> {
+    Json(Stopped { stopped: app.providers.copies().stop(&id) })
+}
+
+/// The newest version the program's maker offers, and how large it is.
+#[utoipa::path(get, path = "/api/v1/providers/{id}/program/latest", tag = "providers", params(("id" = String, Path, description = "claude-code or opencode")), responses((status = 200, body = crate::programs::copies::Latest), (status = 502, body = Problem)))]
+async fn program_latest(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::programs::copies::Latest>> {
+    Ok(Json(app.providers.copies().latest(&id).await?))
+}
+
+/// Starts Claude Code's own sign-in for the copy in use: Anthropic's page opens in the browser, and Claude
+/// Code keeps the login in its profile. Demido never reads, asks for or passes on the login. Answers at
+/// once; how it goes is told (`program.signin`).
+#[utoipa::path(post, path = "/api/v1/providers/{id}/sign-in", tag = "providers", params(("id" = String, Path, description = "claude-code")), responses((status = 202, body = Stopped), (status = 422, body = Problem)))]
+async fn program_sign_in(State(app): State<App>, Path(id): Path<String>) -> Result<Response> {
+    app.providers.sign_in(&id)?;
+    Ok((StatusCode::ACCEPTED, Json(Stopped { stopped: false })).into_response())
+}
+
 /// What Demido counted this month on models elsewhere, by model, and the month's limit.
 #[utoipa::path(get, path = "/api/v1/usage", tag = "providers", responses((status = 200, body = Spending)))]
 async fn usage(State(app): State<App>) -> Result<Json<Spending>> {
@@ -883,7 +919,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, vault_put, vault_remove, providers_list, provider_models, provider_choose, provider_account, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, vault_put, vault_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -929,6 +965,10 @@ pub fn router(app: App) -> Router {
         .route("/providers/{id}/models", get(provider_models))
         .route("/providers/{id}/chosen", axum::routing::put(provider_choose))
         .route("/providers/{id}/account", get(provider_account))
+        .route("/providers/{id}/program", post(program_download).delete(program_remove))
+        .route("/providers/{id}/program/download", axum::routing::delete(program_stop))
+        .route("/providers/{id}/program/latest", get(program_latest))
+        .route("/providers/{id}/sign-in", post(program_sign_in))
         .route("/usage", get(usage))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))

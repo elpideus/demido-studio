@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Ellipsis, ExternalLink, KeyRound, ListPlus, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
-import { choose, dollars, holds, listModels, priceOf, readAccount, removeKey, saveKey, useProviders, type Account, type PlanLimit, type ProviderView, type RemoteModel, type Spending } from '@/data/providers'
+import { choose, dollars, downloadCopy, holds, latestCopy, listModels, priceOf, readAccount, removeCopy, removeKey, saveKey, signIn, stopDownload, useProviders, type Account, type Latest, type PlanLimit, type ProviderView, type RemoteModel, type Spending } from '@/data/providers'
 import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal, Switch, Tip } from '@/ui'
 
 function Meter({ label, used, limit, unit, note }: { label: string; used: number; limit: number | null; unit: string; note?: string }) {
@@ -174,12 +174,77 @@ function Plan({ plan }: { plan: PlanLimit }) {
   )
 }
 
+const MB = (n: number) => `${Math.round(n / 1e6)} MB`
+
+/** Demido's own copy of a program: download it, update it, delete it. Nothing goes on the system. */
+function OwnCopy({ p }: { p: ProviderView }) {
+  const [latest, setLatest] = useState<Latest | null>(null)
+  const maker = p.id === 'claude-code' ? 'Anthropic' : 'OpenCode\'s package on npm'
+  useEffect(() => {
+    let alive = true
+    latestCopy(p.id).then((l) => { if (alive) setLatest(l) }, () => {})
+    return () => { alive = false }
+  }, [p.id, p.copy?.version])
+  if (p.downloading) {
+    const d = p.downloading
+    return (
+      <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
+        <Meter label={`Downloading ${p.name}${d.version ? ` ${d.version}` : ''} from ${maker}`} used={Math.round(d.done / 1e6)} limit={d.total ? Math.round(d.total / 1e6) : null} unit=" MB" />
+        <div><Button size="sm" variant="ghost" onClick={() => void stopDownload(p.id)}>Stop</Button></div>
+      </div>
+    )
+  }
+  if (!p.copy)
+    return (
+      <div className="app-stack" style={{ gap: 'var(--d-space-8)' }}>
+        <p className="d-type-small d-text-secondary">Demido keeps a copy of {p.name} of its own: downloaded from {maker} when you ask, checked against its published checksum, and kept unchanged in Demido's folder. Nothing is installed on your system, and none of your own settings, skills or plugins come with it.</p>
+        <div><Button size="sm" onClick={() => void downloadCopy(p.id)}>Download {p.name}{latest ? ` ${latest.version}${latest.size ? ` (${MB(latest.size)})` : ''}` : ''}</Button></div>
+      </div>
+    )
+  const newer = latest && latest.version !== p.copy.version ? latest : null
+  return (
+    <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
+      <p className="d-type-caption d-text-secondary">Demido's own copy, {p.copy.version}, {MB(p.copy.size)}, checked against the {p.copy.checked}. It runs with a profile of its own and does not update itself: Demido updates it.</p>
+      <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
+        {newer && <Button size="sm" onClick={() => void downloadCopy(p.id)}>Update to {newer.version}</Button>}
+        <Tip label="Its profile, with its settings and login, is kept: downloaded again, it finds them."><Button size="sm" variant="ghost" onClick={() => void removeCopy(p.id)}>Delete the copy</Button></Tip>
+      </div>
+    </div>
+  )
+}
+
+/** Claude Code's own sign-in, on Anthropic's page. Demido starts it and never sees the login. */
+function SignInPart({ p }: { p: ProviderView }) {
+  const s = p.signing
+  const needed = p.program?.signed_in === 'not signed in'
+  if (!s && !needed) return null
+  const command = p.sign_in_command && (
+    <span style={{ display: 'block', marginBlockStart: 'var(--d-space-6)' }}>If Anthropic's page shows a code to paste, sign in from a terminal instead: <code className="d-mono" style={{ userSelect: 'all' }}>{p.sign_in_command}</code></span>
+  )
+  if (s?.state === 'started')
+    return (
+      <Signal level="note">
+        Anthropic's sign-in page opened in your browser. Sign in there; Claude Code keeps the login in its own profile, and Demido never sees it.
+        {s.url && <span style={{ display: 'block', marginBlockStart: 'var(--d-space-6)' }}>No page opened? <a href={s.url} target="_blank" rel="noreferrer noopener">Open Anthropic's sign-in page</a>.</span>}
+        {command}
+      </Signal>
+    )
+  if (s?.state === 'failed')
+    return <Signal level="caution" actions={<Button size="sm" onClick={() => void signIn(p.id)}>Try again</Button>}>The sign-in did not finish. {s.said}{command}</Signal>
+  return (
+    <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
+      <div><Button size="sm" variant="primary" onClick={() => void signIn(p.id)}>Sign in to Claude</Button></div>
+      <p className="d-type-caption d-text-secondary">Opens Anthropic's own sign-in page. Use your Claude plan's account; Demido never sees or keeps the login.</p>
+    </div>
+  )
+}
+
 /** A program on this computer: whether it is here, how it is signed in, its models. */
 function ProgramCard({ p }: { p: ProviderView }) {
   const [choosing, setChoosing] = useState(false)
   const found = p.program
   const here = Boolean(found?.path)
-  const sub = here ? ['a program on this computer', found?.version, found?.signed_in ? `signed in ${found.signed_in}` : null].filter(Boolean).join(' · ') : 'not found on this computer'
+  const sub = ['Demido\'s own copy', found?.version, found?.signed_in ? `signed in ${found.signed_in}` : null].filter(Boolean).join(' · ')
   return (
     <article className="d-card">
       <header className="d-card__head">
@@ -191,8 +256,9 @@ function ProgramCard({ p }: { p: ProviderView }) {
       </header>
       <div className="d-card__body app-stack">
         <p className="d-text-secondary">{p.note}</p>
-        {found?.problem && <Signal level="caution">{found.problem}</Signal>}
-        {found?.path && <p className="d-type-caption d-text-tertiary">Runs <span className="d-mono">{found.path}</span>. Demido never downloads, changes or bundles it, and never sees or keeps its login.</p>}
+        <OwnCopy p={p} />
+        {found?.path && found.problem && !found.problem.includes('not signed in') && <Signal level="caution">{found.problem}</Signal>}
+        {p.id === 'claude-code' && here && <SignInPart p={p} />}
         {p.plan && <Plan plan={p.plan} />}
         {p.chosen.length > 0 && (
           <ul className="prov__models">
@@ -207,9 +273,8 @@ function ProgramCard({ p }: { p: ProviderView }) {
             ))}
           </ul>
         )}
-        <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
+        <div className="app-row" style={{ gap: 'var(--d-space-8)', flexWrap: 'wrap' }}>
           <Button size="sm" disabled={!here} onClick={() => setChoosing(true)}><Icon icon={ListPlus} size="sm" />Choose models…</Button>
-          {!here && <a className="d-button d-button--ghost d-button--sm" href={p.keys_at} target="_blank" rel="noreferrer noopener"><Icon icon={ExternalLink} size="sm" />How to install it</a>}
         </div>
       </div>
       {choosing && <ModelsDialog p={p} onClose={() => setChoosing(false)} />}

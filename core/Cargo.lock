@@ -771,6 +771,7 @@ version = "0.1.0"
 dependencies = [
  "apple-native-keyring-store",
  "axum",
+ "base64",
  "directories",
  "dom_smoothie",
  "encoding_rs",

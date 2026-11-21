@@ -21,8 +21,18 @@ export interface RemoteModel {
 export interface Found { provider: string; path: string | null; version: string | null; signed_in: string | null; problem: string | null }
 /** A program's plan limit, as it last said it while it ran. `used` from 0 to 1. */
 export interface PlanLimit { status: 'allowed' | 'allowed_warning' | 'rejected' | string; resets_at: number | null; used: number | null; said_at: number }
-/** `kind`: `api` (Demido asks the model itself) or `program` (a program runs its own loop). */
-export interface ProviderView { id: string; name: string; kind: 'api' | 'program'; program: Found | null; plan: PlanLimit | null; keys_at: string; note: string; key: KeyFacts | null; chosen: RemoteModel[]; spent_usd: number; spent_exact: boolean }
+/** Demido's own copy of a program, kept unchanged in its folder. */
+export interface Kept { provider: string; version: string; path: string; size: number; checked: string; from: string; kept_at: number }
+export interface Downloading { version: string; done: number; total: number | null }
+export interface Latest { provider: string; version: string; size: number | null }
+/** Claude Code's own sign-in, under way: `url` is Anthropic's page, for when no browser opened. */
+export interface SignIn { state: 'started' | 'done' | 'failed'; url: string | null; said: string | null }
+/** `kind`: `api` (Demido asks the model itself) or `program` (a program runs its own loop: always Demido's own copy). */
+export interface ProviderView {
+  id: string; name: string; kind: 'api' | 'program'; program: Found | null; plan: PlanLimit | null
+  copy: Kept | null; downloading: Downloading | null; signing: SignIn | null; sign_in_command: string | null
+  keys_at: string; note: string; key: KeyFacts | null; chosen: RemoteModel[]; spent_usd: number; spent_exact: boolean
+}
 /** `counted`: whether it counts toward the month's limit. A program's use does not: its plan holds it. */
 export interface Spent { provider: string; model: string; requests: number; input: number; output: number; cost_usd: number; exact: boolean; counted: boolean }
 export interface Spending { since: number; until: number; limit_usd: number | null; spent_usd: number; exact: boolean; prices_read_on: string; by_model: Spent[] }
@@ -103,6 +113,45 @@ export async function choose(provider: string, model: string, chosen: boolean): 
   }
 }
 
+/** Downloads Demido's own copy of a program. Its progress comes as news. */
+export async function downloadCopy(provider: string) {
+  try {
+    await coreSend('POST', `/providers/${provider}/program`)
+  } catch (e) {
+    toast(`Not downloaded. ${(e as Error).message}`, undefined, 'task-failed')
+  }
+  await readProviders()
+}
+
+export async function stopDownload(provider: string) {
+  await coreSend('DELETE', `/providers/${provider}/program/download`).catch(() => {})
+  await readProviders()
+}
+
+export async function removeCopy(provider: string) {
+  try {
+    await coreSend('DELETE', `/providers/${provider}/program`)
+    toast('Demido\'s copy is deleted. Its profile (its settings and login) is kept.', undefined, 'task-done')
+  } catch (e) {
+    toast(`Not deleted. ${(e as Error).message}`, undefined, 'task-failed')
+  }
+  await readProviders()
+}
+
+export function latestCopy(provider: string): Promise<Latest> {
+  return coreGet<Latest>(`/providers/${provider}/program/latest`)
+}
+
+/** Starts the program's own sign-in, on its maker's page. */
+export async function signIn(provider: string) {
+  try {
+    await coreSend('POST', `/providers/${provider}/sign-in`)
+  } catch (e) {
+    toast(`The sign-in did not start. ${(e as Error).message}`, undefined, 'task-failed')
+  }
+  await readProviders()
+}
+
 export function readAccount(provider: string): Promise<Account> {
   return coreGet<Account>(`/providers/${encodeURIComponent(provider)}/account`)
 }
@@ -142,4 +191,13 @@ export function startProviders() {
   void readProviders()
   for (const kind of ['vault.key.added', 'vault.key.removed', 'provider.model.chosen', 'provider.model.dropped', 'provider.used', 'provider.plan']) onCoreEvent(kind, () => void readProviders())
   onCoreEvent('setting.changed', (e) => { if (e.subject === 'providers.monthlyLimit') void readProviders() })
+  for (const kind of ['program.downloaded', 'program.removed', 'program.signin']) onCoreEvent(kind, () => void readProviders())
+  onCoreEvent('program.download.failed', (e) => { toast(`The download stopped. ${String(e.data.problem ?? '')}`, undefined, 'task-failed'); void readProviders() })
+  // How far a download has come, told often: written into the list without asking the core again.
+  onCoreEvent('program.download', (e) => {
+    const providers = useProviders.getState().providers
+    if (!providers || !e.subject) return
+    const downloading = { version: String(e.data.version ?? ''), done: Number(e.data.done ?? 0), total: e.data.total == null ? null : Number(e.data.total) }
+    set({ providers: providers.map((p) => (p.id === e.subject ? { ...p, downloading } : p)) })
+  })
 }

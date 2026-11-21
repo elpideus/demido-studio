@@ -132,9 +132,10 @@ Windows, and tools other people write.
    file only the user can read where there is none), never shown again and never seen by a model; Anthropic,
    Gemini and OpenRouter in sessions, chosen by the person, with what each answer cost and a limit for the
    month. Tried against stand-ins; the first real request waits for the owner's key. Claude Code and OpenCode
-   are built too (DECISIONS U15 to U25): the person's own programs, run as documented, their tools shown,
-   what they ask asked in Demido's window, the folder saved before each turn. Found and read on this
-   computer; no message has been sent to either.
+   are built too (DECISIONS U15 to U31): Demido's own copies, downloaded from their makers on demand,
+   checked, kept in its own folder with profiles of their own (nothing installed on the system), their
+   tools shown, what they ask asked in Demido's window, the folder saved before each turn. Both tried for
+   real. Next inside it: several keys and accounts for one provider (the owner's direction, 2026-11-22).
 7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),
    lending, schedules, session messaging.
 8. Files, artifacts, editor. Browser, search, fetch.
