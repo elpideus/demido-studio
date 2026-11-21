@@ -65,7 +65,9 @@ Changed on 2026-11-20, fourth round:
 Done directly and narrowly, each before the feature that needs it. None of the four early reports (01, 05,
 06, 08) has been fact-checked; each is checked when its feature starts.
 
-1. Model loading and tuning, and the small-model techniques: before the chat loop.
+1. ~~The small-model techniques: before the chat loop.~~ Done on 2026-11-21: research note 13, with a
+   measurement on the two test models. Still owed from this line: settings per model (temperature and the
+   rest, brief 4.2), before the models work.
 2. Search engines and the named third-party projects (licences, look-alike repos): before search and fetch.
 3. Voice, email and messaging libraries; a local Pine Script engine; price feeds: before each of those.
 4. How well small models choose among models, and in what words to tell them about the others (DECISIONS
@@ -73,8 +75,8 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 
 ### Step 3. Real feature work
 
-The order. Items 1 and 2 are done; item 3 is nearly done; item 4 (the chat loop) is next, and needs the
-research on small-model techniques first.
+The order. Items 1 and 2 are done; item 3 is nearly done; item 4 (the chat loop) is under way: its research
+is done (note 13, DECISIONS L), plain chat is being built, then the task list and compaction.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.

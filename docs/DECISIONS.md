@@ -239,6 +239,24 @@ Not built: keeping model files' metadata and search results (there is no models 
 sending the UI's files compressed; a cache for web pages and searches (needs its own rules about privacy and
 freshness, with the browser and search work).
 
+## L. The chat loop and small models (decided 2026-11-21)
+
+Research note 13: what the runtime offers, a measurement on the two test models, what recent papers report,
+and the full set of techniques proposed, each with how sure it is.
+
+| # | Decision | Status |
+|---|---|---|
+| L1 | **Sessions and their messages live in the core**, in its one SQLite file. A session names the model it uses. Every client (the window, the command line, a program) sees the same conversation. | Building |
+| L2 | **A turn is run by the core, not by the client.** The client hands over what the person wrote; the core loads the model if needed, asks it, and stores the answer. A window that is closed mid-answer loses nothing. | Building |
+| L3 | **An answer is streamed as news that is told, not kept**, word by word, and kept once, whole, when it is complete. A client that joins late reads the stored message. | Building |
+| L4 | **The beginning of the prompt never changes within a session**: instructions first, then history, which is only ever added to. The runtime then does not read the old part again. This is the caching rule (section P) applied to the model itself. | Building; to be measured on the first real session |
+| L5 | **A model that is answering is never unloaded for being idle.** | Building |
+| L6 | **Thinking is off until its switch exists** (brief 4.9). Measured: five times slower with no gain on easy tool calls. Not measured on hard work. | Decided for now |
+| L7 | **Tools are asked for in Demido's own short format, in which "no tool" is one of the tools.** Measured on both test models: 26 of 26 right at a third of the tokens of the runtime's own tool format, where the same few words without that one change got 20 and 22. Every request is checked against the tool's own description, and the model gets one repair turn in plain words. Only the tool's name is forced; the arguments are checked, not forced. | Decided on a small measurement; the forcing is provisional and is measured again on harder work with the first real tools (item 5) |
+| L8 | **Cut words, never choices.** Internal text is short (brief 4.13), and every option the model has stays visible in it. Measured: a short prompt that dropped one sentence about not needing a tool lost 6 of 26. | A rule from now on |
+| L9 | **What an answer says about the model's speed is kept** (tokens a second, from the runtime's own timing of real answers), for the roster of section O. No benchmark is run for it. | Building |
+| L10 | **"Vector reasoning": deciding by meaning is built; steering by control vector gets one measured trial; reasoning in vectors is left alone** until models trained for it exist in the formats the runtime loads. | **Proposed. The brief asks for this to be discussed with the owner** |
+
 ## O. A model for each agent (owner's direction, 2026-11-21)
 
 The owner's addition to the brief: models should know about the other models available on the system and be

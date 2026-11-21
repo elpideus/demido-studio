@@ -178,3 +178,14 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
   moment providers exist, "another available model" can mean one that costs money and sends your work
   away. I decided that no model may assign such a one unless you allowed it, with a limit (O6). Say so if
   you want it looser.
+- **"Vector reasoning": what I can and cannot give you.** You marked it experimental and asked what is
+  feasible. Deciding by meaning with embeddings (which tools, which memory, which model) is real and I will
+  build it. Steering a model with a control vector is possible in the runtime; I have no measurement that
+  it beats a good prompt, so it gets one honest trial. Making an ordinary downloaded model reason in vectors
+  and not in words is not possible: it needs models trained for it, and there are none in the formats the
+  runtime loads. Research note 13 has the detail. If you meant something else by the term, tell me.
+- **Forcing a model's output is not the cure I assumed.** I planned to force every tool call into its
+  schema. Recent papers say that makes small models' calls valid and often wrong, and my own measurement
+  showed the real failure is elsewhere: tiny models do not know when to leave the tools alone. One change of
+  shape fixed that completely (research note 13). I changed the plan to match the measurement.
+
