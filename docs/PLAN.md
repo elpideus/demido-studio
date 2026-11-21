@@ -83,8 +83,9 @@ research on small-model techniques first.
    Hardware detection and the installer are built (DECISIONS K8, K9, K15 to K21), and the real runtime is
    installed on the owner's computer (CUDA 13.5, 170 MB; it starts and sees the card). Loading, unloading
    and unloading when idle are built too (DECISIONS K22, K23): the runtime's own router does the fitting
-   into memory, tried on the real card before it was relied on. Left in this item: the memory picture
-   in the UI (the budget bar is still scripted), and a context chosen per model.
+   into memory, tried on the real card before it was relied on. The indicator in the corner shows the
+   real graphics memory. Left in this item: a context chosen per model (it belongs with the research
+   on model tuning).
 4. Chat loop with the small-model techniques: constrained tool calls, repair, task list, compaction.
 5. Tools system, permission levels, sandbox, injection defence.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.

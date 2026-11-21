@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { Popover } from '@base-ui/react/popover'
+import { coreGet, type CoreSystem } from '@/data/core'
 import { unloadLocal, useLocal } from '@/data/local-models'
 import { applyAppearance, dismissToast, memoryBudget, startCore, useStore } from '@/data/store'
 import { Budget, Button, Glyph, MODEL_STATE_LABEL, Tip, TooltipProvider } from '@/ui'
@@ -74,7 +75,18 @@ function Rail() {
 /** What is loaded now, for real: the core's list of models. Shown instead of the scripted one when a core is behind the pages. */
 function NowReal() {
   const list = useLocal((s) => s.list)!
+  const readAt = useLocal((s) => s.readAt)
   const waiting = useLocal((s) => s.waiting)
+  // The graphics card as the core reads it. Read again whenever the list of models changed: that is when it moved.
+  const [card, setCard] = useState<{ name: string; total: number; used: number } | null>(null)
+  useEffect(() => {
+    let alive = true
+    coreGet<CoreSystem>('/system?fresh=true').then((sys) => {
+      const g = sys.gpus.find((x) => x.vram_gb !== null && x.vram_used_gb !== null)
+      if (alive) setCard(g ? { name: g.name, total: g.vram_gb!, used: g.vram_used_gb! } : null)
+    }, () => {})
+    return () => { alive = false }
+  }, [readAt])
   const loaded = list.models.filter((m) => m.state === 'loaded')
   const loading = list.models.filter((m) => m.state === 'loading' || waiting[m.id] === 'loading')
   const glyph = loading.length ? 'model-loading' : loaded.length ? 'model-loaded' : 'model-unloaded'
@@ -99,7 +111,14 @@ function NowReal() {
             {loaded.map((m) => (
               <p key={m.id} className="app-now__row"><Glyph name="model-loaded" tone="live" /> {m.id}{m.needs_mb !== null ? ` · ${(m.needs_mb / 1024).toFixed(1)} GB` : ''}<span className="app-spacer" /><Button size="sm" variant="ghost" disabled={Boolean(waiting[m.id])} onClick={() => unloadLocal(m.id)}>Unload</Button></p>
             ))}
-            <p className="d-type-caption d-text-tertiary">Graphics memory the loaded models need, as the runtime measured it. {(list.engine.margin_mb / 1024).toFixed(1)} GB is kept free.</p>
+            {card && (
+              <>
+                <p className="d-menu__label">Graphics memory</p>
+                <div className="d-meter" role="meter" aria-valuenow={Math.round((card.used / card.total) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Graphics memory in use"><span style={{ '--d-meter': `${Math.min(100, (card.used / card.total) * 100)}%` } as React.CSSProperties} /></div>
+                <p className="d-type-caption d-text-secondary">{card.used.toFixed(1)} of {card.total.toFixed(1)} GB in use on {card.name}: Demido's models about {inUse.toFixed(1)} GB, everything else on this computer {Math.max(0, card.used - inUse).toFixed(1)} GB.</p>
+              </>
+            )}
+            <p className="d-type-caption d-text-tertiary">What a model needs is as the runtime measured it. {(list.engine.margin_mb / 1024).toFixed(1)} GB is kept free: a model that would not fit beside the others makes the one used longest ago unload first.</p>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
