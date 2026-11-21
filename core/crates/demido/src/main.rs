@@ -151,6 +151,23 @@ enum ModelsCommand {
         /// Its name, as `demido models` shows it.
         id: String,
     },
+    /// Search Hugging Face for models the runtime can run, with whether each would fit this computer.
+    Search {
+        /// Words to look for. Without them: what is rising this week.
+        words: Vec<String>,
+    },
+    /// Show a model's files on Hugging Face, by quantization, with the one recommended for this computer.
+    Show {
+        /// `owner/name`, as `demido models search` shows it.
+        repo: String,
+    },
+    /// Download a model from Hugging Face into the models folder, checked, and wait until it is done.
+    Download {
+        /// `owner/name`, as `demido models search` shows it.
+        repo: String,
+        /// The quantization, as `demido models show` names it. Without it: the one recommended.
+        quant: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -953,8 +970,98 @@ async fn models(paths: &Paths, command: Option<ModelsCommand>) -> Result<()> {
             s.send("POST", &format!("/api/v1/models/{id}/unload"), None)?;
             println!("{id} is unloaded. Its memory is free again.");
         }
+        (Some(ModelsCommand::Search { words }), Some(s)) => {
+            let query: String = url_words(&words.join(" "));
+            let page = s.get(&format!("/api/v1/hub/models?q={query}&sort={}", if words.is_empty() { "trending" } else { "downloads" }))?;
+            for m in page["models"].as_array().into_iter().flatten() {
+                let fits = match m["fits"].as_str() {
+                    Some("fits") => "fits",
+                    Some("slow") => "slow here",
+                    Some("no") => "too big",
+                    _ => "size unknown",
+                };
+                let what: Vec<&str> = m["takes"].as_array().into_iter().flatten().chain(m["does"].as_array().into_iter().flatten()).filter_map(Value::as_str).collect();
+                let size = m["params"].as_u64().map(|p| format!(" · {:.1}B", p as f64 / 1e9)).unwrap_or_default();
+                println!(
+                    "{:<56} {fits:<12} {}{size} · {} downloads{}",
+                    m["id"].as_str().unwrap_or("?"),
+                    m["licence"].as_str().unwrap_or("no licence given"),
+                    m["downloads"],
+                    if what.is_empty() { String::new() } else { format!(" · {}", what.join(", ")) }
+                );
+            }
+        }
+        (Some(ModelsCommand::Show { repo }), Some(s)) => {
+            let d = s.get(&format!("/api/v1/hub/models/{repo}"))?;
+            println!("{} · {} · {}", d["model"]["id"].as_str().unwrap_or(&repo), d["model"]["licence"].as_str().unwrap_or("no licence given"), d["page"].as_str().unwrap_or_default());
+            if let Some(vision) = d["vision_part"]["path"].as_str() {
+                println!("It sees images: {vision} is downloaded with any of these.");
+            }
+            for q in d["quants"].as_array().into_iter().flatten() {
+                let fits = match q["fits"].as_str() {
+                    Some("fits") => "fits on the graphics card",
+                    Some("slow") => "only partly on the card: slow",
+                    _ => "too big for this computer",
+                };
+                let mark = if q["recommended"] == true {
+                    " ← recommended"
+                } else if q["on_disk"] == true {
+                    " (on this computer)"
+                } else {
+                    ""
+                };
+                println!(
+                    "  {:<10} {:>9}  needs about {:.1} GB: {fits}{mark}",
+                    q["name"].as_str().unwrap_or("?"),
+                    mb(q["size"].as_u64().unwrap_or(0)),
+                    q["needs_mb"].as_u64().unwrap_or(0) as f64 / 1024.0
+                );
+            }
+        }
+        (Some(ModelsCommand::Download { repo, quant }), Some(s)) => {
+            let quant = match quant {
+                Some(q) => q,
+                None => {
+                    let d = s.get(&format!("/api/v1/hub/models/{repo}"))?;
+                    let chosen = d["quants"].as_array().into_iter().flatten().find(|q| q["recommended"] == true).and_then(|q| q["name"].as_str()).map(str::to_string);
+                    chosen.context("No quantization of it fits this computer. Name one: demido models show shows them.")?
+                }
+            };
+            let started = s.send("POST", "/api/v1/hub/downloads", Some(&json!({ "repo": repo, "quant": quant })))?;
+            let id = started["id"].as_str().context("the server gave no download")?.to_string();
+            println!(
+                "Downloading {} ({}): {}.",
+                started["local_id"].as_str().unwrap_or("?"),
+                mb(started["total"].as_u64().unwrap_or(0)),
+                started["files"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+            );
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                let now = s.get("/api/v1/hub/downloads")?;
+                let Some(d) = now.as_array().into_iter().flatten().find(|d| d["id"] == id.as_str()) else { bail!("The download was forgotten by the server.") };
+                let (done, total) = (d["done"].as_u64().unwrap_or(0), d["total"].as_u64().unwrap_or(1).max(1));
+                match d["state"].as_str() {
+                    Some("done") => {
+                        eprintln!();
+                        println!("Done, and checked against the checksums Hugging Face lists. It is in the models folder as {}.", d["local_id"].as_str().unwrap_or("?"));
+                        break;
+                    }
+                    Some("failed") | Some("stopped") => {
+                        eprintln!();
+                        bail!("{}", d["problem"].as_str().unwrap_or("The download did not finish."));
+                    }
+                    Some("waiting") => eprint!("\rWaiting for another download to finish…"),
+                    _ => eprint!("\r{} of {} ({}%)   ", mb(done), mb(total), done * 100 / total),
+                }
+            }
+        }
     }
     Ok(())
+}
+
+/// Words as they go in an address.
+fn url_words(words: &str) -> String {
+    words.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 // ───────── the model runtime ─────────

@@ -39,7 +39,7 @@ pub(super) fn sha256_of(path: &Path) -> Result<String> {
 
 /// Downloads `file` to `to`. `progress` hears how many bytes are there, often.
 /// Returns whether the file could be checked against a published SHA-256.
-pub(super) async fn download(http: &Client, file: &RemoteFile, to: &Path, stop: &AtomicBool, mut progress: impl FnMut(u64)) -> Result<bool> {
+pub(crate) async fn download(http: &Client, file: &RemoteFile, to: &Path, stop: &AtomicBool, mut progress: impl FnMut(u64)) -> Result<bool> {
     let part = part_of(to);
     let stopped = || Error::Stopped(format!("Stopped. What was downloaded of {} is kept, so the next try goes on from there.", file.name));
     // Twice at most: the second time is a fresh start, when what was kept turns out to be unusable.

@@ -79,7 +79,7 @@ async fn answered(asked: &str, sent: reqwest::Result<Response>) -> Result<Respon
 }
 
 /// The last link in the chain of causes: "connection refused" rather than "error sending request".
-pub(super) fn root_cause(e: &dyn std::error::Error) -> String {
+pub(crate) fn root_cause(e: &dyn std::error::Error) -> String {
     let mut cause = e;
     while let Some(next) = cause.source() {
         cause = next;

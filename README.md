@@ -53,7 +53,8 @@ On Linux the programs run shut in a sandbox; everything a model changed can be u
 search the internet without an account (it tries Exa, DuckDuckGo, and Wikipedia with Mwmbl in turn) and
 read a page from its address: it only
 reads there, and it asks before opening an address it wrote itself. To talk to a model, the core needs
-a model runtime (Setup installs it) and a GGUF model in its models folder (`demido models` says where).
+a model runtime (Setup installs it) and a GGUF model: Models › Discover finds and downloads one from
+Hugging Face, or `demido models download <owner/name>`.
 
 ## See the brand kit
 

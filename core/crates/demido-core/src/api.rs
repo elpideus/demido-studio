@@ -53,6 +53,7 @@ pub struct Core {
     pub engine: Arc<Engine>,
     pub sessions: Arc<Sessions>,
     pub chat: Arc<Chat>,
+    pub hub: Arc<crate::hub::Hub>,
 }
 
 impl Core {
@@ -72,7 +73,8 @@ impl Core {
                 .with_sandbox(crate::sandbox::Sandbox::find())
                 .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))))),
         );
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat })
+        let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()));
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub })
     }
 }
 
@@ -100,6 +102,7 @@ pub struct App {
     pub engine: Arc<Engine>,
     pub sessions: Arc<Sessions>,
     pub chat: Arc<Chat>,
+    pub hub: Arc<crate::hub::Hub>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -226,6 +229,26 @@ async fn appearance(State(app): State<App>) -> Json<Appearance> {
 impl App {
     /// This computer. Reading it asks the graphics driver, which takes a moment, so a reading is kept for a
     /// few seconds and shared by everyone who asks meanwhile. `fresh` reads again now.
+    /// What of this computer decides whether a model fits: its graphics memory, its memory, what is kept free,
+    /// and the context models are loaded with.
+    async fn machine(&self) -> crate::hub::Machine {
+        let system = self.system_info(false).await;
+        let ram_mb = (system.memory.total_gb * 1024.0) as u64;
+        // A card's own memory; graphics that share the computer's memory (Apple) may use about three quarters of it.
+        let own = system.gpus.iter().filter_map(|g| g.vram_gb).fold(0.0, f64::max);
+        let shared = system.gpus.iter().any(|g| g.shares_memory && g.vendor == "apple");
+        let card_mb = if own > 0.0 {
+            (own * 1024.0) as u64
+        } else if shared {
+            ram_mb * 3 / 4
+        } else {
+            0
+        };
+        let margin_mb = (self.settings.value::<f64>("models.reserve").unwrap_or(0.9) * 1024.0).round() as u64;
+        let context = self.settings.value::<String>("models.context").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8192);
+        crate::hub::Machine { card_mb, ram_mb: if shared { ram_mb / 4 } else { ram_mb }, margin_mb, context }
+    }
+
     async fn system_info(&self, fresh: bool) -> SystemInfo {
         self.system.get(fresh, || async { tokio::task::spawn_blocking(crate::system::detect).await.expect("reading the hardware does not panic") }).await
     }
@@ -490,6 +513,75 @@ async fn session_undo(State(app): State<App>, Path((id, change)): Path<(String, 
     Ok(Json(app.chat.undo(&id, &change)?))
 }
 
+#[derive(Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct HubQuery {
+    /// Words to look for in models' names.
+    q: Option<String>,
+    /// `trending` (the default), `downloads`, `likes` or `updated`.
+    sort: Option<String>,
+    /// Only models that take these in, comma-separated: `images`, `sound`.
+    takes: Option<String>,
+    /// Only models made to do these, comma-separated: `tools`, `thinking`, `embedding`.
+    does: Option<String>,
+    /// Only models whose usual size fits this computer.
+    fits: Option<bool>,
+    /// The next page, as the last page gave it.
+    cursor: Option<String>,
+}
+
+/// Searches Hugging Face for models the runtime can run (GGUF), with what each says it does and whether its
+/// usual size would fit this computer. Kept ten minutes.
+#[utoipa::path(get, path = "/api/v1/hub/models", tag = "models", params(HubQuery), responses((status = 200, body = crate::hub::HubPage), (status = 502, body = Problem), (status = 409, body = Problem)))]
+async fn hub_search(State(app): State<App>, Query(q): Query<HubQuery>) -> Result<Json<crate::hub::HubPage>> {
+    let list = |s: &Option<String>| s.as_deref().unwrap_or_default().split(',').map(str::trim).filter(|w| !w.is_empty()).map(str::to_string).collect::<Vec<_>>();
+    let machine = app.machine().await;
+    Ok(Json(app.hub.search(q.q.as_deref().unwrap_or_default(), q.sort.as_deref().unwrap_or("trending"), &list(&q.takes), &list(&q.does), q.fits.unwrap_or(false), q.cursor.as_deref(), machine).await?))
+}
+
+/// A model's page: its files by quantization, what each would need on this computer, which is
+/// recommended, and its model card. Kept an hour.
+#[utoipa::path(get, path = "/api/v1/hub/models/{owner}/{name}", tag = "models", params(("owner" = String, Path, description = "Its owner on Hugging Face"), ("name" = String, Path, description = "Its name")), responses((status = 200, body = crate::hub::HubDetail), (status = 404, body = Problem)))]
+async fn hub_model(State(app): State<App>, Path((owner, name)): Path<(String, String)>) -> Result<Json<crate::hub::HubDetail>> {
+    let machine = app.machine().await;
+    Ok(Json(app.hub.detail(&format!("{owner}/{name}"), machine).await?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct DownloadRequest {
+    /// `owner/name` on Hugging Face.
+    repo: String,
+    /// As the model's page names it: `Q4_K_M`.
+    quant: String,
+}
+
+/// Starts downloading a model into the models folder: its files, checked against the checksums Hugging Face
+/// lists, and its vision part if it has one. Answers at once; progress comes on the event stream as
+/// `model.download`. One download at a time: a second one waits.
+#[utoipa::path(post, path = "/api/v1/hub/downloads", tag = "models", request_body = DownloadRequest, responses((status = 202, body = crate::hub::Download), (status = 400, body = Problem), (status = 404, body = Problem)))]
+async fn hub_download(State(app): State<App>, Json(body): Json<DownloadRequest>) -> Result<(StatusCode, Json<crate::hub::Download>)> {
+    let machine = app.machine().await;
+    Ok((StatusCode::ACCEPTED, Json(app.hub.start(&body.repo, &body.quant, machine).await?)))
+}
+
+/// The downloads since the server started, the newest last.
+#[utoipa::path(get, path = "/api/v1/hub/downloads", tag = "models", responses((status = 200, body = Vec<crate::hub::Download>)))]
+async fn hub_downloads(State(app): State<App>) -> Json<Vec<crate::hub::Download>> {
+    Json(app.hub.downloads())
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct StopQuery {
+    /// Also remove what was downloaded of it.
+    discard: Option<bool>,
+}
+
+/// Stops a download (what was downloaded is kept, and starting it again goes on from there), or forgets one
+/// that has ended. With `discard`, what was downloaded is removed.
+#[utoipa::path(delete, path = "/api/v1/hub/downloads/{id}", tag = "models", params(("id" = String, Path, description = "The download's id"), StopQuery), responses((status = 200, body = crate::hub::Download), (status = 404, body = Problem)))]
+async fn hub_stop(State(app): State<App>, Path(id): Path<String>, Query(q): Query<StopQuery>) -> Result<Json<crate::hub::Download>> {
+    Ok(Json(app.hub.stop(&id, q.discard.unwrap_or(false))?))
+}
+
 /// Text the API gives as it is, to be read by a person: a program's output, a diff.
 fn plain(text: String) -> Response {
     ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response()
@@ -667,7 +759,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -692,6 +784,10 @@ pub fn router(app: App) -> Router {
         .route("/runtime/installed/{id}/check", post(runtime_check))
         .route("/models", get(models_list))
         .route("/models/{id}/load", post(model_load))
+        .route("/hub/models", get(hub_search))
+        .route("/hub/models/{owner}/{name}", get(hub_model))
+        .route("/hub/downloads", get(hub_downloads).post(hub_download))
+        .route("/hub/downloads/{id}", axum::routing::delete(hub_stop))
         .route("/models/{id}/unload", post(model_unload))
         .route("/sessions", get(sessions_list).post(session_new))
         .route("/sessions/{id}", get(session_get).patch(session_change).delete(session_delete))
@@ -750,6 +846,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         engine: core.engine.clone(),
         sessions: core.sessions.clone(),
         chat: core.chat.clone(),
+        hub: core.hub.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -873,6 +970,7 @@ mod tests {
             engine: engine.clone(),
             sessions: sessions.clone(),
             chat: Arc::new(Chat::new(sessions, engine, events.clone(), settings.clone())),
+            hub: Arc::new(crate::hub::Hub::new(home.join("models"), events.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),

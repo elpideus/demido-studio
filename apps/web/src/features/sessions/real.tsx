@@ -5,8 +5,7 @@
    shows where it is going: tools that reach files and the web, permission levels, groups. Those are not
    here yet, and the note at the foot of the list says so. */
 import { useEffect, useRef, useState } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { Prose } from '@/ui/prose'
 import { ArrowUp, Folder, ListChecks, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, type LucideIcon } from 'lucide-react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
@@ -57,26 +56,6 @@ function List() {
   )
 }
 
-/** A model's words, as markdown. Never as HTML: whatever a model writes is text to be shown, not code to be run.
-
-    A picture is never loaded from an address in an answer. A browser fetches a picture by itself, and the
-    address can carry text: a file that told a model to end its answer with a picture at
-    `…/?d=<what it had read>` would have sent that away with no tool used at all. The address is shown instead.
-    A link is only followed when the person presses it, and it opens outside Demido. */
-function Prose({ text }: { text: string }) {
-  return (
-    <div className="d-prose">
-      <Markdown
-        remarkPlugins={[remarkGfm]}
-        skipHtml
-        components={{
-          img: ({ src, alt }) => <span className="d-type-caption d-text-tertiary">[A picture{alt ? ` (${alt})` : ''} that Demido did not load: <code>{typeof src === 'string' ? src : ''}</code>]</span>,
-          a: ({ href, children }) => <a href={href} title={href} target="_blank" rel="noreferrer noopener">{children}</a>,
-        }}
-      >{text}</Markdown>
-    </div>
-  )
-}
 
 /** What a tool is called when it is used, in plain words, and which of its arguments says what it was used on. */
 const TOOL_SAID: Record<string, [string, string]> = {

@@ -104,7 +104,7 @@ export function LocalDetail({ id }: { id: string | null }) {
           ['Folder', list.folder],
         ]} />
       </div>
-      <NotBuilt block>Asking a loaded model something (the chat loop). Downloading models from within Demido: for now, put GGUF files in the folder. Choosing the context for each model by itself.</NotBuilt>
+      <NotBuilt block>Choosing the context for each model by itself. Deleting a model from here: for now, remove its file or folder from the models folder.</NotBuilt>
     </Page>
   )
 }

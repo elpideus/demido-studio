@@ -124,6 +124,10 @@ Windows, and tools other people write.
    Next inside it: the sandbox on macOS and Windows; tools other people write, with their browser and
    updater.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
+   The models browser and downloader are built (DECISIONS H, research note 17): searching Hugging Face for
+   GGUF models, whether each fits this computer, a quantization recommended, downloads checked and resumable,
+   a vision part downloaded with its model. Left in it: gated models (with the vault), deleting a model from
+   the window, settings for each model.
 7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),
    lending, schedules, session messaging.
 8. Files, artifacts, editor. Browser, search, fetch.
@@ -144,7 +148,6 @@ list made for the split stays, because it says what is left and what to watch in
 | 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | A measurement that decides a security design |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
-| 6 | Models browser and downloader | A whole feature with a clear edge, and a pattern to follow (the runtime installer) |
 | 6 | Settings for each model: the research, and applying what the makers recommend | It meets `docs/LATER.md` 1 |
 | 6 | Where keys are kept (the vault) and how a provider is allowed to be used. With it: search services that need a key (Brave and others), which is what would make search good | Secrets and money |
 | 6 | Each provider's own client (Anthropic, Gemini, OpenRouter, Claude Code, OpenCode); usage shown | Documented interfaces, one at a time |
@@ -167,8 +170,10 @@ wait for the browser.
 Also done on 2026-11-21: the whole of what a program printed, and what a change changed (DECISIONS T18,
 T19).
 
-Next, in this order unless the owner says otherwise: the models browser and downloader; the sandbox on
-macOS and Windows.
+Also done on 2026-11-21: the models browser and downloader (DECISIONS H).
+
+Next, in this order unless the owner says otherwise: the sandbox on macOS and Windows; settings for each
+model (the research first).
 
 ## Set aside for later
 

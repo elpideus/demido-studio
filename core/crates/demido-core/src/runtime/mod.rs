@@ -28,6 +28,10 @@
 
 pub mod catalog;
 mod fetch;
+
+/// Downloading one file, checked and resumable: shared with the models downloader (`hub`).
+pub(crate) use catalog::root_cause;
+pub(crate) use fetch::download as download_file;
 mod unpack;
 
 use std::path::{Path, PathBuf};

@@ -151,6 +151,9 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 117 | **The links of a page, as a short list.** Today a model gets a page's text and not its links, so it cannot go from a page to the next one unless a search found that too. | Idea | Not built |
 | 118 | **Read a page through Exa when Demido cannot.** Exa's free service also reads a page and gives it back as text (`web_fetch_exa`). It could read pages that need their scripts run, and PDFs, before the built-in browser exists. The address of the page would then go to Exa. | Idea | Not built: it sends where you read to a company, so it needs to be a choice |
 | 119 | **rtk's open edition as a filter for each program.** `rtk-oss` (Apache-2.0) knows how to shorten the output of 100+ programs, which the general rules Demido has cannot. Downloaded from its makers, run inside the sandbox, as a separate program. | Idea | Not built: it means rewriting the commands a model writes, and nobody has measured what it adds on small models (research note 16) |
+| 120 | **Recommend models by what Demido measured, not by what is popular.** Demido already has trials of tool use (research notes 13 and 14). Run on a model the person downloads, they would say how well it does Demido's work, and that, kept, is the recommendation that means something: "on this computer, this one used tools right 7 times out of 8". | Idea | Not built |
+| 121 | **Delete a model from the window**, and see where it came from on its page (the note is already kept beside the models). | Idea | Not built |
+| 122 | **Say when a model has a newer version.** The commit each model was downloaded from is kept; asking Hugging Face for the repository's commit now would say whether it changed. | Idea | Not built |
 
 ## Pushback on the brief so far
 
@@ -255,6 +258,12 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
   separate program. I built the general part of what it does inside Demido instead, because Demido already
   reads every command's output itself, and I wrote the open edition down as an idea for its per-program
   filters.
+- **The models list is not curated, on purpose.** The brief asks for models "recommended based on the
+  user's system". What Demido does: every model says whether it fits this computer, one switch keeps only
+  those, and a model's page recommends the quantization that fits best. It does not keep a list of models
+  I chose, because such a list goes stale in weeks, and the trending list on Hugging Face is full of
+  re-uploads with "uncensored" in their names. What I would like instead is recommending by Demido's own
+  measurements (IDEAS 120).
 - **A page changed a file on the first try.** I had left a change to a file unasked at Balanced, because
   it can be undone. Then a page told two real models to add a line to a to-do list, and both did. So now,
   once a session has read from the internet, a change asks. You will see more questions in sessions that

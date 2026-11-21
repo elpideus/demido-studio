@@ -32,6 +32,7 @@ That opens the UI in your browser, signed in. The Setup screen now shows this co
 | `demido ask <question>` | Asks a model and prints its answer as it is written. `--session <id>` goes on in a session; `--model <id>` picks the model for a new one; `--think` and `--no-think` turn thinking on and off for the session; `--plan` has the model list the steps first and do them one at a time, as tasks; `--folder <path>` gives the session the one folder the model may read and change files in (`.` for where you are); `--level cautious|balanced|smart|autonomous` sets how much it may do without asking, and when it asks, you answer at the terminal. With a folder the model can also run programs there, shut in a sandbox where this computer has one; every level but Autonomous asks before each program. The tools the model uses and the tasks are printed as they happen. Ctrl+C stops the answer. Needs a running server. |
 | `demido sessions` | The conversations kept on this computer. `show <id>` prints one, with how full the model is; `shorten <id>` replaces the older part with a short account for the model (the messages stay); `undo <id> [change]` puts a file back as it was before a model changed it; `delete <id>` removes one. |
 | `demido models` | The models in Demido's folder and what each is doing. `load <id>` loads one and waits until it is ready; `unload <id>` ends its process and frees its memory. Loading needs a running server. |
+| `demido models search <words>` · `show <owner/name>` · `download <owner/name> [quant]` | Searching Hugging Face for models the runtime runs, a model's files with the one recommended for this computer, and downloading it into the models folder, checked. Needs a running server. |
 | `demido runtime` | The program that runs models: what is installed. `available` asks its publisher what suits this computer; `install [id]` downloads, checks, unpacks and tries one; `check <id>` tries an installed one again; `stop`; `remove <id>`. |
 | `demido open` | Opens the web UI in your browser, signed in. `--print` only prints the link. |
 
@@ -55,6 +56,7 @@ With a server running, the command line asks the server. Without one, it works o
 | `…/sandbox.rs` | Running a program a model asked for where it can do little harm: on Linux inside bubblewrap, with the folder, the system and no network. `cargo run --example sandbox_try -- <folder> <command>` tries it by hand. |
 | `…/checkpoint.rs` | Saving a folder before a program runs in it, and putting it back, so that all a program did can be undone. |
 | `…/web.rs` | Reading from the internet, the one way a model reaches the network: one page as text, or a search (`web/search.rs`: sources tried in turn until one answers: your own SearXNG, Exa, DuckDuckGo, Wikipedia with Mwmbl). `web/guard.rs` decides where a request may go (only the public internet) and which addresses a model may open unasked (those it was given, not those it wrote); `web/robots.rs` follows a site's rules for programs; `web/page.rs` turns a page into text and picks the parts that match what was asked. `cargo run --example web_try -- read <address>` or `-- search <words>` tries it by hand, on real sites. |
+| `…/hub.rs` | Finding models on Hugging Face and downloading them: search, a model's files by quantization, whether each fits this computer, the one recommended, and downloads checked against Hugging Face's checksums, resumable, one at a time. |
 | `…/engine/` | Running models: starting the runtime as a router (`router.rs`), loading and unloading, unloading what is idle, ending a runtime that was left behind (`mod.rs`), and keeping what is learned about each model (`known.rs`). |
 | `…/runtime/` | The model runtime: what its publisher offers (`catalog.rs`), downloading with a check (`fetch.rs`), unpacking without trust (`unpack.rs`), and installing, listing and removing (`mod.rs`). |
 | `…/auth.rs` | The key every request needs, and the one-use link that lets a browser in. |
@@ -115,7 +117,7 @@ cargo test --manifest-path core/Cargo.toml
 
 ## Not built yet
 
-The sandbox on macOS and Windows, tools other people write. Of the internet: pages that need their scripts run, PDFs, and search with a key. Downloading models from within Demido. Providers. Carrying the web UI inside
+The sandbox on macOS and Windows, tools other people write. Of the internet: pages that need their scripts run, PDFs, and search with a key. Gated models on Hugging Face. Providers. Carrying the web UI inside
 the binary (a release keeps it in a folder named `ui` beside the program, and the program finds it there).
 Use from other devices (encryption, passkeys). Windows and macOS are tested by the checks on GitHub, on machines
 without a graphics card; no real Windows or Mac has run it yet.

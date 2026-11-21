@@ -12,6 +12,7 @@
 //! - [`system`]    what this computer has, and which model runtime suits it
 //! - [`desktop`]   what the desktop looks like: its accent colour
 //! - [`runtime`]   the program that runs models: finding it, downloading it, keeping it
+//! - [`hub`]       finding models on Hugging Face, and downloading them
 //! - [`engine`]    running models: starting the runtime, loading and unloading, unloading what is idle
 //! - [`sessions`]  sessions and what was said in them
 //! - [`chat`]      running a turn: asking the model, streaming its answer, storing it
@@ -30,6 +31,7 @@ pub mod desktop;
 pub mod engine;
 pub mod error;
 pub mod events;
+pub mod hub;
 pub mod kept;
 pub mod paths;
 pub mod permissions;

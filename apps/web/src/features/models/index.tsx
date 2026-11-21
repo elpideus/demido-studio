@@ -4,6 +4,8 @@
 import { useCore } from '@/data/core'
 import { useLocal } from '@/data/local-models'
 import { LocalDetail, LocalList } from './local'
+import { HubDetail, HubList } from './hub'
+import type { Search as HubSearch } from '@/data/hub'
 import { useEffect, useMemo, useState } from 'react'
 import { AudioLines, Box, Boxes, Brain, ChevronLeft, ChevronRight, Download, Eye, Heart, Search, Star, TrendingUp, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -195,6 +197,16 @@ function ModelsPage() {
   const local = useLocal((s) => s.list)
   const [openLocal, setOpenLocal] = useState<string | null>(null)
   const mineForReal = real && view === 'mine'
+  // Discover and All, for real: Hugging Face, searched through the core.
+  const [openHub, setOpenHub] = useState<string | null>(null)
+  const [hubSort, setHubSort] = useState<HubSearch['sort']>('downloads')
+  const hubSearch: HubSearch = {
+    q,
+    sort: view === 'discover' && !q.trim() ? 'trending' : hubSort,
+    takes: caps.flatMap((c) => (c === 'vision' ? ['images'] : c === 'audio' ? ['sound'] : [])),
+    does: caps.filter((c) => c === 'tools' || c === 'thinking' || c === 'embedding'),
+    fits: fitsOnly,
+  }
   useEffect(() => { if (real) setView('mine') }, [real])
   const needle = q.trim().toLowerCase()
   const searching = needle !== '' || caps.length > 0 || fitsOnly
@@ -248,6 +260,16 @@ function ModelsPage() {
               <p className="d-list__label">In Demido's models folder{local ? ` · ${local.models.length}` : ''}</p>
               <LocalList open={openLocal ?? local?.models[0]?.id ?? null} onOpen={setOpenLocal} />
             </>
+          ) : real ? (
+            <>
+              {view === 'discover' && !q.trim() ? <p className="d-list__label">Rising this week, on Hugging Face</p> : (
+                <div className="models__sort">
+                  <span className="d-type-caption d-text-tertiary">On Hugging Face</span>
+                  <Select label="Sort by" value={hubSort} onChange={setHubSort} options={[{ value: 'downloads', label: 'Most downloaded' }, { value: 'trending', label: 'Rising fastest' }, { value: 'likes', label: 'Most liked' }, { value: 'updated', label: 'Updated lately' }]} />
+                </div>
+              )}
+              <HubList search={hubSearch} open={openHub} onOpen={setOpenHub} />
+            </>
           ) : view === 'discover' && !searching ? (
             <>
               <p className="d-list__label">Rising this week</p>
@@ -269,7 +291,7 @@ function ModelsPage() {
             </>
           )}
         </div>
-        {!mineForReal && (view !== 'discover' || searching) && pages > 1 && (
+        {!real && (view !== 'discover' || searching) && pages > 1 && (
           <div className="models__pages">
             <Button variant="ghost" size="sm" iconOnly aria-label="Previous page" disabled={at === 0} onClick={() => setPage(at - 1)}><Icon icon={ChevronLeft} /></Button>
             <span className="d-type-caption d-text-secondary">{at * PAGE + 1}–{Math.min(matches.length, at * PAGE + PAGE)} of {matches.length} · page {at + 1} of {pages}</span>
@@ -279,10 +301,10 @@ function ModelsPage() {
         <div className="app-side__foot">
           {!real && <span>{SYSTEM.gpu} · {SYSTEM.vramGb.toFixed(1)} GB · {SYSTEM.ramGb} GB RAM</span>}
           {!real && <Budget compact />}
-          <span>{real ? '"On this computer" is real. Discover and All are still the scripted preview: model families are real; sizes, counts and licence labels are illustrative.' : 'Model families are real. Sizes, counts and licence labels here are illustrative.'}</span>
+          <span>{real ? 'Discover and All search Hugging Face for models this runtime runs (GGUF). Whether one fits is worked out from its size; the runtime measures it once it is loaded.' : 'Model families are real. Sizes, counts and licence labels here are illustrative.'}</span>
         </div>
       </aside>
-      {mineForReal ? <LocalDetail id={openLocal} /> : <Detail key={current.id} model={current} />}
+      {mineForReal ? <LocalDetail id={openLocal} /> : real ? <HubDetail repo={openHub} /> : <Detail key={current.id} model={current} />}
     </div>
   )
 }
