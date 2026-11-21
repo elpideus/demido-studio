@@ -20,6 +20,8 @@ pub struct Session {
     pub title: String,
     /// The model this session talks to, by its name.
     pub model: String,
+    /// Whether the model thinks before it answers: `off`, `on`, or one of the model's own levels.
+    pub thinking: String,
     pub created_at: i64,
     /// When something was last said in it.
     pub updated_at: i64,
@@ -68,7 +70,7 @@ pub struct Sessions {
 }
 
 fn session_from(r: &rusqlite::Row) -> rusqlite::Result<Session> {
-    Ok(Session { id: r.get(0)?, title: r.get(1)?, model: r.get(2)?, created_at: r.get(3)?, updated_at: r.get(4)?, messages: r.get(5)? })
+    Ok(Session { id: r.get(0)?, title: r.get(1)?, model: r.get(2)?, created_at: r.get(3)?, updated_at: r.get(4)?, messages: r.get(5)?, thinking: r.get(6)? })
 }
 
 fn message_from(r: &rusqlite::Row) -> rusqlite::Result<Message> {
@@ -88,7 +90,7 @@ fn message_from(r: &rusqlite::Row) -> rusqlite::Result<Message> {
     })
 }
 
-const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id) FROM sessions s";
+const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking FROM sessions s";
 const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at FROM messages";
 
 /// A title from the first thing said: its first line, cut at a word.
@@ -126,8 +128,8 @@ impl Sessions {
         self.db.with(|c| c.prepare(&format!("{SESSION} WHERE s.id = ?1"))?.query_map([id], session_from)?.next().transpose())?.ok_or_else(|| Self::missing(id))
     }
 
-    /// Gives a session a new title, a new model, or both.
-    pub fn change(&self, id: &str, title: Option<&str>, model: Option<&str>) -> Result<Session> {
+    /// Changes what is given: the title, the model, whether the model thinks first.
+    pub fn change(&self, id: &str, title: Option<&str>, model: Option<&str>, thinking: Option<&str>) -> Result<Session> {
         self.get(id)?;
         self.db.with(|c| {
             if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
@@ -135,6 +137,9 @@ impl Sessions {
             }
             if let Some(model) = model {
                 c.execute("UPDATE sessions SET model = ?2 WHERE id = ?1", rusqlite::params![id, model])?;
+            }
+            if let Some(thinking) = thinking {
+                c.execute("UPDATE sessions SET thinking = ?2 WHERE id = ?1", rusqlite::params![id, thinking])?;
             }
             Ok(())
         })?;
@@ -224,7 +229,9 @@ mod tests {
         s.add(&a.id, "user", "hello", "done", None).unwrap();
         assert_eq!(s.list().unwrap()[0].id, a.id, "speaking in a session brings it to the top");
 
-        assert_eq!(s.change(&b.id, Some("Renamed"), Some("big")).unwrap().model, "big");
+        assert_eq!(s.change(&b.id, Some("Renamed"), Some("big"), None).unwrap().model, "big");
+        assert_eq!(b.thinking, "off", "a session starts with thinking off");
+        assert_eq!(s.change(&b.id, None, None, Some("on")).unwrap().thinking, "on");
         s.delete(&a.id).unwrap();
         assert!(s.messages(&a.id).unwrap().is_empty(), "its messages go with it");
         assert!(matches!(s.get(&a.id), Err(Error::NotFound(_))));

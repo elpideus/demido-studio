@@ -6,23 +6,41 @@
 //! So a browser gets in through a one-use link: the link is traded for a session, and the session lives in
 //! a cookie that scripts cannot read.
 //!
+//! A browser that got in stays in when the server is restarted: the server keeps a fingerprint of each
+//! session beside the key (a SHA-256 of it, not the session itself, so the file lets nobody in). A session
+//! is good for thirty days from the day it was made.
+//!
 //! This is for one user on one computer. Use from other devices adds passkeys and encryption later.
 
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::Result;
+use sha2::{Digest, Sha256};
+
+use crate::{Result, now_ms};
 
 /// How long a one-use link stays good.
 pub const LINK_LIFETIME: Duration = Duration::from_secs(60);
 pub const COOKIE: &str = "demido_session";
+/// How long a browser stays signed in.
+const SESSION_LIFETIME_MS: i64 = 30 * 86_400_000;
+/// More browsers than this are not remembered; the oldest are forgotten first.
+const MOST_SESSIONS: usize = 50;
 
 pub struct Auth {
     key: String,
     links: Mutex<HashMap<String, Instant>>,
-    sessions: Mutex<HashSet<String>>,
+    /// The fingerprint of each live session, and when it was made (milliseconds since 1970).
+    sessions: Mutex<HashMap<String, i64>>,
+    /// Where the fingerprints are kept, so a restart does not sign every browser out. `None` in tests.
+    kept: Option<PathBuf>,
+}
+
+/// What is kept of a session: enough to recognise it, not enough to use it.
+fn fingerprint(session: &str) -> String {
+    Sha256::digest(session.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn random() -> String {
@@ -46,11 +64,19 @@ impl Auth {
                 k
             }
         };
-        Ok(Self::with_key(key))
+        // The browsers that were signed in when the server last ran, less the ones that are too old by now.
+        let kept = path.with_file_name("browsers");
+        let sessions = std::fs::read_to_string(&kept)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| line.split_once(' ').and_then(|(print, made)| Some((print.to_string(), made.parse::<i64>().ok()?))))
+            .filter(|(print, made)| print.len() == 64 && now_ms() - made < SESSION_LIFETIME_MS)
+            .collect();
+        Ok(Self { key, links: Mutex::new(HashMap::new()), sessions: Mutex::new(sessions), kept: Some(kept) })
     }
 
     pub fn with_key(key: String) -> Self {
-        Self { key, links: Mutex::new(HashMap::new()), sessions: Mutex::new(HashSet::new()) }
+        Self { key, links: Mutex::new(HashMap::new()), sessions: Mutex::new(HashMap::new()), kept: None }
     }
 
     pub fn key(&self) -> &str {
@@ -78,7 +104,19 @@ impl Auth {
             return None;
         }
         let session = random();
-        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(session.clone());
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.insert(fingerprint(&session), now_ms());
+        sessions.retain(|_, made| now_ms() - *made < SESSION_LIFETIME_MS);
+        while sessions.len() > MOST_SESSIONS {
+            let oldest = sessions.iter().min_by_key(|(_, made)| **made).map(|(print, _)| print.clone()).expect("not empty");
+            sessions.remove(&oldest);
+        }
+        if let Some(kept) = &self.kept {
+            let lines: String = sessions.iter().map(|(print, made)| format!("{print} {made}\n")).collect();
+            if let Err(e) = write_private(kept, &lines) {
+                tracing::warn!("The sign-in could not be kept on disk, so a restart will ask for it again: {e}");
+            }
+        }
         Some(session)
     }
 
@@ -86,7 +124,7 @@ impl Auth {
     pub fn cookie_ok(&self, header: Option<&str>) -> bool {
         let Some(header) = header else { return false };
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        header.split(';').filter_map(|p| p.trim().strip_prefix(COOKIE)?.strip_prefix('=')).any(|v| sessions.contains(v))
+        header.split(';').filter_map(|p| p.trim().strip_prefix(COOKIE)?.strip_prefix('=')).any(|v| sessions.get(&fingerprint(v)).is_some_and(|made| now_ms() - *made < SESSION_LIFETIME_MS))
     }
 }
 
@@ -128,6 +166,38 @@ mod tests {
         assert!(a.redeem(&link).is_none(), "a link must not work twice");
         assert!(a.cookie_ok(Some(&format!("other=1; {COOKIE}={session}"))));
         assert!(!a.cookie_ok(Some(&format!("{COOKIE}=made-up"))));
+    }
+
+    #[test]
+    fn a_browser_stays_signed_in_when_the_server_is_started_again() {
+        let dir = std::env::temp_dir().join(format!("demido-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("key");
+        let first = Auth::open(&path).unwrap();
+        let session = first.redeem(&first.new_link()).unwrap();
+        let cookie = format!("{COOKIE}={session}");
+        drop(first);
+
+        // A new start: the same browser is still let in, and a made-up session is not.
+        let again = Auth::open(&path).unwrap();
+        assert!(again.cookie_ok(Some(&cookie)));
+        assert!(!again.cookie_ok(Some(&format!("{COOKIE}={}", "f".repeat(64)))));
+
+        // What is on disk recognises the session and cannot be used as one.
+        let on_disk = std::fs::read_to_string(dir.join("browsers")).unwrap();
+        assert!(!on_disk.contains(&session), "the session itself is never written down");
+        let print = on_disk.split(' ').next().unwrap().to_string();
+        assert!(!again.cookie_ok(Some(&format!("{COOKIE}={print}"))), "the fingerprint does not get anyone in");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(dir.join("browsers")).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+
+        // A session made more than thirty days ago is forgotten at the next start.
+        std::fs::write(dir.join("browsers"), format!("{print} {}\n", now_ms() - SESSION_LIFETIME_MS - 1)).unwrap();
+        assert!(!Auth::open(&path).unwrap().cookie_ok(Some(&cookie)));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

@@ -50,6 +50,8 @@ const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL,
         UNIQUE (session_id, seq)
      ) STRICT;",
+    // 3: each session says whether its model thinks first: off, on, or one of the model's levels
+    "ALTER TABLE sessions ADD COLUMN thinking TEXT NOT NULL DEFAULT 'off';",
 ];
 
 pub struct Db {

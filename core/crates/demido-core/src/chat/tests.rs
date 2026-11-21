@@ -127,7 +127,7 @@ async fn the_beginning_of_the_prompt_never_changes() {
     assert_eq!(second[2], json!({ "role": "assistant", "content": "Red, blue and yellow are the three primary colours of paint." }));
     assert_eq!(second[3], json!({ "role": "user", "content": "And three secondary ones?" }));
     assert_eq!(asked[1]["model"], "small");
-    assert_eq!(asked[1]["chat_template_kwargs"]["enable_thinking"], false, "thinking is off until there is a switch for it");
+    assert_eq!((&asked[1]["chat_template_kwargs"]["enable_thinking"], &asked[1]["reasoning_effort"]), (&json!(false), &json!("none")), "thinking is off unless the person turns it on");
     assert_eq!(w.sessions.get(&session.id).unwrap().title, "Colours", "a title that was given is kept");
     w.end().await;
 }
@@ -236,5 +236,75 @@ async fn a_model_that_is_writing_is_not_unloaded_for_being_idle_and_its_speed_is
     tokio::time::sleep(Duration::from_millis(250)).await;
     w.engine.look_after().await;
     assert_eq!(w.engine.list().await.unwrap().models.into_iter().find(|m| m.id == "small").unwrap().state, "unloaded");
+    w.end().await;
+}
+
+#[tokio::test]
+async fn a_session_can_think_first_and_the_thought_can_be_ended() {
+    let w = world("thinks");
+    *w.stand.thought.lock().unwrap() = "The user wants colours. Primary colours of paint are red blue yellow. I should answer briefly and not ramble on about it.".into();
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    assert_eq!(session.thinking, "off");
+
+    // Before the model was ever loaded, what it can do is not known: on is taken on trust, a level is not.
+    assert!(matches!(w.chat.change(&session.id, None, None, Some("high")).await, Err(Error::Invalid(_))));
+    assert_eq!(w.chat.change(&session.id, None, None, Some("on")).await.unwrap().thinking, "on");
+
+    // Thinking on: the thought arrives apart from the answer and is kept apart from it.
+    let mut ear = w.events.listen();
+    w.chat.say(&session.id, "Name three primary colours.").unwrap();
+    let answer = w.answered(&session.id).await;
+    assert_eq!(answer.content, "Red, blue and yellow are the three primary colours of paint.");
+    assert!(answer.thought.as_deref().is_some_and(|t| t.starts_with("The user wants colours.") && t.ends_with("about it.")), "{:?}", answer.thought);
+    let mut told_thought = String::new();
+    while let Ok(e) = ear.try_recv() {
+        if e.kind == "message.delta" {
+            told_thought.push_str(e.data["thought"].as_str().unwrap_or(""));
+        }
+    }
+    assert_eq!(Some(told_thought), answer.thought);
+    let asked = w.stand.asked.lock().unwrap().last().cloned().unwrap();
+    assert_eq!((&asked["chat_template_kwargs"]["enable_thinking"], &asked["reasoning_control"], asked.get("reasoning_effort")), (&json!(true), &json!(true), None));
+
+    // Now that it was loaded, the runtime has said what it can do: think, on or off. A level it does not have is refused.
+    assert_eq!(w.engine.list().await.unwrap().models.into_iter().find(|m| m.id == "small").unwrap().thinking, Some(vec!["on".to_string()]));
+    let err = w.chat.change(&session.id, None, None, Some("high")).await.unwrap_err().to_string();
+    assert!(err.contains("off, on"), "{err}");
+
+    // A thought that runs long is ended from outside, and the model goes on to its answer.
+    w.stand.word_every_ms.store(40, Ordering::Relaxed);
+    let mut ear = w.events.listen();
+    w.chat.say(&session.id, "Again.").unwrap();
+    loop {
+        let e = tokio::time::timeout(Duration::from_secs(10), ear.recv()).await.expect("a thought within ten seconds").unwrap();
+        if e.kind == "message.delta" && !e.data["thought"].as_str().unwrap_or("").is_empty() {
+            break;
+        }
+    }
+    w.stand.word_every_ms.store(1, Ordering::Relaxed);
+    assert!(w.chat.answer_now(&session.id).await.unwrap());
+    let cut = w.answered(&session.id).await;
+    assert_eq!((cut.state.as_str(), cut.content.as_str()), ("done", "Red, blue and yellow are the three primary colours of paint."));
+    assert!(cut.thought.as_deref().is_some_and(|t| t.len() < 100), "the thought was cut short: {:?}", cut.thought);
+    assert!(!w.chat.answer_now(&session.id).await.unwrap(), "nothing is being thought now");
+
+    // Off again: no thought is asked for, and none is kept.
+    w.chat.change(&session.id, None, None, Some("off")).await.unwrap();
+    w.chat.say(&session.id, "Once more.").unwrap();
+    assert_eq!(w.answered(&session.id).await.thought, None);
+    w.end().await;
+}
+
+#[tokio::test]
+async fn a_model_that_does_not_think_cannot_be_told_to() {
+    let w = world("no-thought");
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    w.chat.say(&session.id, "Hello.").unwrap();
+    w.answered(&session.id).await;
+    assert_eq!(w.engine.list().await.unwrap().models.into_iter().find(|m| m.id == "small").unwrap().thinking, Some(vec![]));
+    let err = w.chat.change(&session.id, None, None, Some("on")).await.unwrap_err().to_string();
+    assert!(err.contains("does not think"), "{err}");
+    assert_eq!(w.chat.change(&session.id, Some("Greeting"), None, Some("off")).await.unwrap().title, "Greeting");
+    assert!(matches!(w.chat.change(&session.id, None, Some("no-such-model"), None).await, Err(Error::NotFound(_))));
     w.end().await;
 }

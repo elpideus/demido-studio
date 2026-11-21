@@ -396,9 +396,23 @@
   /* ───────── conversation ───────── */
   .chat {
     display: grid;
+    /* One column that is never wider than the space it has, whatever is in the header. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     min-width: 0;
     min-height: 0;
+  }
+  /* A header with controls in it: in a narrow window they go onto a second line and nothing is cut off. */
+  .chat__head.chat__head--tools {
+    flex-wrap: wrap;
+    row-gap: var(--d-space-4);
+    height: auto;
+    min-height: 3rem;
+    padding-block: var(--d-space-8);
+  }
+  .chat__head.chat__head--tools .chat__title {
+    flex: 1 1 12rem;
+    min-width: 0;
   }
   .chat__head {
     display: flex;

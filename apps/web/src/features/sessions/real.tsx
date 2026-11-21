@@ -9,8 +9,8 @@ import remarkGfm from 'remark-gfm'
 import { ArrowUp, Plus, Square, Trash2 } from 'lucide-react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
-import { changeSession, deleteSession, newSession, readSession, say, stopAnswer, useReal, type CoreMessage } from '@/data/real-sessions'
-import { Button, Glyph, Icon, NotBuilt, Select, Signal, Tip } from '@/ui'
+import { answerNow, changeSession, deleteSession, newSession, readSession, say, stopAnswer, useReal, type CoreMessage } from '@/data/real-sessions'
+import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal, Tip } from '@/ui'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
 /** How long ago, short: "now", "5 min", "3 h", "2 d". */
@@ -73,7 +73,14 @@ function MessageView({ m, live }: { m: CoreMessage; live?: { text: string; thoug
     <article className="d-message" data-from="assistant">
       <div className="d-message__body chat__blocks">
         {writing && !text && !thought && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {loading ? `Loading ${m.model}…` : 'Waking the model…'}</p>}
-        {thought && <details className="d-thinking"><summary>{writing && !text ? 'Thinking…' : 'Thought first'}</summary><pre>{thought}</pre></details>}
+        {thought && (
+          // Open while it is being thought, so it can be watched. Folded away once the answer has begun.
+          <details className="d-thinking" open={writing && !text ? true : undefined}>
+            <summary>{writing && !text ? 'Thinking…' : 'Thought first'}</summary>
+            <pre>{thought}</pre>
+          </details>
+        )}
+        {writing && thought && !text && <div><Button size="sm" onClick={() => void answerNow(m.session_id)}>Answer now</Button></div>}
         {text && <Prose text={text} />}
         {m.state === 'stopped' && <Signal level="note">{m.problem ?? 'Stopped. What was written is kept.'}</Signal>}
         {m.state === 'failed' && <Signal level="caution">{m.problem ?? 'The answer failed, and nothing says why.'}</Signal>}
@@ -137,9 +144,17 @@ function Chat() {
   const answering = messages.some((m) => m.state === 'answering')
   return (
     <section className="chat" aria-label="Conversation">
-      <header className="chat__head">
+      <header className="chat__head chat__head--tools">
         <h1 className="chat__title">{session.title}</h1>
-        <span className="app-spacer" />
+        {detail.thinking_choices && detail.thinking_choices.length > 0 && (
+          <Tip label="Whether the model thinks before it answers. Slower; it can help on hard questions.">
+            <span>
+              {detail.thinking_choices.length <= 3
+                ? <Segmented small label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: 'No thinking' }, ...detail.thinking_choices.map((c) => ({ value: c, label: c === 'on' ? 'Think first' : `Think: ${c}` }))]} />
+                : <Select label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: 'No thinking' }, ...detail.thinking_choices.map((c) => ({ value: c, label: `Think: ${c}` }))]} />}
+            </span>
+          </Tip>
+        )}
         <Select label="Model for this session" value={session.model} onChange={(model) => void changeSession(id, { model })}
           options={[...new Set([session.model, ...models.map((m) => m.id)])].map((m) => ({ value: m, label: m }))} />
         <Button variant="ghost" size="sm" pressed={told} onClick={() => setTold(!told)}>What the model is told</Button>
@@ -151,7 +166,7 @@ function Chat() {
         <div className="chat__col">
           {told && (
             <Signal level="note">
-              Before the conversation, the model is told this, word for word: <span className="d-mono">{detail.instructions}</span> Then everything said so far, oldest first. Thinking is switched off.
+              Before the conversation, the model is told this, word for word: <span className="d-mono">{detail.instructions}</span> Then everything said so far, oldest first. Thinking is {session.thinking === 'off' ? 'switched off' : `set to "${session.thinking}"`}.
             </Signal>
           )}
           {!messages.length && (

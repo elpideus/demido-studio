@@ -264,6 +264,11 @@ impl Router {
         self.ask(reqwest::Method::POST, "/models/unload", Some(json!({ "model": id }))).await.map(|_| ())
     }
 
+    /// What the runtime knows about a loaded model: its template, what the template supports, what the model takes in.
+    pub async fn props(&self, id: &str) -> Result<Value> {
+        self.ask(reqwest::Method::GET, &format!("/props?model={id}"), None).await
+    }
+
     /// Ends it. May take a second or two.
     pub fn stop(mut self) {
         let mine = self.running.pid();
@@ -276,8 +281,52 @@ impl Router {
     }
 }
 
+/// What a model can do, as the runtime reports it for a loaded model (research note 13).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Abilities {
+    /// What thinking can be set to, besides off. Empty: the model does not think. `["on"]`: on or off.
+    /// Otherwise the levels the model's template knows.
+    pub thinking: Vec<String>,
+    /// What it takes in besides text: `images`, `sound`, `video`.
+    pub takes: Vec<String>,
+    /// Whether its template has a place for tools of its own.
+    pub tools: bool,
+}
+
+pub(super) fn abilities_in(props: &Value) -> Abilities {
+    let caps = &props["chat_template_caps"];
+    let levels: Vec<String> = caps["reasoning_effort_levels"].as_array().into_iter().flatten().filter_map(|l| l.as_str()).filter(|l| !l.eq_ignore_ascii_case("none")).map(str::to_string).collect();
+    // A template that can be told to think or not names the switch. One with levels lists them.
+    let thinking = if !levels.is_empty() {
+        levels
+    } else if props["chat_template"].as_str().is_some_and(|t| t.contains("enable_thinking")) {
+        vec!["on".to_string()]
+    } else {
+        Vec::new()
+    };
+    let takes = [("vision", "images"), ("audio", "sound"), ("video", "video")].iter().filter(|(key, _)| props["modalities"][key] == true).map(|(_, word)| word.to_string()).collect();
+    Abilities { thinking, takes, tools: caps["supports_tool_calls"] == true }
+}
+
+/// Tells the runtime to end the thought a model is in and go on to its answer. Works only for an answer
+/// that was asked for with `reasoning_control`. False when there was nothing to end.
+pub(super) async fn end_thought(base: &str, key: &str, model: &str, answer: &str) -> Result<bool> {
+    let http = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(10)).build().map_err(|e| Error::Other(e.to_string()))?;
+    let res = http
+        .post(format!("{base}/v1/chat/completions/control"))
+        .bearer_auth(key)
+        .json(&json!({ "id": answer, "action": "reasoning_end", "model": model }))
+        .send()
+        .await
+        .map_err(|e| Error::Other(format!("The model runtime did not answer: {e}")))?;
+    let said: Value = res.json().await.unwrap_or(Value::Null);
+    Ok(said["success"] == true)
+}
+
 /// A piece of an answer as it arrives.
 pub enum Piece<'a> {
+    /// The runtime's own name for this answer. Comes first, once. It is what a thought is ended by.
+    Started(&'a str),
     /// Part of what the model says to the person.
     Text(&'a str),
     /// Part of what the model thinks first, when it thinks.
@@ -316,6 +365,7 @@ pub(super) async fn stream_answer(base: &str, key: &str, body: Value, stop: &std
     }
     let mut answer = Answer::default();
     let mut kept = String::new();
+    let mut named = false;
     loop {
         let piece = tokio::select! {
             piece = res.chunk() => piece,
@@ -329,6 +379,10 @@ pub(super) async fn stream_answer(base: &str, key: &str, body: Value, stop: &std
         while let Some(end) = kept.find('\n') {
             let line: String = kept.drain(..=end).collect();
             let Some(said) = line.trim().strip_prefix("data:").and_then(|text| serde_json::from_str::<Value>(text.trim()).ok()) else { continue };
+            if !named && let Some(id) = said["id"].as_str() {
+                named = true;
+                heard(Piece::Started(id));
+            }
             let delta = &said["choices"][0]["delta"];
             if let Some(text) = delta["content"].as_str().filter(|t| !t.is_empty()) {
                 answer.content.push_str(text);
@@ -390,5 +444,21 @@ mod tests {
         // Not measured yet: no numbers, and that is not an error.
         assert_eq!((seen[1].state.as_str(), seen[1].needs_mb, seen[1].device_total_mb), ("unloaded", None, None));
         assert!(seen_in(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn what_a_model_can_do_is_read_as_the_real_runtime_says_it() {
+        // As the real runtime answered for Qwen3 1.7B on 2026-11-21, shortened.
+        let qwen = json!({
+            "chat_template": "{%- if enable_thinking is defined and enable_thinking is false %}<think>\n\n</think>{%- endif %}",
+            "chat_template_caps": { "supports_tool_calls": true, "supports_reasoning_effort": false, "reasoning_effort_levels": [], "supports_system_role": true },
+            "modalities": { "vision": false, "video": false, "audio": false },
+        });
+        assert_eq!(abilities_in(&qwen), Abilities { thinking: vec!["on".into()], takes: vec![], tools: true });
+        // A model whose template knows levels of effort, and that reads pictures.
+        let other = json!({ "chat_template": "…", "chat_template_caps": { "supports_tool_calls": false, "reasoning_effort_levels": ["none", "low", "medium", "high"] }, "modalities": { "vision": true, "audio": true } });
+        assert_eq!(abilities_in(&other), Abilities { thinking: vec!["low".into(), "medium".into(), "high".into()], takes: vec!["images".into(), "sound".into()], tools: false });
+        // One that says nothing about thinking does not think, as far as Demido can tell.
+        assert_eq!(abilities_in(&json!({ "chat_template": "plain" })), Abilities::default());
     }
 }

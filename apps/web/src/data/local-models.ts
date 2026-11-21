@@ -7,7 +7,7 @@ import { create } from 'zustand'
 import { coreGet, coreSend, onCoreEvent } from './core'
 import { toast } from './store'
 
-export interface LocalModel { id: string; file: string; size: number; state: 'unloaded' | 'loading' | 'loaded'; context_length: number | null; needs_mb: number | null; idle_for_s: number | null; unloads_in_s: number | null; loads_in_ms: number | null }
+export interface LocalModel { id: string; file: string; size: number; state: 'unloaded' | 'loading' | 'loaded'; context_length: number | null; needs_mb: number | null; idle_for_s: number | null; unloads_in_s: number | null; loads_in_ms: number | null; tokens_per_second: number | null; thinking: string[] | null; takes: string[] | null }
 export interface EngineStatus { running: boolean; runtime: string | null; context: number; margin_mb: number; idle_unload_min: number | null }
 export interface ModelList { folder: string; models: LocalModel[]; engine: EngineStatus }
 

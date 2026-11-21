@@ -29,7 +29,7 @@ That opens the UI in your browser, signed in. The Setup screen now shows this co
 | `demido system` | This computer: processor, memory, graphics cards, and which model runtime suits it. `--json`. |
 | `demido settings list` | Every setting with its value. Also `get <id>`, `set <id> <value>`, `reset <id>`. |
 | `demido events` | The log of what happened. `--after <n>`, `--limit <n>`, `--json`. |
-| `demido ask <question>` | Asks a model and prints its answer as it is written. `--session <id>` goes on in a session; `--model <id>` picks the model for a new one. Ctrl+C stops the answer. Needs a running server. |
+| `demido ask <question>` | Asks a model and prints its answer as it is written. `--session <id>` goes on in a session; `--model <id>` picks the model for a new one; `--think` and `--no-think` turn thinking on and off for the session. Ctrl+C stops the answer. Needs a running server. |
 | `demido sessions` | The conversations kept on this computer. `show <id>` prints one; `delete <id>` removes one. |
 | `demido models` | The models in Demido's folder and what each is doing. `load <id>` loads one and waits until it is ready; `unload <id>` ends its process and frees its memory. Loading needs a running server. |
 | `demido runtime` | The program that runs models: what is installed. `available` asks its publisher what suits this computer; `install [id]` downloads, checks, unpacks and tries one; `check <id>` tries an installed one again; `stop`; `remove <id>`. |
@@ -76,8 +76,7 @@ cargo test --manifest-path core/Cargo.toml
 
 ## Not built yet
 
-Tools, the task list, making a long conversation shorter, a switch for thinking. Downloading models from
-within Demido. Providers. Carrying the web UI inside
+Tools, the task list, making a long conversation shorter. Downloading models from within Demido. Providers. Carrying the web UI inside
 the binary (a release keeps it in a folder named `ui` beside the program, and the program finds it there).
 Use from other devices (encryption, passkeys). Windows and macOS are tested by the checks on GitHub, on machines
 without a graphics card; no real Windows or Mac has run it yet.

@@ -374,13 +374,17 @@ pub struct SessionDetail {
     pub instructions: String,
     /// True while an answer is being written.
     pub answering: bool,
+    /// What thinking can be set to for this session's model, besides `off`. Empty: the model does not think.
+    /// `null`: not known yet, because the model has never been loaded.
+    pub thinking_choices: Option<Vec<String>>,
 }
 
 /// One session with everything said in it, and what the model is told first.
 #[utoipa::path(get, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = SessionDetail), (status = 404, body = Problem)))]
 async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<Json<SessionDetail>> {
     let session = app.sessions.get(&id)?;
-    Ok(Json(SessionDetail { messages: app.sessions.messages(&id)?, instructions: crate::chat::INSTRUCTIONS.to_string(), answering: app.chat.answering(&id), session }))
+    let thinking_choices = app.engine.list().await?.models.into_iter().find(|m| m.id == session.model).and_then(|m| m.thinking);
+    Ok(Json(SessionDetail { messages: app.sessions.messages(&id)?, instructions: crate::chat::INSTRUCTIONS.to_string(), answering: app.chat.answering(&id), thinking_choices, session }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -388,19 +392,20 @@ pub struct SessionChange {
     pub title: Option<String>,
     /// Another model on this computer, by its name. The next answer comes from it.
     pub model: Option<String>,
+    /// Whether the model thinks before it answers: `off`, `on`, or one of the model's own levels.
+    pub thinking: Option<String>,
 }
 
-/// Gives a session a new title, another model, or both.
+/// Changes what is given: the title, the model, whether the model thinks before it answers.
 #[utoipa::path(patch, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = SessionChange, responses((status = 200, body = Session), (status = 404, body = Problem)))]
 async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(body): Json<SessionChange>) -> Result<Json<Session>> {
-    if let Some(model) = &body.model
-        && !app.engine.list().await?.models.iter().any(|m| &m.id == model)
-    {
-        return Err(Error::NotFound(format!("There is no model called \"{model}\" on this computer.")));
-    }
-    let changed = app.sessions.change(&id, body.title.as_deref(), body.model.as_deref())?;
-    app.events.append("session.changed", Some(&id), json!({ "title": changed.title, "model": changed.model }))?;
-    Ok(Json(changed))
+    Ok(Json(app.chat.change(&id, body.title.as_deref(), body.model.as_deref(), body.thinking.as_deref()).await?))
+}
+
+/// Ends the thought the session's model is in, so that it goes on to its answer now.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/answer-now", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Stopped), (status = 404, body = Problem)))]
+async fn session_answer_now(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Stopped>> {
+    Ok(Json(Stopped { stopped: app.chat.answer_now(&id).await? }))
 }
 
 /// Deletes a session and everything said in it. An answer being written in it is stopped.
@@ -538,7 +543,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -568,6 +573,7 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}", get(session_get).patch(session_change).delete(session_delete))
         .route("/sessions/{id}/messages", post(session_say))
         .route("/sessions/{id}/stop", post(session_stop))
+        .route("/sessions/{id}/answer-now", post(session_answer_now))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))

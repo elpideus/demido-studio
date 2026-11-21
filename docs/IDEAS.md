@@ -108,7 +108,7 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 74 | **Proof of where a build came from.** GitHub can attach a signed statement to every release file saying which commit and which workflow built it; anyone can check it with one command. Free for a public repository. Not added yet: it can only be tried on a real release. | Raised |
 | 75 | **Keep the pinned actions fresh.** The workflows name exact commits, which is safe and also goes stale. A bot can open a change when an action has a new version. It adds noise, so it waits for a yes. | Raised |
 | 76 | **A rehearsal before every release.** The release workflow can be started by hand: it builds all six archives and publishes nothing. Worth doing before a tag, because a tag that fails to build is public. | Done |
-| 77 | **Stay signed in across a restart.** A browser's session lives in the server's memory, so restarting the server signs every browser out and `demido open` is needed again. Keeping a fingerprint of each session in the database would fix it. | Raised |
+| 77 | **Stay signed in across a restart.** A browser's session lives in the server's memory, so restarting the server signs every browser out and `demido open` is needed again. Keeping a fingerprint of each session in the database would fix it. | Done on 2026-11-21: a fingerprint of each session is kept beside the key, for thirty days |
 | 78 | **Follow the accent while the window is in front.** The portal announces a change of accent. Listening for it needs a lasting D-Bus connection; today the window asks again when it gets the focus back, which covers changing it in the system's settings. | Raised |
 | 79 | **Check a runtime against its publisher's signed build statement.** llama.cpp's releases link to GitHub attestations. Verifying one would prove the file was built by llama.cpp's own workflow, which a checksum from the same page cannot. | Raised |
 | 80 | **A setting for a mirror.** Where GitHub is slow or blocked, people need another place to fetch the runtime from. It decides which program gets installed, so it needs a warning and probably a pinned checksum list. | Raised |
@@ -122,6 +122,8 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 88 | **A big one that plans, small ones that do.** The clearest win for "a model per agent" is a strong model (a large local one, or a provider's) as the orchestrator with small fast local models as workers. A session could have that as a one-press setup: "plan with X, do with Y". | Raised |
 | 89 | **Say what a turn cost, under every answer.** Tokens written, tokens a second, and how much of the prompt was read and how much was not read again. It is how a person sees that caching works, and when a conversation is getting expensive. | Done |
 | 90 | **One conversation, every window.** Because the core runs the turn and tells it as news, an answer started in a terminal is written in the open window at the same moment. | Done |
+| 91 | **"Answer now."** A small model can think for a thousand tokens about a greeting. While it thinks, one press ends the thought and makes it answer with what it has. The runtime has the control for it; the voice mode in the preview had the same idea. | Done |
+| 92 | **A limit on thinking, set once.** Besides the button: a number of tokens after which a thought is ended by itself. The runtime takes such a budget only when it starts, not per question, so Demido would count and end the thought itself. | Raised |
 
 ## Pushback on the brief so far
 

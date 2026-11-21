@@ -9,8 +9,12 @@
 //! ever added to (L4). The runtime keeps what it has read of a prompt, so an unchanged beginning is not read
 //! again: each turn costs the new words, not the whole conversation.
 //!
-//! Not built yet: tools, the task list, making a long conversation shorter (compaction), a switch for
-//! thinking (it is off: L6), settings per model.
+//! Thinking (brief 4.9) is a choice of the session: off, on, or one of the model's own levels, for the models
+//! the runtime says can think. It is off unless the person turns it on (L6): measured, it costs seconds and
+//! on easy requests buys nothing. A thought that runs long can be ended from outside ("Answer now"), and
+//! the model then goes on to its answer.
+//!
+//! Not built yet: tools, the task list, making a long conversation shorter (compaction), settings per model.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -46,8 +50,17 @@ pub struct Chat {
     sessions: Arc<Sessions>,
     engine: Arc<Engine>,
     events: Arc<EventLog>,
-    /// The sessions that are being answered right now, each with the switch that stops its answer.
-    turns: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// The sessions that are being answered right now.
+    turns: Mutex<HashMap<String, Running>>,
+}
+
+/// An answer that is being written.
+#[derive(Clone)]
+struct Running {
+    /// Set to stop the answer.
+    stop: Arc<AtomicBool>,
+    /// The runtime's own name for the answer, once it has said it. A thought is ended by it.
+    named: Arc<Mutex<Option<String>>>,
 }
 
 impl Chat {
@@ -55,7 +68,7 @@ impl Chat {
         Self { sessions, engine, events, turns: Mutex::default() }
     }
 
-    fn turns(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
+    fn turns(&self) -> std::sync::MutexGuard<'_, HashMap<String, Running>> {
         self.turns.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -100,18 +113,18 @@ impl Chat {
             return Err(Error::Invalid("Nothing was written.".into()));
         }
         let session = self.sessions.get(session_id)?;
-        let stop = Arc::new(AtomicBool::new(false));
+        let running = Running { stop: Arc::new(AtomicBool::new(false)), named: Arc::default() };
         {
             let mut turns = self.turns();
             if turns.contains_key(session_id) {
                 return Err(Error::Busy("This session is still writing its last answer. Wait for it, or stop it.".into()));
             }
-            turns.insert(session_id.to_string(), stop.clone());
+            turns.insert(session_id.to_string(), running.clone());
         }
         let written = (|| -> Result<Turn> {
             let said = self.sessions.add(session_id, "user", text, "done", None)?;
             if session.messages == 0 && session.title == "New session" {
-                self.sessions.change(session_id, Some(&title_from(text)), None)?;
+                self.sessions.change(session_id, Some(&title_from(text)), None, None)?;
             }
             let answer = self.sessions.add(session_id, "assistant", "", "answering", Some(&session.model))?;
             self.events.append("message.added", Some(session_id), json!({ "message": said.id, "answer": answer.id }))?;
@@ -125,15 +138,49 @@ impl Chat {
             }
         };
         let (me, answer_id) = (self.clone(), turn.answer.id.clone());
-        tokio::spawn(async move { me.write_answer(session, answer_id, stop).await });
+        tokio::spawn(async move { me.write_answer(session, answer_id, running).await });
         Ok(turn)
+    }
+
+    /// Changes a session: its title, its model, whether the model thinks first. A model must be one that is
+    /// on this computer; a way of thinking must be one the model has.
+    pub async fn change(&self, session_id: &str, title: Option<&str>, model: Option<&str>, thinking: Option<&str>) -> Result<Session> {
+        let before = self.sessions.get(session_id)?;
+        let models = self.engine.list().await?.models;
+        if let Some(named) = model
+            && !models.iter().any(|m| m.id == named)
+        {
+            return Err(Error::NotFound(format!("There is no model called \"{named}\" on this computer.")));
+        }
+        if let Some(wanted) = thinking.filter(|t| *t != "off") {
+            // What the session's model (the new one, if it is being changed) can be set to. Not known until
+            // the model has been loaded once; then "on" is taken on trust and the runtime decides.
+            let choices = models.iter().find(|m| m.id == model.unwrap_or(&before.model)).and_then(|m| m.thinking.clone());
+            match choices {
+                Some(can) if can.is_empty() => return Err(Error::Invalid(format!("{} does not think before it answers, so there is nothing to turn on.", model.unwrap_or(&before.model)))),
+                Some(can) if !can.iter().any(|c| c == wanted) => return Err(Error::Invalid(format!("Thinking can be: off, {}. \"{wanted}\" is not one of them.", can.join(", ")))),
+                None if wanted != "on" => return Err(Error::Invalid("Until this model has been loaded once, thinking can only be off or on.".into())),
+                _ => {}
+            }
+        }
+        let changed = self.sessions.change(session_id, title, model, thinking)?;
+        self.events.append("session.changed", Some(session_id), json!({ "title": changed.title, "model": changed.model, "thinking": changed.thinking }))?;
+        Ok(changed)
+    }
+
+    /// Ends the thought the model is in, so that it goes on to its answer. False when it was not thinking.
+    pub async fn answer_now(&self, session_id: &str) -> Result<bool> {
+        let named = self.turns().get(session_id).and_then(|r| r.named.lock().unwrap_or_else(|e| e.into_inner()).clone());
+        let Some(named) = named else { return Ok(false) };
+        let session = self.sessions.get(session_id)?;
+        self.engine.end_thought(&session.model, &named).await
     }
 
     /// Stops the answer being written in a session. What was written so far is kept. False if none was.
     pub fn stop(&self, session_id: &str) -> bool {
         match self.turns().get(session_id) {
-            Some(switch) => {
-                switch.store(true, Ordering::Relaxed);
+            Some(running) => {
+                running.stop.store(true, Ordering::Relaxed);
                 true
             }
             None => false,
@@ -154,7 +201,7 @@ impl Chat {
         Ok(messages)
     }
 
-    async fn write_answer(self: Arc<Self>, session: Session, answer_id: String, stop: Arc<AtomicBool>) {
+    async fn write_answer(self: Arc<Self>, session: Session, answer_id: String, running: Running) {
         // Gathered as they arrive, told every few tens of milliseconds.
         let mut waiting = (String::new(), String::new());
         let mut last_told = Instant::now();
@@ -168,16 +215,27 @@ impl Chat {
         let outcome = async {
             // The model is loaded if it is not: its loading is told by the engine's own news.
             self.engine.load(&session.model).await?;
-            let body = json!({
+            let thinks = session.thinking != "off";
+            let mut body = json!({
                 "model": session.model,
                 "messages": self.prompt(&session, &answer_id)?,
                 "stream": true,
                 "stream_options": { "include_usage": true },
-                // Off until there is a switch for it (DECISIONS L6).
-                "chat_template_kwargs": { "enable_thinking": false },
+                // Said both ways: the first is how this family of templates is told, the second how the runtime is.
+                "chat_template_kwargs": { "enable_thinking": thinks },
             });
+            if !thinks {
+                body["reasoning_effort"] = json!("none");
+            } else {
+                // So that a thought that runs long can be ended from outside.
+                body["reasoning_control"] = json!(true);
+                if session.thinking != "on" {
+                    body["reasoning_effort"] = json!(session.thinking);
+                }
+            }
             let mut heard = |piece: Piece| {
                 match piece {
+                    Piece::Started(name) => *running.named.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string()),
                     Piece::Text(text) => waiting.0.push_str(text),
                     Piece::Thought(text) => waiting.1.push_str(text),
                 }
@@ -186,7 +244,7 @@ impl Chat {
                     tell(&mut waiting);
                 }
             };
-            self.engine.answer(&session.model, body, &stop, &mut heard).await
+            self.engine.answer(&session.model, body, &running.stop, &mut heard).await
         }
         .await;
         tell(&mut waiting);

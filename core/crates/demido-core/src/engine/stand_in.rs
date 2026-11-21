@@ -49,6 +49,8 @@ pub(crate) struct Stand {
     pub(crate) asked: StdMutex<Vec<Value>>,
     /// When set, the next request for an answer is refused with this body.
     pub(crate) refuse_with: StdMutex<Option<Value>>,
+    /// Set by a request to end the thought of the answer being written.
+    end_thought: Arc<AtomicBool>,
 }
 
 /// One start of the stand-in. Stopping an old one must never touch a newer one.
@@ -83,6 +85,7 @@ impl Stand {
             word_every_ms: AtomicUsize::new(1),
             asked: StdMutex::default(),
             refuse_with: StdMutex::default(),
+            end_thought: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -165,23 +168,60 @@ async fn chat(State(stand): State<Arc<Stand>>, headers: HeaderMap, Json(body): J
     let thinks = body["chat_template_kwargs"]["enable_thinking"] == true;
     let (reply, thought) = (stand.reply.lock().unwrap().clone(), stand.thought.lock().unwrap().clone());
     let every = Duration::from_millis(stand.word_every_ms.load(Ordering::Relaxed) as u64);
-    let mut lines: Vec<String> = vec![json!({ "choices": [{ "delta": { "role": "assistant", "content": null } }] }).to_string()];
+    // Each line, and whether it is part of the thought (which an "end the thought" request skips).
+    let named = |mut line: Value| {
+        line["id"] = json!("chatcmpl-stand-in");
+        line.to_string()
+    };
+    let mut lines: Vec<(bool, String)> = vec![(false, named(json!({ "choices": [{ "delta": { "role": "assistant", "content": null } }] })))];
     if thinks {
-        lines.extend(thought.split_inclusive(' ').map(|w| json!({ "choices": [{ "delta": { "reasoning_content": w } }] }).to_string()));
+        lines.extend(thought.split_inclusive(' ').map(|w| (true, named(json!({ "choices": [{ "delta": { "reasoning_content": w } }] })))));
     }
     let words: Vec<&str> = reply.split_inclusive(' ').collect();
-    lines.extend(words.iter().map(|w| json!({ "choices": [{ "delta": { "content": w } }] }).to_string()));
-    lines.push(json!({ "choices": [{ "finish_reason": "stop", "delta": {} }] }).to_string());
+    lines.extend(words.iter().map(|w| (false, named(json!({ "choices": [{ "delta": { "content": w } }] })))));
+    lines.push((false, named(json!({ "choices": [{ "finish_reason": "stop", "delta": {} }] }))));
     let prompt_tokens = body["messages"].to_string().len() as u64 / 4;
-    lines.push(
-        json!({ "choices": [], "timings": { "cache_n": prompt_tokens / 2, "prompt_n": prompt_tokens - prompt_tokens / 2, "predicted_n": words.len(), "predicted_per_second": 120.0 } }).to_string(),
-    );
-    lines.push("[DONE]".into());
-    let stream = tokio_stream::iter(lines).then(move |line| async move {
-        tokio::time::sleep(every).await;
-        Ok::<_, std::convert::Infallible>(SseEvent::default().data(line))
-    });
+    lines.push((
+        false,
+        named(json!({ "choices": [], "timings": { "cache_n": prompt_tokens / 2, "prompt_n": prompt_tokens - prompt_tokens / 2, "predicted_n": words.len(), "predicted_per_second": 120.0 } })),
+    ));
+    lines.push((false, "[DONE]".into()));
+    let end_thought = stand.end_thought.clone();
+    end_thought.store(false, Ordering::Relaxed);
+    let stream = tokio_stream::iter(lines)
+        .then(move |(is_thought, line)| {
+            let end_thought = end_thought.clone();
+            async move {
+                // A thought that was ended is not written out any further, and costs no more time.
+                if is_thought && end_thought.load(Ordering::Relaxed) {
+                    return None;
+                }
+                tokio::time::sleep(every).await;
+                Some(Ok::<_, std::convert::Infallible>(SseEvent::default().data(line)))
+            }
+        })
+        .filter_map(|line| line);
     Sse::new(stream).into_response()
+}
+
+/// What the stand-in "model" can do. It can think when the test gave it something to think.
+async fn props(State(stand): State<Arc<Stand>>) -> Json<Value> {
+    let thinks = !stand.thought.lock().unwrap().is_empty();
+    Json(json!({
+        "chat_template": if thinks { "{% if enable_thinking %}…{% endif %}" } else { "plain" },
+        "chat_template_caps": { "supports_tool_calls": true, "reasoning_effort_levels": [] },
+        "modalities": { "vision": false, "audio": false, "video": false },
+    }))
+}
+
+/// Ends the thought of the answer being written, as the real runtime does when it was armed for it.
+async fn control(State(stand): State<Arc<Stand>>, Json(body): Json<Value>) -> Json<Value> {
+    let armed = stand.asked.lock().unwrap().last().is_some_and(|asked| asked["reasoning_control"] == true);
+    if body["action"] == "reasoning_end" && armed {
+        stand.end_thought.store(true, Ordering::Relaxed);
+        return Json(json!({ "success": true }));
+    }
+    Json(json!({ "success": false, "message": "reasoning control not enabled for this completion" }))
 }
 
 async fn sse(State(stand): State<Arc<Stand>>) -> Sse<impl tokio_stream::Stream<Item = std::result::Result<SseEvent, std::convert::Infallible>>> {
@@ -222,6 +262,8 @@ impl Launcher for StandLauncher {
             .route("/models/unload", post(unload))
             .route("/models/sse", get(sse))
             .route("/v1/chat/completions", post(chat))
+            .route("/v1/chat/completions/control", post(control))
+            .route("/props", get(props))
             .with_state(stand.clone());
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();

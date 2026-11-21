@@ -71,6 +71,15 @@ enum Command {
         /// The model to ask, for a new session. Without it: one that is loaded, or else the first on this computer.
         #[arg(long)]
         model: Option<String>,
+        /// Let the model think before it answers, from now on in this session.
+        #[arg(long)]
+        think: bool,
+        /// Turn thinking off again in this session.
+        #[arg(long, conflicts_with = "think")]
+        no_think: bool,
+        /// Set thinking to one of the model's own levels, for models that have levels. `demido models` shows them.
+        #[arg(long, value_name = "LEVEL", conflicts_with_all = ["think", "no_think"])]
+        thinking: Option<String>,
     },
     /// The conversations kept on this computer: list them, read one, delete one.
     Sessions {
@@ -226,7 +235,17 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Settings { command } => settings(&paths, command)?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
-        Command::Ask { text, session, model } => ask(&paths, text.join(" "), session, model).await?,
+        Command::Ask { text, session, model, think, no_think, thinking } => {
+            // "--think" takes no word after it, so that the question can follow it directly.
+            let thinking = if no_think {
+                Some("off".to_string())
+            } else if think {
+                Some("on".to_string())
+            } else {
+                thinking
+            };
+            ask(&paths, text.join(" "), session, model, thinking).await?
+        }
         Command::Sessions { command } => sessions(&paths, command)?,
         Command::Events { after, limit, json } => {
             let events: Value = match Server::find(&paths) {
@@ -532,7 +551,7 @@ fn print_sessions(list: &Value) {
     println!("\nRead one: demido sessions show <id>. Go on in one: demido ask --session <id> <your question>");
 }
 
-async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option<String>) -> Result<()> {
+async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option<String>, thinking: Option<String>) -> Result<()> {
     let Some(server) = Server::find(paths) else {
         bail!("A loaded model lives in the server. Start one first: demido serve");
     };
@@ -541,6 +560,9 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
         Some(typed) => session_meant(&server, &typed)?,
         None => server.send("POST", "/api/v1/sessions", Some(&json!({ "model": model })))?["id"].as_str().context("the server gave no session")?.to_string(),
     };
+    if let Some(thinking) = &thinking {
+        server.send("PATCH", &format!("/api/v1/sessions/{session_id}"), Some(&json!({ "thinking": thinking })))?;
+    }
     // Listen first, then speak: nothing of the answer can be missed in between.
     let news = server.listen()?;
     let turn = server.send("POST", &format!("/api/v1/sessions/{session_id}/messages"), Some(&json!({ "content": text })))?;
@@ -551,6 +573,9 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
         move || -> Result<Value> {
             let mut out = std::io::stdout();
             let mut said_loading = false;
+            // A thought is shown dimmed, apart from the answer, where there is a terminal to show it in.
+            let dim = std::io::IsTerminal::is_terminal(&std::io::stderr());
+            let mut thinking = false;
             for (kind, event) in news {
                 let about_this = event["data"]["message"] == answer_id.as_str();
                 match kind.as_str() {
@@ -559,10 +584,29 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
                         eprintln!("Loading {}…", event["subject"].as_str().unwrap_or("the model"));
                     }
                     "message.delta" if about_this => {
-                        write!(out, "{}", event["data"]["text"].as_str().unwrap_or(""))?;
-                        out.flush()?;
+                        let (text, thought) = (event["data"]["text"].as_str().unwrap_or(""), event["data"]["thought"].as_str().unwrap_or(""));
+                        if !thought.is_empty() {
+                            if !thinking {
+                                thinking = true;
+                                eprint!("{}", if dim { "\x1b[2mThinking: " } else { "Thinking…\n" });
+                            }
+                            if dim {
+                                eprint!("{thought}");
+                            }
+                        }
+                        if !text.is_empty() {
+                            if thinking {
+                                thinking = false;
+                                eprint!("{}", if dim { "\x1b[0m\n\n" } else { "" });
+                            }
+                            write!(out, "{text}")?;
+                            out.flush()?;
+                        }
                     }
                     "message.done" | "message.stopped" | "message.failed" if about_this => {
+                        if thinking && dim {
+                            eprint!("\x1b[0m");
+                        }
                         writeln!(out)?;
                         return Ok(json!({ "kind": kind, "data": event["data"] }));
                     }
@@ -609,6 +653,17 @@ fn print_models(list: &Value) {
         let mut says = vec![m["state"].as_str().unwrap_or("?").to_string()];
         if let Some(needs) = m["needs_mb"].as_u64() {
             says.push(format!("needs {needs} MiB on the graphics card"));
+        }
+        if let Some(per_second) = m["tokens_per_second"].as_f64() {
+            says.push(format!("about {per_second:.0} tokens a second"));
+        }
+        match m["thinking"].as_array().map(|levels| levels.iter().filter_map(Value::as_str).collect::<Vec<_>>()) {
+            Some(levels) if levels == ["on"] => says.push("can think first".into()),
+            Some(levels) if !levels.is_empty() => says.push(format!("can think first ({})", levels.join(", "))),
+            _ => {}
+        }
+        if let Some(takes) = m["takes"].as_array().filter(|t| !t.is_empty()) {
+            says.push(format!("takes {}", takes.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")));
         }
         if let Some(ms) = m["loads_in_ms"].as_u64().filter(|_| m["state"] == "unloaded") {
             says.push(format!("loaded in {:.1} s last time", ms as f64 / 1000.0));

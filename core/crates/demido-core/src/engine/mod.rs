@@ -68,6 +68,11 @@ pub struct LocalModel {
     /// How fast it writes on this computer, in tokens a second: a running figure from its real answers.
     /// `null` until it has answered something.
     pub tokens_per_second: Option<f64>,
+    /// What thinking can be set to for this model, besides `off`. Empty: it does not think. `["on"]`: on or
+    /// off. Otherwise its levels. As the runtime reports it; `null` until the model has been loaded once.
+    pub thinking: Option<Vec<String>>,
+    /// What it takes in besides text: `images`, `sound`, `video`. `null` until it has been loaded once.
+    pub takes: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -211,6 +216,8 @@ impl Engine {
                     unloads_in_s: None,
                     loads_in_ms: None,
                     tokens_per_second: None,
+                    thinking: None,
+                    takes: None,
                 })
             })
             .collect();
@@ -252,6 +259,8 @@ impl Engine {
                 m.needs_mb = m.needs_mb.or(facts.needs_mb(context, &runtime));
                 m.loads_in_ms = facts.load_ms;
                 m.tokens_per_second = facts.per_second;
+                m.thinking = facts.thinking;
+                m.takes = facts.takes;
             }
         }
         Ok(ModelList { folder: self.models_dir.display().to_string(), models, engine: self.status_with(live.is_some()) })
@@ -343,6 +352,14 @@ impl Engine {
         let l = live.as_mut().expect("still there");
         l.used.insert(id.to_string(), Instant::now());
         l.empty_since = None;
+        // What the model can do (think, take pictures, use tools) is asked of the runtime once, and kept.
+        let file = self.identity(&on_disk);
+        if self.known.about(id, file).is_none_or(|facts| facts.thinking.is_none())
+            && let Ok(props) = l.router.props(id).await
+        {
+            let can = router::abilities_in(&props);
+            self.known.learn_abilities(id, file, can.thinking, can.takes, can.tools);
+        }
         drop(live);
         self.list().await?.models.into_iter().find(|m| m.id == id).ok_or_else(|| Error::Other(format!("\"{id}\" was loaded and then could not be found.")))
     }
@@ -394,6 +411,16 @@ impl Engine {
             self.known.learn_speed(model, self.identity(&on_disk), answer.timings.per_second);
         }
         outcome
+    }
+
+    /// Ends the thought a model is in, so that it goes on to its answer. `answer` is the runtime's name for
+    /// the answer being written (`Piece::Started`). False when there was no thought to end.
+    pub async fn end_thought(&self, model: &str, answer: &str) -> Result<bool> {
+        let (address, key) = match self.live.lock().await.as_ref() {
+            Some(l) => (l.router.address(), l.router.key()),
+            None => return Ok(false),
+        };
+        router::end_thought(&address, &key, model, answer).await
     }
 
     /// Says that a model was just used, so it is not unloaded for being idle.

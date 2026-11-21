@@ -86,6 +86,9 @@ export function LocalDetail({ id }: { id: string | null }) {
               ['On disk', size(m.size)],
               ['On the graphics card', m.needs_mb !== null ? `${gb(m.needs_mb)} at a context of ${e.context.toLocaleString()} tokens, as the runtime measured it` : 'Measured the first time the runtime looks at it'],
               ['Loads in', m.loads_in_ms !== null ? `${(m.loads_in_ms / 1000).toFixed(1)} s, the last time` : 'Known once it has been loaded'],
+              ['Writes', m.tokens_per_second !== null ? `about ${Math.round(m.tokens_per_second)} tokens a second on this computer, from its real answers` : 'Known once it has answered something'],
+              ['Thinking', m.thinking === null ? 'Known once it has been loaded' : !m.thinking.length ? 'It does not think before it answers' : m.thinking.length === 1 && m.thinking[0] === 'on' ? 'Can think first: on or off, set in each session' : `Can think first, at these levels: ${m.thinking.join(', ')}`],
+              ['Takes in', m.takes === null ? 'Known once it has been loaded' : ['text', ...m.takes].join(', ')],
               ['Can hold in mind', m.context_length !== null ? `up to ${m.context_length.toLocaleString()} tokens; Demido loads it with ${e.context.toLocaleString()}` : 'Known once the runtime has looked at it'],
             ]} />
           </div></div>

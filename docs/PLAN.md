@@ -78,8 +78,8 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 ### Step 3. Real feature work
 
 The order. Items 1 and 2 are done; item 3 is nearly done; item 4 (the chat loop) is under way: its research
-is done (note 13, DECISIONS L) and plain chat works for real. Left in item 4: the tool-call mechanism
-(DECISIONS L7), the task list, compaction, and the switch for thinking.
+is done (note 13, DECISIONS L) and plain chat works for real. The switch for thinking is built. Left in item 4: the
+tool-call mechanism (DECISIONS L7), the task list, and compaction.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.

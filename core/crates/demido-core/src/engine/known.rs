@@ -42,6 +42,15 @@ pub(super) struct Facts {
     /// How fast it writes on this computer, in tokens a second: a running figure from real answers.
     #[serde(default)]
     pub per_second: Option<f64>,
+    /// What thinking can be set to, besides off, as the runtime reports it. `None`: not asked yet.
+    #[serde(default)]
+    pub thinking: Option<Vec<String>>,
+    /// What it takes in besides text. `None`: not asked yet.
+    #[serde(default)]
+    pub takes: Option<Vec<String>>,
+    /// Whether its template has a place for tools. `None`: not asked yet.
+    #[serde(default)]
+    pub tools: Option<bool>,
     /// What it needs on the graphics card, in MiB. True only for the context and the runtime it was measured with.
     needs_mb: Option<u64>,
     measured_with: Option<(u64, String)>,
@@ -80,6 +89,15 @@ impl Known {
         let before = self.about(id, file).and_then(|f| f.per_second);
         let now = before.map_or(per_second, |old| old * 0.7 + per_second * 0.3);
         self.learn_with(id, file, |facts| facts.per_second = Some((now * 10.0).round() / 10.0));
+    }
+
+    /// Writes down what the runtime said the model can do.
+    pub fn learn_abilities(&self, id: &str, file: Identity, thinking: Vec<String>, takes: Vec<String>, tools: bool) {
+        self.learn_with(id, file, |facts| {
+            facts.thinking = Some(thinking);
+            facts.takes = Some(takes);
+            facts.tools = Some(tools);
+        });
     }
 
     /// Adds to what is known, and writes it down if anything is new.

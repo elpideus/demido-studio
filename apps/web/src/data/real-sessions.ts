@@ -10,8 +10,10 @@ import { toast } from './store'
 
 export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number }
 export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; created_at: number }
-export interface CoreSession { id: string; title: string; model: string; created_at: number; updated_at: number; messages: number }
-export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean }
+/** `thinking`: off, on, or one of the model's own levels. */
+export interface CoreSession { id: string; title: string; model: string; thinking: string; created_at: number; updated_at: number; messages: number }
+/** `thinking_choices`: what thinking can be set to besides off. Empty: the model does not think. null: not known until it has been loaded once. */
+export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean; thinking_choices: string[] | null }
 
 interface Real {
   /** `null` until the core has answered. */
@@ -81,7 +83,12 @@ export async function stopAnswer(id: string) {
   await coreSend('POST', `/sessions/${id}/stop`).catch((e: Error) => toast(e.message, undefined, 'task-failed'))
 }
 
-export async function changeSession(id: string, change: { title?: string; model?: string }) {
+/** Ends the thought the model is in, so that it goes on to its answer. */
+export async function answerNow(id: string) {
+  await coreSend('POST', `/sessions/${id}/answer-now`).catch((e: Error) => toast(e.message, undefined, 'task-failed'))
+}
+
+export async function changeSession(id: string, change: { title?: string; model?: string; thinking?: string }) {
   try {
     await coreSend('PATCH', `/sessions/${id}`, change)
     await Promise.all([readSessions(), readSession(id)])
