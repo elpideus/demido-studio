@@ -5,7 +5,7 @@
 //! or refuse. Starting and stopping a real process is not tried with it; `core/dev/router-trial.py` does
 //! that on a real runtime.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -41,6 +41,11 @@ pub(crate) struct Stand {
     pub(crate) args: StdMutex<Vec<String>>,
     /// What the stand-in "model" says, word by word.
     pub(crate) reply: StdMutex<String>,
+    /// What it says when it is asked for a JSON object (which tool, which steps): one reply for each such
+    /// request, in order. With none left, it asks for no tool.
+    pub(crate) decisions: StdMutex<VecDeque<String>>,
+    /// What it says to the next ordinary requests, in order, before `reply` is used again.
+    pub(crate) replies: StdMutex<VecDeque<String>>,
     /// What it "thinks" first, when asked to think. Empty: it does not think.
     pub(crate) thought: StdMutex<String>,
     /// Milliseconds between two words. Raised to make an answer last.
@@ -81,6 +86,8 @@ impl Stand {
             total_mb: 12_000,
             args: StdMutex::default(),
             reply: StdMutex::new("Red, blue and yellow are the three primary colours of paint.".into()),
+            decisions: StdMutex::default(),
+            replies: StdMutex::default(),
             thought: StdMutex::default(),
             word_every_ms: AtomicUsize::new(1),
             asked: StdMutex::default(),
@@ -166,7 +173,12 @@ async fn chat(State(stand): State<Arc<Stand>>, headers: HeaderMap, Json(body): J
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": 400, "message": "model is not loaded", "type": "invalid_request_error" } }))).into_response();
     }
     let thinks = body["chat_template_kwargs"]["enable_thinking"] == true;
-    let (reply, thought) = (stand.reply.lock().unwrap().clone(), stand.thought.lock().unwrap().clone());
+    let reply = if body.get("response_format").is_some() {
+        stand.decisions.lock().unwrap().pop_front().unwrap_or_else(|| r#"{"tool": "none", "args": {}}"#.into())
+    } else {
+        stand.replies.lock().unwrap().pop_front().unwrap_or_else(|| stand.reply.lock().unwrap().clone())
+    };
+    let thought = stand.thought.lock().unwrap().clone();
     let every = Duration::from_millis(stand.word_every_ms.load(Ordering::Relaxed) as u64);
     // Each line, and whether it is part of the thought (which an "end the thought" request skips).
     let named = |mut line: Value| {

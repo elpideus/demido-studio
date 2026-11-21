@@ -225,6 +225,9 @@ export const feature: Feature = {
     {
       id: 'tools', title: 'Tools', lead: 'Skills and MCP servers are both Tools here.', order: 5,
       settings: [
+        /* The same two ids as the core's registry: with a core, these two rows are drawn from its description, first. */
+        { id: 'tools.use', type: 'switch', label: 'Let models use tools', desc: 'Before it answers, a model is asked whether it needs a tool.', default: true },
+        { id: 'tools.plan', type: 'select', label: 'Split work into tasks', desc: 'When a request is split into a list of tasks, which the model then does one at a time.', default: 'asked', options: [{ value: 'asked', label: 'When I ask' }, { value: 'always', label: 'Always' }] },
         { id: 'tools.auditBeforeInstall', type: 'switch', label: 'Audit before installing or updating', desc: 'A model you choose reads every tool and its changes first.', default: true,
           details: 'Default on. The auditor sees the source or the change, the permissions asked for, and every description a model would read. It catches the obvious; it is not a guarantee.' },
         { id: 'tools.auditModel', type: 'select', label: 'Audit with', desc: 'The model that does the audit.', default: 'qwen3-4b', options: [{ value: 'qwen3-4b', label: 'Qwen3 4B Instruct' }, { value: 'gemma-3n-e4b', label: 'Gemma 3n E4B' }, { value: 'claude', label: 'Claude, through the Anthropic API' }] },

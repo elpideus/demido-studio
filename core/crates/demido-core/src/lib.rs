@@ -34,6 +34,7 @@ pub mod runtime;
 pub mod sessions;
 pub mod settings;
 pub mod system;
+pub mod tools;
 pub mod ui;
 
 pub use error::{Error, Result};

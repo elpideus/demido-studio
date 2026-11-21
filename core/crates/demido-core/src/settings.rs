@@ -100,6 +100,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
         section("appearance", "Appearance", None),
         section("models", "Models and memory", Some("Models load only when needed and unload when idle.")),
         section("context", "Context and compaction", Some("A model can only hold so much of a conversation in mind. When a session gets long, the older part is replaced by a short account of it.")),
+        section("tools", "Tools and tasks", Some("What a model may ask Demido to do for it, and how work with several steps is kept in order.")),
         section("server", "Server and remote use", Some("How this computer offers Demido to its own window, to browsers and to other devices.")),
         section("events", "The log of what happened", None),
         section("updates", "Updates", None),
@@ -178,6 +179,28 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             ),
             choices(&[("auto", "Automatic"), ("1000", "1k"), ("2000", "2k"), ("4000", "4k"), ("6000", "6k"), ("8000", "8k"), ("12000", "12k"), ("16000", "16k"), ("24000", "24k")]),
             json!("auto"),
+            true,
+        ),
+        def(
+            "tools.use",
+            "Let models use tools",
+            "Before it answers, a model is asked whether it needs a tool: the clock, the calculator, a plan.",
+            Some(
+                "Default on. It costs one short question to the model before each answer (about a tenth of a second on a graphics card, more without one). The tools so far (the clock, the calculator, a plan) touch nothing outside Demido. Tools that read files, run commands or use the network are not built yet; they come with permission levels.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
+        def(
+            "tools.plan",
+            "Split work into tasks",
+            "When a request is split into a list of tasks, which Demido then has the model do one at a time.",
+            Some(
+                "Default: when you ask (the Plan first switch beside the message box, or `--plan`). Always: every request is first looked at for steps. Measured on four small models before it was built: asked for the steps of requests that needed none, they made a list for between none and a third of them, so Always is not the default. A model may also ask for a plan itself; small ones rarely do.",
+            ),
+            choices(&[("asked", "When I ask"), ("always", "Always")]),
+            json!("asked"),
             true,
         ),
         def(

@@ -9,7 +9,11 @@ import { coreGet, coreSend, onCoreEvent } from './core'
 import { toast } from './store'
 
 export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number }
-export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; created_at: number }
+/** One use of a tool. `refused`: the request could not be used, so nothing ran. */
+export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'done' | 'failed' | 'refused'; took_ms: number }
+/** One task of work that was split into steps. `parent_id` is set for a sub-task. */
+export interface CoreTask { id: string; session_id: string; message_id: string; parent_id: string | null; position: number; title: string; state: 'pending' | 'running' | 'done' | 'failed' | 'stopped'; result: string | null; steps: CoreStep[]; created_at: number; updated_at: number }
+export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; steps: CoreStep[]; created_at: number }
 /** `thinking`: off, on, or one of the model's own levels. */
 export interface CoreSession { id: string; title: string; model: string; thinking: string; created_at: number; updated_at: number; messages: number }
 /** An account of the older part of a session. The model is given it in place of the messages up to `upto_seq`. */
@@ -17,7 +21,8 @@ export interface CoreSummary { id: string; session_id: string; upto_seq: number;
 /** How much of what the model can hold a session is using, in tokens. */
 export interface ContextUse { used: number; limit: number; compact_at: number; auto: boolean }
 /** `thinking_choices`: what thinking can be set to besides off. Empty: the model does not think. null: not known until it has been loaded once. */
-export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean; thinking_choices: string[] | null; summaries: CoreSummary[]; context: ContextUse }
+/** `tasks` and `tools_told` are missing when the core is older than this window: a window may be newer than the server it talks to. */
+export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean; thinking_choices: string[] | null; summaries: CoreSummary[]; context: ContextUse; tasks?: CoreTask[]; tools_told?: string | null }
 
 interface Real {
   /** `null` until the core has answered. */
@@ -26,12 +31,14 @@ interface Real {
   open: Record<string, SessionDetail>
   /** The answers being written right now, by message id: the words that have arrived so far. */
   writing: Record<string, { text: string; thought: string }>
+  /** What the answers being written have done so far, by message id: the tools used, the tasks and how they stand. */
+  working: Record<string, { steps?: CoreStep[]; tasks?: CoreTask[] }>
   /** The sessions whose older part is being written up right now. */
   shortening: Record<string, boolean>
   error: string | null
 }
 
-export const useReal = create<Real>(() => ({ list: null, open: {}, writing: {}, shortening: {}, error: null }))
+export const useReal = create<Real>(() => ({ list: null, open: {}, writing: {}, working: {}, shortening: {}, error: null }))
 const set = useReal.setState
 const get = useReal.getState
 
@@ -47,9 +54,9 @@ export async function readSession(id: string) {
   try {
     const detail = await coreGet<SessionDetail>(`/sessions/${id}`)
     // Words that arrived for a message that is stored whole by now are no longer needed.
-    const writing = { ...get().writing }
-    for (const m of detail.messages) if (m.state !== 'answering') delete writing[m.id]
-    set({ open: { ...get().open, [id]: detail }, writing })
+    const [writing, working] = [{ ...get().writing }, { ...get().working }]
+    for (const m of detail.messages) if (m.state !== 'answering') { delete writing[m.id]; delete working[m.id] }
+    set({ open: { ...get().open, [id]: detail }, writing, working })
   } catch (e) {
     // It was deleted, here or somewhere else.
     const open = { ...get().open }
@@ -71,10 +78,11 @@ export async function newSession(model?: string): Promise<string | null> {
   }
 }
 
-/** Says something in a session. The answer follows as news. Returns false, with the reason shown, when it was refused. */
-export async function say(id: string, content: string): Promise<boolean> {
+/** Says something in a session. The answer follows as news. Returns false, with the reason shown, when it was refused.
+    `plan`: the model first lists the steps of the request, and then does them one at a time, as tasks. */
+export async function say(id: string, content: string, plan = false): Promise<boolean> {
   try {
-    const turn = await coreSend<{ said: CoreMessage; answer: CoreMessage }>('POST', `/sessions/${id}/messages`, { content })
+    const turn = await coreSend<{ said: CoreMessage; answer: CoreMessage }>('POST', `/sessions/${id}/messages`, { content, plan })
     const at = get().open[id]
     // Shown at once, without waiting for the news to come round.
     if (at && !at.messages.some((m) => m.id === turn.said.id)) set({ open: { ...get().open, [id]: { ...at, answering: true, messages: [...at.messages, turn.said, turn.answer] } } })
@@ -137,6 +145,15 @@ export function startSessions() {
     const id = String(e.data.message)
     const so_far = get().writing[id] ?? { text: '', thought: '' }
     set({ writing: { ...get().writing, [id]: { text: so_far.text + String(e.data.text ?? ''), thought: so_far.thought + String(e.data.thought ?? '') } } })
+  })
+  // What an answer is doing before it is written: the tools it uses, and its tasks as they are done.
+  onCoreEvent('message.steps', (e) => {
+    const id = String(e.data.message)
+    set({ working: { ...get().working, [id]: { ...get().working[id], steps: e.data.steps as CoreStep[] } } })
+  })
+  onCoreEvent('message.tasks', (e) => {
+    const id = String(e.data.message)
+    set({ working: { ...get().working, [id]: { ...get().working[id], tasks: e.data.tasks as CoreTask[] } } })
   })
   // Something was said, or an answer ended: the stored conversation is the truth again.
   // The older part of a session is being written up (by itself, before an answer, or because someone asked).

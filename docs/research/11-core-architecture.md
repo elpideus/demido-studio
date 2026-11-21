@@ -70,6 +70,13 @@ that day) and fails on any name that has not been read and listed. It runs in th
 brings about thirty packages to do it. The system's own `busctl` (or `gdbus`) answers the same question.
 zbus comes back when a second thing needs D-Bus (DECISIONS K14).
 
+**Dates and times: jiff.** Added with the chat loop, to tell a model what day it is in this computer's time
+zone. jiff 1.0.1, Unlicense OR MIT (read from crates.io on 2026-11-21). It reads the system's own time zone
+data on Linux and macOS and carries its own on Windows. I knew its 0.2 names; 1.0 renamed some
+(`ZonedDateTime`), which I found by reading its source, not by guessing. The other candidates: `chrono`
+(MIT OR Apache-2.0) has no time zone names without a second crate; `time` refuses to read the local time
+zone in a program with several threads. The calculator's sums with dates use no library at all.
+
 ## Not decided here
 
 How heavy queries leave the request path, the scheduler, the resource manager that lends and unloads models,

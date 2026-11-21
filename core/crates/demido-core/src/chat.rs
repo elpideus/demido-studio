@@ -20,7 +20,10 @@
 //! fit comfortably, and by hand whenever the person asks. How long a conversation is, is not asked of
 //! anyone: the runtime said how many tokens the last turn was, and that is counted on from.
 //!
-//! Not built yet: tools, the task list, settings per model.
+//! Before an answer is written, the model is asked whether it needs a tool, and work can be split into
+//! tasks that Demido walks one by one. That part is in `turn.rs`, with what was measured to shape it.
+//!
+//! Not built yet: tools that reach outside Demido (files, commands, the network), settings per model.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,11 +34,14 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use utoipa::ToSchema;
 
-use crate::engine::{Engine, Piece};
+use crate::engine::{Answer, Engine, Piece};
 use crate::events::EventLog;
 use crate::sessions::{Message, Session, Sessions, Summary, title_from};
 use crate::settings::Settings;
+use crate::tools;
 use crate::{Error, Result};
+
+mod turn;
 
 /// What every model is told first, in every session. The answer style of the brief (4.14): the answer
 /// first, short, like a manual. Kept short itself, and it never changes within a session.
@@ -92,6 +98,8 @@ pub struct Chat {
     engine: Arc<Engine>,
     events: Arc<EventLog>,
     settings: Arc<Settings>,
+    /// What time and what day it is. A test gives its own.
+    clock: tools::Clock,
     /// The sessions that are being answered right now.
     turns: Mutex<HashMap<String, Running>>,
 }
@@ -107,7 +115,13 @@ struct Running {
 
 impl Chat {
     pub fn new(sessions: Arc<Sessions>, engine: Arc<Engine>, events: Arc<EventLog>, settings: Arc<Settings>) -> Self {
-        Self { sessions, engine, events, settings, turns: Mutex::default() }
+        Self { sessions, engine, events, settings, clock: tools::here, turns: Mutex::default() }
+    }
+
+    /// The same, telling the time and the day from `clock`: for tests.
+    pub fn with_clock(mut self, clock: tools::Clock) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// What the model is loaded with room for, and the size at which a conversation is made shorter.
@@ -271,6 +285,12 @@ impl Chat {
 
     /// Writes down what the person said and starts the answer. Returns at once; the answer follows as news.
     pub fn say(self: &Arc<Self>, session_id: &str, text: &str) -> Result<Turn> {
+        self.say_with(session_id, text, false)
+    }
+
+    /// The same. With `plan`, the model is first asked for the steps of the request, and Demido then has it
+    /// do them one at a time.
+    pub fn say_with(self: &Arc<Self>, session_id: &str, text: &str, plan: bool) -> Result<Turn> {
         let text = text.trim();
         if text.is_empty() {
             return Err(Error::Invalid("Nothing was written.".into()));
@@ -301,8 +321,22 @@ impl Chat {
             }
         };
         let (me, answer_id) = (self.clone(), turn.answer.id.clone());
-        tokio::spawn(async move { me.write_answer(session, answer_id, running).await });
+        tokio::spawn(async move { me.write_answer(session, answer_id, running, plan).await });
         Ok(turn)
+    }
+
+    /// What the model of a session is told first, word for word: what day it is, and how to answer. A model
+    /// does not know the date, and does not know that it does not: asked how long until Christmas, one made
+    /// a date up and counted from that. The day is the day the session started, so these words never
+    /// change, and the runtime reads them once. The date comes first and the way to answer last: with the
+    /// date last, one model began its answers with it.
+    pub fn told_first(&self, session: &Session) -> String {
+        format!("Today's date: {}.\n\n{INSTRUCTIONS}", (self.clock)(session.created_at).day)
+    }
+
+    /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are off.
+    pub fn tools_told(&self) -> Option<String> {
+        self.settings.value::<bool>("tools.use").unwrap_or(true).then(turn::told_about_tools)
     }
 
     /// Changes a session: its title, its model, whether the model thinks first. A model must be one that is
@@ -350,28 +384,58 @@ impl Chat {
         }
     }
 
-    /// The prompt for the next answer: the instructions, then what was said, oldest first. Nothing that was
-    /// in an earlier prompt is changed or left out later, so the runtime never reads it twice. The one
-    /// exception is when the conversation is made shorter: then the older messages give way to an account
-    /// of them, once, and the prompt is stable again from there.
-    fn prompt(&self, session: &Session, answer_id: &str) -> Result<Vec<Value>> {
+    /// What comes before the request of a turn: what the model is told first, then what was said, oldest
+    /// first. And the request itself: the last thing the person said. Nothing that was in an earlier prompt
+    /// is changed or left out later, so the runtime never reads it twice. The one exception is when the
+    /// conversation is made shorter: then the older messages give way to an account of them, once, and the
+    /// prompt is stable again from there.
+    fn before(&self, session: &Session, answer_id: &str) -> Result<(Vec<Value>, String)> {
         let (account, in_view) = self.in_view(&session.id)?;
         let told = match &account {
-            Some(account) => format!("{INSTRUCTIONS}\n\nEarlier in this conversation, in short:\n{}", account.content),
-            None => INSTRUCTIONS.to_string(),
+            Some(account) => format!("{}\n\nEarlier in this conversation, in short:\n{}", self.told_first(session), account.content),
+            None => self.told_first(session),
         };
         let mut messages = vec![json!({ "role": "system", "content": told })];
-        for m in in_view {
-            // The answer about to be written is not part of its own question. An answer that failed said nothing.
-            if m.id == answer_id || (m.role == "assistant" && m.content.trim().is_empty()) {
+        // The day is said once, at the start. When the person speaks again on a later day, that is said too.
+        // From what is stored, so it reads the same in every later prompt.
+        let mut day = (self.clock)(session.created_at).date;
+        let mut dated = |m: &Message| {
+            let at = (self.clock)(m.created_at);
+            if at.date == day {
+                return m.content.clone();
+            }
+            day = at.date;
+            format!("Today's date is now {}.\n\n{}", at.day, m.content)
+        };
+        let words = turn::Words::request();
+        // The answer about to be written is not part of its own question.
+        let upto = in_view.iter().position(|m| m.id == answer_id).unwrap_or(in_view.len());
+        let request_at = in_view[..upto].iter().rposition(|m| m.role == "user");
+        for (i, m) in in_view[..upto].iter().enumerate() {
+            // An answer that failed said nothing.
+            if Some(i) == request_at || (m.role == "assistant" && m.content.trim().is_empty()) {
                 continue;
             }
-            messages.push(json!({ "role": m.role, "content": m.content }));
+            if m.role == "assistant" {
+                // The tools an answer used are part of what led to it: each call and its result, as they were.
+                messages.extend(turn::after_request(&m.steps, &turn::End::Answer, &words));
+                messages.push(json!({ "role": m.role, "content": m.content }));
+            } else {
+                messages.push(json!({ "role": m.role, "content": dated(m) }));
+            }
         }
+        Ok((messages, request_at.map(|i| dated(&in_view[i])).unwrap_or_default()))
+    }
+
+    /// The prompt for the answer itself: everything before, the request, and the tools used for it.
+    fn prompt(&self, session: &Session, answer_id: &str) -> Result<Vec<Value>> {
+        let (mut messages, request) = self.before(session, answer_id)?;
+        let steps = self.sessions.message(answer_id)?.steps;
+        messages.extend(turn::request_messages(&request, &steps, &turn::End::Answer, &turn::Words::request()));
         Ok(messages)
     }
 
-    async fn write_answer(self: Arc<Self>, session: Session, answer_id: String, running: Running) {
+    async fn write_answer(self: Arc<Self>, session: Session, answer_id: String, running: Running, plan: bool) {
         // Gathered as they arrive, told every few tens of milliseconds.
         let mut waiting = (String::new(), String::new());
         let mut last_told = Instant::now();
@@ -382,7 +446,7 @@ impl Chat {
                 waiting.1.clear();
             }
         };
-        let outcome = async {
+        let outcome: Result<Answer> = async {
             // The model is loaded if it is not: its loading is told by the engine's own news.
             self.engine.load(&session.model).await?;
             // A conversation that has grown past the set size is made shorter first, so that this answer has room.
@@ -393,6 +457,13 @@ impl Chat {
                     // If the account cannot be written, the answer is still tried: the runtime says no if it truly does not fit.
                     Err(e) => tracing::warn!("A session could not be made shorter: {e}"),
                 }
+            }
+            // What the model needs before it can answer: a tool, or the work split into tasks and done.
+            if self.settings.value::<bool>("tools.use").unwrap_or(true) {
+                self.work(&session, &answer_id, plan, &running.stop).await?;
+            }
+            if running.stop.load(Ordering::Relaxed) {
+                return Ok(Answer { stopped: true, ..Answer::default() });
             }
             let thinks = session.thinking != "off";
             let mut body = json!({
@@ -412,10 +483,22 @@ impl Chat {
                     body["reasoning_effort"] = json!(session.thinking);
                 }
             }
+            // The answer so far, looked at now and then: a model that goes round is stopped (`turn::going_round`).
+            let (mut written, mut look_at, mut ends_at) = (String::new(), 400usize, None);
             let mut heard = |piece: Piece| {
                 match piece {
                     Piece::Started(name) => *running.named.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string()),
-                    Piece::Text(text) => waiting.0.push_str(text),
+                    Piece::Text(text) => {
+                        waiting.0.push_str(text);
+                        written.push_str(text);
+                        if ends_at.is_none() && written.len() >= look_at {
+                            look_at = written.len() + 200;
+                            ends_at = turn::going_round(&written);
+                            if ends_at.is_some() {
+                                running.stop.store(true, Ordering::Relaxed);
+                            }
+                        }
+                    }
                     Piece::Thought(text) => waiting.1.push_str(text),
                 }
                 if last_told.elapsed() >= TELL_EVERY {
@@ -423,7 +506,13 @@ impl Chat {
                     tell(&mut waiting);
                 }
             };
-            self.engine.answer(&session.model, body, &running.stop, &mut heard).await
+            let mut answer = self.engine.answer(&session.model, body, &running.stop, &mut heard).await?;
+            if let Some(end) = ends_at {
+                // Kept up to the first of the repeats. The rest said nothing new.
+                answer.content.truncate(end.min(answer.content.len()));
+                answer.went_round = true;
+            }
+            Ok(answer)
         }
         .await;
         tell(&mut waiting);
@@ -431,7 +520,8 @@ impl Chat {
         let ended = match outcome {
             Ok(answer) => {
                 let state = if answer.stopped { "stopped" } else { "done" };
-                self.sessions.finish(&answer_id, &answer.content, Some(&answer.thought), state, None, Some(&answer.timings)).map(|_| {
+                let why = answer.went_round.then_some("The model began to repeat itself, so Demido stopped it here.");
+                self.sessions.finish(&answer_id, &answer.content, Some(&answer.thought), state, why, Some(&answer.timings)).map(|_| {
                     (
                         if answer.stopped { "message.stopped" } else { "message.done" },
                         json!({ "message": answer_id, "written": answer.timings.written, "per_second": answer.timings.per_second, "reused": answer.timings.reused, "read": answer.timings.read }),

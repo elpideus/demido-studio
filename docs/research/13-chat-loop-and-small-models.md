@@ -7,8 +7,10 @@ reasoning.
 
 How sure each line is, said every time:
 
-- **Tried**: measured on the owner's computer, on the two test models (Qwen3 0.6B and 1.7B, Q8), with the
-  script named.
+- **Tried**: measured on the owner's computer, with the script named. The first trials used two test
+  models (Qwen3 0.6B and 1.7B, Q8). From the trial of turns with tools on, four: those two, Qwen3 4B
+  (Q4_K_M), and Granite 3.3 2B (Q4_K_M), a second family, because every table before it carried the
+  warning "both models are one family". All four are Apache-2.0, from their makers' own pages.
 - **Read**: read by me in llama.cpp's own documentation at the stable build (`b12359`), or printed by the
   installed program itself.
 - **Search**: a web search result (title and summary of a paper). I did not read the papers in full. Treat
@@ -133,6 +135,128 @@ The rule taken from it (DECISIONS L13): material first and fenced, what to do wi
 beyond accounts, to everything a model is handed: pages, files, tool results. That is also where technique
 13 below starts.
 
+## Tried: the shape of a turn with tools, inside a conversation
+
+The first trial asked single questions and let the model put its answer inside the JSON reply. A chat is
+different: there is a conversation before the request, answers are long and have lines and code in them, and
+a tool's result has to be used afterwards. `core/dev/tool-turn-trial.py`: 26 requests, each with a short
+conversation before it; 16 need a tool, 10 need none; four models; temperature 0; thinking off. Five tools
+are in view (a clock, a calculator, a file reader, a web search, a plan). The file reader and the search
+do not exist yet: their results are stood in, since the trial is about deciding, not doing.
+
+Counted: decisions that are right (of 104 over the four models), and answers that can be used, measured
+apart from the decision (of 88): ordinary text that says the thing, not a stray tool call or broken JSON.
+
+| Shape of turn | Decided right | Answers usable |
+|---|---|---|
+| One reply: every reply is a JSON object, the answer inside it. Read as kindly as possible | 87 | 81 |
+| …with the tool's name forced | **93** | 80 |
+| Decide, then answer as text. Tools listed after the request | 70 | 86 |
+| …tools listed before the request, the request fenced | 81 | 86 |
+| …the same, nothing forced | 79 | 86 |
+| …tools before the request, the request not fenced (what is built) | 84 | **86** |
+| …tools in the first message of the conversation | 82 | 81 |
+| …in the first message, and the decisions kept in the conversation | 83 | 83 |
+
+Per model, for the shape that is built: 17, 21, 21 and 25 of 26 decided right (Qwen3 0.6B, Granite 2B,
+Qwen3 1.7B, Qwen3 4B). The same row measured twice differs by one or two: that is the noise, and
+differences of that size mean nothing.
+
+What it shows:
+
+1. **No shape decides best and answers best.** One JSON reply decides a little better. Two questions keep
+   the answers. I chose the answers, and what the split gives besides: the request for the answer is word for
+   word a plain chat request, the answer is streamed as text, and thinking can be on for the answer only.
+2. **Where the tools are listed matters less than I expected, and "material first, instruction last" did
+   not carry over to it.** Listed after the request (so that "none" is the last thing read before the
+   question), models chose "none" far too often: 70.
+3. **The 4B model is right nearly every time in every shape** (23 to 26 of 26). The design is for the models
+   below it.
+4. **After a tool's result, knowing what comes next is weak** on the small ones: 1, 3, 5 and 6 of 6. Two
+   mistakes are caught mechanically (asking for the same thing again; a request that cannot be used). One
+   is not: stopping too early and working the rest out in its head.
+
+### The question itself
+
+The same shape, five wordings of the question, decisions right of 26 per model:
+
+| Asked | 0.6B | Granite 2B | 1.7B | 4B | All |
+|---|---|---|---|---|---|
+| "Which tool does the request need?" | 22 | 17 | 22 | 25 | 86 |
+| "Does the request need a tool? Most do not." (built) | 18 | 21 | 21 | 26 | 86 |
+| "Can you answer from what you know? Then the tool is none. If not, which…" | 10 | 22 | 10 | 24 | 66 |
+| Both replies shown as forms, tool first | 14 | 20 | 21 | 26 | 81 |
+| Both replies shown as forms, "none" first | 21 | 20 | 17 | 25 | 83 |
+
+The two families fail in opposite directions. Asked "which tool", Granite uses one for nearly everything
+(1 of 10 plain requests left alone: it searches the web to say hello in French). Asked "can you answer from
+what you know", the small Qwens never use a tool again (0 of 16). **No wording is right for every model.**
+I took the one that errs towards not acting. The real answer is a wording chosen per model, from a short
+trial like this one when a model is first used. That is not built.
+
+### How a tool is described
+
+| Described by | Decided right, of 104 |
+|---|---|
+| What the tool does | 79 |
+| …and what the model cannot do without it ("do not work sums out yourself") | 84 |
+| …and an example of use | 83 |
+
+The example bought nothing and was copied: `(17 - 5) * 1.2` came back as the arguments of requests that had
+nothing to do with it, and once as the whole answer to "give me a packing list".
+
+### Who plans
+
+With `plan` among the tools, on four requests that plainly had several parts: the three smaller models
+chose it 0 times of 12; the 4B model two to four times of four. Two wordings of its description and listing
+it first changed nothing. Asked directly ("list the steps needed to do the request"), the models listed
+steps for 4, 4, 1 and 4 of the four. Asked the same of 22 requests with one part, they wrongly made a list
+for 8, 5, 0 and 2. Asking "does it have several parts, yes or no" was not dependable either: the smallest
+model never said yes, and the 1.7B said yes to 10 of the 22 requests with one part.
+
+So: a small model does not decide to plan, and cannot be trusted to say when a plan is needed, but lists
+steps when told to. Demido asks for the steps when the person asks for a plan.
+
+## Tried for real: eight requests on four models, through Demido itself
+
+After building it. Each request in a new session, through `demido ask`, with the built tools (clock,
+calculator, plan). Right means the person got a right answer.
+
+| Request | 0.6B | 1.7B | Granite 2B | 4B |
+|---|---|---|---|---|
+| What day is it today? | yes | yes | yes | yes |
+| What time is it? | yes | yes | no: made up | yes |
+| 437 euros each, for 4 of us plus one 35 euro bag | no: no tool, 1805 | no: asked for 437 × 5 | no: 437 × 5 | yes |
+| Say hello in French | yes | yes | yes, after asking the calculator | yes |
+| A packing list, three items | yes | yes | yes, through a needless plan | yes |
+| A call at 17:30. How long until then? | no | no | yes | no: read the clock, then guessed |
+| How many days until 25 December? | no | yes | no: made up | yes |
+| Three steps, with Plan first: add hours, work out pay, one line | no: 373.5 | yes | yes | yes |
+| Right | 4 of 8 | 6 of 8 | 5 of 8 | 7 of 8 |
+
+Getting there changed the design five times in two hours, each time because a real model did something
+the trial had not shown:
+
+- A sum that could not be worked out became 7,900 tokens of one repeated line. Now a model that goes
+  round is stopped (DECISIONS L23).
+- "How many days until 25 December": the 4B model made up today's date and counted from it. Now the date
+  is in the first message (L20), and the calculator counts days between dates, since "25 December 2026 -
+  21 November 2026" is what a model asked it for, unprompted (L24).
+- With the clock as a tool, two of three models made the time up. Writing the time on every message cured
+  that and broke more: one model went on as if writing a chat log, another saw digits and asked the
+  calculator to say hello. Taken out again. The time is a tool; the smallest models still sometimes guess it.
+- `17:30 - 10:19` was read as two divisions and came back as 0.04, and a model told the person the call was
+  in four minutes. A colon is no longer a division, and the calculator knows the time between two times.
+- Planned steps came back with the sums already done in their titles, wrongly, and the final answer
+  trusted the title over the calculator. Steps are now checked: no number that the request did not have
+  (L22).
+
+What is still wrong, plainly: two of four models read "4 of us plus one bag" as five tickets, which no
+tool can mend, and a third did the sum in its head and got it wrong. The call at 17:30 came out right on
+one model of four, and that one by writing both steps into a single request: a chain of two tools (read
+the clock, then subtract) did not once come about. Granite 2B uses tools where none is needed about half
+the time.
+
 ## What others report (Search; not read in full)
 
 - "The Constraint Tax" (arXiv 2605.26128, May 2026): for models under 3B, a hard tool-call schema made every
@@ -154,18 +278,18 @@ Each with how sure it is and when it gets built. "Item" is the number in `docs/P
 
 | # | Technique | What it is | How sure | When |
 |---|---|---|---|---|
-| 1 | **"No tool" is a tool** | Demido's own short tool format: a few lines of tools, one JSON object back, and declining is an entry in the same list. Works on models without a tool format of their own. | Tried: 26 of 26 on both models at a third of the tokens | The mechanism now (item 4), tools with item 5 |
-| 2 | **Check, then one repair** (the brief's "self-sanitizing tool requests") | Every request is checked against the tool's own description before anything runs. If it does not fit, the model is told what is wrong in plain words and tries once more. | Tried: mends what a check can see | Item 4 |
-| 3 | **Force the name, not the rest** | The model can only name a tool that exists. Arguments are checked afterwards, not forced. | Tried: no difference on the easy set. Search: forcing everything can cost correctness. So: provisional, and measured again on harder work | Item 5 |
+| 1 | **"No tool" is a tool** | Demido's own short tool format: a few lines of tools, one JSON object back, and declining is an entry in the same list. Works on models without a tool format of their own. | Tried twice: 26 of 26 on single questions; inside conversations it holds on three of four models and one family over-uses tools | Built (item 4). Tools that reach outside come with item 5 |
+| 2 | **Check, then one repair** (the brief's "self-sanitizing tool requests") | Every request is checked against the tool's own description before anything runs. If it does not fit, the model is told what is wrong in plain words and tries once more. | Tried: mends what a check can see. Built, with silent mending of what is plain | Built (item 4) |
+| 3 | **Force the name, not the rest** | The model can only name a tool that exists. Arguments are checked afterwards, not forced. | Tried twice. Once `time()` is read as `time`, forcing the name changes little (81 against 79 of 104: noise). Kept, because the reply is then always short and always readable. Search: forcing everything can cost correctness; not tried on hard arguments | Built (item 4). Measured again with the first tools that take real arguments (item 5) |
 | 4 | **Few tools in view** | The model is shown the handful of tools that fit the request, picked by meaning, not all of them. | Memory, and it follows from every count of tokens above. Not tried | Item 5, with embeddings (brief 4.8) |
 | 5 | **Cut words, never choices** (the brief's "compressed prompts", and caveman) | Internal text is short. Every option the model has stays visible in it. | Tried: the two short prompts above | A rule from now on |
 | 6 | **Thinking only where it pays** | Off for mechanical decisions. A switch or levels where the model has them (brief 4.9), with a budget, and a way to end a long thought. | Tried: five times slower, no gain on easy calls. Read: the controls exist | Item 4, the switch with the session screen |
-| 7 | **A task list the model keeps** (brief 4.6) | The work is split into tasks and sub-tasks. Each turn the model is shown where it is: the task in hand, what is done, what is next. | Memory. Not tried | Item 4, after plain chat |
+| 7 | **A task list the model keeps** (brief 4.6) | The work is split into tasks and sub-tasks. Each turn the model is shown where it is: the task in hand, what is done, what is next. | Tried on four models: they do not plan by themselves; asked, they list steps; walked by Demido, three of four got a three-step sum right | Built (item 4). Open: showing the plan for approval before it is walked |
 | 8 | **A fresh start for each piece** (brief 4.17) | A sub-task that does not need the conversation is given to an agent with an empty context. | Memory. Not tried | Item 7 |
 | 9 | **The same beginning every time** | The prompt always starts with the same bytes (instructions, tools), and history is only ever added to. The runtime then does not read it again. | Read: the cache exists and reports itself. To be seen on the first real session | Item 4, from the first turn |
 | 10 | **Compaction** (brief 4.15) | When the conversation nears what the model can hold, the oldest part is replaced by a short account of it. By hand or by itself, with a size worked out from the model and the memory. | Built and tried on the real models, by hand and by itself. The size is never asked for: the runtime's count of the last answer is counted on from. The wording of the request was measured (above) | Done in item 4. Open: a check that an account is a good one; a default size worked out per model |
-| 11 | **Each model its own settings** (brief 4.2) | Temperature and the rest as the model's makers recommend, not one default for all. | Research owed | With the models work (item 6) |
-| 12 | **Catching a model that loops** | A reply that repeats itself or runs on is stopped, and the turn says so. | Memory. Not tried | Item 4 |
+| 11 | **Each model its own settings** (brief 4.2) | Temperature and the rest as the model's makers recommend, not one default for all. And, since the trial of turns: the wording of the tool question, chosen per model from a short trial when the model is first used. | Research owed for the settings. Tried for the wording: no one wording is right for two families | With the models work (item 6) |
+| 12 | **Catching a model that loops** | A reply that repeats itself or runs on is stopped, and the turn says so. | Tried: the first real failure was 7,900 tokens of one line. Built for answers | Built (item 4). Open: the same for thinking |
 | 13 | **Outside text is data** (brief 4.4) | What comes from pages, files, mail and tools is marked as material, never as instructions. | Research note 05, not yet fact-checked. Tried here for one case: material fenced and put before the instruction (above) | Item 5 |
 | 14 | **A model for each job** (the owner's addition) | Mechanical work goes to the fastest model that fits; the careful one plans. | Designed (DECISIONS O); not tried | Item 7 |
 
@@ -202,7 +326,8 @@ complete; the beginning of the prompt never changes; thinking is off until its s
 answer says about its own speed is kept for the roster. No tools yet: the mechanism above is built with the
 first real tools.
 
-Added since: the switch for thinking and "Answer now" (L6); making a long conversation shorter (L11 to L14).
+Added since: the switch for thinking and "Answer now" (L6); making a long conversation shorter (L11 to L14);
+turns with tools, the task list, the date, and stopping a model that goes round (L15 to L24).
 
 ## Sources
 

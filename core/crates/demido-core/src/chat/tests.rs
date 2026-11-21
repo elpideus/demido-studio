@@ -9,6 +9,13 @@ use crate::engine::stand_in::{Stand, StandLauncher};
 use crate::runtime::{Runtimes, Source};
 use crate::settings::Settings;
 
+mod tools_and_tasks;
+
+/// It is always the same minute of the same Saturday, whatever the real clock says.
+const CLOCK: tools::Clock = |_| tools::Moment { day: "Saturday, 21 November 2026".into(), time: "14:05".into(), date: (2026, 11, 21) };
+/// What every model is told first, on that Saturday.
+const TOLD: &str = "Today's date: Saturday, 21 November 2026.\n\nAnswer first. Then numbered steps, only if steps are needed. One idea per sentence. Exact values with units. No filler, no praise. Do not repeat the question.";
+
 struct World {
     chat: Arc<Chat>,
     sessions: Arc<Sessions>,
@@ -48,7 +55,9 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
         None => engine,
     });
     let sessions = Arc::new(Sessions::new(db));
-    let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()));
+    // The tests in this file are about plain chat: one request to the model for each turn. Tools have their own.
+    kept_settings.set("tools.use", json!(false)).unwrap();
+    let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()).with_clock(CLOCK));
     World { chat, sessions, engine, events, stand, home, settings: kept_settings }
 }
 
@@ -122,7 +131,8 @@ async fn the_beginning_of_the_prompt_never_changes() {
     let asked = w.stand.asked.lock().unwrap().clone();
     assert_eq!(asked.len(), 2);
     let (first, second) = (asked[0]["messages"].as_array().unwrap(), asked[1]["messages"].as_array().unwrap());
-    assert_eq!(first[0], json!({ "role": "system", "content": INSTRUCTIONS }));
+    assert_eq!(first[0], json!({ "role": "system", "content": TOLD }), "how to answer, and what day it is");
+    assert!(TOLD.ends_with(INSTRUCTIONS));
     assert_eq!(first.len(), 2);
     // The second prompt is the first one, unchanged, with the answer and the new question added at the end.
     assert_eq!(&second[..2], &first[..]);
@@ -347,7 +357,7 @@ async fn a_conversation_is_made_shorter_by_hand_and_the_model_gets_the_account()
     turn(&w, &session.id, "And where do I live?").await;
     let next = w.stand.asked.lock().unwrap().last().cloned().unwrap();
     let told = next["messages"][0]["content"].as_str().unwrap();
-    assert!(told.starts_with(INSTRUCTIONS) && told.ends_with("Earlier in this conversation, in short:\nAda likes green and lives in Turin."), "{told}");
+    assert!(told.starts_with(TOLD) && told.ends_with("Earlier in this conversation, in short:\nAda likes green and lives in Turin."), "{told}");
     assert_eq!(
         next["messages"].as_array().unwrap().iter().skip(1).map(|m| m["content"].as_str().unwrap()).collect::<Vec<_>>(),
         ["What do I like?", "Red, blue and yellow are the three primary colours of paint.", "And where do I live?"]

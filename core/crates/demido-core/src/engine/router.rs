@@ -341,6 +341,8 @@ pub struct Answer {
     pub timings: crate::sessions::Timings,
     /// True when it was stopped from outside before the model was done.
     pub stopped: bool,
+    /// True when it was stopped because the model had begun to repeat itself. Set by whoever was listening.
+    pub went_round: bool,
 }
 
 /// Asks a loaded model and passes on its answer piece by piece. Ends when the model is done, when `stop` is

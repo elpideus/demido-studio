@@ -18,6 +18,8 @@ axum = "0.8"
 clap = { version = "4.6", features = ["derive"] }
 directories = "6"
 flate2 = "1.1"
+# Dates and times with the system's own time zone. Read from crates.io on 2026-11-21: 1.0.1, Unlicense OR MIT.
+jiff = "1"
 nvml-wrapper = "0.13"
 # rustls with the system's own list of trusted certificates. No OpenSSL.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream", "json", "system-proxy"] }

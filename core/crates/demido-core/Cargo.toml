@@ -10,6 +10,7 @@ rust-version.workspace = true
 axum.workspace = true
 directories.workspace = true
 flate2.workspace = true
+jiff.workspace = true
 nvml-wrapper.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true

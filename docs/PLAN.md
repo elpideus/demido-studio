@@ -16,10 +16,11 @@ The order of the first three steps is the owner's (brief section 0). Everything 
   API with its own description.
 - It reads this computer's real hardware and recommends the model runtime build to download.
 - Served by the core, four things are real. Sessions: a conversation with a model on this computer, its
-  answer written as you watch, kept by the core (`demido ask` does the same from a terminal). Setup:
+  answer written as you watch, kept by the core (`demido ask` does the same from a terminal); the model
+  can read the clock and calculate, and work can be split into tasks that are ticked off as you watch. Setup:
   this computer's hardware, and installing the model runtime. Models › On this computer: the models in
   Demido's folder, loaded and unloaded for real, with the indicator in the corner following. Settings:
-  Appearance, Models and memory, Context and compaction, the listen address and the log's length. Everything else is still the
+  Appearance, Models and memory, Context and compaction, Tools and tasks, the listen address and the log's length. Everything else is still the
   scripted preview, and says so.
 - The project is public at `github.com/elpideus/demido-studio`. Every change is checked on Linux, Windows
   and macOS; a version tag builds six archives (DECISIONS, section R).
@@ -78,9 +79,9 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 ### Step 3. Real feature work
 
 The order. Items 1 and 2 are done; item 3 is nearly done; item 4 (the chat loop) is under way: its research
-is done (note 13, DECISIONS L) and plain chat works for real. The switch for thinking is built, and so is
-making a long conversation shorter, by hand and by itself (DECISIONS L11 to L14). Left in item 4: the
-tool-call mechanism (DECISIONS L7) and the task list.
+is done (note 13, DECISIONS L) and plain chat works for real. Item 4 (the chat loop) is built: plain chat,
+the switch for thinking, making a long conversation shorter, turns with tools, and the task list. Item 5
+(tools that reach outside, permission levels) is next.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.
@@ -95,9 +96,13 @@ tool-call mechanism (DECISIONS L7) and the task list.
    real graphics memory. Left in this item: a context chosen per model (it belongs with the research
    on model tuning).
 4. Chat loop with the small-model techniques: constrained tool calls, repair, task list, compaction.
-   Built so far: plain chat, the thinking switch with "Answer now", compaction. Left open inside
-   compaction: a check that an account is a good one, and a default size worked out per model (it waits
-   for the per-model context of item 3).
+   Built on 2026-11-21 (DECISIONS L): plain chat, the thinking switch with "Answer now", compaction, turns
+   with tools (the clock, the calculator, a plan), the task list that Demido walks, stopping a model that
+   goes round. Measured on four models and tried on them for real (note 13): 4, 5, 6 and 7 of 8 everyday
+   requests came out right. Left open inside it: the wording of the tool question chosen per model (no
+   one wording suits two families); chains of two tools, which did not once come about by themselves; a
+   check that an account is a good one; a default compaction size worked out per model; showing a plan
+   for approval before it is walked.
 5. Tools system, permission levels, sandbox, injection defence.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
 7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),

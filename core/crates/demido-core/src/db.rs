@@ -62,6 +62,22 @@ const MIGRATIONS: &[&str] = &[
         tokens_before INTEGER NOT NULL,     -- about how long the conversation was
         created_at    INTEGER NOT NULL
      ) STRICT;",
+    // 5: the tools an answer used, kept with the answer; and the tasks a piece of work was split into
+    "ALTER TABLE messages ADD COLUMN steps TEXT NOT NULL DEFAULT '[]';   -- JSON: each use of a tool, in order
+     CREATE TABLE tasks (
+        id         TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+        message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,  -- the answer it is part of
+        parent_id  TEXT REFERENCES tasks (id) ON DELETE CASCADE,             -- set for a sub-task
+        position   INTEGER NOT NULL,        -- its place among its siblings, from 1
+        title      TEXT NOT NULL,
+        state      TEXT NOT NULL,           -- pending, running, done, failed or stopped
+        result     TEXT,                    -- what doing it gave, in short
+        steps      TEXT NOT NULL DEFAULT '[]', -- JSON: the tools it used
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+     ) STRICT;
+     CREATE INDEX tasks_of_message ON tasks (message_id, position);",
 ];
 
 pub struct Db {

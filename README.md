@@ -45,7 +45,8 @@ cargo run --manifest-path core/Cargo.toml -- open
 ```
 
 The same UI opens, served by the real core. Four screens are real then (Sessions, Models, Setup and part of
-Settings); every other screen is still the scripted preview and says so. To talk to a model, the core needs
+Settings); every other screen is still the scripted preview and says so. In a session the model can read
+the clock, calculate, and do work as a list of tasks; it cannot reach files or the web yet. To talk to a model, the core needs
 a model runtime (Setup installs it) and a GGUF model in its models folder (`demido models` says where).
 
 ## See the brand kit

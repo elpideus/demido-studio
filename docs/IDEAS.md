@@ -129,6 +129,12 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 95 | **Let a person mend the account.** The account is plain text the model reads. A person who sees a wrong or missing fact in it could correct it in place, and the model would know from the next turn. | Raised |
 | 96 | **Pin a message.** "Never lose this one": a pinned message stays word for word through every shortening. Useful for a specification or a list of rules given at the start. | Raised |
 | 97 | **A stronger model writes the account.** With a model for each agent (DECISIONS O), the account could be written by the most careful model that is loaded, not by the session's own. It is rare work where care pays more than speed. | Raised; with item 7 |
+| 98 | **Try each model once, and word things for it.** No wording of the tool question was right for both families of models tried: one over-uses tools, the other under-uses them. The first time a model is used, Demido could run a short fixed trial (twenty requests, a few seconds on a graphics card), keep the wording that suits that model, and show the person the score: "this model uses tools right 21 times in 26". It would also tell the roster (DECISIONS O) which models can be trusted with tools at all. | Raised; with the models work (item 6) |
+| 99 | **Show the plan before it is walked.** With Plan first, the list appears and is carried out at once. A person could be shown the steps first, to cross one out, reword one or add one, and then press Go. Cheap to build on what is there, and it puts the person where a small model is weakest. | Raised |
+| 100 | **Do a failed task again.** A task that failed, or gave something wrong, could be done again by itself, with a word from the person about what was wrong, without redoing the ones before it. | Raised |
+| 101 | **The date is a setting of the conversation, not of the computer.** Demido tells the model the day in this computer's time zone. In server mode the person may be somewhere else. The window knows its own time zone and could say so. | Raised; with server mode |
+| 102 | **End a thought that goes round.** An answer that repeats itself is stopped. A thought can go round in the same way, and today only "Answer now" ends it. The same check could press that button. | Raised |
+| 103 | **A cheaper model for the small questions.** "Does this need a tool?" and "what did this task give?" are short, mechanical questions. With a model for each job (DECISIONS O), the smallest loaded model could answer them while the session's model keeps its memory of the conversation for the answer. Not as simple as it sounds: the small model would have to read the conversation too. | Raised; with item 7 |
 
 ## Pushback on the brief so far
 
@@ -199,4 +205,19 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
   schema. Recent papers say that makes small models' calls valid and often wrong, and my own measurement
   showed the real failure is elsewhere: tiny models do not know when to leave the tools alone. One change of
   shape fixed that completely (research note 13). I changed the plan to match the measurement.
+- **A task list does not make a small model plan.** The brief says the task list is "really important for
+  smaller models", and after measuring I agree about the list and disagree about who writes it. Small
+  models do not decide to plan (0 of 12 tries on the three smallest), and cannot say when a plan is needed.
+  What works is the other half: Demido keeps the list and asks for one task at a time. So a plan starts
+  when you press Plan first, not when the model feels like it. An "Always" setting exists and is off,
+  because the models then make lists for requests that need none.
+- **One prompt does not fit all small models.** I looked for the one wording that makes every small model
+  use tools properly. There is none: the two families I tried fail in opposite directions on the same
+  words. The fix is to choose words per model by measuring it, which is brief 4.2 ("model-specific
+  optimizations") reaching further than temperature settings. I built the default that errs towards doing
+  nothing, and wrote the rest down as the next thing worth building for small models (IDEAS 98).
+- **Small is not all the same.** The design is tuned on 0.6B to 4B models because they are quick to
+  download and fail loudly. On your card you would run 4B to 12B. The 4B model got 25 of 26 decisions and
+  7 of 8 real requests right; the ones below it are where the work is. I have not measured anything
+  between 4B and 12B.
 

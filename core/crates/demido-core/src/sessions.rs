@@ -12,6 +12,7 @@ use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::db::Db;
+use crate::tools::Step;
 use crate::{Error, Result, now_ms};
 
 #[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
@@ -62,7 +63,32 @@ pub struct Message {
     /// The model that wrote it. `null` for what the person wrote.
     pub model: Option<String>,
     pub timings: Option<Timings>,
+    /// The tools this answer used before it was written, in order. Empty for most messages.
+    pub steps: Vec<Step>,
     pub created_at: i64,
+}
+
+/// One task of a piece of work that was split into steps. Demido keeps the list and walks it; the model
+/// is only ever asked to do the task in hand.
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct Task {
+    pub id: String,
+    pub session_id: String,
+    /// The answer this task is part of.
+    pub message_id: String,
+    /// The task this is a sub-task of. `null` for a task of the first level.
+    pub parent_id: Option<String>,
+    /// Its place among its siblings, from 1.
+    pub position: u32,
+    pub title: String,
+    /// `pending`, `running`, `done`, `failed` or `stopped`. A task with sub-tasks is `running` while any of them is.
+    pub state: String,
+    /// What doing it gave, in short. `null` until it is done.
+    pub result: Option<String>,
+    /// The tools it used.
+    pub steps: Vec<Step>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 /// An account of the older part of a session, which the model is given in place of those messages.
@@ -104,11 +130,29 @@ fn message_from(r: &rusqlite::Row) -> rusqlite::Result<Message> {
         model: r.get(8)?,
         timings: timings.and_then(|t| serde_json::from_str(&t).ok()),
         created_at: r.get(10)?,
+        steps: serde_json::from_str(&r.get::<_, String>(11)?).unwrap_or_default(),
+    })
+}
+
+fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
+    Ok(Task {
+        id: r.get(0)?,
+        session_id: r.get(1)?,
+        message_id: r.get(2)?,
+        parent_id: r.get(3)?,
+        position: r.get(4)?,
+        title: r.get(5)?,
+        state: r.get(6)?,
+        result: r.get(7)?,
+        steps: serde_json::from_str(&r.get::<_, String>(8)?).unwrap_or_default(),
+        created_at: r.get(9)?,
+        updated_at: r.get(10)?,
     })
 }
 
 const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking FROM sessions s";
-const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at FROM messages";
+const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at, steps FROM messages";
+const TASK: &str = "SELECT id, session_id, message_id, parent_id, position, title, state, result, steps, created_at, updated_at FROM tasks";
 
 /// A title from the first thing said: its first line, cut at a word.
 pub fn title_from(text: &str) -> String {
@@ -205,6 +249,60 @@ impl Sessions {
         self.message(id)
     }
 
+    /// Writes down the tools an answer has used so far.
+    pub fn set_steps(&self, message_id: &str, steps: &[Step]) -> Result<()> {
+        let steps = serde_json::to_string(steps)?;
+        self.db.with(|c| c.execute("UPDATE messages SET steps = ?2 WHERE id = ?1", rusqlite::params![message_id, steps]))?;
+        Ok(())
+    }
+
+    /// Every task of a session, in the order they were made. Tasks of one answer, and sub-tasks of one task,
+    /// follow their `position`.
+    pub fn tasks(&self, session_id: &str) -> Result<Vec<Task>> {
+        self.db.with(|c| c.prepare(&format!("{TASK} WHERE session_id = ?1 ORDER BY created_at, parent_id IS NOT NULL, position"))?.query_map([session_id], task_from)?.collect())
+    }
+
+    /// The tasks of one answer: those of the first level in order, each followed by its sub-tasks.
+    pub fn tasks_of(&self, message_id: &str) -> Result<Vec<Task>> {
+        let all: Vec<Task> = self.db.with(|c| c.prepare(&format!("{TASK} WHERE message_id = ?1 ORDER BY position"))?.query_map([message_id], task_from)?.collect())?;
+        let mut out = Vec::with_capacity(all.len());
+        for top in all.iter().filter(|t| t.parent_id.is_none()) {
+            out.push(top.clone());
+            out.extend(all.iter().filter(|t| t.parent_id.as_deref() == Some(top.id.as_str())).cloned());
+        }
+        Ok(out)
+    }
+
+    /// Splits work into tasks: under an answer, or under one of its tasks.
+    pub fn add_tasks(&self, session_id: &str, message_id: &str, parent_id: Option<&str>, titles: &[String]) -> Result<Vec<Task>> {
+        let now = now_ms();
+        self.db.with(|c| {
+            for (i, title) in titles.iter().enumerate() {
+                c.execute(
+                    "INSERT INTO tasks (id, session_id, message_id, parent_id, position, title, state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?7)",
+                    rusqlite::params![uuid::Uuid::now_v7().to_string(), session_id, message_id, parent_id, i as u32 + 1, title.trim(), now],
+                )?;
+            }
+            Ok(())
+        })?;
+        Ok(self.tasks_of(message_id)?.into_iter().filter(|t| t.parent_id.as_deref() == parent_id).collect())
+    }
+
+    /// Writes down how a task stands: its state, and what is given of its result and the tools it used.
+    pub fn set_task(&self, id: &str, state: &str, result: Option<&str>, steps: Option<&[Step]>) -> Result<()> {
+        let steps = steps.map(serde_json::to_string).transpose()?;
+        self.db.with(|c| {
+            c.execute("UPDATE tasks SET state = ?2, result = coalesce(?3, result), steps = coalesce(?4, steps), updated_at = ?5 WHERE id = ?1", rusqlite::params![id, state, result, steps, now_ms()])
+        })?;
+        Ok(())
+    }
+
+    /// The tasks of an answer that were being done are not being done any more: its work ended (`stopped`) or broke (`failed`).
+    pub fn end_tasks(&self, message_id: &str, state: &str) -> Result<()> {
+        self.db.with(|c| c.execute("UPDATE tasks SET state = ?2, updated_at = ?3 WHERE message_id = ?1 AND state = 'running'", rusqlite::params![message_id, state, now_ms()]))?;
+        Ok(())
+    }
+
     /// Every time this session was made shorter, oldest first. The last one is the one in force.
     pub fn summaries(&self, session_id: &str) -> Result<Vec<Summary>> {
         self.db.with(|c| {
@@ -236,9 +334,22 @@ impl Sessions {
         Ok(Summary { id, session_id: session_id.to_string(), upto_seq, content: content.to_string(), why: why.to_string(), tokens_before, created_at: now })
     }
 
+    /// Moves a session and everything said in it so far back to a moment in the past. For tests about time passing.
+    #[cfg(test)]
+    pub(crate) fn backdate(&self, id: &str, to_ms: i64) -> Result<()> {
+        self.db.with(|c| {
+            c.execute("UPDATE sessions SET created_at = ?2 WHERE id = ?1", rusqlite::params![id, to_ms])?;
+            c.execute("UPDATE messages SET created_at = ?2 WHERE session_id = ?1", rusqlite::params![id, to_ms])
+        })?;
+        Ok(())
+    }
+
     /// An answer that was being written when Demido stopped was never finished. Say so, once, when Demido starts.
     pub fn close_unfinished(&self) -> Result<usize> {
-        self.db.with(|c| c.execute("UPDATE messages SET state = 'stopped', problem = 'Demido was stopped while this was being written.' WHERE state = 'answering'", []))
+        self.db.with(|c| {
+            c.execute("UPDATE tasks SET state = 'stopped' WHERE state = 'running'", [])?;
+            c.execute("UPDATE messages SET state = 'stopped', problem = 'Demido was stopped while this was being written.' WHERE state = 'answering'", [])
+        })
     }
 }
 
@@ -314,6 +425,38 @@ mod tests {
         assert_eq!(s.messages(&a.id).unwrap().len(), 6);
         s.delete(&a.id).unwrap();
         assert!(s.summaries(&a.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn work_is_split_into_tasks_and_sub_tasks_that_go_with_their_answer() {
+        let s = fresh();
+        let a = s.create(None, "small").unwrap();
+        s.add(&a.id, "user", "Do three things.", "done", None).unwrap();
+        let answer = s.add(&a.id, "assistant", "", "answering", Some("small")).unwrap();
+        assert!(answer.steps.is_empty());
+        let step = Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1 };
+        s.set_steps(&answer.id, std::slice::from_ref(&step)).unwrap();
+        assert_eq!(s.message(&answer.id).unwrap().steps, vec![step.clone()]);
+
+        let tasks = s.add_tasks(&a.id, &answer.id, None, &["Read the file".into(), " Add the hours ".into(), "Tell the total".into()]).unwrap();
+        assert_eq!(
+            tasks.iter().map(|t| (t.position, t.title.as_str(), t.state.as_str())).collect::<Vec<_>>(),
+            [(1, "Read the file", "pending"), (2, "Add the hours", "pending"), (3, "Tell the total", "pending")]
+        );
+        let subs = s.add_tasks(&a.id, &answer.id, Some(&tasks[1].id), &["Find the numbers".into(), "Add them".into()]).unwrap();
+        assert_eq!(subs.len(), 2);
+        s.set_task(&tasks[0].id, "done", Some("It lists 3 h, 2 h and 4.5 h."), Some(std::slice::from_ref(&step))).unwrap();
+        s.set_task(&tasks[1].id, "running", None, None).unwrap();
+        // In order: each task of the first level, followed by its sub-tasks.
+        let all = s.tasks_of(&answer.id).unwrap();
+        assert_eq!(all.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), ["Read the file", "Add the hours", "Find the numbers", "Add them", "Tell the total"]);
+        assert_eq!((all[0].state.as_str(), all[0].result.as_deref(), all[0].steps.len()), ("done", Some("It lists 3 h, 2 h and 4.5 h."), 1));
+        assert_eq!(s.tasks(&a.id).unwrap().len(), 5);
+        // A task that was running when Demido stopped is marked.
+        s.close_unfinished().unwrap();
+        assert_eq!(s.tasks_of(&answer.id).unwrap()[1].state, "stopped");
+        s.delete(&a.id).unwrap();
+        assert!(s.tasks(&a.id).unwrap().is_empty(), "tasks go with their session");
     }
 
     #[test]

@@ -80,6 +80,9 @@ enum Command {
         /// Set thinking to one of the model's own levels, for models that have levels. `demido models` shows them.
         #[arg(long, value_name = "LEVEL", conflicts_with_all = ["think", "no_think"])]
         thinking: Option<String>,
+        /// Plan first: the model lists the steps of the request, and does them one at a time, as tasks.
+        #[arg(long)]
+        plan: bool,
     },
     /// The conversations kept on this computer: list them, read one, delete one.
     Sessions {
@@ -240,7 +243,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Settings { command } => settings(&paths, command)?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
-        Command::Ask { text, session, model, think, no_think, thinking } => {
+        Command::Ask { text, session, model, think, no_think, thinking, plan } => {
             // "--think" takes no word after it, so that the question can follow it directly.
             let thinking = if no_think {
                 Some("off".to_string())
@@ -249,7 +252,7 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 thinking
             };
-            ask(&paths, text.join(" "), session, model, thinking).await?
+            ask(&paths, text.join(" "), session, model, thinking, plan).await?
         }
         Command::Sessions { command } => sessions(&paths, command)?,
         Command::Events { after, limit, json } => {
@@ -533,7 +536,28 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
                     Some("answering") => "  [being written]",
                     _ => "",
                 };
-                println!("\n{who}{how}\n{}", m["content"].as_str().unwrap_or(""));
+                println!("\n{who}{how}");
+                // What the answer used before it was written: tools, and the tasks the work was split into.
+                for step in m["steps"].as_array().into_iter().flatten() {
+                    if let Some(line) = step_line(step) {
+                        println!("{line}");
+                    }
+                }
+                let tasks: Vec<Value> = detail["tasks"].as_array().into_iter().flatten().filter(|t| t["message_id"] == m["id"]).cloned().collect();
+                let mut in_order: Vec<&Value> = Vec::new();
+                for top in tasks.iter().filter(|t| t["parent_id"].is_null()) {
+                    in_order.push(top);
+                    in_order.extend(tasks.iter().filter(|t| t["parent_id"] == top["id"]));
+                }
+                for task in in_order {
+                    println!("{}", task_line(&tasks, task));
+                    for step in task["steps"].as_array().into_iter().flatten() {
+                        if let Some(line) = step_line(step) {
+                            println!("     {line}");
+                        }
+                    }
+                }
+                println!("{}", m["content"].as_str().unwrap_or(""));
                 if let Some(why) = m["problem"].as_str() {
                     println!("{why}");
                 }
@@ -578,7 +602,46 @@ fn print_sessions(list: &Value) {
     println!("\nRead one: demido sessions show <id>. Go on in one: demido ask --session <id> <your question>");
 }
 
-async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option<String>, thinking: Option<String>) -> Result<()> {
+/// Text on one line, cut where it gets long.
+fn one_line(text: &str, at_most: usize) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= at_most { flat } else { format!("{}…", flat.chars().take(at_most).collect::<String>()) }
+}
+
+/// One use of a tool, on one line. A plan is shown by its tasks, not here.
+fn step_line(step: &Value) -> Option<String> {
+    let tool = step["tool"].as_str().unwrap_or("?");
+    if tool == "plan" {
+        return None;
+    }
+    let args = step["args"].as_object().map(|a| a.values().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string)).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+    let gave = one_line(step["result"].as_str().unwrap_or(""), 200);
+    Some(match step["state"].as_str() {
+        Some("done") => format!("· {tool}({args}) → {gave}"),
+        Some("failed") => format!("· {tool}({args}) could not do it: {gave}"),
+        Some("refused") => format!("· {tool} was asked for in a way that cannot be used: {gave}"),
+        _ => format!("· {tool}({args})…"),
+    })
+}
+
+/// One task, on one line: its mark, its number, its title and, when it is done, what it gave.
+fn task_line(tasks: &[Value], task: &Value) -> String {
+    let mark = match task["state"].as_str() {
+        Some("done") => "✓",
+        Some("failed") => "✗",
+        Some("stopped") => "■",
+        Some("running") => "▸",
+        _ => "○",
+    };
+    let number = match task["parent_id"].as_str() {
+        Some(parent) => format!("   {}.{}", tasks.iter().find(|t| t["id"] == parent).map_or(0, |t| t["position"].as_u64().unwrap_or(0)), task["position"]),
+        None => task["position"].to_string(),
+    };
+    let gave = task["result"].as_str().filter(|r| !r.trim().is_empty()).map(|r| format!(": {}", one_line(r, 200))).unwrap_or_default();
+    format!("{mark} {number}. {}{gave}", task["title"].as_str().unwrap_or("?"))
+}
+
+async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option<String>, thinking: Option<String>, plan: bool) -> Result<()> {
     let Some(server) = Server::find(paths) else {
         bail!("A loaded model lives in the server. Start one first: demido serve");
     };
@@ -592,7 +655,7 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
     }
     // Listen first, then speak: nothing of the answer can be missed in between.
     let news = server.listen()?;
-    let turn = server.send("POST", &format!("/api/v1/sessions/{session_id}/messages"), Some(&json!({ "content": text })))?;
+    let turn = server.send("POST", &format!("/api/v1/sessions/{session_id}/messages"), Some(&json!({ "content": text, "plan": plan })))?;
     let answer_id = turn["answer"]["id"].as_str().context("the server gave no answer to wait for")?.to_string();
 
     let reading = tokio::task::spawn_blocking({
@@ -603,6 +666,8 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
             // A thought is shown dimmed, apart from the answer, where there is a terminal to show it in.
             let dim = std::io::IsTerminal::is_terminal(&std::io::stderr());
             let mut thinking = false;
+            // What has been printed of the tools used and of the tasks, so that each line is printed once.
+            let (mut steps_shown, mut tasks_shown) = (0usize, std::collections::HashMap::<String, String>::new());
             for (kind, event) in news {
                 let about_this = event["data"]["message"] == answer_id.as_str();
                 match kind.as_str() {
@@ -628,6 +693,37 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
                             }
                             write!(out, "{text}")?;
                             out.flush()?;
+                        }
+                    }
+                    "message.steps" if about_this => {
+                        let steps = event["data"]["steps"].as_array().cloned().unwrap_or_default();
+                        // A step is printed when it has ended, in order.
+                        while let Some(step) = steps.get(steps_shown).filter(|s| s["state"] != "running") {
+                            if let Some(line) = step_line(step) {
+                                eprintln!("{line}");
+                            }
+                            steps_shown += 1;
+                        }
+                    }
+                    "message.tasks" if about_this => {
+                        let tasks = event["data"]["tasks"].as_array().cloned().unwrap_or_default();
+                        if tasks_shown.is_empty() && !tasks.is_empty() {
+                            eprintln!("Split into {} tasks:", tasks.len());
+                        }
+                        for task in &tasks {
+                            let (id, state) = (task["id"].as_str().unwrap_or("").to_string(), task["state"].as_str().unwrap_or("").to_string());
+                            let before = tasks_shown.insert(id, state.clone());
+                            // The whole list once, then each task as it starts and as it ends.
+                            if before.is_none() || (before.as_deref() != Some(state.as_str()) && state != "pending") {
+                                eprintln!("{}", task_line(&tasks, task));
+                                if state != "running" && before.is_some() {
+                                    for step in task["steps"].as_array().into_iter().flatten() {
+                                        if let Some(line) = step_line(step) {
+                                            eprintln!("     {line}");
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     "message.done" | "message.stopped" | "message.failed" if about_this => {

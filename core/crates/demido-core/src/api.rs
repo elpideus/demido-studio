@@ -37,7 +37,7 @@ use crate::events::{Event, EventLog};
 use crate::kept::Kept;
 use crate::paths::Paths;
 use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
-use crate::sessions::{Message, Session, Sessions, Summary};
+use crate::sessions::{Message, Session, Sessions, Summary, Task};
 use crate::settings::{Entry, Section, Settings};
 use crate::system::{Advice, SystemInfo};
 use crate::ui::Ui;
@@ -382,6 +382,12 @@ pub struct SessionDetail {
     pub summaries: Vec<Summary>,
     /// How much of what the model can hold the session is using.
     pub context: ContextUse,
+    /// The tasks that work in this session was split into, in the order they were made. Each names the
+    /// answer it is part of (`message_id`) and, for a sub-task, its task (`parent_id`).
+    pub tasks: Vec<Task>,
+    /// What the model is shown before each answer when it may use tools: the list of tools and the
+    /// question, word for word. `null` when tools are turned off.
+    pub tools_told: Option<String>,
 }
 
 /// One session with everything said in it, and what the model is told first.
@@ -391,11 +397,13 @@ async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<J
     let thinking_choices = app.engine.list().await?.models.into_iter().find(|m| m.id == session.model).and_then(|m| m.thinking);
     Ok(Json(SessionDetail {
         messages: app.sessions.messages(&id)?,
-        instructions: crate::chat::INSTRUCTIONS.to_string(),
+        instructions: app.chat.told_first(&session),
         answering: app.chat.answering(&id),
         thinking_choices,
         summaries: app.sessions.summaries(&id)?,
         context: app.chat.context_use(&id)?,
+        tasks: app.sessions.tasks(&id)?,
+        tools_told: app.chat.tools_told(),
         session,
     }))
 }
@@ -440,6 +448,10 @@ async fn session_delete(State(app): State<App>, Path(id): Path<String>) -> Resul
 pub struct Said {
     /// What the person wrote.
     pub content: String,
+    /// Plan first: the model is asked for the steps of the request, and Demido then has it do them one at a
+    /// time, as tasks. Left out or false: no plan, unless the model asks for one or the setting says always.
+    #[serde(default)]
+    pub plan: bool,
 }
 
 /// Says something in a session. Answers at once with what was said and the answer that is now being
@@ -448,7 +460,7 @@ pub struct Said {
 /// The session's model is loaded first if it is not. One answer at a time in a session.
 #[utoipa::path(post, path = "/api/v1/sessions/{id}/messages", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = Said, responses((status = 202, body = Turn), (status = 404, body = Problem), (status = 409, body = Problem), (status = 422, body = Problem)))]
 async fn session_say(State(app): State<App>, Path(id): Path<String>, Json(body): Json<Said>) -> Result<Response> {
-    Ok((StatusCode::ACCEPTED, Json(app.chat.say(&id, &body.content)?)).into_response())
+    Ok((StatusCode::ACCEPTED, Json(app.chat.say_with(&id, &body.content, body.plan)?)).into_response())
 }
 
 /// Stops the answer being written in a session. What was written so far is kept.
@@ -837,7 +849,10 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         assert_eq!(detail["session"]["title"], "Hello there");
-        assert_eq!(detail["instructions"], crate::chat::INSTRUCTIONS);
+        let told = detail["instructions"].as_str().unwrap();
+        assert!(told.starts_with("Today's date: ") && told.ends_with(crate::chat::INSTRUCTIONS), "the day, and how to answer: {told}");
+        assert!(detail["tools_told"].as_str().unwrap().contains("- none(): No tool is needed."), "what the model is shown of the tools is not hidden either");
+        assert_eq!(detail["tasks"], json!([]));
         let answer = &detail["messages"][1];
         assert_eq!(answer["state"], "failed");
         assert!(answer["problem"].as_str().unwrap().contains("No model runtime is installed"), "{answer}");

@@ -2490,3 +2490,11 @@
 
 /* A small sample of a colour, inside a sentence. */
 .app-swatch { display: inline-block; width: 0.8em; height: 0.8em; border-radius: var(--d-radius-xs); border: 1px solid var(--d-color-border-default); vertical-align: -0.05em; }
+
+/* What a task gave, and the tools it used, under its line in the checklist. A task's title is an
+   instruction a model wrote: it may be long, and here it is read, so it wraps. */
+.chat__task-gave { display: grid; gap: var(--d-space-4); margin-block: var(--d-space-2) var(--d-space-6); margin-inline-start: calc(var(--d-size-icon-md) + var(--d-space-8)); min-width: 0; }
+.chat__task-gave > p { margin: 0; }
+.chat__blocks .d-task__row { align-items: flex-start; }
+.chat__blocks .d-task__row > .d-glyph { margin-block-start: 0.2rem; }
+.chat__blocks .d-task__label { white-space: normal; overflow: visible; }
