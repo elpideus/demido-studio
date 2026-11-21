@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Demido Studio</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script>
+      /* Apply saved appearance before first paint: theme, text size, accent. */
+      try {
+        var s = JSON.parse(localStorage.getItem('demido-preview-settings') || '{}')
+        var el = document.documentElement
+        if (s['appearance.theme'] === 'dark' || s['appearance.theme'] === 'light') el.dataset.theme = s['appearance.theme']
+        if (s['appearance.textSize']) el.style.fontSize = s['appearance.textSize'] + '%'
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
