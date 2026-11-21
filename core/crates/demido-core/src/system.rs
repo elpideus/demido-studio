@@ -57,7 +57,7 @@ pub struct Gpu {
     pub driver: Option<String>,
     /// The newest CUDA this driver supports, for example `13.0`. NVIDIA only.
     pub cuda: Option<String>,
-    /// How it was found: `nvml`, `nvidia-smi` or `system`.
+    /// How it was found: `nvml`, `nvidia-smi`, `system`, or `processor` (built into an Apple processor).
     pub found_by: String,
 }
 
@@ -92,7 +92,7 @@ fn round1(v: f64) -> f64 {
 
 pub fn detect() -> SystemInfo {
     let os = Os {
-        name: sysinfo::System::name().unwrap_or_else(|_| std::env::consts::OS.to_string()),
+        name: os_name(sysinfo::System::name().unwrap_or_else(|_| std::env::consts::OS.to_string())),
         version: sysinfo::System::os_version().unwrap_or_default(),
         kernel: sysinfo::System::kernel_version().unwrap_or_default(),
         arch: std::env::consts::ARCH.to_string(),
@@ -111,9 +111,32 @@ pub fn detect() -> SystemInfo {
         features: cpu_features(),
     };
     let memory = Memory { total_gb: round1(sys.as_ref().map_or(0, |s| s.total_memory()) as f64 / GB), available_gb: round1(sys.as_ref().map_or(0, |s| s.available_memory()) as f64 / GB) };
-    let gpus = gpus();
+    let gpus = with_built_in(&os.family, &os.arch, gpus());
     let runtime = advise(&os.family, &os.arch, &gpus);
     SystemInfo { os, cpu, memory, gpus, runtime }
+}
+
+/// The name people know. The system calls macOS "Darwin".
+fn os_name(reported: String) -> String {
+    if reported == "Darwin" { "macOS".into() } else { reported }
+}
+
+/// Every Mac with an Apple processor has graphics built into it, whether or not the system lists them
+/// (a virtual machine does not). Without this the screen would say "no graphics" and recommend Metal.
+fn with_built_in(family: &str, arch: &str, mut gpus: Vec<Gpu>) -> Vec<Gpu> {
+    if family == "macos" && arch == "aarch64" && gpus.is_empty() {
+        gpus.push(Gpu {
+            vendor: "apple".into(),
+            name: "Apple graphics (built into the processor)".into(),
+            vram_gb: None,
+            vram_used_gb: None,
+            shares_memory: true,
+            driver: None,
+            cuda: None,
+            found_by: "processor".into(),
+        });
+    }
+    gpus
 }
 
 fn cpu_features() -> Vec<String> {
@@ -390,5 +413,18 @@ mod tests {
         assert!(s.cpu.threads > 0);
         assert!(s.memory.total_gb > 0.0);
         assert!(!s.runtime.recommended.file.is_empty());
+    }
+
+    #[test]
+    fn a_mac_with_an_apple_processor_always_has_graphics() {
+        let found = with_built_in("macos", "aarch64", Vec::new());
+        assert_eq!(found.len(), 1);
+        assert!(found[0].shares_memory && found[0].vram_gb.is_none());
+        // Nothing is invented elsewhere, and a listed card is not doubled.
+        assert!(with_built_in("macos", "x86_64", Vec::new()).is_empty());
+        assert!(with_built_in("linux", "aarch64", Vec::new()).is_empty());
+        assert_eq!(with_built_in("macos", "aarch64", found.clone()).len(), 1);
+        assert_eq!(os_name("Darwin".into()), "macOS");
+        assert_eq!(os_name("CachyOS Linux".into()), "CachyOS Linux");
     }
 }

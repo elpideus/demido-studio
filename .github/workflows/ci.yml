@@ -28,6 +28,13 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: The brand kit matches its sources
+        run: |
+          pnpm brand:build
+          if ! git diff --exit-code -- brand; then
+            echo "::error::The built brand files differ from their sources. Run 'pnpm brand:build' and commit the result."
+            exit 1
+          fi
       - name: Types
         run: pnpm app:typecheck
       - name: Build
