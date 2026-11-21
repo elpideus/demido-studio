@@ -24,6 +24,8 @@ use crate::{Error, Result};
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Approval {
     pub id: String,
+    /// The tool's name in OpenCode: `read`, `edit`, `shell`, `webfetch`, …
+    pub name: String,
     /// What it would do, in its words: "Edit src/app.ts".
     pub title: String,
     /// ACP's kind of tool: `read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `other`.
@@ -119,6 +121,7 @@ impl Rpc {
                         let call = &p["toolCall"];
                         let approval = Approval {
                             id: call["toolCallId"].as_str().unwrap_or_default().into(),
+                            name: call["name"].as_str().or(call["kind"].as_str()).unwrap_or("tool").into(),
                             title: call["title"].as_str().unwrap_or("a tool").into(),
                             kind: call["kind"].as_str().unwrap_or("other").into(),
                             input: call["rawInput"].clone(),
@@ -188,13 +191,18 @@ fn updated(update: &Value, seen: &mut Seen) -> Vec<Event> {
         "agent_thought_chunk" => out.extend(text(update).map(Event::Thought)),
         "tool_call" => {
             let id = update["toolCallId"].as_str().unwrap_or_default().to_string();
-            let name = update["title"].as_str().or(update["kind"].as_str()).unwrap_or("a tool").to_string();
+            // Its name (`read`), else its title; the title of a child session's tool says which child it is.
+            let name = update["name"].as_str().filter(|_| update["_meta"]["opencode/child-session"].is_null()).or(update["title"].as_str()).or(update["kind"].as_str()).unwrap_or("a tool").to_string();
             out.push(Event::Tool { id: id.clone(), name, input: if update["rawInput"].is_null() { json!({}) } else { update["rawInput"].clone() } });
             if let Some(status @ ("completed" | "failed")) = update["status"].as_str() {
                 out.push(Event::ToolDone { id, result: content_text(update), failed: status == "failed" });
             }
         }
         "tool_call_update" => {
+            // What the tool was used on comes once OpenCode knows it, after the call began.
+            if let Some(input) = update.get("rawInput").filter(|i| i.as_object().is_some_and(|o| !o.is_empty())) {
+                out.push(Event::ToolInput { id: update["toolCallId"].as_str().unwrap_or_default().into(), input: input.clone() });
+            }
             if let Some(status @ ("completed" | "failed")) = update["status"].as_str() {
                 out.push(Event::ToolDone { id: update["toolCallId"].as_str().unwrap_or_default().into(), result: content_text(update), failed: status == "failed" });
             }

@@ -93,7 +93,9 @@ installed one here: v2.2.7.
 | `initialize` answered: protocol 1, `loadSession`, sessions that can be resumed, closed, deleted, forked, listed; one auth method, `opencode-login` (run `opencode auth login` in a terminal) | Tried |
 | `session/new` with a folder answered, with no account: a session and its options: `model` (12 free models today, `opencode/big-pickle`, `opencode/deepseek-v4.1-flash-free` and others) and `mode` (`build`, `plan`) | Tried, in throwaway data folders, nothing sent to a model |
 | The model is set with `session/set_config_option`; text with `annotations.audience: ["assistant"]` is context for the model only | Read |
-| Permission requests offer `allow_once`, `allow_always`, `reject_once`; `session/cancel` ends a prompt with `stopReason: "cancelled"`; `usage_update` carries the session's whole cost so far | Read; Stand-in |
+| Permission requests offer `allow_once`, `allow_always`, `reject_once`; `session/cancel` ends a prompt with `stopReason: "cancelled"`; `usage_update` carries the session's whole cost so far | Read; Stand-in; Tried |
+| OpenCode's own default: every action allowed except reading `.env` files, which asks; rules are `{action, resource, effect}`, the last that matches wins, and a policy's deny always holds | Read (permissions) |
+| Rules can be given at start in `OPENCODE_CONFIG_CONTENT`; with `{"action":"*","resource":"*","effect":"ask"}` OpenCode asks before a read | Tried (OpenCode 2.2.7). Not on the current V2 config page |
 | What each free model does with what is sent: Big Pickle, Iceman, Tidepool, Flint 40B may use it to improve the model; the Nemotron models are trials that log it; DeepSeek V4.1 Flash, LongCat 2.5 and Hy4 Flash keep nothing; Beam keeps it 30 days for safety; several newer ones say nothing | Read (console/models). Demido shows this per model, dated |
 | Free models are for OpenCode only: other clients get 403 | Read (console/models) |
 | The hosted service's terms forbid "automatically or programmatically" extracting output, and processes that run "while you are not logged into the Services"; on unpaid accounts what is sent may be used to improve the services | Read (terms of service) |
@@ -108,8 +110,17 @@ installed one here: v2.2.7.
   shows its cost by Claude Code's count, and the whole change is undone in one go; the next turn resumes the
   same Claude Code session and is given only the new message. An OpenCode turn at Cautious, where OpenCode's
   permission request becomes Demido's card.
-- **Not tried:** a real message to either program. A message to Claude Code spends the owner's plan; one to
-  OpenCode's free models goes to its hosted models, some of which keep it. That is the owner's call.
+- **Tried with the owner's yes, OpenCode's free DeepSeek V4.1 Flash** (the one OpenCode says keeps nothing),
+  in a throwaway folder, three questions in all. First through Demido at Cautious: OpenCode read `notes.txt`
+  and answered right ("It says the heron count was 412 this spring."), at $0.00, and **asked nobody**, because
+  OpenCode's default is to allow everything but `.env` files (opencode.ai/docs/permissions). Then once outside
+  Demido, with the rule "ask for everything" given at start in `OPENCODE_CONFIG_CONTENT`: OpenCode asked
+  before the read. That variable is read by the OpenCode 2.2.7 binary and worked; the current V2 docs page on
+  configuration does not list it (the V1 docs did). Then through Demido again with the rules for each level:
+  the read came to Demido's card as "OpenCode wants to read …/notes.txt", the person said yes, and it
+  answered. The raw messages also showed that a tool's arguments come in a later `tool_call_update`, and that
+  ACP's `inputTokens` leaves out the cached ones (3,730 read, 35,712 from the cache, 39,550 in all).
+- **Not tried:** a real message to Claude Code: it spends the owner's plan.
 
 ## What was tried with the providers, and what was not
 

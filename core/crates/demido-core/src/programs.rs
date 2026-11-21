@@ -51,6 +51,11 @@ pub enum Event {
         name: String,
         input: Value,
     },
+    /// What a tool of its own is used on, once the program knows it.
+    ToolInput {
+        id: String,
+        input: Value,
+    },
     /// A tool of its own ended.
     ToolDone {
         id: String,
@@ -291,6 +296,23 @@ pub(crate) fn claude_code_args(options: &ClaudeCodeOptions) -> Vec<String> {
 /// The environment a Claude Code turn adds to Demido's own: a person's yes may take longer than its tools wait.
 pub(crate) fn claude_code_env() -> Vec<(&'static str, String)> {
     claude_code::env()
+}
+
+/// The rules OpenCode is started with for a session's level, as configuration given at start
+/// (`OPENCODE_CONFIG_CONTENT`), so nothing is written into the person's folder. OpenCode's own default is to
+/// allow everything but reading `.env` files (opencode.ai/docs/permissions): left so, a session at Cautious
+/// would run commands without anyone asked. Rules come after the person's own, and the last that matches
+/// wins: at Cautious everything asks; at Balanced and Smart, commands, the internet and anything outside the
+/// folder ask, and the person's own rules decide the rest; at Autonomous OpenCode's own rules are left alone.
+pub(crate) fn opencode_env(level: crate::permissions::Level) -> Vec<(&'static str, String)> {
+    use crate::permissions::Level;
+    let ask = |action: &str| serde_json::json!({ "action": action, "resource": "*", "effect": "ask" });
+    let rules = match level {
+        Level::Autonomous => return Vec::new(),
+        Level::Cautious => vec![ask("*")],
+        Level::Balanced | Level::Smart => vec![ask("shell"), ask("webfetch"), ask("websearch"), ask("external_directory")],
+    };
+    vec![("OPENCODE_CONFIG_CONTENT", serde_json::json!({ "permissions": rules }).to_string())]
 }
 
 /// Runs an OpenCode turn.

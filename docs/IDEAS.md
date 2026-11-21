@@ -165,6 +165,12 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 
 ## Pushback on the brief so far
 
+- **OpenCode asks nobody unless it is told to.** Its default is to allow every tool but reading `.env`
+  files. The first real try through Demido, at Cautious, read a file with no question at all. Demido now
+  gives OpenCode rules for each level when it starts it, so Cautious asks for everything and Balanced asks
+  before commands, the internet and anything outside the folder. The way it is given (an environment
+  variable OpenCode reads) works, and is not on OpenCode's current configuration page; if a later OpenCode
+  drops it, sessions on OpenCode would quietly ask less. I would like a check for that before a release.
 - **"Anthropic, subscription" is not a model Demido can drive.** The brief lists it beside the API. Through
   Claude Code it is a different thing: Claude Code's loop, its tools, its rules; Demido is the window. None of
   what makes small local models behave runs inside it, and Demido does not try to make the subscription a

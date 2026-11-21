@@ -86,6 +86,9 @@ const TOOL_SAID: Record<string, [string, string]> = {
   Read: ['Read', 'file_path'], Write: ['Wrote', 'file_path'], Edit: ['Changed', 'file_path'], MultiEdit: ['Changed', 'file_path'], NotebookEdit: ['Changed', 'notebook_path'],
   Bash: ['Ran', 'command'], Glob: ['Looked for files', 'pattern'], Grep: ['Searched the files for', 'pattern'], WebFetch: ['Read the page', 'url'], WebSearch: ['Searched the internet for', 'query'],
   TodoWrite: ['Wrote its to-do list', ''], Task: ['Gave part of it to a helper', 'description'], Agent: ['Gave part of it to a helper', 'description'],
+  // OpenCode's own tools, by their names in its updates.
+  read: ['Read', 'path'], write: ['Wrote', 'path'], edit: ['Changed', 'path'], shell: ['Ran', 'command'], bash: ['Ran', 'command'], glob: ['Looked for files', 'pattern'],
+  grep: ['Searched the files for', 'pattern'], list: ['Listed the files', 'path'], webfetch: ['Read the page', 'url'], websearch: ['Searched the internet for', 'query'], todowrite: ['Wrote its to-do list', ''],
   // Everything a program changed in the folder in one turn, undone in one go.
   all_it_changed: ['Changed files in the folder', ''],
 }
@@ -239,7 +242,7 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
       </div>
       {!writing && t && t.written > 0 && (
         <p className="d-type-caption d-text-tertiary" style={{ marginBlockStart: 'var(--d-space-4)' }}>
-          {m.model} · {t.written} tokens at {Math.round(t.per_second)} a second · of the prompt, {t.read} tokens read and {t.reused} {at ? `from ${at}'s cache` : 'not read again'}
+          {m.model} · {t.written} tokens{t.per_second > 0 ? ` at ${Math.round(t.per_second)} a second` : ''} · of the prompt, {t.read} tokens read and {t.reused} {at ? `from ${at}'s cache` : 'not read again'}
           {t.cost_usd !== undefined && (byProgram(m.model)
             ? <> · <Tip label={m.model?.startsWith('claude-code/') ? 'What Claude Code said this turn would cost at API prices. Under a Claude plan nothing is billed per token: the turn counts against your plan’s limits.' : 'What OpenCode said this turn cost. Free models cost nothing; others bill through the provider you set up in OpenCode.'}><span>{dollars(t.cost_usd)} by {at}'s own count</span></Tip></>
             : <> · <Tip label={t.cost_exact ? `What ${at ?? 'the provider'} said this answer cost, with every request made for it (the tools it chose, its tasks).` : `What this answer cost, with every request made for it, as Demido counted it from the tokens ${at ?? 'the provider'} reported and the prices it read.`}><span>{dollars(t.cost_usd)}{t.cost_exact ? '' : ' (estimated)'}</span></Tip></>)}

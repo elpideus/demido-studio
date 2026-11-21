@@ -167,10 +167,12 @@ async fn opencode_side(mut side: Side, permission: bool) -> Vec<Value> {
             "session/prompt" => {
                 let update = |u: Value| json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "ses_1", "update": u } });
                 side.say(update(json!({ "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "Plan it." } }))).await;
-                side.say(update(json!({ "sessionUpdate": "tool_call", "toolCallId": "call_1", "title": "Run ls", "kind": "execute", "status": "pending", "rawInput": { "command": "ls" } }))).await;
+                side.say(update(json!({ "sessionUpdate": "tool_call", "toolCallId": "call_1", "name": "shell", "title": "shell", "kind": "execute", "status": "pending", "rawInput": {} }))).await;
+                side.say(update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call_1", "status": "in_progress", "kind": "execute", "title": "shell", "rawInput": { "command": "ls" } })))
+                    .await;
                 if permission {
                     side.say(json!({ "jsonrpc": "2.0", "id": 900, "method": "session/request_permission", "params": { "sessionId": "ses_1",
-                        "toolCall": { "toolCallId": "call_1", "title": "Run ls", "kind": "execute", "rawInput": { "command": "ls" } },
+                        "toolCall": { "toolCallId": "call_1", "name": "shell", "title": "ls", "kind": "execute", "rawInput": { "command": "ls" } },
                         "options": [{ "optionId": "once", "kind": "allow_once", "name": "Allow once" }, { "optionId": "always", "kind": "allow_always", "name": "Always allow" }, { "optionId": "reject", "kind": "reject_once", "name": "Reject" }] } }))
                     .await;
                     asked.push(side.line().await);
@@ -212,7 +214,9 @@ async fn an_opencode_turn_goes_through_acp_and_asks_what_opencode_asks() {
     assert_eq!(asked[3]["params"]["prompt"][0]["annotations"]["audience"], json!(["assistant"]));
     assert_eq!(asked[3]["params"]["prompt"][1]["text"], "What is here?");
     // What OpenCode asked, Demido answered with the option for once.
-    assert_eq!(asked_for.lock().unwrap()[0].kind, "execute");
+    let first = asked_for.lock().unwrap()[0].clone();
+    assert_eq!((first.kind.as_str(), first.name.as_str()), ("execute", "shell"));
+    assert!(events.contains(&Event::ToolInput { id: "call_1".into(), input: json!({ "command": "ls" }) }));
     assert_eq!(asked[4], json!({ "jsonrpc": "2.0", "id": 900, "result": { "outcome": { "outcome": "selected", "optionId": "once" } } }));
     assert!(events.contains(&Event::Thought("Plan it.".into())) && events.contains(&Event::Text("There is one file.".into())));
     assert!(events.contains(&Event::ToolDone { id: "call_1".into(), result: "notes.md".into(), failed: false }));
@@ -283,6 +287,17 @@ fn world(spawner: Arc<StandSpawner>) -> World {
 }
 
 impl World {
+    async fn waiting(&self, session: &str) -> crate::permissions::Request {
+        for _ in 0..500 {
+            if let Some(r) = self.chat.waiting_for(session) {
+                return r;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let last = self.sessions.messages(session).unwrap().pop().unwrap();
+        panic!("nothing asked for the person's yes; the answer is {:?}: {:?}, steps {:?}", last.state, last.problem, last.steps);
+    }
+
     async fn answered(&self, session: &str) -> crate::sessions::Message {
         for _ in 0..500 {
             if !self.chat.answering(session) {
@@ -328,12 +343,7 @@ async fn a_session_on_claude_code_asks_the_person_through_demido_and_its_changes
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let chat = w.chat.clone();
     let asking = tokio::spawn(async move { chat.program_approval(&token, "Bash", json!({ "command": "echo Milk. >> todo.txt" })).await });
-    let request = loop {
-        if let Some(r) = w.chat.waiting_for(&session.id) {
-            break r;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    };
+    let request = w.waiting(&session.id).await;
     assert_eq!((request.tool.as_str(), request.what.as_str()), ("Bash", "Claude Code wants to run: echo Milk. >> todo.txt"));
     w.chat.answer_request(&session.id, &request.id, crate::permissions::Said::Once).unwrap();
     assert_eq!(asking.await.unwrap(), (true, String::new()));
@@ -370,7 +380,7 @@ async fn a_session_on_claude_code_asks_the_person_through_demido_and_its_changes
 
 #[tokio::test]
 async fn a_session_on_opencode_uses_its_free_model_and_says_what_it_does_with_what_is_sent() {
-    let (spawner, mut sides, _) = stand();
+    let (spawner, mut sides, env) = stand();
     let w = world(spawner);
     // Choosing asks OpenCode for its models: a stand-in answers.
     let listing = tokio::spawn(async move {
@@ -390,21 +400,30 @@ async fn a_session_on_opencode_uses_its_free_model_and_says_what_it_does_with_wh
     w.chat.say(&session.id, "What is here?").unwrap();
     let side = sides.recv().await.unwrap();
     assert_eq!(side.args, ["acp"]);
+    // OpenCode is started with the level's rules, given at start: nothing is written into the folder.
+    assert!(env.lock().unwrap().iter().any(|name| name == "OPENCODE_CONFIG_CONTENT"));
     let program = tokio::spawn(opencode_side(side, true));
-    let request = loop {
-        if let Some(r) = w.chat.waiting_for(&session.id) {
-            break r;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    };
-    assert_eq!(request.what, "OpenCode wants to: Run ls");
+    let request = w.waiting(&session.id).await;
+    assert_eq!((request.tool.as_str(), request.what.as_str()), ("shell", "OpenCode wants to run ls"));
     w.chat.answer_request(&session.id, &request.id, crate::permissions::Said::Once).unwrap();
     let answer = w.answered(&session.id).await;
     program.await.unwrap();
     assert_eq!((answer.state.as_str(), answer.content.as_str(), answer.thought.as_deref()), ("done", "There is one file.", Some("Plan it.")));
-    assert_eq!(answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str(), s.result.as_str())).collect::<Vec<_>>(), [("Run ls", "done", "notes.md")]);
+    assert_eq!(answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str(), s.result.as_str())).collect::<Vec<_>>(), [("shell", "done", "notes.md")]);
+    assert_eq!(answer.steps[0].args, json!({ "command": "ls" }), "what the tool was used on, from OpenCode's later update");
     assert_eq!(w.sessions.program_session(&session.id, "opencode").unwrap().map(|(id, _, _)| id).as_deref(), Some("ses_1"));
     std::fs::remove_dir_all(&w.home).ok();
+}
+
+#[test]
+fn opencode_is_told_to_ask_by_the_level() {
+    use crate::permissions::Level;
+    let rules = |level| opencode_env(level).first().map(|(_, v)| serde_json::from_str::<Value>(v).unwrap()["permissions"].clone());
+    assert_eq!(rules(Level::Cautious), Some(json!([{ "action": "*", "resource": "*", "effect": "ask" }])));
+    let balanced = rules(Level::Balanced).unwrap();
+    let asked: Vec<&str> = balanced.as_array().unwrap().iter().map(|r| r["action"].as_str().unwrap()).collect();
+    assert_eq!(asked, ["shell", "webfetch", "websearch", "external_directory"]);
+    assert_eq!(rules(Level::Autonomous), None, "OpenCode's own rules, untouched");
 }
 
 #[test]

@@ -205,9 +205,9 @@ model, from a short trial when a model is first used.
   of signing in kept; each person signs in and is billed themselves). Demido meets the two conditions as
   built (DECISIONS U15). Whether the project accepts the Commercial Terms, and whether to ask Anthropic to
   confirm this design in writing, is yours to decide before a release offers it (note 06, open question 2).
-- **A first message to Claude Code or OpenCode.** Both are found and read on this computer, and tested
-  against stand-ins. A message to Claude Code spends your plan; one to OpenCode's free models goes to its
-  hosted models, several of which keep what is sent (the screen says which). Say when, and with which.
+- **A first message to Claude Code.** OpenCode was tried with your yes, on its free DeepSeek model (research
+  note 18). Claude Code is found and read on this computer and tested against stand-ins; a message to it
+  spends your plan. Say when.
 - **A first real request to a provider.** Everything for Anthropic, Gemini and OpenRouter is built and
   tested against stand-ins that answer the way their documentation shows. A real request needs your own key,
   which I may not enter for you, and it costs money (OpenRouter's free models cost nothing). When you add a

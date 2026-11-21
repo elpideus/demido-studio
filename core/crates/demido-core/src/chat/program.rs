@@ -47,6 +47,19 @@ fn reach_of(tool: &str) -> Reach {
     }
 }
 
+/// What an ACP tool kind does, as a verb: "read", "change", "run".
+fn verb_of(kind: &str) -> &'static str {
+    match kind {
+        "read" | "search" => "read",
+        "edit" => "change",
+        "delete" => "delete",
+        "move" => "move",
+        "execute" => "run",
+        "fetch" => "fetch",
+        _ => "use",
+    }
+}
+
 /// What a tool of Claude Code's would do, in one plain line.
 fn claude_code_what(tool: &str, input: &Value) -> String {
     let text = |name: &str| input[name].as_str().unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ");
@@ -226,6 +239,18 @@ impl Chat {
                 };
                 shown(&list);
             }
+            Event::ToolInput { id, input } => {
+                let list = {
+                    let mut list = steps.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some((at, _)) = began.get(&id)
+                        && let Some(step) = list.get_mut(*at)
+                    {
+                        step.args = serde_json::from_str(&self.hide(&input.to_string())).unwrap_or(Value::Null);
+                    }
+                    list.clone()
+                };
+                shown(&list);
+            }
             Event::Denied { id, why } => {
                 let list = {
                     let mut list = steps.lock().unwrap_or_else(|e| e.into_inner());
@@ -266,23 +291,19 @@ impl Chat {
                 (turn, external)
             }
             _ => {
-                let has_folder = session.folder.is_some();
+                // What reaches Demido is what the rules for the level (`programs::opencode_env`) or the person's
+                // own rules say to ask: the person is asked, unless the level asks nothing.
                 let approve: &programs::Approver<'_> = &|a: Approval| {
                     let live = live.clone();
                     Box::pin(async move {
-                        let reach = reach_of(&a.kind);
-                        // A look, or a change in a folder that was saved first, goes on at Balanced and Smart.
-                        let free = match level {
-                            Level::Autonomous => true,
-                            Level::Cautious => false,
-                            _ => reach == Reach::Reads || (reach == Reach::Changes && has_folder),
-                        };
-                        let yes = free || self.approve(&live, &a.title, reach, format!("OpenCode wants to: {}", a.title), a.input, "OpenCode asks before this, by its own rules.").await;
+                        let what = format!("OpenCode wants to {} {}", verb_of(&a.kind), a.title);
+                        let why = "OpenCode asks before this, by the rules Demido gave it for this session's level and your own.";
+                        let yes = self.approve(&live, &a.name, reach_of(&a.kind), what, a.input, why).await;
                         if yes { Choice::Once } else { Choice::Reject }
                     })
                 };
                 let resume = known.as_ref().map(|(id, _, _)| id.as_str());
-                let started = providers.spawner().spawn(&program, &["acp".to_string()], &cwd, &[]);
+                let started = providers.spawner().spawn(&program, &["acp".to_string()], &cwd, &programs::opencode_env(level));
                 let turn = match started {
                     Ok(started) => programs::opencode(started, &cwd, name, resume, Some(INSTRUCTIONS), &prompt, &running.stop, &mut on, approve).await,
                     Err(e) => Err(e),
@@ -322,9 +343,9 @@ impl Chat {
             content = result.clone();
             heard(Piece::Text(result));
         }
+        // No speed: the turn's time holds the program's own work and the person's answers, not only writing.
         let t = turn.tokens;
-        let per_second = if took_ms > 0 { t.output as f64 / (took_ms as f64 / 1000.0) } else { 0.0 };
-        let timings = crate::sessions::Timings { reused: t.cached, read: t.input + t.cache_written, written: t.output, per_second, took_ms, ..Default::default() };
+        let timings = crate::sessions::Timings { reused: t.cached, read: t.input + t.cache_written, written: t.output, per_second: 0.0, took_ms, ..Default::default() };
         Ok(Answer { content, thought, timings, stopped: turn.stopped || running.stop.load(Ordering::Relaxed), ..Answer::default() })
     }
 
