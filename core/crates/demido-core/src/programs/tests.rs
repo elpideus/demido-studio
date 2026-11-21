@@ -337,11 +337,12 @@ async fn a_session_on_claude_code_asks_the_person_through_demido_and_its_changes
 
     // Claude Code wants to run a command: Demido's tool asks the person, and the person says yes.
     side.say(
-        json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "echo Milk. >> todo.txt" } }] } }),
+        json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "echo Milk.>>todo.txt" } }] } }),
     )
     .await;
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let chat = w.chat.clone();
+    // The person's own hook has changed the command since the model wrote it: the step shows what is asked.
     let asking = tokio::spawn(async move { chat.program_approval(&token, "Bash", json!({ "command": "echo Milk. >> todo.txt" })).await });
     let request = w.waiting(&session.id).await;
     assert_eq!((request.tool.as_str(), request.what.as_str()), ("Bash", "Claude Code wants to run: echo Milk. >> todo.txt"));
@@ -356,6 +357,7 @@ async fn a_session_on_claude_code_asks_the_person_through_demido_and_its_changes
     let answer = w.answered(&session.id).await;
     assert_eq!((answer.state.as_str(), answer.content.as_str()), ("done", "Added milk."), "{:?}", answer.problem);
     assert_eq!(answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str())).collect::<Vec<_>>(), [("Bash", "done"), (crate::tools::ALL_IT_CHANGED, "done")]);
+    assert_eq!(answer.steps[0].args, json!({ "command": "echo Milk. >> todo.txt" }), "what the person was asked, not the model's first wording");
     // What it cost, as Claude Code said it: shown, and not counted against the month's limit.
     let timings = answer.timings.unwrap();
     assert_eq!((timings.cost_usd, timings.written), (Some(0.02), 20));

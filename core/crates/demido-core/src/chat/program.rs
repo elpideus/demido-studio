@@ -130,8 +130,18 @@ impl Chat {
             Value::Object(map) => map.clone(),
             other => serde_json::Map::from_iter([("input".to_string(), other.clone())]),
         };
-        // The step it is about waits with it.
-        let at = live.steps.lock().unwrap_or_else(|e| e.into_inner()).iter().rposition(|s| s.tool == tool && s.state == "running");
+        // The step it is about waits with it, and shows what is asked for: the person's own hooks may have
+        // changed the call since the model wrote it (one rewrote `cat` into `rtk read`).
+        let at = {
+            let mut steps = live.steps.lock().unwrap_or_else(|e| e.into_inner());
+            let at = steps.iter().rposition(|s| s.tool == tool && s.state == "running");
+            if let Some(step) = at.and_then(|i| steps.get_mut(i))
+                && input.is_object()
+            {
+                step.args = serde_json::from_str(&self.hide(&input.to_string())).unwrap_or(Value::Null);
+            }
+            at
+        };
         self.mark(live, at, "waiting", None);
         let said = self.ask_person(&live.session, &live.answer, tool, &args, reach, why.to_string(), false, &live.stop, Some(what)).await.unwrap_or(Said::No);
         let yes = said != Said::No;

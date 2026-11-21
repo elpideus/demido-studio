@@ -28,14 +28,23 @@ const set = useLocal.setState
 const get = useLocal.getState
 
 let reading: Promise<void> | null = null
-/** Asks the core for the list. Several askers in the same moment share one answer. */
+let again = false
+/** Asks the core for the list. Several askers in the same moment share one answer; one who asks while an
+    answer is on its way gets one more, read after theirs, so that news that came meanwhile is not missed. */
 export function readLocal(): Promise<void> {
-  reading ??= (async () => {
-    try {
-      set({ list: await coreGet<ModelList>('/models'), readAt: Date.now(), error: null })
-    } catch (e) {
-      set({ error: (e as Error).message })
-    }
+  if (reading) {
+    again = true
+    return reading
+  }
+  reading = (async () => {
+    do {
+      again = false
+      try {
+        set({ list: await coreGet<ModelList>('/models'), readAt: Date.now(), error: null })
+      } catch (e) {
+        set({ error: (e as Error).message })
+      }
+    } while (again)
   })().finally(() => { reading = null })
   return reading
 }

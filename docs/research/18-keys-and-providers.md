@@ -120,7 +120,18 @@ installed one here: v2.2.7.
   the read came to Demido's card as "OpenCode wants to read …/notes.txt", the person said yes, and it
   answered. The raw messages also showed that a tool's arguments come in a later `tool_call_update`, and that
   ACP's `inputTokens` leaves out the cached ones (3,730 read, 35,712 from the cache, 39,550 in all).
-- **Not tried:** a real message to Claude Code: it spends the owner's plan.
+- **Tried with the owner's yes, Claude Code on Haiku at effort medium** (Claude Code 2.1.330, the owner's own
+  login), on 22 November 2026, in a throwaway folder at Cautious, one request: "Add 'Buy milk.' as a new last
+  line of todo.txt". Claude Code asked twice through Demido's approval tool, both times for a command (first a
+  look at how the file ends, then `printf 'Buy milk.\n' >> todo.txt`); each became Demido's card, and the yes
+  went back. It answered "I appended 'Buy milk.' as the last line of todo.txt…", the file had the line, the
+  turn was one change of +1 −0 that was undone in one go, and Claude Code's own count was $0.0115 (notional
+  under the plan; not counted toward Demido's limit). It said its plan limit was not reached and when it
+  resets (`rate_limit_event`, with no share used). It showed no thinking text at effort medium.
+- **What the real run showed:** the owner's own Claude Code hooks (kept on purpose: `--setting-sources user`)
+  rewrite commands, so what the approval tool is asked (`rtk read todo.txt`) can differ from what the model
+  wrote (`cat todo.txt`); the step now shows what was asked. The window's figures missed the turn's cost until
+  a reload: a refresh asked while another was on its way shared the older answer; a second one is now read.
 
 ## What was tried with the providers, and what was not
 

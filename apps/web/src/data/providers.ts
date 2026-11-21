@@ -40,15 +40,25 @@ export const useProviders = create<State>(() => ({ providers: null, vault: null,
 const set = useProviders.setState
 
 let reading: Promise<void> | null = null
-/** Asks the core for the providers, the vault and the month's spending. Several askers share one answer. */
+let again = false
+/** Asks the core for the providers, the vault and the month's spending. Several askers share one answer; one
+    who asks while an answer is on its way gets one more, read after theirs: what they heard of may have
+    happened after the first was asked (a turn's cost, written just after its plan limit was told). */
 export function readProviders(): Promise<void> {
-  reading ??= (async () => {
-    try {
-      const [providers, vault, spending] = await Promise.all([coreGet<ProviderView[]>('/providers'), coreGet<VaultView>('/vault'), coreGet<Spending>('/usage')])
-      set({ providers, vault, spending, error: null })
-    } catch (e) {
-      set({ error: (e as Error).message })
-    }
+  if (reading) {
+    again = true
+    return reading
+  }
+  reading = (async () => {
+    do {
+      again = false
+      try {
+        const [providers, vault, spending] = await Promise.all([coreGet<ProviderView[]>('/providers'), coreGet<VaultView>('/vault'), coreGet<Spending>('/usage')])
+        set({ providers, vault, spending, error: null })
+      } catch (e) {
+        set({ error: (e as Error).message })
+      }
+    } while (again)
   })().finally(() => { reading = null })
   return reading
 }
