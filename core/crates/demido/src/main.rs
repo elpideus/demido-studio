@@ -60,11 +60,47 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// The program that runs models: what is installed, what is offered, installing it.
+    Runtime {
+        #[command(subcommand)]
+        command: Option<RuntimeCommand>,
+    },
     /// Open the web UI in your browser, signed in.
     Open {
         /// Only print the link; do not start a browser.
         #[arg(long)]
         print: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum RuntimeCommand {
+    /// Show what the runtime's publisher offers for this computer. Asks GitHub, at most once an hour.
+    Available {
+        /// Ask now, even if it was asked within the hour.
+        #[arg(long)]
+        fresh: bool,
+        /// Print JSON instead of text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Download, check and install a build. Without a name: the recommended one.
+    Install {
+        /// Which one, by its id: cuda-13.5, vulkan, cpu. `demido runtime available` lists them.
+        backend: Option<String>,
+        /// Also download the extra files (NVIDIA's libraries, for a CUDA build), even if this system has them.
+        #[arg(long)]
+        with_extra: bool,
+        /// Do not download the extra files, even if this system lacks them.
+        #[arg(long, conflicts_with = "with_extra")]
+        without_extra: bool,
+    },
+    /// Stop the installation under way. What was downloaded is kept.
+    Stop,
+    /// Delete an installed runtime from this computer.
+    Remove {
+        /// Its id, as `demido runtime` shows it.
+        id: String,
     },
 }
 
@@ -84,8 +120,22 @@ enum SettingsCommand {
     Reset { id: String },
 }
 
+/// `demido events | head` closes the pipe before everything is printed. Rust would report that as a crash,
+/// with a backtrace. The reader went away on purpose: end quietly, as any command-line tool does.
+fn end_quietly_when_the_reader_leaves() {
+    let usual = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let said = info.payload().downcast_ref::<String>().map(String::as_str).or_else(|| info.payload().downcast_ref::<&str>().copied()).unwrap_or("");
+        if said.starts_with("failed printing to stdout") {
+            std::process::exit(0);
+        }
+        usual(info)
+    }));
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
+    end_quietly_when_the_reader_leaves();
     match run(Cli::parse()).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -119,6 +169,7 @@ async fn run(cli: Cli) -> Result<()> {
             if json { println!("{}", serde_json::to_string_pretty(&info)?) } else { print_system(&info) }
         }
         Command::Settings { command } => settings(&paths, command)?,
+        Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Events { after, limit, json } => {
             let events: Value = match Server::find(&paths) {
                 Some(s) => s.get(&format!("/api/v1/events?limit={limit}{}", after.map(|a| format!("&after={a}")).unwrap_or_default()))?,
@@ -344,7 +395,213 @@ fn print_system(s: &SystemInfo) {
         println!("               {}", b.why);
     }
     println!("  Comes from   {}", r.source);
-    println!("\nNot built yet: downloading and starting the runtime. This is advice only.");
+    println!("\nInstall it with: demido runtime install");
+    println!("Not built yet: starting it with a model.");
+}
+
+// ───────── the model runtime ─────────
+
+fn mb(bytes: u64) -> String {
+    match bytes {
+        0..=1_048_575 => "under 1 MB".into(),
+        b if b < 10 * 1_048_576 => format!("{:.1} MB", b as f64 / 1_048_576.0),
+        b => format!("{} MB", b / 1_048_576),
+    }
+}
+
+fn print_runtime_status(status: &Value) {
+    println!("Model runtime: {}", status["runtime"].as_str().unwrap_or("?"));
+    println!("  Kept in      {}", status["folder"].as_str().unwrap_or("?"));
+    let installed = status["installed"].as_array().cloned().unwrap_or_default();
+    for r in &installed {
+        println!("  Installed    {} ({}) · {} on disk", r["name"].as_str().unwrap_or("?"), r["build"].as_str().unwrap_or("?"), mb(r["size"].as_u64().unwrap_or(0)));
+        println!("               id {}", r["id"].as_str().unwrap_or("?"));
+        println!(
+            "               {}",
+            if r["checked"] == true { "Every file matched the checksum its publisher lists." } else { "NOTE: the publisher listed no checksum, so the download was not checked." }
+        );
+        match (r["version"].as_str(), r["problem"].as_str()) {
+            (Some(said), _) => println!("               It starts. It says: {said}"),
+            (None, Some(why)) => println!("               CAUTION: it does not start. {why}"),
+            _ => {}
+        }
+    }
+    if let Some(p) = status["installing"].as_object() {
+        println!("  Installing   {} · {}", p["name"].as_str().unwrap_or("?"), progress_words(&status["installing"]));
+    }
+    if installed.is_empty() && status["installing"].is_null() {
+        println!("  Installed    none yet");
+        println!("\nSee what is offered for this computer: demido runtime available");
+    }
+    println!("\nNot built yet: starting it with a model.");
+}
+
+fn progress_words(p: &Value) -> String {
+    let (done, total) = (p["done"].as_u64().unwrap_or(0), p["total"].as_u64().unwrap_or(0));
+    match p["step"].as_str().unwrap_or("") {
+        "downloading" if total > 0 => format!("downloading {} · {} of {} ({}%)", p["file"].as_str().unwrap_or(""), mb(done), mb(total), done * 100 / total),
+        "downloading" => format!("downloading {} · {}", p["file"].as_str().unwrap_or(""), mb(done)),
+        "unpacking" => "unpacking".into(),
+        "trying" => "trying that it starts".into(),
+        _ => "asking the publisher what it offers".into(),
+    }
+}
+
+/// Shows progress on one line that rewrites itself, when there is a terminal to rewrite.
+fn show_progress(p: &Value, last: &mut String) {
+    let words = progress_words(p);
+    if words == *last {
+        return;
+    }
+    if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        print!("\r\x1b[2K  {words}");
+        std::io::stdout().flush().ok();
+    } else if p["step"] != last_step(last) {
+        println!("  {words}"); // without a terminal: one line per step, not per moment
+    }
+    *last = words;
+}
+fn last_step(last: &str) -> Value {
+    json!(last.split_whitespace().next().unwrap_or(""))
+}
+
+fn print_installed(r: &Value) {
+    println!("Installed {} ({}), {} on disk.", r["name"].as_str().unwrap_or("?"), r["build"].as_str().unwrap_or("?"), mb(r["size"].as_u64().unwrap_or(0)));
+    println!("{}", if r["checked"] == true { "Every file matched the checksum its publisher lists." } else { "NOTE: the publisher listed no checksum, so the download was not checked." });
+    match (r["version"].as_str(), r["problem"].as_str()) {
+        (Some(said), _) => println!("It starts. It says: {said}"),
+        (None, Some(why)) => println!("CAUTION: it does not start. {why}\nIf it names a missing NVIDIA library, install again with --with-extra."),
+        _ => {}
+    }
+}
+
+async fn runtime(paths: &Paths, command: Option<RuntimeCommand>) -> Result<()> {
+    let server = Server::find(paths);
+    // With a server running, go through it: it knows what is being installed, and tells the window too.
+    let core = if server.is_none() { Some(Core::open(paths)?) } else { None };
+    let advice = || async { anyhow::Ok(tokio::task::spawn_blocking(system::detect).await?.runtime) };
+    match command {
+        None => {
+            let status = match (&server, &core) {
+                (Some(s), _) => s.get("/api/v1/runtime")?,
+                (None, Some(c)) => serde_json::to_value(c.runtimes.status())?,
+                _ => unreachable!(),
+            };
+            print_runtime_status(&status);
+        }
+        Some(RuntimeCommand::Available { fresh, json }) => {
+            let a = match (&server, &core) {
+                (Some(s), _) => s.get(&format!("/api/v1/runtime/available?fresh={fresh}"))?,
+                (None, Some(c)) => serde_json::to_value(c.runtimes.available(&advice().await?, fresh).await?)?,
+                _ => unreachable!(),
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&a)?);
+                return Ok(());
+            }
+            println!("{} {} (build {}), as its publisher offers it for this computer", a["runtime"].as_str().unwrap_or("?"), a["release"].as_str().unwrap_or("?"), a["build"].as_str().unwrap_or("?"));
+            for o in a["offers"].as_array().into_iter().flatten() {
+                println!(
+                    "\n  {:<11} {} · {}{}",
+                    o["id"].as_str().unwrap_or("?"),
+                    o["name"].as_str().unwrap_or("?"),
+                    mb(o["size"].as_u64().unwrap_or(0)),
+                    if o["recommended"] == true { " · recommended" } else { "" }
+                );
+                println!("              {}", o["why"].as_str().unwrap_or(""));
+                if o["extra_size"].as_u64().unwrap_or(0) > 0 {
+                    let needed = if o["needs_extra"] == true { "This system does not seem to have them, so they are downloaded too." } else { "This system seems to have them, so they are left out." };
+                    println!("              NVIDIA's libraries: {} more. {needed}", mb(o["extra_size"].as_u64().unwrap_or(0)));
+                }
+            }
+            if a["offers"].as_array().is_none_or(Vec::is_empty) {
+                println!("\n  Nothing in this build suits this computer.");
+            }
+            println!("\nInstall one with: demido runtime install [id]");
+        }
+        Some(RuntimeCommand::Install { backend, with_extra, without_extra }) => {
+            let extra = if with_extra {
+                Some(true)
+            } else if without_extra {
+                Some(false)
+            } else {
+                None
+            };
+            let mut last = String::new();
+            match (&server, &core) {
+                (Some(s), _) => {
+                    let started = s.send("POST", "/api/v1/runtime/install", Some(&json!({ "backend": backend, "extra": extra })))?;
+                    let id = started["id"].as_str().unwrap_or("").to_string();
+                    println!(
+                        "Installing {} ({} to download). Ctrl+C leaves it running in the server; `demido runtime stop` stops it.",
+                        started["name"].as_str().unwrap_or("?"),
+                        mb(started["total"].as_u64().unwrap_or(0))
+                    );
+                    loop {
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                        let status = s.get("/api/v1/runtime")?;
+                        if status["installing"].is_null() {
+                            break;
+                        }
+                        show_progress(&status["installing"], &mut last);
+                    }
+                    println!();
+                    // How it ended is the newest line in the log about this runtime.
+                    let log = s.get("/api/v1/events?limit=20")?;
+                    let end = log.as_array().into_iter().flatten().rev().find(|e| e["subject"] == id.as_str() && e["kind"].as_str().is_some_and(|k| k.starts_with("runtime.install")));
+                    match end.and_then(|e| e["kind"].as_str()) {
+                        Some("runtime.installed") => {
+                            let status = s.get("/api/v1/runtime")?;
+                            if let Some(r) = status["installed"].as_array().into_iter().flatten().find(|r| r["id"] == id.as_str()) {
+                                print_installed(r);
+                            }
+                        }
+                        _ => bail!("{}", end.and_then(|e| e["data"]["message"].as_str()).unwrap_or("The installation ended without saying how. `demido events` shows the log.")),
+                    }
+                }
+                (None, Some(c)) => {
+                    let advice = advice().await?;
+                    let available = c.runtimes.available(&advice, false).await?;
+                    let offer = match &backend {
+                        Some(id) => available.offers.iter().find(|o| &o.id == id),
+                        None => available.offers.iter().find(|o| o.recommended).or(available.offers.first()),
+                    };
+                    let Some(offer) = offer else {
+                        bail!("There is no \"{}\" build for this computer. `demido runtime available` lists what there is.", backend.as_deref().unwrap_or("recommended"));
+                    };
+                    let extra = extra.unwrap_or(offer.needs_extra);
+                    println!("Installing {} ({} to download).", offer.name, mb(offer.size + if extra { offer.extra_size } else { 0 }));
+                    let mut ear = c.events.listen();
+                    let shown = tokio::spawn(async move {
+                        let mut last = String::new();
+                        while let Ok(e) = ear.recv().await {
+                            if e.kind == "runtime.install.progress" {
+                                show_progress(&e.data, &mut last);
+                            }
+                        }
+                    });
+                    let done = c.runtimes.install(&advice, &offer.id, extra).await;
+                    shown.abort();
+                    println!();
+                    print_installed(&serde_json::to_value(done?)?);
+                }
+                _ => unreachable!(),
+            }
+        }
+        Some(RuntimeCommand::Stop) => match &server {
+            Some(s) if s.send("DELETE", "/api/v1/runtime/install", None)?["stopped"] == true => println!("Stopping. What was downloaded is kept, so the next try goes on from there."),
+            _ => println!("Nothing is being installed."),
+        },
+        Some(RuntimeCommand::Remove { id }) => {
+            let gone = match (&server, &core) {
+                (Some(s), _) => s.send("DELETE", &format!("/api/v1/runtime/installed/{id}"), None)?,
+                (None, Some(c)) => serde_json::to_value(c.runtimes.remove(&id)?)?,
+                _ => unreachable!(),
+            };
+            println!("Removed {} ({}). {} freed.", gone["name"].as_str().unwrap_or("?"), gone["build"].as_str().unwrap_or("?"), mb(gone["size"].as_u64().unwrap_or(0)));
+        }
+    }
+    Ok(())
 }
 
 // ───────── a running server ─────────

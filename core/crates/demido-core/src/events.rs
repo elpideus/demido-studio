@@ -52,6 +52,13 @@ impl EventLog {
     }
 
     /// Up to `limit` events with a number greater than `seq`, oldest first.
+    /// Says something to whoever is listening now, and keeps nothing. For progress: a download reports
+    /// several times a second, and that is news, not history. Such an event has no number (`seq` 0) and no
+    /// id, and a client that reconnects does not get it again.
+    pub fn tell(&self, kind: &str, subject: Option<&str>, data: Value) {
+        let _ = self.live.send(Event { seq: 0, id: String::new(), at: now_ms(), kind: kind.to_string(), subject: subject.map(str::to_string), data });
+    }
+
     pub fn after(&self, seq: i64, limit: u32) -> Result<Vec<Event>> {
         self.db.with(|c| {
             let mut q = c.prepare("SELECT seq, id, at, kind, subject, data FROM events WHERE seq > ?1 ORDER BY seq LIMIT ?2")?;
@@ -105,5 +112,15 @@ mod tests {
         let mut ear = log.listen();
         log.append("test.heard", None, json!({})).unwrap();
         assert_eq!(ear.try_recv().unwrap().kind, "test.heard");
+    }
+
+    #[test]
+    fn what_is_only_told_is_heard_and_not_kept() {
+        let log = EventLog::new(Arc::new(Db::memory().unwrap()));
+        let mut ear = log.listen();
+        log.tell("test.progress", Some("thing"), json!({ "done": 5 }));
+        let heard = ear.try_recv().unwrap();
+        assert_eq!((heard.kind.as_str(), heard.seq), ("test.progress", 0));
+        assert!(log.after(0, 10).unwrap().is_empty());
     }
 }

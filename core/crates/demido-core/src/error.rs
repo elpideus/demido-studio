@@ -10,6 +10,18 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("There is no setting called \"{0}\".")]
     UnknownSetting(String),
+    /// Something by that name does not exist. The text says what was looked for.
+    #[error("{0}")]
+    NotFound(String),
+    /// It cannot be done right now because something else is under way. The text says what.
+    #[error("{0}")]
+    Busy(String),
+    /// Another computer did not answer, or answered with a refusal. The text says which and what to try.
+    #[error("{0}")]
+    Net(String),
+    /// The person stopped it.
+    #[error("{0}")]
+    Stopped(String),
     /// The caller asked for something that cannot be done as asked. The text says what to change.
     #[error("{0}")]
     Invalid(String),

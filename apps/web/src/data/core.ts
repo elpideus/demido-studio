@@ -28,6 +28,16 @@ export interface CoreSettingDef { id: string; section: string; label: string; de
 export interface CoreSetting { def: CoreSettingDef; value: unknown; changed: boolean }
 export interface CoreSection { id: string; title: string; lead: string | null }
 export interface CoreSettings { sections: CoreSection[]; settings: CoreSetting[] }
+/** A file as its publisher lists it. `sha256` is null when the publisher lists none. */
+export interface CoreRemoteFile { name: string; url: string; size: number; sha256: string | null }
+/** A model runtime on this computer. `version` is what it said when tried; `problem` is why it does not start. */
+export interface CoreInstalled { id: string; runtime: string; build: string; backend: string; name: string; files: CoreRemoteFile[]; checked: boolean; server: string | null; version: string | null; problem: string | null; installed_at: number; size: number }
+/** An installation under way. `step`: looking, downloading, unpacking, trying. Bytes over all files. */
+export interface CoreProgress { id: string; name: string; step: string; file: string | null; done: number; total: number }
+export interface CoreRuntimeStatus { runtime: string; folder: string; installed: CoreInstalled[]; installing: CoreProgress | null }
+/** One build of the runtime that suits this computer. `extra`: files it may also need (NVIDIA's libraries). */
+export interface CoreOffer { id: string; name: string; why: string; recommended: boolean; file: CoreRemoteFile; extra: CoreRemoteFile[]; size: number; extra_size: number; needs_extra: boolean }
+export interface CoreAvailable { runtime: string; release: string; build: string; offers: CoreOffer[]; asked_at: number }
 /** The desktop's look, as the core reads it on its own computer. `supported` is false where reading it is not built yet. */
 export interface CoreAppearance { accent: string | null; source: string | null; supported: boolean }
 /** One line of the core's log of what happened. `seq` is its number; `subject` is what it is about. */

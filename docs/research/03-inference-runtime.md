@@ -57,11 +57,43 @@ build by hand.
 NVIDIA GeForce RTX 3060, 12,288 MiB, driver 620.70.06. Intel Core i7-12700K, 20 threads, AVX2. 31 GB RAM.
 Linux 7.3.4 (CachyOS), x86_64. No `llama-server` and no Ollama installed.
 
+## The installer (built 2026-11-21)
+
+Read from GitHub that day, for the build the stable release stands for (`b12359`): 38 files, each listed with
+its size and a SHA-256 (`digest`). For this computer:
+
+| File | Size |
+|---|---|
+| `llama-b12359-bin-ubuntu-cuda-13.5-x64.tar.gz` | 170 MB |
+| `cudart-llama-b12359-bin-ubuntu-cuda-13.5-x64.tar.gz` (NVIDIA's libraries) | 424 MB |
+| `llama-b12359-bin-ubuntu-vulkan-x64.tar.gz` | 34 MB |
+| `llama-b12359-bin-ubuntu-x64.tar.gz` (processor only) | 22 MB |
+
+The files with NVIDIA's libraries are named differently on the two systems: with the build tag on Linux
+(`cudart-llama-b12359-bin-ubuntu-…`), without it on Windows (`cudart-llama-bin-win-…`). So the installer
+matches them by their ending, not by a name it builds.
+
+What the installer does, in order (DECISIONS K15 to K20): asks GitHub which build the stable release stands
+for; picks the files that suit this computer; downloads each (a download that stops goes on from where it
+stopped); checks size and SHA-256 against the list; unpacks without letting the archive write outside its
+folder; asks the program for its version, to know now whether it starts on this system.
+
+**Tested against a stand-in publisher on this computer, not yet against the real files.** The real download
+waits for the owner's yes. Until it has run, these are assumptions:
+
+- that the archive holds `llama-server` within five folders of its top (the installer looks for it there);
+- that NVIDIA's libraries belong beside that program (the installer unpacks them there, and also puts every
+  folder that holds libraries on the program's search path when it starts it);
+- that this system's own CUDA 13.4 libraries are enough for the CUDA 13.5 build. If not, the try at the end
+  fails with the missing library's name, and the libraries are downloaded too (424 MB).
+
 ## Not checked yet
 
 - What the ROCm, SYCL and OpenVINO builds need on the user's side.
 - Whether the "ubuntu" builds run unchanged on every common Linux (they depend on the system's C library).
-- How to verify a download: the attestations exist; the exact check is not written.
+- Checking a download against the publisher's signed build statement (attestation). What is checked today is
+  the SHA-256 that GitHub lists beside the file: it catches a damaged or swapped download, but it comes from
+  the same place as the file, so it does not catch a release that was itself tampered with.
 - Other runtimes (for example for speech, or for Apple's MLX). llama.cpp is the first, not the only one.
 
 ## Sources

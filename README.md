@@ -17,7 +17,7 @@ an interactive preview of the app on fake data, and the first slice of the real 
 | `brand/` | The brand kit: logo, tokens, fonts, reference components, voice. |
 | `apps/web/` | The web UI. Today: the interactive preview with fake data. |
 | `core/` | The core, in Rust: server, command line, settings, event log, hardware detection. See `core/README.md`. |
-| `scripts/` | Putting a release archive together. |
+| `scripts/` | Putting a release archive together; checking every dependency's licence. |
 | `.github/workflows/` | The checks on every change, and the release builds. |
 
 ## Try the interactive preview

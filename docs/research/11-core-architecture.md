@@ -21,6 +21,10 @@ both), which GPL-3.0-or-later accepts.
 | Where files go | directories | 6.0 | MIT or Apache-2.0 | The right folder on each system. |
 | Putting the web UI inside the binary | rust-embed | 8.14 | MIT | One file to install on a server. |
 | Ids, errors, logs | uuid 1.29, thiserror 2, anyhow 1, tracing 0.1 | | MIT or Apache-2.0 | The usual. |
+| Downloading | reqwest | 0.13.5 | MIT or Apache-2.0 | The common HTTP client. Used with rustls and the system's own list of trusted certificates; no OpenSSL. |
+| Checksums | sha2 | 0.11.1 | MIT or Apache-2.0 | SHA-256, to check a download against what its publisher lists. |
+| Unpacking `.tar.gz` | tar 0.4.46, flate2 1.1.11 | | MIT or Apache-2.0 | The standard pair. |
+| Unpacking `.zip` | zip | 9.8.1 | MIT | With only its "deflate" method: the others would pull in C libraries. |
 
 Looked at and not taken, for now: `sqlx` (see above), `keyring` 4.2 (needed when the first secret is stored),
 `reqwest` 0.13 (needed when the first download or provider call is made; the command line talks to the local
@@ -51,6 +55,20 @@ us more cheaply).
    the binary for releases.
 8. **Storage is one SQLite file** in the system's data folder (`DEMIDO_HOME` overrides it), in WAL mode,
    with numbered migrations.
+
+## Added on 2026-11-21: the download parts, and two things checked on the way
+
+Versions and licences read from crates.io that day.
+
+**The encryption library behind reqwest.** reqwest 0.13 uses rustls with `aws-lc-rs` by default. I remembered
+`aws-lc-sys` as carrying the old OpenSSL licence, which does not combine with the GPL. That is no longer so:
+`aws-lc-sys` 0.47.0 declares ISC, Apache-2.0, MIT, BSD-3-Clause and MIT-0 only. Checked, not assumed, and it
+is the reason `scripts/check-licences.mjs` exists: it reads the licence of every package in the build (288 on
+that day) and fails on any name that has not been read and listed. It runs in the checks on GitHub.
+
+**A D-Bus library, tried and dropped.** zbus 6.5.0 (MIT) reads the desktop's accent colour properly, and
+brings about thirty packages to do it. The system's own `busctl` (or `gdbus`) answers the same question.
+zbus comes back when a second thing needs D-Bus (DECISIONS K14).
 
 ## Not decided here
 

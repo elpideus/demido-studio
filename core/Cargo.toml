@@ -17,18 +17,25 @@ anyhow = "1"
 axum = "0.8"
 clap = { version = "4.6", features = ["derive"] }
 directories = "6"
+flate2 = "1.1"
 nvml-wrapper = "0.13"
+# rustls with the system's own list of trusted certificates. No OpenSSL.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream", "json", "system-proxy"] }
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
 sysinfo = "0.40"
+tar = "0.4"
 thiserror = "2"
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "fs"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "fs", "io-util"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = { version = "6", features = ["axum_extras"] }
 uuid = { version = "1.29", features = ["v4", "v7"] }
+# Only "deflate": what a .zip from llama.cpp's Windows releases uses. The other methods would pull in C libraries.
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [profile.release]
 lto = "thin"

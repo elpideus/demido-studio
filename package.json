@@ -14,6 +14,7 @@
     "app:preview": "pnpm --filter @demido/web preview",
     "app:typecheck": "pnpm --filter @demido/web typecheck",
     "core:test": "cargo test --manifest-path core/Cargo.toml",
+    "licences": "node scripts/check-licences.mjs",
     "core:build": "cargo build --release --manifest-path core/Cargo.toml",
     "core:serve": "pnpm app:build && cargo run --manifest-path core/Cargo.toml -- serve --ui-dir apps/web/dist"
   },

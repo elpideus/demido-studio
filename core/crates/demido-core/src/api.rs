@@ -33,8 +33,9 @@ use crate::db::Db;
 use crate::desktop::Appearance;
 use crate::events::{Event, EventLog};
 use crate::paths::Paths;
+use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
 use crate::settings::{Entry, Section, Settings};
-use crate::system::SystemInfo;
+use crate::system::{Advice, SystemInfo};
 use crate::ui::Ui;
 use crate::{Error, Result, VERSION, now_ms};
 
@@ -43,6 +44,7 @@ pub struct Core {
     pub settings: Arc<Settings>,
     pub events: Arc<EventLog>,
     pub auth: Arc<Auth>,
+    pub runtimes: Arc<Runtimes>,
 }
 
 impl Core {
@@ -52,8 +54,24 @@ impl Core {
         let events = Arc::new(EventLog::new(db.clone()));
         let settings = Arc::new(Settings::load(db, events.clone())?);
         let auth = Arc::new(Auth::open(&paths.key())?);
-        Ok(Self { settings, events, auth })
+        let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
+        Ok(Self { settings, events, auth, runtimes })
     }
+}
+
+/// Where the runtime's files come from: its publisher.
+///
+/// A development build can be pointed at a stand-in on this computer (`DEMIDO_DEV_RUNTIME_SOURCE`), to try
+/// the whole installation without the internet. A release build has no such switch: the address that decides
+/// which program gets installed is not something to leave open.
+fn runtime_source() -> Source {
+    #[cfg(debug_assertions)]
+    if let Ok(base) = std::env::var("DEMIDO_DEV_RUNTIME_SOURCE") {
+        let base = base.trim_end_matches('/').to_string();
+        tracing::warn!("Development build: runtime files come from a stand-in publisher at {base}, not from llama.cpp's releases.");
+        return Source { api: base.clone(), repo: "o/r".into(), downloads: format!("{base}/dl/") };
+    }
+    Source::default()
 }
 
 #[derive(Clone)]
@@ -61,6 +79,9 @@ pub struct App {
     pub settings: Arc<Settings>,
     pub events: Arc<EventLog>,
     pub auth: Arc<Auth>,
+    pub runtimes: Arc<Runtimes>,
+    /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
+    pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     pub ui: Ui,
     pub started: Instant,
     /// The names this server answers to, for example `127.0.0.1:7341`. Empty means any (not loopback).
@@ -90,6 +111,10 @@ impl IntoResponse for Error {
         let (status, code) = match &self {
             Error::UnknownSetting(_) => (StatusCode::NOT_FOUND, "unknown_setting"),
             Error::Invalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
+            Error::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
+            Error::Busy(_) => (StatusCode::CONFLICT, "busy"),
+            Error::Stopped(_) => (StatusCode::CONFLICT, "stopped"),
+            Error::Net(_) => (StatusCode::BAD_GATEWAY, "unreachable"),
             Error::Json(_) => (StatusCode::BAD_REQUEST, "bad_json"),
             Error::Db(_) | Error::Io(_) | Error::Other(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         };
@@ -159,6 +184,91 @@ async fn appearance() -> Json<Appearance> {
     Json(tokio::task::spawn_blocking(crate::desktop::read).await.expect("asking the desktop does not panic"))
 }
 
+// ───────── the model runtime ─────────
+
+impl App {
+    async fn advice(&self) -> &Advice {
+        self.advice.get_or_init(|| async { tokio::task::spawn_blocking(|| crate::system::detect().runtime).await.expect("reading the hardware does not panic") }).await
+    }
+}
+
+/// The model runtimes on this computer, and the installation under way if there is one.
+#[utoipa::path(get, path = "/api/v1/runtime", tag = "runtime", responses((status = 200, body = Status), (status = 401, body = Problem)))]
+async fn runtime_status(State(app): State<App>) -> Json<Status> {
+    let runtimes = app.runtimes.clone();
+    Json(tokio::task::spawn_blocking(move || runtimes.status()).await.expect("listing a folder does not panic"))
+}
+
+#[derive(Deserialize)]
+struct AvailableQuery {
+    fresh: Option<bool>,
+}
+
+/// What the runtime's publisher offers for this computer, the recommended build first. Asks the publisher
+/// (GitHub) at most once an hour; `fresh=true` asks again now.
+#[utoipa::path(get, path = "/api/v1/runtime/available", tag = "runtime", params(("fresh" = Option<bool>, Query, description = "Ask the publisher now, even if it was asked within the hour")), responses((status = 200, body = Available), (status = 502, body = Problem)))]
+async fn runtime_available(State(app): State<App>, Query(q): Query<AvailableQuery>) -> Result<Json<Available>> {
+    Ok(Json(app.runtimes.available(app.advice().await, q.fresh.unwrap_or(false)).await?))
+}
+
+#[derive(Deserialize, ToSchema, Default)]
+pub struct InstallRequest {
+    /// Which offer, by its id: `cuda-13.5`, `vulkan`, `cpu`. Left out: the recommended one.
+    pub backend: Option<String>,
+    /// Also download the offer's extra files (NVIDIA's libraries for a CUDA build). Left out: only if this system lacks them.
+    pub extra: Option<bool>,
+}
+
+/// Starts downloading and installing one build of the runtime. Answers at once. Progress comes on the event
+/// stream as `runtime.install.progress` several times a second, and the end as `runtime.installed`,
+/// `runtime.install.failed` or `runtime.install.stopped`. One installation at a time.
+#[utoipa::path(post, path = "/api/v1/runtime/install", tag = "runtime", request_body = InstallRequest, responses((status = 202, body = Progress), (status = 404, body = Problem), (status = 409, body = Problem), (status = 502, body = Problem)))]
+async fn runtime_install(State(app): State<App>, body: Option<Json<InstallRequest>>) -> Result<Response> {
+    let ask = body.map(|Json(b)| b).unwrap_or_default();
+    // Refusals the caller can act on are given now, not left in the log: nothing offered, or one already running.
+    if let Some(busy) = app.runtimes.status().installing {
+        return Err(Error::Busy(format!("{} is being installed. Wait for it, or stop it first.", busy.name)));
+    }
+    let advice = app.advice().await.clone();
+    let available = app.runtimes.available(&advice, false).await?;
+    let offer = match &ask.backend {
+        Some(id) => available.offers.iter().find(|o| &o.id == id),
+        None => available.offers.iter().find(|o| o.recommended).or(available.offers.first()),
+    };
+    let Some(offer) = offer.cloned() else {
+        let offered = available.offers.iter().map(|o| o.id.as_str()).collect::<Vec<_>>().join(", ");
+        return Err(Error::NotFound(format!("There is no \"{}\" build of the runtime for this computer. Offered: {offered}.", ask.backend.as_deref().unwrap_or("recommended"))));
+    };
+    let extra = ask.extra.unwrap_or(offer.needs_extra);
+    let total = offer.size + if extra { offer.extra_size } else { 0 };
+    let started = Progress { id: format!("{}-{}-{}", available.runtime, available.build, offer.id), name: offer.name.clone(), step: "looking".into(), file: None, done: 0, total };
+    let runtimes = app.runtimes.clone();
+    tokio::spawn(async move {
+        // The outcome is written to the log by `install` itself.
+        let _ = runtimes.install(&advice, &offer.id, extra).await;
+    });
+    Ok((StatusCode::ACCEPTED, Json(started)).into_response())
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct Stopped {
+    /// False when nothing was being installed.
+    pub stopped: bool,
+}
+
+/// Stops the installation under way. What was downloaded is kept, so the next try goes on from there.
+#[utoipa::path(delete, path = "/api/v1/runtime/install", tag = "runtime", responses((status = 200, body = Stopped)))]
+async fn runtime_stop(State(app): State<App>) -> Json<Stopped> {
+    Json(Stopped { stopped: app.runtimes.stop() })
+}
+
+/// Deletes an installed runtime from this computer.
+#[utoipa::path(delete, path = "/api/v1/runtime/installed/{id}", tag = "runtime", params(("id" = String, Path, description = "For example llama.cpp-b12359-cuda-13.5")), responses((status = 200, body = Installed), (status = 404, body = Problem)))]
+async fn runtime_remove(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Installed>> {
+    let runtimes = app.runtimes.clone();
+    Ok(Json(tokio::task::spawn_blocking(move || runtimes.remove(&id)).await.expect("deleting a folder does not panic")?))
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct SettingsList {
     pub sections: Vec<Section>,
@@ -220,8 +330,12 @@ async fn events_stream(State(app): State<App>, headers: HeaderMap) -> Sse<impl S
     let missed = seen.map(|seq| app.events.after(seq, 1000).unwrap_or_default()).unwrap_or_default();
     let upto = missed.last().map(|e| e.seq).or(seen).unwrap_or(0);
     let stream = tokio_stream::iter(missed)
-        .chain(BroadcastStream::new(live).filter_map(|e| e.ok()).filter(move |e| e.seq > upto))
-        .map(|e| Ok(SseEvent::default().id(e.seq.to_string()).event(e.kind.clone()).data(serde_json::to_string(&e).unwrap_or_default())));
+        // Number 0 is news that is told and not kept (progress). It has no place in the log, so it carries no id.
+        .chain(BroadcastStream::new(live).filter_map(|e| e.ok()).filter(move |e| e.seq == 0 || e.seq > upto))
+        .map(|e| {
+            let line = SseEvent::default().event(e.kind.clone()).data(serde_json::to_string(&e).unwrap_or_default());
+            Ok(if e.seq > 0 { line.id(e.seq.to_string()) } else { line })
+        });
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -261,8 +375,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_remove, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -279,6 +393,10 @@ pub fn router(app: App) -> Router {
         .route("/openapi.json", get(openapi))
         .route("/system", get(system))
         .route("/system/appearance", get(appearance))
+        .route("/runtime", get(runtime_status))
+        .route("/runtime/available", get(runtime_available))
+        .route("/runtime/install", post(runtime_install).delete(runtime_stop))
+        .route("/runtime/installed/{id}", axum::routing::delete(runtime_remove))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))
@@ -318,7 +436,16 @@ pub async fn serve(opts: Options) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&address).await.map_err(|e| Error::Other(format!("Could not listen on {address}: {e}. If another Demido is running, `demido status` shows it.")))?;
     let local = listener.local_addr()?;
     let ui = Ui::find(opts.ui_dir);
-    let app = App { settings: core.settings, events: core.events.clone(), auth: core.auth, ui: ui.clone(), started: Instant::now(), hosts: Arc::new(hosts_for(&local)) };
+    let app = App {
+        settings: core.settings,
+        events: core.events.clone(),
+        auth: core.auth,
+        runtimes: core.runtimes,
+        advice: Arc::default(),
+        ui: ui.clone(),
+        started: Instant::now(),
+        hosts: Arc::new(hosts_for(&local)),
+    };
 
     std::fs::write(opts.paths.running(), json!({ "address": local.to_string(), "pid": std::process::id(), "started_at": now_ms(), "version": VERSION }).to_string())?;
     core.events.append("server.started", None, json!({ "address": local.to_string(), "version": VERSION }))?;
@@ -368,7 +495,9 @@ mod tests {
         let events = Arc::new(EventLog::new(db.clone()));
         let settings = Arc::new(Settings::load(db, events.clone()).unwrap());
         let auth = Arc::new(Auth::with_key(KEY.into()));
-        let app = App { settings, events, auth: auth.clone(), ui: Ui::default(), started: Instant::now(), hosts: Arc::new(vec!["127.0.0.1:7341".into()]) };
+        // A folder that does not exist: these tests install nothing.
+        let runtimes = Arc::new(Runtimes::new(&std::env::temp_dir().join("demido-api-tests-no-runtimes"), events.clone(), Source::default()).unwrap());
+        let app = App { settings, events, auth: auth.clone(), runtimes, advice: Arc::default(), ui: Ui::default(), started: Instant::now(), hosts: Arc::new(vec!["127.0.0.1:7341".into()]) };
         (router(app), auth)
     }
 

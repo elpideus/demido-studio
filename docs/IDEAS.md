@@ -110,6 +110,9 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 76 | **A rehearsal before every release.** The release workflow can be started by hand: it builds all six archives and publishes nothing. Worth doing before a tag, because a tag that fails to build is public. | Done |
 | 77 | **Stay signed in across a restart.** A browser's session lives in the server's memory, so restarting the server signs every browser out and `demido open` is needed again. Keeping a fingerprint of each session in the database would fix it. | Raised |
 | 78 | **Follow the accent while the window is in front.** The portal announces a change of accent. Listening for it needs a lasting D-Bus connection; today the window asks again when it gets the focus back, which covers changing it in the system's settings. | Raised |
+| 79 | **Check a runtime against its publisher's signed build statement.** llama.cpp's releases link to GitHub attestations. Verifying one would prove the file was built by llama.cpp's own workflow, which a checksum from the same page cannot. | Raised |
+| 80 | **A setting for a mirror.** Where GitHub is slow or blocked, people need another place to fetch the runtime from. It decides which program gets installed, so it needs a warning and probably a pinned checksum list. | Raised |
+| 81 | **Say before downloading that NVIDIA's libraries are 424 MB.** The offer shows the size and whether this system seems to have them already, and leaves them out when it does. | Done |
 
 ## Pushback on the brief so far
 

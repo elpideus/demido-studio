@@ -9,17 +9,22 @@ rust-version.workspace = true
 [dependencies]
 axum.workspace = true
 directories.workspace = true
+flate2.workspace = true
 nvml-wrapper.workspace = true
+reqwest.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sysinfo.workspace = true
+tar.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
 utoipa.workspace = true
 uuid.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

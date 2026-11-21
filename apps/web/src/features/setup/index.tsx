@@ -5,7 +5,8 @@ import { useCore, useCoreData } from '@/data/core'
 import type { CoreSystem } from '@/data/core'
 import { SYSTEM } from '@/data/fixtures'
 import { toast } from '@/data/store'
-import { Button, Facts, Glyph, NotBuilt, Page, Section, Signal, Tasks } from '@/ui'
+import { Button, Facts, Glyph, Page, Section, Signal, Tasks } from '@/ui'
+import { RealRuntime } from './runtime'
 
 interface Part {
   id: string
@@ -27,6 +28,9 @@ const PARTS: Part[] = [
   { id: 'stt', name: 'Speech to text', what: 'For dictation and voice mode.', from: 'Hugging Face', size: '0.5 GB', state: 'available' },
   { id: 'tts', name: 'Voice', what: 'Reads answers aloud.', from: 'Hugging Face', size: '0.3 GB', state: 'available' },
 ]
+
+/** Parts that the core handles for real. With a core they are shown by `RealRuntime`, not in the scripted list. */
+const REAL_ABOVE = new Set(['llama-cuda', 'cuda-rt', 'llama-vulkan', 'llama-rocm'])
 
 /** This computer, read by the core. The first screen that shows something real. */
 function RealComputer({ version }: { version: string }) {
@@ -52,7 +56,6 @@ function RealComputer({ version }: { version: string }) {
         {r.others.length > 0 && <p className="d-type-caption d-text-secondary">Would also run: {r.others.map((b) => b.name.replace(`${r.runtime} · `, '')).join(', ')}.</p>}
         <p className="d-type-caption d-text-tertiary">From {r.source.replace('https://', '')}. Demido downloads it from there; it does not ship it.</p>
       </div>
-      <NotBuilt block>Downloading and starting the runtime. The list of parts below is still scripted.</NotBuilt>
     </div></div>
   )
 }
@@ -78,6 +81,7 @@ function SetupPage() {
     <Page narrow title="Setup" lead="Demido itself is small. The heavy parts are downloaded to your computer from the people who make them, so you get exactly their files and only the ones you need."
       actions={<Button disabled={detecting} onClick={() => { setDetecting(true); setTimeout(() => { setDetecting(false); toast('Nothing changed since the last look.') }, 1500) }}>{detecting ? 'Looking…' : 'Look again'}</Button>}>
       {core.state === 'ready' && <Section title="This computer" hint="Read by the core."><RealComputer version={core.version} /></Section>}
+      {core.state === 'ready' && <Section title="Model runtime" hint="Real: installed by the core."><RealRuntime /></Section>}
       {core.state === 'locked' && (
         <Signal level="note">Demido's core {core.version} is running here, but this browser is not signed in to it, so what follows is the scripted preview. Run <code>demido open</code> in a terminal to get in.</Signal>
       )}
@@ -92,9 +96,10 @@ function SetupPage() {
           ]} />
         </div></div>
       </Section>
-      <Section title="Parts" hint="Nothing here is bundled with Demido.">
+      <Section title={core.state === 'ready' ? 'Other parts' : 'Parts'} hint={core.state === 'ready' ? 'Scripted in the preview. Nothing here is bundled with Demido.' : 'Nothing here is bundled with Demido.'}>
         <div className="d-settings">
-          {parts.map((p) => (
+          {/* With a core, the model runtime is the real section above; its scripted rows would only confuse. */}
+          {parts.filter((p) => core.state !== 'ready' || !REAL_ABOVE.has(p.id)).map((p) => (
             <div key={p.id} className="d-setting">
               <div className="d-setting__text">
                 <span className="d-setting__label">
