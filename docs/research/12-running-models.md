@@ -6,8 +6,8 @@ and what that means for Demido's own design.
 
 **Read** means I read it myself, in llama.cpp's own server documentation at the stable build
 (`tools/server/README.md` at tag `b12359`, 140 KB). Nothing here was tried on a real runtime: none is
-installed yet (the first download waits for the owner). Every "how it behaves" below is the documentation's
-claim until it has been tried.
+installed yet when this was written. The trial came later the same day and is at the end; where it
+changed or sharpened something, the section says so.
 
 ## Why this note exists
 
@@ -38,7 +38,7 @@ The brief's theme is "load when needed, unload when not", with a memory budget a
 Three of the four hard parts now exist in the runtime: a process per model, measuring what a model needs,
 and making room by unloading the least recently used.
 
-### Proposed: Demido runs one router, and steers it
+### Decided after the trial below: Demido runs one router, and steers it
 
 1. **One `llama-server` in router mode**, started by Demido when a model is first needed and stopped when
    none has been loaded for a while. On this computer only (`127.0.0.1`), on a port Demido picks, with a key
@@ -73,16 +73,43 @@ and making room by unloading the least recently used.
 - Changing a model's values means rewriting the preset and asking the router to look again. Whether a
   loaded model must be reloaded for that is not known yet.
 
-## Must be tried on the real runtime before this is decided
+## Tried on the real runtime (2026-11-21)
 
-1. That an unload really ends the child process and gives the memory back, every time.
-2. That `--models-memory-margin` works with CUDA on a 12 GB card, and what it does when a model cannot fit.
-3. What `GET /models` and `/models/sse` really send (the shapes above are from examples in the text).
-4. That a new file in the models folder is seen after `GET /models?reload=1`, without a restart.
-   The text says a restart is needed for the cache; it does not say so for a folder.
-5. How long the router takes to start, and to measure a model the first time.
-6. That the web UI and the tools are off unless asked for, and how to make sure of it.
-7. How it behaves when a child crashes while answering.
+On the owner's computer: llama.cpp build `b12359`, CUDA 13.5, NVIDIA RTX 3060 with 12 GB, the system's own
+CUDA 13.4 libraries. Two test models from their maker's pages, both Apache-2.0, checked against the SHA-256
+the pages list: Qwen3 0.6B (Q8, 610 MB) and Qwen3 1.7B (Q8, 1.7 GB). The script that did it is
+`core/dev/router-trial.py`; it can be run again. The router was started with a key,
+without its web UI, with autoload off. Every line below was seen, not read.
+
+| Question | What happened |
+|---|---|
+| 1. Does an unload end the model's process and give the memory back? | **Yes.** Unloaded in 0.25 s; the child process was gone; graphics memory in use went back to exactly what it was before (811 MiB). |
+| 2. Does the memory margin work on this card? | **Yes.** With about 2.6 GB left usable: the small model loaded; asking for the larger one unloaded the small one by itself and loaded the larger; asking for the small one again did the reverse. Each swap took under a second. |
+| 2b. And when a model cannot fit even alone? | It is loaded anyway, with a line in the runtime's log ("projected to be short by 423 MiB … loading anyway"). So Demido must check before asking, not rely on a refusal. |
+| 3. What do the list and the event stream really send? | The list: one entry per file, named after the file, with its state (`unloaded`, `loading`, `loaded`), the command line it would get, and the model's own context length. The stream: `model_memory` (the measurement), `model_status` and `status_change` with loading progress, `loaded` with details, `unloaded` with the child's exit code. |
+| 4. Is a new file seen without a restart? | **Yes**, with `GET /models?reload=1`. Not without it. A removed file disappears the same way. |
+| 5. How long does it take to start? | The router: 0.2 s. Loading the 0.6B model: 0.8 s. Its first answer: 0.07 s, at 135 tokens a second. |
+| 6. Are the web UI and the tools off? | With `--no-webui`, the root address answers 404. Tools are off unless `--tools` is given, and it is not. Without the key everything answers 401, except `/health`. |
+| 7. What if a child crashes? | Killed on purpose: within half a second the model is listed as `unloaded`, its memory is free, the router keeps running, and the next request for it is refused with "model is not loaded". |
+| Does the CUDA 13.5 build answer with the system's CUDA 13.4 libraries? | **Yes.** |
+| Stopping the router with a model loaded | Ended in 1 s, no child left, memory back. |
+
+Three things the trial showed that the documentation did not make plain:
+
+1. **Without a pinned context a model takes the largest that fits.** The 0.6B model (610 MB on disk) took
+   5.3 GB of graphics memory when loaded with nothing set. With the context pinned to 4096 it took 1.2 GB.
+   So Demido must always set the context for each model. Leaving it to the runtime defeats the budget.
+2. **The memory numbers exist only when a margin is set.** With `--models-memory-margin 0` nothing is
+   measured and the `memory` field stays empty. Demido always sets a margin (its "Memory kept free"
+   setting), so it always gets the numbers.
+3. **A request for a model that is not loaded is refused** (400, "model is not loaded") when autoload is off.
+   That is what Demido wants: nothing loads unless Demido asked for it.
+
+What the runtime measured, for the budget (context 4096): the 0.6B model needs 1360 MiB (633 model, 470
+context, 324 working memory); the 1.7B model needs 2508 MiB.
+
+Not tried: several requests at once to one model; a model with a vision part; two graphics cards; Windows
+and macOS; what a long-running router does to memory over days.
 
 ## Not looked at here
 

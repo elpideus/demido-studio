@@ -53,6 +53,15 @@ With a server running, the command line asks the server. Without one, it works o
 
 The API describes itself at `/api/v1/openapi.json`.
 
+## Check the runtime's own behaviour
+
+Demido leans on how llama.cpp's server loads, unloads and fits models. This is how that was checked, and how
+to check it again when the runtime changes (about a minute; needs an installed runtime and two models):
+
+```bash
+python3 core/dev/router-trial.py
+```
+
 ## Test it
 
 ```bash

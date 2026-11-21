@@ -22,7 +22,9 @@ it. Linux CUDA builds are official now, so nothing has to be compiled on the use
 
 ## Decision
 
-**llama.cpp's `llama-server`, run by Demido as a separate process, one per loaded model.** Demido talks to it
+**llama.cpp's `llama-server`, run by Demido as a separate process, one per loaded model.** (Revised on
+2026-11-21 by note 12: Demido runs one `llama-server` as a router, and the router keeps the process per
+model. The reasons below still hold.) Demido talks to it
 over the loopback network.
 
 Why a process and not a library linked into Demido:
