@@ -489,4 +489,6 @@ Recorded in `docs/DECISIONS.md` T3.
 5.5 Extra based on the complexity of the task. If Opus 5.5 Extra can do an amazing job on some things,
 then prefer using it. Fable 5.2 Extra should only be used for risky tasks, hard tasks, tasks that need a
 lot of carefulness, attention to detail, etc."
-How it is applied: `docs/DECISIONS.md`, section W, and the table in `docs/PLAN.md`.
+Taken back the same day, before any piece was handed over: "I changed my mind, just do everything yourself
+(Fable 5.2)."
+Recorded in `docs/DECISIONS.md`, section W.

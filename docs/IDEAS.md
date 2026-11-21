@@ -231,14 +231,6 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
   works is taking away what an obedient model could do with it: one folder, undo, no network, and
   decisions about asking made in code. I built those, and I would rename that switch when the rest of the
   defence exists, so that it does not promise what words cannot deliver.
-- **Two workers: what it costs, so that the split is made with open eyes.** I think the split is right:
-  most of what is left is building to designs that exist. Three costs. An Opus session starts knowing
-  nothing of what was measured here, so each piece needs a brief and the files must say everything; the
-  files do, which is why this works at all. Every piece still passes through me before it lands, so small
-  pieces are not worth handing over. And the two of us can step on each other's files, so each Opus piece
-  has its own branch and keeps its notes out of the shared files. Where I would not follow the rule
-  blindly: window work that sets the look of a whole screen is "easy" by this table and is what you care
-  about most. I give it to Opus and look at it hard; you may want to look too before it lands.
 - **Balanced and programs: I read you wrong, and the test showed it.** I took "asks only for things that
   could cause damage" to mean damage that cannot be undone, and let Balanced run a sandboxed program
   without asking. A model then deleted a whole folder unasked. It could be undone, and you still said

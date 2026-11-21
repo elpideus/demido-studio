@@ -355,17 +355,12 @@ list) on 2026-11-21, not from memory.
 
 ## W. Who does the work (owner's direction, 2026-11-21)
 
-The owner's words are in `docs/BRIEF.md`, under what was added after the brief. The split of the remaining
-work, piece by piece, is in `docs/PLAN.md`.
+The owner's words are in `docs/BRIEF.md`, under what was added after the brief.
 
 | # | Decision | Status |
 |---|---|---|
-| W1 | **Two workers: Fable 5.2 and Opus 5.5, both at extra effort.** Opus wherever it can do the job very well. Fable only for what is risky, hard, or needs great care. "Extra" is the effort the app calls Extra (one below the highest). | The owner's rule |
-| W2 | **A piece is Fable's when** a mistake in it is a security hole, loses someone's data or costs money; or it cannot be tried on this computer; or other pieces are built on its design; or it is a measurement that decides a design. | My reading of "risky, hard, careful"; say so if it is too wide or too narrow |
-| W3 | **An Opus piece runs in a session of its own, on a branch of its own.** It gets a written brief: what to build, which files, the hard rules, the checks it must pass, and what done looks like. It does not push, does not touch `main`, and does not edit the files everyone edits (`DECISIONS.md`, `PLAN.md`, `IDEAS.md`, the readmes). It writes what it decided, built, left out and measured into `docs/handover/<piece>.md`. | In use from the first two pieces |
-| W4 | **Nothing lands on `main` unread.** Fable reads the whole change, runs every check, tries it for real where it can be tried, and only then merges, with a signed commit. What the hand-over note says goes into the decision files in Fable's words, or is sent back. | In use |
-| W5 | **Decisions stay with Fable**, as the brief gave them to one worker. An Opus piece that meets a choice the brief or the decisions do not settle says so and proposes; it does not settle it alone. | In use |
-| W6 | **What an Opus session does not know, it must be able to read.** It has not seen the measurements or the mistakes of the work so far. That is what these files are for; a piece is not handed over until what it needs is written down. | A cost of the split, and the reason small pieces are not handed over: writing the brief and reading the result would cost more than doing them |
+| W1 | **One worker does all of it: Fable 5.2.** Research, design, building, checking. No pieces are handed to other models or other sessions. | The owner's rule, 2026-11-21 |
+| W2 | **What this replaced.** Earlier the same day the owner asked for the work to be split between Fable 5.2 and Opus 5.5, and a split was written down (which piece for whom, a written brief for each piece, a branch for each, a hand-over note, nothing merged unread). The owner took it back before any piece was handed over: no session was started, no branch exists. The list of remaining pieces made for it stays in `docs/PLAN.md`, without the names. | Withdrawn |
 
 ## E. Repository
 
