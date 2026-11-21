@@ -187,7 +187,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Let models use tools",
             "Before it answers, a model is asked whether it needs a tool: the clock, the calculator, a plan.",
             Some(
-                "Default on. It costs one short question to the model before each answer (about a tenth of a second on a graphics card, more without one). The clock, the calculator and a plan touch nothing outside Demido. A session that has a folder can also read and change files in it, and nowhere else. Running programs and using the network are not built yet.",
+                "Default on. It costs one short question to the model before each answer (about a tenth of a second on a graphics card, more without one). The clock, the calculator and a plan touch nothing outside Demido. A session that has a folder can also read and change files in it and run programs in it, and nowhere else. Using the network is not built yet.",
             ),
             Kind::Switch,
             json!(true),
@@ -205,11 +205,20 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             true,
         ),
         def(
+            "tools.commandSeconds",
+            "A command may run for",
+            "How long a program a model started may run before Demido stops it.",
+            Some("Default 2 minutes. Enough for most tests and builds. A program that is still running then is ended, with everything it started, and the model is told so."),
+            choices(&[("30", "30 seconds"), ("120", "2 minutes"), ("600", "10 minutes"), ("1800", "30 minutes")]),
+            json!("120"),
+            true,
+        ),
+        def(
             "permissions.level",
             "New sessions start at",
             "How much a model may do in a new session without asking you. Each session can be changed by itself.",
             Some(
-                "Default Balanced. Cautious asks before every use of a tool that reaches outside Demido, reading included. Balanced lets a model read and change files in the session's folder without asking: a change cannot leave the folder, and what a file held before is kept, so it can be undone. Autonomous never asks. Smart is the same as Balanced today: it will differ once tools can run programs or reach the network, where a second look by a model decides the uncertain cases. Whatever the level, the decision is made by Demido from what the tool does, never by the model.",
+                "Default Balanced. Cautious asks before every use of a tool that reaches outside Demido, reading included. Balanced lets a model read and change files in the session's folder without asking: a change cannot leave the folder, and what a file held before is kept, so it can be undone. Autonomous never asks. It also lets a model run a program when the program is shut in a sandbox and the folder was saved first, so that all it did can be put back; where this computer has no sandbox, or the folder is too large to save, it asks. Smart is the same as Balanced today: a second look by a model, for those uncertain cases, is not built. Whatever the level, the decision is made by Demido from what the tool does, never by the model.",
             ),
             choices(&[("cautious", "Cautious"), ("balanced", "Balanced"), ("smart", "Smart"), ("autonomous", "Autonomous")]),
             json!("balanced"),

@@ -427,13 +427,23 @@ async fn an_answer_wrapped_like_a_tools_result_is_unwrapped() {
         }
     }
     assert_eq!(told, "It is 4.", "the person never saw the wrapping");
-    // A request for a tool where the answer should be is kept, and said to be no answer.
+    // A request for a tool where the answer should be: the model is told that the asking is over, and tries once more.
+    let request = r#"{"tool": "calculate", "args": {"expression": "6 * 2"}}"#;
     *w.stand.decisions.lock().unwrap() = [r#"{"tool": "calculate", "args": {"expression": "3 + 3"}}"#.to_string(), NONE.to_string()].into();
-    w.stand.replies.lock().unwrap().push_front(r#"{"tool": "calculate", "args": {"expression": "6 * 2"}}"#.into());
-    let stuck = turn(&w, &session.id, "And three and three, doubled?").await;
-    assert_eq!((stuck.state.as_str(), stuck.content.as_str()), ("failed", r#"{"tool": "calculate", "args": {"expression": "6 * 2"}}"#));
+    *w.stand.replies.lock().unwrap() = [request.to_string(), "It is 6, and doubled it is 12.".to_string()].into();
+    let mended = turn(&w, &session.id, "And three and three, doubled?").await;
+    assert_eq!((mended.state.as_str(), mended.content.as_str()), ("done", "It is 6, and doubled it is 12."));
+    let second_try = contents(asked(&w).last().unwrap());
+    assert_eq!(second_try[second_try.len() - 2], said("assistant", request));
+    assert!(second_try.last().unwrap().1.starts_with("That is a request for a tool, not an answer. No more tools can be used now."));
+    // If it does it again, what it wrote is kept, and said to be no answer.
+    *w.stand.decisions.lock().unwrap() = [r#"{"tool": "calculate", "args": {"expression": "4 + 4"}}"#.to_string(), NONE.to_string()].into();
+    *w.stand.replies.lock().unwrap() = [request.to_string(), request.to_string()].into();
+    let stuck = turn(&w, &session.id, "And four and four?").await;
+    assert_eq!((stuck.state.as_str(), stuck.content.as_str()), ("failed", request));
     assert!(stuck.problem.unwrap().starts_with("The model wrote a request for a tool where its answer should be."));
     // Without a tool in the turn, an answer that is a JSON object is what was asked for, and stays.
+    w.stand.replies.lock().unwrap().push_back(r#"{"result": "kept as written"}"#.into());
     assert_eq!(turn(&w, &session.id, "Give me that as JSON.").await.content, r#"{"result": "kept as written"}"#);
     w.end().await;
 }

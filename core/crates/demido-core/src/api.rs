@@ -65,7 +65,7 @@ impl Core {
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let sessions = Arc::new(Sessions::new(db));
-        let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone()));
+        let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone()).keeping_in(paths.home().join("saved-folders")).with_sandbox(crate::sandbox::Sandbox::find()));
         Ok(Self { settings, events, auth, runtimes, engine, sessions, chat })
     }
 }
@@ -410,6 +410,8 @@ pub struct SessionDetail {
     pub need_not_ask: Vec<String>,
     /// The changes tools made to files in the session's folder, oldest first. Each can be undone.
     pub changes: Vec<Change>,
+    /// The sandbox this computer has for the programs a model runs, or why it has none.
+    pub sandbox: crate::sandbox::Sandbox,
 }
 
 /// One session with everything said in it, and what the model is told first.
@@ -429,6 +431,7 @@ async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<J
         asking: app.chat.waiting_for(&id),
         need_not_ask: app.chat.need_not_ask(&id),
         changes: app.sessions.changes(&id)?,
+        sandbox: app.chat.sandbox().clone(),
         session,
     }))
 }

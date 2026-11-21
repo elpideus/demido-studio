@@ -58,7 +58,7 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
     let sessions = Arc::new(Sessions::new(db));
     // The tests in this file are about plain chat: one request to the model for each turn. Tools have their own.
     kept_settings.set("tools.use", json!(false)).unwrap();
-    let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()).with_clock(CLOCK));
+    let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()).with_clock(CLOCK).keeping_in(home.join("saved-folders")));
     World { chat, sessions, engine, events, stand, home, settings: kept_settings }
 }
 

@@ -23,6 +23,7 @@
 pub mod api;
 pub mod auth;
 pub mod chat;
+pub mod checkpoint;
 pub mod db;
 pub mod desktop;
 pub mod engine;
@@ -32,6 +33,7 @@ pub mod kept;
 pub mod paths;
 pub mod permissions;
 pub mod runtime;
+pub mod sandbox;
 pub mod sessions;
 pub mod settings;
 pub mod system;

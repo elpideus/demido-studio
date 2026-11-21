@@ -14,9 +14,12 @@ export interface CoreTimings { reused: number; read: number; written: number; pe
 export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null }
 export type Level = 'cautious' | 'balanced' | 'smart' | 'autonomous'
 /** A use of a tool that is waiting for the person's yes. Every word of it is made by the core from the request, none by the model. */
-export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes'; what: string; why: string; asked_at: number }
-/** A change a tool made to a file in the session's folder. `created`: the change made the file, so undoing removes it. */
-export interface CoreChange { id: string; session_id: string; message_id: string; path: string; created: boolean; undone_at: number | null; created_at: number }
+export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes' | 'runs'; what: string; why: string; asked_at: number }
+/** A change a tool made to a file in the session's folder. `created`: the change made the file, so undoing removes it.
+    `whole_folder`: it is everything a program did; the folder was saved before the program ran, and undoing puts the whole folder back. */
+export interface CoreChange { id: string; session_id: string; message_id: string; path: string; created: boolean; whole_folder?: boolean; undone_at: number | null; created_at: number }
+/** The sandbox the core's computer has for the programs a model runs. `kind` is `none` when it has none, and `why_not` says why. */
+export interface Sandbox { kind: string; program: string | null; why_not: string | null }
 /** One task of work that was split into steps. `parent_id` is set for a sub-task. */
 export interface CoreTask { id: string; session_id: string; message_id: string; parent_id: string | null; position: number; title: string; state: 'pending' | 'running' | 'done' | 'failed' | 'stopped'; result: string | null; steps: CoreStep[]; created_at: number; updated_at: number }
 export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; steps: CoreStep[]; created_at: number }
@@ -28,7 +31,7 @@ export interface CoreSummary { id: string; session_id: string; upto_seq: number;
 export interface ContextUse { used: number; limit: number; compact_at: number; auto: boolean }
 /** `thinking_choices`: what thinking can be set to besides off. Empty: the model does not think. null: not known until it has been loaded once. */
 /** `tasks` and `tools_told` are missing when the core is older than this window: a window may be newer than the server it talks to. */
-export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean; thinking_choices: string[] | null; summaries: CoreSummary[]; context: ContextUse; tasks?: CoreTask[]; tools_told?: string | null; asking?: PermissionRequest | null; need_not_ask?: string[]; changes?: CoreChange[] }
+export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean; thinking_choices: string[] | null; summaries: CoreSummary[]; context: ContextUse; tasks?: CoreTask[]; tools_told?: string | null; asking?: PermissionRequest | null; need_not_ask?: string[]; changes?: CoreChange[]; sandbox?: Sandbox }
 
 interface Real {
   /** `null` until the core has answered. */
@@ -136,7 +139,7 @@ export async function answerPermission(id: string, request: string, said: 'once'
 export async function undoChange(id: string, change: string) {
   try {
     const undone = await coreSend<CoreChange>('POST', `/sessions/${id}/changes/${change}/undo`)
-    toast(undone.created ? `Removed ${undone.path}: the change had created it.` : `Put ${undone.path} back as it was.`)
+    toast(undone.whole_folder ? 'Put the folder back as it was before that command.' : undone.created ? `Removed ${undone.path}: the change had created it.` : `Put ${undone.path} back as it was.`)
   } catch (e) {
     toast(`Not undone. ${(e as Error).message}`, undefined, 'task-failed')
   }

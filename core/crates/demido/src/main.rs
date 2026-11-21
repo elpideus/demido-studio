@@ -531,7 +531,13 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
             let detail = server.get(&format!("/api/v1/sessions/{}", session_meant(&server, &id)?))?;
             println!("{} · {} · {}", detail["session"]["title"].as_str().unwrap_or("?"), detail["session"]["model"].as_str().unwrap_or("?"), detail["session"]["id"].as_str().unwrap_or("?"));
             match detail["session"]["folder"].as_str() {
-                Some(folder) => println!("Folder: {folder}. Level: {}.", detail["session"]["permission"].as_str().unwrap_or("?")),
+                Some(folder) => {
+                    println!("Folder: {folder}. Level: {}.", detail["session"]["permission"].as_str().unwrap_or("?"));
+                    match detail["sandbox"]["kind"].as_str() {
+                        Some("none") | None => println!("No sandbox on this computer, so a program asks first. {}", detail["sandbox"]["why_not"].as_str().unwrap_or("")),
+                        Some(kind) => println!("Programs run shut in a sandbox ({kind}): the folder and the system, no network."),
+                    }
+                }
                 None => println!("No folder: the model cannot read or change files. Level: {}.", detail["session"]["permission"].as_str().unwrap_or("?")),
             }
             for change in detail["changes"].as_array().into_iter().flatten() {
@@ -539,7 +545,13 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
                 println!(
                     "  {} {}  {}{}",
                     &id[..13.min(id.len())],
-                    if change["created"] == true { "created" } else { "changed" },
+                    if change["whole_folder"] == true {
+                        "a command ran in"
+                    } else if change["created"] == true {
+                        "created"
+                    } else {
+                        "changed"
+                    },
                     change["path"].as_str().unwrap_or("?"),
                     if change["undone_at"].is_null() { "" } else { "  (undone)" }
                 );
@@ -615,7 +627,16 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
             };
             let undone = server.send("POST", &format!("/api/v1/sessions/{id}/changes/{}/undo", meant["id"].as_str().unwrap_or("")), None)?;
             let path = undone["path"].as_str().unwrap_or("?");
-            println!("{}", if undone["created"] == true { format!("Removed {path}: the change had created it.") } else { format!("Put {path} back as it was.") });
+            println!(
+                "{}",
+                if undone["whole_folder"] == true {
+                    "Put the folder back as it was before that command. What programs make (a build folder and the like) was left as it is.".to_string()
+                } else if undone["created"] == true {
+                    format!("Removed {path}: the change had created it.")
+                } else {
+                    format!("Put {path} back as it was.")
+                }
+            );
         }
         Some(SessionsCommand::Delete { id }) => {
             let gone = server.send("DELETE", &format!("/api/v1/sessions/{}", session_meant(&server, &id)?), None)?;

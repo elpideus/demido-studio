@@ -371,10 +371,28 @@ impl Chat {
                     // level, in code. The model is not asked, and nothing it read can change the answer.
                     let reach = tools::named(&tool).map_or(tools::Reach::Changes, |t| t.reach);
                     let level = Level::from(&session.permission).unwrap_or(Level::Balanced);
-                    let asks = permissions::asks(level, reach) && !self.granted(&session.id, &tool);
+                    // Before a program runs, the folder is saved, when it can be: then all the program does can
+                    // be undone. Whether it was saved, and whether there is a sandbox, decide whether to ask.
+                    let (mut held, mut saved) = (permissions::Held::NOT_A_PROGRAM, None);
+                    if reach == tools::Reach::Runs {
+                        held = permissions::Held { shut_in: self.sandbox.contains(), can_be_undone: false };
+                        if let Some(folder) = session.folder.clone() {
+                            let id = uuid::Uuid::now_v7().to_string();
+                            let place = self.kept_in.join(&session.id).join(&id);
+                            let into = place.clone();
+                            if tokio::task::spawn_blocking(move || crate::checkpoint::save(std::path::Path::new(&folder), &into)).await.is_ok_and(|done| done.is_ok()) {
+                                (held.can_be_undone, saved) = (true, Some((id, place)));
+                            }
+                        }
+                    }
+                    let asks = permissions::asks(level, reach, held) && !self.granted(&session.id, &tool);
                     steps.push(Step { tool: tool.clone(), args: args.clone(), state: if asks { "waiting" } else { "running" }.into(), ..Step::default() });
                     changed(steps);
-                    if asks && self.ask_person(session, answer_id, &tool, args.as_object().expect("made as one"), reach, level, stop).await? == Said::No {
+                    let why = permissions::why(level, reach, held, self.sandbox.why_not.as_deref());
+                    if asks && self.ask_person(session, answer_id, &tool, args.as_object().expect("made as one"), reach, why, stop).await? == Said::No {
+                        if let Some((_, place)) = &saved {
+                            let _ = std::fs::remove_dir_all(place);
+                        }
                         let step = steps.last_mut().expect("just pushed");
                         (step.state, step.result) = ("refused".into(), "the person said no".into());
                         changed(steps);
@@ -389,9 +407,31 @@ impl Chat {
                     let started = Instant::now();
                     let folder = session.folder.as_deref().map(std::path::Path::new);
                     let seen = tools::seen_in(steps);
-                    let outcome = tools::run(&tool, args.as_object().expect("made as one"), &tools::Ground { clock: self.clock, folder, seen: &seen });
+                    let outcome = if tool == tools::RUN {
+                        // A program is run through the sandbox, for no longer than the person set.
+                        let seconds = self.settings.value::<String>("tools.commandSeconds").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(120);
+                        let command = args.get("command").and_then(Value::as_str).unwrap_or_default();
+                        match folder {
+                            None => Err("this session has no folder. The person can give it one".to_string()),
+                            Some(folder) => match self.sandbox.run(folder, command, std::time::Duration::from_secs(seconds), stop).await {
+                                // What a program prints is text from outside, like a file's.
+                                Ok(ran) if ran.stopped.is_none() => Ok(tools::Done { gave: tools::clean(&ran.told()), changed: None }),
+                                Ok(ran) => Err(tools::clean(&ran.told())),
+                                Err(why) => Err(why),
+                            },
+                        }
+                    } else {
+                        tools::run(&tool, args.as_object().expect("made as one"), &tools::Ground { clock: self.clock, folder, seen: &seen })
+                    };
                     let step = steps.last_mut().expect("just pushed");
                     step.took_ms = started.elapsed().as_millis() as u64;
+                    // However the program ended, it may have changed things. The folder as it was is kept, to put back.
+                    if let Some((id, place)) = &saved {
+                        step.change = Some(self.sessions.add_folder_change(&session.id, answer_id, id, &place.to_string_lossy())?.id);
+                        for old in self.sessions.old_checkpoints(&session.id, super::SAVED_FOLDERS_KEPT)? {
+                            let _ = std::fs::remove_dir_all(old);
+                        }
+                    }
                     match outcome {
                         Ok(done) => {
                             (step.state, step.result) = ("done".into(), done.gave);
@@ -428,7 +468,7 @@ impl Chat {
 
     /// Waits for the person's yes or no to one use of a tool. Stopping the answer counts as no.
     #[allow(clippy::too_many_arguments)]
-    async fn ask_person(&self, session: &Session, answer_id: &str, tool: &str, args: &serde_json::Map<String, Value>, reach: tools::Reach, level: Level, stop: &AtomicBool) -> Result<Said> {
+    async fn ask_person(&self, session: &Session, answer_id: &str, tool: &str, args: &serde_json::Map<String, Value>, reach: tools::Reach, why: String, stop: &AtomicBool) -> Result<Said> {
         let folder = session.folder.clone();
         let exists = |path: &str| folder.as_deref().and_then(|f| tools::files::inside(std::path::Path::new(f), path).ok()).is_some_and(|p| p.exists());
         let request = permissions::Request {
@@ -439,10 +479,7 @@ impl Chat {
             args: Value::Object(args.clone()),
             reach,
             what: permissions::what(tool, args, exists),
-            why: match level {
-                Level::Cautious => "This session is set to Cautious: it asks before every use of a tool that reaches outside Demido.".into(),
-                _ => "This could do something that cannot be undone.".into(),
-            },
+            why,
             asked_at: crate::now_ms(),
         };
         let (answer, mut answered) = tokio::sync::oneshot::channel();

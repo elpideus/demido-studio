@@ -12,10 +12,15 @@
 //! | touches nothing outside Demido  | runs     | runs     | runs  | runs       |
 //! | reads in the session's folder   | asks     | runs     | runs  | runs       |
 //! | changes a file in the folder    | asks     | runs     | runs  | runs       |
+//! | runs a program, shut in and     | asks     | runs     | runs  | runs       |
+//! |   with the folder saved first   |          |          |       |            |
+//! | runs a program otherwise        | asks     | asks     | asks  | runs       |
 //!
-//! Balanced lets a change through because it is contained and can be undone: it cannot leave the folder,
-//! and what a file held before is kept. Smart is the same as Balanced until there is something for a
-//! judgement to be about: it differs once tools can run programs or reach the network, and says so.
+//! Balanced lets through what is contained and can be undone. A change to a file cannot leave the folder,
+//! and what the file held before is kept. A program is shut in a sandbox (`sandbox`) and the folder is
+//! saved before it runs (`checkpoint`), so all it did can be put back. Where either is missing, because
+//! this computer has no sandbox or the folder is too large to save, Balanced asks. Smart is the same as
+//! Balanced until a second look by a model exists to decide those uncertain cases; today it asks there too.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -49,12 +54,39 @@ impl Level {
     }
 }
 
+/// What holds a program that is about to run. Only looked at for tools that run one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Held {
+    /// It runs in a sandbox: it cannot leave the folder or reach the network.
+    pub shut_in: bool,
+    /// The folder was saved first: all the program does can be undone.
+    pub can_be_undone: bool,
+}
+
+impl Held {
+    pub const NOT_A_PROGRAM: Self = Self { shut_in: true, can_be_undone: true };
+}
+
 /// Whether a use of a tool goes ahead or waits for the person.
-pub fn asks(level: Level, reach: Reach) -> bool {
+pub fn asks(level: Level, reach: Reach, held: Held) -> bool {
     match (reach, level) {
         (Reach::Nothing, _) => false,
-        (Reach::Reads | Reach::Changes, Level::Cautious) => true,
+        (_, Level::Autonomous) => false,
+        (_, Level::Cautious) => true,
         (Reach::Reads | Reach::Changes, _) => false,
+        (Reach::Runs, Level::Balanced | Level::Smart) => !(held.shut_in && held.can_be_undone),
+    }
+}
+
+/// Why a use of a tool is being asked for, in one line.
+pub fn why(level: Level, reach: Reach, held: Held, no_sandbox_because: Option<&str>) -> String {
+    match (level, reach) {
+        (Level::Cautious, _) => "This session is set to Cautious: it asks before every use of a tool that reaches outside Demido.".into(),
+        (_, Reach::Runs) if !held.shut_in => {
+            format!("There is no sandbox on this computer, so this command could reach whatever you can reach. {}", no_sandbox_because.unwrap_or_default()).trim_end().to_string()
+        }
+        (_, Reach::Runs) if !held.can_be_undone => "The folder could not be saved first, so what this command changes cannot be undone.".into(),
+        _ => "This could do something that cannot be undone.".into(),
     }
 }
 
@@ -104,6 +136,8 @@ pub fn what(tool: &str, args: &serde_json::Map<String, serde_json::Value>, exist
         "write_file" if exists(text("path")) => format!("Replace all of the file {} ({} characters)", text("path"), text("content").chars().count()),
         "write_file" => format!("Create the file {} ({} characters)", text("path"), text("content").chars().count()),
         "edit_file" => format!("Change {}: \"{}\" becomes \"{}\"", text("path"), short(text("find")), short(text("replace"))),
+        // A command is shown whole: every character of it matters.
+        "run_command" => format!("Run this command in the folder: {}", text("command")),
         other => format!("Use {other}"),
     }
 }
@@ -116,13 +150,26 @@ mod tests {
     #[test]
     fn what_asks_follows_from_the_reach_and_the_level_and_nothing_else() {
         use Level::*;
+        let (safe, loose, unsaved) = (Held { shut_in: true, can_be_undone: true }, Held { shut_in: false, can_be_undone: true }, Held { shut_in: true, can_be_undone: false });
         for level in [Cautious, Balanced, Smart, Autonomous] {
-            assert!(!asks(level, Reach::Nothing), "the clock and the calculator never ask");
+            assert!(!asks(level, Reach::Nothing, loose), "the clock and the calculator never ask");
         }
-        assert!(asks(Cautious, Reach::Reads) && asks(Cautious, Reach::Changes), "cautious asks for everything that reaches outside");
+        assert!(asks(Cautious, Reach::Reads, safe) && asks(Cautious, Reach::Changes, safe) && asks(Cautious, Reach::Runs, safe), "cautious asks for everything that reaches outside");
         for level in [Balanced, Smart, Autonomous] {
-            assert!(!asks(level, Reach::Reads) && !asks(level, Reach::Changes));
+            assert!(!asks(level, Reach::Reads, loose) && !asks(level, Reach::Changes, loose));
         }
+        // A program: balanced and smart let it run only when it is shut in and the folder was saved first.
+        for level in [Balanced, Smart] {
+            assert!(!asks(level, Reach::Runs, safe));
+            assert!(asks(level, Reach::Runs, loose) && asks(level, Reach::Runs, unsaved));
+        }
+        assert!(!asks(Autonomous, Reach::Runs, loose), "autonomous never asks");
+        assert!(
+            why(Balanced, Reach::Runs, loose, Some("bubblewrap is not installed.")).starts_with("There is no sandbox on this computer")
+                && why(Balanced, Reach::Runs, loose, Some("bubblewrap is not installed.")).ends_with("bubblewrap is not installed.")
+        );
+        assert!(why(Smart, Reach::Runs, unsaved, None).contains("cannot be undone"));
+        assert!(why(Cautious, Reach::Runs, safe, None).contains("Cautious"));
         assert_eq!(LEVELS.map(Level::from), [Some(Cautious), Some(Balanced), Some(Smart), Some(Autonomous)]);
         assert_eq!(Level::from("root"), None);
     }
@@ -136,6 +183,7 @@ mod tests {
         assert_eq!(said("write_file", json!({ "path": "new.md", "content": "Hello." })), "Create the file new.md (6 characters)");
         assert_eq!(said("write_file", json!({ "path": "old.md", "content": "Hello." })), "Replace all of the file old.md (6 characters)");
         assert_eq!(said("add_to_file", json!({ "path": "todo.txt", "text": "Book the venue." })), "Add to the end of todo.txt: \"Book the venue.\"");
+        assert_eq!(said("run_command", json!({ "command": "cargo test && rm -rf target" })), "Run this command in the folder: cargo test && rm -rf target");
         assert_eq!(said("edit_file", json!({ "path": "a.md", "find": "Friday\n  morning", "replace": "Monday" })), "Change a.md: \"Friday morning\" becomes \"Monday\"");
     }
 }

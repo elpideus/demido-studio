@@ -91,6 +91,8 @@ const MIGRATIONS: &[&str] = &[
         undone_at  INTEGER,                 -- set when the change was undone
         created_at INTEGER NOT NULL
      ) STRICT;",
+    // 7: a change made by a program: the whole folder was saved first, and this says where
+    "ALTER TABLE changes ADD COLUMN checkpoint TEXT;",
 ];
 
 pub struct Db {

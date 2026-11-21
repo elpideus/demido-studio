@@ -29,7 +29,7 @@ That opens the UI in your browser, signed in. The Setup screen now shows this co
 | `demido system` | This computer: processor, memory, graphics cards, and which model runtime suits it. `--json`. |
 | `demido settings list` | Every setting with its value. Also `get <id>`, `set <id> <value>`, `reset <id>`. |
 | `demido events` | The log of what happened. `--after <n>`, `--limit <n>`, `--json`. |
-| `demido ask <question>` | Asks a model and prints its answer as it is written. `--session <id>` goes on in a session; `--model <id>` picks the model for a new one; `--think` and `--no-think` turn thinking on and off for the session; `--plan` has the model list the steps first and do them one at a time, as tasks; `--folder <path>` gives the session the one folder the model may read and change files in (`.` for where you are); `--level cautious|balanced|smart|autonomous` sets how much it may do without asking, and when it asks, you answer at the terminal. The tools the model uses and the tasks are printed as they happen. Ctrl+C stops the answer. Needs a running server. |
+| `demido ask <question>` | Asks a model and prints its answer as it is written. `--session <id>` goes on in a session; `--model <id>` picks the model for a new one; `--think` and `--no-think` turn thinking on and off for the session; `--plan` has the model list the steps first and do them one at a time, as tasks; `--folder <path>` gives the session the one folder the model may read and change files in (`.` for where you are); `--level cautious|balanced|smart|autonomous` sets how much it may do without asking, and when it asks, you answer at the terminal. With a folder the model can also run programs there, shut in a sandbox where this computer has one. The tools the model uses and the tasks are printed as they happen. Ctrl+C stops the answer. Needs a running server. |
 | `demido sessions` | The conversations kept on this computer. `show <id>` prints one, with how full the model is; `shorten <id>` replaces the older part with a short account for the model (the messages stay); `undo <id> [change]` puts a file back as it was before a model changed it; `delete <id>` removes one. |
 | `demido models` | The models in Demido's folder and what each is doing. `load <id>` loads one and waits until it is ready; `unload <id>` ends its process and frees its memory. Loading needs a running server. |
 | `demido runtime` | The program that runs models: what is installed. `available` asks its publisher what suits this computer; `install [id]` downloads, checks, unpacks and tries one; `check <id>` tries an installed one again; `stop`; `remove <id>`. |
@@ -52,6 +52,8 @@ With a server running, the command line asks the server. Without one, it works o
 | `…/chat/turn.rs` | What a turn does before its answer: asking whether a tool is needed, using it, and walking a plan task by task. Its first lines say what was measured to shape it. |
 | `…/tools.rs` | The tools a model can ask for, how they are listed for it, how a request is read, mended or refused, and the cleaning of text from outside. `tools/calculate.rs` is the calculator; `tools/files.rs` reads and changes files inside a session's folder and nowhere else. |
 | `…/permissions.rs` | Whether a use of a tool needs the person's yes: decided from the tool's reach and the session's level, never by a model. |
+| `…/sandbox.rs` | Running a program a model asked for where it can do little harm: on Linux inside bubblewrap, with the folder, the system and no network. `cargo run --example sandbox_try -- <folder> <command>` tries it by hand. |
+| `…/checkpoint.rs` | Saving a folder before a program runs in it, and putting it back, so that all a program did can be undone. |
 | `…/engine/` | Running models: starting the runtime as a router (`router.rs`), loading and unloading, unloading what is idle, ending a runtime that was left behind (`mod.rs`), and keeping what is learned about each model (`known.rs`). |
 | `…/runtime/` | The model runtime: what its publisher offers (`catalog.rs`), downloading with a check (`fetch.rs`), unpacking without trust (`unpack.rs`), and installing, listing and removing (`mod.rs`). |
 | `…/auth.rs` | The key every request needs, and the one-use link that lets a browser in. |
@@ -99,7 +101,7 @@ cargo test --manifest-path core/Cargo.toml
 
 ## Not built yet
 
-Running programs (the sandbox), tools that reach the network, tools other people write. Downloading models from within Demido. Providers. Carrying the web UI inside
+The sandbox on macOS and Windows, tools that reach the network, tools other people write. Downloading models from within Demido. Providers. Carrying the web UI inside
 the binary (a release keeps it in a folder named `ui` beside the program, and the program finds it there).
 Use from other devices (encryption, passkeys). Windows and macOS are tested by the checks on GitHub, on machines
 without a graphics card; no real Windows or Mac has run it yet.

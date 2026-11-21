@@ -51,7 +51,7 @@ function List() {
       </div>
       <div className="app-side__foot">
         <span>These conversations are real: kept by the core, answered by a model on this computer.</span>
-        <NotBuilt block>Tools that run programs or reach the web; the second look that Smart is to give; groups and search. The preview shows where these are going.</NotBuilt>
+        <NotBuilt block>Tools that reach the web; the second look that Smart is to give; a sandbox on macOS and Windows; groups and search. The preview shows where these are going.</NotBuilt>
       </div>
     </aside>
   )
@@ -65,13 +65,13 @@ function Prose({ text }: { text: string }) {
 /** What a tool is called when it is used, in plain words, and which of its arguments says what it was used on. */
 const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
-  add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'],
+  add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
 }
 /** The four levels, as they are today. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
 const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
   cautious: { label: 'Cautious', icon: ShieldCheck, text: 'Asks you before every use of a tool that reaches the folder, reading included.' },
-  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking. A change cannot leave the folder, and can be undone.' },
-  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The same as Balanced today. It will differ once tools can run programs or reach the network.' },
+  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking, and runs a program when it is shut in a sandbox and the folder was saved first. All of that can be undone. Anything else, it asks.' },
+  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The same as Balanced today. The second look by a model, for the uncertain cases, is not built.' },
   autonomous: { label: 'Autonomous', icon: ShieldOff, text: 'Never asks.' },
 }
 const flat = (text: string, most: number) => { const one = text.replace(/\s+/g, ' ').trim(); return one.length > most ? `${one.slice(0, most)}…` : one }
@@ -97,7 +97,7 @@ function ToolUse({ step, at, change }: { step: CoreStep; at: string; change?: Co
       }} />
       {change && (change.undone_at
         ? <span className="d-type-caption d-text-tertiary">Undone</span>
-        : <Tip label={change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
+        : <Tip label={change.whole_folder ? 'Puts the whole folder back as it was before this command ran. What it made is removed, what it changed or removed is as it was.' : change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
     </div>
   )
 }
@@ -106,9 +106,9 @@ function ToolUse({ step, at, change }: { step: CoreStep; at: string; change?: Co
 function Asking({ request }: { request: PermissionRequest }) {
   const answer = (said: 'once' | 'session' | 'no') => void answerPermission(request.session_id, request.id, said)
   return (
-    <section className="d-permission" data-risk={request.reach === 'changes' ? 'medium' : 'low'} aria-label={request.what}>
+    <section className="d-permission" data-risk={request.reach === 'runs' ? 'high' : request.reach === 'changes' ? 'medium' : 'low'} aria-label={request.what}>
       <header className="d-permission__head">
-        <span className="d-permission__risk">{request.reach === 'changes' ? 'Changes a file' : 'Reads'}</span>
+        <span className="d-permission__risk">{request.reach === 'runs' ? 'Runs a program' : request.reach === 'changes' ? 'Changes a file' : 'Reads'}</span>
         <h3 className="d-permission__title">The model wants to use a tool</h3>
       </header>
       <pre className="d-permission__what"><code>{request.what}</code></pre>
@@ -334,7 +334,7 @@ function Chat() {
                 <Button variant="primary" type="submit" disabled={!path.trim() || path.trim() === session.folder}>Use this folder</Button>
                 {session.folder && <Button type="button" onClick={() => void changeSession(id, { folder: '' }).then(() => setFolding(false))}>No folder</Button>}
               </div>
-              <p className="d-type-caption d-text-secondary">The model can read every file in it and change them. It cannot reach anything outside it: that is checked by Demido, not left to the model. Each change can be undone from the answer that made it.{(detail.need_not_ask ?? []).length > 0 && ` In this session you said these need not ask again: ${(detail.need_not_ask ?? []).join(', ')}.`}</p>
+              <p className="d-type-caption d-text-secondary">The model can read every file in it, change them, and run programs in it. It cannot reach anything outside it: that is checked by Demido, not left to the model. Each change can be undone from the answer that made it. {detail.sandbox && detail.sandbox.kind !== 'none' ? `Programs are shut in a sandbox (${detail.sandbox.kind}).` : `There is no sandbox here, so every program asks first. ${detail.sandbox?.why_not ?? ''}`}{(detail.need_not_ask ?? []).length > 0 && ` In this session you said these need not ask again: ${(detail.need_not_ask ?? []).join(', ')}.`}</p>
             </form>
           )}
           {told && (
@@ -349,7 +349,7 @@ function Chat() {
             <div className="chat__welcome">
               <span dangerouslySetInnerHTML={{ __html: logo }} />
               <h2 className="d-type-title-2">What do you want to know?</h2>
-              <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. {!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder}, read the clock, calculate, and split work into tasks. It cannot run programs or reach the web yet.` : 'It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it. It cannot run programs or reach the web yet.'}</p>
+              <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. {!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} It cannot reach the web yet.` : 'It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. It cannot reach the web yet.'}</p>
             </div>
           )}
           {messages.map((m) => (

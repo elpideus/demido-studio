@@ -79,6 +79,16 @@ jobs:
       - name: Lints
         if: matrix.tidy
         run: cargo clippy --manifest-path core/Cargo.toml --all-targets --locked -- -D warnings
+      - name: A sandbox, so that the sandbox is tested (Linux)
+        if: runner.os == 'Linux'
+        # bubblewrap is what Demido shuts a program in. Ubuntu 24.04 does not let ordinary programs make the
+        # namespaces it needs unless told to; a person's own computer is asked the same once, by the installer.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --version
+          echo "DEMIDO_EXPECT_SANDBOX=1" >> "$GITHUB_ENV"
       - name: Tests
         run: cargo test --manifest-path core/Cargo.toml --locked
       - name: It runs and reads this computer

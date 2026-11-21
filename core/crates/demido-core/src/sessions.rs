@@ -47,6 +47,9 @@ pub struct Change {
     pub path: String,
     /// True when the change created the file. Undoing it removes the file.
     pub created: bool,
+    /// True when this is everything a program did in the folder: the folder was saved before it ran, and
+    /// undoing puts the whole folder back. `path` is then `.`.
+    pub whole_folder: bool,
     /// When it was undone. `null`: it stands.
     pub undone_at: Option<i64>,
     pub created_at: i64,
@@ -157,7 +160,16 @@ fn message_from(r: &rusqlite::Row) -> rusqlite::Result<Message> {
 }
 
 fn change_from(r: &rusqlite::Row) -> rusqlite::Result<Change> {
-    Ok(Change { id: r.get(0)?, session_id: r.get(1)?, message_id: r.get(2)?, path: r.get(3)?, created: !r.get::<_, bool>(4)?, undone_at: r.get(5)?, created_at: r.get(6)? })
+    Ok(Change {
+        id: r.get(0)?,
+        session_id: r.get(1)?,
+        message_id: r.get(2)?,
+        path: r.get(3)?,
+        created: !r.get::<_, bool>(4)?,
+        undone_at: r.get(5)?,
+        created_at: r.get(6)?,
+        whole_folder: r.get::<_, Option<String>>(7)?.is_some(),
+    })
 }
 
 fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
@@ -256,13 +268,67 @@ impl Sessions {
                 rusqlite::params![id, session_id, message_id, path, before.is_some(), before, now],
             )
         })?;
-        Ok(Change { id, session_id: session_id.to_string(), message_id: message_id.to_string(), path: path.to_string(), created: before.is_none(), undone_at: None, created_at: now })
+        Ok(Change {
+            id,
+            session_id: session_id.to_string(),
+            message_id: message_id.to_string(),
+            path: path.to_string(),
+            created: before.is_none(),
+            undone_at: None,
+            created_at: now,
+            whole_folder: false,
+        })
+    }
+
+    /// Writes down that a program ran in the folder, and where the folder was saved before it did.
+    pub fn add_folder_change(&self, session_id: &str, message_id: &str, id: &str, checkpoint: &str) -> Result<Change> {
+        let now = now_ms();
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO changes (id, session_id, message_id, path, existed, created_at, checkpoint) VALUES (?1, ?2, ?3, '.', 1, ?4, ?5)",
+                rusqlite::params![id, session_id, message_id, now, checkpoint],
+            )
+        })?;
+        Ok(Change {
+            id: id.to_string(),
+            session_id: session_id.to_string(),
+            message_id: message_id.to_string(),
+            path: ".".into(),
+            created: false,
+            undone_at: None,
+            created_at: now,
+            whole_folder: true,
+        })
+    }
+
+    /// Where the folder was saved before a program ran, for a change that is a whole folder.
+    pub fn checkpoint_of(&self, change_id: &str) -> Result<Option<String>> {
+        Ok(self.db.with(|c| c.prepare("SELECT checkpoint FROM changes WHERE id = ?1")?.query_map([change_id], |r| r.get::<_, Option<String>>(0))?.next().transpose())?.flatten())
+    }
+
+    /// The saved folders of a session beyond the newest `keep`, oldest first: their place on disk, to be
+    /// removed. The changes they belong to can then no longer be undone, and say so.
+    pub fn old_checkpoints(&self, session_id: &str, keep: usize) -> Result<Vec<String>> {
+        let all: Vec<(String, String)> = self.db.with(|c| {
+            c.prepare("SELECT id, checkpoint FROM changes WHERE session_id = ?1 AND checkpoint IS NOT NULL AND undone_at IS NULL ORDER BY created_at DESC, id DESC")?
+                .query_map([session_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect()
+        })?;
+        let old: Vec<(String, String)> = all.into_iter().skip(keep).collect();
+        self.db.with(|c| {
+            for (id, _) in &old {
+                // Marked as undone long ago, which is what it now amounts to: there is nothing to put back from.
+                c.execute("UPDATE changes SET checkpoint = NULL, undone_at = 0 WHERE id = ?1", [id])?;
+            }
+            Ok(())
+        })?;
+        Ok(old.into_iter().map(|(_, place)| place).rev().collect())
     }
 
     /// The changes made in a session, oldest first.
     pub fn changes(&self, session_id: &str) -> Result<Vec<Change>> {
         self.db.with(|c| {
-            c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at FROM changes WHERE session_id = ?1 ORDER BY created_at, id")?
+            c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, checkpoint FROM changes WHERE session_id = ?1 ORDER BY created_at, id")?
                 .query_map([session_id], change_from)?
                 .collect()
         })
@@ -272,8 +338,8 @@ impl Sessions {
     pub fn change_with_before(&self, id: &str) -> Result<(Change, Option<Vec<u8>>)> {
         self.db
             .with(|c| {
-                c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, before FROM changes WHERE id = ?1")?
-                    .query_map([id], |r| Ok((change_from(r)?, r.get::<_, Option<Vec<u8>>>(7)?)))?
+                c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, checkpoint, before FROM changes WHERE id = ?1")?
+                    .query_map([id], |r| Ok((change_from(r)?, r.get::<_, Option<Vec<u8>>>(8)?)))?
                     .next()
                     .transpose()
             })?

@@ -39,6 +39,8 @@ pub mod files;
 pub const NONE: &str = "none";
 /// The tool that splits work into steps. It is carried out by `chat`, which owns the task list.
 pub const PLAN: &str = "plan";
+/// The tool that runs a program. It is run by `chat`, through the sandbox.
+pub const RUN: &str = "run_command";
 
 /// What an argument may be.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,6 +76,8 @@ pub enum Reach {
     Reads,
     /// Changes files inside the session's folder. What was there is kept, so the change can be undone.
     Changes,
+    /// Runs a program in the session's folder. In a sandbox where this computer has one.
+    Runs,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -108,6 +112,12 @@ const TOOLS: &[Tool] = &[
         does: "Changes one part of a file: the exact text to find, and what to put in its place.",
         args: &[arg("path", Kind::Text), arg("find", Kind::Text), arg("replace", Kind::Text)],
         reach: Reach::Changes,
+    },
+    Tool {
+        name: RUN,
+        does: "Runs a command in the folder, as in a terminal: a test, a script, a build. It cannot reach the internet or anything outside the folder.",
+        args: &[arg("command", Kind::Text)],
+        reach: Reach::Runs,
     },
     Tool { name: PLAN, does: "For work that needs several steps: write the steps as a list first.", args: &[arg("steps", Kind::List)], reach: Reach::Nothing },
 ];
@@ -486,7 +496,7 @@ mod tests {
         assert_eq!(shape(&offered(false, true))["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
         assert_eq!(
             shape(&offered(true, true))["properties"]["tool"]["enum"],
-            json!(["time", "calculate", "list_files", "read_file", "search_files", "add_to_file", "write_file", "edit_file", "plan", "none"])
+            json!(["time", "calculate", "list_files", "read_file", "search_files", "add_to_file", "write_file", "edit_file", "run_command", "plan", "none"])
         );
         assert_eq!((named("write_file").unwrap().reach, named("read_file").unwrap().reach, named("time").unwrap().reach), (Reach::Changes, Reach::Reads, Reach::Nothing));
     }
@@ -527,7 +537,7 @@ mod tests {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));

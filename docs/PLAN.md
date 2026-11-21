@@ -18,8 +18,8 @@ The order of the first three steps is the owner's (brief section 0). Everything 
 - Served by the core, four things are real. Sessions: a conversation with a model on this computer, its
   answer written as you watch, kept by the core (`demido ask` does the same from a terminal); the model
   can read the clock and calculate, and work can be split into tasks that are ticked off as you watch.
-  Given a folder, it can read and change the files in it, and nowhere else; it asks first where the
-  session's level says so, and each change can be undone. Setup:
+  Given a folder, it can read and change the files in it and run programs there, and nowhere else; it
+  asks first where the session's level says so, and each change, a program's too, can be undone. Setup:
   this computer's hardware, and installing the model runtime. Models › On this computer: the models in
   Demido's folder, loaded and unloaded for real, with the indicator in the corner following. Settings:
   Appearance, Models and memory, Context and compaction, Tools and tasks, Permission levels, the listen address and the log's length. Everything else is still the
@@ -84,8 +84,10 @@ The order. Items 1 and 2 are done; item 3 is nearly done; item 4 (the chat loop)
 is done (note 13, DECISIONS L) and plain chat works for real. Item 4 (the chat loop) is built: plain chat,
 the switch for thinking, making a long conversation shorter, turns with tools, and the task list. Item 5
 is under way: a session can have a folder, a model can read and change files in it and nowhere else, the
-four permission levels decide when it asks, and every change can be undone (DECISIONS T). Left in item 5:
-running programs in a sandbox, tools that reach the network, and tools other people write.
+four permission levels decide when it asks, and every change can be undone. It can also run programs in
+that folder, shut in a sandbox on Linux, with the folder saved first so that all a program did can be put
+back (DECISIONS T). Left in item 5: the sandbox on macOS and Windows, tools that reach the network, and
+tools other people write.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.
@@ -110,9 +112,10 @@ running programs in a sandbox, tools that reach the network, and tools other peo
 5. Tools system, permission levels, sandbox, injection defence.
    First part built on 2026-11-21 (DECISIONS T, research note 14): a folder for a session, tools that read
    and change files in it, the four levels, asking first, undo, and cleaning of text from outside. Tried
-   on four models with real files. Next inside it, in this order: running programs in a sandbox; tools
-   that reach the network, with rules for what may leave the computer; tools other people write, with
-   their browser and updater.
+   on four models with real files. Then running programs: a sandbox on Linux (bubblewrap), the folder
+   saved before each program, one Undo for all a program did. Next inside it: tools that reach the
+   network, with rules for what may leave the computer; the sandbox on macOS and Windows; tools other
+   people write, with their browser and updater.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
 7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),
    lending, schedules, session messaging.

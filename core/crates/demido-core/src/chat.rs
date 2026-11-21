@@ -107,7 +107,15 @@ pub struct Chat {
     asking: Mutex<HashMap<String, Waiting>>,
     /// The tools the person said need not ask again, by session. Kept while Demido runs, and no longer.
     granted: Mutex<HashMap<String, HashSet<String>>>,
+    /// The sandbox this computer has for running programs, found once.
+    sandbox: crate::sandbox::Sandbox,
+    /// Where folders are saved before a program runs in them.
+    kept_in: std::path::PathBuf,
 }
+
+/// The saved folders of a session that are kept: the newest ones. An older run of a program can then no
+/// longer be undone.
+const SAVED_FOLDERS_KEPT: usize = 10;
 
 /// A use of a tool that is waiting, and the way to answer it.
 struct Waiting {
@@ -126,7 +134,37 @@ struct Running {
 
 impl Chat {
     pub fn new(sessions: Arc<Sessions>, engine: Arc<Engine>, events: Arc<EventLog>, settings: Arc<Settings>) -> Self {
-        Self { sessions, engine, events, settings, clock: tools::here, turns: Mutex::default(), asking: Mutex::default(), granted: Mutex::default() }
+        Self {
+            sessions,
+            engine,
+            events,
+            settings,
+            clock: tools::here,
+            turns: Mutex::default(),
+            asking: Mutex::default(),
+            granted: Mutex::default(),
+            // Looked for where the server starts, once (`with_sandbox`): looking starts a program.
+            sandbox: crate::sandbox::Sandbox::not_looked_for(),
+            kept_in: std::env::temp_dir().join("demido-saved-folders"),
+        }
+    }
+
+    /// The same, saving folders under `place` before a program runs in them.
+    pub fn keeping_in(mut self, place: std::path::PathBuf) -> Self {
+        self.kept_in = place;
+        self
+    }
+
+    /// The same, with this sandbox for the programs a model runs: the one found on this computer, or, in a
+    /// test, one said to be so.
+    pub fn with_sandbox(mut self, sandbox: crate::sandbox::Sandbox) -> Self {
+        self.sandbox = sandbox;
+        self
+    }
+
+    /// The sandbox programs are run in on this computer, or why there is none.
+    pub fn sandbox(&self) -> &crate::sandbox::Sandbox {
+        &self.sandbox
     }
 
     /// The same, telling the time and the day from `clock`: for tests.
@@ -296,6 +334,8 @@ impl Chat {
     pub fn delete(&self, session_id: &str) -> Result<Session> {
         self.stop(session_id);
         let gone = self.sessions.delete(session_id)?;
+        // The folders saved for undoing its programs go with it.
+        let _ = std::fs::remove_dir_all(self.kept_in.join(session_id));
         self.events.append("session.deleted", Some(&gone.id), json!({ "title": gone.title }))?;
         Ok(gone)
     }
@@ -451,7 +491,16 @@ impl Chat {
         let Some(folder) = session.folder else {
             return Err(Error::Invalid("This session has no folder any more, so there is nowhere to put the file back.".into()));
         };
-        tools::files::put_back(std::path::Path::new(&folder), &tools::files::Changed { path: change.path.clone(), before }).map_err(Error::Invalid)?;
+        if change.whole_folder {
+            // Everything a program did: the folder goes back to how it was saved before the program ran.
+            let Some(place) = self.sessions.checkpoint_of(change_id)? else {
+                return Err(Error::Invalid("The folder as it was before that command is no longer kept.".into()));
+            };
+            crate::checkpoint::restore(std::path::Path::new(&folder), std::path::Path::new(&place)).map_err(Error::Invalid)?;
+            let _ = std::fs::remove_dir_all(&place);
+        } else {
+            tools::files::put_back(std::path::Path::new(&folder), &tools::files::Changed { path: change.path.clone(), before }).map_err(Error::Invalid)?;
+        }
         self.sessions.mark_undone(change_id)?;
         self.events.append("change.undone", Some(session_id), json!({ "change": change_id, "path": change.path }))?;
         self.sessions.change_with_before(change_id).map(|(change, _)| change)
@@ -611,7 +660,12 @@ impl Chat {
             // result came to it: {"result": "..."}. An answer that starts like that is held back until it is
             // whole, and then unwrapped (`turn::unwrapped`) or shown as it is.
             let used_a_tool = !self.sessions.message(&answer_id)?.steps.is_empty();
+            // Set before a second try at the answer, so that what was written at the first is let go.
+            let again = AtomicBool::new(false);
             let mut heard = |piece: Piece| {
+                if again.swap(false, Ordering::Relaxed) {
+                    written.clear();
+                }
                 match piece {
                     Piece::Started(name) => *running.named.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string()),
                     Piece::Text(text) => {
@@ -634,7 +688,19 @@ impl Chat {
                     tell(&mut waiting);
                 }
             };
-            let mut answer = self.engine.answer(&session.model, body, &running.stop, &mut heard).await?;
+            let mut answer = self.engine.answer(&session.model, body.clone(), &running.stop, &mut heard).await?;
+            // A request for a tool where the answer should be: the asking is over, so nothing more is run. The
+            // model is told so once and tries again. (Tried on a real model: after a command that printed
+            // nothing, it wrote the same request again as its answer.)
+            if used_a_tool && !answer.stopped && turn::is_a_request(&answer.content) {
+                let mut messages = body["messages"].as_array().cloned().unwrap_or_default();
+                messages.push(json!({ "role": "assistant", "content": answer.content.trim() }));
+                messages
+                    .push(json!({ "role": "user", "content": "That is a request for a tool, not an answer. No more tools can be used now. Answer the person in plain words, from what you have." }));
+                body["messages"] = Value::Array(messages);
+                again.store(true, Ordering::Relaxed);
+                answer = self.engine.answer(&session.model, body, &running.stop, &mut heard).await?;
+            }
             if used_a_tool && (answer.content.trim_start().starts_with('{') || answer.content.trim_start().starts_with("<result>")) {
                 if let Some(inside) = turn::unwrapped(&answer.content) {
                     answer.content = inside;
@@ -680,7 +746,7 @@ impl Chat {
                         } else {
                             "message.done"
                         },
-                        json!({ "message": answer_id, "written": answer.timings.written, "per_second": answer.timings.per_second, "reused": answer.timings.reused, "read": answer.timings.read }),
+                        json!({ "message": answer_id, "written": answer.timings.written, "per_second": answer.timings.per_second, "reused": answer.timings.reused, "read": answer.timings.read, "problem": why }),
                     )
                 })
             }
