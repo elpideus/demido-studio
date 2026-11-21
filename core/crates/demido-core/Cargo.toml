@@ -1,0 +1,25 @@
+[package]
+name = "demido-core"
+description = "Demido Studio's core: storage, settings, the event log, hardware detection and the API."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+axum.workspace = true
+directories.workspace = true
+nvml-wrapper.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tracing.workspace = true
+utoipa.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

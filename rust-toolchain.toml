@@ -1,0 +1,6 @@
+# The one Rust compiler everybody builds with: this computer, the checks, and the releases.
+# rustup reads this file and installs it. Raise it on purpose, not by accident.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
