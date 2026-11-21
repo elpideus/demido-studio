@@ -1,13 +1,15 @@
 import { useEffect } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { Popover } from '@base-ui/react/popover'
-import { applyAppearance, dismissToast, memoryBudget, useStore } from '@/data/store'
+import { applyAppearance, dismissToast, memoryBudget, startCore, useStore } from '@/data/store'
 import { Budget, Button, Glyph, MODEL_STATE_LABEL, Tip, TooltipProvider } from '@/ui'
 import { allFeatures, GROUPS } from './registry'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
 export function App() {
   useEffect(() => applyAppearance(), [])
+  // If a core is behind these pages, its settings become the real ones.
+  useEffect(() => void startCore(), [])
   const features = allFeatures()
   const home = features.find((f) => f.id === 'sessions')
   const { pathname } = useLocation()

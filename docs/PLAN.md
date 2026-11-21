@@ -15,8 +15,11 @@ The order of the first three steps is the owner's (brief section 0). Everything 
 - Storage, the settings registry, the event log with its live stream, the key and the browser link, the
   API with its own description.
 - It reads this computer's real hardware and recommends the model runtime build to download.
-- Served by the core, the Setup screen shows that real hardware. Every other screen is still the scripted
-  preview, and says so.
+- Served by the core, the Setup screen shows that real hardware, and the Settings screen keeps Appearance,
+  the listen address and the log's length in the core. Every other screen is still the scripted preview,
+  and says so.
+- The project is public at `github.com/elpideus/demido-studio`. Every change is checked on Linux, Windows
+  and macOS; a version tag builds six archives (DECISIONS, section R).
 
 Run it: `pnpm core:serve`, then `cargo run --manifest-path core/Cargo.toml -- open`.
 

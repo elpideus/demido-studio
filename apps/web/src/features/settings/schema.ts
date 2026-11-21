@@ -13,6 +13,8 @@ interface Base {
   details?: string
   /** True when the control is shown but nothing behind it works yet. */
   notBuilt?: boolean
+  /** True for a row that holds a button and no value ("Start over", "This version"). It is not a setting. */
+  action?: boolean
 }
 export type SettingDef =
   | (Base & { type: 'switch'; default: boolean })

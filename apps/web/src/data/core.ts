@@ -17,19 +17,74 @@ export interface CoreSystem {
   runtime: { runtime: string; source: string; recommended: CoreBuild; others: CoreBuild[] }
 }
 
+/** How a setting is drawn and what it takes. The core declares it (core/crates/demido-core/src/settings.rs). */
+export type CoreKind =
+  | { type: 'switch' }
+  | { type: 'select'; options: { value: string; label: string }[] }
+  | { type: 'slider'; min: number; max: number; step: number; unit: string }
+  | { type: 'text'; secret: boolean; code: boolean }
+  | { type: 'colour' }
+export interface CoreSettingDef { id: string; section: string; label: string; desc: string; details: string | null; kind: CoreKind; default: unknown; built: boolean }
+export interface CoreSetting { def: CoreSettingDef; value: unknown; changed: boolean }
+export interface CoreSection { id: string; title: string; lead: string | null }
+export interface CoreSettings { sections: CoreSection[]; settings: CoreSetting[] }
+/** One line of the core's log of what happened. `seq` is its number; `subject` is what it is about. */
+export interface CoreEvent { seq: number; id: string; at: number; kind: string; subject: string | null; data: Record<string, unknown> }
+
+async function ask<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/v1${path}`, {
+    method,
+    headers: body === undefined ? { accept: 'application/json' } : { accept: 'application/json', 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const answer = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(answer?.error?.message ?? `The core answered ${res.status}.`)
+  return answer as T
+}
+
 /** Asks the core. Throws with the core's own words when it refuses. */
-export async function coreGet<T>(path: string): Promise<T> {
-  const res = await fetch(`/api/v1${path}`, { headers: { accept: 'application/json' } })
-  const body = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(body?.error?.message ?? `The core answered ${res.status}.`)
-  return body as T
+export function coreGet<T>(path: string): Promise<T> {
+  return ask<T>('GET', path)
+}
+
+/** Tells the core to change something. Throws with the core's own words when it refuses. */
+export function coreSend<T>(method: 'PUT' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  return ask<T>(method, path, body)
+}
+
+/* The core's log, live. One connection for the whole page, opened when the first listener arrives. The browser
+   reconnects by itself and tells the core the last number it saw, so nothing is missed in between. */
+let stream: EventSource | null = null
+const heard = new Map<string, Set<(e: CoreEvent) => void>>()
+
+/** Calls `listener` for every event of this kind, for example "setting.changed". Returns how to stop. */
+export function onCoreEvent(kind: string, listener: (e: CoreEvent) => void): () => void {
+  stream ??= new EventSource('/api/v1/events/stream')
+  let listeners = heard.get(kind)
+  if (!listeners) {
+    listeners = new Set()
+    heard.set(kind, listeners)
+    const all = listeners
+    stream.addEventListener(kind, (message) => {
+      let event: CoreEvent
+      try {
+        event = JSON.parse((message as MessageEvent<string>).data)
+      } catch {
+        return
+      }
+      all.forEach((l) => l(event))
+    })
+  }
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
 }
 
 /** `none`: these pages are not served by a core (the preview). `locked`: a core is here but this browser is not signed in. */
 export type CoreState = { state: 'looking' | 'none' } | { state: 'locked' | 'ready'; version: string }
 
 let found: Promise<CoreState> | null = null
-function look(): Promise<CoreState> {
+/** Looks for a core behind these pages. Asked once per visit; later calls get the same answer. */
+export function look(): Promise<CoreState> {
   found ??= (async (): Promise<CoreState> => {
     try {
       const health = await fetch('/api/v1/health', { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(1500) })

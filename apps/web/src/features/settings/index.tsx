@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ComponentType } from 'react'
 import { Search, Settings as SettingsIcon } from 'lucide-react'
 import { allFeatures, type Feature } from '@/app/registry'
-import { setSetting, toast, useSetting, useStore } from '@/data/store'
+import type { CoreSetting } from '@/data/core'
+import { setSetting, useSetting, useStore } from '@/data/store'
 import { Button, Icon, NotBuilt, Page, Segmented, Select, SettingRow, Slider, Switch } from '@/ui'
 import type { SettingDef, SettingsSection } from './schema'
 
@@ -96,7 +97,7 @@ export const CORE_SECTIONS: SettingsSection[] = [
   // "Updates" is contributed by the updates feature (features/updates).
   {
     id: 'preview', title: 'This preview', lead: 'Everything here is scripted. Nothing leaves your browser.', order: 10,
-    settings: [{ id: 'preview.reset', type: 'custom', label: 'Start over', desc: 'Clears your preview settings and reloads the fake data.', default: null, Control: ResetPreview }],
+    settings: [{ id: 'preview.reset', type: 'custom', label: 'Start over', desc: 'Clears your preview settings and reloads the fake data.', default: null, Control: ResetPreview, action: true }],
   },
 ]
 
@@ -118,24 +119,94 @@ function Control({ def }: { def: SettingDef }) {
   }
 }
 
-function Row({ def }: { def: SettingDef }) {
+/** `preview` is true when a core is behind these pages and this setting is not one of the core's: nothing real reads it yet. */
+function Row({ def, preview }: { def: SettingDef; preview: boolean }) {
   const all = useStore((s) => s.settings)
   const changed = def.type !== 'custom' ? all[def.id] !== undefined && all[def.id] !== def.default : def.id === 'appearance.accent' && all[def.id] !== undefined && all[def.id] !== 'auto'
   return (
-    <SettingRow label={def.label} desc={<>{def.desc} {def.notBuilt && <NotBuilt />}</>} details={def.details} changed={changed} onReset={() => setSetting(def.id, undefined)} wide={def.type === 'slider'}>
+    <SettingRow label={def.label} desc={<>{def.desc} {(def.notBuilt || (preview && !def.action)) && <NotBuilt />}</>} details={def.details} changed={changed} onReset={() => setSetting(def.id, undefined)} wide={def.type === 'slider'}>
       <Control def={def} />
     </SettingRow>
   )
 }
 
+// ───────────── settings the core declares: drawn from the core's own description ─────────────
+/** Controls with a shape of their own, by setting id. Everything else is drawn from the setting's kind. */
+const OWN_CONTROL: Record<string, ComponentType> = { 'appearance.accent': AccentControl }
+/** Settings that are shown inside another setting's control, so they get no row of their own. */
+const INSIDE_ANOTHER = new Set(['appearance.accentCustom'])
+/** A choice between a few short words reads faster side by side than in a list. */
+const fitsSideBySide = (options: { label: string }[]) => options.length <= 4 && options.reduce((n, o) => n + o.label.length, 0) <= 32
+
+function CoreControl({ entry }: { entry: CoreSetting }) {
+  const { def, value } = entry
+  const Own = OWN_CONTROL[def.id]
+  if (Own) return <Own />
+  const kind = def.kind
+  switch (kind.type) {
+    case 'switch':
+      return <Switch label={def.label} checked={Boolean(value)} onChange={(v) => setSetting(def.id, v)} />
+    case 'select':
+      return fitsSideBySide(kind.options)
+        ? <Segmented label={def.label} small value={String(value)} onChange={(v) => setSetting(def.id, v)} options={kind.options} />
+        : <Select label={def.label} value={String(value)} onChange={(v) => setSetting(def.id, v)} options={kind.options} />
+    case 'slider':
+      return <Slider label={def.label} value={Number(value)} onChange={(v) => setSetting(def.id, v)} min={kind.min} max={kind.max} step={kind.step} format={(v) => (kind.unit === '%' ? `${v}%` : `${v} ${kind.unit}`)} mark={Number(def.default)} />
+    case 'text':
+      return <input className={`d-input${kind.code ? ' d-input--mono' : ''}`} style={{ width: '14rem' }} aria-label={def.label} type={kind.secret ? 'password' : 'text'} value={String(value)} onChange={(e) => setSetting(def.id, e.target.value)} />
+    case 'colour':
+      return <input className="d-colorwell" type="color" aria-label={def.label} value={String(value)} onChange={(e) => setSetting(def.id, e.target.value)} />
+  }
+}
+
+function CoreRow({ entry }: { entry: CoreSetting }) {
+  const { def } = entry
+  return (
+    <SettingRow label={def.label} desc={<>{def.desc} {!def.built && <NotBuilt />}</>} details={def.details ?? undefined} changed={entry.changed} onReset={() => setSetting(def.id, undefined)} wide={def.kind.type === 'slider'}>
+      <CoreControl entry={entry} />
+    </SettingRow>
+  )
+}
+
+interface Shown { key: string; words: string; core?: CoreSetting; def?: SettingDef }
+interface ShownSection { id: string; title: string; lead?: string; order: number; rows: Shown[] }
+
 function SettingsPage() {
   const [q, setQ] = useState('')
-  const sections = useMemo(() => [...CORE_SECTIONS, ...allFeatures().flatMap((f: Feature) => f.settings ?? [])].sort((a, b) => a.order - b.order), [])
+  const core = useStore((s) => s.core)
+  const coreSections = useStore((s) => s.coreSections)
+  const live = Object.keys(core).length > 0
+  /* One list from two sources. A setting the core declares is drawn from the core's description, in the place
+     this screen already had for it; the preview's own copy of it is dropped. What the core declares and this
+     screen never had is added under its section. */
+  const sections = useMemo<ShownSection[]>(() => {
+    const placed = new Set<string>()
+    const row = (title: string, core?: CoreSetting, def?: SettingDef): Shown => {
+      const d = core?.def ?? def!
+      return { key: d.id, words: `${d.label} ${d.desc} ${d.details ?? ''} ${title}`.toLowerCase(), core, def }
+    }
+    const out: ShownSection[] = [...CORE_SECTIONS, ...allFeatures().flatMap((f: Feature) => f.settings ?? [])].map((s) => ({
+      id: s.id, title: s.title, lead: s.lead, order: s.order,
+      rows: s.settings.filter((d) => !INSIDE_ANOTHER.has(d.id) || !core[d.id]).map((d) => {
+        if (core[d.id]) placed.add(d.id)
+        return core[d.id] ? row(s.title, core[d.id]) : row(s.title, undefined, d)
+      }),
+    }))
+    for (const entry of Object.values(core)) {
+      if (placed.has(entry.def.id) || INSIDE_ANOTHER.has(entry.def.id)) continue
+      let section = out.find((s) => s.id === entry.def.section)
+      if (!section) {
+        const known = coreSections.find((s) => s.id === entry.def.section)
+        section = { id: entry.def.section, title: known?.title ?? entry.def.section, lead: known?.lead ?? undefined, order: 9, rows: [] }
+        out.push(section)
+      }
+      section.rows.push(row(section.title, entry))
+    }
+    return out.sort((a, b) => a.order - b.order)
+  }, [core, coreSections])
   const needle = q.trim().toLowerCase()
-  const shown = sections
-    .map((s) => ({ ...s, settings: s.settings.filter((d) => !needle || `${d.label} ${d.desc} ${d.details ?? ''} ${s.title}`.toLowerCase().includes(needle)) }))
-    .filter((s) => s.settings.length)
-  const total = sections.reduce((n, s) => n + s.settings.length, 0)
+  const shown = sections.map((s) => ({ ...s, rows: s.rows.filter((r) => !needle || r.words.includes(needle)) })).filter((s) => s.rows.length)
+  const total = sections.reduce((n, s) => n + s.rows.length, 0)
   return (
     <div className="app-split">
       <aside className="app-side" aria-label="Settings sections">
@@ -150,19 +221,22 @@ function SettingsPage() {
               <li key={s.id}>
                 <a className="d-row d-row--compact" href={`#/settings`} onClick={(e) => { e.preventDefault(); document.getElementById(`set-${s.id}`)?.scrollIntoView({ block: 'start' }) }}>
                   <span className="d-row__text"><span className="d-row__title">{s.title}</span></span>
-                  <span className="d-row__meta">{s.settings.length}</span>
+                  <span className="d-row__meta">{s.rows.length}</span>
                 </a>
               </li>
             ))}
           </ul>
         </div>
-        <p className="app-side__foot">Every setting is here. Nothing is hidden behind an advanced mode: detail is one step away, under Details.</p>
+        <p className="app-side__foot">
+          Every setting is here. Nothing is hidden behind an advanced mode: detail is one step away, under Details.
+          {live && ' Settings the core keeps are saved on this computer and are the same in every window. The others are marked Not built yet: they still belong to the scripted preview and stay in this browser.'}
+        </p>
       </aside>
       <Page narrow title="Settings" lead="Each row says what it does. Details gives the default, the range and the trade-off. A changed value is marked, and resets with one press.">
         {shown.map((s) => (
           <section key={s.id} id={`set-${s.id}`} className="d-settings" style={{ scrollMarginTop: 'var(--d-space-16)' }}>
             <h2 className="d-settings__title">{s.title}{s.lead && <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 'var(--d-font-weight-small)' }}> · {s.lead}</span>}</h2>
-            {s.settings.map((d) => <Row key={d.id} def={d} />)}
+            {s.rows.map((r) => (r.core ? <CoreRow key={r.key} entry={r.core} /> : <Row key={r.key} def={r.def!} preview={live} />))}
           </section>
         ))}
         {!shown.length && <p className="app-empty">No setting matches “{q}”.</p>}

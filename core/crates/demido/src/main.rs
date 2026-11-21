@@ -182,7 +182,7 @@ fn settings(paths: &Paths, command: SettingsCommand) -> Result<()> {
                     section = e.def.section.clone();
                     println!("\n{section}");
                 }
-                println!("  {:<22} {:<18} {}{}{}", e.def.id, show(&e.value), e.def.label, if e.changed { "  (changed)" } else { "" }, if e.def.built { "" } else { "  [not built yet]" });
+                println!("  {:<26} {:<18} {}{}{}", e.def.id, show(&e.value), e.def.label, if e.changed { "  (changed)" } else { "" }, if e.def.built { "" } else { "  [not built yet]" });
             }
             println!("\nChange one with: demido settings set <id> <value>");
         }
@@ -231,6 +231,7 @@ fn typed(kind: &Kind, text: &str) -> Value {
         },
         Kind::Slider { .. } => text.parse::<i64>().map(|n| json!(n)).or_else(|_| text.parse::<f64>().map(|n| json!(n))).unwrap_or_else(|_| json!(text)),
         Kind::Select { .. } | Kind::Text { .. } => json!(text),
+        Kind::Colour => json!(text.to_ascii_lowercase()),
     }
 }
 
@@ -249,7 +250,8 @@ fn entry_from(v: &Value) -> Entry {
         "select" => Kind::Select {
             options: d["kind"]["options"].as_array().map(|o| o.iter().map(|c| demido_core::settings::Choice { value: text(&c["value"]), label: text(&c["label"]) }).collect()).unwrap_or_default(),
         },
-        _ => Kind::Text { secret: d["kind"]["secret"].as_bool().unwrap_or(false) },
+        "colour" => Kind::Colour,
+        _ => Kind::Text { secret: d["kind"]["secret"].as_bool().unwrap_or(false), code: d["kind"]["code"].as_bool().unwrap_or(false) },
     };
     Entry {
         def: demido_core::settings::Def {
@@ -287,6 +289,7 @@ fn print_setting(e: &Entry) {
         Kind::Select { options } => options.iter().map(|o| format!("{} ({})", o.value, o.label)).collect::<Vec<_>>().join(", "),
         Kind::Slider { min, max, unit, .. } => format!("{min} to {max} {unit}"),
         Kind::Text { .. } => "text".to_string(),
+        Kind::Colour => "a colour written like #68efaf".to_string(),
     };
     println!("  Value    {}{}", show(&e.value), if e.changed { "  (changed)" } else { "" });
     println!("  Default  {}", show(&e.def.default));

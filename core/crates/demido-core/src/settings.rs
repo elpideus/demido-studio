@@ -24,9 +24,22 @@ use crate::{Error, Result, now_ms};
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Kind {
     Switch,
-    Select { options: Vec<Choice> },
-    Slider { min: f64, max: f64, step: f64, unit: String },
-    Text { secret: bool },
+    Select {
+        options: Vec<Choice>,
+    },
+    Slider {
+        min: f64,
+        max: f64,
+        step: f64,
+        unit: String,
+    },
+    /// `secret`: shown as dots. `code`: an address, a path or a key, shown in the fixed-width typeface.
+    Text {
+        secret: bool,
+        code: bool,
+    },
+    /// A colour written as `#rrggbb`.
+    Colour,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -90,22 +103,34 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
         section("updates", "Updates", None),
     ];
     let defs = vec![
-        def("appearance.theme", "Theme", "Light, dark, or whatever your system uses.", None, choices(&[("system", "Follow the system"), ("light", "Light"), ("dark", "Dark")]), json!("system"), false),
+        def("appearance.theme", "Theme", "Dark, light, or whatever your system is set to.", None, choices(&[("system", "System"), ("dark", "Dark"), ("light", "Light")]), json!("system"), true),
         def(
             "appearance.accent",
             "Accent colour",
             "Uses your system's accent colour when it has one. Otherwise Demido green.",
-            None,
+            Some(
+                "Default Automatic. Automatic follows the system accent whenever the system reports one. Whichever colour comes in, Demido keeps its hue and strength and holds its lightness where it reads on the current theme. Success stays Demido green whatever you pick.",
+            ),
             choices(&[("auto", "Automatic"), ("green", "Demido green"), ("custom", "Custom")]),
             json!("auto"),
-            false,
+            true,
+        ),
+        def("appearance.accentCustom", "Custom accent colour", "The colour used when Accent colour is set to Custom.", None, Kind::Colour, json!("#68efaf"), true),
+        def(
+            "appearance.textSize",
+            "Text size",
+            "Scales the whole interface, not only the text.",
+            Some("Default 100% · Range 85 to 130%. Every size in Demido is relative to this, so spacing and controls grow with the text."),
+            Kind::Slider { min: 85.0, max: 130.0, step: 5.0, unit: "%".into() },
+            json!(100),
+            true,
         ),
         def(
             "server.address",
             "Listen on",
             "The address and port the server answers on.",
             Some("Default 127.0.0.1:7341: only this computer can reach it. Takes effect the next time the server starts. `demido serve --listen` overrides it for one run."),
-            Kind::Text { secret: false },
+            Kind::Text { secret: false, code: true },
             json!("127.0.0.1:7341"),
             true,
         ),
@@ -132,7 +157,12 @@ fn accepts(def: &Def) -> String {
         Kind::Select { options } => format!("one of: {}", options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join(", ")),
         Kind::Slider { min, max, unit, .. } => format!("a number from {min} to {max} ({unit})"),
         Kind::Text { .. } => "text".into(),
+        Kind::Colour => "a colour written like #68efaf".into(),
     }
+}
+
+fn is_colour(text: &str) -> bool {
+    text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn valid(def: &Def, v: &Value) -> bool {
@@ -141,6 +171,7 @@ fn valid(def: &Def, v: &Value) -> bool {
         Kind::Select { options } => v.as_str().is_some_and(|s| options.iter().any(|o| o.value == s)),
         Kind::Slider { min, max, .. } => v.as_f64().is_some_and(|n| n >= *min && n <= *max),
         Kind::Text { .. } => v.is_string(),
+        Kind::Colour => v.as_str().is_some_and(is_colour),
     }
 }
 
@@ -205,6 +236,7 @@ impl Settings {
                 text.parse::<f64>().ok().and_then(|n| if n.fract() == 0.0 { Some(json!(n as i64)) } else { serde_json::Number::from_f64(n).map(Value::Number) }).unwrap_or(Value::Null)
             }
             Kind::Select { .. } | Kind::Text { .. } => json!(text),
+            Kind::Colour => json!(text.to_ascii_lowercase()),
         };
         if valid(def, &v) { Ok(v) } else { Err(Error::Invalid(format!("\"{}\" takes {}. \"{text}\" is not that.", def.id, accepts(def)))) }
     }
@@ -297,5 +329,17 @@ mod tests {
         assert_eq!(s.parse("updates.auto", "on").unwrap(), json!(true));
         assert_eq!(s.parse("events.keepDays", "45").unwrap(), json!(45));
         assert_eq!(s.parse("appearance.theme", "dark").unwrap(), json!("dark"));
+        assert_eq!(s.parse("appearance.accentCustom", "#E6A5D9").unwrap(), json!("#e6a5d9"));
+    }
+
+    #[test]
+    fn a_colour_is_six_hex_digits_after_a_hash() {
+        let (s, _) = fresh();
+        assert!(s.set("appearance.accentCustom", json!("#e6a5d9")).is_ok());
+        for wrong in ["e6a5d9", "#e6a5d", "#e6a5d9ff", "#zzzzzz", "pink", ""] {
+            assert!(s.set("appearance.accentCustom", json!(wrong)).is_err(), "{wrong:?} was accepted");
+        }
+        assert_eq!(s.value::<i64>("appearance.textSize").unwrap(), 100);
+        assert!(s.set("appearance.textSize", json!(140)).is_err());
     }
 }

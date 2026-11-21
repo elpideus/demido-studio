@@ -3,14 +3,21 @@
    will change it through API events. Swapping the mock for the real client means replacing this file's
    functions; the components do not change. */
 import { create } from 'zustand'
+import { coreGet, coreSend, look, onCoreEvent, type CoreSection, type CoreSetting, type CoreSettings } from './core'
 import { AGENTS, ARTIFACTS, CHARACTERS, MODELS, PROVIDERS, SCHEDULES, SESSIONS, SYSTEM, TOOLS } from './fixtures'
 import type { Agent, Artifact, Block, Character, Message, Model, PermissionLevel, Provider, Schedule, Session, Task, Toast, Tool, SessionGroup } from './types'
 
 const SETTINGS_KEY = 'demido-preview-settings'
+/** What the core's settings were on the last visit, so the theme is right before the core has answered. */
+const CORE_SETTINGS_KEY = 'demido-core-settings'
 export const IDLE_UNLOAD_PREVIEW_MS = 45_000
 
 interface State {
+  /** Settings the core does not declare yet. Kept in this browser; part of the scripted preview. */
   settings: Record<string, unknown>
+  /** Settings the core declares, by id, with their values. Empty when no core is behind these pages. */
+  core: Record<string, CoreSetting>
+  coreSections: CoreSection[]
   sessions: Session[]
   groups: SessionGroup[]
   models: Model[]
@@ -29,16 +36,20 @@ interface State {
 /** Which fixture sessions start out in a group, so groups are visible on first look. */
 const FILED: Record<string, string> = { 's-auth': 'g-code', 's-sweater': 'g-home', 's-tax': 'g-home' }
 
-function loadSettings(): Record<string, unknown> {
+function loadStored(key: string): Record<string, unknown> {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    return JSON.parse(localStorage.getItem(key) || '{}')
   } catch {
     return {}
   }
 }
+/** The core's values as last seen. Used only until the core answers. */
+let remembered: Record<string, unknown> = loadStored(CORE_SETTINGS_KEY)
 
 export const useStore = create<State>(() => ({
-  settings: loadSettings(),
+  settings: loadStored(SETTINGS_KEY),
+  core: {},
+  coreSections: [],
   sessions: structuredClone(SESSIONS).map((s) => ({ ...s, groupId: FILED[s.id] })),
   groups: [{ id: 'g-code', name: 'Billing service', open: true }, { id: 'g-home', name: 'Home', open: true }],
   models: structuredClone(MODELS),
@@ -60,14 +71,29 @@ let uid = 0
 const id = (p: string) => `${p}-${Date.now().toString(36)}-${(uid++).toString(36)}`
 
 // ───────────────────────── settings ─────────────────────────
-export function setting<T>(key: string, fallback: T): T {
-  const v = get().settings[key]
+/* Two kinds of setting live side by side while the app moves from the preview to the real thing.
+
+   A setting the core declares is real: the core keeps it, checks it, logs the change and tells every open
+   window. Everything else is still the preview's: kept in this browser, read only by scripted screens.
+   Callers do not choose. `setting`, `useSetting` and `setSetting` look the id up and go to the right place. */
+function pick<T>(state: State, key: string, fallback: T): T {
+  const kept = state.core[key]
+  if (kept) return kept.value as T
+  const v = key in remembered ? remembered[key] : state.settings[key]
   return (v === undefined ? fallback : v) as T
 }
-export function useSetting<T>(key: string, fallback: T): T {
-  return useStore((s) => (s.settings[key] === undefined ? fallback : (s.settings[key] as T)))
+export function setting<T>(key: string, fallback: T): T {
+  return pick(get(), key, fallback)
 }
+export function useSetting<T>(key: string, fallback: T): T {
+  return useStore((s) => pick(s, key, fallback))
+}
+/** Changes a setting. `undefined` puts it back to its default. */
 export function setSetting(key: string, value: unknown) {
+  if (get().core[key]) {
+    changeInCore(key, value)
+    return
+  }
   const settings = { ...get().settings }
   if (value === undefined) delete settings[key]
   else settings[key] = value
@@ -77,6 +103,93 @@ export function setSetting(key: string, value: unknown) {
   } catch {}
   applyAppearance()
 }
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+function keep(entry: CoreSetting) {
+  const core = { ...get().core, [entry.def.id]: entry }
+  set({ core })
+  remembered = Object.fromEntries(Object.values(core).map((e) => [e.def.id, e.value]))
+  try {
+    localStorage.setItem(CORE_SETTINGS_KEY, JSON.stringify(remembered))
+  } catch {}
+  applyAppearance()
+}
+
+/* A slider or a colour well changes many times a second. The screen follows at once; the core is told the
+   last value once the hand rests. While a change is on its way, the core's own news about that setting is
+   not applied: it would be older than what is on screen. */
+const SETTLE_MS = 200
+const writes = new Map<string, { timer: ReturnType<typeof setTimeout> | null; busy: boolean; next: { value: unknown } | null }>()
+
+function changeInCore(key: string, value: unknown) {
+  const now = get().core[key]
+  const shown = value === undefined ? now.def.default : value
+  keep({ def: now.def, value: shown, changed: !same(shown, now.def.default) })
+  const w = writes.get(key) ?? { timer: null, busy: false, next: null }
+  writes.set(key, w)
+  w.next = { value }
+  if (w.busy) return
+  if (w.timer) clearTimeout(w.timer)
+  w.timer = setTimeout(() => void send(key), SETTLE_MS)
+}
+
+async function send(key: string) {
+  const w = writes.get(key)
+  if (!w?.next) return
+  const { value } = w.next
+  w.next = null
+  w.timer = null
+  w.busy = true
+  try {
+    const path = `/settings/${encodeURIComponent(key)}`
+    const kept = value === undefined ? await coreSend<CoreSetting>('DELETE', path) : await coreSend<CoreSetting>('PUT', path, { value })
+    if (!w.next) keep(kept)
+  } catch (e) {
+    // The core refused, in its own words. Show them, and show what the core really holds.
+    w.next = null
+    toast(`Not changed. ${(e as Error).message}`, undefined, 'task-failed')
+    try {
+      keep(await coreGet<CoreSetting>(`/settings/${encodeURIComponent(key)}`))
+    } catch {}
+  }
+  w.busy = false
+  if (w.next) void send(key)
+  else writes.delete(key)
+}
+
+let started: Promise<void> | null = null
+/** Looks for a core once. If one is there, its settings become the real ones and its news is followed. */
+export function startCore(): Promise<void> {
+  started ??= (async () => {
+    const core = await look()
+    if (core.state !== 'ready') {
+      // No core here (the preview), or this browser is not let in: nothing remembered applies.
+      if (Object.keys(remembered).length) {
+        remembered = {}
+        try {
+          localStorage.removeItem(CORE_SETTINGS_KEY)
+        } catch {}
+        applyAppearance()
+      }
+      return
+    }
+    try {
+      const all = await coreGet<CoreSettings>('/settings')
+      set({ coreSections: all.sections })
+      all.settings.forEach(keep)
+      onCoreEvent('setting.changed', (e) => {
+        const now = e.subject ? get().core[e.subject] : undefined
+        if (!now || writes.has(now.def.id)) return
+        keep({ def: now.def, value: e.data.to, changed: !same(e.data.to, now.def.default) })
+      })
+    } catch (e) {
+      toast(`The core did not give its settings. ${(e as Error).message}`, undefined, 'task-failed')
+    }
+  })()
+  return started
+}
+
 /** Theme, text size and accent are applied to <html>, where the brand tokens read them. */
 export function applyAppearance() {
   const el = document.documentElement

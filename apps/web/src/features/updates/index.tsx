@@ -183,7 +183,7 @@ export const feature: Feature = {
         { id: 'updates.check', type: 'switch', label: 'Check for updates', desc: 'Looks for a new version once a day, and when Demido starts.', default: true },
         { id: 'updates.auto', type: 'switch', label: 'Install updates automatically', desc: 'Installs when no session is running.', default: false, details: 'Default off: Demido tells you a version is ready and waits. On: it downloads in the background and installs the next time nothing is running. Either way a running session is never interrupted.' },
         { id: 'updates.channel', type: 'select', label: 'Update channel', desc: 'Which versions you are offered.', default: 'stable', options: [{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }] },
-        { id: 'updates.open', type: 'custom', label: 'This version', desc: `Demido Studio ${VERSION}. Release notes, parts and history are on the Updates screen.`, default: null, Control: OpenUpdates },
+        { id: 'updates.open', type: 'custom', label: 'This version', desc: `Demido Studio ${VERSION}. Release notes, parts and history are on the Updates screen.`, default: null, Control: OpenUpdates, action: true },
       ],
     },
   ],

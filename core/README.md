@@ -59,5 +59,5 @@ cargo test --manifest-path core/Cargo.toml
 
 Downloading and starting the model runtime. Sessions, tools, models, providers. Carrying the web UI inside
 the binary (a release keeps it in a folder named `ui` beside the program, and the program finds it there).
-Use from other devices (encryption, passkeys). Windows compiles when cross-compiled here; its tests, and macOS, run
-only in the checks on GitHub.
+Use from other devices (encryption, passkeys). Windows and macOS are tested by the checks on GitHub, on machines
+without a graphics card; no real Windows or Mac has run it yet.
