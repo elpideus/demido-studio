@@ -125,6 +125,47 @@ tools other people write.
 
 Checkpoints: one report per numbered item, more often where a decision is the owner's.
 
+## Who does what (owner's direction, 2026-11-21)
+
+Two workers from here on: **Fable 5.2 at extra effort** (the session that has done the work so far) and
+**Opus 5.5 at extra effort**, in sessions of its own. The owner's rule: Opus wherever it can do the job very
+well; Fable only for what is risky, hard, or needs great care. How a piece is handed over and how it comes
+back is in DECISIONS, section W.
+
+What makes a piece Fable's: a mistake in it is a security hole, loses someone's data, or costs money; or it
+cannot be tried on this computer; or other pieces are built on its design; or it is a measurement that
+decides a design. Everything else is Opus's, and Fable reads it before it lands.
+
+| # | Remaining work | Who | Why |
+|---|---|---|---|
+| 5 | Tools that reach the network (fetch, search): what may leave the computer, the reader with no tools, text from outside kept apart | **Fable** | The one place where an obedient small model can leak what is private. A mistake is a security hole |
+| 5 | Facts for it: search engines, the named third-party projects, their licences, which repository is the real one | **Opus**, then checked by Fable | Gathering and citing. Fable checks every source it builds on before anything is downloaded |
+| 5 | The sandbox on macOS (Seatbelt) and on Windows; a filter on what a program may ask of the kernel | **Fable** | Security, and it cannot be tried here: only on the checks' machines |
+| 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | **Fable** | A measurement that decides a security design |
+| 5 | The whole of what a program printed, kept and one press away (brief 4.18); showing what a change changed, side by side | **Opus** | Well defined, no new risk, mostly window work |
+| 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | **Fable** | Runs other people's code. Everything later is built on it |
+| 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | **Opus** | Building to a format that is already decided |
+| 6 | Models browser and downloader | **Opus** | A whole feature with a clear edge, and a pattern to follow (the runtime installer) |
+| 6 | Settings for each model: the research, and applying what the makers recommend | **Opus** researches, **Fable** decides | It meets `docs/LATER.md` 1, which is Fable's |
+| 6 | Where keys are kept (the vault) and how a provider is allowed to be used | **Fable** | Secrets and money |
+| 6 | Each provider's own client (Anthropic, Gemini, OpenRouter, Claude Code, OpenCode); usage shown | **Opus** | Documented interfaces, one at a time |
+| 7 | Agents with a model each, lending a loaded model, fitting several into memory | **Fable** | The hardest design left, and the product's main promise |
+| 7 | Schedules and monitors that run with nobody there: what they may do | **Fable** | Nobody is there to say no |
+| 7 | The schedules screen; messages between sessions shown | **Opus** | Window work on a decided design |
+| 8 | Files, the viewer, the editor, artifacts | **Opus** | Window work with a clear edge |
+| 8 | The browser a model drives: what it may see and do | **Fable** | Logged-in pages are the most private thing there is |
+| 9 | Voice: the libraries, the screen | **Opus** | Research and building, little risk |
+| 9 | Email and the messaging platforms: reading and sending in a person's name | **Fable** for what may be read and sent, **Opus** for the screens | Messages from outside are injected text; sending cannot be undone |
+| 9 | Markets: charts, indicators, the Pine editor | **Opus** | Nothing here places an order |
+| 10 | The desktop shell and the installer | **Opus** | Packaging, checked on three systems by the checks |
+| 10 | The updater, signing releases, hardening server mode | **Fable** | A wrong update reaches everyone; an open server is an open computer |
+| – | The system accent on Windows and macOS; the per-model context size | **Opus** | Small and bounded |
+| – | Reading and merging everything Opus builds | **Fable** | Nothing lands unread |
+
+In hand now. Fable: tools that reach the network. Opus, started on 2026-11-21: the models browser and
+downloader; the facts for search and fetch. Next for Opus, when one of those is back: the whole of what a
+program printed, and showing what a change changed.
+
 ## Set aside for later
 
 Plans the owner wants tried further down the road are in `docs/LATER.md`. So far: words chosen for each

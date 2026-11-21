@@ -484,3 +484,9 @@ So that example is no longer part of what is asked. Recorded in `docs/DECISIONS.
 when the program is shut in a sandbox and the folder was saved first, as it then did: "Always ask first."
 It settles how section 4.16's "asks only for things that could cause damage" applies to running programs.
 Recorded in `docs/DECISIONS.md` T3.
+
+**2026-11-21, who does the work.** "Assign the remaining work to yourself (Fable 5.2 Extra) and to Opus
+5.5 Extra based on the complexity of the task. If Opus 5.5 Extra can do an amazing job on some things,
+then prefer using it. Fable 5.2 Extra should only be used for risky tasks, hard tasks, tasks that need a
+lot of carefulness, attention to detail, etc."
+How it is applied: `docs/DECISIONS.md`, section W, and the table in `docs/PLAN.md`.
