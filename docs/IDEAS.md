@@ -118,6 +118,8 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 84 | **Send the UI's files compressed.** The script is 800 kB and a quarter of that compressed. On the same computer it makes no difference; from another device it will. Best done once, when the UI is built, not on every request. | Raised |
 | 85 | **Do not leave a runtime behind in the first place.** Today a server that is killed leaves the runtime running, and the next start ends it. On Linux the runtime could be told to end when its parent dies; that needs a little low-level code. Until a server is started again, the memory stays taken. | Raised |
 | 86 | **A models folder of your own choosing.** Models are large; people keep them on another disk, or share them with other programs. Today the folder is fixed inside Demido's data folder. | Raised |
+| 87 | **Speed for free.** How fast a model answers on this computer does not need a benchmark: every real answer comes with its own timing. Demido keeps a running figure per model from real use, and the roster reads it. | Raised; comes with the chat loop |
+| 88 | **A big one that plans, small ones that do.** The clearest win for "a model per agent" is a strong model (a large local one, or a provider's) as the orchestrator with small fast local models as workers. A session could have that as a one-press setup: "plan with X, do with Y". | Raised |
 
 ## Pushback on the brief so far
 
@@ -166,3 +168,13 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 - **The old name may still be watched.** If earlier versions of Demido look at `elpideus/demido-studio` for
   updates, they now look at this project. I cannot check, because I do not read the old code. It matters from
   the first release on, not before.
+- **A model per agent: where I expect it to pay, and where not.** Three honest cautions. First, small models
+  are poor judges of other models; I expect Demido's own rule (mechanical work goes to the fastest model
+  that fits) to do most of the good, and the model's own choosing to add a little on top. That is why the rule
+  comes first and the choosing is measured before it is on by default (DECISIONS O4, O8). Second, "quicker"
+  is only true when the faster model is already loaded or the work is long enough: on your card a small
+  model loads in under a second, a large one from disk takes much longer, and two loaded at once leave
+  less room for the main one. Demido will not swap when the swap costs more than it saves (O5). Third, the
+  moment providers exist, "another available model" can mean one that costs money and sends your work
+  away. I decided that no model may assign such a one unless you allowed it, with a limit (O6). Say so if
+  you want it looser.

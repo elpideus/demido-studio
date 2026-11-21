@@ -19,6 +19,7 @@
 //! loaded model to agents, a model with several files being downloaded by Demido. Only tried on Linux with
 //! an NVIDIA card.
 
+mod known;
 mod router;
 
 use std::collections::HashMap;
@@ -62,6 +63,8 @@ pub struct LocalModel {
     pub idle_for_s: Option<u64>,
     /// Seconds until it is unloaded for being idle. `null` when idle unload is off, or it is not loaded.
     pub unloads_in_s: Option<u64>,
+    /// How long it took to load the last time, in milliseconds. `null` until it has been loaded once.
+    pub loads_in_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -103,6 +106,8 @@ pub struct Engine {
     settings: Arc<Settings>,
     events: Arc<EventLog>,
     launcher: Arc<dyn Launcher>,
+    /// What was learned about each model, kept on disk.
+    known: known::Known,
     live: Mutex<Option<Live>>,
     /// How long a router with nothing loaded is kept. Shortened in tests.
     router_idles_for: Duration,
@@ -114,7 +119,8 @@ impl Engine {
     /// `home` is Demido's data folder.
     pub fn new(home: &Path, runtimes: Arc<Runtimes>, settings: Arc<Settings>, events: Arc<EventLog>, launcher: Arc<dyn Launcher>) -> Self {
         let work = home.join("engine");
-        Self { models_dir: home.join("models"), work, runtimes, settings, events, launcher, live: Mutex::new(None), router_idles_for: ROUTER_IDLES_FOR, idle_for_tests: None }
+        let known = known::Known::open(work.join("known.json"));
+        Self { models_dir: home.join("models"), work, runtimes, settings, events, launcher, known, live: Mutex::new(None), router_idles_for: ROUTER_IDLES_FOR, idle_for_tests: None }
     }
 
     /// Ends a runtime that an earlier Demido left running (it was killed, or crashed): it would hold
@@ -146,6 +152,16 @@ impl Engine {
         self.settings.value::<String>("models.idleUnload").ok().and_then(|v| v.parse::<u64>().ok()).map(|minutes| Duration::from_secs(minutes * 60))
     }
 
+    /// Which file a model's facts are about.
+    fn identity(&self, m: &LocalModel) -> known::Identity {
+        known::Identity::of(&self.models_dir.join(&m.file), m.size)
+    }
+
+    /// The runtime in use, by its id. Empty when none is installed.
+    fn runtime_id(&self) -> String {
+        self.runtimes.installed().into_iter().find(|r| r.version.is_some()).map(|r| r.id).unwrap_or_default()
+    }
+
     fn status_with(&self, running: bool) -> EngineStatus {
         let runtime = self.runtimes.installed().into_iter().find(|r| r.version.is_some()).map(|r| format!("{} ({})", r.name, r.build));
         EngineStatus { running, runtime, context: self.context(), margin_mb: self.margin_mb(), idle_unload_min: self.idle_unload().map(|d| d.as_secs() / 60) }
@@ -172,7 +188,7 @@ impl Engine {
                 } else {
                     return None;
                 };
-                Some(LocalModel { id, file: name, size, state: "unloaded".into(), context_length: None, needs_mb: None, idle_for_s: None, unloads_in_s: None })
+                Some(LocalModel { id, file: name, size, state: "unloaded".into(), context_length: None, needs_mb: None, idle_for_s: None, unloads_in_s: None, loads_in_ms: None })
             })
             .collect();
         found.sort_by_key(|m| m.id.to_lowercase());
@@ -198,6 +214,20 @@ impl Engine {
                     m.idle_for_s = Some(since.as_secs());
                     m.unloads_in_s = idle.map(|limit| limit.saturating_sub(since).as_secs());
                 }
+            }
+        }
+        let (context, runtime) = (self.context(), self.runtime_id());
+        for m in &mut models {
+            let file = self.identity(m);
+            // What the runtime just said is written down.
+            if m.context_length.is_some() || m.needs_mb.is_some() {
+                self.known.learn(&m.id, file, m.context_length, m.needs_mb.map(|needs| (needs, context, runtime.as_str())), None);
+            }
+            // What it did not say, because it is not running or has not measured yet, comes from what was kept.
+            if let Some(facts) = self.known.about(&m.id, file) {
+                m.context_length = m.context_length.or(facts.context_length);
+                m.needs_mb = m.needs_mb.or(facts.needs_mb(context, &runtime));
+                m.loads_in_ms = facts.load_ms;
             }
         }
         Ok(ModelList { folder: self.models_dir.display().to_string(), models, engine: self.status_with(live.is_some()) })
@@ -241,9 +271,9 @@ impl Engine {
 
     /// Loads a model and waits until it is ready. Starts the runtime if needed.
     pub async fn load(&self, id: &str) -> Result<LocalModel> {
-        if !self.on_disk().iter().any(|m| m.id == id) {
+        let Some(on_disk) = self.on_disk().into_iter().find(|m| m.id == id) else {
             return Err(Error::NotFound(format!("There is no model called \"{id}\" in {}. `demido models` lists what is there.", self.models_dir.display())));
-        }
+        };
         let mut live = self.live.lock().await;
         self.ensure(&mut live).await?;
         let seen = live.as_ref().expect("just made sure").router.models(true).await?.into_iter().find(|m| m.id == id);
@@ -283,6 +313,8 @@ impl Engine {
                     _ => {}
                 }
             }
+            // How long it took is worth knowing the next time someone weighs loading it.
+            self.known.learn(id, self.identity(&on_disk), None, None, Some(started.elapsed().as_millis() as u64));
         }
         let l = live.as_mut().expect("still there");
         l.used.insert(id.to_string(), Instant::now());

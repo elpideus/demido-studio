@@ -29,12 +29,27 @@ struct Stand {
     news: tokio::sync::broadcast::Sender<Value>,
     launches: AtomicUsize,
     loads_asked: AtomicUsize,
-    alive: Arc<AtomicBool>,
+    /// The stand-in that is running now. Each start is one of its own, as each real process is.
+    current: StdMutex<Option<Arc<Instance>>>,
     /// What each model "needs" on the card, in MiB. The card has `total_mb`.
     needs_mb: StdMutex<HashMap<String, u64>>,
     total_mb: u64,
     args: StdMutex<Vec<String>>,
+}
+
+/// One start of the stand-in. Stopping an old one must never touch a newer one.
+struct Instance {
+    alive: AtomicBool,
     end: StdMutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+impl Instance {
+    fn die(&self) {
+        self.alive.store(false, Ordering::Relaxed);
+        if let Some(end) = self.end.lock().unwrap().take() {
+            let _ = end.send(());
+        }
+    }
 }
 
 impl Stand {
@@ -45,11 +60,10 @@ impl Stand {
             news: tokio::sync::broadcast::channel(64).0,
             launches: AtomicUsize::new(0),
             loads_asked: AtomicUsize::new(0),
-            alive: Arc::new(AtomicBool::new(false)),
+            current: StdMutex::default(),
             needs_mb: StdMutex::default(),
             total_mb: 12_000,
             args: StdMutex::default(),
-            end: StdMutex::default(),
         })
     }
 
@@ -62,12 +76,15 @@ impl Stand {
         let _ = self.news.send(json!({ "model": id, "event": "status_change", "data": data }));
     }
 
-    /// The router dies, as when its process is killed.
+    /// The router that is running now dies, as when its process is killed.
     fn die(&self) {
-        self.alive.store(false, Ordering::Relaxed);
-        if let Some(end) = self.end.lock().unwrap().take() {
-            let _ = end.send(());
+        if let Some(now) = self.current.lock().unwrap().as_ref() {
+            now.die();
         }
+    }
+
+    fn is_alive(&self) -> bool {
+        self.current.lock().unwrap().as_ref().is_some_and(|now| now.alive.load(Ordering::Relaxed))
     }
 }
 
@@ -117,14 +134,14 @@ async fn sse(State(stand): State<Arc<Stand>>) -> Sse<impl tokio_stream::Stream<I
 }
 
 struct StandRunning {
-    stand: Arc<Stand>,
+    me: Arc<Instance>,
 }
 impl Running for StandRunning {
     fn alive(&mut self) -> bool {
-        self.stand.alive.load(Ordering::Relaxed)
+        self.me.alive.load(Ordering::Relaxed)
     }
     fn stop(&mut self) {
-        self.stand.die();
+        self.me.die();
     }
     fn pid(&self) -> Option<u32> {
         None
@@ -138,11 +155,11 @@ impl Launcher for StandLauncher {
         stand.launches.fetch_add(1, Ordering::Relaxed);
         *stand.args.lock().unwrap() = plan.args.clone();
         stand.states.lock().unwrap().clear();
-        stand.alive.store(true, Ordering::Relaxed);
         let listener = std::net::TcpListener::bind(("127.0.0.1", plan.port))?;
         listener.set_nonblocking(true)?;
         let (end, ended) = tokio::sync::oneshot::channel::<()>();
-        *stand.end.lock().unwrap() = Some(end);
+        let me = Arc::new(Instance { alive: AtomicBool::new(true), end: StdMutex::new(Some(end)) });
+        *stand.current.lock().unwrap() = Some(me.clone());
         let routes = Routes::new()
             .route("/health", get(|| async { Json(json!({ "status": "ok" })) }))
             .route("/models", get(models))
@@ -155,7 +172,7 @@ impl Launcher for StandLauncher {
             // Ending drops every connection at once, as a killed process does.
             tokio::select! { _ = axum::serve(listener, routes) => {}, _ = ended => {} }
         });
-        Ok(Box::new(StandRunning { stand }))
+        Ok(Box::new(StandRunning { me }))
     }
 }
 
@@ -165,6 +182,17 @@ struct World {
     events: Arc<EventLog>,
     settings: Arc<Settings>,
     home: PathBuf,
+}
+
+/// The same data folder, opened as a Demido that was started again would open it.
+fn world_at(home: &Path) -> World {
+    let db = Arc::new(Db::memory().unwrap());
+    let events = Arc::new(EventLog::new(db.clone()));
+    let settings = Arc::new(Settings::load(db, events.clone()).unwrap());
+    let runtimes = Arc::new(Runtimes::new(home, events.clone(), Source::default()).unwrap());
+    let stand = Stand::new(home.join("models"));
+    let engine = Engine::new(home, runtimes, settings.clone(), events.clone(), Arc::new(StandLauncher(stand.clone()))).stop_empty_router_after(Duration::from_millis(40));
+    World { engine, stand, events, settings, home: home.to_path_buf() }
 }
 
 /// A data folder with three models (one of them a folder of two files) and, unless `bare`, an installed runtime.
@@ -249,8 +277,12 @@ async fn a_model_is_loaded_and_unloaded_and_the_runtime_is_started_once() {
     assert!(kinds(&w.events).starts_with(&["engine.started".to_string()]));
 
     w.engine.shutdown().await;
-    assert!(!w.stand.alive.load(Ordering::Relaxed), "stopping the server stops the runtime");
-    assert!(!w.engine.list().await.unwrap().engine.running);
+    assert!(!w.stand.is_alive(), "stopping the server stops the runtime");
+    let after = w.engine.list().await.unwrap();
+    assert!(!after.engine.running);
+    // What was learned while it ran is still shown, though nothing is running to ask.
+    assert_eq!(after.models[1].context_length, Some(40960));
+    assert!(after.models[1].loads_in_ms.is_some(), "how long the last load took is kept");
     std::fs::remove_dir_all(&w.home).ok();
 }
 
@@ -324,6 +356,21 @@ async fn a_model_that_cannot_fit_is_refused_before_the_runtime_is_asked() {
     // One that fits is loaded, and says what it needs.
     assert_eq!(w.engine.load("small").await.unwrap().needs_mb, Some(1_400));
     w.engine.shutdown().await;
+
+    // What each model needs was written down: it is known without the runtime, and after a restart of Demido.
+    let needs = |list: ModelList| list.models.iter().map(|m| (m.id.clone(), m.needs_mb)).collect::<Vec<_>>();
+    assert_eq!(needs(w.engine.list().await.unwrap()), [("Big".to_string(), Some(11_500)), ("small".to_string(), Some(1_400)), ("vision".to_string(), None)]);
+    let again = world_at(&w.home);
+    assert_eq!(needs(again.engine.list().await.unwrap())[1], ("small".to_string(), Some(1_400)));
+    assert_eq!(again.stand.launches.load(Ordering::Relaxed), 0, "nothing was started to know it");
+    // It was measured at a context of 8192. At another context it is not known.
+    again.settings.set("models.context", json!("4096")).unwrap();
+    assert_eq!(needs(again.engine.list().await.unwrap())[1].1, None);
+    again.settings.reset("models.context").unwrap();
+    // Another file under the same name: what was known was about the old one.
+    std::fs::write(w.home.join("models/small.gguf"), vec![0u8; 777]).unwrap();
+    let replaced = again.engine.list().await.unwrap();
+    assert_eq!((replaced.models[1].needs_mb, replaced.models[1].loads_in_ms, replaced.models[1].size), (None, None, 777));
     std::fs::remove_dir_all(&w.home).ok();
 }
 

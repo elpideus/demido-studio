@@ -68,6 +68,8 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 1. Model loading and tuning, and the small-model techniques: before the chat loop.
 2. Search engines and the named third-party projects (licences, look-alike repos): before search and fetch.
 3. Voice, email and messaging libraries; a local Pine Script engine; price feeds: before each of those.
+4. How well small models choose among models, and in what words to tell them about the others (DECISIONS
+   O2, O8): before agents get to pick their own model.
 
 ### Step 3. Real feature work
 
@@ -89,7 +91,8 @@ research on small-model techniques first.
 4. Chat loop with the small-model techniques: constrained tool calls, repair, task list, compaction.
 5. Tools system, permission levels, sandbox, injection defence.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
-7. Agents, lending, schedules, session messaging.
+7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),
+   lending, schedules, session messaging.
 8. Files, artifacts, editor. Browser, search, fetch.
 9. Voice. Email. Messaging. Markets.
 10. Desktop shell, installer, updater, server mode hardening.

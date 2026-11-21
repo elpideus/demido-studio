@@ -41,7 +41,7 @@ export function LocalList({ open, onOpen }: { open: string | null; onOpen: (id: 
           <li key={m.id}>
             <button type="button" className="d-row" aria-current={m.id === open ? 'true' : undefined} onClick={() => onOpen(m.id)}>
               <span className="d-row__lead"><Glyph name={s.glyph} tone={s.live ? 'live' : undefined} busy={s.glyph === 'model-loading'} label={s.words} /></span>
-              <span className="d-row__text"><span className="d-row__title">{m.id}</span><span className="d-row__sub">{size(m.size)} · {s.words.toLowerCase()}</span></span>
+              <span className="d-row__text"><span className="d-row__title">{m.id}</span><span className="d-row__sub">{size(m.size)} · {s.words.toLowerCase()}{m.needs_mb !== null ? ` · needs ${gb(m.needs_mb)}` : ''}</span></span>
             </button>
           </li>
         )
@@ -85,6 +85,7 @@ export function LocalDetail({ id }: { id: string | null }) {
               ['File', m.file],
               ['On disk', size(m.size)],
               ['On the graphics card', m.needs_mb !== null ? `${gb(m.needs_mb)} at a context of ${e.context.toLocaleString()} tokens, as the runtime measured it` : 'Measured the first time the runtime looks at it'],
+              ['Loads in', m.loads_in_ms !== null ? `${(m.loads_in_ms / 1000).toFixed(1)} s, the last time` : 'Known once it has been loaded'],
               ['Can hold in mind', m.context_length !== null ? `up to ${m.context_length.toLocaleString()} tokens; Demido loads it with ${e.context.toLocaleString()}` : 'Known once the runtime has looked at it'],
             ]} />
           </div></div>

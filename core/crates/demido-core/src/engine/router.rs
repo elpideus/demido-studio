@@ -266,8 +266,13 @@ impl Router {
 
     /// Ends it. May take a second or two.
     pub fn stop(mut self) {
+        let mine = self.running.pid();
         self.running.stop();
-        std::fs::remove_file(&self.note).ok();
+        // A new router may have been started while this one was ending, and the note is then about that one.
+        let noted = std::fs::read(&self.note).ok().and_then(|text| serde_json::from_slice::<Value>(&text).ok()).and_then(|v| v["pid"].as_u64());
+        if mine.is_some() && noted == mine.map(u64::from) {
+            std::fs::remove_file(&self.note).ok();
+        }
     }
 }
 

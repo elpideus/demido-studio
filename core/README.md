@@ -45,7 +45,7 @@ With a server running, the command line asks the server. Without one, it works o
 | `…/settings.rs` | The registry of every setting, and their values. Add a setting here and it appears everywhere. |
 | `…/system.rs` | Reading the hardware, and the advice on which runtime build to download. |
 | `…/desktop.rs` | What the desktop looks like: its accent colour (Linux, through the desktop's portal). |
-| `…/engine/` | Running models: starting the runtime as a router (`router.rs`), loading and unloading, unloading what is idle, ending a runtime that was left behind (`mod.rs`). |
+| `…/engine/` | Running models: starting the runtime as a router (`router.rs`), loading and unloading, unloading what is idle, ending a runtime that was left behind (`mod.rs`), and keeping what is learned about each model (`known.rs`). |
 | `…/runtime/` | The model runtime: what its publisher offers (`catalog.rs`), downloading with a check (`fetch.rs`), unpacking without trust (`unpack.rs`), and installing, listing and removing (`mod.rs`). |
 | `…/auth.rs` | The key every request needs, and the one-use link that lets a browser in. |
 | `…/api.rs` | The API, its guard, its own description, and the server. |

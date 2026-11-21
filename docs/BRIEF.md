@@ -467,3 +467,9 @@ Said in conversation, kept here in the owner's words so that the brief stays the
 **2026-11-21, caching.** "Also a thing I forgot to tell you in the brief is to use caching whenever possible
 in order to do as few requests as possible and to make Demido Studio faster."
 How it is applied: `docs/DECISIONS.md`, section P.
+
+**2026-11-21, a model for each agent.** "Another thing I forgot to mention is that I want models to know
+about the other available models on the system and be able to assign a model per agent, for orchestration
+and doing better work, and quicker where less good models are ok or work is mechanical"
+It extends section 4.17 (agents and resource-aware model juggling). How it is to be built:
+`docs/DECISIONS.md`, section O.

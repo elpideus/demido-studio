@@ -435,6 +435,9 @@ fn print_models(list: &Value) {
         if let Some(needs) = m["needs_mb"].as_u64() {
             says.push(format!("needs {needs} MiB on the graphics card"));
         }
+        if let Some(ms) = m["loads_in_ms"].as_u64().filter(|_| m["state"] == "unloaded") {
+            says.push(format!("loaded in {:.1} s last time", ms as f64 / 1000.0));
+        }
         if let Some(idle) = m["idle_for_s"].as_u64() {
             says.push(format!("idle for {}", ago(idle)));
         }
