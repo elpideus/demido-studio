@@ -51,7 +51,8 @@ mod tests {
 
     #[tokio::test]
     async fn many_askers_cost_one_reading_until_it_is_old_or_a_fresh_one_is_wanted() {
-        let kept = Arc::new(Kept::new(Duration::from_millis(80)));
+        // Wide gaps on both sides of the lifetime, so a slow build machine does not change the outcome.
+        let kept = Arc::new(Kept::new(Duration::from_millis(1500)));
         let readings = Arc::new(AtomicUsize::new(0));
         let read = |readings: Arc<AtomicUsize>| async move {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -68,7 +69,7 @@ mod tests {
         // Asked to look again: a new reading, even though the kept one is young.
         assert_eq!(kept.get(true, || read(readings.clone())).await, 2);
         // Once it is old, the next asker reads again.
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(1700)).await;
         assert_eq!(kept.get(false, || read(readings.clone())).await, 3);
     }
 

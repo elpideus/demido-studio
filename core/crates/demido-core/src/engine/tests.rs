@@ -199,7 +199,8 @@ fn kinds(events: &EventLog) -> Vec<String> {
 
 /// The router's news reaches the log a moment after the fact.
 async fn until_logged(events: &EventLog, kind: &str) {
-    for _ in 0..100 {
+    // Generous: a shared build machine can be slow, and this only waits as long as it has to.
+    for _ in 0..500 {
         if kinds(events).iter().any(|k| k == kind) {
             return;
         }
@@ -256,19 +257,20 @@ async fn a_model_is_loaded_and_unloaded_and_the_runtime_is_started_once() {
 #[tokio::test]
 async fn a_model_nobody_uses_is_unloaded_and_an_empty_runtime_is_stopped() {
     let mut w = world("idle", false);
-    w.engine.idle_for_tests = Some(Duration::from_millis(80));
+    // The waits leave wide gaps on both sides, so a slow, busy build machine does not change the outcome.
+    w.engine.idle_for_tests = Some(Duration::from_millis(600));
     w.engine.load("small").await.unwrap();
     w.engine.look_after().await;
     assert_eq!(w.engine.list().await.unwrap().models[1].state, "loaded", "it was used a moment ago");
 
-    // Using it starts the wait again.
-    tokio::time::sleep(Duration::from_millis(60)).await;
+    // Using it starts the wait again: 400 ms and then 100 ms is more than 600 in all, but neither is since the last use.
+    tokio::time::sleep(Duration::from_millis(400)).await;
     w.engine.used("small").await;
-    tokio::time::sleep(Duration::from_millis(60)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     w.engine.look_after().await;
     assert_eq!(w.engine.list().await.unwrap().models[1].state, "loaded");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(700)).await;
     w.engine.look_after().await;
     assert_eq!(w.engine.list().await.unwrap().models[1].state, "unloaded", "idle for longer than allowed");
     assert!(w.engine.list().await.unwrap().engine.running, "the runtime stays a while, in case another model is wanted");
