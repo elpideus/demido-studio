@@ -24,6 +24,15 @@ use crate::{Result, now_ms};
 /// How long a one-use link stays good.
 pub const LINK_LIFETIME: Duration = Duration::from_secs(60);
 pub const COOKIE: &str = "demido_session";
+
+/// The name of the session cookie for the address a browser used: `demido_session_7341`. Named after the
+/// port, because a browser keeps one cookie jar for a host whatever the port.
+pub fn cookie_name(host: Option<&str>) -> String {
+    match host.and_then(|h| h.rsplit_once(':')).map(|(_, port)| port).filter(|port| !port.is_empty() && port.chars().all(|c| c.is_ascii_digit())) {
+        Some(port) => format!("{COOKIE}_{port}"),
+        None => COOKIE.to_string(),
+    }
+}
 /// How long a browser stays signed in.
 const SESSION_LIFETIME_MS: i64 = 30 * 86_400_000;
 /// More browsers than this are not remembered; the oldest are forgotten first.
@@ -124,7 +133,15 @@ impl Auth {
     pub fn cookie_ok(&self, header: Option<&str>) -> bool {
         let Some(header) = header else { return false };
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        header.split(';').filter_map(|p| p.trim().strip_prefix(COOKIE)?.strip_prefix('=')).any(|v| sessions.get(&fingerprint(v)).is_some_and(|made| now_ms() - *made < SESSION_LIFETIME_MS))
+        // The cookie is named after the port it was given on (`cookie_name`): a browser keeps one jar for a
+        // host whatever the port, so two servers on one computer would otherwise take each other's place.
+        header
+            .split(';')
+            .filter_map(|p| p.trim().split_once('='))
+            .filter(|(name, _)| {
+                name.strip_prefix(COOKIE).is_some_and(|rest| rest.is_empty() || rest.strip_prefix('_').is_some_and(|port| !port.is_empty() && port.chars().all(|c| c.is_ascii_digit())))
+            })
+            .any(|(_, v)| sessions.get(&fingerprint(v)).is_some_and(|made| now_ms() - *made < SESSION_LIFETIME_MS))
     }
 }
 
@@ -166,6 +183,13 @@ mod tests {
         assert!(a.redeem(&link).is_none(), "a link must not work twice");
         assert!(a.cookie_ok(Some(&format!("other=1; {COOKIE}={session}"))));
         assert!(!a.cookie_ok(Some(&format!("{COOKIE}=made-up"))));
+        // Named after the port it was given on, beside another server's cookie for the same host.
+        assert_eq!(
+            (cookie_name(Some("127.0.0.1:7341")).as_str(), cookie_name(Some("demido.example")).as_str(), cookie_name(None).as_str()),
+            ("demido_session_7341", "demido_session", "demido_session")
+        );
+        assert!(a.cookie_ok(Some(&format!("demido_session_7399=someone-elses; demido_session_7341={session}"))));
+        assert!(!a.cookie_ok(Some(&format!("demido_session_evil={session}"))) && !a.cookie_ok(Some(&format!("demido_sessions={session}"))));
     }
 
     #[test]

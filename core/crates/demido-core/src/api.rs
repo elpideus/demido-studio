@@ -28,7 +28,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 use utoipa::{OpenApi, ToSchema};
 
-use crate::auth::{Auth, COOKIE, LINK_LIFETIME};
+use crate::auth::{Auth, LINK_LIFETIME, cookie_name};
 use crate::chat::{Chat, ContextUse, Turn};
 use crate::db::Db;
 use crate::desktop::Appearance;
@@ -617,9 +617,12 @@ struct EnterQuery {
 }
 
 /// Where a one-use link lands: it is traded for a session cookie, then the UI opens.
-async fn enter(State(app): State<App>, Query(q): Query<EnterQuery>) -> Response {
+async fn enter(State(app): State<App>, headers: HeaderMap, Query(q): Query<EnterQuery>) -> Response {
     match app.auth.redeem(&q.code) {
-        Some(session) => ([(header::SET_COOKIE, format!("{COOKIE}={session}; HttpOnly; SameSite=Strict; Path=/"))], Redirect::to("/")).into_response(),
+        Some(session) => {
+            let name = cookie_name(headers.get(header::HOST).and_then(|h| h.to_str().ok()));
+            ([(header::SET_COOKIE, format!("{name}={session}; HttpOnly; SameSite=Strict; Path=/"))], Redirect::to("/")).into_response()
+        }
         None => (StatusCode::FORBIDDEN, "This link was already used, or is older than a minute. Run `demido open` again.\n").into_response(),
     }
 }
@@ -806,6 +809,7 @@ async fn stop_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::COOKIE;
     use axum::body::Body;
     use tower::ServiceExt;
 
