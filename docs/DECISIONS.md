@@ -167,7 +167,8 @@ brief, which had only bots.
 
 ## K. The core (decided 2026-11-21; first slice built)
 
-Research notes: `docs/research/11-core-architecture.md`, `docs/research/03-inference-runtime.md`. Versions and
+Research notes: `docs/research/11-core-architecture.md`, `docs/research/03-inference-runtime.md`,
+`docs/research/12-running-models.md`. Versions and
 licences were read from crates.io and the GitHub API, not from memory.
 
 | # | Decision | Status |
@@ -192,6 +193,7 @@ licences were read from crates.io and the GitHub API, not from memory.
 | K19 | **The folder is the truth.** An installed runtime is a folder with a note in it (`demido-runtime.json`: what it is, where each file came from, its checksum, whether it starts). Nothing about it is in the database: deleting the folder removes it. | Built |
 | K20 | **Progress is told, not kept.** A download reports several times a second. That goes out on the event stream without a number and is not written to the log; the log keeps the start and the end. One installation at a time; it can be stopped, and what was downloaded stays for the next try. | Built |
 | K21 | **A development build can use a stand-in publisher** (`DEMIDO_DEV_RUNTIME_SOURCE`), so the whole installation can be tried in the real window without the internet. A release build has no such switch: the address that decides which program gets installed is not left open. A setting for mirrors is a separate, later decision (IDEAS 80). | Built |
+| K22 | **Proposed: Demido runs one `llama-server` in router mode and steers it, instead of keeping one process per model itself.** The runtime now loads and unloads models on request (one child process each), measures what each needs, and makes room by unloading the least recently used while keeping a set amount of memory free. Demido would decide when to load and unload (sessions, agents, schedules, its idle timer), own the models and their per-model values, and draw the memory picture from the runtime's own numbers. The runtime's own downloader, tools and web UI stay unused. This would revise K8. Research note 12. | **Proposed. Not decided: it must be tried on the real runtime first** (seven things to try are listed in the note) |
 | K12 | **A release's version comes from its tag.** The release build stamps the program with it (`DEMIDO_VERSION`), and the build stops if the program then says anything else. Other builds say what `Cargo.toml` says. So nobody has to remember to raise a number before tagging. | Built |
 
 ## D. Not researched yet

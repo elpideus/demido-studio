@@ -80,7 +80,9 @@ The order. Items 1 and 2 are done; item 3 is under way.
 3. Local inference: runtime install, hardware detection, load / unload, memory budget.
    Hardware detection and the installer are built (DECISIONS K8, K9, K15 to K21). The installer is tested
    against a stand-in publisher; the first real download waits for the owner. Next: start the runtime
-   with a model, stop it when idle, and the memory budget.
+   with a model, stop it when idle, and the memory budget. Reading the runtime's current documentation
+   first showed that it now does much of this itself (research note 12, DECISIONS K22, proposed); that
+   has to be tried on the real runtime before anything is built on it.
 4. Chat loop with the small-model techniques: constrained tool calls, repair, task list, compaction.
 5. Tools system, permission levels, sandbox, injection defence.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
