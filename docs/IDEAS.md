@@ -113,6 +113,7 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 79 | **Check a runtime against its publisher's signed build statement.** llama.cpp's releases link to GitHub attestations. Verifying one would prove the file was built by llama.cpp's own workflow, which a checksum from the same page cannot. | Raised |
 | 80 | **A setting for a mirror.** Where GitHub is slow or blocked, people need another place to fetch the runtime from. It decides which program gets installed, so it needs a warning and probably a pinned checksum list. | Raised |
 | 81 | **Say before downloading that NVIDIA's libraries are 424 MB.** The offer shows the size and whether this system seems to have them already, and leaves them out when it does. | Done |
+| 82 | **The server stops when asked, even with a window open.** A window keeps a live connection to the server; that connection kept the server from stopping at all. Every open stream now ends when the server is asked to stop, a download under way is stopped cleanly, and nothing gets more than five seconds. Found while testing, not reported by anyone. | Done |
 
 ## Pushback on the brief so far
 

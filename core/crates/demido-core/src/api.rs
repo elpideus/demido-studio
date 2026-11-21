@@ -331,7 +331,8 @@ async fn events_stream(State(app): State<App>, headers: HeaderMap) -> Sse<impl S
     let upto = missed.last().map(|e| e.seq).or(seen).unwrap_or(0);
     let stream = tokio_stream::iter(missed)
         // Number 0 is news that is told and not kept (progress). It has no place in the log, so it carries no id.
-        .chain(BroadcastStream::new(live).filter_map(|e| e.ok()).filter(move |e| e.seq == 0 || e.seq > upto))
+        // The stream ends when the server says it is stopping. A stream left open would keep the server from stopping at all.
+        .chain(BroadcastStream::new(live).filter_map(|e| e.ok()).take_while(|e| e.kind != STOPPING).filter(move |e| e.seq == 0 || e.seq > upto))
         .map(|e| {
             let line = SseEvent::default().event(e.kind.clone()).data(serde_json::to_string(&e).unwrap_or_default());
             Ok(if e.seq > 0 { line.id(e.seq.to_string()) } else { line })
@@ -462,12 +463,30 @@ pub async fn serve(opts: Options) -> Result<()> {
         tracing::warn!("Listening beyond this computer. Use from other devices is not built yet: there is no encryption and no passkey. Do not expose this.");
     }
 
-    let served = axum::serve(listener, router(app)).with_graceful_shutdown(stop_signal()).await;
+    let (stopping, mut stopped) = tokio::sync::watch::channel(false);
+    let (events, runtimes) = (core.events.clone(), app.runtimes.clone());
+    let asked_to_stop = async move {
+        stop_signal().await;
+        tracing::info!("Stopping.");
+        runtimes.stop(); // a download under way keeps what it has, and says so in the log
+        events.tell(STOPPING, None, json!({})); // ends every open event stream
+        let _ = stopping.send(true);
+    };
+    let served = tokio::select! {
+        served = axum::serve(listener, router(app)).with_graceful_shutdown(asked_to_stop) => served,
+        // Requests under way get a moment to finish. A connection that will not close does not get to keep the server alive.
+        _ = async { let _ = stopped.changed().await; tokio::time::sleep(LAST_MOMENT).await } => Ok(()),
+    };
     std::fs::remove_file(opts.paths.running()).ok();
     core.events.append("server.stopped", None, json!({}))?;
     tracing::info!("Stopped.");
     Ok(served?)
 }
+
+/// Told (not kept) when the server is asked to stop.
+const STOPPING: &str = "server.stopping";
+/// How long requests under way get to finish once the server is asked to stop.
+const LAST_MOMENT: std::time::Duration = std::time::Duration::from_secs(5);
 
 async fn stop_signal() {
     let ctrl_c = async { tokio::signal::ctrl_c().await.ok() };
@@ -491,14 +510,20 @@ mod tests {
     const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn app() -> (Router, Arc<Auth>) {
+        let (router, auth, _) = app_and_log();
+        (router, auth)
+    }
+
+    fn app_and_log() -> (Router, Arc<Auth>, Arc<EventLog>) {
         let db = Arc::new(Db::memory().unwrap());
         let events = Arc::new(EventLog::new(db.clone()));
         let settings = Arc::new(Settings::load(db, events.clone()).unwrap());
         let auth = Arc::new(Auth::with_key(KEY.into()));
         // A folder that does not exist: these tests install nothing.
         let runtimes = Arc::new(Runtimes::new(&std::env::temp_dir().join("demido-api-tests-no-runtimes"), events.clone(), Source::default()).unwrap());
-        let app = App { settings, events, auth: auth.clone(), runtimes, advice: Arc::default(), ui: Ui::default(), started: Instant::now(), hosts: Arc::new(vec!["127.0.0.1:7341".into()]) };
-        (router(app), auth)
+        let app =
+            App { settings, events: events.clone(), auth: auth.clone(), runtimes, advice: Arc::default(), ui: Ui::default(), started: Instant::now(), hosts: Arc::new(vec!["127.0.0.1:7341".into()]) };
+        (router(app), auth, events)
     }
 
     fn request(method: &str, path: &str) -> axum::http::request::Builder {
@@ -510,6 +535,26 @@ mod tests {
         let status = res.status();
         let bytes = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
         (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    /// A window keeps the event stream open for as long as it lives. The server must still be able to stop.
+    #[tokio::test]
+    async fn the_event_stream_carries_news_and_ends_when_the_server_stops() {
+        let (r, _, events) = app_and_log();
+        let res = r.clone().oneshot(request("GET", "/api/v1/events/stream").header("authorization", format!("Bearer {KEY}")).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        events.append("test.kept", Some("a"), json!({})).unwrap();
+        events.tell("test.told", Some("b"), json!({ "done": 1 }));
+        events.tell(STOPPING, None, json!({}));
+        events.append("test.after", None, json!({})).unwrap();
+        // The body ends by itself: reading it to the end would hang forever if the stream stayed open.
+        let body = tokio::time::timeout(std::time::Duration::from_secs(5), axum::body::to_bytes(res.into_body(), 1 << 20)).await.expect("the stream ended").unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("event: test.kept") && text.contains("id: 1"), "{text}");
+        // News that is told and not kept has no number to come back to.
+        let told = text.split("\n\n").find(|block| block.contains("event: test.told")).expect("the told event arrived");
+        assert!(!told.contains("id:"), "{told}");
+        assert!(!text.contains("test.after"), "nothing is sent after the stop");
     }
 
     #[tokio::test]
