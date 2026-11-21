@@ -34,6 +34,11 @@ function elsewhere(model: string | null | undefined): string | null {
   return useProviders.getState().providers?.find((p) => p.id === id)?.name ?? id
 }
 
+/** Whether a session's model is run by a program on this computer (Claude Code, OpenCode). */
+function byProgram(model: string | null | undefined): boolean {
+  return Boolean(model && ['claude-code/', 'opencode/'].some((p) => model.startsWith(p)))
+}
+
 function List() {
   const list = useReal((s) => s.list)
   const { '*': rest } = useParams()
@@ -77,6 +82,12 @@ const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
   add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
   search_web: ['Searched the internet for', 'query'], read_page: ['Read the page', 'url'], read_output: ['Read more of what it printed, from line', 'from_line'],
+  // Claude Code's own tools, by their names in its stream.
+  Read: ['Read', 'file_path'], Write: ['Wrote', 'file_path'], Edit: ['Changed', 'file_path'], MultiEdit: ['Changed', 'file_path'], NotebookEdit: ['Changed', 'notebook_path'],
+  Bash: ['Ran', 'command'], Glob: ['Looked for files', 'pattern'], Grep: ['Searched the files for', 'pattern'], WebFetch: ['Read the page', 'url'], WebSearch: ['Searched the internet for', 'query'],
+  TodoWrite: ['Wrote its to-do list', ''], Task: ['Gave part of it to a helper', 'description'], Agent: ['Gave part of it to a helper', 'description'],
+  // Everything a program changed in the folder in one turn, undone in one go.
+  all_it_changed: ['Changed files in the folder', ''],
 }
 /** The four levels, as they are today. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
 const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
@@ -112,7 +123,7 @@ function ChangeShown({ change }: { change: CoreChange }) {
 /** One use of a tool: what was asked for and what came back. Opened, it shows the request as the model made it.
     A use that changed a file can be undone from here, and shows what it changed. A program's whole output is
     one press away: the model was given a short view of it. */
-function ToolUse({ step, at, change, session }: { step: CoreStep; at: string; change?: CoreChange; session: string }) {
+function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: string; change?: CoreChange; session: string; program?: boolean }) {
   const [said, on] = TOOL_SAID[step.tool] ?? [step.tool, '']
   const value = (name: string) => { const v = (step.args ?? {})[name]; return typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v) }
   const shown = on ? value(on) : Object.keys(step.args ?? {}).map(value).join(', ')
@@ -124,7 +135,7 @@ function ToolUse({ step, at, change, session }: { step: CoreStep; at: string; ch
         <StepRow step={{
           id: at,
           state: step.state === 'running' ? 'running' : step.state === 'waiting' ? 'needs-input' : step.state === 'done' ? 'done' : 'failed',
-          what: refused ? `Asked for ${step.tool} in a way that cannot be used` : denied ? `${said}: you said no` : said,
+          what: refused ? (program ? `${said}: not allowed` : `Asked for ${step.tool} in a way that cannot be used`) : denied ? `${said}: you said no` : said,
           code: refused ? undefined : flat(shown, 80) || undefined,
           meta: step.state === 'done' ? flat(step.result, 60) : step.state === 'running' ? '' : step.state === 'waiting' ? 'waiting for you' : step.state === 'refused' ? 'not run' : 'could not',
           request: JSON.stringify({ tool: step.tool, args: step.args }, null, 1),
@@ -208,7 +219,7 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
     <article className="d-message" data-from="assistant">
       <div className="d-message__body chat__blocks">
         {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {at ? `Asking ${at}…` : loading ? `Loading ${m.model}…` : 'Waking the model…'}</p>}
-        {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} session={m.session_id} />)}
+        {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} session={m.session_id} program={byProgram(m.model)} />)}
         {split.length > 0 && <TaskList tasks={split} changes={changes} />}
         {writing && asking && <Asking request={asking} />}
         {thought && (
@@ -229,7 +240,9 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
       {!writing && t && t.written > 0 && (
         <p className="d-type-caption d-text-tertiary" style={{ marginBlockStart: 'var(--d-space-4)' }}>
           {m.model} · {t.written} tokens at {Math.round(t.per_second)} a second · of the prompt, {t.read} tokens read and {t.reused} {at ? `from ${at}'s cache` : 'not read again'}
-          {t.cost_usd !== undefined && <> · <Tip label={t.cost_exact ? `What ${at ?? 'the provider'} said this answer cost, with every request made for it (the tools it chose, its tasks).` : `What this answer cost, with every request made for it, as Demido counted it from the tokens ${at ?? 'the provider'} reported and the prices it read.`}><span>{dollars(t.cost_usd)}{t.cost_exact ? '' : ' (estimated)'}</span></Tip></>}
+          {t.cost_usd !== undefined && (byProgram(m.model)
+            ? <> · <Tip label={m.model?.startsWith('claude-code/') ? 'What Claude Code said this turn would cost at API prices. Under a Claude plan nothing is billed per token: the turn counts against your plan’s limits.' : 'What OpenCode said this turn cost. Free models cost nothing; others bill through the provider you set up in OpenCode.'}><span>{dollars(t.cost_usd)} by {at}'s own count</span></Tip></>
+            : <> · <Tip label={t.cost_exact ? `What ${at ?? 'the provider'} said this answer cost, with every request made for it (the tools it chose, its tasks).` : `What this answer cost, with every request made for it, as Demido counted it from the tokens ${at ?? 'the provider'} reported and the prices it read.`}><span>{dollars(t.cost_usd)}{t.cost_exact ? '' : ' (estimated)'}</span></Tip></>)}
         </p>
       )}
     </article>
@@ -267,7 +280,7 @@ function Cut({ account }: { account: { content: string; why: string; tokens_befo
   )
 }
 
-function Composer({ id, answering, context, canShorten, tools }: { id: string; answering: boolean; context: ContextUse; canShorten: boolean; tools: boolean }) {
+function Composer({ id, answering, context, canShorten, tools, program }: { id: string; answering: boolean; context: ContextUse; canShorten: boolean; tools: boolean; program?: boolean }) {
   const [text, setText] = useState('')
   const [plan, setPlan] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -285,10 +298,13 @@ function Composer({ id, answering, context, canShorten, tools }: { id: string; a
       <textarea ref={input} className="d-composer__input" rows={1} placeholder="Ask something" aria-label="Message" value={text} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
       <div className="d-composer__bar">
-        <Room id={id} context={context} busy={answering} canShorten={canShorten} />
-        <Tip label={tools ? 'For work with several steps. The model first lists the steps; Demido then has it do them one at a time and shows the list as it goes.' : 'Tools are switched off (Settings › Tools and tasks), and tasks are done with them.'}>
-          <Button variant="ghost" size="sm" pressed={plan && tools} disabled={!tools} onClick={() => setPlan(!plan)}><Icon icon={ListChecks} size="sm" /> Plan first</Button>
-        </Tip>
+        {/* A program keeps its own conversation and plans its own way: Demido's room and tasks are not its. */}
+        {!program && <Room id={id} context={context} busy={answering} canShorten={canShorten} />}
+        {!program && (
+          <Tip label={tools ? 'For work with several steps. The model first lists the steps; Demido then has it do them one at a time and shows the list as it goes.' : 'Tools are switched off (Settings › Tools and tasks), and tasks are done with them.'}>
+            <Button variant="ghost" size="sm" pressed={plan && tools} disabled={!tools} onClick={() => setPlan(!plan)}><Icon icon={ListChecks} size="sm" /> Plan first</Button>
+          </Tip>
+        )}
         <span className="d-composer__spacer" />
         {answering
           ? <Tip label="Stop"><Button variant="primary" iconOnly aria-label="Stop" onClick={() => void stopAnswer(id)}><Icon icon={Square} size="sm" /></Button></Tip>
@@ -340,7 +356,10 @@ function Chat() {
   const at = elsewhere(session.model)
   // A model that always thinks cannot be told not to: "off" asks for the least.
   const always = remote.find((r) => r.id === session.model)?.always_thinks ?? false
-  const offLabel = always ? 'Least thinking' : 'No thinking'
+  const program = byProgram(session.model)
+  const offLabel = program ? 'Its own default' : always ? 'Least thinking' : 'No thinking'
+  // Demido's way of answering: what the core tells every model, after the date.
+  const INSTRUCTIONS = detail.instructions.split('\n\n').slice(1).join('\n\n')
   return (
     <section className="chat" aria-label="Conversation">
       <header className="chat__head chat__head--tools">
@@ -366,7 +385,9 @@ function Chat() {
               options={(Object.keys(LEVELS) as Level[]).map((l) => ({ value: l, label: LEVELS[l].label }))} />
           </span>
         </Tip>
-        {at && <Tip label={`What is said in this session, and what its tools read, is sent to ${at}. Each answer costs money: Providers shows the month's count and limit.`}><span className="d-badge d-badge--outline">Sent to {at}</span></Tip>}
+        {at && (program
+          ? <Tip label={`${at} runs this session on this computer, with its own tools and its own loop, and sends what it needs to its models. Demido shows what it does and asks you what it asks. Before each turn the folder is saved, so all a turn changed can be undone.`}><span className="d-badge d-badge--outline">Runs in {at}</span></Tip>
+          : <Tip label={`What is said in this session, and what its tools read, is sent to ${at}. Each answer costs money: Providers shows the month's count and limit.`}><span className="d-badge d-badge--outline">Sent to {at}</span></Tip>)}
         <Select label="Model for this session" value={session.model} onChange={(model) => void changeSession(id, { model })}
           options={[...new Set([session.model, ...models.map((m) => m.id), ...remote.map((m) => m.id)])].map((m) => {
             const there = remote.find((r) => r.id === m)
@@ -390,7 +411,12 @@ function Chat() {
               <p className="d-type-caption d-text-secondary">The model can read every file in it, change them, and run programs in it. It cannot reach anything outside it: that is checked by Demido, not left to the model. Each change can be undone from the answer that made it. {detail.sandbox && detail.sandbox.kind !== 'none' ? `Programs are shut in a sandbox (${detail.sandbox.kind}).` : `There is no sandbox here, so every program asks first. ${detail.sandbox?.why_not ?? ''}`}{(detail.need_not_ask ?? []).length > 0 && ` In this session you said these need not ask again: ${(detail.need_not_ask ?? []).join(', ')}.`}</p>
             </form>
           )}
-          {told && (
+          {told && program && (
+            <Signal level="note">
+              {at} is given your messages, and Demido's way of answering is added to its own instructions, word for word: <span className="d-mono" style={{ whiteSpace: 'pre-wrap' }}>{INSTRUCTIONS}</span> What else it is told, which tools it has and how it goes about the work are its own. When an earlier part of this conversation was answered by another model, {at} is given that part with your next message.
+            </Signal>
+          )}
+          {told && !program && (
             <Signal level="note">
               Before the conversation, the model is told this, word for word: <span className="d-mono" style={{ whiteSpace: 'pre-wrap' }}>{detail.instructions}</span> Then everything said so far, oldest first. Thinking is {session.thinking === 'off' ? 'switched off' : `set to "${session.thinking}"`}.
               {detail.tools_told
@@ -402,7 +428,7 @@ function Chat() {
             <div className="chat__welcome">
               <span dangerouslySetInnerHTML={{ __html: logo }} />
               <h2 className="d-type-title-2">What do you want to know?</h2>
-              <p className="d-text-secondary">{at ? `${remote.find((r) => r.id === session.model)?.name ?? session.model} runs at ${at}: what you write here, and what its tools read, is sent there, and each answer costs money. ` : `${session.model} loads when you send, and unloads when it has been idle. `}{!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} ${internet}` : `It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. ${internet}`}</p>
+              <p className="d-text-secondary">{program ? `${at} runs this session, with its own tools and its own way of working: it reads, changes and runs what its own rules allow, and asks you through Demido what they say to ask. ${session.folder ? `It works in ${session.folder}, which is saved before each turn so that a turn can be undone.` : 'It works in an empty folder of its own: give the session a folder to let it work on yours.'} Demido's own tools are not used here.` : at ? `${remote.find((r) => r.id === session.model)?.name ?? session.model} runs at ${at}: what you write here, and what its tools read, is sent there, and each answer costs money. ` : `${session.model} loads when you send, and unloads when it has been idle. `}{program ? '' : !detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} ${internet}` : `It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. ${internet}`}</p>
             </div>
           )}
           {messages.map((m) => (
@@ -414,7 +440,7 @@ function Chat() {
           {account && covered >= (messages.at(-1)?.seq ?? 0) && <Cut account={account} />}
         </div>
       </div>
-      <Composer id={id} answering={answering} context={detail.context} canShorten={messages.filter((m) => m.seq > covered).length >= 4} tools={Boolean(detail.tools_told)} />
+      <Composer id={id} answering={answering} context={detail.context} canShorten={messages.filter((m) => m.seq > covered).length >= 4} tools={Boolean(detail.tools_told)} program={program} />
     </section>
   )
 }

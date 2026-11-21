@@ -74,6 +74,7 @@ pub(super) fn model_from(m: &Value) -> Option<RemoteModel> {
         thinking,
         takes: if supported(&caps["image_input"]) { vec!["images".into()] } else { Vec::new() },
         chosen: false,
+        note: None,
     })
 }
 

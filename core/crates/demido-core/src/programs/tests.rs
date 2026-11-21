@@ -1,0 +1,420 @@
+//! Claude Code and OpenCode, against stand-ins that answer in the shapes their documentation shows (and, for
+//! OpenCode, the shapes OpenCode 2.2.7 sent on this computer). No real program runs here.
+
+use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+
+use super::*;
+
+/// The program's side of a stand-in: what Demido wrote to it, and where it answers.
+struct Side {
+    args: Vec<String>,
+    cwd: PathBuf,
+    from_demido: BufReader<DuplexStream>,
+    to_demido: DuplexStream,
+}
+
+impl Side {
+    async fn line(&mut self) -> Value {
+        let mut line = String::new();
+        self.from_demido.read_line(&mut line).await.unwrap();
+        serde_json::from_str(line.trim()).unwrap_or(Value::Null)
+    }
+    async fn say(&mut self, value: Value) {
+        self.to_demido.write_all(format!("{value}\n").as_bytes()).await.unwrap();
+    }
+}
+
+/// Starts nothing: each spawn hands the program's side to the test.
+struct StandSpawner(tokio::sync::mpsc::UnboundedSender<Side>, Arc<Mutex<Vec<String>>>);
+
+impl Spawner for StandSpawner {
+    fn spawn(&self, _program: &Path, args: &[String], cwd: &Path, env: &[(&str, String)]) -> Result<Started> {
+        let (demido_in, program_in) = tokio::io::duplex(1 << 20);
+        let (program_out, demido_out) = tokio::io::duplex(1 << 20);
+        self.1.lock().unwrap().extend(env.iter().map(|(name, _)| name.to_string()));
+        let _ = self.0.send(Side { args: args.to_vec(), cwd: cwd.to_path_buf(), from_demido: BufReader::new(program_in), to_demido: program_out });
+        Ok(Started { stdin: Box::new(demido_in), stdout: Box::new(BufReader::new(demido_out)), stderr: Arc::default(), interrupt: Box::new(|| {}), child: None })
+    }
+}
+
+fn stand() -> (Arc<StandSpawner>, tokio::sync::mpsc::UnboundedReceiver<Side>, Arc<Mutex<Vec<String>>>) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let env = Arc::new(Mutex::new(Vec::new()));
+    (Arc::new(StandSpawner(tx, env.clone())), rx, env)
+}
+
+#[test]
+fn claude_code_is_run_as_documented_and_keeps_a_folders_own_settings_out() {
+    let options = claude_code::Options {
+        model: "opus",
+        effort: Some("high"),
+        mode: "acceptEdits",
+        session: "11111111-2222-3333-4444-555555555555",
+        resume: false,
+        approve_at: Some("http://127.0.0.1:7341/programs/approve/t0k"),
+        append: "Answer first.",
+    };
+    let a = claude_code::args(&options);
+    let has = |pair: [&str; 2]| a.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+    assert!(a[0] == "-p" && has(["--input-format", "stream-json"]) && has(["--output-format", "stream-json"]) && a.contains(&"--verbose".into()) && a.contains(&"--include-partial-messages".into()));
+    assert!(has(["--session-id", "11111111-2222-3333-4444-555555555555"]) && has(["--model", "opus"]) && has(["--effort", "high"]) && has(["--permission-mode", "acceptEdits"]));
+    // A folder's own hooks and servers are not loaded; Demido's approval tool is the one server.
+    assert!(has(["--setting-sources", "user"]) && a.contains(&"--strict-mcp-config".into()) && has(["--permission-prompt-tool", "mcp__demido__approve"]));
+    let servers: Value = serde_json::from_str(&a[a.iter().position(|x| x == "--mcp-config").unwrap() + 1]).unwrap();
+    assert_eq!(servers["mcpServers"]["demido"], json!({ "type": "http", "url": "http://127.0.0.1:7341/programs/approve/t0k" }));
+    assert!(!a.iter().any(|x| x == "--bare"), "bare mode would not use the person's own login");
+    // Going on, at its own default model and effort, with nobody to ask.
+    let later = claude_code::args(&claude_code::Options { model: "default", effort: None, resume: true, approve_at: None, ..options });
+    let has = |pair: [&str; 2]| later.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+    assert!(has(["--resume", "11111111-2222-3333-4444-555555555555"]) && has(["--permission-prompts", "none"]));
+    assert!(!later.contains(&"--model".into()) && !later.contains(&"--effort".into()) && !later.contains(&"--permission-prompt-tool".into()));
+    // A person's yes may take longer than Claude Code waits for a tool by itself.
+    assert!(claude_code::env().iter().any(|(name, value)| *name == "MCP_TOOL_TIMEOUT" && value.parse::<u64>().unwrap() >= 600_000));
+}
+
+#[test]
+fn claude_codes_stream_is_read_as_it_comes() {
+    let (mut text, mut done) = (String::new(), None);
+    let mut all = Vec::new();
+    for line in [
+        json!({ "type": "system", "subtype": "init", "model": "claude-opus-5-5", "apiKeySource": "none", "session_id": "s1", "permissionMode": "acceptEdits" }),
+        json!({ "type": "stream_event", "parent_tool_use_id": null, "event": { "type": "message_start", "message": {} } }),
+        json!({ "type": "stream_event", "parent_tool_use_id": null, "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": "Look first." } } }),
+        json!({ "type": "stream_event", "parent_tool_use_id": null, "event": { "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "I'll read it." } } }),
+        json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "text", "text": "I'll read it." }, { "type": "tool_use", "id": "toolu_1", "name": "Read", "input": { "file_path": "/w/todo.txt" } }] } }),
+        json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_result", "tool_use_id": "toolu_1", "content": [{ "type": "text", "text": "Buy stamps." }] }] } }),
+        json!({ "type": "system", "subtype": "permission_denied", "tool_name": "Bash", "tool_use_id": "toolu_2", "message": "The person said no." }),
+        json!({ "type": "rate_limit_event", "rate_limit_info": { "status": "allowed_warning", "resetsAt": 1795300000, "utilization": 0.82 } }),
+        // A subagent's words are its own: only its tools are shown.
+        json!({ "type": "stream_event", "parent_tool_use_id": "toolu_9", "event": { "type": "content_block_delta", "delta": { "type": "text_delta", "text": "(subagent)" } } }),
+        json!({ "type": "stream_event", "parent_tool_use_id": null, "event": { "type": "message_start", "message": {} } }),
+        json!({ "type": "stream_event", "parent_tool_use_id": null, "event": { "type": "content_block_delta", "delta": { "type": "text_delta", "text": "It says: buy stamps." } } }),
+        json!({ "type": "result", "subtype": "success", "is_error": false, "result": "It says: buy stamps.", "total_cost_usd": 0.0312, "session_id": "s1",
+                "usage": { "input_tokens": 40, "cache_read_input_tokens": 9000, "cache_creation_input_tokens": 1200, "output_tokens": 150 } }),
+    ] {
+        all.extend(claude_code::read_line(&line, &mut text, &mut done));
+    }
+    assert_eq!(text, "I'll read it.\n\nIt says: buy stamps.");
+    assert_eq!(all[0], Event::Started { model: Some("claude-opus-5-5".into()), billing: Some("none".into()) });
+    assert!(all.contains(&Event::Thought("Look first.".into())));
+    assert!(all.contains(&Event::Tool { id: "toolu_1".into(), name: "Read".into(), input: json!({ "file_path": "/w/todo.txt" }) }));
+    assert!(all.contains(&Event::ToolDone { id: "toolu_1".into(), result: "Buy stamps.".into(), failed: false }));
+    assert!(all.contains(&Event::Denied { id: "toolu_2".into(), why: "The person said no.".into() }));
+    assert!(all.contains(&Event::Limit { status: "allowed_warning".into(), resets_at: Some(1795300000), used: Some(0.82) }));
+    assert!(!all.contains(&Event::Text("(subagent)".into())));
+    let turn = done.unwrap();
+    assert_eq!((turn.cost_usd, turn.session.as_deref(), turn.error.as_ref()), (Some(0.0312), Some("s1"), None));
+    assert_eq!(turn.tokens, prices::Tokens { input: 40, cached: 9000, cache_written: 1200, output: 150 });
+    // A turn that failed says why, in its own words.
+    let mut done = None;
+    claude_code::read_line(&json!({ "type": "result", "subtype": "success", "is_error": true, "result": "Not logged in · Please run /login" }), &mut String::new(), &mut done);
+    assert_eq!(done.unwrap().error.as_deref(), Some("Not logged in · Please run /login"));
+}
+
+#[tokio::test]
+async fn a_claude_code_turn_gives_the_message_and_ends_at_its_result() {
+    let (spawner, mut sides, _) = stand();
+    let started = spawner.spawn(Path::new("claude"), &[], Path::new("/"), &[]).unwrap();
+    let mut side = sides.recv().await.unwrap();
+    let program = tokio::spawn(async move {
+        let message = side.line().await;
+        side.say(json!({ "type": "stream_event", "parent_tool_use_id": null, "event": { "type": "content_block_delta", "delta": { "type": "text_delta", "text": "Hello." } } })).await;
+        side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "Hello.", "total_cost_usd": 0.01, "session_id": "abc", "usage": {} })).await;
+        message
+    });
+    let mut events = Vec::new();
+    let turn = claude_code::run(started, "Say hello", &AtomicBool::new(false), &mut |e| events.push(e)).await.unwrap();
+    let message = program.await.unwrap();
+    assert_eq!(message, json!({ "type": "user", "message": { "role": "user", "content": "Say hello" }, "parent_tool_use_id": null }));
+    assert_eq!((turn.result.as_deref(), turn.session.as_deref()), (Some("Hello."), Some("abc")));
+    assert_eq!(events, [Event::Text("Hello.".into())]);
+    // Signed out: said plainly, with where to sign in.
+    let started = spawner.spawn(Path::new("claude"), &[], Path::new("/"), &[]).unwrap();
+    let mut side = sides.recv().await.unwrap();
+    tokio::spawn(async move {
+        side.line().await;
+        side.say(json!({ "type": "result", "subtype": "success", "is_error": true, "result": "Not logged in · Please run /login" })).await;
+    });
+    let turn = claude_code::run(started, "Hi", &AtomicBool::new(false), &mut |_| {}).await.unwrap();
+    assert!(turn.error.unwrap().contains("Sign in in a terminal: run claude, then /login"));
+}
+
+/// Plays OpenCode's side of ACP for one turn, as OpenCode 2.2.7 answered on this computer.
+async fn opencode_side(mut side: Side, permission: bool) -> Vec<Value> {
+    let mut asked = Vec::new();
+    loop {
+        let said = side.line().await;
+        if said.is_null() {
+            break;
+        }
+        asked.push(said.clone());
+        let id = said["id"].clone();
+        match said["method"].as_str().unwrap_or_default() {
+            "initialize" => side.say(json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": 1, "agentCapabilities": { "loadSession": true }, "authMethods": [] } })).await,
+            "session/new" | "session/resume" => {
+                side.say(json!({ "jsonrpc": "2.0", "id": id, "result": { "sessionId": "ses_1", "configOptions": [
+                    { "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "opencode/big-pickle",
+                      "options": [{ "value": "opencode/big-pickle", "name": "opencode/Big Pickle" }, { "value": "opencode/deepseek-v4.1-flash-free", "name": "opencode/DeepSeek V4.1 Flash Free" }] },
+                    { "id": "mode", "name": "Session Mode", "category": "mode", "type": "select", "currentValue": "build", "options": [] } ] } }))
+                    .await
+            }
+            "session/set_config_option" | "session/delete" => side.say(json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await,
+            "session/prompt" => {
+                let update = |u: Value| json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "ses_1", "update": u } });
+                side.say(update(json!({ "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "Plan it." } }))).await;
+                side.say(update(json!({ "sessionUpdate": "tool_call", "toolCallId": "call_1", "title": "Run ls", "kind": "execute", "status": "pending", "rawInput": { "command": "ls" } }))).await;
+                if permission {
+                    side.say(json!({ "jsonrpc": "2.0", "id": 900, "method": "session/request_permission", "params": { "sessionId": "ses_1",
+                        "toolCall": { "toolCallId": "call_1", "title": "Run ls", "kind": "execute", "rawInput": { "command": "ls" } },
+                        "options": [{ "optionId": "once", "kind": "allow_once", "name": "Allow once" }, { "optionId": "always", "kind": "allow_always", "name": "Always allow" }, { "optionId": "reject", "kind": "reject_once", "name": "Reject" }] } }))
+                    .await;
+                    asked.push(side.line().await);
+                }
+                side.say(update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call_1", "status": "completed", "content": [{ "type": "content", "content": { "type": "text", "text": "notes.md" } }] }))).await;
+                side.say(update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "There is one file." } }))).await;
+                side.say(update(json!({ "sessionUpdate": "usage_update", "used": 1540, "size": 200000, "cost": { "amount": 0.0, "currency": "USD" } }))).await;
+                side.say(json!({ "jsonrpc": "2.0", "id": id, "result": { "stopReason": "end_turn", "usage": { "inputTokens": 1200, "outputTokens": 340, "totalTokens": 1540 } } })).await;
+            }
+            _ => {}
+        }
+    }
+    asked
+}
+
+#[tokio::test]
+async fn an_opencode_turn_goes_through_acp_and_asks_what_opencode_asks() {
+    let (spawner, mut sides, _) = stand();
+    let started = spawner.spawn(Path::new("opencode"), &["acp".into()], Path::new("/w"), &[]).unwrap();
+    let side = sides.recv().await.unwrap();
+    let program = tokio::spawn(opencode_side(side, true));
+    let asked_for: Arc<Mutex<Vec<Approval>>> = Arc::default();
+    let seen = asked_for.clone();
+    let approve: &Approver<'_> = &move |a: Approval| {
+        seen.lock().unwrap().push(a);
+        Box::pin(async { Choice::Once })
+    };
+    let mut events = Vec::new();
+    let turn =
+        acp::run(started, Path::new("/w"), "opencode/deepseek-v4.1-flash-free", None, Some("Answer first."), "What is here?", &AtomicBool::new(false), &mut |e| events.push(e), approve).await.unwrap();
+    let asked = program.await.unwrap();
+    let methods: Vec<&str> = asked.iter().filter_map(|m| m["method"].as_str()).collect();
+    assert_eq!(methods, ["initialize", "session/new", "session/set_config_option", "session/prompt"]);
+    // Demido says it reads no files and runs no terminal for OpenCode; the folder is the session's.
+    assert_eq!(asked[0]["params"]["clientCapabilities"], json!({ "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false }));
+    assert_eq!(asked[1]["params"]["cwd"], "/w");
+    assert_eq!(asked[2]["params"], json!({ "sessionId": "ses_1", "configId": "model", "value": "opencode/deepseek-v4.1-flash-free" }));
+    // Demido's way of answering goes to the model only, with the first message.
+    assert_eq!(asked[3]["params"]["prompt"][0]["annotations"]["audience"], json!(["assistant"]));
+    assert_eq!(asked[3]["params"]["prompt"][1]["text"], "What is here?");
+    // What OpenCode asked, Demido answered with the option for once.
+    assert_eq!(asked_for.lock().unwrap()[0].kind, "execute");
+    assert_eq!(asked[4], json!({ "jsonrpc": "2.0", "id": 900, "result": { "outcome": { "outcome": "selected", "optionId": "once" } } }));
+    assert!(events.contains(&Event::Thought("Plan it.".into())) && events.contains(&Event::Text("There is one file.".into())));
+    assert!(events.contains(&Event::ToolDone { id: "call_1".into(), result: "notes.md".into(), failed: false }));
+    assert_eq!((turn.session.as_deref(), turn.cost_usd, turn.tokens.input, turn.tokens.output, turn.stopped), (Some("ses_1"), Some(0.0), 1200, 340, false));
+}
+
+#[tokio::test]
+async fn opencodes_models_are_read_from_a_session_made_and_deleted_again() {
+    let (spawner, mut sides, _) = stand();
+    let started = spawner.spawn(Path::new("opencode"), &["acp".into()], Path::new("/list"), &[]).unwrap();
+    let program = tokio::spawn(opencode_side(sides.recv().await.unwrap(), false));
+    let models = acp::models(started, Path::new("/list")).await.unwrap();
+    assert_eq!(models, [("opencode/big-pickle".to_string(), "opencode/Big Pickle".to_string()), ("opencode/deepseek-v4.1-flash-free".to_string(), "opencode/DeepSeek V4.1 Flash Free".to_string())]);
+    let methods: Vec<String> = program.await.unwrap().iter().filter_map(|m| m["method"].as_str().map(str::to_string)).collect();
+    assert_eq!(methods, ["initialize", "session/new", "session/delete"]);
+}
+
+#[test]
+fn opencodes_updates_are_read_as_it_sends_them() {
+    let (events, cost) = acp::read_update(
+        &json!({ "sessionUpdate": "tool_call", "toolCallId": "ses_child:call_2", "title": "Explore: src", "kind": "read", "status": "completed", "content": [{ "type": "diff", "path": "/w/a.rs" }] }),
+    );
+    assert_eq!(events[0], Event::Tool { id: "ses_child:call_2".into(), name: "Explore: src".into(), input: json!({}) });
+    assert_eq!(events[1], Event::ToolDone { id: "ses_child:call_2".into(), result: "Changed /w/a.rs".into(), failed: false });
+    assert_eq!(cost, None);
+    let (_, cost) = acp::read_update(&json!({ "sessionUpdate": "usage_update", "used": 10, "size": 100, "cost": { "amount": 0.012, "currency": "USD" } }));
+    assert_eq!(cost, Some(0.012));
+    let (events, _) = acp::read_update(
+        &json!({ "sessionUpdate": "session_info_update", "_meta": { "opencode/retry": { "attempt": 1, "error": { "type": "provider.rate-limit", "message": "Rate limit exceeded" } } } }),
+    );
+    assert_eq!(events, [Event::Retrying("Rate limit exceeded".into())]);
+}
+
+/// A chat with providers whose programs are stand-ins, over a fresh home.
+struct World {
+    chat: Arc<crate::chat::Chat>,
+    sessions: Arc<crate::sessions::Sessions>,
+    providers: Arc<crate::providers::Providers>,
+    settings: Arc<crate::settings::Settings>,
+    home: PathBuf,
+}
+
+fn world(spawner: Arc<StandSpawner>) -> World {
+    use crate::db::Db;
+    use crate::engine::{Engine, ProcessLauncher};
+    use crate::events::EventLog;
+    use crate::runtime::{Runtimes, Source};
+    use crate::settings::Settings;
+    let home = std::env::temp_dir().join(format!("demido-programs-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&home).unwrap();
+    let db = Arc::new(Db::memory().unwrap());
+    let events = Arc::new(EventLog::new(db.clone()));
+    let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
+    // A program has to be somewhere: any file stands in for it.
+    let exe = std::env::current_exe().unwrap().display().to_string();
+    settings.set("providers.claudeCodePath", json!(exe)).unwrap();
+    settings.set("providers.opencodePath", json!(exe)).unwrap();
+    let vault = Arc::new(crate::vault::Vault::in_file(&home));
+    let providers = Arc::new(crate::providers::Providers::new(db.clone(), vault, settings.clone(), events.clone()).with_programs(&home, spawner));
+    let runtimes = Arc::new(Runtimes::new(&home, events.clone(), Source::default()).unwrap());
+    let engine = Arc::new(Engine::new(&home, runtimes, settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
+    let sessions = Arc::new(crate::sessions::Sessions::new(db));
+    let chat = Arc::new(
+        crate::chat::Chat::new(sessions.clone(), engine, events, settings.clone()).with_providers(providers.clone()).keeping_in(home.join("saved-folders")).keeping_programs_in(home.join("programs")),
+    );
+    chat.set_address("http://127.0.0.1:7341".into());
+    World { chat, sessions, providers, settings, home }
+}
+
+impl World {
+    async fn answered(&self, session: &str) -> crate::sessions::Message {
+        for _ in 0..500 {
+            if !self.chat.answering(session) {
+                return self.sessions.messages(session).unwrap().pop().unwrap();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the answer never ended");
+    }
+}
+
+#[tokio::test]
+async fn a_session_on_claude_code_asks_the_person_through_demido_and_its_changes_can_be_undone() {
+    let (spawner, mut sides, env) = stand();
+    let w = world(spawner);
+    let folder = w.home.join("work");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("todo.txt"), "Buy stamps.\n").unwrap();
+    w.providers.choose("claude-code", "opus", true).await.unwrap();
+    let session = w.chat.start(None, Some("claude-code/opus")).await.unwrap();
+    w.chat.set_folder(&session.id, Some(folder.to_str().unwrap())).unwrap();
+    w.chat.say(&session.id, "Add milk to the list.").unwrap();
+
+    let mut side = sides.recv().await.unwrap();
+    assert_eq!(side.cwd, folder.canonicalize().unwrap());
+    let url = {
+        let a = &side.args;
+        let servers: Value = serde_json::from_str(&a[a.iter().position(|x| x == "--mcp-config").unwrap() + 1]).unwrap();
+        servers["mcpServers"]["demido"]["url"].as_str().unwrap().to_string()
+    };
+    assert!(url.starts_with("http://127.0.0.1:7341/programs/approve/"));
+    assert!(side.args.windows(2).any(|w| w[0] == "--permission-mode" && w[1] == "acceptEdits"), "Balanced: changes go on, the folder is saved first");
+    assert!(env.lock().unwrap().iter().any(|name| name == "MCP_TOOL_TIMEOUT"));
+    let token = url.rsplit('/').next().unwrap().to_string();
+    let message = side.line().await;
+    assert_eq!(message["message"]["content"], "Add milk to the list.");
+
+    // Claude Code wants to run a command: Demido's tool asks the person, and the person says yes.
+    side.say(
+        json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "echo Milk. >> todo.txt" } }] } }),
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let chat = w.chat.clone();
+    let asking = tokio::spawn(async move { chat.program_approval(&token, "Bash", json!({ "command": "echo Milk. >> todo.txt" })).await });
+    let request = loop {
+        if let Some(r) = w.chat.waiting_for(&session.id) {
+            break r;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    };
+    assert_eq!((request.tool.as_str(), request.what.as_str()), ("Bash", "Claude Code wants to run: echo Milk. >> todo.txt"));
+    w.chat.answer_request(&session.id, &request.id, crate::permissions::Said::Once).unwrap();
+    assert_eq!(asking.await.unwrap(), (true, String::new()));
+    // It runs it (the stand-in does what the command would) and answers.
+    std::fs::write(folder.join("todo.txt"), "Buy stamps.\nMilk.\n").unwrap();
+    side.say(json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "" }] } })).await;
+    side.say(json!({ "type": "stream_event", "parent_tool_use_id": null, "event": { "type": "content_block_delta", "delta": { "type": "text_delta", "text": "Added milk." } } })).await;
+    side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "Added milk.", "total_cost_usd": 0.02, "session_id": "cc-1", "usage": { "input_tokens": 100, "output_tokens": 20 } })).await;
+
+    let answer = w.answered(&session.id).await;
+    assert_eq!((answer.state.as_str(), answer.content.as_str()), ("done", "Added milk."), "{:?}", answer.problem);
+    assert_eq!(answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str())).collect::<Vec<_>>(), [("Bash", "done"), (crate::tools::ALL_IT_CHANGED, "done")]);
+    // What it cost, as Claude Code said it: shown, and not counted against the month's limit.
+    let timings = answer.timings.unwrap();
+    assert_eq!((timings.cost_usd, timings.written), (Some(0.02), 20));
+    let spending = w.providers.spending().unwrap();
+    assert_eq!((spending.spent_usd, spending.by_model[0].counted), (0.0, false));
+    // All it changed is one change, undone in one go.
+    let change = answer.steps[1].change.clone().unwrap();
+    assert_eq!(w.chat.change_diff(&session.id, &change).unwrap(), "--- a/todo.txt\n+++ b/todo.txt\n@@ -1 +1,2 @@\n Buy stamps.\n+Milk.\n");
+    w.chat.undo(&session.id, &change).unwrap();
+    assert_eq!(std::fs::read_to_string(folder.join("todo.txt")).unwrap(), "Buy stamps.\n");
+
+    // The next turn goes on in the same Claude Code session.
+    w.chat.say(&session.id, "Thanks.").unwrap();
+    let mut side = sides.recv().await.unwrap();
+    assert!(side.args.windows(2).any(|w| w[0] == "--resume" && w[1] == "cc-1"), "{:?}", side.args);
+    assert_eq!(side.line().await["message"]["content"], "Thanks.", "only what it has not seen");
+    side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "You're welcome.", "total_cost_usd": 0.001, "session_id": "cc-1", "usage": {} })).await;
+    assert_eq!(w.answered(&session.id).await.content, "You're welcome.");
+    let _ = w.settings;
+    std::fs::remove_dir_all(&w.home).ok();
+}
+
+#[tokio::test]
+async fn a_session_on_opencode_uses_its_free_model_and_says_what_it_does_with_what_is_sent() {
+    let (spawner, mut sides, _) = stand();
+    let w = world(spawner);
+    // Choosing asks OpenCode for its models: a stand-in answers.
+    let listing = tokio::spawn(async move {
+        let side = sides.recv().await.unwrap();
+        opencode_side(side, false).await;
+        sides
+    });
+    let chosen = w.providers.choose("opencode", "opencode/deepseek-v4.1-flash-free", true).await.unwrap();
+    let mut sides = listing.await.unwrap();
+    assert!(chosen.free && chosen.note.as_deref() == Some("Free. OpenCode says it keeps nothing and does not train on what is sent."), "{:?}", chosen.note);
+    assert_eq!(chosen.name, "DeepSeek V4.1 Flash");
+    let pickle = w.providers.models("opencode", false).await.unwrap().into_iter().find(|m| m.id == "opencode/opencode/big-pickle").unwrap();
+    assert!(pickle.note.unwrap().contains("may use what is sent to improve the model"));
+    let session = w.chat.start(None, Some("opencode/opencode/deepseek-v4.1-flash-free")).await.unwrap();
+    // Cautious: OpenCode's command waits for the person.
+    w.chat.set_permission(&session.id, "cautious").unwrap();
+    w.chat.say(&session.id, "What is here?").unwrap();
+    let side = sides.recv().await.unwrap();
+    assert_eq!(side.args, ["acp"]);
+    let program = tokio::spawn(opencode_side(side, true));
+    let request = loop {
+        if let Some(r) = w.chat.waiting_for(&session.id) {
+            break r;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    };
+    assert_eq!(request.what, "OpenCode wants to: Run ls");
+    w.chat.answer_request(&session.id, &request.id, crate::permissions::Said::Once).unwrap();
+    let answer = w.answered(&session.id).await;
+    program.await.unwrap();
+    assert_eq!((answer.state.as_str(), answer.content.as_str(), answer.thought.as_deref()), ("done", "There is one file.", Some("Plan it.")));
+    assert_eq!(answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str(), s.result.as_str())).collect::<Vec<_>>(), [("Run ls", "done", "notes.md")]);
+    assert_eq!(w.sessions.program_session(&session.id, "opencode").unwrap().map(|(id, _, _)| id).as_deref(), Some("ses_1"));
+    std::fs::remove_dir_all(&w.home).ok();
+}
+
+#[test]
+fn a_programs_colours_are_taken_out_of_what_it_says() {
+    assert_eq!(plain("\u{1b}[1mopencode\u{1b}[0m \u{1b}[2mv\u{1b}[0m\u{1b}[1m2.2.7\u{1b}[0m"), "opencode v2.2.7");
+    assert_eq!(plain("2.1.330 (Claude Code)"), "2.1.330 (Claude Code)");
+}
+
+#[tokio::test]
+async fn a_program_that_is_not_there_is_said_plainly() {
+    let found = look("claude-code", Some("/nowhere/claude")).await;
+    assert!(found.path.is_none() && found.problem.unwrap().contains("not on this computer"));
+}

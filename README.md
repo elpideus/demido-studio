@@ -57,7 +57,8 @@ a model runtime (Setup installs it) and a GGUF model: Models › Discover finds 
 Hugging Face, or `demido models download <owner/name>`. Or a model elsewhere, with your own key: Providers
 keeps an Anthropic, Gemini or OpenRouter key in your system's keyring (or `demido keys add anthropic`), you
 choose the models a session may use, and Demido counts what each answer costs and stops at the month's limit
-you set (`demido usage`).
+you set (`demido usage`). Or your own Claude Code or OpenCode, if they are installed: Demido runs them as
+they are, shows what they do, and asks you what they ask.
 
 ## See the brand kit
 

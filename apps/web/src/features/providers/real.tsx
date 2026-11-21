@@ -2,12 +2,13 @@
 
    A key is given once and never shown again, here or anywhere: only its last four characters. Nothing is
    sent to a model that is not chosen here, and the core stops sending when the month's count reaches the
-   limit in Settings. Claude Code and OpenCode are programs on this computer with loops of their own; they
-   come next, and their cards say so. */
+   limit in Settings. Claude Code and OpenCode are programs on this computer with loops of their own: their
+   cards say whether they are here and how they are signed in (never the login itself), and what their plan
+   said of its limit. Their use is shown and is held by their own plans, not by the limit here. */
 import { useEffect, useMemo, useState } from 'react'
 import { Ellipsis, ExternalLink, KeyRound, ListPlus, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
-import { choose, dollars, holds, listModels, priceOf, readAccount, removeKey, saveKey, useProviders, type Account, type ProviderView, type RemoteModel, type Spending } from '@/data/providers'
+import { choose, dollars, holds, listModels, priceOf, readAccount, removeKey, saveKey, useProviders, type Account, type PlanLimit, type ProviderView, type RemoteModel, type Spending } from '@/data/providers'
 import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal, Switch, Tip } from '@/ui'
 
 function Meter({ label, used, limit, unit, note }: { label: string; used: number; limit: number | null; unit: string; note?: string }) {
@@ -40,7 +41,7 @@ function Month({ spending }: { spending: Spending }) {
               <li key={`${s.provider}/${s.model}`}>
                 <span className="d-mono">{s.provider}/{s.model}</span>
                 <span className="d-text-secondary d-type-caption">{s.requests} {s.requests === 1 ? 'request' : 'requests'} · {s.input.toLocaleString()} tokens read · {s.output.toLocaleString()} written</span>
-                <span className="d-mono">{dollars(s.cost_usd)}{s.exact ? '' : ' est.'}</span>
+                <Tip label={s.counted ? (s.exact ? 'The provider’s own figure.' : 'Counted by Demido from the tokens the provider reported.') : 'What the program said this cost. It is held by your own plan with its maker, not by the limit here.'}><span className="d-mono">{dollars(s.cost_usd)}{s.counted ? (s.exact ? '' : ' est.') : ' (its plan)'}</span></Tip>
               </li>
             ))}
           </ul>
@@ -77,7 +78,7 @@ function KeyDialog({ p, where, onClose }: { p: ProviderView; where: string; onCl
 
 /** How a model thinks, in a few words. */
 function thinks(m: RemoteModel): string {
-  if (!m.thinking.length) return 'does not think'
+  if (!m.thinking.length) return m.provider === 'opencode' ? 'thinks as OpenCode sets it' : 'does not think'
   const levels = m.thinking.join(', ')
   return m.always_thinks ? `always thinks (${levels})` : m.thinking[0] === 'on' ? 'can think' : `can think: ${levels}`
 }
@@ -103,7 +104,7 @@ function ModelsDialog({ p, onClose }: { p: ProviderView; onClose: () => void }) 
   const most = 150
   return (
     <Dialog open wide onOpenChange={(o) => !o && onClose()} title={`Choose ${p.name} models`}
-      text={`A session can use a model once it is chosen here, and only then. ${p.name} lists what this key may use; prices are in dollars per million tokens.`}
+      text={p.kind === 'program' ? `A session can use a model once it is chosen here, and only then. ${p.name} lists what it offers on this computer; it runs the model with its own tools.` : `A session can use a model once it is chosen here, and only then. ${p.name} lists what this key may use; prices are in dollars per million tokens.`}
       actions={<Button variant="primary" onClick={onClose}>Done</Button>}>
       <div className="app-stack" style={{ marginBlockStart: 'var(--d-space-12)' }}>
         <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
@@ -122,6 +123,7 @@ function ModelsDialog({ p, onClose }: { p: ProviderView; onClose: () => void }) 
                   <span className="app-stack" style={{ gap: 'var(--d-space-2)', minWidth: 0 }}>
                     <span>{m.name}{m.free && <span className="d-badge" style={{ marginInlineStart: 'var(--d-space-6)' }}>Free</span>}</span>
                     <span className="d-type-caption d-text-secondary"><span className="d-mono">{m.id.slice(p.id.length + 1)}</span> · {priceOf(m)}{m.price_from === 'highest' ? ' (not in Demido’s table: counted at the highest)' : ''}{m.context_length ? ` · holds ${holds(m.context_length)} tokens` : ''} · {thinks(m)}</span>
+                    {m.note && <span className="d-type-caption d-text-secondary">{m.note}</span>}
                   </span>
                   <Button size="sm" variant={on ? 'ghost' : undefined} pressed={on} onClick={() => void choose(p.id, m.id, !on)}>{on ? 'Chosen' : 'Choose'}</Button>
                 </li>
@@ -155,6 +157,63 @@ function AccountLines({ p }: { p: ProviderView }) {
       {account.lines.map((l) => <Meter key={l.label} label={`${l.label} (as ${p.name} says)`} used={l.used} limit={l.limit} unit={l.unit} note={l.reset ?? undefined} />)}
       {account.note && <p className="d-type-caption d-text-secondary">{account.note}</p>}
     </div>
+  )
+}
+
+/** A program's plan limit, as it said it: how much is used, and when it resets. */
+function Plan({ plan }: { plan: PlanLimit }) {
+  const resets = plan.resets_at ? new Date(plan.resets_at).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null
+  const said = new Date(plan.said_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return (
+    <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
+      {plan.used !== null
+        ? <Meter label={`Your plan's limit, as Claude Code said at ${said}`} used={Math.round(plan.used * 100)} limit={100} unit="%" note={resets ? `resets ${resets}` : undefined} />
+        : <p className="d-type-caption d-text-secondary">Claude Code said at {said} that your plan's limit is {plan.status === 'rejected' ? 'reached' : plan.status === 'allowed_warning' ? 'nearly reached' : 'not reached'}{resets ? `; it resets ${resets}` : ''}.</p>}
+      {plan.status === 'rejected' && <Signal level="caution">Your plan's limit is reached: Claude Code answers again when it resets, or with usage credits if you turned those on with Anthropic.</Signal>}
+    </div>
+  )
+}
+
+/** A program on this computer: whether it is here, how it is signed in, its models. */
+function ProgramCard({ p }: { p: ProviderView }) {
+  const [choosing, setChoosing] = useState(false)
+  const found = p.program
+  const here = Boolean(found?.path)
+  const sub = here ? ['a program on this computer', found?.version, found?.signed_in ? `signed in ${found.signed_in}` : null].filter(Boolean).join(' · ') : 'not found on this computer'
+  return (
+    <article className="d-card">
+      <header className="d-card__head">
+        <Glyph name={here && !found?.problem ? 'task-done' : 'task-pending'} size="1.25rem" style={{ marginTop: '0.125rem' }} label={here ? 'Found' : 'Not found'} />
+        <div className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
+          <h3 className="d-card__title">{p.name}</h3>
+          <span className="d-card__sub">{sub}{p.spent_usd > 0 ? ` · ${dollars(p.spent_usd)} this month, by its own count` : ''}</span>
+        </div>
+      </header>
+      <div className="d-card__body app-stack">
+        <p className="d-text-secondary">{p.note}</p>
+        {found?.problem && <Signal level="caution">{found.problem}</Signal>}
+        {found?.path && <p className="d-type-caption d-text-tertiary">Runs <span className="d-mono">{found.path}</span>. Demido never downloads, changes or bundles it, and never sees or keeps its login.</p>}
+        {p.plan && <Plan plan={p.plan} />}
+        {p.chosen.length > 0 && (
+          <ul className="prov__models">
+            {p.chosen.map((m) => (
+              <li key={m.id}>
+                <span className="app-stack" style={{ gap: 'var(--d-space-2)', minWidth: 0 }}>
+                  <span>{m.name}{m.free && <span className="d-badge" style={{ marginInlineStart: 'var(--d-space-6)' }}>Free</span>}</span>
+                  <span className="d-type-caption d-text-secondary">{m.note ?? priceOf(m)}</span>
+                </span>
+                <Tip label="Sessions can no longer use it. Those that do keep their messages."><Button size="sm" variant="ghost" onClick={() => void choose(p.id, m.id, false)}>Let go</Button></Tip>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
+          <Button size="sm" disabled={!here} onClick={() => setChoosing(true)}><Icon icon={ListPlus} size="sm" />Choose models…</Button>
+          {!here && <a className="d-button d-button--ghost d-button--sm" href={p.keys_at} target="_blank" rel="noreferrer noopener"><Icon icon={ExternalLink} size="sm" />How to install it</a>}
+        </div>
+      </div>
+      {choosing && <ModelsDialog p={p} onClose={() => setChoosing(false)} />}
+    </article>
   )
 }
 
@@ -209,22 +268,6 @@ function ProviderCard({ p, where }: { p: ProviderView; where: string }) {
   )
 }
 
-/** A program on this computer with its own loop and tools: next. */
-function ProgramCard({ name, text }: { name: string; text: string }) {
-  return (
-    <article className="d-card">
-      <header className="d-card__head">
-        <Glyph name="task-pending" size="1.25rem" style={{ marginTop: '0.125rem' }} label="Not built yet" />
-        <div className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
-          <h3 className="d-card__title">{name}</h3>
-          <span className="d-card__sub">a program on this computer</span>
-        </div>
-      </header>
-      <div className="d-card__body"><NotBuilt block>{text}</NotBuilt></div>
-    </article>
-  )
-}
-
 export function RealProviders() {
   const { providers, vault, spending, error } = useProviders()
   return (
@@ -235,13 +278,18 @@ export function RealProviders() {
       {providers && vault && (
         <Section title="Providers" hint={vault.where_words}>
           <div className="app-stack">
-            {providers.map((p) => <ProviderCard key={p.id} p={p} where={vault.where_words} />)}
-            <ProgramCard name="Claude Code" text="Next: Demido runs your own installed Claude Code, signed in with your subscription, and shows what it does. Demido never touches its login." />
-            <ProgramCard name="OpenCode" text="Next: Demido runs your own installed OpenCode and its free models. Those may use what is sent to improve them." />
+            {providers.filter((p) => p.kind !== 'program').map((p) => <ProviderCard key={p.id} p={p} where={vault.where_words} />)}
           </div>
         </Section>
       )}
-      <NotBuilt block>Several keys for one provider, a provider's own spending figures for Anthropic and Google (an ordinary key cannot ask), and pictures sent to a model.</NotBuilt>
+      {providers && (
+        <Section title="Programs on this computer" hint="They run their own loop with their own tools; Demido gives them your messages, shows what they do, and asks you what they ask. Demido's own help for small models does not run inside them.">
+          <div className="app-stack">
+            {providers.filter((p) => p.kind === 'program').map((p) => <ProgramCard key={p.id} p={p} />)}
+          </div>
+        </Section>
+      )}
+      <NotBuilt block>Several keys for one provider, a provider's own spending figures for Anthropic and Google (an ordinary key cannot ask), pictures sent to a model, OpenCode's levels of thinking, and your Claude plan's limit before Claude Code has run once.</NotBuilt>
     </Page>
   )
 }

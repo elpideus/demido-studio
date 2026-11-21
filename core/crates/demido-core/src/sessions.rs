@@ -424,6 +424,27 @@ impl Sessions {
     }
 
     /// Writes down the tools an answer has used so far.
+    /// The session a program keeps for this one, and the last message of this one it was given.
+    pub fn program_session(&self, session_id: &str, provider: &str) -> Result<Option<(String, i64, f64)>> {
+        self.db.with(|c| {
+            c.query_row("SELECT external_id, seen_seq, cost_so_far FROM program_sessions WHERE session_id = ?1 AND provider = ?2", [session_id, provider], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map(Some)
+                .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e) })
+        })
+    }
+
+    /// Writes down the program's session for this one, how far it has seen it, and what it said it cost so far.
+    pub fn set_program_session(&self, session_id: &str, provider: &str, external_id: &str, seen_seq: i64, cost_so_far: f64) -> Result<()> {
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO program_sessions (session_id, provider, external_id, seen_seq, cost_so_far) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (session_id, provider) DO UPDATE SET external_id = ?3, seen_seq = ?4, cost_so_far = ?5",
+                rusqlite::params![session_id, provider, external_id, seen_seq, cost_so_far],
+            )
+        })?;
+        Ok(())
+    }
+
     pub fn set_steps(&self, message_id: &str, steps: &[Step]) -> Result<()> {
         let steps = serde_json::to_string(steps)?;
         self.db.with(|c| c.execute("UPDATE messages SET steps = ?2 WHERE id = ?1", rusqlite::params![message_id, steps]))?;

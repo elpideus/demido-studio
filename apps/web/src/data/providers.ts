@@ -12,11 +12,19 @@ export interface VaultView { new_keys_go_to: 'keyring' | 'file'; where_words: st
 /** `price_from`: `provider` (it says so), `table` (Demido's table, read on a stated day), `highest` (not in the table: the provider's highest is counted), `unknown`. Prices in dollars per million tokens. */
 export interface RemoteModel {
   id: string; provider: string; name: string; context_length: number | null; most_written: number | null
-  price_in: number | null; price_out: number | null; price_from: 'provider' | 'table' | 'highest' | 'unknown'; free: boolean
+  price_in: number | null; price_out: number | null; price_from: 'provider' | 'table' | 'highest' | 'plan' | 'program' | 'unknown'; free: boolean
   thinking: string[]; always_thinks: boolean; takes: string[]; chosen: boolean
+  /** What to know first: what a free model does with what is sent to it. */
+  note?: string | null
 }
-export interface ProviderView { id: string; name: string; keys_at: string; note: string; key: KeyFacts | null; chosen: RemoteModel[]; spent_usd: number; spent_exact: boolean }
-export interface Spent { provider: string; model: string; requests: number; input: number; output: number; cost_usd: number; exact: boolean }
+/** A program on this computer (Claude Code, OpenCode): where it is, its version, how it is signed in (never the login itself). */
+export interface Found { provider: string; path: string | null; version: string | null; signed_in: string | null; problem: string | null }
+/** A program's plan limit, as it last said it while it ran. `used` from 0 to 1. */
+export interface PlanLimit { status: 'allowed' | 'allowed_warning' | 'rejected' | string; resets_at: number | null; used: number | null; said_at: number }
+/** `kind`: `api` (Demido asks the model itself) or `program` (a program runs its own loop). */
+export interface ProviderView { id: string; name: string; kind: 'api' | 'program'; program: Found | null; plan: PlanLimit | null; keys_at: string; note: string; key: KeyFacts | null; chosen: RemoteModel[]; spent_usd: number; spent_exact: boolean }
+/** `counted`: whether it counts toward the month's limit. A program's use does not: its plan holds it. */
+export interface Spent { provider: string; model: string; requests: number; input: number; output: number; cost_usd: number; exact: boolean; counted: boolean }
 export interface Spending { since: number; until: number; limit_usd: number | null; spent_usd: number; exact: boolean; prices_read_on: string; by_model: Spent[] }
 export interface AccountLine { label: string; used: number; limit: number | null; unit: string; reset: string | null }
 export interface Account { provider: string; lines: AccountLine[]; note: string | null }
@@ -109,6 +117,8 @@ export function holds(tokens: number): string {
 /** A price per million tokens, in and out. */
 export function priceOf(m: RemoteModel): string {
   if (m.free) return 'free'
+  if (m.price_from === 'plan') return 'billed by your Claude plan'
+  if (m.price_from === 'program') return 'billed through the provider you set up in OpenCode'
   if (m.price_in === null || m.price_out === null) return 'price not known in advance'
   const p = (n: number) => (n < 0.1 ? n.toFixed(3) : n < 10 ? n.toFixed(2) : n.toFixed(0))
   return `$${p(m.price_in)} in · $${p(m.price_out)} out, a million tokens`
@@ -120,6 +130,6 @@ export function startProviders() {
   if (started) return
   started = true
   void readProviders()
-  for (const kind of ['vault.key.added', 'vault.key.removed', 'provider.model.chosen', 'provider.model.dropped', 'provider.used']) onCoreEvent(kind, () => void readProviders())
+  for (const kind of ['vault.key.added', 'vault.key.removed', 'provider.model.chosen', 'provider.model.dropped', 'provider.used', 'provider.plan']) onCoreEvent(kind, () => void readProviders())
   onCoreEvent('setting.changed', (e) => { if (e.subject === 'providers.monthlyLimit') void readProviders() })
 }

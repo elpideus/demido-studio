@@ -17,9 +17,12 @@
 //! - **What leaves the computer is said.** A session with a model elsewhere says so; a key Demido keeps is
 //!   taken out of everything sent (`Vault::hide_in`), and a key is sent only to its own provider.
 //!
-//! Not built yet: Claude Code and OpenCode (they are programs on this computer that run their own loop, not
-//! an API: the next piece of plan item 6), several keys for one provider, and a provider's own spending
-//! figures for Anthropic and Google (they have no way to ask with an ordinary key).
+//! Claude Code and OpenCode are here too, as providers of another kind: programs on this computer that run
+//! their own loop (`programs`, `chat/program.rs`). Their models are listed and chosen the same way; they
+//! have no key in Demido, and what they cost is shown and held by their own plans, not by the limit.
+//!
+//! Not built yet: several keys for one provider, and a provider's own spending figures for Anthropic and
+//! Google (they have no way to ask with an ordinary key).
 
 mod anthropic;
 mod openai;
@@ -45,6 +48,8 @@ use crate::{Error, Result, VERSION, now_ms};
 pub struct Def {
     pub id: &'static str,
     pub name: &'static str,
+    /// A program on this computer with its own loop and tools (Claude Code, OpenCode), not an API.
+    pub program: bool,
     /// Where its API is.
     pub base: &'static str,
     /// Where the person gets a key.
@@ -53,10 +58,11 @@ pub struct Def {
     pub note: &'static str,
 }
 
-pub const ALL: [Def; 3] = [
+pub const ALL: [Def; 5] = [
     Def {
         id: "anthropic",
         name: "Anthropic",
+        program: false,
         base: "https://api.anthropic.com",
         keys_at: "https://console.anthropic.com/settings/keys",
         note: "Claude, through Anthropic's API with your own key. Billed by Anthropic per token. Demido counts the cost from the tokens Anthropic reports, at the prices it read.",
@@ -64,6 +70,7 @@ pub const ALL: [Def; 3] = [
     Def {
         id: "gemini",
         name: "Gemini (Google AI)",
+        program: false,
         base: "https://generativelanguage.googleapis.com/v1beta/openai",
         keys_at: "https://aistudio.google.com/apikey",
         note: "Gemini, through Google's API with your own key from Google AI Studio. On Google's free tier nothing is billed, and Google may use what is sent to improve its products; Demido counts every request at the paid price, so its count is above a free tier's bill. Gemini's newer models always think a little: Demido asks for the least.",
@@ -71,11 +78,95 @@ pub const ALL: [Def; 3] = [
     Def {
         id: "openrouter",
         name: "OpenRouter",
+        program: false,
         base: "https://openrouter.ai/api/v1",
         keys_at: "https://openrouter.ai/keys",
         note: "Hundreds of models from many companies, through one key. OpenRouter says what each answer cost, and Demido counts that. Models whose name ends in :free cost nothing and have a daily limit of requests.",
     },
+    Def {
+        id: "claude-code",
+        name: "Claude Code",
+        program: true,
+        base: "",
+        keys_at: "https://code.claude.com/docs/en/setup",
+        note: "Runs the Claude Code you installed, signed in with your own Claude plan or key, with its own tools and its own loop: Demido is the window onto it. It uses your plan's limits (its five-hour and weekly ones); Demido shows what it reports and does not count it against the limit you set here. Demido never sees or keeps its login. Not made or endorsed by Anthropic.",
+    },
+    Def {
+        id: "opencode",
+        name: "OpenCode",
+        program: true,
+        base: "",
+        keys_at: "https://opencode.ai/docs/",
+        note: "Runs the OpenCode you installed, with its own tools and its own loop: Demido is the window onto it. Its free models need no account; several of them use what is sent to improve them, and each says so here. Other models bill through the providers you set up in OpenCode, not through Demido's limit. Used only for your own messages: OpenCode's terms do not allow its free models to be run with nobody there.",
+    },
 ];
+
+/// Claude Code's own names for its models (code.claude.com/docs/en/model-config, read on 2026-11-21).
+const CLAUDE_CODE_MODELS: [(&str, &str); 5] =
+    [("default", "Claude Code's default"), ("opus", "Opus, the newest"), ("sonnet", "Sonnet, the newest"), ("haiku", "Haiku, the newest"), ("fable", "Fable, the newest")];
+
+/// What OpenCode's models page says each free model does with what is sent to it (opencode.ai/docs/console/
+/// models, read on 2026-11-21). Free models come and go; one not here is said to be not known.
+const OPENCODE_DATA_USE: [(&str, &str); 11] = [
+    ("big-pickle", "it may use what is sent to improve the model, during its free period"),
+    ("tidepool-alpha-free", "it keeps what is sent and uses it to improve the model, during its free period"),
+    ("iceman-free", "it keeps what is sent and uses it to improve the model, during its free period"),
+    ("flint-40b-free", "it may use what is sent to improve the model, and keeps it for 30 days"),
+    ("nemotron-3.5-lightning-free", "it is a trial that logs what is sent to improve NVIDIA's products; send nothing personal or confidential"),
+    ("nemotron-3.5-super-vl-free", "it is a trial that logs what is sent to improve NVIDIA's products; send nothing personal or confidential"),
+    ("mimo-v2.6-flash-free", "it is free for a while so that its makers can collect feedback"),
+    ("deepseek-v4.1-flash-free", "it keeps nothing and does not train on what is sent"),
+    ("longcat-2.5-free", "it keeps nothing and does not train on what is sent; it is hosted in China, with 100 requests a day"),
+    ("hy4-flash-free", "it keeps nothing and does not train on what is sent"),
+    ("beam-free", "it does not train on what is sent, and keeps it for 30 days for safety"),
+];
+
+/// A model Claude Code offers.
+fn claude_code_model(name: &str, label: &str) -> RemoteModel {
+    RemoteModel {
+        id: format!("claude-code/{name}"),
+        provider: "claude-code".into(),
+        name: label.into(),
+        context_length: None,
+        most_written: None,
+        price_in: None,
+        price_out: None,
+        price_from: "plan".into(),
+        free: false,
+        thinking: ["low", "medium", "high", "xhigh", "max"].iter().map(|l| l.to_string()).collect(),
+        always_thinks: false,
+        takes: vec![],
+        chosen: false,
+        note: None,
+    }
+}
+
+/// A model OpenCode offers, as its value and name.
+fn opencode_model(value: &str, name: &str) -> RemoteModel {
+    let own = value.strip_prefix("opencode/");
+    let free = own.is_some_and(|m| m.ends_with("-free") || m == "big-pickle");
+    let note = own.filter(|_| free).map(|m| match OPENCODE_DATA_USE.iter().find(|(id, _)| *id == m) {
+        Some((_, said)) => format!("Free. OpenCode says {said}."),
+        None => "Free. OpenCode's models page says nothing yet about what this model does with what is sent to it.".to_string(),
+    });
+    RemoteModel {
+        id: format!("opencode/{value}"),
+        provider: "opencode".into(),
+        // "opencode/Big Pickle", "opencode/Beam Free": the provider and "Free" are said elsewhere.
+        name: name.strip_prefix("opencode/").unwrap_or(name).trim_end_matches(" Free").to_string(),
+        context_length: None,
+        most_written: None,
+        price_in: if free { Some(0.0) } else { None },
+        price_out: if free { Some(0.0) } else { None },
+        price_from: if free { "provider".into() } else { "program".into() },
+        free,
+        thinking: vec![],
+        always_thinks: false,
+        takes: vec![],
+        chosen: false,
+        note,
+    }
+}
 
 /// The provider of a model elsewhere, and the model's name there. `None` for a model on this computer.
 pub fn split(model: &str) -> Option<(&'static Def, &str)> {
@@ -99,7 +190,9 @@ pub struct RemoteModel {
     pub price_in: Option<f64>,
     pub price_out: Option<f64>,
     /// Where the prices come from: `provider` (it says so), `table` (Demido's table, read on a stated
-    /// day), `highest` (not in the table: the provider's highest is counted), or `unknown`.
+    /// day), `highest` (not in the table: the provider's highest is counted), `plan` (billed by the
+    /// person's plan with the program's maker), `program` (billed through the program's own providers), or
+    /// `unknown`.
     pub price_from: String,
     /// It costs nothing.
     pub free: bool,
@@ -111,6 +204,9 @@ pub struct RemoteModel {
     pub takes: Vec<String>,
     /// The person chose it: it may be used in a session.
     pub chosen: bool,
+    /// What to know before using it: what a free model does with what is sent to it.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// A provider as the person sees it.
@@ -118,6 +214,12 @@ pub struct RemoteModel {
 pub struct ProviderView {
     pub id: String,
     pub name: String,
+    /// `api` (Demido asks the model itself) or `program` (a program on this computer runs its own loop).
+    pub kind: String,
+    /// For a program: whether it is here, its version, how it is signed in.
+    pub program: Option<crate::programs::Found>,
+    /// For a program: its plan's limit, as it last said it while running.
+    pub plan: Option<PlanLimit>,
     pub keys_at: String,
     pub note: String,
     /// The key, when one is kept. Never its value.
@@ -128,6 +230,19 @@ pub struct ProviderView {
     pub spent_usd: f64,
     /// Whether all of that is the provider's own figure.
     pub spent_exact: bool,
+}
+
+/// A program's plan limit, as it last said it (Claude Code's `rate_limit_event`).
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct PlanLimit {
+    /// `allowed`, `allowed_warning` or `rejected`.
+    pub status: String,
+    /// When the limit resets, in milliseconds since 1970.
+    pub resets_at: Option<i64>,
+    /// How much of it is used, from 0 to 1, when it says.
+    pub used: Option<f64>,
+    /// When it said so.
+    pub said_at: i64,
 }
 
 /// What Demido counted.
@@ -157,6 +272,8 @@ pub struct Spent {
     pub output: u64,
     pub cost_usd: f64,
     pub exact: bool,
+    /// Whether it counts toward the month's limit. A program's use does not: its plan holds it.
+    pub counted: bool,
 }
 
 /// What a provider itself says about the key's account, line by line.
@@ -277,7 +394,18 @@ pub struct Providers {
     listed: Mutex<HashMap<String, (Instant, Vec<RemoteModel>)>>,
     /// Models whose provider said no to a way of thinking: asked the plain way from then on.
     plain: Mutex<HashMap<String, Plainer>>,
+    /// Starts the programs. A test gives a stand-in.
+    spawner: Arc<dyn crate::programs::Spawner>,
+    /// Where OpenCode is asked for its list of models: a folder of Demido's own.
+    listing_in: std::path::PathBuf,
+    /// What each program said about itself, and when.
+    found: Mutex<HashMap<String, (Instant, crate::programs::Found)>>,
+    /// Each program's plan limit, as it last said it.
+    plans: Mutex<HashMap<String, PlanLimit>>,
 }
+
+/// A program is looked at again after this long.
+const PROGRAM_LOOKED_AT_FOR: Duration = Duration::from_secs(60);
 
 /// The first moment of this month and of the next, in this computer's time zone.
 pub fn this_month() -> (i64, i64) {
@@ -309,7 +437,77 @@ impl Providers {
                 bases.insert(d.id, format!("{base}/{}", d.id));
             }
         }
-        Self { db, vault, settings, events, http, bases, listed: Mutex::default(), plain: Mutex::default() }
+        Self {
+            db,
+            vault,
+            settings,
+            events,
+            http,
+            bases,
+            listed: Mutex::default(),
+            plain: Mutex::default(),
+            spawner: Arc::new(crate::programs::ProcessSpawner),
+            listing_in: std::env::temp_dir().join("demido-program-listing"),
+            found: Mutex::default(),
+            plans: Mutex::default(),
+        }
+    }
+
+    /// The same, asking OpenCode for its models in a folder under `home`, and starting programs with `spawner`.
+    pub fn with_programs(mut self, home: &std::path::Path, spawner: Arc<dyn crate::programs::Spawner>) -> Self {
+        self.listing_in = home.join("programs").join("listing");
+        self.spawner = spawner;
+        self
+    }
+
+    pub fn spawner(&self) -> &Arc<dyn crate::programs::Spawner> {
+        &self.spawner
+    }
+
+    /// The path the person set for a program, if they set one.
+    pub fn program_path_set(&self, provider: &str) -> Option<String> {
+        let id = if provider == "claude-code" { "providers.claudeCodePath" } else { "providers.opencodePath" };
+        self.settings.value::<String>(id).ok().filter(|s| !s.trim().is_empty())
+    }
+
+    /// Where a program is, or why it cannot be used.
+    pub fn program(&self, provider: &str) -> Result<std::path::PathBuf> {
+        let set = self.program_path_set(provider);
+        crate::programs::find(provider, set.as_deref()).ok_or_else(|| {
+            let name = if provider == "claude-code" { "Claude Code" } else { "OpenCode" };
+            Error::Invalid(format!("{name} is not on this computer, or not where Demido looks. Install it from its makers, or set its path in Settings › Providers and spending."))
+        })
+    }
+
+    /// What a program says about itself, looked at again after a minute.
+    pub async fn look_at(&self, provider: &str) -> crate::programs::Found {
+        let kept = self.found.lock().unwrap_or_else(|e| e.into_inner()).get(provider).filter(|(at, _)| at.elapsed() < PROGRAM_LOOKED_AT_FOR).map(|(_, f)| f.clone());
+        if let Some(found) = kept {
+            return found;
+        }
+        let found = crate::programs::look(provider, self.program_path_set(provider).as_deref()).await;
+        self.found.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.to_string(), (Instant::now(), found.clone()));
+        found
+    }
+
+    /// A program's plan limit, as it said it while it ran.
+    pub fn note_plan(&self, provider: &str, status: &str, resets_at: Option<i64>, used: Option<f64>) {
+        let limit = PlanLimit { status: status.into(), resets_at: resets_at.map(|s| if s < 100_000_000_000 { s * 1000 } else { s }), used, said_at: now_ms() };
+        self.plans.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.to_string(), limit);
+        self.events.tell("provider.plan", Some(provider), json!({ "status": status, "resets_at": resets_at, "used": used }));
+    }
+
+    /// Writes down what a request to a program cost, as the program said. It is shown, and does not count
+    /// toward the month's limit.
+    pub fn record(&self, provider: &str, model: &str, asking: For<'_>, tokens: prices::Tokens, cost: f64) -> Result<()> {
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO usage (at, provider, model, session_id, message_id, input, cached, cache_written, output, cost_usd, exact) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
+                rusqlite::params![now_ms(), provider, model, asking.session, asking.message, tokens.input as i64, tokens.cached as i64, tokens.cache_written as i64, tokens.output as i64, cost],
+            )
+        })?;
+        self.events.tell("provider.used", Some(provider), json!({ "provider": provider, "cost_usd": cost, "exact": false, "session": asking.session }));
+        Ok(())
     }
 
     /// The same, with every provider's API at `base` (`base/anthropic`, `base/gemini`, …). For tests.
@@ -349,6 +547,17 @@ impl Providers {
         let kept = self.listed.lock().unwrap_or_else(|e| e.into_inner()).get(provider).filter(|(at, _)| !fresh && at.elapsed() < LIST_KEPT_FOR).map(|(_, list)| list.clone());
         let mut list = match kept {
             Some(list) => list,
+            None if def.id == "claude-code" => CLAUDE_CODE_MODELS.iter().map(|(name, label)| claude_code_model(name, label)).collect(),
+            None if def.id == "opencode" => {
+                // OpenCode says which models it offers when a session is made; one is made in a folder of
+                // Demido's own, read and deleted. Nothing is sent to a model.
+                let program = self.program("opencode")?;
+                std::fs::create_dir_all(&self.listing_in)?;
+                let started = self.spawner.spawn(&program, &["acp".to_string()], &self.listing_in, &[])?;
+                let list: Vec<RemoteModel> = crate::programs::opencode_models(started, &self.listing_in).await?.iter().map(|(value, name)| opencode_model(value, name)).collect();
+                self.listed.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.to_string(), (Instant::now(), list.clone()));
+                list
+            }
             None => {
                 // OpenRouter lists its models to anyone; the others want the key.
                 let key = if def.id == "openrouter" { self.vault.get(def.id)?.unwrap_or_default() } else { self.key(def)? };
@@ -387,20 +596,32 @@ impl Providers {
 
     /// Chooses a model of a provider, so that sessions may use it; or lets it go (`chosen` false).
     pub async fn choose(&self, provider: &str, model: &str, chosen: bool) -> Result<RemoteModel> {
-        let id = if model.starts_with(&format!("{provider}/")) { model.to_string() } else { format!("{provider}/{model}") };
+        // A model may be named as a session names it (`provider/model`) or by its name at the provider, which
+        // can itself begin with the provider's name (OpenCode's own models are `opencode/…`): both are tried.
+        let named = [format!("{provider}/{model}"), model.to_string()];
         if !chosen {
-            let Some(mut gone) = self.chosen_one(&id)? else {
-                return Err(Error::NotFound(format!("{id} is not chosen.")));
+            let mut gone = None;
+            for id in &named {
+                if let Some(found) = self.chosen_one(id)? {
+                    gone = Some(found);
+                    break;
+                }
+            }
+            let Some(mut gone) = gone else {
+                return Err(Error::NotFound(format!("{model} is not chosen.")));
             };
+            let id = gone.id.clone();
             self.db.with(|c| c.execute("DELETE FROM remote_models WHERE id = ?1", [&id]))?;
             self.events.append("provider.model.dropped", Some(&id), json!({ "provider": provider }))?;
             gone.chosen = false;
             return Ok(gone);
         }
         let list = self.models(provider, false).await?;
-        let Some(mut found) = list.into_iter().find(|m| m.id == id) else {
-            return Err(Error::NotFound(format!("{} has no model called \"{model}\", as far as its list says.", split(&id).map_or(provider, |(d, _)| d.name))));
+        let Some(mut found) = named.iter().find_map(|id| list.iter().find(|m| &m.id == id).cloned()) else {
+            let name = ALL.iter().find(|d| d.id == provider).map_or(provider, |d| d.name);
+            return Err(Error::NotFound(format!("{name} has no model called \"{model}\", as far as its list says.")));
         };
+        let id = found.id.clone();
         found.chosen = true;
         let facts = serde_json::to_string(&found)?;
         self.db.with(|c| {
@@ -418,14 +639,17 @@ impl Providers {
         let by_model: Vec<Spent> = self.db.with(|c| {
             c.prepare("SELECT provider, model, count(*), sum(input + cached), sum(output), sum(cost_usd), min(exact) FROM usage WHERE at >= ?1 GROUP BY provider, model ORDER BY sum(cost_usd) DESC")?
                 .query_map([since], |r| {
+                    let provider: String = r.get(0)?;
+                    let counted = !ALL.iter().any(|d| d.id == provider && d.program);
                     Ok(Spent {
-                        provider: r.get(0)?,
+                        provider,
                         model: r.get(1)?,
                         requests: r.get::<_, i64>(2)? as u64,
                         input: r.get::<_, i64>(3)? as u64,
                         output: r.get::<_, i64>(4)? as u64,
                         cost_usd: r.get(5)?,
                         exact: r.get::<_, i64>(6)? == 1,
+                        counted,
                     })
                 })?
                 .collect()
@@ -435,8 +659,8 @@ impl Providers {
             until,
             limit_usd: self.limit(),
             // A sum of nothing is -0.0 in Rust; + 0.0 makes it the zero a person reads.
-            spent_usd: by_model.iter().map(|s| s.cost_usd).sum::<f64>() + 0.0,
-            exact: by_model.iter().all(|s| s.exact),
+            spent_usd: by_model.iter().filter(|s| s.counted).map(|s| s.cost_usd).sum::<f64>() + 0.0,
+            exact: by_model.iter().filter(|s| s.counted).all(|s| s.exact),
             prices_read_on: prices::READ_ON.into(),
             by_model,
         })
@@ -452,9 +676,14 @@ impl Providers {
     }
 
     /// The providers, each with its key (never its value), its chosen models and what it cost this month.
-    pub fn view(&self) -> Result<Vec<ProviderView>> {
+    pub async fn view(&self) -> Result<Vec<ProviderView>> {
         let spending = self.spending()?;
         let chosen = self.chosen()?;
+        let mut programs = HashMap::new();
+        for d in ALL.iter().filter(|d| d.program) {
+            programs.insert(d.id, self.look_at(d.id).await);
+        }
+        let plans = self.plans.lock().unwrap_or_else(|e| e.into_inner()).clone();
         Ok(ALL
             .iter()
             .map(|d| {
@@ -462,6 +691,9 @@ impl Providers {
                 ProviderView {
                     id: d.id.into(),
                     name: d.name.into(),
+                    kind: if d.program { "program" } else { "api" }.into(),
+                    program: programs.get(d.id).cloned(),
+                    plan: plans.get(d.id).cloned(),
                     keys_at: d.keys_at.into(),
                     note: d.note.into(),
                     key: self.vault.facts(d.id),
@@ -481,6 +713,18 @@ impl Providers {
         };
         match def.id {
             "openrouter" => openai::account(&self.http, self.base(def.id), &self.key(def)?).await,
+            "claude-code" => Ok(Account {
+                provider: provider.into(),
+                lines: vec![],
+                note: Some(
+                    "Claude Code says how much of your plan's limit is used while it runs, and Demido shows the last it said. Your plan's usage page shows the rest: claude.ai/settings/usage.".into(),
+                ),
+            }),
+            "opencode" => Ok(Account {
+                provider: provider.into(),
+                lines: vec![],
+                note: Some("OpenCode's free models have limits of their own that OpenCode does not tell. `opencode stats` in a terminal shows what OpenCode itself counted.".into()),
+            }),
             "anthropic" => Ok(Account {
                 provider: provider.into(),
                 lines: vec![],
@@ -504,6 +748,11 @@ impl Providers {
         let Some(facts) = self.chosen_one(model)? else {
             return Err(Error::Invalid(format!("{model} is not chosen. Choose it on the Providers screen first: nothing is sent to a model you did not choose.")));
         };
+        // A program has no key in Demido (its login is its own) and is held by its own plan, not by the limit.
+        if def.program {
+            self.program(def.id)?;
+            return Ok(facts);
+        }
         if self.vault.facts(def.id).is_none() {
             return Err(Error::Invalid(format!("There is no {} key yet. Add yours on the Providers screen (you get one at {}).", def.name, def.keys_at)));
         }

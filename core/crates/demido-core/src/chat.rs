@@ -25,7 +25,8 @@
 //!
 //! A session's model may run elsewhere (`provider/model`, see `providers`): the turn is the same, and only
 //! the asking goes to the provider. A model elsewhere is not loaded; it is checked (chosen, key kept, the
-//! month's limit not reached) instead.
+//! month's limit not reached) instead. A model run by a program on this computer (Claude Code, OpenCode) is
+//! given the message and watched: its turn is in `program.rs`.
 //!
 //! Not built yet: settings per model.
 
@@ -46,6 +47,7 @@ use crate::settings::Settings;
 use crate::tools;
 use crate::{Error, Result};
 
+mod program;
 mod turn;
 
 /// What every model is told first, in every session. The answer style of the brief (4.14): the answer
@@ -121,6 +123,12 @@ pub struct Chat {
     outputs: std::path::PathBuf,
     /// Models elsewhere, and the keys for them. `None` in a test that has none.
     providers: Option<Arc<crate::providers::Providers>>,
+    /// Where this server answers, for a program's approval tool. Set when the server starts.
+    address: std::sync::OnceLock<String>,
+    /// The turns programs are running now, by the token their approval tool carries.
+    programs_live: Mutex<HashMap<String, program::Live>>,
+    /// Where a program works for a session without a folder: a folder of its own for each session.
+    programs_in: std::path::PathBuf,
 }
 
 /// A conversation with a model elsewhere is given at most this many tokens of it, however much the model
@@ -169,7 +177,16 @@ impl Chat {
             web: Arc::new(crate::web::Web::new(None)),
             outputs: std::env::temp_dir().join("demido-outputs"),
             providers: None,
+            address: std::sync::OnceLock::new(),
+            programs_live: Mutex::default(),
+            programs_in: std::env::temp_dir().join("demido-programs"),
         }
+    }
+
+    /// The same, giving a program a folder under `place` for each session that has none.
+    pub fn keeping_programs_in(mut self, place: std::path::PathBuf) -> Self {
+        self.programs_in = place;
+        self
     }
 
     /// The same, able to ask models elsewhere, with the keys their vault keeps.
@@ -475,6 +492,7 @@ impl Chat {
         // The folders saved for undoing its programs go with it, and what its programs printed.
         let _ = std::fs::remove_dir_all(self.kept_in.join(session_id));
         let _ = std::fs::remove_dir_all(self.outputs.join(session_id));
+        let _ = std::fs::remove_dir_all(self.programs_in.join(session_id));
         self.events.append("session.deleted", Some(&gone.id), json!({ "title": gone.title }))?;
         Ok(gone)
     }
@@ -771,6 +789,21 @@ impl Chat {
         let outcome: Result<Answer> = async {
             // The model is loaded if it is not: its loading is told by the engine's own news. One elsewhere is checked.
             self.ready(&session.model).await?;
+            // A program on this computer runs its own loop: it is given the message, and watched.
+            if crate::providers::split(&session.model).is_some_and(|(d, _)| d.program) {
+                let mut heard = |piece: Piece| {
+                    match piece {
+                        Piece::Text(text) => waiting.0.push_str(text),
+                        Piece::Thought(text) => waiting.1.push_str(text),
+                        Piece::Started(_) => {}
+                    }
+                    if last_told.elapsed() >= TELL_EVERY {
+                        last_told = Instant::now();
+                        tell(&mut waiting);
+                    }
+                };
+                return self.program_answer(&session, &answer_id, &running, &mut heard).await;
+            }
             // A conversation that has grown past the set size is made shorter first, so that this answer has room.
             let room = self.context_use(&session.id)?;
             if room.auto && room.used > room.compact_at {

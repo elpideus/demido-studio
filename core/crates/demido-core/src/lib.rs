@@ -23,6 +23,7 @@
 //! - [`kept`]      keeping an answer for a short while, so a burst of the same question costs one answer
 //! - [`vault`]     where keys are kept: the system's keyring, or a file only the user can read
 //! - [`providers`] models that run elsewhere (Anthropic, Gemini, OpenRouter), and what they cost
+//! - [`programs`]  Claude Code and OpenCode: programs on this computer with loops of their own
 
 pub mod api;
 pub mod auth;
@@ -37,6 +38,7 @@ pub mod hub;
 pub mod kept;
 pub mod paths;
 pub mod permissions;
+pub mod programs;
 pub mod providers;
 pub mod runtime;
 pub mod sandbox;

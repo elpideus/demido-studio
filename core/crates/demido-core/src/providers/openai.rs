@@ -68,6 +68,7 @@ pub(super) fn gemini_model(m: &Value) -> Option<RemoteModel> {
         thinking,
         takes: vec!["images".into()],
         chosen: false,
+        note: None,
     })
 }
 
@@ -111,6 +112,7 @@ pub(super) fn openrouter_model(m: &Value) -> Option<RemoteModel> {
         thinking,
         takes: if arch["input_modalities"].as_array().is_some_and(|i| i.iter().any(|x| x == "image")) { vec!["images".into()] } else { Vec::new() },
         chosen: false,
+        note: None,
     })
 }
 

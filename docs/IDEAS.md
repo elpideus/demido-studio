@@ -158,9 +158,23 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 124 | **Half price for work that can wait.** Anthropic's batch interface costs half, and answers within a day. Schedules and monitors (plan item 7) that run at night could use it. | Idea | Not built |
 | 125 | **A model elsewhere as the second look.** Smart is to have a model judge whether a program needs your yes (T). A small fast model elsewhere (Haiku 5.5 costs $0.10 a million tokens read) could be that judge while the local model does the work, if you accept that what it judges leaves the computer. | Idea | Not built |
 | 126 | **Anthropic's own figure for what was spent.** An ordinary key cannot ask; an admin key can (the Admin API's cost report). With one in the vault, the Anthropic card could show Anthropic's figure beside Demido's count. | Idea | Not built |
+| 128 | **Claude Code's plan, before it runs.** Its plan's limit is shown once it has said it, during a turn. Claude Code answers `/usage` with the whole report (the five-hour and weekly limits); asking it that when the Providers screen opens would show the limit before the first turn, if it costs nothing, which its documentation does not say. | Idea | Not built |
+| 129 | **A program's own tools, shown better.** A step shows a Claude Code tool by its name and its arguments. Its edits come with the old and new text: shown as a diff each, the way Demido's own changes are, they would read better than the whole turn's diff at the end. | Idea | Not built |
+| 130 | **Any agent that speaks ACP.** Demido's OpenCode client speaks the Agent Client Protocol. Gemini CLI, Goose and others speak it too: each could be a program here with a few lines, subject to its own terms (Gemini CLI's login may not be used by another program; its API key may). | Idea | Not built |
 | 127 | **Keys for a server, locked.** On a server without a desktop the keys are in a file only the user can read. Note 05 planned better there: a vault file locked with a passphrase typed after boot, or by systemd's own encrypted credentials. | Idea | Not built |
 
 ## Pushback on the brief so far
+
+- **"Anthropic, subscription" is not a model Demido can drive.** The brief lists it beside the API. Through
+  Claude Code it is a different thing: Claude Code's loop, its tools, its rules; Demido is the window. None of
+  what makes small local models behave runs inside it, and Demido does not try to make the subscription a
+  plain model for its own loop: that is the closest this design comes to routing requests through a plan,
+  which Anthropic does not allow (note 06). The same holds for OpenCode. They are on the Providers screen as
+  "Programs on this computer", apart from the APIs.
+- **Claude Code's billing is not what the brief says.** The brief says programmatic use draws from a separate
+  monthly credit since June 2026. That change was paused; programmatic use under a plan counts against the
+  plan's normal limits (note 06). So Demido shows Claude Code's word on the plan's limit, and its dollars as
+  what the turn would cost at API prices, not as money spent.
 
 - **Every answer from a model elsewhere is two requests or more, and both are paid.** Demido first asks a
   model whether it needs a tool, then for the answer (L, T): that is what makes small local models usable,

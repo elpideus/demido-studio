@@ -152,6 +152,7 @@ fn facts(id: &str, thinking: &[&str], always: bool) -> RemoteModel {
         always_thinks: always,
         takes: vec![],
         chosen: true,
+        note: None,
     }
 }
 
@@ -302,7 +303,7 @@ async fn a_chosen_model_answers_and_what_it_cost_is_counted() {
     let spending = p.spending().unwrap();
     assert!((spending.spent_usd - expected).abs() < 1e-12 && !spending.exact);
     assert_eq!(spending.by_model[0].model, "claude-opus-5-5");
-    assert_eq!(p.view().unwrap().iter().find(|v| v.id == "anthropic").unwrap().chosen.len(), 1);
+    assert_eq!(p.view().await.unwrap().iter().find(|v| v.id == "anthropic").unwrap().chosen.len(), 1);
 }
 
 #[tokio::test]

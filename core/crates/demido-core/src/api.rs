@@ -70,11 +70,12 @@ impl Core {
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let vault = Arc::new(Vault::open(paths.home()));
-        let providers = Arc::new(Providers::new(db.clone(), vault, settings.clone(), events.clone()));
+        let providers = Arc::new(Providers::new(db.clone(), vault, settings.clone(), events.clone()).with_programs(paths.home(), Arc::new(crate::programs::ProcessSpawner)));
         let sessions = Arc::new(Sessions::new(db));
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
                 .with_providers(providers.clone())
+                .keeping_programs_in(paths.home().join("programs"))
                 .keeping_in(paths.home().join("saved-folders"))
                 .keeping_outputs_in(paths.home().join("outputs"))
                 .with_sandbox(crate::sandbox::Sandbox::find())
@@ -692,7 +693,7 @@ async fn vault_remove(State(app): State<App>, Path(name): Path<String>) -> Resul
 /// The providers: each one's key (never its value), the models chosen there, and what Demido counted this month.
 #[utoipa::path(get, path = "/api/v1/providers", tag = "providers", responses((status = 200, body = Vec<ProviderView>)))]
 async fn providers_list(State(app): State<App>) -> Result<Json<Vec<ProviderView>>> {
-    Ok(Json(app.providers.view()?))
+    Ok(Json(app.providers.view().await?))
 }
 
 #[derive(Deserialize)]
@@ -834,6 +835,43 @@ async fn enter(State(app): State<App>, headers: HeaderMap, Query(q): Query<Enter
     }
 }
 
+/// Demido's approval tool, as an MCP server for one turn of Claude Code's (`--permission-prompt-tool`). The
+/// token in the address is made for that turn and dies with it; it lets Claude Code ask the person, and
+/// nothing else. A minimal server over MCP's HTTP transport: JSON answers, no stream.
+async fn program_approve(State(app): State<App>, Path(token): Path<String>, Json(said): Json<Value>) -> Response {
+    let Some(id) = said.get("id").cloned() else {
+        // A notification (`notifications/initialized`): nothing to answer.
+        return StatusCode::ACCEPTED.into_response();
+    };
+    let answer = |result: Value| Json(json!({ "jsonrpc": "2.0", "id": id, "result": result })).into_response();
+    match said["method"].as_str().unwrap_or_default() {
+        "initialize" => answer(json!({
+            "protocolVersion": said["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+            "capabilities": { "tools": {} },
+            "serverInfo": { "name": "demido", "version": VERSION },
+        })),
+        "ping" => answer(json!({})),
+        "tools/list" => answer(json!({ "tools": [{
+            "name": "approve",
+            "description": "Asks the person, in Demido, whether a tool may be used.",
+            "inputSchema": { "type": "object", "properties": { "tool_name": { "type": "string" }, "input": { "type": "object" }, "tool_use_id": { "type": "string" } }, "required": ["tool_name", "input"] },
+        }] })),
+        "tools/call" if said["params"]["name"] == "approve" => {
+            let args = &said["params"]["arguments"];
+            let (yes, why) = app.chat.program_approval(&token, args["tool_name"].as_str().unwrap_or("?"), args["input"].clone()).await;
+            // Claude Code reads one text block: allow, or deny with the reason.
+            let text = if yes { json!({ "behavior": "allow" }) } else { json!({ "behavior": "deny", "message": why }) };
+            answer(json!({ "content": [{ "type": "text", "text": text.to_string() }] }))
+        }
+        other => Json(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("Demido's approval tool does not offer {other}.") } })).into_response(),
+    }
+}
+
+/// The approval tool has no stream of its own to offer.
+async fn program_approve_stream() -> StatusCode {
+    StatusCode::METHOD_NOT_ALLOWED
+}
+
 async fn ui_file(State(app): State<App>, req: Request) -> Response {
     if req.uri().path().starts_with("/api/") {
         return problem(StatusCode::NOT_FOUND, "not_found", format!("There is nothing at {}. The API is described at /api/v1/openapi.json.", req.uri().path()));
@@ -897,7 +935,13 @@ pub fn router(app: App) -> Router {
         .route("/events", get(events_list))
         .route("/events/stream", get(events_stream))
         .route("/session/link", post(link_new));
-    Router::new().nest("/api/v1", api).route("/enter", get(enter)).fallback(ui_file).layer(middleware::from_fn_with_state(app.clone(), guard)).with_state(app)
+    Router::new()
+        .nest("/api/v1", api)
+        .route("/enter", get(enter))
+        .route("/programs/approve/{token}", post(program_approve).get(program_approve_stream))
+        .fallback(ui_file)
+        .layer(middleware::from_fn_with_state(app.clone(), guard))
+        .with_state(app)
 }
 
 // ───────── the server ─────────
@@ -930,6 +974,9 @@ pub async fn serve(opts: Options) -> Result<()> {
     };
     let listener = tokio::net::TcpListener::bind(&address).await.map_err(|e| Error::Other(format!("Could not listen on {address}: {e}. If another Demido is running, `demido status` shows it.")))?;
     let local = listener.local_addr()?;
+    // Where a program on this computer reaches Demido's approval tool.
+    let reach_at = if local.ip().is_unspecified() { std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), local.port()) } else { local };
+    core.chat.set_address(format!("http://{reach_at}"));
     let ui = Ui::find(opts.ui_dir);
     let app = App {
         settings: core.settings,
@@ -1263,6 +1310,27 @@ mod tests {
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{said}");
         assert!(said["error"]["message"].as_str().unwrap().contains("not chosen"), "{said}");
         std::fs::remove_dir_all(home).ok();
+    }
+
+    #[tokio::test]
+    async fn the_approval_tool_speaks_mcp_and_a_token_of_no_turn_is_refused() {
+        let (r, _) = app();
+        let call = |body: Value| request("POST", "/programs/approve/no-such-turn").header("content-type", "application/json").body(Body::from(body.to_string())).unwrap();
+        // No key is needed (the token is the key), but the host must be this server.
+        let (status, said) = send(&r, call(json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } }))).await;
+        assert_eq!((status, said["result"]["protocolVersion"].as_str(), said["result"]["serverInfo"]["name"].as_str()), (StatusCode::OK, Some("2025-06-18"), Some("demido")));
+        let (status, _) = send(&r, call(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let (_, said) = send(&r, call(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }))).await;
+        assert_eq!(said["result"]["tools"][0]["name"], "approve");
+        let (_, said) =
+            send(&r, call(json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "approve", "arguments": { "tool_name": "Bash", "input": { "command": "rm -rf /" } } } })))
+                .await;
+        let answer: Value = serde_json::from_str(said["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(answer["behavior"], "deny");
+        let foreign =
+            axum::http::Request::builder().method("POST").uri("/programs/approve/x").header("host", "evil.example").header("content-type", "application/json").body(Body::from("{}")).unwrap();
+        assert_eq!(send(&r, foreign).await.0, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

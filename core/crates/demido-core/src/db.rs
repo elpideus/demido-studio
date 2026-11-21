@@ -118,6 +118,15 @@ const MIGRATIONS: &[&str] = &[
      ) STRICT;
      CREATE INDEX usage_at ON usage (at);
      CREATE INDEX usage_of_message ON usage (message_id);",
+    // 10: a program's own session (Claude Code's, OpenCode's) for a session of Demido's, and how far it has seen it
+    "CREATE TABLE program_sessions (
+        session_id  TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+        provider    TEXT NOT NULL,          -- claude-code or opencode
+        external_id TEXT NOT NULL,          -- the program's own name for its session
+        seen_seq    INTEGER NOT NULL,       -- the last message of Demido's session the program was given
+        cost_so_far REAL NOT NULL DEFAULT 0, -- what the program said its session had cost so far, in dollars
+        PRIMARY KEY (session_id, provider)
+     ) STRICT;",
 ];
 
 pub struct Db {

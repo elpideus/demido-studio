@@ -1,4 +1,4 @@
-# 18. Keys and providers: where keys are kept, and how Anthropic, Gemini and OpenRouter are asked
+# 18. Keys and providers: where keys are kept, how Anthropic, Gemini and OpenRouter are asked, and Claude Code and OpenCode
 
 Written 2026-11-21, while building plan item 6 (the vault, the providers, usage shown; brief 4.10, 4.20).
 
@@ -60,7 +60,58 @@ From openrouter.ai/docs, read today (overview, structured outputs, reasoning, us
 | `GET /api/v1/key` says what the key spent this month (`usage_monthly`), its own limit (`limit`, `limit_remaining`, `limit_reset`), and its free-model requests today (`free_model_daily_requests`) | Read; Stand-in |
 | 402 when credit is used up, or the key's limit or the in-flight budget is reached; errors mid-stream come as a chunk with `error` | Read |
 
-## What was tried, and what was not
+## Claude Code (the person's own, through `claude -p`)
+
+Read today on code.claude.com/docs (legal-and-compliance, headless, cli-reference, errors, env-vars,
+agent-sdk/typescript, model-config). The installed one here: 2.1.330.
+
+| Fact | How sure |
+|---|---|
+| Running Claude Code in a product requires the Commercial Terms and two conditions: the binary as published, with no way of signing in removed, disabled or restricted; and no paying for, reselling or intermediating Claude usage: each end user signs in with their own key or plan and is billed directly | Read (legal-and-compliance) |
+| Developers may not offer Claude.ai login in their own apps, route requests through plan credentials on their users' behalf, or collect, store or intermediate Claude.ai credentials. This "does not prevent an end user from signing in to the unmodified Claude Code binary with their own Claude subscription" | Read (the same page) |
+| The name: a product may say in plain text that it runs Claude Code; it may not use the names or logos as part of its own name, feature or logo, or suggest Anthropic built or endorses it | Read (the same page) |
+| `claude -p` with `--input-format stream-json --output-format stream-json --verbose --include-partial-messages`: one JSON line in for the message, `{"type":"user","message":{"role":"user","content":…},"parent_tool_use_id":null}`; JSON lines out: `system/init` (with `apiKeySource`: `ANTHROPIC_API_KEY`, `apiKeyHelper`, `/login managed key` or `none`), `stream_event` (the Messages API's own stream events, text and thinking deltas), `assistant` (with `tool_use` blocks), `user` (with `tool_result` blocks), `system/permission_denied`, `system/api_retry`, `rate_limit_event` (`status`, `resetsAt`, `utilization`), and at the end `result` (`result`, `is_error`, `total_cost_usd`, `usage`, `session_id`) | Read; Stand-in |
+| `--session-id <uuid>` names a new session; `--resume <id>` goes on in one | Read |
+| Without `--bare`, a `-p` run uses the person's own login, and also runs a folder's `.claude/settings.json` hooks and `.mcp.json` servers with no trust question. `--setting-sources user` loads only the person's own settings; `--strict-mcp-config` loads only the servers given with `--mcp-config` | Read |
+| In a `-p` run, what needs approval is denied unless something approves it: `--permission-prompt-tool mcp__<server>__<tool>` names an MCP tool that does. The tool answers with one text block: `{"behavior":"allow"}` or `{"behavior":"deny","message":…}`, and no `structuredContent` | Read (headless, errors) |
+| An MCP tool on a server over HTTP times out after 60 seconds per request, unless `MCP_TOOL_TIMEOUT` is set above 60000; an idle check of 5 minutes applies too (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`) | Read (env-vars) |
+| Permission modes: `manual`, `acceptEdits`, `auto` (a classifier decides what needs a person), `dontAsk`, `bypassPermissions`, `plan` | Tried: `claude --help` |
+| SIGINT ends the turn cleanly; SIGTERM leaves it unfinished | Read (headless) |
+| `ANTHROPIC_API_KEY` in the environment is always used by `-p` in place of the plan | Read (env-vars) |
+| Model aliases: `default`, `opus`, `sonnet`, `haiku`, `fable` (and `best`, `opusplan`, `[1m]` forms); `--effort low … max` | Read (model-config); Tried: `--help` |
+| `claude auth status` prints JSON with `authMethod` (`none`, `claude.ai`, `oauth_token`, `api_key`, `api_key_helper`, `third_party`), exit 0 when signed in | Read; Tried: Demido reads only that field, and showed "signed in with a Claude account" |
+| `total_cost_usd` is the program's own estimate at API prices; under a plan nothing is billed per token | Read (headless: "client-side estimates") |
+
+## OpenCode (the person's own, through `opencode acp`)
+
+Read today on opencode.ai/docs (cli/acp, console/models) and its terms (effective 8 November 2026). The
+installed one here: v2.2.7.
+
+| Fact | How sure |
+|---|---|
+| `opencode acp` speaks the Agent Client Protocol, version 1: newline-delimited JSON-RPC over stdin and stdout, a private server of its own, no network port; it ends when its input closes | Read; Tried |
+| `initialize` answered: protocol 1, `loadSession`, sessions that can be resumed, closed, deleted, forked, listed; one auth method, `opencode-login` (run `opencode auth login` in a terminal) | Tried |
+| `session/new` with a folder answered, with no account: a session and its options: `model` (12 free models today, `opencode/big-pickle`, `opencode/deepseek-v4.1-flash-free` and others) and `mode` (`build`, `plan`) | Tried, in throwaway data folders, nothing sent to a model |
+| The model is set with `session/set_config_option`; text with `annotations.audience: ["assistant"]` is context for the model only | Read |
+| Permission requests offer `allow_once`, `allow_always`, `reject_once`; `session/cancel` ends a prompt with `stopReason: "cancelled"`; `usage_update` carries the session's whole cost so far | Read; Stand-in |
+| What each free model does with what is sent: Big Pickle, Iceman, Tidepool, Flint 40B may use it to improve the model; the Nemotron models are trials that log it; DeepSeek V4.1 Flash, LongCat 2.5 and Hy4 Flash keep nothing; Beam keeps it 30 days for safety; several newer ones say nothing | Read (console/models). Demido shows this per model, dated |
+| Free models are for OpenCode only: other clients get 403 | Read (console/models) |
+| The hosted service's terms forbid "automatically or programmatically" extracting output, and processes that run "while you are not logged into the Services"; on unpaid accounts what is sent may be used to improve the services | Read (terms of service) |
+
+## What was tried with the programs
+
+- **Tried, nothing sent to a model:** the scratch Demido found both programs, read Claude Code's version and
+  that it is signed in with a Claude account, and listed OpenCode's 12 free models with each one's data-use
+  note; one was chosen, and a session switched to it said "Runs in OpenCode".
+- **Tested against stand-ins:** a Claude Code turn in a folder at Balanced, where the stand-in asks for a
+  command through Demido's approval tool, the person says yes in Demido's card, the folder changes, the answer
+  shows its cost by Claude Code's count, and the whole change is undone in one go; the next turn resumes the
+  same Claude Code session and is given only the new message. An OpenCode turn at Cautious, where OpenCode's
+  permission request becomes Demido's card.
+- **Not tried:** a real message to either program. A message to Claude Code spends the owner's plan; one to
+  OpenCode's free models goes to its hosted models, some of which keep it. That is the owner's call.
+
+## What was tried with the providers, and what was not
 
 - **Tried:** the keyring on this computer, with a throwaway entry. The whole flow in the app against
   `core/dev/providers-stand-in.py`: a made-up key added on the Providers screen and kept in a file (the

@@ -217,6 +217,10 @@ pub fn listed(tools: &[&Tool]) -> String {
     out
 }
 
+/// The step that stands for everything a program on this computer (Claude Code, OpenCode) changed in the
+/// session's folder in one turn: undone in one go.
+pub const ALL_IT_CHANGED: &str = "all_it_changed";
+
 /// The shape a reply that names a tool is held to: a JSON object whose `tool` is one from the list.
 /// The arguments are left to the model and checked afterwards.
 pub fn shape(tools: &[&Tool]) -> Value {

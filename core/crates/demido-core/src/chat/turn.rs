@@ -498,7 +498,7 @@ impl Chat {
                     steps.push(Step { tool: tool.clone(), args: args.clone(), state: if asks { "waiting" } else { "running" }.into(), ..Step::default() });
                     changed(steps);
                     let why = permissions::why(level, reach, around, self.sandbox.why_not.as_deref());
-                    if asks && self.ask_person(session, answer_id, &tool, args.as_object().expect("made as one"), reach, why, once_only, stop).await? == Said::No {
+                    if asks && self.ask_person(session, answer_id, &tool, args.as_object().expect("made as one"), reach, why, once_only, stop, None).await? == Said::No {
                         if let Some((_, place)) = &saved {
                             let _ = std::fs::remove_dir_all(place);
                         }
@@ -629,7 +629,7 @@ impl Chat {
 
     /// Waits for the person's yes or no to one use of a tool. Stopping the answer counts as no.
     #[allow(clippy::too_many_arguments)]
-    async fn ask_person(
+    pub(super) async fn ask_person(
         &self,
         session: &Session,
         answer_id: &str,
@@ -639,6 +639,7 @@ impl Chat {
         why: String,
         once_only: bool,
         stop: &AtomicBool,
+        what: Option<String>,
     ) -> Result<Said> {
         let folder = session.folder.clone();
         let exists = |path: &str| folder.as_deref().and_then(|f| tools::files::inside(std::path::Path::new(f), path).ok()).is_some_and(|p| p.exists());
@@ -649,7 +650,7 @@ impl Chat {
             tool: tool.to_string(),
             args: Value::Object(args.clone()),
             reach,
-            what: permissions::what(tool, args, exists),
+            what: what.unwrap_or_else(|| permissions::what(tool, args, exists)),
             why,
             once_only,
             asked_at: crate::now_ms(),

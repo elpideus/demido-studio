@@ -131,8 +131,10 @@ Windows, and tools other people write.
    The vault and three providers are built (DECISIONS U, research note 18): keys in the system keyring (a
    file only the user can read where there is none), never shown again and never seen by a model; Anthropic,
    Gemini and OpenRouter in sessions, chosen by the person, with what each answer cost and a limit for the
-   month. Tried against stand-ins; the first real request waits for the owner's key. Left in it: Claude Code
-   and OpenCode.
+   month. Tried against stand-ins; the first real request waits for the owner's key. Claude Code and OpenCode
+   are built too (DECISIONS U15 to U25): the person's own programs, run as documented, their tools shown,
+   what they ask asked in Demido's window, the folder saved before each turn. Found and read on this
+   computer; no message has been sent to either.
 7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),
    lending, schedules, session messaging.
 8. Files, artifacts, editor. Browser, search, fetch.
@@ -155,7 +157,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | Settings for each model: the research, and applying what the makers recommend | It meets `docs/LATER.md` 1 |
 | 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good, and the Hugging Face key for gated models (H8) | Secrets and money |
-| 6 | ~~Anthropic, Gemini and OpenRouter; usage shown.~~ Done (DECISIONS U), tried against stand-ins: the first real request waits for your key. Left: Claude Code and OpenCode, which are programs with loops of their own | Documented interfaces, one at a time; never touch a program's login |
+| 6 | ~~Anthropic, Gemini and OpenRouter; usage shown; Claude Code and OpenCode.~~ Done (DECISIONS U), tested against stand-ins: the first real request waits for your key, and the first message to a program for your yes | Documented interfaces, one at a time; never touch a program's login |
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
 | 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
@@ -180,8 +182,10 @@ Also done on 2026-11-21: the models browser and downloader (DECISIONS H).
 Also done on 2026-11-21: the vault, and Anthropic, Gemini and OpenRouter with what they cost (DECISIONS U,
 research note 18).
 
-Next, in this order unless the owner says otherwise: Claude Code and OpenCode (the rest of plan item 6); the
-sandbox on macOS and Windows; settings for each model (the research first).
+Also done on 2026-11-21: Claude Code and OpenCode (DECISIONS U15 to U25).
+
+Next, in this order unless the owner says otherwise: the sandbox on macOS and Windows; settings for each
+model (the research first).
 
 ## Set aside for later
 
@@ -196,6 +200,14 @@ model, from a short trial when a model is first used.
 - **Search, for your eye.** It now works as the previous version did, a ladder of sources (DECISIONS N6),
   with two things left out on purpose: a browser's name in place of Demido's, and Brave's and Bing's
   pages (N7). Say so if you want either otherwise.
+- **Running Claude Code inside Demido, formally.** Anthropic's legal page says that running Claude Code in a
+  product "requires agreeing to" its Commercial Terms and two conditions (the program unchanged with every way
+  of signing in kept; each person signs in and is billed themselves). Demido meets the two conditions as
+  built (DECISIONS U15). Whether the project accepts the Commercial Terms, and whether to ask Anthropic to
+  confirm this design in writing, is yours to decide before a release offers it (note 06, open question 2).
+- **A first message to Claude Code or OpenCode.** Both are found and read on this computer, and tested
+  against stand-ins. A message to Claude Code spends your plan; one to OpenCode's free models goes to its
+  hosted models, several of which keep what is sent (the screen says which). Say when, and with which.
 - **A first real request to a provider.** Everything for Anthropic, Gemini and OpenRouter is built and
   tested against stand-ins that answer the way their documentation shows. A real request needs your own key,
   which I may not enter for you, and it costs money (OpenRouter's free models cost nothing). When you add a
