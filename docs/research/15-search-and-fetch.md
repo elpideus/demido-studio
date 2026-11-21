@@ -10,11 +10,14 @@ their files were read through GitHub.
 
 ## The short of it
 
-- **A general web search that needs no key and that the search engine allows hardly exists.** Bing's
-  interface closed in 2025. Google's is closed to new users and ends on 2027-01-01. Brave's needs an
-  account and a key. DuckDuckGo answers a program it does not know with a puzzle for a person. What is
-  left without a key: Wikipedia (allowed, with rules) and two small independent engines with tight limits
-  (Mwmbl, Marginalia). Demido uses Wikipedia and Mwmbl. That is honest, and it is weak: see the trial.
+- **Search without a key is possible, and good, in one way I had missed.** I first built it on Wikipedia and
+  Mwmbl alone and reported that DuckDuckGo could not be used without disguise. That was wrong, and the
+  previous Demido showed why (the owner let me read how it searched, once: see below). Exa offers
+  assistants a search service without an account. And DuckDuckGo answers a program under its own name
+  when it is asked the way its own search form asks. Demido now tries sources in turn, as the previous
+  one did: your own SearXNG, Exa, DuckDuckGo, and last Wikipedia with Mwmbl.
+- **The interfaces the large engines once offered are gone or closed.** Bing's closed in 2025. Google's is
+  closed to new users and ends on 2027-01-01. Brave's needs an account and a key.
 - **Most of the projects on the brief's list get results by reading the engines' pages for people**, and
   three of them do it by passing themselves off as a browser. One of the six cannot be used at all because
   of its licence.
@@ -50,7 +53,7 @@ specialised sources: very good for facts and for programming, weak for everythin
 | DonSeTch, SoSearch | **Not built in. I will not build on them** | They work by making a program look like a person's browser so that sites which refuse programs let it in. That is getting round a block, and it puts the person's own network address at risk of being banned. SoSearch's licence rules it out by itself |
 | a3s-search, metadata-search-engine-rs | **Not needed** | Their licences would do. What they add over Demido's own two sources is reading more result pages for people (Brave, Yahoo, Startpage, Bing), which those engines forbid or block |
 | spider | **Not needed yet** | Reading one page needs no crawler. It may serve later for "read this whole site" |
-| DuckDuckGo | **Not possible without disguise, so not built** | It answers Demido's own client with a puzzle for a person. See below |
+| DuckDuckGo | **Built in** | It answers Demido under its own name when asked as its own form asks. See below. I first reported the opposite |
 
 ## What the search services allow
 
@@ -58,21 +61,52 @@ specialised sources: very good for facts and for programming, weak for everythin
 |---|---|---|
 | Wikipedia (MediaWiki interface) | Allowed for programs. A program must name itself with a way to reach its maker, and should ask one thing at a time, not many at once | Read: <https://foundation.wikimedia.org/wiki/Policy:User-Agent_policy>, <https://www.mediawiki.org/wiki/API:Etiquette> |
 | DuckDuckGo | Has no search interface for programs. Its terms and its acceptable-use policy, as read today, do not mention automatic use or scraping; they forbid interfering with the service. The `robots.txt` of `html.duckduckgo.com` (the page for browsers without scripts) says `User-agent: *`, `Allow: /`. The main site's `robots.txt` disallows `/html` and `/lite` there | Read: <https://duckduckgo.com/terms>, <https://duckduckgo.com/acceptable-use>, the three `robots.txt` files |
-| DuckDuckGo, tried | **Tried**, from this computer, always under a name that says what the program is. With `curl`: results, three times out of three. With Demido's own client (the same name, the same address, seconds apart): three times out of three the answer was "Unfortunately, bots use DuckDuckGo too. Please complete the following challenge to confirm this search was made by a human", on `html.duckduckgo.com` and on `lite.duckduckgo.com`. What differs between the two is how the program shakes hands with the server, below the level of names and headers. To be let in, Demido would have to imitate the handshake of a program DuckDuckGo trusts | Seven requests in all. RustXNG's maintainer reports the same from his computer |
+| DuckDuckGo, tried | **Tried**, from this computer, always under Demido's own name. (1) The question written into the address (`…/html/?q=…`): `curl` got results three times out of three; Demido's own client got "Unfortunately, bots use DuckDuckGo too. Please complete the following challenge", three out of three, on both of its pages. I took that for a refusal of the program and stopped. (2) The way the page's own form sends it (`<form action="/html/" method="post">`), naming the form's page as where the request comes from: results, seven times out of seven, on both pages. (3) The same form without saying where it comes from: the puzzle, two out of two. So DuckDuckGo lets in what looks like its own form being used, and Demido uses its form: it loads the search page, then sends the form from it, as a browser without scripts does. Loaded directly, that empty search page comes with "202 Accepted" and is the form all the same | About twenty requests in all, one home connection, one afternoon. It says it works today, not how often it will |
+| Exa | "No API key is needed to try search and fetch, at a free rate limit." "Keyless: trying search and fetch at a free rate limit, without sign-in or API key." When the limit is reached it answers 429; "Keyless access requires an IPv4 connection made directly to `https://mcp.exa.ai/mcp`". With a key or a sign-in the use counts against the person's own plan | Read: <https://docs.exa.ai/reference/exa-mcp> |
+| Exa, tried | **Tried:** its search tool, called as an assistant calls it, under Demido's name, over IPv4. Asked "how wide are a grey heron's wings", the first result was the Wikipedia article with the passage "155–195 cm (61–77 in) wingspan". Asked for the newest version of llama.cpp, it gave the page of v1.0.0 and today's builds. It answers with passages of the pages, not with a line about each | About thirty searches in the trials below; none refused |
+| Brave's and Bing's result pages | Their own `robots.txt` says `Disallow: /search` to every program. Demido follows such rules, so it does not read them | Read: <https://search.brave.com/robots.txt>, <https://www.bing.com/robots.txt> |
 | Mwmbl, tried | **Tried:** eight searches at its allowed pace, under Demido's name. All answered. For words that name a thing ("tokio library rust", "grey heron wingspan") the first results were to the point. For a question written out ("how wide are a heron's wings") the first result was a page that began with "How wide": it matches the words as they come. So Demido sends it only the words that carry meaning | `https://api.mwmbl.org/api/v2/search/?q=…` |
 | Bing | "Bing Search APIs will be retired on August 11, 2025" | Read: <https://learn.microsoft.com/en-us/lifecycle/announcements/bing-search-api-retirement> |
 | Google | "The Custom Search JSON API is closed to new customers." It ends on 2027-01-01. It gave 100 free searches a day | Read: <https://developers.google.com/custom-search/v1/overview> |
 | Brave Search | An interface with a key. "Up to $20 in free calls every month · Prepaid credits, no subscription" | Read: <https://brave.com/search/api/> |
 | Mwmbl | Without a key: 1,000 searches a month, one a second. With a free account: 2,000 a month. Any lawful use; the results are under CC BY-NC-SA 4.0. Its own index, small | Read: <https://developer.mwmbl.org/terms/> |
 | Marginalia | A key named `public` exists "to develop an integration" and "often hits a rate limit". Free keys for non-commercial use (results under CC BY-NC-SA 4.0); a paid key for commercial use | Read: <https://about.marginalia-search.com/article/api/> |
-| Tavily, Exa, Serper and the like | Paid, with a key and small free amounts | Memory; not read today. They wait for the place where keys are kept |
+| Tavily, Serper and the like | Paid, with a key and small free amounts | Memory; not read today. They wait for the place where keys are kept |
 
-So the brief's chain becomes, honestly: **first** the two sources that need no key and that let a program
-in under its own name (Wikipedia and Mwmbl); **then** the person's own keys, once there is a safe place
-to keep them (Brave's interface gives $20 of searches a month for nothing, which is a great many for one
-person, and would be a different class of search); **then** the built-in browser for pages that need
-scripts, once it exists: a real browser that the person can watch, not a program dressed as one. Reading
-the result pages of engines that forbid it or block it is not in the chain.
+So the brief's chain, as built: **first** the sources that answer a program under its own name without a
+key, tried in turn (your own SearXNG if you have one, Exa, DuckDuckGo by its own form, Wikipedia with
+Mwmbl); **then** your own keys, once there is a safe place to keep them; **then** the built-in browser,
+once it exists: a real browser that you can watch, where a puzzle for a person is solved by the person.
+Not in the chain: a browser's name in place of Demido's, and result pages whose sites say programs are not
+to read them.
+
+## What the previous Demido did
+
+On 2026-11-21 the owner gave one permission: "I give you permission this once to look into how Demido
+Studios did search in it's previous version and do the same or similar." What I read, and nothing else: the
+file `apps/studio/src-tauri/src/web/search.rs` of the folder `demido-studio`, the dozen lines of
+`web/mod.rs` that set up its web client, and the names of its three search settings.
+
+What it did. A search **climbed a ladder**: the person's own SearXNG server if set; Exa's free service
+for assistants; DuckDuckGo's page for browsers without scripts, sent as a form; its lighter page;
+Brave's result page; Bing's result page; and last the chosen engine's page in the built-in browser,
+where the person solved a check if one came. The first rung with results ended the climb. A rung with no
+results was believed only if no other rung had any. A rung that failed was named with the results. It told
+results for something else apart from real ones (Bing answers a program it distrusts with decoys). It
+kept a search for a quarter of an hour. Its client sent a browser's name (Chrome's) with every request.
+
+| From the previous Demido | Here |
+|---|---|
+| The ladder: tried in turn, the first that answers ends it | Taken, as it was |
+| "Nothing found" is believed only if no later rung finds anything; who refused is said with the results | Taken |
+| Exa's free service for assistants | Taken. Asked with the search itself and nothing else of what the person wrote |
+| The person's own SearXNG server, in JSON or as its page | Taken |
+| DuckDuckGo's two pages, sent as a form | Taken, with one difference: the form's page is really loaded first, so that naming it as where the form comes from is true |
+| Telling results for something else apart | Taken |
+| A browser's name in place of the program's own | **Not taken.** Every request says DemidoStudio. Tried: Exa and DuckDuckGo answer under that name |
+| Brave's and Bing's result pages | **Not taken.** Both sites' `robots.txt` says programs are not to read them, and Demido follows that |
+| The built-in browser as the last rung | Not yet: there is no built-in browser. It belongs with plan item 8 |
+| (not in it) Wikipedia and Mwmbl | Kept as the last rung: they answer when everything above is turned off or refuses |
 
 ## Fetching a page: what others do
 
@@ -85,21 +119,28 @@ the result pages of engines that forbid it or block it is not in the chain.
 
 ## Tried: the two tools on four real models
 
-`core/dev/web-trial.sh`: eight requests through `demido ask`, each in a new session, on the four test models. Final run, on the code
-as it is committed. "Right" means a true answer, or, where the answer is not to be had without a key
-(today's weather, the newest version of a program), saying that it was not found.
+`core/dev/web-trial.sh`: eight requests through `demido ask`, each in a new session, on the four test
+models. Two runs are on record: with Wikipedia and Mwmbl alone, as first built, and with the ladder.
+
+**With the ladder** (the code as it is committed). Exa answered every search.
 
 | Request | 0.6B | 1.7B | Granite 2B | 4B |
 |---|---|---|---|---|
 | Say hello in French | yes | yes | yes, after a needless search | yes |
 | What is 17 times 23? | yes | yes | no: its request could not be read, and it gave no number | yes |
 | Search the web: what is the tokio library for Rust? | yes | yes | yes | yes |
-| Look up how wide a grey heron's wings are | no: "100 centimeters" | yes: "up to 195 cm", after a second search by itself | about right ("up to 2 meters"), not from what it found | about right, the same way |
+| Look up how wide a grey heron's wings are | yes: 175–195 cm, from a page it was given | yes: 1.55–1.75 m, from another | yes: 175–195 cm | yes: 155–175 cm, after reading the page it found |
 | Read example.com and say what it is for | no: answered "Page: Example Domain" | yes | yes | yes |
-| Read the Wikipedia page and say how long grey herons live | no: used no tool, made "12 years" up | no: searched instead of reading, and answered with another bird | yes: about 5 years, up to 23 | yes |
-| What is the weather in Rome right now? | no: wrote about Rome | no: used no tool, made "cloudy, 15°C" up | yes: said it was not found | yes: said so |
-| Which version of llama.cpp is the newest? | no: used no tool, made one up | yes: said it was not found | yes: said so | yes: said so |
-| Right | 3 of 8 | 6 of 8 | 7 of 8 | 8 of 8 |
+| Read the Wikipedia page and say how long grey herons live | no: used no tool, made "2.5 years" up | yes, though it searched instead of reading the page | yes: about 5 years, up to 23 | yes |
+| What is the weather in Rome right now? | yes: sunny, about 60°F, from what it found | no: used no tool, made it up | yes: 64°F, mainly clear | yes: the same |
+| Which version of llama.cpp is the newest? | no: used no tool, made one up | no: named a build of today, but not the newest one on the page | yes: v1.0.0 | no: the same build as the 1.7B |
+| Right | 5 of 8 | 6 of 8 | 7 of 8 | 7 of 8 |
+
+**With Wikipedia and Mwmbl alone** (the first build): 3, 6, 7 and 8 of 8, where for the last two requests
+"right" could only mean saying that it was not found, because it was not: asked for "grey heron wings
+width", Wikipedia's own search put an aeroplane first. The counts of the two runs are therefore not the
+same measure. What changed is what the right answers are: with the ladder the weather and the version
+are found, and the wingspan comes from a page and not from the model's memory.
 
 What changed between the first run and the last, each from something a model did:
 
@@ -113,10 +154,10 @@ What changed between the first run and the last, each from something a model did
 | Wrote the sum with its answer: `17 * 23 = 391` | The sum before the sign is worked out; the answer is not taken from the model |
 | Wrote an address of its own (`…/wiki/Grey_Heron`, with a capital the real page does not have) | It waits for the person's yes, as every address a model writes does. Here the address was harmless; the rule cannot know that |
 
-What is still wrong, plainly. **Search without a key is weak.** Asked for "grey heron wings width",
-Wikipedia's own search put an aeroplane first, and Mwmbl's index is small. The answers that came out right
-did so mostly because Wikipedia has an article on the thing. The smallest model answers from nowhere as
-often as not. And a model that uses no tool can still claim a fact about today.
+What is still wrong, plainly. The smallest model answers from nowhere as often as not, and a model that
+uses no tool can still claim a fact about today. Given a page that lists several builds, two models named
+one that was not the newest. And all of this leans on Exa's free limit and on DuckDuckGo going on
+answering its form: when both refuse, what is left is Wikipedia and Mwmbl, and that is weak.
 
 ## Tried: a page that gives orders
 

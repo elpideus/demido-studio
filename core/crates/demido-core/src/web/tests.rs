@@ -28,17 +28,46 @@ struct Seen {
     last: HashMap<String, String>,
     /// Mwmbl's stand-in says it has been asked too much.
     too_much: bool,
+    /// Exa's stand-in says its free searches are used up.
+    exa_used_up: bool,
+    /// DuckDuckGo's stand-in answers with a puzzle for a person.
+    wants_a_person: bool,
+    /// DuckDuckGo's stand-in answers with results for something else.
+    decoy: bool,
+    /// DuckDuckGo's stand-in finds nothing.
+    nothing: bool,
+    /// The SearXNG stand-in has its JSON turned off.
+    no_json: bool,
+    /// What the last form or call that was posted held, and the headers it came with.
+    posted: String,
+    posted_with: HashMap<String, String>,
 }
 
 type Shared = Arc<Mutex<Seen>>;
 
 async fn site(State(seen): State<Shared>, headers: HeaderMap, request: Request) -> Response {
     let path = request.uri().path().to_string();
-    let too_much = {
+    let asked_for = request.uri().query().unwrap_or_default().to_string();
+    let posting = request.method() == axum::http::Method::POST;
+    let posted = String::from_utf8_lossy(&axum::body::to_bytes(request.into_body(), 100_000).await.unwrap_or_default()).into_owned();
+    let (too_much, exa_used_up, wants_a_person, decoy, nothing, no_json) = {
         let mut seen = seen.lock().unwrap();
-        *seen.asked.entry(path.clone()).or_default() += 1;
+        // A form's page being loaded and the form being sent are counted apart.
+        *seen.asked.entry(if posting { format!("POST {path}") } else { path.clone() }).or_default() += 1;
         seen.last = headers.iter().map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string())).collect();
-        seen.too_much
+        if posting {
+            seen.posted = posted;
+            seen.posted_with = seen.last.clone();
+        }
+        (seen.too_much, seen.exa_used_up, seen.wants_a_person, seen.decoy, seen.nothing, seen.no_json)
+    };
+    let puzzle = || {
+        (
+            StatusCode::ACCEPTED,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            "<html><body><div class=\"anomaly-modal\">Unfortunately, bots use DuckDuckGo too. Select all squares containing a duck.</div></body></html>",
+        )
+            .into_response()
     };
     let html = |body: &str| ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body.to_string()).into_response();
     let here = format!("http://{}", headers.get("host").and_then(|h| h.to_str().ok()).unwrap_or_default());
@@ -64,6 +93,29 @@ async fn site(State(seen): State<Shared>, headers: HeaderMap, request: Request) 
             tokio::time::sleep(Duration::from_secs(20)).await;
             html("<html><body>late</body></html>")
         }
+        // Exa's service for assistants: a call of its search tool, answered as a stream of events.
+        "/mcp" if exa_used_up => StatusCode::TOO_MANY_REQUESTS.into_response(),
+        "/mcp" if posting => ([(header::CONTENT_TYPE, "text/event-stream")], search::tests::EXA_ANSWER.replace("{here}", &format!("{here}/article"))).into_response(),
+        // DuckDuckGo's two pages: loaded, they are the form; sent the form, they are the results.
+        "/html/" | "/lite/" if wants_a_person => puzzle(),
+        // Loaded, the real one answers "202 Accepted" with its form (seen on 2026-11-21).
+        "/html/" | "/lite/" if !posting => (StatusCode::ACCEPTED, html("<html><body><form method=\"post\"><input name=\"q\"></form></body></html>")).into_response(),
+        "/html/" | "/lite/" if nothing => html("<html><body><div class=\"no-results\">No results.</div></body></html>"),
+        "/html/" if decoy => html(
+            "<html><body><div class=\"result\"><a class=\"result__a\" href=\"https://shop.example/\">Store finder</a></div><div class=\"result\"><a class=\"result__a\" href=\"https://fly.example/\">Cheap flights</a></div></body></html>",
+        ),
+        "/html/" => html(&search::tests::DUCKDUCKGO_PAGE.replace("{here}", &format!("{here}/article"))),
+        "/lite/" => html(&search::tests::DUCKDUCKGO_LITE_PAGE.replace("{here}", &format!("{here}/article"))),
+        // A SearXNG server of the person's own.
+        "/search" if asked_for.contains("format=json") && no_json => StatusCode::FORBIDDEN.into_response(),
+        "/search" if asked_for.contains("format=json") => (
+            [(header::CONTENT_TYPE, "application/json")],
+            format!(r#"{{"results":[{{"title":"Grey heron","url":"{here}/article","content":"From your own server.","publishedDate":"2026-11-18T19:39:24"}}]}}"#),
+        )
+            .into_response(),
+        "/search" => {
+            html(&format!("<html><body><article class=\"result\"><h3><a href=\"{here}/article\">Grey heron</a></h3><p class=\"content\">From your own server's page.</p></article></body></html>"))
+        }
         // Both search sources find pages on the stand-in itself, so that reading what was found stays here.
         "/w/api.php" => {
             let pages = format!(
@@ -87,6 +139,11 @@ pub(crate) struct World {
     pub base: String,
     seen: Shared,
     pub kept_in: std::path::PathBuf,
+}
+
+/// Only the last rung: the two sources that have an interface for programs.
+fn the_two() -> Which {
+    Which { exa: false, duckduckgo: false, ..Which::default() }
 }
 
 impl World {
@@ -114,7 +171,11 @@ pub(crate) async fn world() -> World {
     let kept_in = std::env::temp_dir().join(format!("demido-web-{}", uuid::Uuid::new_v4()));
     let base = format!("http://{door}");
     // The stand-in, and only it, counts as the public internet.
-    let web = Web::with(Some(kept_in.clone()), Sources { wikipedia: base.clone(), mwmbl: base.clone() }, vec![door.to_string()]);
+    let web = Web::with(
+        Some(kept_in.clone()),
+        Sources { wikipedia: base.clone(), mwmbl: base.clone(), exa: format!("{base}/mcp"), duckduckgo: base.clone(), duckduckgo_lite: base.clone() },
+        vec![door.to_string()],
+    );
     World { web, base, seen, kept_in }
 }
 
@@ -231,36 +292,151 @@ async fn reading_stops_when_the_person_stops_the_answer() {
 }
 
 #[tokio::test]
+async fn a_search_climbs_a_ladder_and_the_first_source_that_answers_ends_it() {
+    let w = world().await;
+    // With everything turned on and no server of the person's own, Exa is the first rung.
+    let found = w.web.search("how wide are a grey heron's wings", "", &Which::default(), &GO_ON).await.unwrap();
+    assert_eq!((found.engine.as_str(), found.hits.len()), ("Exa", 2), "{found:?}");
+    assert_eq!((found.hits[0].address.clone(), found.hits[0].date.as_deref()), (w.at("/article"), Some("2026-11-18")));
+    assert!(found.hits[0].about.contains("155–195 cm (61–77 in) wingspan"), "Exa answers with passages of the pages: {}", found.hits[0].about);
+    assert!(found.first.is_none() && found.notes.is_empty(), "with passages in hand, no page is read on top");
+    assert!(
+        found.told().starts_with(&format!(
+            "Results for \"how wide are a grey heron's wings\", from Exa:\n\n1. Grey heron\n   {}\n   Published 2026-11-18\n   Description The grey heron is a large bird",
+            w.at("/article")
+        )),
+        "{}",
+        found.told()
+    );
+    // Exa was called as an assistant calls it, with the search and nothing else, and no other rung was asked.
+    let call: serde_json::Value = serde_json::from_str(&w.seen.lock().unwrap().posted).unwrap();
+    assert_eq!(call["method"], "tools/call");
+    assert_eq!(
+        call["params"],
+        serde_json::json!({ "name": "web_search_exa", "arguments": { "query": "how wide are a grey heron's wings", "numResults": 5, "objective": "how wide are a grey heron's wings" } })
+    );
+    assert!(w.seen.lock().unwrap().posted_with["user-agent"].starts_with("DemidoStudio/"));
+    assert_eq!((w.asked("POST /mcp"), w.asked("POST /html/"), w.asked("/w/api.php"), w.asked("/article")), (1, 0, 0, 0));
+
+    // Exa says its free searches are used up: the search goes on to DuckDuckGo, and says why.
+    w.seen.lock().unwrap().exa_used_up = true;
+    let found = w.web.search("how long do grey herons live", "", &Which::default(), &GO_ON).await.unwrap();
+    assert_eq!((found.engine.as_str(), found.hits.len()), ("DuckDuckGo", 2), "{found:?}");
+    assert_eq!(found.hits[0].address, w.at("/article"));
+    assert!(found.notes.len() == 1 && found.notes[0].starts_with("Exa says its free searches are used up for now (429)"), "{:?}", found.notes);
+    assert!(found.first.as_deref().is_some_and(|first| first.contains("four hundred and twelve grey herons")), "a line about each page is not much, so the first page is read too");
+    // DuckDuckGo was asked as its own form asks: the form's page was loaded, then the form sent from it.
+    assert_eq!((w.asked("/html/"), w.asked("POST /html/"), w.asked("POST /lite/")), (1, 1, 0));
+    let (posted, last) = {
+        let seen = w.seen.lock().unwrap();
+        (seen.posted.clone(), seen.posted_with.clone())
+    };
+    assert_eq!(posted, "q=how+long+do+grey+herons+live&b=");
+    assert_eq!(last["referer"], w.at("/html/"), "the page the form stands on, which was really loaded");
+    assert!(last["user-agent"].starts_with("DemidoStudio/"), "under Demido's own name");
+
+    // While Exa is left alone it is not asked, and the form's page is not loaded a second time.
+    w.web.search("grey heron nest", "", &Which::default(), &GO_ON).await.unwrap();
+    assert_eq!((w.asked("POST /mcp"), w.asked("/html/"), w.asked("POST /html/")), (2, 1, 2));
+    std::fs::remove_dir_all(&w.kept_in).ok();
+}
+
+#[tokio::test]
+async fn a_source_that_asks_for_a_person_is_left_alone_and_the_search_goes_on() {
+    let w = world().await;
+    w.seen.lock().unwrap().wants_a_person = true;
+    let which = Which { exa: false, ..Which::default() };
+    let found = w.web.search("grey heron", "", &which, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "Wikipedia and Mwmbl", "{found:?}");
+    assert!(
+        found.notes.len() == 1 && found.notes[0].contains("proof that a person is searching") && found.notes[0].contains("does not get round that"),
+        "said once for both of DuckDuckGo's pages: {:?}",
+        found.notes
+    );
+    assert_eq!((w.asked("/html/"), w.asked("POST /html/"), w.asked("/lite/"), w.asked("POST /lite/")), (1, 0, 0, 0), "refused at the first page, the second was not even tried");
+
+    // Results for something else are not results, and the lighter page is asked instead.
+    let w = world().await;
+    w.seen.lock().unwrap().decoy = true;
+    let found = w.web.search("grey heron", "", &which, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "DuckDuckGo Lite", "{found:?}");
+    assert_eq!(found.notes, ["DuckDuckGo answered with results for something else."]);
+    assert_eq!(found.hits.iter().map(|h| h.address.clone()).collect::<Vec<_>>(), [w.at("/article"), "https://birds.example/herons".to_string()]);
+    std::fs::remove_dir_all(&w.kept_in).ok();
+}
+
+#[tokio::test]
+async fn nothing_found_is_believed_only_when_no_later_source_finds_anything() {
+    let w = world().await;
+    w.seen.lock().unwrap().nothing = true;
+    // DuckDuckGo finds nothing; the two after it do.
+    let found = w.web.search("grey heron", "", &Which { exa: false, ..Which::default() }, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "Wikipedia and Mwmbl");
+    assert_eq!(found.notes, ["DuckDuckGo found nothing.", "DuckDuckGo Lite found nothing."]);
+    // With nobody after it, nothing is the answer, and it is an answer: not an error.
+    let found = w.web.search("grey heron", "", &Which { exa: false, wikipedia: false, mwmbl: false, ..Which::default() }, &GO_ON).await.unwrap();
+    assert!(found.hits.is_empty() && found.engine == "DuckDuckGo" && found.told().starts_with("Nothing was found for \"grey heron\"."), "{found:?}");
+
+    // Nobody would answer at all: that is said, with why, so that it is not taken for "nothing was found".
+    let w = world().await;
+    {
+        let mut seen = w.seen.lock().unwrap();
+        (seen.exa_used_up, seen.wants_a_person) = (true, true);
+    }
+    let said = w.web.search("grey heron", "", &Which { wikipedia: false, mwmbl: false, ..Which::default() }, &GO_ON).await.unwrap_err();
+    assert!(said.starts_with("No search service would answer. Exa says its free searches are used up") && said.contains("DuckDuckGo asked for proof"), "{said}");
+    std::fs::remove_dir_all(&w.kept_in).ok();
+}
+
+#[tokio::test]
+async fn the_persons_own_searxng_server_is_asked_first() {
+    let w = world().await;
+    let which = Which { searxng: Some(format!(" {}/ ", w.base)), ..Which::default() };
+    let found = w.web.search("grey heron", "", &which, &GO_ON).await.unwrap();
+    assert_eq!((found.engine.as_str(), found.hits[0].about.as_str(), found.hits[0].date.as_deref()), ("Your SearXNG", "From your own server.", Some("2026-11-18")));
+    assert_eq!((w.asked("/search"), w.asked("POST /mcp")), (1, 0));
+    // Many servers have their JSON turned off: then the page for people is read.
+    w.seen.lock().unwrap().no_json = true;
+    let found = w.web.search("herons", "", &which, &GO_ON).await.unwrap();
+    assert_eq!((found.engine.as_str(), found.hits[0].about.as_str()), ("Your SearXNG", "From your own server's page."));
+    // An address that is none is said to be none, and the search goes on.
+    let found = w.web.search("heron", "", &Which { searxng: Some("not an address at all".into()), ..Which::default() }, &GO_ON).await.unwrap();
+    assert_eq!((found.engine.as_str(), found.notes.as_slice()), ("Exa", ["Your SearXNG its address in the settings is not a web address.".to_string()].as_slice()));
+    std::fs::remove_dir_all(&w.kept_in).ok();
+}
+
+#[tokio::test]
 async fn a_search_asks_both_sources_merges_them_and_is_kept() {
     let w = world().await;
-    let found = w.web.search("  grey   heron ", "", &Which::default(), &GO_ON).await.unwrap();
+    let found = w.web.search("  grey   heron ", "", &the_two(), &GO_ON).await.unwrap();
     assert_eq!(found.query, "grey heron");
     assert_eq!(found.hits.iter().map(|h| h.address.clone()).collect::<Vec<_>>(), [w.at("/article"), w.at("/wiki/Heron"), w.at("/herons?page=2")], "the address on a private network is not a result");
     assert_eq!(found.hits[0].from, ["Wikipedia", "Mwmbl"], "found by both, so first");
     assert!(found.notes.is_empty() && !found.kept);
     let told = found.told();
     assert!(
-        told.starts_with(&format!("Results for \"grey heron\":\n\n1. Grey heron (Wikipedia)\n   {}\n   The grey heron (Ardea cinerea) is a long-legged wading bird.\n", w.at("/article"))),
+        told.starts_with(&format!(
+            "Results for \"grey heron\", from Wikipedia and Mwmbl:\n\n1. Grey heron (Wikipedia)\n   {}\n   The grey heron (Ardea cinerea) is a long-legged wading bird.\n",
+            w.at("/article")
+        )),
         "{told}"
     );
     // The first page found was read too: a small model rarely asks for a second tool by itself.
     assert!(told.contains("\nFrom the first of them, Grey heron (Wikipedia):\n\n") && told.contains("four hundred and twelve grey herons"), "{told}");
     assert_eq!((w.asked("/article"), w.asked("/robots.txt")), (1, 1));
 
-    let again = w.web.search("Grey Heron", "", &Which::default(), &GO_ON).await.unwrap();
+    let again = w.web.search("Grey Heron", "", &the_two(), &GO_ON).await.unwrap();
     assert!(again.kept && again.hits == found.hits);
     assert_eq!((w.asked("/api/v2/search/"), w.asked("/w/api.php"), w.asked("/article")), (1, 1, 1), "the same search within the hour asks nobody");
 
     // One source turned off: only the other is asked.
-    let only = w.web.search("herons", "", &Which { mwmbl: false, ..Which::default() }, &GO_ON).await.unwrap();
+    let only = w.web.search("herons", "", &Which { mwmbl: false, ..the_two() }, &GO_ON).await.unwrap();
     assert!(only.hits.iter().all(|h| h.from == ["Wikipedia"]) && only.hits.len() == 2);
     assert_eq!(w.asked("/api/v2/search/"), 1);
 
-    for (query, which, why) in [
-        ("", Which::default(), "nothing to search for"),
-        (&"word ".repeat(60), Which::default(), "a few words"),
-        ("herons", Which { wikipedia: false, mwmbl: false, ..Which::default() }, "turned off"),
-    ] {
+    for (query, which, why) in
+        [("", the_two(), "nothing to search for"), (&"word ".repeat(60), the_two(), "a few words"), ("herons", Which { wikipedia: false, mwmbl: false, ..the_two() }, "turned off")]
+    {
         let said = w.web.search(query, "", &which, &GO_ON).await.unwrap_err();
         assert!(said.contains(why), "{said}");
     }
@@ -271,20 +447,22 @@ async fn a_search_asks_both_sources_merges_them_and_is_kept() {
 async fn a_source_that_says_it_is_asked_too_much_is_left_alone_and_the_other_still_answers() {
     let w = world().await;
     w.seen.lock().unwrap().too_much = true;
-    let found = w.web.search("grey heron", "", &Which::default(), &GO_ON).await.unwrap();
+    let found = w.web.search("grey heron", "", &the_two(), &GO_ON).await.unwrap();
     assert!(found.hits.iter().all(|h| h.from == ["Wikipedia"]) && found.hits.len() == 2, "{found:?}");
     assert!(found.notes.len() == 1 && found.notes[0].contains("asked too much (429)") && found.notes[0].contains("leaves it alone"), "{:?}", found.notes);
     assert!(found.told().ends_with("quarter of an hour.)"));
 
-    // Even when it would answer again, it is not asked for a quarter of an hour. A search with a source
-    // missing is not kept, so Wikipedia is asked again.
+    // What was found is kept for the hour, without the story of who refused: the same search asks nobody.
     w.seen.lock().unwrap().too_much = false;
-    let second = w.web.search("grey heron", "", &Which::default(), &GO_ON).await.unwrap();
-    assert_eq!(second.notes.len(), 1);
+    let second = w.web.search("grey heron", "", &the_two(), &GO_ON).await.unwrap();
+    assert!(second.kept && second.notes.is_empty() && second.hits == found.hits);
+    // Another search within the quarter of an hour: Mwmbl would answer again, and is not asked.
+    let third = w.web.search("herons", "", &the_two(), &GO_ON).await.unwrap();
+    assert_eq!(third.notes.len(), 1);
     assert_eq!((w.asked("/api/v2/search/"), w.asked("/w/api.php")), (1, 2));
 
     // With only that source turned on, the search says why it found nothing.
-    let said = w.web.search("grey heron", "", &Which { wikipedia: false, ..Which::default() }, &GO_ON).await.unwrap_err();
+    let said = w.web.search("grey heron", "", &Which { wikipedia: false, ..the_two() }, &GO_ON).await.unwrap_err();
     assert!(said.contains("asked too much"), "{said}");
     std::fs::remove_dir_all(&w.kept_in).ok();
 }

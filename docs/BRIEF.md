@@ -492,3 +492,9 @@ lot of carefulness, attention to detail, etc."
 Taken back the same day, before any piece was handed over: "I changed my mind, just do everything yourself
 (Fable 5.2)."
 Recorded in `docs/DECISIONS.md`, section W.
+
+**2026-11-21, search as the previous version did it.** After I reported that search without a key was weak
+and that most of the brief's search list was not built in: "I give you permission this once to look into
+how Demido Studios did search in it's previous version and do the same or similar."
+A single exception to the rule above ("Never look at previous Demido Studio versions"), for search only.
+What was read and what was taken: `docs/DECISIONS.md` N13, `docs/research/15-search-and-fetch.md`.

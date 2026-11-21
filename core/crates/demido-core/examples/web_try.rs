@@ -2,6 +2,7 @@
 //!
 //!     cargo run --example web_try -- read https://example.com "what is this page for"
 //!     cargo run --example web_try -- search "grey heron"
+//!     WEB_TRY_WITHOUT=exa cargo run --example web_try -- search "grey heron"
 //!
 //! It asks real sites, under Demido's own name. Nothing is kept between runs.
 
@@ -16,7 +17,12 @@ async fn main() {
     let started = std::time::Instant::now();
     let gave = match args.first().map(String::as_str) {
         Some("read") if args.len() >= 2 => web.read(&args[1], args.get(2).map_or("", String::as_str), false, &stop).await.map(|read| read.gave),
-        Some("search") if args.len() >= 2 => web.search(&args[1..].join(" "), "", &Which::default(), &stop).await.map(|found| found.told()),
+        Some("search") if args.len() >= 2 => {
+            // `WEB_TRY_WITHOUT=exa,duckduckgo` leaves sources out, to try the ones further down the ladder.
+            let without = std::env::var("WEB_TRY_WITHOUT").unwrap_or_default();
+            let which = Which { searxng: std::env::var("WEB_TRY_SEARXNG").ok(), exa: !without.contains("exa"), duckduckgo: !without.contains("duckduckgo"), ..Which::default() };
+            web.search(&args[1..].join(" "), "", &which, &stop).await.map(|found| found.told())
+        }
         _ => Err("usage: web_try read <address> [what it is about] | web_try search <words>".into()),
     };
     match gave {

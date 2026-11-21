@@ -115,9 +115,10 @@ Windows, and tools other people write.
    and change files in it, the four levels, asking first, undo, and cleaning of text from outside. Tried
    on four models with real files. Then running programs: a sandbox on Linux (bubblewrap), the folder
    saved before each program, one Undo for all a program did. Then reading from the internet (DECISIONS N,
-   research note 15): search with Wikipedia and Mwmbl, reading a page as text, an address a model wrote
+   research note 15): search that tries sources in turn (your own SearXNG, Exa, DuckDuckGo, Wikipedia with
+   Mwmbl), reading a page as text, an address a model wrote
    itself always asks, only the public internet, and a change to a file asks once a page was read. Tried
-   on four models: 3, 6, 7 and 8 of 8 everyday requests right; a page that gave orders changed nothing.
+   on four models: 5, 6, 7 and 7 of 8 everyday requests right; a page that gave orders changed nothing.
    Next inside it: the sandbox on macOS and Windows; tools other people write, with their browser and
    updater.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
@@ -175,9 +176,9 @@ model, from a short trial when a model is first used.
 - **Before the first release:** did the previous Demido check `elpideus/demido-studio` for updates? That name
   now belongs to this repository, so an old installation that checks it would be offered this project's
   releases. I have not looked at the old code and will not. No release exists yet, so nothing is offered today.
-- **The search list.** Of the search projects the brief names, none is built in, and neither is DuckDuckGo
-  (DECISIONS N7, research note 15): they work by disguise, or are refused. Built: Wikipedia and Mwmbl. If
-  you want it otherwise, say so. If you agree, the next step for search is your own key, with the vault.
+- **Search, for your eye.** It now works as the previous version did, a ladder of sources (DECISIONS N6),
+  with two things left out on purpose: a browser's name in place of Demido's, and Brave's and Bing's
+  pages (N7). Say so if you want either otherwise.
 - Signing the Windows and macOS builds. It costs money every year (DECISIONS R7).
 - A usage policy for the name and logo, to replace the holding notice (DECISIONS A13).
 - Whether to rerun the research sweep or let it be done directly (the earlier run stalled and has ended).

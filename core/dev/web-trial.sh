@@ -3,8 +3,8 @@
 #
 #     core/dev/web-trial.sh [model ...]
 #
-# Eight requests, each in a new session. It asks real sites (Wikipedia, Mwmbl, example.com): about forty
-# requests in all for four models, under Demido's own name. Nobody is there to say yes, so an address a
+# Eight requests, each in a new session. It asks real sites and search services (Exa first, as the ladder
+# goes; example.com; Wikipedia): about forty requests in all for four models, under Demido's own name. Nobody is there to say yes, so an address a
 # model writes itself is answered with no. Takes a few minutes and uses the graphics card.
 set -u
 source "$(dirname "$0")/real-home.sh"

@@ -516,7 +516,14 @@ impl Chat {
                         }
                     } else if tool == tools::SEARCH {
                         let on = |id: &str| self.settings.value::<bool>(id).unwrap_or(true);
-                        let which = web::Which { wikipedia: on("web.wikipedia"), mwmbl: on("web.mwmbl"), language: self.settings.value::<String>("web.language").unwrap_or_else(|_| "en".into()) };
+                        let which = web::Which {
+                            searxng: self.settings.value::<String>("web.searxng").ok().filter(|address| !address.trim().is_empty()),
+                            exa: on("web.exa"),
+                            duckduckgo: on("web.duckduckgo"),
+                            wikipedia: on("web.wikipedia"),
+                            mwmbl: on("web.mwmbl"),
+                            language: self.settings.value::<String>("web.language").unwrap_or_else(|_| "en".into()),
+                        };
                         // What comes back from the internet is text from outside, like a file's.
                         self.web
                             .search(args.get("query").and_then(Value::as_str).unwrap_or_default(), request, &which, stop)

@@ -54,7 +54,7 @@ With a server running, the command line asks the server. Without one, it works o
 | `…/permissions.rs` | Whether a use of a tool needs the person's yes: decided from the tool's reach and the session's level, never by a model. |
 | `…/sandbox.rs` | Running a program a model asked for where it can do little harm: on Linux inside bubblewrap, with the folder, the system and no network. `cargo run --example sandbox_try -- <folder> <command>` tries it by hand. |
 | `…/checkpoint.rs` | Saving a folder before a program runs in it, and putting it back, so that all a program did can be undone. |
-| `…/web.rs` | Reading from the internet, the one way a model reaches the network: one page as text, or a search (`web/search.rs`: Wikipedia and Mwmbl). `web/guard.rs` decides where a request may go (only the public internet) and which addresses a model may open unasked (those it was given, not those it wrote); `web/robots.rs` follows a site's rules for programs; `web/page.rs` turns a page into text and picks the parts that match what was asked. `cargo run --example web_try -- read <address>` or `-- search <words>` tries it by hand, on real sites. |
+| `…/web.rs` | Reading from the internet, the one way a model reaches the network: one page as text, or a search (`web/search.rs`: sources tried in turn until one answers: your own SearXNG, Exa, DuckDuckGo, Wikipedia with Mwmbl). `web/guard.rs` decides where a request may go (only the public internet) and which addresses a model may open unasked (those it was given, not those it wrote); `web/robots.rs` follows a site's rules for programs; `web/page.rs` turns a page into text and picks the parts that match what was asked. `cargo run --example web_try -- read <address>` or `-- search <words>` tries it by hand, on real sites. |
 | `…/engine/` | Running models: starting the runtime as a router (`router.rs`), loading and unloading, unloading what is idle, ending a runtime that was left behind (`mod.rs`), and keeping what is learned about each model (`known.rs`). |
 | `…/runtime/` | The model runtime: what its publisher offers (`catalog.rs`), downloading with a check (`fetch.rs`), unpacking without trust (`unpack.rs`), and installing, listing and removing (`mod.rs`). |
 | `…/auth.rs` | The key every request needs, and the one-use link that lets a browser in. |
@@ -95,7 +95,7 @@ python3 core/dev/account-trial.py
 ```
 
 Two trials go through the whole program instead, with `demido ask`, in a scratch data folder and on a port
-of their own (they need a build, and the real models). The first asks real sites, about forty requests.
+of their own (they need a build, and the real models). The first asks real sites and search services, about forty requests.
 The second serves two pages from this computer that give the model orders, and says at the end whether
 any file changed and what the site was asked for:
 

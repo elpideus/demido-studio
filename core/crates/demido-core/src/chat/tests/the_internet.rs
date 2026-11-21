@@ -14,6 +14,10 @@ async fn online(name: &str, decisions: &[&str], replies: &[&str]) -> (World, sit
     let net = site::world().await;
     w.settings.set("tools.use", json!(true)).unwrap();
     w.settings.set("web.use", json!(true)).unwrap();
+    // These tests are about the turn, not about which search source answers: they use the last rung, the
+    // two with an interface for programs. The ladder has its own tests (`web::tests`).
+    w.settings.set("web.exa", json!(false)).unwrap();
+    w.settings.set("web.duckduckgo", json!(false)).unwrap();
     w.stand.decisions.lock().unwrap().extend(decisions.iter().map(|d| d.to_string()));
     w.stand.replies.lock().unwrap().extend(replies.iter().map(|r| r.to_string()));
     let web = crate::web::Web::with(Some(net.kept_in.clone()), net.web.sources.clone(), vec![net.base.trim_start_matches("http://").to_string()]);

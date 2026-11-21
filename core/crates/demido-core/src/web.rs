@@ -61,13 +61,59 @@ pub struct Sources {
     /// With `{lang}` where the language goes.
     pub wikipedia: String,
     pub mwmbl: String,
+    /// Exa's service for assistants: the whole address.
+    pub exa: String,
+    /// DuckDuckGo's page for browsers without scripts, and its lighter one.
+    pub duckduckgo: String,
+    pub duckduckgo_lite: String,
 }
 
 impl Default for Sources {
     fn default() -> Self {
-        Self { wikipedia: "https://{lang}.wikipedia.org".into(), mwmbl: "https://api.mwmbl.org".into() }
+        Self {
+            wikipedia: "https://{lang}.wikipedia.org".into(),
+            mwmbl: "https://api.mwmbl.org".into(),
+            exa: "https://mcp.exa.ai/mcp".into(),
+            duckduckgo: "https://html.duckduckgo.com".into(),
+            duckduckgo_lite: "https://lite.duckduckgo.com".into(),
+        }
     }
 }
+
+/// Which of the clients a request goes out on.
+#[derive(Clone, Copy, PartialEq)]
+enum Through {
+    /// Only to the public internet.
+    Strict,
+    /// Also to this computer and its network: for what the person named themselves.
+    Open,
+    /// Only to the public internet, and only over IPv4: Exa's free service asks for that.
+    StrictV4,
+}
+
+/// What is sent with a request that is not a plain `GET`.
+enum Sent {
+    /// A form, as a page's own form would send it. `from` is the page the form stands on.
+    Form {
+        fields: Vec<(String, String)>,
+        from: String,
+    },
+    Json(String),
+}
+
+/// One request.
+struct Ask<'a> {
+    url: &'a Url,
+    through: Through,
+    /// What the site said last time, so that it can answer "unchanged".
+    if_changed: Option<(&'a Option<String>, &'a Option<String>)>,
+    /// The pause between two requests to this site.
+    gap: Duration,
+    sent: Option<Sent>,
+    accept: &'static str,
+}
+
+const ACCEPT_A_PAGE: &str = "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5";
 
 /// What a site sent back.
 struct Got {
@@ -110,6 +156,8 @@ pub struct Web {
     /// Also reaches this computer and its network. Used only for an address the person wrote, and only
     /// when the person turned that on.
     open: reqwest::Client,
+    /// As `strict`, over IPv4 only.
+    strict_v4: reqwest::Client,
     kept_in: Option<PathBuf>,
     /// When each site may next be asked.
     next: Mutex<HashMap<String, Instant>>,
@@ -176,31 +224,37 @@ impl Web {
         let stand_ins = Arc::new(stand_ins);
         let checked = stand_ins.clone();
         let builder = || reqwest::Client::builder().user_agent(name()).connect_timeout(Duration::from_secs(8)).timeout(Duration::from_secs(25)).referer(false);
-        let strict = builder().redirect(reqwest::redirect::Policy::custom(move |attempt| {
-            if attempt.previous().len() >= 5 {
-                return attempt.error("a redirect was not followed: the site sent the request on more than five times");
-            }
-            let next = attempt.url();
-            if !matches!(next.scheme(), "http" | "https") || !next.username().is_empty() || next.password().is_some() {
-                return attempt.error("a redirect was not followed: it led to an address that is not read");
-            }
-            if guard::is_local(next) && !checked.contains(&authority(next)) {
-                let said = format!("a redirect was not followed: it led to {}, which {}", next.host_str().unwrap_or_default(), guard::NOT_PUBLIC);
-                return attempt.error(said);
-            }
-            // A test stays with its stand-in.
-            if !checked.is_empty() && !checked.contains(&authority(next)) {
-                return attempt.error("a redirect was not followed: a test does not reach the internet");
-            }
-            attempt.follow()
-        }));
+        // The same rules for both strict clients: every redirect is checked like a first address.
+        let checking = |checked: Arc<Vec<String>>| {
+            reqwest::redirect::Policy::custom(move |attempt| {
+                if attempt.previous().len() >= 5 {
+                    return attempt.error("a redirect was not followed: the site sent the request on more than five times");
+                }
+                let next = attempt.url();
+                if !matches!(next.scheme(), "http" | "https") || !next.username().is_empty() || next.password().is_some() {
+                    return attempt.error("a redirect was not followed: it led to an address that is not read");
+                }
+                if guard::is_local(next) && !checked.contains(&authority(next)) {
+                    let said = format!("a redirect was not followed: it led to {}, which {}", next.host_str().unwrap_or_default(), guard::NOT_PUBLIC);
+                    return attempt.error(said);
+                }
+                // A test stays with its stand-in.
+                if !checked.is_empty() && !checked.contains(&authority(next)) {
+                    return attempt.error("a redirect was not followed: a test does not reach the internet");
+                }
+                attempt.follow()
+            })
+        };
         // A name is looked up into public numbers only. The stand-in of a test is on this computer, so a
         // test's client looks names up as usual; every other check stays.
-        let strict = if stand_ins.is_empty() { strict.dns_resolver(Arc::new(guard::PublicOnly)) } else { strict };
+        let public_only = |client: reqwest::ClientBuilder| if stand_ins.is_empty() { client.dns_resolver(Arc::new(guard::PublicOnly)) } else { client };
+        let strict = public_only(builder().redirect(checking(checked.clone())));
+        let strict_v4 = public_only(builder().redirect(checking(checked)).local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)));
         let open = builder().redirect(reqwest::redirect::Policy::limited(5));
         let web = Self {
             strict: strict.build().expect("a client can be made"),
             open: open.build().expect("a client can be made"),
+            strict_v4: strict_v4.build().expect("a client can be made"),
             kept_in,
             next: Mutex::default(),
             paused: Mutex::default(),
@@ -283,14 +337,32 @@ impl Web {
 
     /// One `GET`. `if_changed`: what the site said last time, so that it can answer "unchanged".
     async fn get(&self, url: &Url, open: bool, if_changed: Option<(&Option<String>, &Option<String>)>, gap: Duration, stop: &AtomicBool) -> Result<Got, String> {
+        self.send(Ask { url, through: if open { Through::Open } else { Through::Strict }, if_changed, gap, sent: None, accept: ACCEPT_A_PAGE }, stop).await
+    }
+
+    /// One request, of whatever kind, and what came back.
+    async fn send(&self, ask: Ask<'_>, stop: &AtomicBool) -> Result<Got, String> {
+        let url = ask.url;
         // A test stays with its stand-in, whatever address turns up in what it reads.
-        if !open && !self.stand_ins.is_empty() && !self.stand_ins.contains(&authority(url)) {
+        if ask.through != Through::Open && !self.stand_ins.is_empty() && !self.stand_ins.contains(&authority(url)) {
             return Err("a test does not reach the internet".into());
         }
-        self.turn_for(url, gap).await;
-        let client = if open { &self.open } else { &self.strict };
-        let mut request = client.get(url.clone()).header("accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5");
-        if let Some((etag, changed)) = if_changed {
+        self.turn_for(url, ask.gap).await;
+        let client = match ask.through {
+            Through::Strict => &self.strict,
+            Through::Open => &self.open,
+            Through::StrictV4 => &self.strict_v4,
+        };
+        let mut request = match ask.sent {
+            None => client.get(url.clone()),
+            Some(Sent::Json(body)) => client.post(url.clone()).header("content-type", "application/json").body(body),
+            Some(Sent::Form { fields, from }) => {
+                let body = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(fields).finish();
+                client.post(url.clone()).header("content-type", "application/x-www-form-urlencoded").header("referer", from).body(body)
+            }
+        }
+        .header("accept", ask.accept);
+        if let Some((etag, changed)) = ask.if_changed {
             if let Some(etag) = etag {
                 request = request.header("if-none-match", etag);
             }
