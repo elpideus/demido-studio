@@ -162,7 +162,7 @@ decides a design. Everything else is Opus's, and Fable reads it before it lands.
 | – | The system accent on Windows and macOS; the per-model context size | **Opus** | Small and bounded |
 | – | Reading and merging everything Opus builds | **Fable** | Nothing lands unread |
 
-In hand now. Fable: tools that reach the network. Opus, started on 2026-11-21: the models browser and
+In hand now. Fable: tools that reach the network. Opus, first to be started (not started yet): the models browser and
 downloader; the facts for search and fetch. Next for Opus, when one of those is back: the whole of what a
 program printed, and showing what a change changed.
 
