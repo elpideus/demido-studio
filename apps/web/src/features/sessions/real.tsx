@@ -7,10 +7,10 @@
 import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ArrowUp, ListChecks, Plus, Square, Trash2 } from 'lucide-react'
+import { ArrowUp, Folder, ListChecks, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, type LucideIcon } from 'lucide-react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
-import { answerNow, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, useReal, type ContextUse, type CoreMessage, type CoreStep, type CoreTask } from '@/data/real-sessions'
+import { answerNow, answerPermission, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
 import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal, StepRow, Tip } from '@/ui'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
@@ -51,7 +51,7 @@ function List() {
       </div>
       <div className="app-side__foot">
         <span>These conversations are real: kept by the core, answered by a model on this computer.</span>
-        <NotBuilt block>Tools that reach files, commands and the web; permission levels; groups and search. The preview shows where these are going.</NotBuilt>
+        <NotBuilt block>Tools that run programs or reach the web; the second look that Smart is to give; groups and search. The preview shows where these are going.</NotBuilt>
       </div>
     </aside>
   )
@@ -62,31 +62,74 @@ function Prose({ text }: { text: string }) {
   return <div className="d-prose"><Markdown remarkPlugins={[remarkGfm]} skipHtml>{text}</Markdown></div>
 }
 
-/** What a tool is called when it is used, in plain words. */
-const TOOL_SAID: Record<string, string> = { time: 'Read the clock', calculate: 'Calculated' }
+/** What a tool is called when it is used, in plain words, and which of its arguments says what it was used on. */
+const TOOL_SAID: Record<string, [string, string]> = {
+  time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
+  add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'],
+}
+/** The four levels, as they are today. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
+const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
+  cautious: { label: 'Cautious', icon: ShieldCheck, text: 'Asks you before every use of a tool that reaches the folder, reading included.' },
+  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking. A change cannot leave the folder, and can be undone.' },
+  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The same as Balanced today. It will differ once tools can run programs or reach the network.' },
+  autonomous: { label: 'Autonomous', icon: ShieldOff, text: 'Never asks.' },
+}
 const flat = (text: string, most: number) => { const one = text.replace(/\s+/g, ' ').trim(); return one.length > most ? `${one.slice(0, most)}…` : one }
 
-/** One use of a tool: what was asked for and what came back. Opened, it shows the request as the model made it. */
-function ToolUse({ step, at }: { step: CoreStep; at: string }) {
-  const args = Object.values(step.args ?? {}).map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ')
-  const refused = step.state === 'refused'
+/** One use of a tool: what was asked for and what came back. Opened, it shows the request as the model made it.
+    A use that changed a file can be undone from here. */
+function ToolUse({ step, at, change }: { step: CoreStep; at: string; change?: CoreChange }) {
+  const [said, on] = TOOL_SAID[step.tool] ?? [step.tool, '']
+  const value = (name: string) => { const v = (step.args ?? {})[name]; return typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v) }
+  const shown = on ? value(on) : Object.keys(step.args ?? {}).map(value).join(', ')
+  const denied = step.state === 'refused' && step.result === 'the person said no'
+  const refused = step.state === 'refused' && !denied
   return (
-    <StepRow step={{
-      id: at,
-      state: step.state === 'running' ? 'running' : step.state === 'done' ? 'done' : 'failed',
-      what: refused ? `Asked for ${step.tool} in a way that cannot be used` : (TOOL_SAID[step.tool] ?? step.tool),
-      code: refused ? undefined : flat(args, 80) || undefined,
-      meta: step.state === 'done' ? flat(step.result, 60) : step.state === 'running' ? '' : refused ? 'not run' : 'could not',
-      request: JSON.stringify({ tool: step.tool, args: step.args }),
-      output: step.state === 'running' ? undefined : step.result,
-    }} />
+    <div className="chat__step">
+      <StepRow step={{
+        id: at,
+        state: step.state === 'running' ? 'running' : step.state === 'waiting' ? 'needs-input' : step.state === 'done' ? 'done' : 'failed',
+        what: refused ? `Asked for ${step.tool} in a way that cannot be used` : denied ? `${said}: you said no` : said,
+        code: refused ? undefined : flat(shown, 80) || undefined,
+        meta: step.state === 'done' ? flat(step.result, 60) : step.state === 'running' ? '' : step.state === 'waiting' ? 'waiting for you' : step.state === 'refused' ? 'not run' : 'could not',
+        request: JSON.stringify({ tool: step.tool, args: step.args }, null, 1),
+        output: step.state === 'running' || step.state === 'waiting' ? undefined : step.result,
+      }} />
+      {change && (change.undone_at
+        ? <span className="d-type-caption d-text-tertiary">Undone</span>
+        : <Tip label={change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
+    </div>
+  )
+}
+
+/** A use of a tool that waits for the person's yes. What it says is made by the core from the request; none of it is the model's words. */
+function Asking({ request }: { request: PermissionRequest }) {
+  const answer = (said: 'once' | 'session' | 'no') => void answerPermission(request.session_id, request.id, said)
+  return (
+    <section className="d-permission" data-risk={request.reach === 'changes' ? 'medium' : 'low'} aria-label={request.what}>
+      <header className="d-permission__head">
+        <span className="d-permission__risk">{request.reach === 'changes' ? 'Changes a file' : 'Reads'}</span>
+        <h3 className="d-permission__title">The model wants to use a tool</h3>
+      </header>
+      <pre className="d-permission__what"><code>{request.what}</code></pre>
+      <p className="d-permission__why">{request.why}</p>
+      <details className="d-disclosure">
+        <summary>The request, as the model made it</summary>
+        <div className="d-disclosure__body"><pre className="d-code"><code>{JSON.stringify({ tool: request.tool, args: request.args }, null, 1)}</code></pre></div>
+      </details>
+      <div className="d-permission__actions">
+        <Button onClick={() => answer('no')}>No</Button>
+        <Button onClick={() => answer('session')}>Yes, and do not ask again for {request.tool} in this session</Button>
+        <Button variant="primary" onClick={() => answer('once')}>Yes, this once</Button>
+      </div>
+    </section>
   )
 }
 
 const TASK_SAID: Record<CoreTask['state'], [string, string]> = { pending: ['pending', 'Pending'], running: ['running', 'In progress'], done: ['done', 'Done'], failed: ['failed', 'Failed'], stopped: ['skipped', 'Stopped'] }
 
 /** The tasks a piece of work was split into: a checklist, each task with what it gave and the tools it used. */
-function TaskList({ tasks, parent = null }: { tasks: CoreTask[]; parent?: string | null }) {
+function TaskList({ tasks, changes, parent = null }: { tasks: CoreTask[]; changes: CoreChange[]; parent?: string | null }) {
   const mine = tasks.filter((t) => t.parent_id === parent).sort((a, b) => a.position - b.position)
   if (!mine.length) return null
   return (
@@ -99,18 +142,18 @@ function TaskList({ tasks, parent = null }: { tasks: CoreTask[]; parent?: string
           </div>
           {(t.result || t.steps.length > 0) && (
             <div className="chat__task-gave">
-              {t.steps.map((step, i) => <ToolUse key={i} step={step} at={`${t.id}-${i}`} />)}
+              {t.steps.map((step, i) => <ToolUse key={i} step={step} at={`${t.id}-${i}`} change={changes.find((c) => c.id === step.change)} />)}
               {t.result && <p className="d-type-small d-text-secondary" style={{ whiteSpace: 'pre-wrap' }}>{t.result}</p>}
             </div>
           )}
-          <TaskList tasks={tasks} parent={t.id} />
+          <TaskList tasks={tasks} changes={changes} parent={t.id} />
         </li>
       ))}
     </ul>
   )
 }
 
-function MessageView({ m, live, doing, tasks }: { m: CoreMessage; live?: { text: string; thought: string }; doing?: { steps?: CoreStep[]; tasks?: CoreTask[] }; tasks: CoreTask[] }) {
+function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: CoreMessage; live?: { text: string; thought: string }; doing?: { steps?: CoreStep[]; tasks?: CoreTask[] }; tasks: CoreTask[]; changes: CoreChange[]; asking?: PermissionRequest | null; folder: boolean }) {
   const loading = useLocal((s) => s.list?.models.find((x) => x.id === m.model)?.state === 'loading')
   if (m.role === 'user')
     return <article className="d-message" data-from="user"><div className="d-message__body" style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div></article>
@@ -126,8 +169,9 @@ function MessageView({ m, live, doing, tasks }: { m: CoreMessage; live?: { text:
     <article className="d-message" data-from="assistant">
       <div className="d-message__body chat__blocks">
         {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {loading ? `Loading ${m.model}…` : 'Waking the model…'}</p>}
-        {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} />)}
-        {split.length > 0 && <TaskList tasks={split} />}
+        {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} />)}
+        {split.length > 0 && <TaskList tasks={split} changes={changes} />}
+        {writing && asking && <Asking request={asking} />}
         {thought && (
           // Open while it is being thought, so it can be watched. Folded away once the answer has begun.
           <details className="d-thinking" open={writing && !text ? true : undefined}>
@@ -137,6 +181,8 @@ function MessageView({ m, live, doing, tasks }: { m: CoreMessage; live?: { text:
         )}
         {writing && thought && !text && <div><Button size="sm" onClick={() => void answerNow(m.session_id)}>Answer now</Button></div>}
         {text && <Prose text={text} />}
+        {/* In a session with a folder, an answer about files that read no file is an answer from nowhere. Small models write those. */}
+        {folder && m.state === 'done' && !busy && <p className="d-type-caption d-text-tertiary">No file was read or changed for this answer.</p>}
         {m.state === 'stopped' && <Signal level="note">{m.problem ?? 'Stopped. What was written is kept.'}</Signal>}
         {m.state === 'failed' && <Signal level="caution">{m.problem ?? 'The answer failed, and nothing says why.'}</Signal>}
       </div>
@@ -223,7 +269,10 @@ function Chat() {
   const thread = useRef<HTMLDivElement>(null)
   const [told, setTold] = useState(false)
   const [sure, setSure] = useState(false)
-  useEffect(() => { setTold(false); setSure(false) }, [id])
+  // The folder is typed as a path: it is a folder on the computer the core runs on, which may not be this one.
+  const [folding, setFolding] = useState(false)
+  const [path, setPath] = useState('')
+  useEffect(() => { setTold(false); setSure(false); setFolding(false) }, [id])
   // Only a session the list knows is asked for: the address may still name one that is gone, or one of the preview's.
   useEffect(() => { if (known) void readSession(id) }, [id, known])
   // Follow the answer down as it is written.
@@ -239,6 +288,7 @@ function Chat() {
   if (!detail) return <section className="chat" aria-label="Conversation" />
   const { session, messages } = detail
   const answering = messages.some((m) => m.state === 'answering')
+  const level: Level = session.permission ?? 'balanced'
   // The account in force, and the last message it stands for.
   const account = detail.summaries.at(-1)
   const covered = account?.upto_seq ?? 0
@@ -255,6 +305,18 @@ function Chat() {
             </span>
           </Tip>
         )}
+        <Tip label={session.folder ? `The model may read and change files in ${session.folder}, and nowhere else.` : 'Give the session a folder, and the model can read and change files in it. Without one it cannot touch a file.'}>
+          <Button variant="ghost" size="sm" pressed={folding} disabled={answering} onClick={() => { setPath(session.folder ?? ''); setFolding(!folding) }}>
+            <Icon icon={Folder} size="sm" /> {session.folder ? session.folder.split(/[\\/]/).filter(Boolean).at(-1) : 'No folder'}
+          </Button>
+        </Tip>
+        <Tip label={LEVELS[level].text}>
+          <span className="app-row" style={{ gap: 'var(--d-space-4)' }}>
+            <span className="sess__shield" data-level={level}><Icon icon={LEVELS[level].icon} size="sm" /></span>
+            <Select label="How much the model may do without asking" value={level} onChange={(permission) => void changeSession(id, { permission })}
+              options={(Object.keys(LEVELS) as Level[]).map((l) => ({ value: l, label: LEVELS[l].label }))} />
+          </span>
+        </Tip>
         <Select label="Model for this session" value={session.model} onChange={(model) => void changeSession(id, { model })}
           options={[...new Set([session.model, ...models.map((m) => m.id)])].map((m) => ({ value: m, label: m }))} />
         <Button variant="ghost" size="sm" pressed={told} onClick={() => setTold(!told)}>What the model is told</Button>
@@ -264,6 +326,17 @@ function Chat() {
       </header>
       <div className="chat__thread" ref={thread}>
         <div className="chat__col">
+          {folding && (
+            <form className="chat__folder" onSubmit={(e) => { e.preventDefault(); void changeSession(id, { folder: path.trim() }).then(() => setFolding(false)) }}>
+              <label className="d-type-small" htmlFor="session-folder">The folder this session may work in, as a full path on the computer Demido runs on</label>
+              <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
+                <input id="session-folder" className="d-input d-mono" style={{ flex: 1, minWidth: 0 }} placeholder="/home/you/project" value={path} onChange={(e) => setPath(e.target.value)} autoFocus spellCheck={false} />
+                <Button variant="primary" type="submit" disabled={!path.trim() || path.trim() === session.folder}>Use this folder</Button>
+                {session.folder && <Button type="button" onClick={() => void changeSession(id, { folder: '' }).then(() => setFolding(false))}>No folder</Button>}
+              </div>
+              <p className="d-type-caption d-text-secondary">The model can read every file in it and change them. It cannot reach anything outside it: that is checked by Demido, not left to the model. Each change can be undone from the answer that made it.{(detail.need_not_ask ?? []).length > 0 && ` In this session you said these need not ask again: ${(detail.need_not_ask ?? []).join(', ')}.`}</p>
+            </form>
+          )}
           {told && (
             <Signal level="note">
               Before the conversation, the model is told this, word for word: <span className="d-mono" style={{ whiteSpace: 'pre-wrap' }}>{detail.instructions}</span> Then everything said so far, oldest first. Thinking is {session.thinking === 'off' ? 'switched off' : `set to "${session.thinking}"`}.
@@ -276,13 +349,13 @@ function Chat() {
             <div className="chat__welcome">
               <span dangerouslySetInnerHTML={{ __html: logo }} />
               <h2 className="d-type-title-2">What do you want to know?</h2>
-              <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. {detail.tools_told ? 'It can read the clock, calculate, and split work into tasks. It cannot look anything up or touch your files yet.' : 'It answers from what it knows: it cannot look anything up or do anything yet.'}</p>
+              <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. {!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder}, read the clock, calculate, and split work into tasks. It cannot run programs or reach the web yet.` : 'It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it. It cannot run programs or reach the web yet.'}</p>
             </div>
           )}
           {messages.map((m) => (
             <div key={m.id} className="chat__blocks" style={m.seq <= covered ? { opacity: 0.55 } : undefined}>
               {account && m.seq === covered + 1 && <Cut account={account} />}
-              <MessageView m={m} live={writing[m.id]} doing={working[m.id]} tasks={(detail.tasks ?? []).filter((t) => t.message_id === m.id)} />
+              <MessageView m={m} live={writing[m.id]} doing={working[m.id]} tasks={(detail.tasks ?? []).filter((t) => t.message_id === m.id)} changes={detail.changes ?? []} asking={detail.asking && detail.asking.message_id === m.id ? detail.asking : null} folder={Boolean(session.folder)} />
             </div>
           ))}
           {account && covered >= (messages.at(-1)?.seq ?? 0) && <Cut account={account} />}

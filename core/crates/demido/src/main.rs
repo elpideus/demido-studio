@@ -83,6 +83,12 @@ enum Command {
         /// Plan first: the model lists the steps of the request, and does them one at a time, as tasks.
         #[arg(long)]
         plan: bool,
+        /// Give the session a folder: the one place the model may read and change files in. A full path, or `.` for where you are.
+        #[arg(long, value_name = "PATH")]
+        folder: Option<String>,
+        /// How much the model may do without asking: cautious, balanced, smart or autonomous.
+        #[arg(long, value_name = "LEVEL")]
+        level: Option<String>,
     },
     /// The conversations kept on this computer: list them, read one, delete one.
     Sessions {
@@ -118,6 +124,13 @@ enum SessionsCommand {
     Shorten {
         /// Its id, or the first letters of it.
         id: String,
+    },
+    /// Undo a change a model made to a file: put back what the file held before. `show` lists the changes.
+    Undo {
+        /// The session's id, or the first letters of it.
+        id: String,
+        /// The change's id, or the first letters of it. Left out: the last change that still stands.
+        change: Option<String>,
     },
     /// Delete a session and everything said in it.
     Delete {
@@ -243,7 +256,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Settings { command } => settings(&paths, command)?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
-        Command::Ask { text, session, model, think, no_think, thinking, plan } => {
+        Command::Ask { text, session, model, think, no_think, thinking, plan, folder, level } => {
             // "--think" takes no word after it, so that the question can follow it directly.
             let thinking = if no_think {
                 Some("off".to_string())
@@ -252,7 +265,7 @@ async fn run(cli: Cli) -> Result<()> {
             } else {
                 thinking
             };
-            ask(&paths, text.join(" "), session, model, thinking, plan).await?
+            ask(&paths, text.join(" "), session, model, thinking, plan, folder, level).await?
         }
         Command::Sessions { command } => sessions(&paths, command)?,
         Command::Events { after, limit, json } => {
@@ -517,6 +530,20 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
         Some(SessionsCommand::Show { id }) => {
             let detail = server.get(&format!("/api/v1/sessions/{}", session_meant(&server, &id)?))?;
             println!("{} · {} · {}", detail["session"]["title"].as_str().unwrap_or("?"), detail["session"]["model"].as_str().unwrap_or("?"), detail["session"]["id"].as_str().unwrap_or("?"));
+            match detail["session"]["folder"].as_str() {
+                Some(folder) => println!("Folder: {folder}. Level: {}.", detail["session"]["permission"].as_str().unwrap_or("?")),
+                None => println!("No folder: the model cannot read or change files. Level: {}.", detail["session"]["permission"].as_str().unwrap_or("?")),
+            }
+            for change in detail["changes"].as_array().into_iter().flatten() {
+                let id = change["id"].as_str().unwrap_or("");
+                println!(
+                    "  {} {}  {}{}",
+                    &id[..13.min(id.len())],
+                    if change["created"] == true { "created" } else { "changed" },
+                    change["path"].as_str().unwrap_or("?"),
+                    if change["undone_at"].is_null() { "" } else { "  (undone)" }
+                );
+            }
             let c = &detail["context"];
             println!("About {} of {} tokens in use. Made shorter at {}{}.", c["used"], c["limit"], c["compact_at"], if c["auto"] == true { ", by itself" } else { ", only when you ask" });
             // The account in force stands for the messages up to this place.
@@ -574,6 +601,22 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
                 a["content"].as_str().unwrap_or("")
             );
         }
+        Some(SessionsCommand::Undo { id, change }) => {
+            let id = session_meant(&server, &id)?;
+            let detail = server.get(&format!("/api/v1/sessions/{id}"))?;
+            let standing: Vec<&Value> = detail["changes"].as_array().into_iter().flatten().filter(|c| c["undone_at"].is_null()).collect();
+            let meant = match &change {
+                None => standing.last().copied().context("No change in this session still stands.")?,
+                Some(typed) => standing
+                    .iter()
+                    .copied()
+                    .find(|c| c["id"].as_str().is_some_and(|i| i.starts_with(typed.as_str())))
+                    .with_context(|| format!("No change that still stands starts with \"{typed}\". `demido sessions show` lists them."))?,
+            };
+            let undone = server.send("POST", &format!("/api/v1/sessions/{id}/changes/{}/undo", meant["id"].as_str().unwrap_or("")), None)?;
+            let path = undone["path"].as_str().unwrap_or("?");
+            println!("{}", if undone["created"] == true { format!("Removed {path}: the change had created it.") } else { format!("Put {path} back as it was.") });
+        }
         Some(SessionsCommand::Delete { id }) => {
             let gone = server.send("DELETE", &format!("/api/v1/sessions/{}", session_meant(&server, &id)?), None)?;
             println!("Deleted \"{}\" and the {} messages in it.", gone["title"].as_str().unwrap_or("?"), gone["messages"]);
@@ -614,12 +657,15 @@ fn step_line(step: &Value) -> Option<String> {
     if tool == "plan" {
         return None;
     }
-    let args = step["args"].as_object().map(|a| a.values().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string)).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+    // What goes into a file can be long. A line of it is enough here.
+    let args = step["args"].as_object().map(|a| a.values().map(|v| one_line(&v.as_str().map_or_else(|| v.to_string(), str::to_string), 80)).collect::<Vec<_>>().join(", ")).unwrap_or_default();
     let gave = one_line(step["result"].as_str().unwrap_or(""), 200);
     Some(match step["state"].as_str() {
         Some("done") => format!("· {tool}({args}) → {gave}"),
         Some("failed") => format!("· {tool}({args}) could not do it: {gave}"),
+        Some("refused") if gave == "the person said no" => format!("· {tool}({args}) was not run: you said no"),
         Some("refused") => format!("· {tool} was asked for in a way that cannot be used: {gave}"),
+        Some("waiting") => format!("· {tool}({args}) is waiting for your yes"),
         _ => format!("· {tool}({args})…"),
     })
 }
@@ -641,7 +687,31 @@ fn task_line(tasks: &[Value], task: &Value) -> String {
     format!("{mark} {number}. {}{gave}", task["title"].as_str().unwrap_or("?"))
 }
 
-async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option<String>, thinking: Option<String>, plan: bool) -> Result<()> {
+/// Puts a request for the person's yes in front of them, and gives back what they said: `once`, `session` or `no`.
+fn ask_the_person(request: &Value) -> &'static str {
+    eprintln!("\nAsks first: {}", request["what"].as_str().unwrap_or("use a tool"));
+    eprintln!("  {}", request["why"].as_str().unwrap_or(""));
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!("  Nobody is at this terminal to ask, so the answer is no. Answer in the window, or use --level balanced.");
+        return "no";
+    }
+    loop {
+        eprint!("  [y] yes, this once   [a] yes, for the rest of this session   [n] no: ");
+        let mut typed = String::new();
+        if std::io::stdin().read_line(&mut typed).is_err() || typed.is_empty() {
+            return "no";
+        }
+        match typed.trim().to_lowercase().as_str() {
+            "y" | "yes" => return "once",
+            "a" | "always" => return "session",
+            "n" | "no" => return "no",
+            _ => {}
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option<String>, thinking: Option<String>, plan: bool, folder: Option<String>, level: Option<String>) -> Result<()> {
     let Some(server) = Server::find(paths) else {
         bail!("A loaded model lives in the server. Start one first: demido serve");
     };
@@ -653,6 +723,14 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
     if let Some(thinking) = &thinking {
         server.send("PATCH", &format!("/api/v1/sessions/{session_id}"), Some(&json!({ "thinking": thinking })))?;
     }
+    if let Some(folder) = &folder {
+        // "." and other paths from here are made full: the server may have been started somewhere else.
+        let full = std::path::absolute(folder).with_context(|| format!("\"{folder}\" is not a path"))?;
+        server.send("PATCH", &format!("/api/v1/sessions/{session_id}"), Some(&json!({ "folder": full })))?;
+    }
+    if let Some(level) = &level {
+        server.send("PATCH", &format!("/api/v1/sessions/{session_id}"), Some(&json!({ "permission": level })))?;
+    }
     // Listen first, then speak: nothing of the answer can be missed in between.
     let news = server.listen()?;
     let turn = server.send("POST", &format!("/api/v1/sessions/{session_id}/messages"), Some(&json!({ "content": text, "plan": plan })))?;
@@ -660,6 +738,7 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
 
     let reading = tokio::task::spawn_blocking({
         let answer_id = answer_id.clone();
+        let (asker, session_for_asking) = (Server { address: server.address.clone(), key: server.key.clone() }, session_id.clone());
         move || -> Result<Value> {
             let mut out = std::io::stdout();
             let mut said_loading = false;
@@ -694,6 +773,14 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
                             write!(out, "{text}")?;
                             out.flush()?;
                         }
+                    }
+                    "permission.asked" if event["data"]["message_id"] == answer_id.as_str() => {
+                        if thinking && dim {
+                            eprint!("\x1b[0m");
+                        }
+                        let said = ask_the_person(&event["data"]);
+                        // Someone may have answered in the window meanwhile: then this answer is not needed.
+                        let _ = asker.send("POST", &format!("/api/v1/sessions/{session_for_asking}/permissions/{}", event["data"]["id"].as_str().unwrap_or("")), Some(&json!({ "said": said })));
                     }
                     "message.steps" if about_this => {
                         let steps = event["data"]["steps"].as_array().cloned().unwrap_or_default();
@@ -749,6 +836,14 @@ async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option
         }
     };
     let data = &end["data"];
+    // In a session with a folder, an answer about files that read no file is an answer from nowhere. Say so.
+    if let Ok(detail) = server.get(&format!("/api/v1/sessions/{session_id}"))
+        && detail["session"]["folder"].is_string()
+        && detail["messages"].as_array().and_then(|all| all.last()).is_some_and(|last| last["steps"].as_array().is_none_or(|steps| steps.is_empty()))
+        && !detail["tasks"].as_array().is_some_and(|tasks| tasks.iter().any(|t| t["message_id"] == answer_id.as_str()))
+    {
+        eprintln!("(No file was read or changed for this answer.)");
+    }
     match end["kind"].as_str() {
         Some("message.failed") => bail!("{}", data["problem"].as_str().unwrap_or("The answer failed, and nothing says why.")),
         Some("message.stopped") => eprintln!("Stopped. What was written is kept."),

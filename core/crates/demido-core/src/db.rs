@@ -78,6 +78,19 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
      ) STRICT;
      CREATE INDEX tasks_of_message ON tasks (message_id, position);",
+    // 6: a session's folder and how much it may do without asking; and what each change to a file replaced
+    "ALTER TABLE sessions ADD COLUMN folder TEXT;                               -- the one place its tools may read and change files
+     ALTER TABLE sessions ADD COLUMN permission TEXT NOT NULL DEFAULT 'balanced'; -- cautious, balanced, smart or autonomous
+     CREATE TABLE changes (
+        id         TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+        message_id TEXT NOT NULL,           -- the answer that made the change
+        path       TEXT NOT NULL,           -- the file, inside the session's folder
+        existed    INTEGER NOT NULL,        -- 0 when the change created the file
+        before     BLOB,                    -- what the file held before
+        undone_at  INTEGER,                 -- set when the change was undone
+        created_at INTEGER NOT NULL
+     ) STRICT;",
 ];
 
 pub struct Db {

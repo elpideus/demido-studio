@@ -30,6 +30,7 @@ pub mod error;
 pub mod events;
 pub mod kept;
 pub mod paths;
+pub mod permissions;
 pub mod runtime;
 pub mod sessions;
 pub mod settings;

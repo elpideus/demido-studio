@@ -383,7 +383,7 @@ export function newSession(): string {
   const sid = id('s')
   const s: Session = {
     id: sid, title: 'New session', tags: [], when: 'Today', updated: 'now', state: 'pending',
-    modelId: setting('models.default', 'qwen3-4b'), permission: setting<PermissionLevel>('permissions.default', 'balanced'),
+    modelId: setting('models.default', 'qwen3-4b'), permission: setting<PermissionLevel>('permissions.level', 'balanced'),
     thinking: 'low', contextUsed: 0, taint: [], folder: '~/Demido/sessions/new-session', messages: [],
   }
   set({ sessions: [s, ...get().sessions] })

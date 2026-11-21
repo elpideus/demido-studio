@@ -25,7 +25,7 @@
 //!
 //! Not built yet: tools that reach outside Demido (files, commands, the network), settings per model.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -36,7 +36,8 @@ use utoipa::ToSchema;
 
 use crate::engine::{Answer, Engine, Piece};
 use crate::events::EventLog;
-use crate::sessions::{Message, Session, Sessions, Summary, title_from};
+use crate::permissions::{self, Level, Said};
+use crate::sessions::{Change, Message, Session, Sessions, Summary, title_from};
 use crate::settings::Settings;
 use crate::tools;
 use crate::{Error, Result};
@@ -102,6 +103,16 @@ pub struct Chat {
     clock: tools::Clock,
     /// The sessions that are being answered right now.
     turns: Mutex<HashMap<String, Running>>,
+    /// The uses of a tool that are waiting for the person's yes, by session. One at a time in a session.
+    asking: Mutex<HashMap<String, Waiting>>,
+    /// The tools the person said need not ask again, by session. Kept while Demido runs, and no longer.
+    granted: Mutex<HashMap<String, HashSet<String>>>,
+}
+
+/// A use of a tool that is waiting, and the way to answer it.
+struct Waiting {
+    request: permissions::Request,
+    answer: Option<tokio::sync::oneshot::Sender<Said>>,
 }
 
 /// An answer that is being written.
@@ -115,7 +126,7 @@ struct Running {
 
 impl Chat {
     pub fn new(sessions: Arc<Sessions>, engine: Arc<Engine>, events: Arc<EventLog>, settings: Arc<Settings>) -> Self {
-        Self { sessions, engine, events, settings, clock: tools::here, turns: Mutex::default() }
+        Self { sessions, engine, events, settings, clock: tools::here, turns: Mutex::default(), asking: Mutex::default(), granted: Mutex::default() }
     }
 
     /// The same, telling the time and the day from `clock`: for tests.
@@ -271,6 +282,12 @@ impl Chat {
                 .ok_or_else(|| Error::Invalid(format!("There is no model to talk to yet. Put a GGUF file in {}.", on_disk.folder)))?,
         };
         let session = self.sessions.create(title, &model.id)?;
+        // A new session starts at the level the person chose for new sessions.
+        let level = self.settings.value::<String>("permissions.level").ok().filter(|l| Level::from(l).is_some());
+        let session = match level {
+            Some(level) if level != session.permission => self.sessions.set_permission(&session.id, &level)?,
+            _ => session,
+        };
         self.events.append("session.created", Some(&session.id), json!({ "title": session.title, "model": session.model }))?;
         Ok(session)
     }
@@ -334,9 +351,110 @@ impl Chat {
         format!("Today's date: {}.\n\n{INSTRUCTIONS}", (self.clock)(session.created_at).day)
     }
 
-    /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are off.
-    pub fn tools_told(&self) -> Option<String> {
-        self.settings.value::<bool>("tools.use").unwrap_or(true).then(turn::told_about_tools)
+    /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are
+    /// off. A session with a folder is shown the tools that reach into it too.
+    pub fn tools_told(&self, session: &Session) -> Option<String> {
+        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| turn::told_about_tools(session.folder.is_some()))
+    }
+
+    fn asking(&self) -> std::sync::MutexGuard<'_, HashMap<String, Waiting>> {
+        self.asking.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn granted_in(&self) -> std::sync::MutexGuard<'_, HashMap<String, HashSet<String>>> {
+        self.granted.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn granted(&self, session_id: &str, tool: &str) -> bool {
+        self.granted_in().get(session_id).is_some_and(|tools| tools.contains(tool))
+    }
+
+    /// The use of a tool that is waiting for the person's yes in a session, if one is.
+    pub fn waiting_for(&self, session_id: &str) -> Option<permissions::Request> {
+        self.asking().get(session_id).map(|w| w.request.clone())
+    }
+
+    /// The tools that need not ask again in a session, because the person said so.
+    pub fn need_not_ask(&self, session_id: &str) -> Vec<String> {
+        let mut tools: Vec<String> = self.granted_in().get(session_id).map(|t| t.iter().cloned().collect()).unwrap_or_default();
+        tools.sort();
+        tools
+    }
+
+    /// The person's answer to a use of a tool that is waiting.
+    pub fn answer_request(&self, session_id: &str, request_id: &str, said: Said) -> Result<()> {
+        let mut asking = self.asking();
+        let waiting = asking
+            .get_mut(session_id)
+            .filter(|w| w.request.id == request_id)
+            .ok_or_else(|| Error::NotFound("Nothing is waiting for that answer. It may have been answered already, or the answer was stopped.".into()))?;
+        if let Some(answer) = waiting.answer.take() {
+            let _ = answer.send(said);
+        }
+        Ok(())
+    }
+
+    /// Gives a session the folder its tools may work in, or takes it away (`None`). The folder must be
+    /// there. Not while an answer is being written: the tools in view would change under it.
+    pub fn set_folder(&self, session_id: &str, folder: Option<&str>) -> Result<Session> {
+        if self.answering(session_id) {
+            return Err(Error::Busy("This session is writing an answer. Wait for it, or stop it, and then change its folder.".into()));
+        }
+        let folder = match folder.map(str::trim).filter(|f| !f.is_empty()) {
+            None => None,
+            Some(named) => {
+                let path = std::path::Path::new(named);
+                if !path.is_absolute() {
+                    return Err(Error::Invalid(format!("\"{named}\" is not a full path. Write it from the root, like /home/you/project.")));
+                }
+                let real = path.canonicalize().map_err(|_| Error::Invalid(format!("There is no folder \"{named}\" on this computer.")))?;
+                if !real.is_dir() {
+                    return Err(Error::Invalid(format!("\"{named}\" is a file, not a folder.")));
+                }
+                if real.parent().is_none() {
+                    return Err(Error::Invalid("The whole computer cannot be a session's folder. Choose a folder inside it.".into()));
+                }
+                Some(real.to_string_lossy().into_owned())
+            }
+        };
+        let session = self.sessions.set_folder(session_id, folder.as_deref())?;
+        self.events.append("session.changed", Some(session_id), json!({ "folder": session.folder }))?;
+        Ok(session)
+    }
+
+    /// Sets how much a session may do without asking. What the person had said need not ask again is
+    /// forgotten: it was said under the old level.
+    pub fn set_permission(&self, session_id: &str, level: &str) -> Result<Session> {
+        if Level::from(level).is_none() {
+            return Err(Error::Invalid(format!("A session can be: {}. \"{level}\" is not one of them.", permissions::LEVELS.join(", "))));
+        }
+        let session = self.sessions.set_permission(session_id, level)?;
+        self.granted_in().remove(session_id);
+        self.events.append("session.changed", Some(session_id), json!({ "permission": session.permission }))?;
+        Ok(session)
+    }
+
+    /// Undoes a change a tool made to a file: puts back what the file held, or removes a file the change
+    /// created. What is in the file now is lost; that is what undoing means.
+    pub fn undo(&self, session_id: &str, change_id: &str) -> Result<Change> {
+        if self.answering(session_id) {
+            return Err(Error::Busy("This session is writing an answer. Wait for it, or stop it, and then undo.".into()));
+        }
+        let session = self.sessions.get(session_id)?;
+        let (change, before) = self.sessions.change_with_before(change_id)?;
+        if change.session_id != session_id {
+            return Err(Error::NotFound(format!("There is no change \"{change_id}\" in this session.")));
+        }
+        if change.undone_at.is_some() {
+            return Err(Error::Invalid(format!("The change to {} was undone already.", change.path)));
+        }
+        let Some(folder) = session.folder else {
+            return Err(Error::Invalid("This session has no folder any more, so there is nowhere to put the file back.".into()));
+        };
+        tools::files::put_back(std::path::Path::new(&folder), &tools::files::Changed { path: change.path.clone(), before }).map_err(Error::Invalid)?;
+        self.sessions.mark_undone(change_id)?;
+        self.events.append("change.undone", Some(session_id), json!({ "change": change_id, "path": change.path }))?;
+        self.sessions.change_with_before(change_id).map(|(change, _)| change)
     }
 
     /// Changes a session: its title, its model, whether the model thinks first. A model must be one that is
@@ -392,7 +510,7 @@ impl Chat {
     fn before(&self, session: &Session, answer_id: &str) -> Result<(Vec<Value>, String)> {
         let (account, in_view) = self.in_view(&session.id)?;
         let told = match &account {
-            Some(account) => format!("{}\n\nEarlier in this conversation, in short:\n{}", self.told_first(session), account.content),
+            Some(account) => format!("{}\n\nEarlier in this conversation, in short:\n{}", self.told_first(session), tools::clean(&account.content)),
             None => self.told_first(session),
         };
         let mut messages = vec![json!({ "role": "system", "content": told })];
@@ -401,13 +519,16 @@ impl Chat {
         let mut day = (self.clock)(session.created_at).date;
         let mut dated = |m: &Message| {
             let at = (self.clock)(m.created_at);
+            // What the person wrote may be pasted from anywhere. It cannot carry a turn marker either.
+            let said = tools::clean(&m.content);
             if at.date == day {
-                return m.content.clone();
+                return said;
             }
             day = at.date;
-            format!("Today's date is now {}.\n\n{}", at.day, m.content)
+            format!("Today's date is now {}.\n\n{said}", at.day)
         };
-        let words = turn::Words::request();
+        // What a past answer's tools were followed by names the request they were used for.
+        let mut asked = String::new();
         // The answer about to be written is not part of its own question.
         let upto = in_view.iter().position(|m| m.id == answer_id).unwrap_or(in_view.len());
         let request_at = in_view[..upto].iter().rposition(|m| m.role == "user");
@@ -418,10 +539,11 @@ impl Chat {
             }
             if m.role == "assistant" {
                 // The tools an answer used are part of what led to it: each call and its result, as they were.
-                messages.extend(turn::after_request(&m.steps, &turn::End::Answer, &words));
+                messages.extend(turn::after_request(&m.steps, &turn::End::Answer, &turn::Words::request(&asked)));
                 messages.push(json!({ "role": m.role, "content": m.content }));
             } else {
-                messages.push(json!({ "role": m.role, "content": dated(m) }));
+                asked = dated(m);
+                messages.push(json!({ "role": m.role, "content": asked.clone() }));
             }
         }
         Ok((messages, request_at.map(|i| dated(&in_view[i])).unwrap_or_default()))
@@ -431,7 +553,7 @@ impl Chat {
     fn prompt(&self, session: &Session, answer_id: &str) -> Result<Vec<Value>> {
         let (mut messages, request) = self.before(session, answer_id)?;
         let steps = self.sessions.message(answer_id)?.steps;
-        messages.extend(turn::request_messages(&request, &steps, &turn::End::Answer, &turn::Words::request()));
+        messages.extend(turn::request_messages(&request, &steps, &turn::End::Answer, &turn::Words::request(&request)));
         Ok(messages)
     }
 
@@ -485,12 +607,18 @@ impl Chat {
             }
             // The answer so far, looked at now and then: a model that goes round is stopped (`turn::going_round`).
             let (mut written, mut look_at, mut ends_at) = (String::new(), 400usize, None);
+            // After a tool was used, a small model sometimes hands its answer back wrapped the way the tool's
+            // result came to it: {"result": "..."}. An answer that starts like that is held back until it is
+            // whole, and then unwrapped (`turn::unwrapped`) or shown as it is.
+            let used_a_tool = !self.sessions.message(&answer_id)?.steps.is_empty();
             let mut heard = |piece: Piece| {
                 match piece {
                     Piece::Started(name) => *running.named.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string()),
                     Piece::Text(text) => {
-                        waiting.0.push_str(text);
                         written.push_str(text);
+                        if !(used_a_tool && (written.trim_start().starts_with('{') || "<result>".starts_with(written.trim_start()) || written.trim_start().starts_with("<result>"))) {
+                            waiting.0.push_str(text);
+                        }
                         if ends_at.is_none() && written.len() >= look_at {
                             look_at = written.len() + 200;
                             ends_at = turn::going_round(&written);
@@ -507,6 +635,15 @@ impl Chat {
                 }
             };
             let mut answer = self.engine.answer(&session.model, body, &running.stop, &mut heard).await?;
+            if used_a_tool && (answer.content.trim_start().starts_with('{') || answer.content.trim_start().starts_with("<result>")) {
+                if let Some(inside) = turn::unwrapped(&answer.content) {
+                    answer.content = inside;
+                } else if turn::is_a_request(&answer.content) {
+                    answer.not_an_answer = true;
+                }
+                // Held back while it was written; told now, whole.
+                waiting.0 = answer.content.clone();
+            }
             if let Some(end) = ends_at {
                 // Kept up to the first of the repeats. The rest said nothing new.
                 answer.content.truncate(end.min(answer.content.len()));
@@ -519,11 +656,30 @@ impl Chat {
         self.turns().remove(&session.id);
         let ended = match outcome {
             Ok(answer) => {
-                let state = if answer.stopped { "stopped" } else { "done" };
-                let why = answer.went_round.then_some("The model began to repeat itself, so Demido stopped it here.");
+                // A request for a tool where the answer should be is shown, and said to be no answer.
+                let state = if answer.stopped {
+                    "stopped"
+                } else if answer.not_an_answer {
+                    "failed"
+                } else {
+                    "done"
+                };
+                let why = if answer.went_round {
+                    Some("The model began to repeat itself, so Demido stopped it here.")
+                } else if answer.not_an_answer {
+                    Some("The model wrote a request for a tool where its answer should be. Nothing more was run. Ask again, or try another model.")
+                } else {
+                    None
+                };
                 self.sessions.finish(&answer_id, &answer.content, Some(&answer.thought), state, why, Some(&answer.timings)).map(|_| {
                     (
-                        if answer.stopped { "message.stopped" } else { "message.done" },
+                        if answer.stopped {
+                            "message.stopped"
+                        } else if answer.not_an_answer {
+                            "message.failed"
+                        } else {
+                            "message.done"
+                        },
                         json!({ "message": answer_id, "written": answer.timings.written, "per_second": answer.timings.per_second, "reused": answer.timings.reused, "read": answer.timings.read }),
                     )
                 })

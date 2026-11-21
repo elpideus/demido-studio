@@ -343,6 +343,8 @@ pub struct Answer {
     pub stopped: bool,
     /// True when it was stopped because the model had begun to repeat itself. Set by whoever was listening.
     pub went_round: bool,
+    /// True when what was written is a request for a tool where an answer should be. Set by whoever was listening.
+    pub not_an_answer: bool,
 }
 
 /// Asks a loaded model and passes on its answer piece by piece. Ends when the model is done, when `stop` is

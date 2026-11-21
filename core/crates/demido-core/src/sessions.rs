@@ -23,11 +23,33 @@ pub struct Session {
     pub model: String,
     /// Whether the model thinks before it answers: `off`, `on`, or one of the model's own levels.
     pub thinking: String,
+    /// The one folder the session's tools may read and change files in. `null`: it has none, and is not
+    /// offered those tools.
+    pub folder: Option<String>,
+    /// How much it may do without asking: `cautious`, `balanced`, `smart` or `autonomous`.
+    pub permission: String,
     pub created_at: i64,
     /// When something was last said in it.
     pub updated_at: i64,
     /// How many messages it holds.
     pub messages: u32,
+}
+
+/// A change a tool made to a file in a session's folder. What the file held before is kept with it, so the
+/// change can be undone.
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct Change {
+    pub id: String,
+    pub session_id: String,
+    /// The answer that made the change.
+    pub message_id: String,
+    /// The file, as a path inside the session's folder.
+    pub path: String,
+    /// True when the change created the file. Undoing it removes the file.
+    pub created: bool,
+    /// When it was undone. `null`: it stands.
+    pub undone_at: Option<i64>,
+    pub created_at: i64,
 }
 
 /// What the runtime reported about one answer.
@@ -113,7 +135,7 @@ pub struct Sessions {
 }
 
 fn session_from(r: &rusqlite::Row) -> rusqlite::Result<Session> {
-    Ok(Session { id: r.get(0)?, title: r.get(1)?, model: r.get(2)?, created_at: r.get(3)?, updated_at: r.get(4)?, messages: r.get(5)?, thinking: r.get(6)? })
+    Ok(Session { id: r.get(0)?, title: r.get(1)?, model: r.get(2)?, created_at: r.get(3)?, updated_at: r.get(4)?, messages: r.get(5)?, thinking: r.get(6)?, folder: r.get(7)?, permission: r.get(8)? })
 }
 
 fn message_from(r: &rusqlite::Row) -> rusqlite::Result<Message> {
@@ -134,6 +156,10 @@ fn message_from(r: &rusqlite::Row) -> rusqlite::Result<Message> {
     })
 }
 
+fn change_from(r: &rusqlite::Row) -> rusqlite::Result<Change> {
+    Ok(Change { id: r.get(0)?, session_id: r.get(1)?, message_id: r.get(2)?, path: r.get(3)?, created: !r.get::<_, bool>(4)?, undone_at: r.get(5)?, created_at: r.get(6)? })
+}
+
 fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
     Ok(Task {
         id: r.get(0)?,
@@ -150,7 +176,7 @@ fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
     })
 }
 
-const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking FROM sessions s";
+const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission FROM sessions s";
 const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at, steps FROM messages";
 const TASK: &str = "SELECT id, session_id, message_id, parent_id, position, title, state, result, steps, created_at, updated_at FROM tasks";
 
@@ -205,6 +231,59 @@ impl Sessions {
             Ok(())
         })?;
         self.get(id)
+    }
+
+    /// Gives a session its folder, or takes it away.
+    pub fn set_folder(&self, id: &str, folder: Option<&str>) -> Result<Session> {
+        self.get(id)?;
+        self.db.with(|c| c.execute("UPDATE sessions SET folder = ?2 WHERE id = ?1", rusqlite::params![id, folder]))?;
+        self.get(id)
+    }
+
+    /// Sets how much a session may do without asking.
+    pub fn set_permission(&self, id: &str, level: &str) -> Result<Session> {
+        self.get(id)?;
+        self.db.with(|c| c.execute("UPDATE sessions SET permission = ?2 WHERE id = ?1", rusqlite::params![id, level]))?;
+        self.get(id)
+    }
+
+    /// Writes down a change a tool made to a file, with what the file held before.
+    pub fn add_change(&self, session_id: &str, message_id: &str, path: &str, before: Option<&[u8]>) -> Result<Change> {
+        let (id, now) = (uuid::Uuid::now_v7().to_string(), now_ms());
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO changes (id, session_id, message_id, path, existed, before, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![id, session_id, message_id, path, before.is_some(), before, now],
+            )
+        })?;
+        Ok(Change { id, session_id: session_id.to_string(), message_id: message_id.to_string(), path: path.to_string(), created: before.is_none(), undone_at: None, created_at: now })
+    }
+
+    /// The changes made in a session, oldest first.
+    pub fn changes(&self, session_id: &str) -> Result<Vec<Change>> {
+        self.db.with(|c| {
+            c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at FROM changes WHERE session_id = ?1 ORDER BY created_at, id")?
+                .query_map([session_id], change_from)?
+                .collect()
+        })
+    }
+
+    /// One change, with what the file held before it.
+    pub fn change_with_before(&self, id: &str) -> Result<(Change, Option<Vec<u8>>)> {
+        self.db
+            .with(|c| {
+                c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, before FROM changes WHERE id = ?1")?
+                    .query_map([id], |r| Ok((change_from(r)?, r.get::<_, Option<Vec<u8>>>(7)?)))?
+                    .next()
+                    .transpose()
+            })?
+            .ok_or_else(|| Error::NotFound(format!("There is no change \"{id}\".")))
+    }
+
+    /// Says that a change was undone.
+    pub fn mark_undone(&self, id: &str) -> Result<()> {
+        self.db.with(|c| c.execute("UPDATE changes SET undone_at = ?2 WHERE id = ?1", rusqlite::params![id, now_ms()]))?;
+        Ok(())
     }
 
     /// Deletes a session and everything said in it.
@@ -428,13 +507,34 @@ mod tests {
     }
 
     #[test]
+    fn a_session_has_a_folder_a_level_and_the_changes_made_in_it() {
+        let s = fresh();
+        let a = s.create(None, "small").unwrap();
+        assert_eq!((a.folder.as_deref(), a.permission.as_str()), (None, "balanced"), "no folder, and balanced, until the person says otherwise");
+        assert_eq!(s.set_folder(&a.id, Some("/tmp/work")).unwrap().folder.as_deref(), Some("/tmp/work"));
+        assert_eq!(s.set_permission(&a.id, "cautious").unwrap().permission, "cautious");
+        assert_eq!(s.set_folder(&a.id, None).unwrap().folder, None);
+
+        let made = s.add_change(&a.id, "m1", "new.md", None).unwrap();
+        let replaced = s.add_change(&a.id, "m1", "old.md", Some(b"as it was")).unwrap();
+        assert_eq!((made.created, replaced.created), (true, false));
+        assert_eq!(s.changes(&a.id).unwrap(), vec![made.clone(), replaced.clone()]);
+        assert_eq!(s.change_with_before(&replaced.id).unwrap().1.as_deref(), Some(b"as it was".as_slice()));
+        assert_eq!(s.change_with_before(&made.id).unwrap().1, None);
+        s.mark_undone(&made.id).unwrap();
+        assert!(s.changes(&a.id).unwrap()[0].undone_at.is_some());
+        s.delete(&a.id).unwrap();
+        assert!(s.changes(&a.id).unwrap().is_empty(), "what was kept for undoing goes with the session");
+    }
+
+    #[test]
     fn work_is_split_into_tasks_and_sub_tasks_that_go_with_their_answer() {
         let s = fresh();
         let a = s.create(None, "small").unwrap();
         s.add(&a.id, "user", "Do three things.", "done", None).unwrap();
         let answer = s.add(&a.id, "assistant", "", "answering", Some("small")).unwrap();
         assert!(answer.steps.is_empty());
-        let step = Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1 };
+        let step = Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1, change: None };
         s.set_steps(&answer.id, std::slice::from_ref(&step)).unwrap();
         assert_eq!(s.message(&answer.id).unwrap().steps, vec![step.clone()]);
 

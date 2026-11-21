@@ -2498,3 +2498,9 @@
 .chat__blocks .d-task__row { align-items: flex-start; }
 .chat__blocks .d-task__row > .d-glyph { margin-block-start: 0.2rem; }
 .chat__blocks .d-task__label { white-space: normal; overflow: visible; }
+
+/* A use of a tool with the way to undo it beside it; and the row where a session is given its folder. */
+.chat__step { display: flex; align-items: flex-start; gap: var(--d-space-8); min-width: 0; }
+.chat__step > .d-step { flex: 1; min-width: 0; }
+.chat__folder { display: grid; gap: var(--d-space-8); padding: var(--d-space-12); border: 1px solid var(--d-color-border-subtle); border-radius: var(--d-radius-md); }
+.chat__folder > p { margin: 0; }

@@ -60,7 +60,12 @@ async fn a_tool_is_asked_for_run_and_its_result_used() {
     let for_answer = contents(&requests[2]);
     assert_eq!(
         for_answer,
-        [said("system", TOLD), said("user", request), said("assistant", call), said("user", "<result>\n1783\n</result>\n\nAbove is the tool's result. Answer the request with it.")]
+        [
+            said("system", TOLD),
+            said("user", request),
+            said("assistant", call),
+            said("user", format!("<result>\n1783\n</result>\n\nAbove is the tool's result. The person asked: \"{request}\" Answer that."))
+        ]
     );
     assert!(requests[2].get("response_format").is_none());
 
@@ -102,7 +107,7 @@ async fn the_clock_is_read_for_the_model() {
     let w = with_tools("clock", &[r#"{"tool": "time()", "args": {}}"#, NONE], &["It is 14:05."]);
     let session = w.chat.start(None, Some("small")).await.unwrap();
     let answer = turn(&w, &session.id, "What time is it?").await;
-    assert_eq!(answer.steps, [Step { tool: "time".into(), args: json!({}), result: "14:05, Saturday, 21 November 2026".into(), state: "done".into(), took_ms: answer.steps[0].took_ms }]);
+    assert_eq!(answer.steps, [Step { tool: "time".into(), args: json!({}), result: "14:05, Saturday, 21 November 2026".into(), state: "done".into(), took_ms: answer.steps[0].took_ms, change: None }]);
     w.end().await;
 }
 
@@ -196,7 +201,12 @@ async fn work_is_split_into_tasks_when_the_person_asks_and_demido_walks_them() {
     let for_answer = contents(requests.last().unwrap());
     assert_eq!(
         for_answer,
-        [said("system", TOLD), said("user", request), said("assistant", plan), said("user", format!("<result>\n{outcome}\n</result>\n\nAbove is the tool's result. Answer the request with it."))]
+        [
+            said("system", TOLD),
+            said("user", request),
+            said("assistant", plan),
+            said("user", format!("<result>\n{outcome}\n</result>\n\nAbove is the tool's result. The person asked: \"{request}\" Answer that."))
+        ]
     );
 
     // The list was told as it changed.
@@ -389,5 +399,41 @@ async fn a_step_that_already_holds_its_result_is_handed_back_and_then_cut() {
     let titles: Vec<String> = w.sessions.tasks_of(&answer.id).unwrap().into_iter().map(|t| t.title).collect();
     assert_eq!(titles, ["Add 3.5 and 2.25", "Multiply the total by 38"]);
     assert!(!asked(&w).iter().any(|r| contents(r).last().unwrap().1.starts_with("The steps must be")));
+    w.end().await;
+}
+
+#[tokio::test]
+async fn an_answer_wrapped_like_a_tools_result_is_unwrapped() {
+    use super::super::turn::unwrapped;
+    assert_eq!(unwrapped(r#"{"result":"Added the line."}"#).as_deref(), Some("Added the line."));
+    assert_eq!(unwrapped(" {\"answer\": \"It is 4.\"}\n").as_deref(), Some("It is 4."));
+    assert_eq!(unwrapped(r#"{"tool": "none", "args": {}, "answer": "Bonjour."}"#).as_deref(), Some("Bonjour."));
+    assert_eq!(unwrapped("<result>\nThe sum cannot be worked out.\n</result>").as_deref(), Some("The sum cannot be worked out."));
+    // What is not plainly a wrapped answer is left as it is.
+    for kept in [r#"{"name": "Ada", "age": 36}"#, r#"{"result": 4}"#, r#"{"result": "a", "note": "b"}"#, r#"{"tool": "calculate", "args": {"expression": "1+1"}}"#, "Plain words.", r#"{"result": "#] {
+        assert_eq!(unwrapped(kept), None, "{kept}");
+    }
+
+    // In a turn: after a tool, the wrapped answer is held back while it is written, and told whole, unwrapped.
+    let w = with_tools("wrapped", &[r#"{"tool": "calculate", "args": {"expression": "2 + 2"}}"#, NONE, NONE], &[r#"{"result": "It is 4."}"#, r#"{"result": "kept as written"}"#]);
+    let mut ear = w.events.listen();
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    let answer = turn(&w, &session.id, "What is two and two?").await;
+    assert_eq!(answer.content, "It is 4.");
+    let mut told = String::new();
+    while let Ok(e) = ear.try_recv() {
+        if e.kind == "message.delta" {
+            told.push_str(e.data["text"].as_str().unwrap());
+        }
+    }
+    assert_eq!(told, "It is 4.", "the person never saw the wrapping");
+    // A request for a tool where the answer should be is kept, and said to be no answer.
+    *w.stand.decisions.lock().unwrap() = [r#"{"tool": "calculate", "args": {"expression": "3 + 3"}}"#.to_string(), NONE.to_string()].into();
+    w.stand.replies.lock().unwrap().push_front(r#"{"tool": "calculate", "args": {"expression": "6 * 2"}}"#.into());
+    let stuck = turn(&w, &session.id, "And three and three, doubled?").await;
+    assert_eq!((stuck.state.as_str(), stuck.content.as_str()), ("failed", r#"{"tool": "calculate", "args": {"expression": "6 * 2"}}"#));
+    assert!(stuck.problem.unwrap().starts_with("The model wrote a request for a tool where its answer should be."));
+    // Without a tool in the turn, an answer that is a JSON object is what was asked for, and stays.
+    assert_eq!(turn(&w, &session.id, "Give me that as JSON.").await.content, r#"{"result": "kept as written"}"#);
     w.end().await;
 }

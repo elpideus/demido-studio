@@ -101,6 +101,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
         section("models", "Models and memory", Some("Models load only when needed and unload when idle.")),
         section("context", "Context and compaction", Some("A model can only hold so much of a conversation in mind. When a session gets long, the older part is replaced by a short account of it.")),
         section("tools", "Tools and tasks", Some("What a model may ask Demido to do for it, and how work with several steps is kept in order.")),
+        section("permissions", "Permission levels", Some("How much a model may do without asking you first. Each session has its own level; this is where new ones start.")),
         section("server", "Server and remote use", Some("How this computer offers Demido to its own window, to browsers and to other devices.")),
         section("events", "The log of what happened", None),
         section("updates", "Updates", None),
@@ -186,7 +187,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Let models use tools",
             "Before it answers, a model is asked whether it needs a tool: the clock, the calculator, a plan.",
             Some(
-                "Default on. It costs one short question to the model before each answer (about a tenth of a second on a graphics card, more without one). The tools so far (the clock, the calculator, a plan) touch nothing outside Demido. Tools that read files, run commands or use the network are not built yet; they come with permission levels.",
+                "Default on. It costs one short question to the model before each answer (about a tenth of a second on a graphics card, more without one). The clock, the calculator and a plan touch nothing outside Demido. A session that has a folder can also read and change files in it, and nowhere else. Running programs and using the network are not built yet.",
             ),
             Kind::Switch,
             json!(true),
@@ -201,6 +202,17 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             ),
             choices(&[("asked", "When I ask"), ("always", "Always")]),
             json!("asked"),
+            true,
+        ),
+        def(
+            "permissions.level",
+            "New sessions start at",
+            "How much a model may do in a new session without asking you. Each session can be changed by itself.",
+            Some(
+                "Default Balanced. Cautious asks before every use of a tool that reaches outside Demido, reading included. Balanced lets a model read and change files in the session's folder without asking: a change cannot leave the folder, and what a file held before is kept, so it can be undone. Autonomous never asks. Smart is the same as Balanced today: it will differ once tools can run programs or reach the network, where a second look by a model decides the uncertain cases. Whatever the level, the decision is made by Demido from what the tool does, never by the model.",
+            ),
+            choices(&[("cautious", "Cautious"), ("balanced", "Balanced"), ("smart", "Smart"), ("autonomous", "Autonomous")]),
+            json!("balanced"),
             true,
         ),
         def(

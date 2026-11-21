@@ -36,8 +36,9 @@ use crate::engine::{Engine, LocalModel, ModelList, ProcessLauncher};
 use crate::events::{Event, EventLog};
 use crate::kept::Kept;
 use crate::paths::Paths;
+use crate::permissions;
 use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
-use crate::sessions::{Message, Session, Sessions, Summary, Task};
+use crate::sessions::{Change, Message, Session, Sessions, Summary, Task};
 use crate::settings::{Entry, Section, Settings};
 use crate::system::{Advice, SystemInfo};
 use crate::ui::Ui;
@@ -356,13 +357,26 @@ pub struct NewSession {
     pub title: Option<String>,
     /// The model to talk to, by its name. Left out: one that is loaded, or else the first on this computer.
     pub model: Option<String>,
+    /// A folder on this computer, by its full path, that the session's tools may read and change files in.
+    /// Left out: the session has none, and is not offered those tools.
+    pub folder: Option<String>,
 }
 
 /// Starts a session with a model. Nothing is loaded until something is said.
 #[utoipa::path(post, path = "/api/v1/sessions", tag = "sessions", request_body = NewSession, responses((status = 200, body = Session), (status = 404, body = Problem), (status = 422, body = Problem)))]
 async fn session_new(State(app): State<App>, body: Option<Json<NewSession>>) -> Result<Json<Session>> {
     let ask = body.map(|Json(b)| b).unwrap_or_default();
-    Ok(Json(app.chat.start(ask.title.as_deref(), ask.model.as_deref()).await?))
+    // The folder is looked at first: a session is not made and then left without the folder it was asked for.
+    if let Some(folder) = ask.folder.as_deref().map(str::trim).filter(|f| !f.is_empty())
+        && !std::path::Path::new(folder).is_dir()
+    {
+        return Err(crate::Error::Invalid(format!("There is no folder \"{folder}\" on this computer.")));
+    }
+    let session = app.chat.start(ask.title.as_deref(), ask.model.as_deref()).await?;
+    Ok(Json(match ask.folder.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        Some(folder) => app.chat.set_folder(&session.id, Some(folder))?,
+        None => session,
+    }))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -388,6 +402,14 @@ pub struct SessionDetail {
     /// What the model is shown before each answer when it may use tools: the list of tools and the
     /// question, word for word. `null` when tools are turned off.
     pub tools_told: Option<String>,
+    /// A use of a tool that is waiting for the person's yes. The answer being written waits with it.
+    /// Answer it at `/sessions/{id}/permissions/{request}`.
+    pub asking: Option<permissions::Request>,
+    /// The tools that need not ask again in this session, because the person said so. Forgotten when
+    /// Demido stops, and when the session's level is changed.
+    pub need_not_ask: Vec<String>,
+    /// The changes tools made to files in the session's folder, oldest first. Each can be undone.
+    pub changes: Vec<Change>,
 }
 
 /// One session with everything said in it, and what the model is told first.
@@ -403,7 +425,10 @@ async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<J
         summaries: app.sessions.summaries(&id)?,
         context: app.chat.context_use(&id)?,
         tasks: app.sessions.tasks(&id)?,
-        tools_told: app.chat.tools_told(),
+        tools_told: app.chat.tools_told(&session),
+        asking: app.chat.waiting_for(&id),
+        need_not_ask: app.chat.need_not_ask(&id),
+        changes: app.sessions.changes(&id)?,
         session,
     }))
 }
@@ -415,12 +440,45 @@ pub struct SessionChange {
     pub model: Option<String>,
     /// Whether the model thinks before it answers: `off`, `on`, or one of the model's own levels.
     pub thinking: Option<String>,
+    /// The folder the session's tools may work in, by its full path. An empty text takes the folder away.
+    pub folder: Option<String>,
+    /// How much the session may do without asking: `cautious`, `balanced`, `smart` or `autonomous`.
+    pub permission: Option<String>,
 }
 
-/// Changes what is given: the title, the model, whether the model thinks before it answers.
+/// Changes what is given: the title, the model, whether the model thinks before it answers, the folder
+/// its tools may work in, how much it may do without asking.
 #[utoipa::path(patch, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = SessionChange, responses((status = 200, body = Session), (status = 404, body = Problem)))]
 async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(body): Json<SessionChange>) -> Result<Json<Session>> {
-    Ok(Json(app.chat.change(&id, body.title.as_deref(), body.model.as_deref(), body.thinking.as_deref()).await?))
+    let mut session = app.chat.change(&id, body.title.as_deref(), body.model.as_deref(), body.thinking.as_deref()).await?;
+    if let Some(folder) = body.folder.as_deref() {
+        session = app.chat.set_folder(&id, Some(folder))?;
+    }
+    if let Some(level) = body.permission.as_deref() {
+        session = app.chat.set_permission(&id, level)?;
+    }
+    Ok(Json(session))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct PermissionAnswer {
+    /// `once`: yes, this once. `session`: yes, and do not ask again for this tool in this session. `no`.
+    pub said: permissions::Said,
+}
+
+/// Answers a use of a tool that is waiting for the person's yes (`asking` in the session's detail, and
+/// the `permission.asked` event). The answer being written goes on from there.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/permissions/{request}", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("request" = String, Path, description = "The request's id")), request_body = PermissionAnswer, responses((status = 204), (status = 404, body = Problem)))]
+async fn session_permission(State(app): State<App>, Path((id, request)): Path<(String, String)>, Json(body): Json<PermissionAnswer>) -> Result<StatusCode> {
+    app.chat.answer_request(&id, &request, body.said)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Undoes a change a tool made to a file in the session's folder: puts back what the file held before, or
+/// removes a file the change created.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/changes/{change}/undo", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("change" = String, Path, description = "The change's id")), responses((status = 200, body = Change), (status = 404, body = Problem), (status = 409, body = Problem), (status = 422, body = Problem)))]
+async fn session_undo(State(app): State<App>, Path((id, change)): Path<(String, String)>) -> Result<Json<Change>> {
+    Ok(Json(app.chat.undo(&id, &change)?))
 }
 
 /// Makes a session shorter for the model: it writes a short account of the older part of the conversation,
@@ -577,7 +635,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -609,6 +667,8 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/stop", post(session_stop))
         .route("/sessions/{id}/answer-now", post(session_answer_now))
         .route("/sessions/{id}/compact", post(session_compact))
+        .route("/sessions/{id}/permissions/{request}", post(session_permission))
+        .route("/sessions/{id}/changes/{change}/undo", post(session_undo))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))

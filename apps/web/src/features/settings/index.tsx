@@ -70,7 +70,8 @@ export const CORE_SECTIONS: SettingsSection[] = [
   {
     id: 'permissions', title: 'Permissions', lead: 'What Demido may do without asking.', order: 3,
     settings: [
-      { id: 'permissions.default', type: 'segmented', label: 'Default permission level', desc: 'New sessions start at this level. Each session can change it.', default: 'balanced', options: [{ value: 'cautious', label: 'Cautious' }, { value: 'balanced', label: 'Balanced' }, { value: 'autonomous', label: 'Autonomous' }, { value: 'smart', label: 'Smart' }],
+      /* The same id as the core's registry: with a core, this row is drawn from its description. */
+      { id: 'permissions.level', type: 'segmented', label: 'New sessions start at', desc: 'How much a model may do in a new session without asking you. Each session can be changed by itself.', default: 'balanced', options: [{ value: 'cautious', label: 'Cautious' }, { value: 'balanced', label: 'Balanced' }, { value: 'autonomous', label: 'Autonomous' }, { value: 'smart', label: 'Smart' }],
         details: 'Cautious always asks. Balanced asks only before things that could cause damage. Autonomous never asks. Smart lets the model decide and logs every decision. A model can never raise its own level: only you can.' },
       { id: 'permissions.sandbox', type: 'switch', label: 'Run commands in a sandbox', desc: 'Commands cannot leave the session folder or reach the network unless you allow it.', default: true, notBuilt: true },
       { id: 'permissions.untrusted', type: 'switch', label: 'Treat outside content as data', desc: 'Web pages, mail, files and messages can inform an answer but cannot give orders.', default: true,

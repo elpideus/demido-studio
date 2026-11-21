@@ -251,6 +251,10 @@ the trial had not shown:
   trusted the title over the calculator. Steps are now checked: no number that the request did not have
   (L22).
 
+(Run again after the work on files, research note 14, with the request said again after a result: 3, 6,
+4 and 8 of 8. The 4B model then got the call at 17:30 right. Answers are not written at temperature 0, so a
+request or two moves from run to run.)
+
 What is still wrong, plainly: two of four models read "4 of us plus one bag" as five tickets, which no
 tool can mend, and a third did the sum in its head and got it wrong. The call at 17:30 came out right on
 one model of four, and that one by writing both steps into a single request: a chain of two tools (read

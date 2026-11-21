@@ -9,20 +9,26 @@ import { coreGet, coreSend, onCoreEvent } from './core'
 import { toast } from './store'
 
 export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number }
-/** One use of a tool. `refused`: the request could not be used, so nothing ran. */
-export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'done' | 'failed' | 'refused'; took_ms: number }
+/** One use of a tool. `waiting`: for the person's yes. `refused`: the request could not be used, or the person said no; nothing ran.
+    `change`: the id of the change it made to a file, for undoing it. */
+export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null }
+export type Level = 'cautious' | 'balanced' | 'smart' | 'autonomous'
+/** A use of a tool that is waiting for the person's yes. Every word of it is made by the core from the request, none by the model. */
+export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes'; what: string; why: string; asked_at: number }
+/** A change a tool made to a file in the session's folder. `created`: the change made the file, so undoing removes it. */
+export interface CoreChange { id: string; session_id: string; message_id: string; path: string; created: boolean; undone_at: number | null; created_at: number }
 /** One task of work that was split into steps. `parent_id` is set for a sub-task. */
 export interface CoreTask { id: string; session_id: string; message_id: string; parent_id: string | null; position: number; title: string; state: 'pending' | 'running' | 'done' | 'failed' | 'stopped'; result: string | null; steps: CoreStep[]; created_at: number; updated_at: number }
 export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; steps: CoreStep[]; created_at: number }
 /** `thinking`: off, on, or one of the model's own levels. */
-export interface CoreSession { id: string; title: string; model: string; thinking: string; created_at: number; updated_at: number; messages: number }
+export interface CoreSession { id: string; title: string; model: string; thinking: string; folder?: string | null; permission?: Level; created_at: number; updated_at: number; messages: number }
 /** An account of the older part of a session. The model is given it in place of the messages up to `upto_seq`. */
 export interface CoreSummary { id: string; session_id: string; upto_seq: number; content: string; why: 'asked' | 'auto'; tokens_before: number; created_at: number }
 /** How much of what the model can hold a session is using, in tokens. */
 export interface ContextUse { used: number; limit: number; compact_at: number; auto: boolean }
 /** `thinking_choices`: what thinking can be set to besides off. Empty: the model does not think. null: not known until it has been loaded once. */
 /** `tasks` and `tools_told` are missing when the core is older than this window: a window may be newer than the server it talks to. */
-export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean; thinking_choices: string[] | null; summaries: CoreSummary[]; context: ContextUse; tasks?: CoreTask[]; tools_told?: string | null }
+export interface SessionDetail { session: CoreSession; messages: CoreMessage[]; instructions: string; answering: boolean; thinking_choices: string[] | null; summaries: CoreSummary[]; context: ContextUse; tasks?: CoreTask[]; tools_told?: string | null; asking?: PermissionRequest | null; need_not_ask?: string[]; changes?: CoreChange[] }
 
 interface Real {
   /** `null` until the core has answered. */
@@ -116,7 +122,29 @@ export async function answerNow(id: string) {
   await coreSend('POST', `/sessions/${id}/answer-now`).catch((e: Error) => toast(e.message, undefined, 'task-failed'))
 }
 
-export async function changeSession(id: string, change: { title?: string; model?: string; thinking?: string }) {
+/** The person's answer to a use of a tool that is waiting: yes this once, yes for the rest of the session, or no. */
+export async function answerPermission(id: string, request: string, said: 'once' | 'session' | 'no') {
+  try {
+    await coreSend('POST', `/sessions/${id}/permissions/${request}`, { said })
+  } catch (e) {
+    toast((e as Error).message, undefined, 'task-failed')
+  }
+  await readSession(id)
+}
+
+/** Undoes a change a tool made to a file: what the file held before is put back. */
+export async function undoChange(id: string, change: string) {
+  try {
+    const undone = await coreSend<CoreChange>('POST', `/sessions/${id}/changes/${change}/undo`)
+    toast(undone.created ? `Removed ${undone.path}: the change had created it.` : `Put ${undone.path} back as it was.`)
+  } catch (e) {
+    toast(`Not undone. ${(e as Error).message}`, undefined, 'task-failed')
+  }
+  await readSession(id)
+}
+
+/** `folder`: a full path on the computer the core runs on; an empty text takes the folder away. */
+export async function changeSession(id: string, change: { title?: string; model?: string; thinking?: string; folder?: string; permission?: Level }) {
   try {
     await coreSend('PATCH', `/sessions/${id}`, change)
     await Promise.all([readSessions(), readSession(id)])
@@ -155,6 +183,12 @@ export function startSessions() {
     const id = String(e.data.message)
     set({ working: { ...get().working, [id]: { ...get().working[id], tasks: e.data.tasks as CoreTask[] } } })
   })
+  // A use of a tool is waiting for the person, or was answered; a change was undone.
+  onCoreEvent('permission.asked', (e) => {
+    const at = e.subject ? get().open[e.subject] : undefined
+    if (e.subject && at) set({ open: { ...get().open, [e.subject]: { ...at, asking: e.data as unknown as PermissionRequest } } })
+  })
+  for (const kind of ['permission.answered', 'change.undone']) onCoreEvent(kind, (e) => { if (e.subject && get().open[e.subject]) void readSession(e.subject) })
   // Something was said, or an answer ended: the stored conversation is the truth again.
   // The older part of a session is being written up (by itself, before an answer, or because someone asked).
   onCoreEvent('session.compacting', (e) => { if (e.subject) set({ shortening: { ...get().shortening, [e.subject]: true } }) })

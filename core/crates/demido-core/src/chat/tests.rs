@@ -9,6 +9,7 @@ use crate::engine::stand_in::{Stand, StandLauncher};
 use crate::runtime::{Runtimes, Source};
 use crate::settings::Settings;
 
+mod folders_and_permissions;
 mod tools_and_tasks;
 
 /// It is always the same minute of the same Saturday, whatever the real clock says.

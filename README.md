@@ -13,6 +13,7 @@ an interactive preview of the app on fake data, and the first slice of the real 
 | `docs/PLAN.md` | The order of work and where it stands. |
 | `docs/DECISIONS.md` | Every decision, its reason and its status. |
 | `docs/IDEAS.md` | Ideas and pushback, logged as they come up. |
+| `docs/LATER.md` | Plans the owner has set aside to try later, written out far enough to pick up cold. |
 | `docs/research/` | Research reports behind the technical direction. |
 | `brand/` | The brand kit: logo, tokens, fonts, reference components, voice. |
 | `apps/web/` | The web UI. Today: the interactive preview with fake data. |
@@ -46,7 +47,9 @@ cargo run --manifest-path core/Cargo.toml -- open
 
 The same UI opens, served by the real core. Four screens are real then (Sessions, Models, Setup and part of
 Settings); every other screen is still the scripted preview and says so. In a session the model can read
-the clock, calculate, and do work as a list of tasks; it cannot reach files or the web yet. To talk to a model, the core needs
+the clock, calculate, and do work as a list of tasks. Give the session a folder and it can read and change
+the files in it, and nowhere else, asking first where the session's level says so. It cannot run programs
+or reach the web yet. To talk to a model, the core needs
 a model runtime (Setup installs it) and a GGUF model in its models folder (`demido models` says where).
 
 ## See the brand kit

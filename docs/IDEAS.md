@@ -129,12 +129,18 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 95 | **Let a person mend the account.** The account is plain text the model reads. A person who sees a wrong or missing fact in it could correct it in place, and the model would know from the next turn. | Raised |
 | 96 | **Pin a message.** "Never lose this one": a pinned message stays word for word through every shortening. Useful for a specification or a list of rules given at the start. | Raised |
 | 97 | **A stronger model writes the account.** With a model for each agent (DECISIONS O), the account could be written by the most careful model that is loaded, not by the session's own. It is rare work where care pays more than speed. | Raised; with item 7 |
-| 98 | **Try each model once, and word things for it.** No wording of the tool question was right for both families of models tried: one over-uses tools, the other under-uses them. The first time a model is used, Demido could run a short fixed trial (twenty requests, a few seconds on a graphics card), keep the wording that suits that model, and show the person the score: "this model uses tools right 21 times in 26". It would also tell the roster (DECISIONS O) which models can be trusted with tools at all. | Raised; with the models work (item 6) |
+| 98 | **Try each model once, and word things for it.** No wording of the tool question was right for both families of models tried: one over-uses tools, the other under-uses them. The first time a model is used, Demido could run a short fixed trial (twenty requests, a few seconds on a graphics card), keep the wording that suits that model, and show the person the score: "this model uses tools right 21 times in 26". It would also tell the roster (DECISIONS O) which models can be trusted with tools at all. | **Set aside by the owner for later** (2026-11-21); written out in `docs/LATER.md` |
 | 99 | **Show the plan before it is walked.** With Plan first, the list appears and is carried out at once. A person could be shown the steps first, to cross one out, reword one or add one, and then press Go. Cheap to build on what is there, and it puts the person where a small model is weakest. | Raised |
 | 100 | **Do a failed task again.** A task that failed, or gave something wrong, could be done again by itself, with a word from the person about what was wrong, without redoing the ones before it. | Raised |
 | 101 | **The date is a setting of the conversation, not of the computer.** Demido tells the model the day in this computer's time zone. In server mode the person may be somewhere else. The window knows its own time zone and could say so. | Raised; with server mode |
 | 102 | **End a thought that goes round.** An answer that repeats itself is stopped. A thought can go round in the same way, and today only "Answer now" ends it. The same check could press that button. | Raised |
 | 103 | **A cheaper model for the small questions.** "Does this need a tool?" and "what did this task give?" are short, mechanical questions. With a model for each job (DECISIONS O), the smallest loaded model could answer them while the session's model keeps its memory of the conversation for the answer. Not as simple as it sounds: the small model would have to read the conversation too. | Raised; with item 7 |
+| 104 | **Show what a change changed.** Undo is there; what is missing is seeing the change: the lines taken out and put in, side by side, in the answer that made it, before deciding whether to keep it. | Raised |
+| 105 | **Let a program's changes be looked at before they land.** When programs can run, a command can do anything inside the folder, and one press of Undo cannot cover it. The sandbox can run the command on a copy-on-write view of the folder: afterwards Demido lists what it changed, and Balanced lets through what only adds or edits and asks for what deletes. This computer's bubblewrap can do it; older ones cannot. | Raised; with running programs |
+| 106 | **Say when an answer came from nowhere.** Small models describe files they did not read. A line under the answer now says when no file was read or changed. It could go further: a session could refuse to show such an answer as an answer at all when the request named a file. | Done in its plain form |
+| 107 | **A model that is too small for files.** The 0.6B test model got 2 of 9 file requests right and made up the rest. A session could warn, when a folder is given to a model that is known to be this weak (LATER 1 would know), that it will mostly invent. | Raised |
+| 108 | **Pick the folder, do not type it.** A path typed into a field is right for a server somewhere else. On your own computer a folder picker is what you expect. It needs the desktop shell (plan item 10). | Raised |
+| 109 | **What need not ask again, seen and taken back.** "Yes, for this session" is remembered until Demido stops. It is shown in the folder panel; it cannot yet be taken back one tool at a time, and it is not kept across a restart. | Raised |
 
 ## Pushback on the brief so far
 
@@ -216,6 +222,16 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
   words. The fix is to choose words per model by measuring it, which is brief 4.2 ("model-specific
   optimizations") reaching further than temperature settings. I built the default that errs towards doing
   nothing, and wrote the rest down as the next thing worth building for small models (IDEAS 98).
+- **"Outside content is data" cannot be said to a small model.** The preview has a switch called "Treat
+  outside content as data". I measured what saying that to a model does: nothing. Four of four models
+  obeyed a file that told them what to reply, with or without being told the file was only data. What
+  works is taking away what an obedient model could do with it: one folder, undo, no network, and
+  decisions about asking made in code. I built those, and I would rename that switch when the rest of the
+  defence exists, so that it does not promise what words cannot deliver.
+- **Smart is not smart yet.** You asked for a level where the model decides when to ask. With files only,
+  there is nothing for it to decide, so today it is Balanced under another name, and the window says so. I
+  did not want to ship a second-look model that a four-billion-parameter model would be bad at, for
+  decisions that do not exist yet.
 - **Small is not all the same.** The design is tuned on 0.6B to 4B models because they are quick to
   download and fail loudly. On your card you would run 4B to 12B. The 4B model got 25 of 26 decisions and
   7 of 8 real requests right; the ones below it are where the work is. I have not measured anything
