@@ -139,8 +139,5 @@ model, from a short trial when a model is first used.
 - A usage policy for the name and logo, to replace the holding notice (DECISIONS A13).
 - Whether to rerun the research sweep or let it be done directly (the earlier run stalled and has ended).
 - The eight items in the kit's "For your review" section.
-- Whether Balanced has it right for programs (DECISIONS T3). Today a program runs without asking when it is
-  shut in a sandbox and the folder was saved first; told to, a real model deleted every file in the folder
-  that way, and one Undo put them back. The stricter reading: Balanced always asks before a program.
 - What a voice interruption does to a running task (IDEAS 42).
 - Whether sixteen places in the navigation is right, or services should appear only once connected (IDEAS 58).

@@ -70,8 +70,8 @@ const TOOL_SAID: Record<string, [string, string]> = {
 /** The four levels, as they are today. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
 const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
   cautious: { label: 'Cautious', icon: ShieldCheck, text: 'Asks you before every use of a tool that reaches the folder, reading included.' },
-  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking, and runs a program when it is shut in a sandbox and the folder was saved first. All of that can be undone. Anything else, it asks.' },
-  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The same as Balanced today. The second look by a model, for the uncertain cases, is not built.' },
+  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking: a change cannot leave the folder, and can be undone. Asks before every program.' },
+  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The same as Balanced today. The second look by a model, which is to decide when a program need not ask, is not built.' },
   autonomous: { label: 'Autonomous', icon: ShieldOff, text: 'Never asks.' },
 }
 const flat = (text: string, most: number) => { const one = text.replace(/\s+/g, ' ').trim(); return one.length > most ? `${one.slice(0, most)}…` : one }

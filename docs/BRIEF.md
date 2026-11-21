@@ -480,3 +480,7 @@ reasoning" as a technique to research. I reported that it could mean three thing
 trained for it. The owner answered, quoting that line: "Forget about the vector thing then...I meant this"
 So that example is no longer part of what is asked. Recorded in `docs/DECISIONS.md` L10.
 
+**2026-11-21, Balanced and programs.** Asked whether the Balanced level should run a program without asking
+when the program is shut in a sandbox and the folder was saved first, as it then did: "Always ask first."
+It settles how section 4.16's "asks only for things that could cause damage" applies to running programs.
+Recorded in `docs/DECISIONS.md` T3.

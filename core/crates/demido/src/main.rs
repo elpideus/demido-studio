@@ -713,7 +713,7 @@ fn ask_the_person(request: &Value) -> &'static str {
     eprintln!("\nAsks first: {}", request["what"].as_str().unwrap_or("use a tool"));
     eprintln!("  {}", request["why"].as_str().unwrap_or(""));
     if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        eprintln!("  Nobody is at this terminal to ask, so the answer is no. Answer in the window, or use --level balanced.");
+        eprintln!("  Nobody is at this terminal to ask, so the answer is no. Ask from a terminal you can type in, or answer in the window.");
         return "no";
     }
     loop {

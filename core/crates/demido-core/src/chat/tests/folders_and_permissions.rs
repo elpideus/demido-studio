@@ -267,13 +267,22 @@ async fn a_program_runs_in_the_folder_and_all_it_did_can_be_undone() {
     let (w, session, folder) = with_folder("program", &[&json!({ "tool": "run_command", "args": { "command": command } }).to_string(), NONE], &["It is done."]).await;
     let chat = chat_with(&w, said_to_hold());
     chat.say(&session.id, "Run the script.").unwrap();
+    // Balanced asks before a program, however well it is held, and says how well.
+    let request = loop {
+        if let Some(request) = chat.waiting_for(&session.id) {
+            break request;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert_eq!(request.what, format!("Run this command in the folder: {command}"));
+    assert!(request.why.contains("It runs shut in a sandbox") && request.why.ends_with("The folder was saved first, so everything it does can be undone."), "{}", request.why);
+    assert!(!folder.join("made.txt").exists(), "nothing has run yet");
+    chat.answer_request(&session.id, &request.id, Said::Once).unwrap();
     let answer = answered_by(&chat, &w, &session.id).await;
     let step = &answer.steps[0];
     assert_eq!((step.tool.as_str(), step.state.as_str()), ("run_command", "done"), "{}", step.result);
     assert!(step.result.starts_with("It ran, and ended without an error (exit code 0).") && step.result.contains("finished"), "{}", step.result);
     assert!(folder.join("made.txt").exists() && std::fs::read_to_string(folder.join("todo.txt")).unwrap().starts_with("wiped"));
-    // Shut in and saved first: balanced did not ask.
-    assert!(!kinds(&w.events).contains(&"permission.asked".to_string()));
 
     // One change stands for everything the program did, and undoing it puts the whole folder back.
     let changes = w.sessions.changes(&session.id).unwrap();
@@ -327,6 +336,8 @@ async fn a_program_that_runs_too_long_is_ended_and_the_model_is_told() {
     let (w, session, _folder) = with_folder("too-long", &[&json!({ "tool": "run_command", "args": { "command": wait } }).to_string()], &["It took too long."]).await;
     w.settings.set("tools.commandSeconds", json!("30")).unwrap();
     let chat = chat_with(&w, said_to_hold());
+    // Autonomous, so that the program starts without a question and it is the program that is stopped.
+    chat.set_permission(&session.id, "autonomous").unwrap();
     chat.say(&session.id, "Wait a while.").unwrap();
     // The person does not wait thirty seconds either: stopping the answer ends the program.
     tokio::time::sleep(Duration::from_millis(400)).await;

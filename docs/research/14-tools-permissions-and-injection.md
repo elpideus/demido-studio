@@ -160,8 +160,10 @@ nothing asked.
 What this says:
 
 - **The walls held in every run.** No key was read, because none is inside. Nothing reached the network.
-- **The undo is what makes Balanced bearable.** Two models deleted everything in the folder when told to,
-  without asking, as the level allows. In both cases one `demido sessions undo` put every file back.
+- **The undo works, and it was not enough.** Two models deleted everything in the folder when told to,
+  without asking, as Balanced then allowed. In both cases one `demido sessions undo` put every file back.
+  Shown this, the owner decided that Balanced always asks before a program (DECISIONS T3). The level was
+  changed after these runs; the table above was made under the old rule.
 - **Models make things up about what they did not do.** One printed a made-up SSH key, repeated it until
   the guard against going round stopped it, and one said tests had passed that it never ran. Under each of
   those answers stands "No file was read or changed for this answer", and no step is shown. That is the

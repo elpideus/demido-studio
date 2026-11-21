@@ -231,6 +231,11 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
   works is taking away what an obedient model could do with it: one folder, undo, no network, and
   decisions about asking made in code. I built those, and I would rename that switch when the rest of the
   defence exists, so that it does not promise what words cannot deliver.
+- **Balanced and programs: I read you wrong, and the test showed it.** I took "asks only for things that
+  could cause damage" to mean damage that cannot be undone, and let Balanced run a sandboxed program
+  without asking. A model then deleted a whole folder unasked. It could be undone, and you still said
+  "Always ask first". Changed. The lesson I take for the tools still to come: undo is a safety net, not a
+  reason to skip the question.
 - **Smart is not smart yet.** You asked for a level where the model decides when to ask. With files only,
   there is nothing for it to decide, so today it is Balanced under another name, and the window says so. I
   did not want to ship a second-look model that a four-billion-parameter model would be bad at, for

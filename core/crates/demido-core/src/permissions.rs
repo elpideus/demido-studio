@@ -12,15 +12,16 @@
 //! | touches nothing outside Demido  | runs     | runs     | runs  | runs       |
 //! | reads in the session's folder   | asks     | runs     | runs  | runs       |
 //! | changes a file in the folder    | asks     | runs     | runs  | runs       |
-//! | runs a program, shut in and     | asks     | runs     | runs  | runs       |
-//! |   with the folder saved first   |          |          |       |            |
-//! | runs a program otherwise        | asks     | asks     | asks  | runs       |
+//! | runs a program                  | asks     | asks     | asks  | runs       |
 //!
-//! Balanced lets through what is contained and can be undone. A change to a file cannot leave the folder,
-//! and what the file held before is kept. A program is shut in a sandbox (`sandbox`) and the folder is
-//! saved before it runs (`checkpoint`), so all it did can be put back. Where either is missing, because
-//! this computer has no sandbox or the folder is too large to save, Balanced asks. Smart is the same as
-//! Balanced until a second look by a model exists to decide those uncertain cases; today it asks there too.
+//! Balanced lets a change to a file through, because it cannot leave the folder and what the file held
+//! before is kept. It always asks before a program, **by the owner's decision** (2026-11-21, "Always ask
+//! first"). A program is shut in a sandbox (`sandbox`) and the folder is saved before it runs
+//! (`checkpoint`), so all it did can be put back; I had let Balanced run it unasked on that ground, and
+//! on the first real try a model told to delete everything did so without a question. Being able to undo
+//! is not the same as not being harmed. The request says whether the program is shut in and whether the
+//! folder was saved, so the person knows what a yes risks. Smart is the same as Balanced until a second
+//! look by a model exists.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -32,9 +33,9 @@ use crate::tools::Reach;
 pub enum Level {
     /// Asks before every use of a tool that reaches outside Demido.
     Cautious,
-    /// Asks only for what could do damage that cannot be undone.
+    /// Lets a model read and change files in the folder. Asks before every program.
     Balanced,
-    /// As Balanced, and a second look by a model decides the uncertain cases. No such cases exist yet.
+    /// As Balanced, until a second look by a model exists to decide when a program need not ask.
     Smart,
     /// Never asks.
     Autonomous,
@@ -74,7 +75,11 @@ pub fn asks(level: Level, reach: Reach, held: Held) -> bool {
         (_, Level::Autonomous) => false,
         (_, Level::Cautious) => true,
         (Reach::Reads | Reach::Changes, _) => false,
-        (Reach::Runs, Level::Balanced | Level::Smart) => !(held.shut_in && held.can_be_undone),
+        // Always, however well the program is held: the owner's decision. What holds it is said in the request.
+        (Reach::Runs, Level::Balanced | Level::Smart) => {
+            let _ = held;
+            true
+        }
     }
 }
 
@@ -85,7 +90,8 @@ pub fn why(level: Level, reach: Reach, held: Held, no_sandbox_because: Option<&s
         (_, Reach::Runs) if !held.shut_in => {
             format!("There is no sandbox on this computer, so this command could reach whatever you can reach. {}", no_sandbox_because.unwrap_or_default()).trim_end().to_string()
         }
-        (_, Reach::Runs) if !held.can_be_undone => "The folder could not be saved first, so what this command changes cannot be undone.".into(),
+        (_, Reach::Runs) if !held.can_be_undone => "It runs shut in a sandbox: it cannot leave the folder or reach the network. The folder could not be saved first, so what it changes in the folder cannot be undone.".into(),
+        (_, Reach::Runs) => "A program can do anything inside the folder, so this level asks before each. It runs shut in a sandbox: it cannot leave the folder or reach the network. The folder was saved first, so everything it does can be undone.".into(),
         _ => "This could do something that cannot be undone.".into(),
     }
 }
@@ -158,17 +164,17 @@ mod tests {
         for level in [Balanced, Smart, Autonomous] {
             assert!(!asks(level, Reach::Reads, loose) && !asks(level, Reach::Changes, loose));
         }
-        // A program: balanced and smart let it run only when it is shut in and the folder was saved first.
+        // A program: balanced and smart always ask, however well it is held. The request says how well.
         for level in [Balanced, Smart] {
-            assert!(!asks(level, Reach::Runs, safe));
-            assert!(asks(level, Reach::Runs, loose) && asks(level, Reach::Runs, unsaved));
+            assert!(asks(level, Reach::Runs, safe) && asks(level, Reach::Runs, loose) && asks(level, Reach::Runs, unsaved));
         }
+        assert!(why(Balanced, Reach::Runs, safe, None).ends_with("The folder was saved first, so everything it does can be undone."));
         assert!(!asks(Autonomous, Reach::Runs, loose), "autonomous never asks");
         assert!(
             why(Balanced, Reach::Runs, loose, Some("bubblewrap is not installed.")).starts_with("There is no sandbox on this computer")
                 && why(Balanced, Reach::Runs, loose, Some("bubblewrap is not installed.")).ends_with("bubblewrap is not installed.")
         );
-        assert!(why(Smart, Reach::Runs, unsaved, None).contains("cannot be undone"));
+        assert!(why(Smart, Reach::Runs, unsaved, None).ends_with("what it changes in the folder cannot be undone."));
         assert!(why(Cautious, Reach::Runs, safe, None).contains("Cautious"));
         assert_eq!(LEVELS.map(Level::from), [Some(Cautious), Some(Balanced), Some(Smart), Some(Autonomous)]);
         assert_eq!(Level::from("root"), None);
