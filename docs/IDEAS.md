@@ -186,6 +186,8 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
   it beats a good prompt, so it gets one honest trial. Making an ordinary downloaded model reason in vectors
   and not in words is not possible: it needs models trained for it, and there are none in the formats the
   runtime loads. Research note 13 has the detail. If you meant something else by the term, tell me.
+  **Answered on 2026-11-21:** you meant the last of the three, and withdrew it. Nothing is built under
+  that name; the control-vector trial is dropped too.
 - **Forcing a model's output is not the cure I assumed.** I planned to force every tool call into its
   schema. Recent papers say that makes small models' calls valid and often wrong, and my own measurement
   showed the real failure is elsewhere: tiny models do not know when to leave the tools alone. One change of

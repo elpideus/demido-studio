@@ -473,3 +473,10 @@ about the other available models on the system and be able to assign a model per
 and doing better work, and quicker where less good models are ok or work is mechanical"
 It extends section 4.17 (agents and resource-aware model juggling). How it is to be built:
 `docs/DECISIONS.md`, section O.
+
+**2026-11-21, vector reasoning is withdrawn.** Sections 3 and 4.3 name "vector reasoning instead of language
+reasoning" as a technique to research. I reported that it could mean three things, and that the third,
+"Making a downloaded model reason in vectors and not in words", is not possible because it needs models
+trained for it. The owner answered, quoting that line: "Forget about the vector thing then...I meant this"
+So that example is no longer part of what is asked. Recorded in `docs/DECISIONS.md` L10.
+

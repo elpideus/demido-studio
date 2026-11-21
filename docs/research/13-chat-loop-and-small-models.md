@@ -133,7 +133,7 @@ Each with how sure it is and when it gets built. "Item" is the number in `docs/P
 | 13 | **Outside text is data** (brief 4.4) | What comes from pages, files, mail and tools is marked as material, never as instructions. | Research note 05, not yet fact-checked | Item 5 |
 | 14 | **A model for each job** (the owner's addition) | Mechanical work goes to the fastest model that fits; the careful one plans. | Designed (DECISIONS O); not tried | Item 7 |
 
-## "Vector reasoning": what is feasible, honestly
+## "Vector reasoning": what is feasible, honestly (withdrawn by the owner; kept for the record)
 
 The brief names "vector reasoning instead of language reasoning, where applicable", marks it experimental,
 and asks me to say what is feasible. Three different things could be meant.
@@ -151,8 +151,12 @@ and asks me to say what is feasible. Three different things could be meant.
    one 2026 analysis I found (Search) doubts where the gains come from. I would not spend time here until
    such models are published in the formats the runtime loads.
 
-So my proposal: build 1 as part of the tools work, give 2 a single measured trial later, leave 3 alone.
-This is the owner's call; the brief asks for it to be discussed.
+So my proposal was: build 1 as part of the tools work, give 2 a single measured trial later, leave 3 alone.
+
+**The owner's answer (2026-11-21): it was the third that was meant, and it is withdrawn.** "Forget about the
+vector thing then." Nothing is built or tried under this name. Choosing tools by meaning (1) stays as
+technique 4 above, for its own reasons. The trial of control vectors (2) is dropped: it was only a guess at
+what the term meant.
 
 ## Decided for the first slice of the chat loop
 

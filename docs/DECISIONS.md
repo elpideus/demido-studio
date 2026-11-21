@@ -256,7 +256,7 @@ and the full set of techniques proposed, each with how sure it is.
 | L7 | **Tools are asked for in Demido's own short format, in which "no tool" is one of the tools.** Measured on both test models: 26 of 26 right at a third of the tokens of the runtime's own tool format, where the same few words without that one change got 20 and 22. Every request is checked against the tool's own description, and the model gets one repair turn in plain words. Only the tool's name is forced; the arguments are checked, not forced. | Decided on a small measurement; the forcing is provisional and is measured again on harder work with the first real tools (item 5) |
 | L8 | **Cut words, never choices.** Internal text is short (brief 4.13), and every option the model has stays visible in it. Measured: a short prompt that dropped one sentence about not needing a tool lost 6 of 26. | A rule from now on |
 | L9 | **What an answer says about the model's speed is kept** (tokens a second, from the runtime's own timing of real answers), for the roster of section O. No benchmark is run for it. | Built: `demido models` and the roster know, for example, 157 tokens a second for the 1.7B test model on the owner's card |
-| L10 | **"Vector reasoning": deciding by meaning is built; steering by control vector gets one measured trial; reasoning in vectors is left alone** until models trained for it exist in the formats the runtime loads. | **Proposed. The brief asks for this to be discussed with the owner** |
+| L10 | **"Vector reasoning" is dropped.** The owner meant making a model reason in its own vectors and not in words. That needs models trained for it, and none exist in the formats the runtime loads, so the owner withdrew it ("Forget about the vector thing then"). Nothing is built or tried under that name. Two things I had listed beside it are settled separately: choosing tools by meaning stays, because it belongs to the tools work on its own merits (research note 13, technique 4, and brief 4.8); the trial of steering a model with a control vector is dropped with the rest, since it was only ever a guess at what the term meant. | **Decided by the owner on 2026-11-21** |
 
 ## O. A model for each agent (owner's direction, 2026-11-21)
 
@@ -281,8 +281,8 @@ are decisions about how to build it, not things that are built.
 
 The research run stalled when the session's usage limit was reached and ended with that session. Since then,
 the inference runtime (note 03) and the core's parts (note 11) were researched directly. Still without a report:
-model loading and tuning, small-model techniques (including "vector reasoning" and
-adding capabilities through embeddings), search engines and the named third-party projects (licences, AGPL
+settings per model, adding capabilities through embeddings (the small-model techniques are in note 13;
+"vector reasoning" was withdrawn by the owner), search engines and the named third-party projects (licences, AGPL
 handling, look-alike repos), voice / email / messaging / markets, core architecture (storage, scheduler,
 resource manager). The frontend stack was researched directly since (section C2). The remaining five are
 needed before any feature work.
