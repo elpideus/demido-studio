@@ -1,0 +1,6 @@
+STATUS: PRE-ALPHA
+This build holds the core (the server and the command line) and the web UI.
+No model runs through it yet. Most screens of the web UI show scripted example
+data, and each one says so. There is no desktop window and no installer yet.
+The builds are not signed. SHA256SUMS.txt on the releases page lists the
+checksum of every file.

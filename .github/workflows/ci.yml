@@ -1,0 +1,62 @@
+# Checks every change: the web UI builds, the core is tidy, and its tests pass on Linux, Windows and macOS.
+#
+# Actions are pinned to an exact commit (the version is in the comment beside it). Versions and runner
+# names were read from their official sources on 2026-11-21.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web UI
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (takes the pnpm version from package.json)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Types
+        run: pnpm app:typecheck
+      - name: Build
+        run: pnpm app:build
+
+  core:
+    name: Core (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, runner: ubuntu-24.04, tidy: true }
+          - { name: Windows, runner: windows-2025, tidy: false }
+          - { name: macOS, runner: macos-15, tidy: false }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version in rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: core
+      - name: Formatting
+        if: matrix.tidy
+        run: cargo fmt --manifest-path core/Cargo.toml --all --check
+      - name: Lints
+        if: matrix.tidy
+        run: cargo clippy --manifest-path core/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --manifest-path core/Cargo.toml --locked
+      - name: It runs and reads this computer
+        run: cargo run --manifest-path core/Cargo.toml --locked -- system

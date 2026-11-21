@@ -1,0 +1,196 @@
+# Builds Demido Studio for every supported platform and attaches the files to the release.
+#
+# It starts in three ways:
+#
+#   1. A version tag is pushed (v0.1.0, v0.1.0-alpha.1). If the tag has no release yet, one is made.
+#   2. A release is published on GitHub. The files are attached to it; its text is left alone.
+#   3. By hand ("Run workflow"). This is a rehearsal: everything is built and kept with the run for
+#      14 days. Nothing is published.
+#
+# Publishing a release on GitHub that also creates its tag starts this twice (once for the tag, once for
+# the release). The later run cancels the earlier one, so the files are built and attached once.
+#
+# The version comes from the tag, and the program is stamped with it. A tag that is not a version stops
+# the run with a message that says so.
+#
+# What a release holds today: the core (server and command line) and the web UI, as one archive per
+# platform. There is no desktop window and no installer yet (docs/PLAN.md, step 10). The builds are
+# not signed: signing for Windows and macOS costs money, and that is the owner's decision.
+#
+# Actions are pinned to an exact commit (the version is in the comment beside it). Versions and runner
+# names were read from their official sources on 2026-11-21.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Which version, and whether to publish
+        id: plan
+        # Tag names come from outside, so they reach the script as data (env), never as script text.
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          case "$EVENT" in
+            release) tag="$RELEASE_TAG"; publish=true ;;
+            push)    tag="$REF_NAME";    publish=true ;;
+            *)       tag="";             publish=false ;;
+          esac
+          if [ "$publish" = true ]; then
+            version="${tag#v}"
+          else
+            base=$(sed -n 's/^version = "\(.*\)"$/\1/p' core/Cargo.toml | head -n 1)
+            version="${base}-rehearsal.${RUN_NUMBER}"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::\"$tag\" is not a version tag. Use one like v0.1.0 or v0.1.0-alpha.1."
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$publish" = true ]; then
+            echo "Building **$version** and attaching it to the release \`$tag\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Rehearsal: building **$version**. Nothing is published; the files stay with this run for 14 days." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  ui:
+    name: Web UI
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (takes the pnpm version from package.json)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm app:build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui
+          path: apps/web/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: ${{ matrix.platform }}
+    needs: [plan, ui]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest Ubuntu on offer, so the program also starts on older Linux systems (glibc 2.35).
+          - { platform: linux-x64, runner: ubuntu-22.04 }
+          - { platform: linux-arm64, runner: ubuntu-22.04-arm }
+          - { platform: windows-x64, runner: windows-2025 }
+          - { platform: windows-arm64, runner: windows-11-arm }
+          - { platform: macos-arm64, runner: macos-15 }
+          - { platform: macos-x64, runner: macos-15-intel }
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      PROGRAM: core/target/release/demido${{ startsWith(matrix.platform, 'windows') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust (the version in rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ui
+          path: ui-dist
+      - name: Build
+        env:
+          DEMIDO_VERSION: ${{ needs.plan.outputs.version }}
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: cargo build --release --locked --manifest-path core/Cargo.toml
+      - name: It runs, says its version, and reads this computer
+        shell: bash
+        run: |
+          said=$("$PROGRAM" --version)
+          echo "$said"
+          if [ "$said" != "demido $VERSION" ]; then
+            echo "::error::The program says \"$said\". It should say \"demido $VERSION\"."
+            exit 1
+          fi
+          "$PROGRAM" system
+      - name: Package
+        shell: bash
+        run: node scripts/package-release.mjs --version "$VERSION" --platform "${{ matrix.platform }}" --program "$PROGRAM" --ui ui-dist --out release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: demido-studio-${{ matrix.platform }}
+          path: release/demido-studio-*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Attach to the release
+    needs: [plan, build]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/release-status.txt
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: demido-studio-*
+          merge-multiple: true
+          path: release
+      - name: Checksums
+        working-directory: release
+        run: |
+          sha256sum demido-studio-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # The release is already there (published by hand): add the files, leave its text alone.
+            gh release upload "$TAG" release/* --clobber
+          else
+            flags=()
+            case "$VERSION" in *-*) flags+=(--prerelease) ;; esac
+            gh release create "$TAG" release/* --verify-tag --title "Demido Studio $VERSION" --notes "$(cat scripts/release-status.txt)" --generate-notes "${flags[@]}"
+          fi
+          echo "Attached to $(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
