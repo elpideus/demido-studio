@@ -1,3 +1,5 @@
+import { useCore } from '@/data/core'
+import { RealSessions } from './real'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { ArrowUp, AudioLines, Brain, ChevronRight, Copy, Ellipsis, FileText, Folder, FolderPlus, History, MessageSquare, Mic, Paperclip, Plus, RotateCw, Search, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Volume2 } from 'lucide-react'
@@ -505,6 +507,11 @@ function Chat() {
 function SessionsPage() {
   const first = useStore((s) => s.sessions[0]?.id)
   const [inspector] = useInspector('sessions')
+  // With a core behind the pages, sessions are real conversations with a model on this computer.
+  const core = useCore().state
+  if (core === 'ready') return <RealSessions />
+  // Not known yet which it is (a few milliseconds): show neither, so the preview's sessions do not flash by.
+  if (core === 'looking') return <div className="app-split" />
   return (
     <div className="app-split" data-inspector={inspector ? '' : undefined}>
       <SessionList />

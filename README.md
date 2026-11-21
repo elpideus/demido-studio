@@ -44,8 +44,9 @@ Then, in another terminal:
 cargo run --manifest-path core/Cargo.toml -- open
 ```
 
-The same UI opens, served by the real core. Setup then shows this computer's actual hardware; every other
-screen is still the scripted preview and says so.
+The same UI opens, served by the real core. Four screens are real then (Sessions, Models, Setup and part of
+Settings); every other screen is still the scripted preview and says so. To talk to a model, the core needs
+a model runtime (Setup installs it) and a GGUF model in its models folder (`demido models` says where).
 
 ## See the brand kit
 

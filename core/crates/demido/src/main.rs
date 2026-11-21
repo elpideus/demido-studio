@@ -60,6 +60,23 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Ask a model something and read its answer as it is written. Needs a running server.
+    Ask {
+        /// What to ask. Quotes are not needed.
+        #[arg(required = true)]
+        text: Vec<String>,
+        /// Go on in this session (its id, or the first letters of it). Without it, a new session is started.
+        #[arg(long)]
+        session: Option<String>,
+        /// The model to ask, for a new session. Without it: one that is loaded, or else the first on this computer.
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// The conversations kept on this computer: list them, read one, delete one.
+    Sessions {
+        #[command(subcommand)]
+        command: Option<SessionsCommand>,
+    },
     /// The models on this computer: list them, load one, unload one.
     Models {
         #[command(subcommand)]
@@ -75,6 +92,20 @@ enum Command {
         /// Only print the link; do not start a browser.
         #[arg(long)]
         print: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionsCommand {
+    /// Print everything said in a session.
+    Show {
+        /// Its id, or the first letters of it.
+        id: String,
+    },
+    /// Delete a session and everything said in it.
+    Delete {
+        /// Its id, or the first letters of it.
+        id: String,
     },
 }
 
@@ -195,6 +226,8 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Settings { command } => settings(&paths, command)?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
+        Command::Ask { text, session, model } => ask(&paths, text.join(" "), session, model).await?,
+        Command::Sessions { command } => sessions(&paths, command)?,
         Command::Events { after, limit, json } => {
             let events: Value = match Server::find(&paths) {
                 Some(s) => s.get(&format!("/api/v1/events?limit={limit}{}", after.map(|a| format!("&after={a}")).unwrap_or_default()))?,
@@ -422,6 +455,148 @@ fn print_system(s: &SystemInfo) {
     println!("  Comes from   {}", r.source);
     println!("\nInstall it with: demido runtime install");
     println!("Then load a model with it: demido models");
+}
+
+// ───────── sessions ─────────
+
+/// The session meant by what was typed: its whole id, or enough of its beginning to mean only one.
+fn session_meant(server: &Server, typed: &str) -> Result<String> {
+    let all = server.get("/api/v1/sessions")?;
+    let ids: Vec<&str> = all.as_array().into_iter().flatten().filter_map(|s| s["id"].as_str()).collect();
+    if ids.contains(&typed) {
+        return Ok(typed.to_string());
+    }
+    match ids.iter().filter(|id| id.starts_with(typed)).collect::<Vec<_>>().as_slice() {
+        [one] => Ok(one.to_string()),
+        [] => bail!("There is no session that starts with \"{typed}\". `demido sessions` lists the ones there are."),
+        several => bail!("{} sessions start with \"{typed}\". Type more of the id.", several.len()),
+    }
+}
+
+fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
+    let Some(server) = Server::find(paths) else {
+        // Without a server the conversations can still be read: they are in the same file.
+        let core = Core::open(paths)?;
+        return match command {
+            None => {
+                print_sessions(&serde_json::to_value(core.sessions.list()?)?);
+                Ok(())
+            }
+            Some(_) => bail!("Start a server for that: demido serve"),
+        };
+    };
+    match command {
+        None => print_sessions(&server.get("/api/v1/sessions")?),
+        Some(SessionsCommand::Show { id }) => {
+            let detail = server.get(&format!("/api/v1/sessions/{}", session_meant(&server, &id)?))?;
+            println!("{} · {} · {}", detail["session"]["title"].as_str().unwrap_or("?"), detail["session"]["model"].as_str().unwrap_or("?"), detail["session"]["id"].as_str().unwrap_or("?"));
+            for m in detail["messages"].as_array().into_iter().flatten() {
+                let who = if m["role"] == "user" { "You" } else { m["model"].as_str().unwrap_or("Model") };
+                let how = match m["state"].as_str() {
+                    Some("stopped") => "  [stopped]",
+                    Some("failed") => "  [failed]",
+                    Some("answering") => "  [being written]",
+                    _ => "",
+                };
+                println!("\n{who}{how}\n{}", m["content"].as_str().unwrap_or(""));
+                if let Some(why) = m["problem"].as_str() {
+                    println!("{why}");
+                }
+            }
+        }
+        Some(SessionsCommand::Delete { id }) => {
+            let gone = server.send("DELETE", &format!("/api/v1/sessions/{}", session_meant(&server, &id)?), None)?;
+            println!("Deleted \"{}\" and the {} messages in it.", gone["title"].as_str().unwrap_or("?"), gone["messages"]);
+        }
+    }
+    Ok(())
+}
+
+fn print_sessions(list: &Value) {
+    let all = list.as_array().cloned().unwrap_or_default();
+    if all.is_empty() {
+        println!("No sessions yet. Start one with: demido ask <your question>");
+        return;
+    }
+    for s in &all {
+        let age_s = (demido_core::now_ms() - s["updated_at"].as_i64().unwrap_or(0)).max(0) as u64 / 1000;
+        println!(
+            "{}  {:<44}  {:<20} {:>3} messages · {} ago",
+            s["id"].as_str().unwrap_or("?").chars().take(13).collect::<String>(),
+            s["title"].as_str().unwrap_or("?").chars().take(44).collect::<String>(),
+            s["model"].as_str().unwrap_or("?").chars().take(20).collect::<String>(),
+            s["messages"],
+            ago(age_s)
+        );
+    }
+    println!("\nRead one: demido sessions show <id>. Go on in one: demido ask --session <id> <your question>");
+}
+
+async fn ask(paths: &Paths, text: String, session: Option<String>, model: Option<String>) -> Result<()> {
+    let Some(server) = Server::find(paths) else {
+        bail!("A loaded model lives in the server. Start one first: demido serve");
+    };
+    let new = session.is_none();
+    let session_id = match session {
+        Some(typed) => session_meant(&server, &typed)?,
+        None => server.send("POST", "/api/v1/sessions", Some(&json!({ "model": model })))?["id"].as_str().context("the server gave no session")?.to_string(),
+    };
+    // Listen first, then speak: nothing of the answer can be missed in between.
+    let news = server.listen()?;
+    let turn = server.send("POST", &format!("/api/v1/sessions/{session_id}/messages"), Some(&json!({ "content": text })))?;
+    let answer_id = turn["answer"]["id"].as_str().context("the server gave no answer to wait for")?.to_string();
+
+    let reading = tokio::task::spawn_blocking({
+        let answer_id = answer_id.clone();
+        move || -> Result<Value> {
+            let mut out = std::io::stdout();
+            let mut said_loading = false;
+            for (kind, event) in news {
+                let about_this = event["data"]["message"] == answer_id.as_str();
+                match kind.as_str() {
+                    "model.loading" if !said_loading => {
+                        said_loading = true;
+                        eprintln!("Loading {}…", event["subject"].as_str().unwrap_or("the model"));
+                    }
+                    "message.delta" if about_this => {
+                        write!(out, "{}", event["data"]["text"].as_str().unwrap_or(""))?;
+                        out.flush()?;
+                    }
+                    "message.done" | "message.stopped" | "message.failed" if about_this => {
+                        writeln!(out)?;
+                        return Ok(json!({ "kind": kind, "data": event["data"] }));
+                    }
+                    _ => {}
+                }
+            }
+            bail!("The server went away before the answer was complete.")
+        }
+    });
+    tokio::pin!(reading);
+    let end = tokio::select! {
+        end = &mut reading => end??,
+        _ = tokio::signal::ctrl_c() => {
+            // Ctrl+C stops the answer, not just this window onto it. What was written is kept.
+            server.send("POST", &format!("/api/v1/sessions/{session_id}/stop"), None).ok();
+            reading.await??
+        }
+    };
+    let data = &end["data"];
+    match end["kind"].as_str() {
+        Some("message.failed") => bail!("{}", data["problem"].as_str().unwrap_or("The answer failed, and nothing says why.")),
+        Some("message.stopped") => eprintln!("Stopped. What was written is kept."),
+        _ => eprintln!(
+            "{} tokens at {:.0} a second. Of the prompt, {} tokens were read and {} did not have to be read again.",
+            data["written"],
+            data["per_second"].as_f64().unwrap_or(0.0),
+            data["read"],
+            data["reused"]
+        ),
+    }
+    if new {
+        eprintln!("Go on with: demido ask --session {} <your question>", &session_id[..13.min(session_id.len())]);
+    }
+    Ok(())
 }
 
 // ───────── models ─────────
@@ -737,6 +912,32 @@ impl Server {
 
     fn send(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
         self.send_patiently(method, path, body, Duration::from_secs(15))
+    }
+
+    /// The server's news as it happens: each item is what kind of news it is, and the news itself.
+    /// Ends when the server goes away.
+    fn listen(&self) -> Result<impl Iterator<Item = (String, Value)> + Send + 'static> {
+        let mut stream = TcpStream::connect_timeout(&self.address.parse()?, Duration::from_secs(2))?;
+        // The older form of the protocol on purpose: the answer then comes as plain lines until the end.
+        write!(stream, "GET /api/v1/events/stream HTTP/1.0\r\nHost: {}\r\nAuthorization: Bearer {}\r\nAccept: text/event-stream\r\n\r\n", self.address, self.key)?;
+        let mut lines = std::io::BufRead::lines(std::io::BufReader::new(stream));
+        let status = lines.next().transpose()?.unwrap_or_default();
+        if !status.contains(" 200") {
+            bail!("The server would not give its news: {status}");
+        }
+        let mut kind = String::new();
+        Ok(std::iter::from_fn(move || {
+            loop {
+                let line = lines.next()?.ok()?;
+                if let Some(k) = line.strip_prefix("event:") {
+                    kind = k.trim().to_string();
+                } else if let Some(data) = line.strip_prefix("data:")
+                    && let Ok(event) = serde_json::from_str::<Value>(data.trim())
+                {
+                    return Some((std::mem::take(&mut kind), event));
+                }
+            }
+        }))
     }
 
     /// One small HTTP request to this computer. Enough for the command line; no outside library needed.

@@ -32,7 +32,7 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use utoipa::ToSchema;
 
-pub use router::{Launch, Launcher, ProcessLauncher, Running};
+pub use router::{Answer, Launch, Launcher, Piece, ProcessLauncher, Running};
 
 use crate::events::EventLog;
 use crate::runtime::Runtimes;
@@ -65,6 +65,9 @@ pub struct LocalModel {
     pub unloads_in_s: Option<u64>,
     /// How long it took to load the last time, in milliseconds. `null` until it has been loaded once.
     pub loads_in_ms: Option<u64>,
+    /// How fast it writes on this computer, in tokens a second: a running figure from its real answers.
+    /// `null` until it has answered something.
+    pub tokens_per_second: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -93,6 +96,8 @@ struct Live {
     router: router::Router,
     /// When each model was last used.
     used: HashMap<String, Instant>,
+    /// How many answers each model is writing right now. A model that is writing is never unloaded for being idle.
+    answering: HashMap<String, usize>,
     /// Since when nothing has been loaded.
     empty_since: Option<Instant>,
     /// Reads the router's news and passes it on. Ends with the router.
@@ -128,6 +133,13 @@ impl Engine {
     /// must not, or it could end the runtime of a server that is running.
     pub fn end_leftover(&self) {
         router::end_leftover(&self.work);
+    }
+
+    /// Tests only: a model counts as idle after this long, where the setting's shortest choice is a minute.
+    #[cfg(test)]
+    pub(crate) fn idle_after(mut self, wait: Duration) -> Self {
+        self.idle_for_tests = Some(wait);
+        self
     }
 
     #[cfg(test)]
@@ -188,7 +200,18 @@ impl Engine {
                 } else {
                     return None;
                 };
-                Some(LocalModel { id, file: name, size, state: "unloaded".into(), context_length: None, needs_mb: None, idle_for_s: None, unloads_in_s: None, loads_in_ms: None })
+                Some(LocalModel {
+                    id,
+                    file: name,
+                    size,
+                    state: "unloaded".into(),
+                    context_length: None,
+                    needs_mb: None,
+                    idle_for_s: None,
+                    unloads_in_s: None,
+                    loads_in_ms: None,
+                    tokens_per_second: None,
+                })
             })
             .collect();
         found.sort_by_key(|m| m.id.to_lowercase());
@@ -228,6 +251,7 @@ impl Engine {
                 m.context_length = m.context_length.or(facts.context_length);
                 m.needs_mb = m.needs_mb.or(facts.needs_mb(context, &runtime));
                 m.loads_in_ms = facts.load_ms;
+                m.tokens_per_second = facts.per_second;
             }
         }
         Ok(ModelList { folder: self.models_dir.display().to_string(), models, engine: self.status_with(live.is_some()) })
@@ -254,7 +278,7 @@ impl Engine {
         let router = router::Router::start(&*self.launcher, &self.work, &root, &runtime, &self.models_dir, context, margin).await?;
         self.events.append("engine.started", Some(&runtime.id), json!({ "runtime": format!("{} ({})", runtime.name, runtime.build), "context": context, "margin_mb": margin }))?;
         let news = tokio::spawn(router::pass_on_news(router.address(), router.key(), self.events.clone()));
-        *live = Some(Live { router, used: HashMap::new(), empty_since: Some(Instant::now()), news });
+        *live = Some(Live { router, used: HashMap::new(), answering: HashMap::new(), empty_since: Some(Instant::now()), news });
         Ok(())
     }
 
@@ -338,6 +362,40 @@ impl Engine {
         Ok(())
     }
 
+    /// Asks a loaded model and passes its answer on piece by piece as it is written.
+    ///
+    /// `body` is the request as the runtime takes it (`model`, `messages` and the rest). The model must be
+    /// loaded already: this never loads one, so that nothing loads unless someone asked for it by name.
+    /// Setting `stop` ends the answer early; what was written until then is returned.
+    pub async fn answer(&self, model: &str, body: Value, stop: &std::sync::atomic::AtomicBool, heard: &mut (dyn FnMut(Piece) + Send)) -> Result<Answer> {
+        let (address, key) = {
+            let mut live = self.live.lock().await;
+            let Some(l) = live.as_mut() else {
+                return Err(Error::Invalid(format!("\"{model}\" is not loaded: nothing is.")));
+            };
+            *l.answering.entry(model.to_string()).or_default() += 1;
+            l.used.insert(model.to_string(), Instant::now());
+            l.empty_since = None;
+            (l.router.address(), l.router.key())
+        };
+        // The lock is not held while the model writes: looking at the list, or loading another model, must not wait for it.
+        let outcome = router::stream_answer(&address, &key, body, stop, heard).await;
+        if let Some(l) = self.live.lock().await.as_mut() {
+            if let Some(n) = l.answering.get_mut(model) {
+                *n = n.saturating_sub(1);
+            }
+            l.used.insert(model.to_string(), Instant::now());
+        }
+        // A real answer says how fast this model is on this computer. Short ones are too noisy to count.
+        if let Ok(answer) = &outcome
+            && answer.timings.written >= 16
+            && let Some(on_disk) = self.on_disk().into_iter().find(|m| m.id == model)
+        {
+            self.known.learn_speed(model, self.identity(&on_disk), answer.timings.per_second);
+        }
+        outcome
+    }
+
     /// Says that a model was just used, so it is not unloaded for being idle.
     pub async fn used(&self, id: &str) {
         if let Some(l) = self.live.lock().await.as_mut() {
@@ -358,6 +416,10 @@ impl Engine {
         let idle = self.idle_unload();
         let mut busy = 0;
         for m in models.iter().filter(|m| m.state != "unloaded") {
+            if l.answering.get(&m.id).is_some_and(|n| *n > 0) {
+                // Writing an answer is use, however long the answer takes.
+                l.used.insert(m.id.clone(), Instant::now());
+            }
             let since = l.used.entry(m.id.clone()).or_insert_with(Instant::now).elapsed();
             if m.state == "loaded" && idle.is_some_and(|limit| since >= limit) {
                 if l.router.unload(&m.id).await.is_ok() {
@@ -417,5 +479,7 @@ pub(crate) fn news_from(events: &EventLog, said: &Value) {
     }
 }
 
+#[cfg(test)]
+pub(crate) mod stand_in;
 #[cfg(test)]
 mod tests;

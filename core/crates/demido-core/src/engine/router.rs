@@ -276,6 +276,82 @@ impl Router {
     }
 }
 
+/// A piece of an answer as it arrives.
+pub enum Piece<'a> {
+    /// Part of what the model says to the person.
+    Text(&'a str),
+    /// Part of what the model thinks first, when it thinks.
+    Thought(&'a str),
+}
+
+/// What the runtime sent back for one question.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Answer {
+    pub content: String,
+    pub thought: String,
+    pub timings: crate::sessions::Timings,
+    /// True when it was stopped from outside before the model was done.
+    pub stopped: bool,
+}
+
+/// Asks a loaded model and passes on its answer piece by piece. Ends when the model is done, when `stop` is
+/// set (the connection is dropped, which is how the runtime is told to stop writing), or when it fails.
+pub(super) async fn stream_answer(base: &str, key: &str, body: Value, stop: &std::sync::atomic::AtomicBool, heard: &mut (dyn FnMut(Piece) + Send)) -> Result<Answer> {
+    use std::sync::atomic::Ordering;
+    // No time limit on the whole answer: a long one is not a failure. A silence of two minutes is.
+    let http = reqwest::Client::builder().no_proxy().read_timeout(Duration::from_secs(120)).build().map_err(|e| Error::Other(e.to_string()))?;
+    let started = Instant::now();
+    let mut res = http.post(format!("{base}/v1/chat/completions")).bearer_auth(key).json(&body).send().await.map_err(|e| Error::Other(format!("The model runtime did not answer: {e}")))?;
+    if !res.status().is_success() {
+        let said: Value = res.json().await.unwrap_or(Value::Null);
+        let error = &said["error"];
+        return Err(if error["type"] == "exceed_context_size_error" {
+            Error::Invalid(format!(
+                "This conversation is {} tokens long and the model is loaded with room for {}. It does not fit any more. Start a new session, or raise \"Context size\" in Settings. (Not built yet: making an old conversation shorter by itself.)",
+                error["n_prompt_tokens"], error["n_ctx"]
+            ))
+        } else {
+            Error::Other(format!("The model runtime refused: {}", error["message"].as_str().unwrap_or("it did not say why")))
+        });
+    }
+    let mut answer = Answer::default();
+    let mut kept = String::new();
+    loop {
+        let piece = tokio::select! {
+            piece = res.chunk() => piece,
+            _ = async { while !stop.load(Ordering::Relaxed) { tokio::time::sleep(Duration::from_millis(40)).await } } => {
+                answer.stopped = true;
+                break;
+            }
+        };
+        let Some(piece) = piece.map_err(|e| Error::Other(format!("The answer broke off: {e}")))? else { break };
+        kept.push_str(&String::from_utf8_lossy(&piece));
+        while let Some(end) = kept.find('\n') {
+            let line: String = kept.drain(..=end).collect();
+            let Some(said) = line.trim().strip_prefix("data:").and_then(|text| serde_json::from_str::<Value>(text.trim()).ok()) else { continue };
+            let delta = &said["choices"][0]["delta"];
+            if let Some(text) = delta["content"].as_str().filter(|t| !t.is_empty()) {
+                answer.content.push_str(text);
+                heard(Piece::Text(text));
+            }
+            if let Some(text) = delta["reasoning_content"].as_str().filter(|t| !t.is_empty()) {
+                answer.thought.push_str(text);
+                heard(Piece::Thought(text));
+            }
+            // The last line before the end carries the runtime's own count of what it did.
+            let t = &said["timings"];
+            if t.is_object() {
+                answer.timings.reused = t["cache_n"].as_u64().unwrap_or(0);
+                answer.timings.read = t["prompt_n"].as_u64().unwrap_or(0);
+                answer.timings.written = t["predicted_n"].as_u64().unwrap_or(0);
+                answer.timings.per_second = t["predicted_per_second"].as_f64().unwrap_or(0.0);
+            }
+        }
+    }
+    answer.timings.took_ms = started.elapsed().as_millis() as u64;
+    Ok(answer)
+}
+
 /// Reads the router's own news (`/models/sse`) for as long as it runs, and passes it on as Demido's.
 pub(super) async fn pass_on_news(base: String, key: String, events: Arc<EventLog>) {
     let Ok(http) = reqwest::Client::builder().no_proxy().build() else { return };

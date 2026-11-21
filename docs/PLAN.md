@@ -15,10 +15,12 @@ The order of the first three steps is the owner's (brief section 0). Everything 
 - Storage, the settings registry, the event log with its live stream, the key and the browser link, the
   API with its own description.
 - It reads this computer's real hardware and recommends the model runtime build to download.
-- Served by the core, three things are real. Setup: this computer's hardware, and installing the model
-  runtime. Models › On this computer: the models in Demido's folder, loaded and unloaded for real, with
-  the indicator in the corner following. Settings: Appearance, Models and memory, the listen address and
-  the log's length. Everything else is still the scripted preview, and says so.
+- Served by the core, four things are real. Sessions: a conversation with a model on this computer, its
+  answer written as you watch, kept by the core (`demido ask` does the same from a terminal). Setup:
+  this computer's hardware, and installing the model runtime. Models › On this computer: the models in
+  Demido's folder, loaded and unloaded for real, with the indicator in the corner following. Settings:
+  Appearance, Models and memory, the listen address and the log's length. Everything else is still the
+  scripted preview, and says so.
 - The project is public at `github.com/elpideus/demido-studio`. Every change is checked on Linux, Windows
   and macOS; a version tag builds six archives (DECISIONS, section R).
 
@@ -76,7 +78,8 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 ### Step 3. Real feature work
 
 The order. Items 1 and 2 are done; item 3 is nearly done; item 4 (the chat loop) is under way: its research
-is done (note 13, DECISIONS L), plain chat is being built, then the task list and compaction.
+is done (note 13, DECISIONS L) and plain chat works for real. Left in item 4: the tool-call mechanism
+(DECISIONS L7), the task list, compaction, and the switch for thinking.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.

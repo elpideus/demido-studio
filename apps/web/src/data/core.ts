@@ -61,7 +61,7 @@ export function coreGet<T>(path: string): Promise<T> {
 }
 
 /** Tells the core to change something. Throws with the core's own words when it refuses. */
-export function coreSend<T>(method: 'PUT' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
+export function coreSend<T>(method: 'PUT' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
   return ask<T>(method, path, body)
 }
 

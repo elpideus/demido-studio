@@ -74,6 +74,7 @@ Research note: `docs/research/02-frontend-stack.md`. Versions and licences read 
 | F5 | Settings are data (`features/settings/schema.ts`). One screen renders, searches and resets all of them; features contribute their own. | Brief: every setting reachable; nothing hidden. |
 | F6 | One store (zustand). The UI calls functions in `data/store.ts`; in the preview these are a mock core on timers. | The real core client replaces those functions; components stay. |
 | F7 | Navigation: a labelled icon rail (14 areas in four groups), a list beside each screen, an inspector where useful, and a "Now" panel (memory, loaded model, running work) reachable from anywhere. | Fourteen areas need a home that scales; state must always be visible. |
+| F9 | **A model's words are drawn as markdown by `react-markdown` 10.1 with `remark-gfm` 4.0** (both MIT; read from the npm registry on 2026-11-21). It builds the page from the text piece by piece and never turns a model's text into HTML, so nothing a model writes can run as code in the window. Tables, lists and code blocks work. Mermaid charts and elements a model makes up on the spot (brief 4.5) are not built. | Built for real sessions |
 | F8 | Motion library not installed yet. CSS transitions and the brand spring curves cover the preview. | No dependency before it is used. Gesture-driven pieces will need one. |
 
 All dependencies are MIT, ISC or Apache-2.0: compatible with GPL-3.0-or-later.
@@ -246,15 +247,15 @@ and the full set of techniques proposed, each with how sure it is.
 
 | # | Decision | Status |
 |---|---|---|
-| L1 | **Sessions and their messages live in the core**, in its one SQLite file. A session names the model it uses. Every client (the window, the command line, a program) sees the same conversation. | Building |
-| L2 | **A turn is run by the core, not by the client.** The client hands over what the person wrote; the core loads the model if needed, asks it, and stores the answer. A window that is closed mid-answer loses nothing. | Building |
-| L3 | **An answer is streamed as news that is told, not kept**, word by word, and kept once, whole, when it is complete. A client that joins late reads the stored message. | Building |
-| L4 | **The beginning of the prompt never changes within a session**: instructions first, then history, which is only ever added to. The runtime then does not read the old part again. This is the caching rule (section P) applied to the model itself. | Building; to be measured on the first real session |
-| L5 | **A model that is answering is never unloaded for being idle.** | Building |
+| L1 | **Sessions and their messages live in the core**, in its one SQLite file. A session names the model it uses. Every client (the window, the command line, a program) sees the same conversation. | Built: a conversation started with `demido ask` is there in the window, and the other way round |
+| L2 | **A turn is run by the core, not by the client.** The client hands over what the person wrote; the core loads the model if needed, asks it, and stores the answer. A window that is closed mid-answer loses nothing. | Built |
+| L3 | **An answer is streamed as news that is told, not kept**, word by word, and kept once, whole, when it is complete. A client that joins late reads the stored message. | Built. The window shows words as they are written; an answer can be stopped, and what was written is kept |
+| L4 | **The beginning of the prompt never changes within a session**: instructions first, then history, which is only ever added to. The runtime then does not read the old part again. This is the caching rule (section P) applied to the model itself. | Built. Measured on a real session: everything older than the last answer is not read again. The last answer is read once more on the next turn (the model's template writes a thinking-off mark when it answers that is not there in the history; three ways of writing the history did not avoid it). Reading is about twenty times faster than writing, so this costs about a twentieth of the time the answer took |
+| L5 | **A model that is answering is never unloaded for being idle.** | Built |
 | L6 | **Thinking is off until its switch exists** (brief 4.9). Measured: five times slower with no gain on easy tool calls. Not measured on hard work. | Decided for now |
 | L7 | **Tools are asked for in Demido's own short format, in which "no tool" is one of the tools.** Measured on both test models: 26 of 26 right at a third of the tokens of the runtime's own tool format, where the same few words without that one change got 20 and 22. Every request is checked against the tool's own description, and the model gets one repair turn in plain words. Only the tool's name is forced; the arguments are checked, not forced. | Decided on a small measurement; the forcing is provisional and is measured again on harder work with the first real tools (item 5) |
 | L8 | **Cut words, never choices.** Internal text is short (brief 4.13), and every option the model has stays visible in it. Measured: a short prompt that dropped one sentence about not needing a tool lost 6 of 26. | A rule from now on |
-| L9 | **What an answer says about the model's speed is kept** (tokens a second, from the runtime's own timing of real answers), for the roster of section O. No benchmark is run for it. | Building |
+| L9 | **What an answer says about the model's speed is kept** (tokens a second, from the runtime's own timing of real answers), for the roster of section O. No benchmark is run for it. | Built: `demido models` and the roster know, for example, 157 tokens a second for the 1.7B test model on the owner's card |
 | L10 | **"Vector reasoning": deciding by meaning is built; steering by control vector gets one measured trial; reasoning in vectors is left alone** until models trained for it exist in the formats the runtime loads. | **Proposed. The brief asks for this to be discussed with the owner** |
 
 ## O. A model for each agent (owner's direction, 2026-11-21)
@@ -307,7 +308,7 @@ list) on 2026-11-21, not from memory.
 | R8 | **Linux is built on the oldest Ubuntu GitHub offers** (22.04, glibc 2.35), so the program also starts on older systems. | Built |
 | R9 | **One Rust version for everybody** (`rust-toolchain.toml`, now 1.100.0): this computer, the checks and the releases compile with the same compiler. Raised on purpose. | Built |
 | R10 | **Actions are pinned to an exact commit**, not a moving tag. Two are not GitHub's own: `pnpm/action-setup` and `Swatinem/rust-cache`. The cache is used by the checks only; a release is always built from nothing. Releases are attached with GitHub's own command line, not a third-party action. | Built |
-| R12 | **Every dependency's licence is checked by a script** (`scripts/check-licences.mjs`), in the checks on GitHub. It reads what each package of the core and of the web UI declares and fails on anything not on a list of licences that were read and found to fit GPL-3.0-or-later. A new licence name is never guessed at. | Built; 288 packages pass |
+| R12 | **Every dependency's licence is checked by a script** (`scripts/check-licences.mjs`), in the checks on GitHub. It reads what each package of the core and of the web UI declares and fails on anything not on a list of licences that were read and found to fit GPL-3.0-or-later. A new licence name is never guessed at. | Built; 426 packages pass. **Until 2026-11-21 it read only three of the web UI's packages and said "all fit"**: a mistake in how it asked. It now reads all of them and refuses to pass if it finds suspiciously few |
 | R11 | **`.claude/` is not in the repository.** It holds one person's local tool settings. | Done |
 
 ## E. Repository

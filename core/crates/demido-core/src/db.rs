@@ -28,6 +28,28 @@ const MIGRATIONS: &[&str] = &[
         data    TEXT NOT NULL               -- JSON
      ) STRICT;
      CREATE INDEX events_at ON events (at);",
+    // 2: sessions and what was said in them
+    "CREATE TABLE sessions (
+        id         TEXT PRIMARY KEY,
+        title      TEXT NOT NULL,
+        model      TEXT NOT NULL,           -- the model this session talks to, by its name
+        created_at INTEGER NOT NULL,        -- milliseconds since 1970
+        updated_at INTEGER NOT NULL
+     ) STRICT;
+     CREATE TABLE messages (
+        id         TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+        seq        INTEGER NOT NULL,        -- its place in the session, from 1
+        role       TEXT NOT NULL,           -- user or assistant
+        content    TEXT NOT NULL,
+        thought    TEXT,                    -- the model's thinking, kept apart from its answer
+        state      TEXT NOT NULL,           -- done, answering, stopped or failed
+        problem    TEXT,                    -- why it failed, in words
+        model      TEXT,                    -- the model that wrote it
+        timings    TEXT,                    -- JSON: tokens and speed, as the runtime reported them
+        created_at INTEGER NOT NULL,
+        UNIQUE (session_id, seq)
+     ) STRICT;",
 ];
 
 pub struct Db {
@@ -71,7 +93,7 @@ mod tests {
         let db = Db::memory().unwrap();
         let version: i64 = db.with(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0))).unwrap();
         assert_eq!(version, MIGRATIONS.len() as i64);
-        let tables: i64 = db.with(|c| c.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('settings', 'events')", [], |r| r.get(0))).unwrap();
-        assert_eq!(tables, 2);
+        let tables: i64 = db.with(|c| c.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('settings', 'events', 'sessions', 'messages')", [], |r| r.get(0))).unwrap();
+        assert_eq!(tables, 4);
     }
 }

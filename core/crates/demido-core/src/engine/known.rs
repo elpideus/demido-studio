@@ -39,6 +39,9 @@ pub(super) struct Facts {
     pub context_length: Option<u64>,
     /// How long the last load took, in milliseconds.
     pub load_ms: Option<u64>,
+    /// How fast it writes on this computer, in tokens a second: a running figure from real answers.
+    #[serde(default)]
+    pub per_second: Option<f64>,
     /// What it needs on the graphics card, in MiB. True only for the context and the runtime it was measured with.
     needs_mb: Option<u64>,
     measured_with: Option<(u64, String)>,
@@ -68,22 +71,39 @@ impl Known {
         self.by_id.lock().unwrap_or_else(|e| e.into_inner()).get(id).filter(|f| f.file == file).cloned()
     }
 
+    /// Takes note of how fast a real answer was written. The figure that is kept moves slowly: one odd
+    /// answer (another program using the graphics card for a moment) does not rewrite it.
+    pub fn learn_speed(&self, id: &str, file: Identity, per_second: f64) {
+        if !(per_second.is_finite() && per_second > 0.0) {
+            return;
+        }
+        let before = self.about(id, file).and_then(|f| f.per_second);
+        let now = before.map_or(per_second, |old| old * 0.7 + per_second * 0.3);
+        self.learn_with(id, file, |facts| facts.per_second = Some((now * 10.0).round() / 10.0));
+    }
+
     /// Adds to what is known, and writes it down if anything is new.
     pub fn learn(&self, id: &str, file: Identity, context_length: Option<u64>, needs: Option<(u64, u64, &str)>, load_ms: Option<u64>) {
+        self.learn_with(id, file, |facts| {
+            if context_length.is_some() {
+                facts.context_length = context_length;
+            }
+            if let Some((needs_mb, context, runtime)) = needs {
+                facts.needs_mb = Some(needs_mb);
+                facts.measured_with = Some((context, runtime.to_string()));
+            }
+            if load_ms.is_some() {
+                facts.load_ms = load_ms;
+            }
+        });
+    }
+
+    fn learn_with(&self, id: &str, file: Identity, change: impl FnOnce(&mut Facts)) {
         let mut all = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
         let before = all.get(id).cloned();
         // A changed file starts from nothing.
         let mut facts = before.clone().filter(|f| f.file == file).unwrap_or(Facts { file, ..Facts::default() });
-        if context_length.is_some() {
-            facts.context_length = context_length;
-        }
-        if let Some((needs_mb, context, runtime)) = needs {
-            facts.needs_mb = Some(needs_mb);
-            facts.measured_with = Some((context, runtime.to_string()));
-        }
-        if load_ms.is_some() {
-            facts.load_ms = load_ms;
-        }
+        change(&mut facts);
         if before.as_ref() == Some(&facts) {
             return;
         }
@@ -134,6 +154,15 @@ mod tests {
         again.learn("m", other, None, None, Some(1_500));
         let fresh = again.about("m", other).unwrap();
         assert_eq!((fresh.context_length, fresh.load_ms, fresh.needs_mb(8_192, "llama.cpp-b1-cuda")), (None, Some(1_500), None));
+
+        // Speed is a running figure: the first answer sets it, later ones move it a little.
+        again.learn_speed("m", other, 100.0);
+        assert_eq!(again.about("m", other).unwrap().per_second, Some(100.0));
+        again.learn_speed("m", other, 200.0);
+        assert_eq!(again.about("m", other).unwrap().per_second, Some(130.0));
+        again.learn_speed("m", other, f64::NAN);
+        again.learn_speed("m", other, 0.0);
+        assert_eq!(again.about("m", other).unwrap().per_second, Some(130.0), "nonsense is not learned");
         std::fs::remove_dir_all(dir).ok();
     }
 }

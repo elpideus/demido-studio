@@ -101,10 +101,17 @@ const ours = new Set(cargo.workspace_members)
 for (const p of cargo.packages) if (!ours.has(p.id)) check('core', p.name, p.version, p.license ?? (p.license_file ? `(see ${p.license_file})` : ''))
 
 // The web UI and the brand kit: what pnpm installed.
-const pnpm = JSON.parse(run('pnpm', ['licenses', 'list', '--json']))
+// Every package of the workspace, not only the root's: without `-r` this saw three packages and missed the web UI's.
+const pnpm = JSON.parse(run('pnpm', ['-r', 'licenses', 'list', '--json']))
 for (const [licence, packages] of Object.entries(pnpm)) for (const p of packages) for (const version of p.versions ?? [p.version]) check('web', p.name, version, licence)
 
 const total = [...seen.values()].reduce((a, b) => a + b, 0)
+// A check that reads almost nothing is worse than no check: it says "all fine". The web UI alone has over a hundred packages.
+const web = Object.values(pnpm).reduce((n, list) => n + list.length, 0)
+if (web < 50) {
+  console.error(`check-licences: only ${web} packages of the web UI were found. That cannot be all of them, so nothing was checked. Run pnpm install first.`)
+  process.exit(2)
+}
 if (problems.length) {
   console.error(`check-licences: ${problems.length} of ${total} packages do not fit GPL-3.0-or-later, or have not been read yet:\n`)
   for (const line of problems.sort()) console.error(`  ${line}`)

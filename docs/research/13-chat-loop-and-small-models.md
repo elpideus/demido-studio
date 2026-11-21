@@ -68,6 +68,20 @@ What it does not show: anything about many tools, nested arguments, several step
 other languages. On this easy set most ways reach the ceiling, so it cannot say whether forcing costs
 correctness on harder work, which is what the papers below claim.
 
+## Tried: how much of a conversation is read again each turn
+
+The runtime keeps what it has read, so an unchanged beginning of a prompt costs nothing the next time.
+On a real two-turn session with the 1.7B model: the first prompt was 64 tokens; the second was 301, of which
+60 were not read again and 241 were. The 241 are the first answer (222 tokens, written by the model a moment
+before) and the new question.
+
+So everything older than the last answer is free, and the last answer is read once more. The reason is in the
+model's template: with thinking off it writes an empty thinking mark when it starts an answer, and that mark
+is not there when the same answer comes back as history, so the two no longer match from that point. Three
+ways of writing the history were tried (plain, with an empty thought, with the mark as text); none avoided
+it. The cost is small: reading runs at about 3,000 tokens a second on this card and writing at about 150, so
+re-reading an answer takes about a twentieth of the time it took to write.
+
 ## What others report (Search; not read in full)
 
 - "The Constraint Tax" (arXiv 2605.26128, May 2026): for models under 3B, a hard tool-call schema made every

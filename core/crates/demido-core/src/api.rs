@@ -29,6 +29,7 @@ use tokio_stream::{Stream, StreamExt};
 use utoipa::{OpenApi, ToSchema};
 
 use crate::auth::{Auth, COOKIE, LINK_LIFETIME};
+use crate::chat::{Chat, Turn};
 use crate::db::Db;
 use crate::desktop::Appearance;
 use crate::engine::{Engine, LocalModel, ModelList, ProcessLauncher};
@@ -36,6 +37,7 @@ use crate::events::{Event, EventLog};
 use crate::kept::Kept;
 use crate::paths::Paths;
 use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
+use crate::sessions::{Message, Session, Sessions};
 use crate::settings::{Entry, Section, Settings};
 use crate::system::{Advice, SystemInfo};
 use crate::ui::Ui;
@@ -48,6 +50,8 @@ pub struct Core {
     pub auth: Arc<Auth>,
     pub runtimes: Arc<Runtimes>,
     pub engine: Arc<Engine>,
+    pub sessions: Arc<Sessions>,
+    pub chat: Arc<Chat>,
 }
 
 impl Core {
@@ -55,11 +59,13 @@ impl Core {
         paths.ensure()?;
         let db = Arc::new(Db::open(&paths.db())?);
         let events = Arc::new(EventLog::new(db.clone()));
-        let settings = Arc::new(Settings::load(db, events.clone())?);
+        let settings = Arc::new(Settings::load(db.clone(), events.clone())?);
         let auth = Arc::new(Auth::open(&paths.key())?);
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
-        Ok(Self { settings, events, auth, runtimes, engine })
+        let sessions = Arc::new(Sessions::new(db));
+        let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone()));
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat })
     }
 }
 
@@ -85,6 +91,8 @@ pub struct App {
     pub auth: Arc<Auth>,
     pub runtimes: Arc<Runtimes>,
     pub engine: Arc<Engine>,
+    pub sessions: Arc<Sessions>,
+    pub chat: Arc<Chat>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -334,6 +342,94 @@ async fn model_unload(State(app): State<App>, Path(id): Path<String>) -> Result<
     Ok(Json(Unloaded { unloaded: true }))
 }
 
+// ───────── sessions ─────────
+
+/// Every session, the one spoken in most recently first.
+#[utoipa::path(get, path = "/api/v1/sessions", tag = "sessions", responses((status = 200, body = Vec<Session>), (status = 401, body = Problem)))]
+async fn sessions_list(State(app): State<App>) -> Result<Json<Vec<Session>>> {
+    Ok(Json(app.sessions.list()?))
+}
+
+#[derive(Deserialize, ToSchema, Default)]
+pub struct NewSession {
+    /// Left out: the session takes its title from the first thing said in it.
+    pub title: Option<String>,
+    /// The model to talk to, by its name. Left out: one that is loaded, or else the first on this computer.
+    pub model: Option<String>,
+}
+
+/// Starts a session with a model. Nothing is loaded until something is said.
+#[utoipa::path(post, path = "/api/v1/sessions", tag = "sessions", request_body = NewSession, responses((status = 200, body = Session), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn session_new(State(app): State<App>, body: Option<Json<NewSession>>) -> Result<Json<Session>> {
+    let ask = body.map(|Json(b)| b).unwrap_or_default();
+    Ok(Json(app.chat.start(ask.title.as_deref(), ask.model.as_deref()).await?))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct SessionDetail {
+    pub session: Session,
+    /// What was said, in order.
+    pub messages: Vec<Message>,
+    /// What the model is told before the conversation, word for word. Nothing a model is told is hidden.
+    pub instructions: String,
+    /// True while an answer is being written.
+    pub answering: bool,
+}
+
+/// One session with everything said in it, and what the model is told first.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = SessionDetail), (status = 404, body = Problem)))]
+async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<Json<SessionDetail>> {
+    let session = app.sessions.get(&id)?;
+    Ok(Json(SessionDetail { messages: app.sessions.messages(&id)?, instructions: crate::chat::INSTRUCTIONS.to_string(), answering: app.chat.answering(&id), session }))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct SessionChange {
+    pub title: Option<String>,
+    /// Another model on this computer, by its name. The next answer comes from it.
+    pub model: Option<String>,
+}
+
+/// Gives a session a new title, another model, or both.
+#[utoipa::path(patch, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = SessionChange, responses((status = 200, body = Session), (status = 404, body = Problem)))]
+async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(body): Json<SessionChange>) -> Result<Json<Session>> {
+    if let Some(model) = &body.model
+        && !app.engine.list().await?.models.iter().any(|m| &m.id == model)
+    {
+        return Err(Error::NotFound(format!("There is no model called \"{model}\" on this computer.")));
+    }
+    let changed = app.sessions.change(&id, body.title.as_deref(), body.model.as_deref())?;
+    app.events.append("session.changed", Some(&id), json!({ "title": changed.title, "model": changed.model }))?;
+    Ok(Json(changed))
+}
+
+/// Deletes a session and everything said in it. An answer being written in it is stopped.
+#[utoipa::path(delete, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Session), (status = 404, body = Problem)))]
+async fn session_delete(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Session>> {
+    Ok(Json(app.chat.delete(&id)?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct Said {
+    /// What the person wrote.
+    pub content: String,
+}
+
+/// Says something in a session. Answers at once with what was said and the answer that is now being
+/// written. The answer's words follow on the event stream as `message.delta`, several times a second,
+/// and it is stored whole at `message.done` (or `message.stopped`, or `message.failed` with the reason).
+/// The session's model is loaded first if it is not. One answer at a time in a session.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/messages", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = Said, responses((status = 202, body = Turn), (status = 404, body = Problem), (status = 409, body = Problem), (status = 422, body = Problem)))]
+async fn session_say(State(app): State<App>, Path(id): Path<String>, Json(body): Json<Said>) -> Result<Response> {
+    Ok((StatusCode::ACCEPTED, Json(app.chat.say(&id, &body.content)?)).into_response())
+}
+
+/// Stops the answer being written in a session. What was written so far is kept.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/stop", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Stopped)))]
+async fn session_stop(State(app): State<App>, Path(id): Path<String>) -> Json<Stopped> {
+    Json(Stopped { stopped: app.chat.stop(&id) })
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct SettingsList {
     pub sections: Vec<Section>,
@@ -442,8 +538,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -468,6 +564,10 @@ pub fn router(app: App) -> Router {
         .route("/models", get(models_list))
         .route("/models/{id}/load", post(model_load))
         .route("/models/{id}/unload", post(model_unload))
+        .route("/sessions", get(sessions_list).post(session_new))
+        .route("/sessions/{id}", get(session_get).patch(session_change).delete(session_delete))
+        .route("/sessions/{id}/messages", post(session_say))
+        .route("/sessions/{id}/stop", post(session_stop))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))
@@ -513,6 +613,8 @@ pub async fn serve(opts: Options) -> Result<()> {
         auth: core.auth,
         runtimes: core.runtimes,
         engine: core.engine.clone(),
+        sessions: core.sessions.clone(),
+        chat: core.chat.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -539,6 +641,8 @@ pub async fn serve(opts: Options) -> Result<()> {
     let (stopping, mut stopped) = tokio::sync::watch::channel(false);
     // A runtime left running by an earlier Demido that was killed would hold graphics memory for nothing.
     core.engine.end_leftover();
+    // An answer that was being written when Demido last stopped was never finished. Say so in its place.
+    core.sessions.close_unfinished()?;
     // Every few seconds: unload what nobody uses, stop a runtime with nothing loaded, notice one that died.
     let caretaker = {
         let engine = core.engine.clone();
@@ -612,19 +716,27 @@ mod tests {
     }
 
     fn app_and_log() -> (Router, Arc<Auth>, Arc<EventLog>) {
+        // A folder that does not exist: these tests install nothing.
+        app_at(&std::env::temp_dir().join("demido-api-tests-no-runtimes"))
+    }
+
+    /// The API over a data folder of the caller's choosing.
+    fn app_at(home: &std::path::Path) -> (Router, Arc<Auth>, Arc<EventLog>) {
         let db = Arc::new(Db::memory().unwrap());
         let events = Arc::new(EventLog::new(db.clone()));
-        let settings = Arc::new(Settings::load(db, events.clone()).unwrap());
+        let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
+        let sessions = Arc::new(Sessions::new(db));
         let auth = Arc::new(Auth::with_key(KEY.into()));
-        // A folder that does not exist: these tests install nothing.
-        let runtimes = Arc::new(Runtimes::new(&std::env::temp_dir().join("demido-api-tests-no-runtimes"), events.clone(), Source::default()).unwrap());
-        let engine = Arc::new(Engine::new(&std::env::temp_dir().join("demido-api-tests-no-runtimes"), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
+        let runtimes = Arc::new(Runtimes::new(home, events.clone(), Source::default()).unwrap());
+        let engine = Arc::new(Engine::new(home, runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let app = App {
             settings,
             events: events.clone(),
             auth: auth.clone(),
             runtimes,
-            engine,
+            engine: engine.clone(),
+            sessions: sessions.clone(),
+            chat: Arc::new(Chat::new(sessions, engine, events.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -664,6 +776,55 @@ mod tests {
         let told = text.split("\n\n").find(|block| block.contains("event: test.told")).expect("the told event arrived");
         assert!(!told.contains("id:"), "{told}");
         assert!(!text.contains("test.after"), "nothing is sent after the stop");
+    }
+
+    #[tokio::test]
+    async fn a_session_is_made_spoken_in_read_renamed_and_deleted() {
+        // A model file, and no runtime to run it: everything works up to the answer, which says what is missing.
+        let home = std::env::temp_dir().join(format!("demido-api-sessions-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(home.join("models")).unwrap();
+        std::fs::write(home.join("models/tiny.gguf"), b"not really a model").unwrap();
+        let (r, _, events) = app_at(&home);
+        let key = |b: axum::http::request::Builder| b.header("authorization", format!("Bearer {KEY}")).header("content-type", "application/json");
+
+        let (status, made) = send(&r, key(request("POST", "/api/v1/sessions")).body(Body::from("{}")).unwrap()).await;
+        assert_eq!((status, made["model"].as_str(), made["title"].as_str()), (StatusCode::OK, Some("tiny"), Some("New session")));
+        let id = made["id"].as_str().unwrap().to_string();
+        let (status, _) = send(&r, key(request("POST", "/api/v1/sessions")).body(Body::from(r#"{"model":"no-such"}"#)).unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, turn) = send(&r, key(request("POST", &format!("/api/v1/sessions/{id}/messages"))).body(Body::from(r#"{"content":"Hello there"}"#)).unwrap()).await;
+        assert_eq!((status, turn["said"]["content"].as_str(), turn["answer"]["state"].as_str()), (StatusCode::ACCEPTED, Some("Hello there"), Some("answering")));
+        let (status, _) = send(&r, key(request("POST", &format!("/api/v1/sessions/{id}/messages"))).body(Body::from(r#"{"content":"  "}"#)).unwrap()).await;
+        assert!(status == StatusCode::UNPROCESSABLE_ENTITY || status == StatusCode::CONFLICT);
+
+        // The answer ends by itself: there is no runtime, and it says so in the message.
+        let mut detail = Value::Null;
+        for _ in 0..300 {
+            detail = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}"))).body(Body::empty()).unwrap()).await.1;
+            if detail["answering"] == false {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(detail["session"]["title"], "Hello there");
+        assert_eq!(detail["instructions"], crate::chat::INSTRUCTIONS);
+        let answer = &detail["messages"][1];
+        assert_eq!(answer["state"], "failed");
+        assert!(answer["problem"].as_str().unwrap().contains("No model runtime is installed"), "{answer}");
+        assert!(events.after(0, 50).unwrap().iter().any(|e| e.kind == "message.failed"));
+
+        let (status, renamed) = send(&r, key(request("PATCH", &format!("/api/v1/sessions/{id}"))).body(Body::from(r#"{"title":"Greetings"}"#)).unwrap()).await;
+        assert_eq!((status, renamed["title"].as_str()), (StatusCode::OK, Some("Greetings")));
+        let (_, list) = send(&r, key(request("GET", "/api/v1/sessions")).body(Body::empty()).unwrap()).await;
+        assert_eq!((list.as_array().unwrap().len(), list[0]["messages"].as_u64()), (1, Some(2)));
+        let (status, _) = send(&r, key(request("POST", &format!("/api/v1/sessions/{id}/stop"))).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = send(&r, key(request("DELETE", &format!("/api/v1/sessions/{id}"))).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}"))).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        std::fs::remove_dir_all(home).ok();
     }
 
     #[tokio::test]

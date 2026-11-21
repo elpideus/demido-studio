@@ -120,6 +120,8 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 86 | **A models folder of your own choosing.** Models are large; people keep them on another disk, or share them with other programs. Today the folder is fixed inside Demido's data folder. | Raised |
 | 87 | **Speed for free.** How fast a model answers on this computer does not need a benchmark: every real answer comes with its own timing. Demido keeps a running figure per model from real use, and the roster reads it. | Raised; comes with the chat loop |
 | 88 | **A big one that plans, small ones that do.** The clearest win for "a model per agent" is a strong model (a large local one, or a provider's) as the orchestrator with small fast local models as workers. A session could have that as a one-press setup: "plan with X, do with Y". | Raised |
+| 89 | **Say what a turn cost, under every answer.** Tokens written, tokens a second, and how much of the prompt was read and how much was not read again. It is how a person sees that caching works, and when a conversation is getting expensive. | Done |
+| 90 | **One conversation, every window.** Because the core runs the turn and tells it as news, an answer started in a terminal is written in the open window at the same moment. | Done |
 
 ## Pushback on the brief so far
 
