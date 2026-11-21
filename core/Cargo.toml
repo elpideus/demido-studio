@@ -31,6 +31,8 @@ rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
+# Line diffs of what a change changed. Read from crates.io on 2026-11-21: 3.2.1, Apache-2.0.
+similar = "3"
 sysinfo = "0.40"
 tar = "0.4"
 thiserror = "2"

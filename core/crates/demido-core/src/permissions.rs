@@ -197,6 +197,7 @@ pub fn what(tool: &str, args: &serde_json::Map<String, serde_json::Value>, exist
         "search_web" => format!("Search the internet for \"{}\"", short(text("query"))),
         // An address is shown whole, for the same reason.
         "read_page" => format!("Read the page at {}", text("url")),
+        "read_output" => "Read more of what the last command printed".into(),
         other => format!("Use {other}"),
     }
 }

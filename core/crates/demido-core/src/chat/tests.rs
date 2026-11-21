@@ -61,7 +61,8 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
     kept_settings.set("tools.use", json!(false)).unwrap();
     // Nor do they reach the internet: the tests that do have a stand-in site (`the_internet`).
     kept_settings.set("web.use", json!(false)).unwrap();
-    let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()).with_clock(CLOCK).keeping_in(home.join("saved-folders")));
+    let chat =
+        Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()).with_clock(CLOCK).keeping_in(home.join("saved-folders")).keeping_outputs_in(home.join("outputs")));
     World { chat, sessions, engine, events, stand, home, settings: kept_settings }
 }
 

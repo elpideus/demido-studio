@@ -119,6 +119,8 @@ Windows, and tools other people write.
    Mwmbl), reading a page as text, an address a model wrote
    itself always asks, only the public internet, and a change to a file asks once a page was read. Tried
    on four models: 5, 6, 7 and 7 of 8 everyday requests right; a page that gave orders changed nothing.
+   Then the whole of what a program printed, kept, with a short view for the model and a way to read on;
+   and what each change changed, as a diff (DECISIONS T18, T19; research note 16).
    Next inside it: the sandbox on macOS and Windows; tools other people write, with their browser and
    updater.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
@@ -140,7 +142,6 @@ list made for the split stays, because it says what is left and what to watch in
 |---|---|---|
 | 5 | The sandbox on macOS (Seatbelt) and on Windows; a filter on what a program may ask of the kernel | Security, and it cannot be tried here: only on the checks' machines |
 | 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | A measurement that decides a security design |
-| 5 | The whole of what a program printed, kept and one press away (brief 4.18); showing what a change changed, side by side | Well defined, no new risk, mostly window work |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | Models browser and downloader | A whole feature with a clear edge, and a pattern to follow (the runtime installer) |
@@ -163,8 +164,11 @@ Done from this list on 2026-11-21: reading from the internet, and the facts for 
 left for later is in the rows it touches: search with a key waits for the vault, pages that need scripts
 wait for the browser.
 
-Next, in this order unless the owner says otherwise: the whole of what a program printed and showing what
-a change changed; the models browser and downloader; the sandbox on macOS and Windows.
+Also done on 2026-11-21: the whole of what a program printed, and what a change changed (DECISIONS T18,
+T19).
+
+Next, in this order unless the owner says otherwise: the models browser and downloader; the sandbox on
+macOS and Windows.
 
 ## Set aside for later
 

@@ -31,9 +31,9 @@ use serde::Serialize;
 use tokio::io::AsyncReadExt;
 use utoipa::ToSchema;
 
-/// What a program's output is cut to before it is kept: more than a person scrolls, less than fills a disk.
-const MOST_KEPT: usize = 200_000;
-/// What a model is shown of it: its start and its end.
+/// What a program's output is cut to before it is kept: far more than a person scrolls, less than fills a disk.
+const MOST_KEPT: usize = 2_000_000;
+/// What a model is shown of it (`tools::output`): what went wrong, the ending, the beginning.
 const MOST_SHOWN: usize = 6_000;
 
 /// The sandbox this computer has, if it has one.
@@ -60,7 +60,8 @@ pub struct Ran {
 }
 
 impl Ran {
-    /// What the model is told: how it ended, and the start and the end of what it printed.
+    /// What the model is told: how it ended, and the short view of what it printed (`tools::output`), with
+    /// what was left out marked by its line numbers.
     pub fn told(&self) -> String {
         let how = match (&self.stopped, self.code) {
             (Some(why), _) => why.clone(),
@@ -68,24 +69,16 @@ impl Ran {
             (None, Some(code)) => format!("It ran, and ended with an error (exit code {code})."),
             (None, None) => "It was ended from outside before it finished.".into(),
         };
-        let output = self.output.trim();
-        if output.is_empty() { format!("{how} It printed nothing.") } else { format!("{how}\n{}", shortened(output, MOST_SHOWN)) }
+        let whole = crate::tools::output::as_a_terminal_shows(&self.output);
+        if whole.trim().is_empty() {
+            return format!("{how} It printed nothing.");
+        }
+        let shown = crate::tools::output::shortened(&whole, MOST_SHOWN);
+        if shown.left_out == 0 {
+            return format!("{how}\n{}", shown.text);
+        }
+        format!("{how}\n{}\n({} of its {} lines are not shown here. {}(from_line) gives them.)", shown.text, shown.left_out, shown.lines, crate::tools::READ_OUTPUT)
     }
-}
-
-/// A long text as its start and its end, with what was left out counted.
-pub fn shortened(text: &str, at_most: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= at_most {
-        return text.to_string();
-    }
-    let half = at_most / 2;
-    let (start, end): (String, String) = (chars[..half].iter().collect(), chars[chars.len() - half..].iter().collect());
-    // Cut at line ends where there are any, so that no line is shown as half of itself.
-    let start = start.rfind('\n').map_or(start.as_str(), |at| &start[..at]);
-    let end = end.find('\n').map_or(end.as_str(), |at| &end[at + 1..]);
-    let left_out = text.lines().count().saturating_sub(start.lines().count() + end.lines().count());
-    format!("{start}\n… ({left_out} lines are not shown) …\n{end}")
 }
 
 impl Sandbox {
@@ -302,15 +295,15 @@ mod tests {
     static NOT_STOPPED: AtomicBool = AtomicBool::new(false);
 
     #[test]
-    fn a_long_output_is_shown_as_its_start_and_its_end() {
-        let long: String = (1..=2000).map(|i| format!("line {i}\n")).collect();
-        let shown = shortened(&long, 400);
-        assert!(shown.starts_with("line 1\nline 2\n") && shown.trim_end().ends_with("line 2000"), "{shown}");
-        assert!(shown.contains("lines are not shown) …") && shown.len() < 600);
-        assert_eq!(shortened("short", 400), "short");
-        let ran = Ran { output: "ok\n".into(), code: Some(0), stopped: None, took_ms: 3 };
-        assert_eq!(ran.told(), "It ran, and ended without an error (exit code 0).\nok");
-        assert_eq!(Ran { output: String::new(), code: Some(2), ..ran.clone() }.told(), "It ran, and ended with an error (exit code 2). It printed nothing.");
+    fn a_long_output_is_told_short_and_says_how_to_read_the_rest() {
+        let long: String = (1..=2000).map(|i| format!("line {i} of a long story\n")).collect();
+        let told = Ran { output: long, code: Some(0), stopped: None, took_ms: 3 }.told();
+        assert!(told.starts_with("It ran, and ended without an error (exit code 0).\nline 1 of a long story\n(… 1998 more lines like these …)\nline 2000 of a long story"), "{told}");
+        let ran = Ran { output: "\u{1b}[32mok\u{1b}[0m\n".into(), code: Some(0), stopped: None, took_ms: 3 };
+        assert_eq!(ran.told(), "It ran, and ended without an error (exit code 0).\nok", "a short output is told whole, without colour codes");
+        let varied: String = (1..=2000).map(|i| format!("{} {i}\n", ["alpha", "beta", "gamma"][i % 3])).collect();
+        let told = Ran { output: varied, code: Some(1), stopped: None, took_ms: 3 }.told();
+        assert!(told.contains("are left out]") && told.ends_with("lines are not shown here. read_output(from_line) gives them.)"), "{}", &told[told.len() - 200..]);
     }
 
     #[tokio::test]
@@ -340,7 +333,7 @@ mod tests {
             let ended = sandbox.run(&dir, "sleep 30", Duration::from_secs(60), &stop).await.unwrap();
             assert!(ended.stopped.unwrap().contains("the answer was stopped") && ended.took_ms < 5_000);
             // A flood of output does not hang it, and is not all kept.
-            let flood = sandbox.run(&dir, "yes abcdefghij | head -c 1000000", Duration::from_secs(20), &NOT_STOPPED).await.unwrap();
+            let flood = sandbox.run(&dir, "yes abcdefghij | head -c 3000000", Duration::from_secs(20), &NOT_STOPPED).await.unwrap();
             assert!(flood.code == Some(0) && flood.output.len() < MOST_KEPT + 200 && flood.output.contains("more bytes, which were not kept"), "{}", flood.output.len());
         }
         let _ = sandbox;

@@ -53,6 +53,10 @@ pub struct Change {
     /// When it was undone. `null`: it stands.
     pub undone_at: Option<i64>,
     pub created_at: i64,
+    /// What it changed, in a few characters: `+3 −1`, or `2 files, +10 −4`. `null` for a change made
+    /// before this was kept. The diff itself is fetched on its own.
+    #[serde(default)]
+    pub diff_stat: Option<String>,
 }
 
 /// What the runtime reported about one answer.
@@ -169,6 +173,7 @@ fn change_from(r: &rusqlite::Row) -> rusqlite::Result<Change> {
         undone_at: r.get(5)?,
         created_at: r.get(6)?,
         whole_folder: r.get::<_, Option<String>>(7)?.is_some(),
+        diff_stat: r.get(8)?,
     })
 }
 
@@ -260,12 +265,13 @@ impl Sessions {
     }
 
     /// Writes down a change a tool made to a file, with what the file held before.
-    pub fn add_change(&self, session_id: &str, message_id: &str, path: &str, before: Option<&[u8]>) -> Result<Change> {
+    pub fn add_change(&self, session_id: &str, message_id: &str, path: &str, before: Option<&[u8]>, diff: Option<(&str, &str)>) -> Result<Change> {
         let (id, now) = (uuid::Uuid::now_v7().to_string(), now_ms());
+        let (text, stat) = (diff.map(|d| d.0), diff.map(|d| d.1));
         self.db.with(|c| {
             c.execute(
-                "INSERT INTO changes (id, session_id, message_id, path, existed, before, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                rusqlite::params![id, session_id, message_id, path, before.is_some(), before, now],
+                "INSERT INTO changes (id, session_id, message_id, path, existed, before, created_at, diff, diff_stat) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![id, session_id, message_id, path, before.is_some(), before, now, text, stat],
             )
         })?;
         Ok(Change {
@@ -277,6 +283,7 @@ impl Sessions {
             undone_at: None,
             created_at: now,
             whole_folder: false,
+            diff_stat: stat.map(str::to_string),
         })
     }
 
@@ -298,7 +305,22 @@ impl Sessions {
             undone_at: None,
             created_at: now,
             whole_folder: true,
+            diff_stat: None,
         })
+    }
+
+    /// Keeps what a change changed: its diff, and its size in a few words. For a program, known only once
+    /// it has ended.
+    pub fn set_diff(&self, change_id: &str, diff: &str, stat: &str) -> Result<()> {
+        self.db.with(|c| c.execute("UPDATE changes SET diff = ?2, diff_stat = ?3 WHERE id = ?1", rusqlite::params![change_id, diff, stat]))?;
+        Ok(())
+    }
+
+    /// What a change of a session changed, as a diff. `None` for a change made before diffs were kept.
+    pub fn diff_of(&self, session_id: &str, change_id: &str) -> Result<Option<String>> {
+        self.db
+            .with(|c| c.prepare("SELECT diff FROM changes WHERE id = ?1 AND session_id = ?2")?.query_map([change_id, session_id], |r| r.get::<_, Option<String>>(0))?.next().transpose())?
+            .ok_or_else(|| Error::NotFound(format!("There is no change \"{change_id}\" in this session.")))
     }
 
     /// Where the folder was saved before a program ran, for a change that is a whole folder.
@@ -328,7 +350,7 @@ impl Sessions {
     /// The changes made in a session, oldest first.
     pub fn changes(&self, session_id: &str) -> Result<Vec<Change>> {
         self.db.with(|c| {
-            c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, checkpoint FROM changes WHERE session_id = ?1 ORDER BY created_at, id")?
+            c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, checkpoint, diff_stat FROM changes WHERE session_id = ?1 ORDER BY created_at, id")?
                 .query_map([session_id], change_from)?
                 .collect()
         })
@@ -338,8 +360,8 @@ impl Sessions {
     pub fn change_with_before(&self, id: &str) -> Result<(Change, Option<Vec<u8>>)> {
         self.db
             .with(|c| {
-                c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, checkpoint, before FROM changes WHERE id = ?1")?
-                    .query_map([id], |r| Ok((change_from(r)?, r.get::<_, Option<Vec<u8>>>(8)?)))?
+                c.prepare("SELECT id, session_id, message_id, path, existed, undone_at, created_at, checkpoint, diff_stat, before FROM changes WHERE id = ?1")?
+                    .query_map([id], |r| Ok((change_from(r)?, r.get::<_, Option<Vec<u8>>>(9)?)))?
                     .next()
                     .transpose()
             })?
@@ -581,8 +603,11 @@ mod tests {
         assert_eq!(s.set_permission(&a.id, "cautious").unwrap().permission, "cautious");
         assert_eq!(s.set_folder(&a.id, None).unwrap().folder, None);
 
-        let made = s.add_change(&a.id, "m1", "new.md", None).unwrap();
-        let replaced = s.add_change(&a.id, "m1", "old.md", Some(b"as it was")).unwrap();
+        let made = s.add_change(&a.id, "m1", "new.md", None, Some(("--- /dev/null\n+++ b/new.md\n", "+1 −0"))).unwrap();
+        let replaced = s.add_change(&a.id, "m1", "old.md", Some(b"as it was"), None).unwrap();
+        assert_eq!((made.diff_stat.as_deref(), replaced.diff_stat.as_deref()), (Some("+1 −0"), None));
+        assert_eq!(s.diff_of(&a.id, &made.id).unwrap().as_deref(), Some("--- /dev/null\n+++ b/new.md\n"));
+        assert!(s.diff_of("another session", &made.id).is_err(), "a change is only shown in its own session");
         assert_eq!((made.created, replaced.created), (true, false));
         assert_eq!(s.changes(&a.id).unwrap(), vec![made.clone(), replaced.clone()]);
         assert_eq!(s.change_with_before(&replaced.id).unwrap().1.as_deref(), Some(b"as it was".as_slice()));
@@ -600,7 +625,7 @@ mod tests {
         s.add(&a.id, "user", "Do three things.", "done", None).unwrap();
         let answer = s.add(&a.id, "assistant", "", "answering", Some("small")).unwrap();
         assert!(answer.steps.is_empty());
-        let step = Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1, change: None };
+        let step = Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1, change: None, output: None };
         s.set_steps(&answer.id, std::slice::from_ref(&step)).unwrap();
         assert_eq!(s.message(&answer.id).unwrap().steps, vec![step.clone()]);
 

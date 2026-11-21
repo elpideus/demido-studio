@@ -68,6 +68,7 @@ impl Core {
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
                 .keeping_in(paths.home().join("saved-folders"))
+                .keeping_outputs_in(paths.home().join("outputs"))
                 .with_sandbox(crate::sandbox::Sandbox::find())
                 .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))))),
         );
@@ -489,6 +490,26 @@ async fn session_undo(State(app): State<App>, Path((id, change)): Path<(String, 
     Ok(Json(app.chat.undo(&id, &change)?))
 }
 
+/// Text the API gives as it is, to be read by a person: a program's output, a diff.
+fn plain(text: String) -> Response {
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response()
+}
+
+/// The whole of what a program printed, as a terminal would show it once the program had ended. A step of
+/// `run_command` holds its id (`output`). The model was given a short view of it; this is all of it. Only
+/// the newest 50 of a session are kept.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/outputs/{output}", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("output" = String, Path, description = "The output's id, from the step")), responses((status = 200, description = "The output, as plain text", content_type = "text/plain"), (status = 404, body = Problem)))]
+async fn session_output(State(app): State<App>, Path((id, output)): Path<(String, String)>) -> Result<Response> {
+    Ok(plain(app.chat.output(&id, &output)?))
+}
+
+/// What a change changed, as a unified diff made at the moment of the change: for a file, its lines that
+/// went and came; for a program, every file it changed, made or removed in the folder.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/changes/{change}/diff", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("change" = String, Path, description = "The change's id")), responses((status = 200, description = "The diff, as plain text", content_type = "text/plain"), (status = 404, body = Problem)))]
+async fn session_diff(State(app): State<App>, Path((id, change)): Path<(String, String)>) -> Result<Response> {
+    Ok(plain(app.chat.change_diff(&id, &change)?))
+}
+
 /// Makes a session shorter for the model: it writes a short account of the older part of the conversation,
 /// and is given that account from then on in place of those messages. The messages stay in the session.
 /// Answers when the account is written, which takes a few seconds. Also happens by itself when a session
@@ -646,7 +667,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -680,6 +701,8 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/compact", post(session_compact))
         .route("/sessions/{id}/permissions/{request}", post(session_permission))
         .route("/sessions/{id}/changes/{change}/undo", post(session_undo))
+        .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
+        .route("/sessions/{id}/outputs/{output}", get(session_output))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))

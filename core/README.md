@@ -50,7 +50,7 @@ With a server running, the command line asks the server. Without one, it works o
 | `…/sessions.rs` | Sessions and what was said in them, kept in the one SQLite file. |
 | `…/chat.rs` | Running a turn: what was said goes to the model, its answer is streamed as news and stored whole. Also making a long conversation shorter: the account, when it is written, and what stays word for word. |
 | `…/chat/turn.rs` | What a turn does before its answer: asking whether a tool is needed, using it, and walking a plan task by task. Its first lines say what was measured to shape it. |
-| `…/tools.rs` | The tools a model can ask for, how they are listed for it, how a request is read, mended or refused, and the cleaning of text from outside. `tools/calculate.rs` is the calculator; `tools/files.rs` reads and changes files inside a session's folder and nowhere else. |
+| `…/tools.rs` | The tools a model can ask for, how they are listed for it, how a request is read, mended or refused, and the cleaning of text from outside. `tools/calculate.rs` is the calculator; `tools/output.rs` makes a program's output short for a model; `tools/diff.rs` says what a change changed; `tools/files.rs` reads and changes files inside a session's folder and nowhere else. |
 | `…/permissions.rs` | Whether a use of a tool needs the person's yes: decided from the tool's reach and the session's level, never by a model. |
 | `…/sandbox.rs` | Running a program a model asked for where it can do little harm: on Linux inside bubblewrap, with the folder, the system and no network. `cargo run --example sandbox_try -- <folder> <command>` tries it by hand. |
 | `…/checkpoint.rs` | Saving a folder before a program runs in it, and putting it back, so that all a program did can be undone. |

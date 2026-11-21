@@ -401,11 +401,17 @@ impl Chat {
         stop: &AtomicBool,
         changed: &(dyn Fn(&[Step]) + Send + Sync),
     ) -> Result<Option<Vec<String>>> {
-        let tools_listed = tools::listed(offered);
         for _ in 0..MOST_TOOLS_IN_A_ROW {
             if stop.load(Ordering::Relaxed) {
                 break;
             }
+            // Right after a command whose output was shortened, the model may read on in it, once. Offered for
+            // as long as such a command was in the request, a real model (Qwen3 4B) read on five times in a row,
+            // page after page, when the error it was asked about was already in front of it.
+            let shortened = steps.last().is_some_and(|s| s.tool == tools::RUN && s.output.is_some() && s.result.contains(tools::output::LEFT_OUT));
+            let offered_now: Vec<&Tool> = offered.iter().copied().chain(shortened.then(|| tools::named(tools::READ_OUTPUT)).flatten()).collect();
+            let offered = offered_now.as_slice();
+            let tools_listed = tools::listed(offered);
             // With the tools, the model is shown what is in the folder, as it is now. Without that it does not
             // connect what the person asks about with a file that is there.
             let listed = match session.folder.as_deref() {
@@ -501,6 +507,7 @@ impl Chat {
                     let started = Instant::now();
                     let folder = session.folder.as_deref().map(std::path::Path::new);
                     let seen = tools::seen_in(steps);
+                    let mut kept_output = None;
                     let outcome = if tool == tools::RUN {
                         // A program is run through the sandbox, for no longer than the person set.
                         let seconds = self.settings.value::<String>("tools.commandSeconds").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(120);
@@ -508,11 +515,24 @@ impl Chat {
                         match folder {
                             None => Err("this session has no folder. The person can give it one".to_string()),
                             Some(folder) => match self.sandbox.run(folder, command, std::time::Duration::from_secs(seconds), stop).await {
-                                // What a program prints is text from outside, like a file's.
-                                Ok(ran) if ran.stopped.is_none() => Ok(tools::Done { gave: tools::clean(&ran.told()), changed: None }),
-                                Ok(ran) => Err(tools::clean(&ran.told())),
+                                Ok(ran) => {
+                                    // The whole of what it printed is kept, as a terminal would show it; the model
+                                    // is told the short view. What a program prints is text from outside, like a file's.
+                                    kept_output = self.keep_output(&session.id, &tools::output::as_a_terminal_shows(&ran.output));
+                                    let told = tools::clean(&ran.told());
+                                    if ran.stopped.is_none() { Ok(tools::Done { gave: told, changed: None }) } else { Err(told) }
+                                }
                                 Err(why) => Err(why),
                             },
+                        }
+                    } else if tool == tools::READ_OUTPUT {
+                        // The last command of this request whose output was kept.
+                        match steps.iter().rev().find_map(|s| if s.tool == tools::RUN { s.output.clone() } else { None }) {
+                            None => Err("no command printed anything in this request".to_string()),
+                            Some(id) => self.output(&session.id, &id).map_err(|e| e.to_string()).map(|whole| {
+                                let from = args.get("from_line").and_then(Value::as_u64).unwrap_or(1) as usize;
+                                tools::Done { gave: tools::clean(&tools::output::lines_from(&whole, from, 80, 6_000)), changed: None }
+                            }),
                         }
                     } else if tool == tools::SEARCH {
                         let on = |id: &str| self.settings.value::<bool>(id).unwrap_or(true);
@@ -543,8 +563,17 @@ impl Chat {
                     let step = steps.last_mut().expect("just pushed");
                     step.took_ms = started.elapsed().as_millis() as u64;
                     // However the program ended, it may have changed things. The folder as it was is kept, to put back.
+                    step.output = kept_output;
                     if let Some((id, place)) = &saved {
                         step.change = Some(self.sessions.add_folder_change(&session.id, answer_id, id, &place.to_string_lossy())?.id);
+                        // What the program changed, made and removed, compared with the folder saved before it ran.
+                        if let Some(folder) = session.folder.clone() {
+                            let saved_at = place.clone();
+                            let found = tokio::task::spawn_blocking(move || crate::checkpoint::compared(std::path::Path::new(&folder), &saved_at).map(|changed| tools::diff::of_files(&changed))).await;
+                            if let Ok(Ok(shown)) = found {
+                                self.sessions.set_diff(id, &shown.text, &shown.stat())?;
+                            }
+                        }
                         for old in self.sessions.old_checkpoints(&session.id, super::SAVED_FOLDERS_KEPT)? {
                             let _ = std::fs::remove_dir_all(old);
                         }
@@ -554,7 +583,11 @@ impl Chat {
                             (step.state, step.result) = ("done".into(), done.gave);
                             // What a changed file held before is kept, so that the change can be undone.
                             if let Some(made) = done.changed {
-                                step.change = Some(self.sessions.add_change(&session.id, answer_id, &made.path, made.before.as_deref())?.id);
+                                // What it changed, made now: later changes to the file are theirs, not this one's.
+                                let after = folder.and_then(|f| tools::files::inside(f, &made.path).ok()).and_then(|path| std::fs::read(path).ok());
+                                let shown = tools::diff::of_file(&made.path, made.before.as_deref(), after.as_deref());
+                                let diff = (shown.text.as_str(), shown.stat());
+                                step.change = Some(self.sessions.add_change(&session.id, answer_id, &made.path, made.before.as_deref(), Some((diff.0, &diff.1)))?.id);
                             }
                         }
                         Err(why) => (step.state, step.result) = ("failed".into(), why),

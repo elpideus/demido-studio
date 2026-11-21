@@ -78,6 +78,10 @@ async fn a_session_with_a_folder_reads_and_changes_files_in_it_and_a_change_can_
     let changes = w.sessions.changes(&session.id).unwrap();
     assert_eq!(changes.iter().map(|c| (c.path.as_str(), c.created, c.message_id == answer.id)).collect::<Vec<_>>(), [("notes/done.md", true, true), ("todo.txt", false, true)]);
     assert_eq!(answer.steps[2].change.as_deref(), Some(changes[1].id.as_str()));
+    // What each change changed is kept with it, as it was at that moment.
+    assert_eq!(changes.iter().map(|c| c.diff_stat.as_deref()).collect::<Vec<_>>(), [Some("+1 −0"), Some("+0 −1")]);
+    assert_eq!(w.chat.change_diff(&session.id, &changes[1].id).unwrap(), "--- a/todo.txt\n+++ b/todo.txt\n@@ -1,2 +1 @@\n-Buy stamps.\n Call Mira about Friday.\n");
+    assert!(w.chat.change_diff(&session.id, &changes[0].id).unwrap().starts_with("--- /dev/null\n+++ b/notes/done.md\n"));
     let undone = w.chat.undo(&session.id, &changes[1].id).unwrap();
     assert!(undone.undone_at.is_some());
     assert_eq!(std::fs::read_to_string(folder.join("todo.txt")).unwrap(), "Buy stamps.\nCall Mira about Friday.\n");
@@ -241,7 +245,13 @@ async fn text_from_a_file_or_a_paste_cannot_forge_a_turn() {
 
 /// A chat on the same world whose sandbox is said to be what the test needs.
 fn chat_with(w: &World, sandbox: crate::sandbox::Sandbox) -> Arc<Chat> {
-    Arc::new(Chat::new(w.sessions.clone(), w.engine.clone(), w.events.clone(), w.settings.clone()).with_clock(CLOCK).keeping_in(w.home.join("saved-folders")).with_sandbox(sandbox))
+    Arc::new(
+        Chat::new(w.sessions.clone(), w.engine.clone(), w.events.clone(), w.settings.clone())
+            .with_clock(CLOCK)
+            .keeping_in(w.home.join("saved-folders"))
+            .keeping_outputs_in(w.home.join("outputs"))
+            .with_sandbox(sandbox),
+    )
 }
 async fn answered_by(chat: &Chat, w: &World, session_id: &str) -> Message {
     for _ in 0..1000 {
@@ -284,9 +294,17 @@ async fn a_program_runs_in_the_folder_and_all_it_did_can_be_undone() {
     assert!(step.result.starts_with("It ran, and ended without an error (exit code 0).") && step.result.contains("finished"), "{}", step.result);
     assert!(folder.join("made.txt").exists() && std::fs::read_to_string(folder.join("todo.txt")).unwrap().starts_with("wiped"));
 
+    // The whole of what it printed is kept, apart from the result.
+    assert_eq!(chat.output(&session.id, step.output.as_deref().expect("kept")).unwrap(), "finished");
+    assert!(chat.output(&session.id, "../../etc/passwd").is_err() && chat.output(&session.id, "nope").is_err());
+
     // One change stands for everything the program did, and undoing it puts the whole folder back.
     let changes = w.sessions.changes(&session.id).unwrap();
     assert_eq!(changes.iter().map(|c| (c.path.as_str(), c.whole_folder)).collect::<Vec<_>>(), [(".", true)]);
+    // What it changed and made is kept with it: todo.txt lost two lines and got one, made.txt was made.
+    assert_eq!(changes[0].diff_stat.as_deref(), Some("2 files, +2 −2"));
+    let diff = chat.change_diff(&session.id, &changes[0].id).unwrap();
+    assert!(diff.contains("--- /dev/null\n+++ b/made.txt") && diff.contains("-Buy stamps.") && diff.contains("+wiped"), "{diff}");
     assert_eq!(step.change.as_deref(), Some(changes[0].id.as_str()));
     chat.undo(&session.id, &changes[0].id).unwrap();
     assert!(!folder.join("made.txt").exists(), "what the program made is gone");
@@ -346,5 +364,37 @@ async fn a_program_that_runs_too_long_is_ended_and_the_model_is_told() {
     assert_eq!(answer.state, "stopped");
     assert_eq!(answer.steps[0].state, "failed");
     assert!(answer.steps[0].result.contains("stopped before it finished"), "{}", answer.steps[0].result);
+    w.end().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn of_a_long_output_the_model_is_told_the_short_view_and_can_read_on() {
+    // Three thousand lines that are not alike, so that they cannot be folded: most of them are left out.
+    let command = "awk 'BEGIN { for (i = 1; i <= 3000; i++) print (i % 3 == 0 ? \"alpha\" : (i % 3 == 1 ? \"beta\" : \"gamma\")), i }'";
+    let (w, session, _folder) = with_folder(
+        "read-on",
+        &[&json!({ "tool": "run_command", "args": { "command": command } }).to_string(), r#"{"tool": "read_output", "args": {"from_line": 2990}}"#, NONE],
+        &["The last line is alpha 3000."],
+    )
+    .await;
+    w.chat.set_permission(&session.id, "autonomous").unwrap();
+    let chat = chat_with(&w, said_to_hold());
+    chat.say(&session.id, "Run it and tell me the last line.").unwrap();
+    let answer = answered_by(&chat, &w, &session.id).await;
+    assert_eq!(answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str())).collect::<Vec<_>>(), [("run_command", "done"), ("read_output", "done")]);
+    let told = &answer.steps[0].result;
+    assert!(told.contains("are left out]") && told.ends_with("lines are not shown here. read_output(from_line) gives them.)"), "{}", &told[told.len().saturating_sub(300)..]);
+    assert!(told.chars().count() < 7_000, "the model is given the short view: {}", told.chars().count());
+    // The whole is kept, every line of it.
+    assert_eq!(chat.output(&session.id, answer.steps[0].output.as_deref().unwrap()).unwrap().lines().count(), 3000);
+    // read_output was offered only once there was something to read on in.
+    let tools_of = |n: usize| asked(&w)[n]["response_format"]["schema"]["properties"]["tool"]["enum"].as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<_>>();
+    assert!(!tools_of(0).contains(&"read_output".to_string()) && tools_of(1).contains(&"read_output".to_string()));
+    assert!(!tools_of(2).contains(&"read_output".to_string()), "once: after reading on, it is not offered again");
+    assert_eq!(
+        answer.steps[1].result,
+        "Lines 2990 to 3000 of 3000:\ngamma 2990\nalpha 2991\nbeta 2992\ngamma 2993\nalpha 2994\nbeta 2995\ngamma 2996\nalpha 2997\nbeta 2998\ngamma 2999\nalpha 3000\n(3000 lines in all. That is the end of it.)"
+    );
     w.end().await;
 }

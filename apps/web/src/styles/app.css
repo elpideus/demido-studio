@@ -2502,5 +2502,12 @@
 /* A use of a tool with the way to undo it beside it; and the row where a session is given its folder. */
 .chat__step { display: flex; align-items: flex-start; gap: var(--d-space-8); min-width: 0; }
 .chat__step > .d-step { flex: 1; min-width: 0; }
+.chat__use { display: grid; gap: var(--d-space-4); min-width: 0; }
+.chat__diff { margin-inline-start: var(--d-space-24); }
+.chat__diff-text { max-height: 28rem; overflow: auto; }
+.chat__diff-text [data-line="add"] { color: var(--d-color-success-base); background: var(--d-color-success-tint); }
+.chat__diff-text [data-line="del"] { color: var(--d-color-danger-base); background: var(--d-color-danger-tint); }
+.chat__diff-text [data-line="hunk"] { color: var(--d-color-info-base); }
+.chat__diff-text [data-line="file"] { color: var(--d-color-text-secondary); font-weight: var(--d-font-weight-semibold); }
 .chat__folder { display: grid; gap: var(--d-space-8); padding: var(--d-space-12); border: 1px solid var(--d-color-border-subtle); border-radius: var(--d-radius-md); }
 .chat__folder > p { margin: 0; }

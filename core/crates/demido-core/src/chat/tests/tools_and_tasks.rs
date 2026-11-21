@@ -107,7 +107,10 @@ async fn the_clock_is_read_for_the_model() {
     let w = with_tools("clock", &[r#"{"tool": "time()", "args": {}}"#, NONE], &["It is 14:05."]);
     let session = w.chat.start(None, Some("small")).await.unwrap();
     let answer = turn(&w, &session.id, "What time is it?").await;
-    assert_eq!(answer.steps, [Step { tool: "time".into(), args: json!({}), result: "14:05, Saturday, 21 November 2026".into(), state: "done".into(), took_ms: answer.steps[0].took_ms, change: None }]);
+    assert_eq!(
+        answer.steps,
+        [Step { tool: "time".into(), args: json!({}), result: "14:05, Saturday, 21 November 2026".into(), state: "done".into(), took_ms: answer.steps[0].took_ms, change: None, output: None }]
+    );
     w.end().await;
 }
 

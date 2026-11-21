@@ -11,13 +11,13 @@ import { toast } from './store'
 export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number }
 /** One use of a tool. `waiting`: for the person's yes. `refused`: the request could not be used, or the person said no; nothing ran.
     `change`: the id of the change it made to a file, for undoing it. */
-export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null }
+export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null }
 export type Level = 'cautious' | 'balanced' | 'smart' | 'autonomous'
 /** A use of a tool that is waiting for the person's yes. Every word of it is made by the core from the request, none by the model. */
 export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes' | 'runs' | 'network'; what: string; why: string; once_only?: boolean; asked_at: number }
 /** A change a tool made to a file in the session's folder. `created`: the change made the file, so undoing removes it.
     `whole_folder`: it is everything a program did; the folder was saved before the program ran, and undoing puts the whole folder back. */
-export interface CoreChange { id: string; session_id: string; message_id: string; path: string; created: boolean; whole_folder?: boolean; undone_at: number | null; created_at: number }
+export interface CoreChange { id: string; session_id: string; message_id: string; path: string; created: boolean; whole_folder?: boolean; undone_at: number | null; created_at: number; diff_stat?: string | null }
 /** The sandbox the core's computer has for the programs a model runs. `kind` is `none` when it has none, and `why_not` says why. */
 export interface Sandbox { kind: string; program: string | null; why_not: string | null }
 /** One task of work that was split into steps. `parent_id` is set for a sub-task. */
@@ -136,6 +136,13 @@ export async function answerPermission(id: string, request: string, said: 'once'
 }
 
 /** Undoes a change a tool made to a file: what the file held before is put back. */
+/** What a change changed, as a unified diff. Throws with the core's own words when it is not kept. */
+export async function changeDiff(id: string, change: string): Promise<string> {
+  const res = await fetch(`/api/v1/sessions/${id}/changes/${change}/diff`)
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error?.message ?? `The core answered ${res.status}.`)
+  return res.text()
+}
+
 export async function undoChange(id: string, change: string) {
   try {
     const undone = await coreSend<CoreChange>('POST', `/sessions/${id}/changes/${change}/undo`)

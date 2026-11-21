@@ -33,7 +33,9 @@ use serde_json::{Map, Value, json};
 use utoipa::ToSchema;
 
 mod calculate;
+pub mod diff;
 pub mod files;
+pub mod output;
 
 /// The entry that means "no tool is needed".
 pub const NONE: &str = "none";
@@ -44,6 +46,9 @@ pub const RUN: &str = "run_command";
 /// The tools that read from the internet. They are run by `chat`, through `web`.
 pub const SEARCH: &str = "search_web";
 pub const READ_PAGE: &str = "read_page";
+/// The tool that reads on in what a command printed. Run by `chat`, which keeps the whole of it. Offered
+/// only after a command whose output was shortened, in the same request.
+pub const READ_OUTPUT: &str = "read_output";
 
 /// What an argument may be.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -132,6 +137,12 @@ const TOOLS: &[Tool] = &[
         reach: Reach::Network,
     },
     Tool { name: READ_PAGE, does: "The text of a web page, from its address. You cannot see a page without it.", args: &[arg("url", Kind::Text)], reach: Reach::Network },
+    Tool {
+        name: READ_OUTPUT,
+        does: "More of what the last command printed, from a line number: for the lines its result says are not shown.",
+        args: &[maybe("from_line", Kind::Whole)],
+        reach: Reach::Nothing,
+    },
     Tool { name: PLAN, does: "For work that needs several steps: write the steps as a list first.", args: &[arg("steps", Kind::List)], reach: Reach::Nothing },
 ];
 
@@ -160,6 +171,8 @@ pub fn offered(has_folder: bool, may_plan: bool, internet: bool) -> Vec<&'static
             Reach::Reads | Reach::Changes | Reach::Runs => has_folder,
         })
         .filter(|t| may_plan || t.name != PLAN)
+        // Only after a command whose output was shortened (`chat`): offered before that, a model would ask for it.
+        .filter(|t| t.name != READ_OUTPUT)
         .collect()
 }
 
@@ -250,6 +263,9 @@ pub struct Step {
     /// The change this use made to a file, if it made one: its id, for undoing it.
     #[serde(default)]
     pub change: Option<String>,
+    /// What a program printed, kept whole: its id, for reading all of it.
+    #[serde(default)]
+    pub output: Option<String>,
 }
 
 impl Step {
@@ -573,7 +589,7 @@ mod tests {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, read_output, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));

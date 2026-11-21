@@ -113,7 +113,12 @@ pub struct Chat {
     kept_in: std::path::PathBuf,
     /// The one way a model reads from the internet.
     web: Arc<crate::web::Web>,
+    /// Where the whole of what programs printed is kept, a folder for each session.
+    outputs: std::path::PathBuf,
 }
+
+/// Of the outputs a session's programs printed, the newest this many are kept.
+const OUTPUTS_KEPT: usize = 50;
 
 /// The saved folders of a session that are kept: the newest ones. An older run of a program can then no
 /// longer be undone.
@@ -150,7 +155,47 @@ impl Chat {
             kept_in: std::env::temp_dir().join("demido-saved-folders"),
             // Keeps nothing on disk until the server says where (`with_web`).
             web: Arc::new(crate::web::Web::new(None)),
+            outputs: std::env::temp_dir().join("demido-outputs"),
         }
+    }
+
+    /// The same, keeping the whole of what programs printed under `place`.
+    pub fn keeping_outputs_in(mut self, place: std::path::PathBuf) -> Self {
+        self.outputs = place;
+        self
+    }
+
+    /// Keeps the whole of what a program printed, and gives back its id. `None` when it printed nothing, or
+    /// when it could not be written down. Only the newest `OUTPUTS_KEPT` of a session are kept.
+    pub(crate) fn keep_output(&self, session_id: &str, whole: &str) -> Option<String> {
+        if whole.trim().is_empty() {
+            return None;
+        }
+        let (id, dir) = (uuid::Uuid::now_v7().to_string(), self.outputs.join(session_id));
+        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::write(dir.join(format!("{id}.txt")), whole).ok()?;
+        // The ids are in the order they were made, so the oldest sort first.
+        let mut kept: Vec<std::path::PathBuf> = std::fs::read_dir(&dir).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        kept.sort();
+        for old in kept.iter().take(kept.len().saturating_sub(OUTPUTS_KEPT)) {
+            let _ = std::fs::remove_file(old);
+        }
+        Some(id)
+    }
+
+    /// The whole of what a program printed in a session, by the id its step holds.
+    pub fn output(&self, session_id: &str, id: &str) -> Result<String> {
+        // An id is letters, digits and dashes: nothing that could name another file.
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') || !session_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err(crate::Error::NotFound(format!("There is no output \"{id}\".")));
+        }
+        std::fs::read_to_string(self.outputs.join(session_id).join(format!("{id}.txt")))
+            .map_err(|_| crate::Error::NotFound(format!("That output is no longer kept: only the {OUTPUTS_KEPT} newest of a session are.")))
+    }
+
+    /// What a change of a session changed, as a diff.
+    pub fn change_diff(&self, session_id: &str, change_id: &str) -> Result<String> {
+        self.sessions.diff_of(session_id, change_id)?.ok_or_else(|| crate::Error::NotFound("This change was made before Demido kept what changes changed.".into()))
     }
 
     /// The same, reading from the internet through `web`: the one that keeps what it read, or, in a test,
@@ -350,8 +395,9 @@ impl Chat {
     pub fn delete(&self, session_id: &str) -> Result<Session> {
         self.stop(session_id);
         let gone = self.sessions.delete(session_id)?;
-        // The folders saved for undoing its programs go with it.
+        // The folders saved for undoing its programs go with it, and what its programs printed.
         let _ = std::fs::remove_dir_all(self.kept_in.join(session_id));
+        let _ = std::fs::remove_dir_all(self.outputs.join(session_id));
         self.events.append("session.deleted", Some(&gone.id), json!({ "title": gone.title }))?;
         Ok(gone)
     }

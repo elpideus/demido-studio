@@ -13,6 +13,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::tools::diff::{Content, Differs};
+
 /// A folder with more than this is not saved.
 pub const MOST_FILES: usize = 20_000;
 pub const MOST_BYTES: u64 = 300_000_000;
@@ -149,6 +151,29 @@ pub fn restore(folder: &Path, from: &Path) -> Result<PutBack, String> {
     Ok(done)
 }
 
+/// What differs between a folder and the copy saved before a program ran in it: each file that was changed,
+/// made or removed, with what it held before and after. A file larger than `diff::MOST_COMPARED` is compared
+/// by its size only, and is then given without its contents. What programs make (`NOT_SAVED`) is left out.
+pub fn compared(folder: &Path, saved: &Path) -> Result<Vec<Differs>, String> {
+    let (was, now) = (held(saved, false)?, held(folder, false)?);
+    let contents = |path: &Path| -> Option<Content> {
+        let meta = fs::symlink_metadata(path).ok()?;
+        if !meta.is_file() {
+            // A link is shown as where it leads.
+            return fs::read_link(path).ok().map(|target| Content::Bytes(format!("(a link to {})\n", target.display()).into_bytes()));
+        }
+        if meta.len() > crate::tools::diff::MOST_COMPARED as u64 { Some(Content::Large(meta.len())) } else { fs::read(path).ok().map(Content::Bytes) }
+    };
+    let mut out = Vec::new();
+    for file in was.files.union(&now.files) {
+        let (before, after) = (was.files.contains(file).then(|| contents(&saved.join(file))).flatten(), now.files.contains(file).then(|| contents(&folder.join(file))).flatten());
+        if before != after {
+            out.push((file.to_string_lossy().into_owned(), before, after));
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,6 +248,23 @@ mod tests {
         for d in [dir, kept, outside] {
             fs::remove_dir_all(d).ok();
         }
+    }
+
+    #[test]
+    fn what_a_program_changed_made_and_removed_is_found() {
+        let (dir, kept) = (folder("compared"), std::env::temp_dir().join(format!("demido-checkpoint-kept-{}", uuid::Uuid::new_v4())));
+        save(&dir, &kept).unwrap();
+        assert!(compared(&dir, &kept).unwrap().is_empty(), "nothing done, nothing found");
+        fs::write(dir.join("README.md"), "# A project, renamed\n").unwrap();
+        fs::remove_file(dir.join("src/main.rs")).unwrap();
+        fs::write(dir.join("made.txt"), "new\n").unwrap();
+        fs::write(dir.join("target/debug/built"), "a new build").unwrap();
+        let found = compared(&dir, &kept).unwrap();
+        let what: Vec<(&str, bool, bool)> = found.iter().map(|(path, before, after)| (path.as_str(), before.is_some(), after.is_some())).collect();
+        assert_eq!(what, [("README.md", true, true), ("made.txt", false, true), ("src/main.rs", true, false)], "what programs make is left out");
+        assert_eq!(found[0].2, Some(Content::Bytes(b"# A project, renamed\n".to_vec())));
+        fs::remove_dir_all(dir).ok();
+        fs::remove_dir_all(kept).ok();
     }
 
     #[test]

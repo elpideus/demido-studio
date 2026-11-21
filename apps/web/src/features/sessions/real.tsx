@@ -10,7 +10,7 @@ import remarkGfm from 'remark-gfm'
 import { ArrowUp, Folder, ListChecks, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, type LucideIcon } from 'lucide-react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
-import { answerNow, answerPermission, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
+import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
 import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal, StepRow, Tip } from '@/ui'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
@@ -82,7 +82,7 @@ function Prose({ text }: { text: string }) {
 const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
   add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
-  search_web: ['Searched the internet for', 'query'], read_page: ['Read the page', 'url'],
+  search_web: ['Searched the internet for', 'query'], read_page: ['Read the page', 'url'], read_output: ['Read more of what it printed, from line', 'from_line'],
 }
 /** The four levels, as they are today. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
 const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
@@ -93,33 +93,59 @@ const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> =
 }
 const flat = (text: string, most: number) => { const one = text.replace(/\s+/g, ' ').trim(); return one.length > most ? `${one.slice(0, most)}…` : one }
 
+/** What a change changed, fetched when it is opened: the lines that went, and the lines that came. */
+function ChangeShown({ change }: { change: CoreChange }) {
+  const [text, setText] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const load = () => {
+    if (text !== null || failed) return
+    changeDiff(change.session_id, change.id).then(setText, (e: Error) => setFailed(e.message))
+  }
+  const kind = (line: string) =>
+    line.startsWith('+++') || line.startsWith('---') ? 'file' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : undefined
+  return (
+    <details className="d-disclosure chat__diff" onToggle={(e) => { if (e.currentTarget.open) load() }}>
+      <summary>What it changed <span className="d-text-tertiary">{change.diff_stat}</span></summary>
+      <div className="d-disclosure__body">
+        {failed ? <p className="d-type-caption d-text-secondary">{failed}</p>
+          : text === null ? <p className="d-type-caption d-text-tertiary">Loading…</p>
+          : <pre className="d-code chat__diff-text"><code>{text.replace(/\n$/, '').split('\n').map((line, i) => <span key={i} data-line={kind(line)}>{line}{'\n'}</span>)}</code></pre>}
+      </div>
+    </details>
+  )
+}
+
 /** One use of a tool: what was asked for and what came back. Opened, it shows the request as the model made it.
-    A use that changed a file can be undone from here. */
-function ToolUse({ step, at, change }: { step: CoreStep; at: string; change?: CoreChange }) {
+    A use that changed a file can be undone from here, and shows what it changed. A program's whole output is
+    one press away: the model was given a short view of it. */
+function ToolUse({ step, at, change, session }: { step: CoreStep; at: string; change?: CoreChange; session: string }) {
   const [said, on] = TOOL_SAID[step.tool] ?? [step.tool, '']
   const value = (name: string) => { const v = (step.args ?? {})[name]; return typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v) }
   const shown = on ? value(on) : Object.keys(step.args ?? {}).map(value).join(', ')
   const denied = step.state === 'refused' && step.result === 'the person said no'
   const refused = step.state === 'refused' && !denied
   return (
-    <div className="chat__step">
-      <StepRow step={{
-        id: at,
-        state: step.state === 'running' ? 'running' : step.state === 'waiting' ? 'needs-input' : step.state === 'done' ? 'done' : 'failed',
-        what: refused ? `Asked for ${step.tool} in a way that cannot be used` : denied ? `${said}: you said no` : said,
-        code: refused ? undefined : flat(shown, 80) || undefined,
-        meta: step.state === 'done' ? flat(step.result, 60) : step.state === 'running' ? '' : step.state === 'waiting' ? 'waiting for you' : step.state === 'refused' ? 'not run' : 'could not',
-        request: JSON.stringify({ tool: step.tool, args: step.args }, null, 1),
-        output: step.state === 'running' || step.state === 'waiting' ? undefined : step.result,
-      }} />
-      {change && (change.undone_at
-        ? <span className="d-type-caption d-text-tertiary">Undone</span>
-        : <Tip label={change.whole_folder ? 'Puts the whole folder back as it was before this command ran. What it made is removed, what it changed or removed is as it was.' : change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
+    <div className="chat__use">
+      <div className="chat__step">
+        <StepRow step={{
+          id: at,
+          state: step.state === 'running' ? 'running' : step.state === 'waiting' ? 'needs-input' : step.state === 'done' ? 'done' : 'failed',
+          what: refused ? `Asked for ${step.tool} in a way that cannot be used` : denied ? `${said}: you said no` : said,
+          code: refused ? undefined : flat(shown, 80) || undefined,
+          meta: step.state === 'done' ? flat(step.result, 60) : step.state === 'running' ? '' : step.state === 'waiting' ? 'waiting for you' : step.state === 'refused' ? 'not run' : 'could not',
+          request: JSON.stringify({ tool: step.tool, args: step.args }, null, 1),
+          output: step.state === 'running' || step.state === 'waiting' ? undefined : step.result,
+        }} />
+        {step.output && <Tip label="Everything the command printed, as a terminal would show it. The model was given a short view of it."><a className="d-button d-button--ghost d-button--sm" href={`/api/v1/sessions/${session}/outputs/${step.output}`} target="_blank" rel="noopener">All it printed</a></Tip>}
+        {change && (change.undone_at
+          ? <span className="d-type-caption d-text-tertiary">Undone</span>
+          : <Tip label={change.whole_folder ? 'Puts the whole folder back as it was before this command ran. What it made is removed, what it changed or removed is as it was.' : change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
+      </div>
+      {change?.diff_stat && <ChangeShown change={change} />}
     </div>
   )
 }
 
-/** A use of a tool that waits for the person's yes. What it says is made by the core from the request; none of it is the model's words. */
 function Asking({ request }: { request: PermissionRequest }) {
   const answer = (said: 'once' | 'session' | 'no') => void answerPermission(request.session_id, request.id, said)
   return (
@@ -160,7 +186,7 @@ function TaskList({ tasks, changes, parent = null }: { tasks: CoreTask[]; change
           </div>
           {(t.result || t.steps.length > 0) && (
             <div className="chat__task-gave">
-              {t.steps.map((step, i) => <ToolUse key={i} step={step} at={`${t.id}-${i}`} change={changes.find((c) => c.id === step.change)} />)}
+              {t.steps.map((step, i) => <ToolUse key={i} step={step} at={`${t.id}-${i}`} change={changes.find((c) => c.id === step.change)} session={t.session_id} />)}
               {t.result && <p className="d-type-small d-text-secondary" style={{ whiteSpace: 'pre-wrap' }}>{t.result}</p>}
             </div>
           )}
@@ -187,7 +213,7 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
     <article className="d-message" data-from="assistant">
       <div className="d-message__body chat__blocks">
         {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {loading ? `Loading ${m.model}…` : 'Waking the model…'}</p>}
-        {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} />)}
+        {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} session={m.session_id} />)}
         {split.length > 0 && <TaskList tasks={split} changes={changes} />}
         {writing && asking && <Asking request={asking} />}
         {thought && (

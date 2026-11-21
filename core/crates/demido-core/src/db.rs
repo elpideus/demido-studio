@@ -93,6 +93,8 @@ const MIGRATIONS: &[&str] = &[
      ) STRICT;",
     // 7: a change made by a program: the whole folder was saved first, and this says where
     "ALTER TABLE changes ADD COLUMN checkpoint TEXT;",
+    // 8: what a change changed, as a diff made at the moment of the change, and its size in a few words
+    "ALTER TABLE changes ADD COLUMN diff TEXT; ALTER TABLE changes ADD COLUMN diff_stat TEXT;",
 ];
 
 pub struct Db {

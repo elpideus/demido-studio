@@ -21,7 +21,13 @@ async fn online(name: &str, decisions: &[&str], replies: &[&str]) -> (World, sit
     w.stand.decisions.lock().unwrap().extend(decisions.iter().map(|d| d.to_string()));
     w.stand.replies.lock().unwrap().extend(replies.iter().map(|r| r.to_string()));
     let web = crate::web::Web::with(Some(net.kept_in.clone()), net.web.sources.clone(), vec![net.base.trim_start_matches("http://").to_string()]);
-    w.chat = Arc::new(Chat::new(w.sessions.clone(), w.engine.clone(), w.events.clone(), w.settings.clone()).with_clock(CLOCK).keeping_in(w.home.join("saved-folders")).with_web(Arc::new(web)));
+    w.chat = Arc::new(
+        Chat::new(w.sessions.clone(), w.engine.clone(), w.events.clone(), w.settings.clone())
+            .with_clock(CLOCK)
+            .keeping_in(w.home.join("saved-folders"))
+            .keeping_outputs_in(w.home.join("outputs"))
+            .with_web(Arc::new(web)),
+    );
     let session = w.chat.start(None, Some("small")).await.unwrap();
     (w, net, session)
 }

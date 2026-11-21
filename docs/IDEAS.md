@@ -142,7 +142,7 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 108 | **Pick the folder, do not type it.** A path typed into a field is right for a server somewhere else. On your own computer a folder picker is what you expect. It needs the desktop shell (plan item 10). | Raised |
 | 109 | **What need not ask again, seen and taken back.** "Yes, for this session" is remembered until Demido stops. It is shown in the folder panel; it cannot yet be taken back one tool at a time, and it is not kept across a restart. | Raised |
 | 110 | **Folders a program may also read.** A sandboxed program sees the session's folder, the system, and the programs you installed for yourself. A project that reads data from another folder, or a toolchain kept somewhere unusual, will not find it. A list of extra folders to show it, read-only, per session, would cover that. | Raised |
-| 111 | **The whole of what a program printed, one press away.** The brief asks for it (4.18). Today a model and you see the start and the end. The rest should be kept in a file with the session and opened from the step. | Raised; it is owed |
+| 111 | **The whole of what a program printed, one press away.** The brief asks for it (4.18). Today a model and you see the start and the end. The rest should be kept in a file with the session and opened from the step. | Built on 2026-11-21 (DECISIONS T18) |
 | 112 | **Tell the person when Linux will not let the sandbox work.** On Ubuntu 24.04 the sandbox needs one setting changed, once, with the administrator's password. Setup could detect that and show the one command, the way it shows what to install. | Raised; with the installer |
 | 113 | **Your own search key, as the first thing the vault is used for.** Search without a key now works through Exa's free limit and DuckDuckGo's form (research note 15), and both can change. A key of your own (Exa's, or Brave's with $20 of searches a month for nothing) would make search steady. | Not built: needs the vault | Waits for plan item 6 |
 | 114 | **Sites you trust.** A list of sites whose addresses a model may open even when it wrote them itself (your own wiki, a documentation site). Today every address a model writes asks, and on the first real run a model asked for `…/wiki/Grey_Heron`, a page it had every reason to want. | Idea | Not built |
@@ -150,6 +150,7 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 116 | **Say under an answer when no tool was used at all.** In a session with a folder the window already says "No file was read or changed for this answer". The same is true of the internet: a model said "cloudy, 15°C" for today's weather in Rome without asking anything. A line there would have told you. | Idea | Not built: on every plain answer it would be noise, so it needs a way to tell when the answer claims something current |
 | 117 | **The links of a page, as a short list.** Today a model gets a page's text and not its links, so it cannot go from a page to the next one unless a search found that too. | Idea | Not built |
 | 118 | **Read a page through Exa when Demido cannot.** Exa's free service also reads a page and gives it back as text (`web_fetch_exa`). It could read pages that need their scripts run, and PDFs, before the built-in browser exists. The address of the page would then go to Exa. | Idea | Not built: it sends where you read to a company, so it needs to be a choice |
+| 119 | **rtk's open edition as a filter for each program.** `rtk-oss` (Apache-2.0) knows how to shorten the output of 100+ programs, which the general rules Demido has cannot. Downloaded from its makers, run inside the sandbox, as a separate program. | Idea | Not built: it means rewriting the commands a model writes, and nobody has measured what it adds on small models (research note 16) |
 
 ## Pushback on the brief so far
 
@@ -249,6 +250,11 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 - **Search leans on two things that can change.** Exa's free limit is Exa's to set, and DuckDuckGo answers
   its form today. If both stop, search falls back to Wikipedia and Mwmbl, which is weak. Your own key
   (Exa's or Brave's) would make it steady; that waits for the vault.
+- **rtk is not what the brief says it is any more.** The brief has it as MIT. Its full edition is now partly
+  under BUSL-1.1, which does not fit Demido's licence; only its open edition could be used, and only as a
+  separate program. I built the general part of what it does inside Demido instead, because Demido already
+  reads every command's output itself, and I wrote the open edition down as an idea for its per-program
+  filters.
 - **A page changed a file on the first try.** I had left a change to a file unasked at Balanced, because
   it can be undone. Then a page told two real models to add a line to a to-do list, and both did. So now,
   once a session has read from the internet, a change asks. You will see more questions in sessions that
