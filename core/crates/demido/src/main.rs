@@ -716,15 +716,17 @@ fn ask_the_person(request: &Value) -> &'static str {
         eprintln!("  Nobody is at this terminal to ask, so the answer is no. Ask from a terminal you can type in, or answer in the window.");
         return "no";
     }
+    // Some things are a yes for the one use only: an address the model wrote itself.
+    let once_only = request["once_only"].as_bool().unwrap_or(false);
     loop {
-        eprint!("  [y] yes, this once   [a] yes, for the rest of this session   [n] no: ");
+        eprint!("{}", if once_only { "  [y] yes, this once   [n] no: " } else { "  [y] yes, this once   [a] yes, for the rest of this session   [n] no: " });
         let mut typed = String::new();
         if std::io::stdin().read_line(&mut typed).is_err() || typed.is_empty() {
             return "no";
         }
         match typed.trim().to_lowercase().as_str() {
             "y" | "yes" => return "once",
-            "a" | "always" => return "session",
+            "a" | "always" if !once_only => return "session",
             "n" | "no" => return "no",
             _ => {}
         }

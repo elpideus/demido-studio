@@ -51,28 +51,45 @@ function List() {
       </div>
       <div className="app-side__foot">
         <span>These conversations are real: kept by the core, answered by a model on this computer.</span>
-        <NotBuilt block>Tools that reach the web; the second look that Smart is to give; a sandbox on macOS and Windows; groups and search. The preview shows where these are going.</NotBuilt>
+        <NotBuilt block>Pages that need scripts, PDFs, and the search services that need a key; the second look that Smart is to give; a sandbox on macOS and Windows; groups and search. The preview shows where these are going.</NotBuilt>
       </div>
     </aside>
   )
 }
 
-/** A model's words, as markdown. Never as HTML: whatever a model writes is text to be shown, not code to be run. */
+/** A model's words, as markdown. Never as HTML: whatever a model writes is text to be shown, not code to be run.
+
+    A picture is never loaded from an address in an answer. A browser fetches a picture by itself, and the
+    address can carry text: a file that told a model to end its answer with a picture at
+    `…/?d=<what it had read>` would have sent that away with no tool used at all. The address is shown instead.
+    A link is only followed when the person presses it, and it opens outside Demido. */
 function Prose({ text }: { text: string }) {
-  return <div className="d-prose"><Markdown remarkPlugins={[remarkGfm]} skipHtml>{text}</Markdown></div>
+  return (
+    <div className="d-prose">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        skipHtml
+        components={{
+          img: ({ src, alt }) => <span className="d-type-caption d-text-tertiary">[A picture{alt ? ` (${alt})` : ''} that Demido did not load: <code>{typeof src === 'string' ? src : ''}</code>]</span>,
+          a: ({ href, children }) => <a href={href} title={href} target="_blank" rel="noreferrer noopener">{children}</a>,
+        }}
+      >{text}</Markdown>
+    </div>
+  )
 }
 
 /** What a tool is called when it is used, in plain words, and which of its arguments says what it was used on. */
 const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
   add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
+  search_web: ['Searched the internet for', 'query'], read_page: ['Read the page', 'url'],
 }
 /** The four levels, as they are today. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
 const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
-  cautious: { label: 'Cautious', icon: ShieldCheck, text: 'Asks you before every use of a tool that reaches the folder, reading included.' },
-  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking: a change cannot leave the folder, and can be undone. Asks before every program.' },
+  cautious: { label: 'Cautious', icon: ShieldCheck, text: 'Asks you before every use of a tool that reaches the folder or the internet, reading included.' },
+  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking: a change cannot leave the folder, and can be undone. Searches the internet and reads pages it was given without asking. Asks before every program, before opening an address the model wrote itself, and, once the session has read from the internet, before a change to a file.' },
   smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The same as Balanced today. The second look by a model, which is to decide when a program need not ask, is not built.' },
-  autonomous: { label: 'Autonomous', icon: ShieldOff, text: 'Never asks.' },
+  autonomous: { label: 'Autonomous', icon: ShieldOff, text: 'Never asks. A model that obeys something it read can then send what it has read to any address.' },
 }
 const flat = (text: string, most: number) => { const one = text.replace(/\s+/g, ' ').trim(); return one.length > most ? `${one.slice(0, most)}…` : one }
 
@@ -106,9 +123,9 @@ function ToolUse({ step, at, change }: { step: CoreStep; at: string; change?: Co
 function Asking({ request }: { request: PermissionRequest }) {
   const answer = (said: 'once' | 'session' | 'no') => void answerPermission(request.session_id, request.id, said)
   return (
-    <section className="d-permission" data-risk={request.reach === 'runs' ? 'high' : request.reach === 'changes' ? 'medium' : 'low'} aria-label={request.what}>
+    <section className="d-permission" data-risk={request.reach === 'runs' || request.once_only ? 'high' : request.reach === 'changes' ? 'medium' : 'low'} aria-label={request.what}>
       <header className="d-permission__head">
-        <span className="d-permission__risk">{request.reach === 'runs' ? 'Runs a program' : request.reach === 'changes' ? 'Changes a file' : 'Reads'}</span>
+        <span className="d-permission__risk">{request.reach === 'runs' ? 'Runs a program' : request.reach === 'changes' ? 'Changes a file' : request.reach === 'network' ? (request.once_only ? 'An address the model wrote' : 'Reads the internet') : 'Reads'}</span>
         <h3 className="d-permission__title">The model wants to use a tool</h3>
       </header>
       <pre className="d-permission__what"><code>{request.what}</code></pre>
@@ -119,7 +136,8 @@ function Asking({ request }: { request: PermissionRequest }) {
       </details>
       <div className="d-permission__actions">
         <Button onClick={() => answer('no')}>No</Button>
-        <Button onClick={() => answer('session')}>Yes, and do not ask again for {request.tool} in this session</Button>
+        {/* A yes to an address the model wrote is for that one address. */}
+        {!request.once_only && <Button onClick={() => answer('session')}>Yes, and do not ask again for {request.tool} in this session</Button>}
         <Button variant="primary" onClick={() => answer('once')}>Yes, this once</Button>
       </div>
     </section>
@@ -287,6 +305,8 @@ function Chat() {
   if (listed && !known && !detail) return <Navigate to="/sessions" replace />
   if (!detail) return <section className="chat" aria-label="Conversation" />
   const { session, messages } = detail
+  // Whether models may read from the internet is the person's setting; the list of tools a model is shown says so.
+  const internet = detail.tools_told?.includes('search_web') ? 'It can search the internet and read a page from its address; it can only read there, and it asks before opening an address it wrote itself.' : 'Reading from the internet is switched off in the settings.'
   const answering = messages.some((m) => m.state === 'answering')
   const level: Level = session.permission ?? 'balanced'
   // The account in force, and the last message it stands for.
@@ -349,7 +369,7 @@ function Chat() {
             <div className="chat__welcome">
               <span dangerouslySetInnerHTML={{ __html: logo }} />
               <h2 className="d-type-title-2">What do you want to know?</h2>
-              <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. {!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} It cannot reach the web yet.` : 'It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. It cannot reach the web yet.'}</p>
+              <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. {!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} ${internet}` : `It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. ${internet}`}</p>
             </div>
           )}
           {messages.map((m) => (

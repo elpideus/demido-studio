@@ -86,8 +86,9 @@ the switch for thinking, making a long conversation shorter, turns with tools, a
 is under way: a session can have a folder, a model can read and change files in it and nowhere else, the
 four permission levels decide when it asks, and every change can be undone. It can also run programs in
 that folder, shut in a sandbox on Linux, with the folder saved first so that all a program did can be put
-back (DECISIONS T). Left in item 5: the sandbox on macOS and Windows, tools that reach the network, and
-tools other people write.
+back (DECISIONS T). And it can read from the internet: search, and read a page from its address, with
+rules in code for what may leave the computer (DECISIONS N). Left in item 5: the sandbox on macOS and
+Windows, and tools other people write.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.
@@ -113,9 +114,12 @@ tools other people write.
    First part built on 2026-11-21 (DECISIONS T, research note 14): a folder for a session, tools that read
    and change files in it, the four levels, asking first, undo, and cleaning of text from outside. Tried
    on four models with real files. Then running programs: a sandbox on Linux (bubblewrap), the folder
-   saved before each program, one Undo for all a program did. Next inside it: tools that reach the
-   network, with rules for what may leave the computer; the sandbox on macOS and Windows; tools other
-   people write, with their browser and updater.
+   saved before each program, one Undo for all a program did. Then reading from the internet (DECISIONS N,
+   research note 15): search with Wikipedia and Mwmbl, reading a page as text, an address a model wrote
+   itself always asks, only the public internet, and a change to a file asks once a page was read. Tried
+   on four models: 3, 6, 7 and 8 of 8 everyday requests right; a page that gave orders changed nothing.
+   Next inside it: the sandbox on macOS and Windows; tools other people write, with their browser and
+   updater.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
 7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),
    lending, schedules, session messaging.
@@ -133,8 +137,6 @@ list made for the split stays, because it says what is left and what to watch in
 
 | # | Remaining work | What to watch |
 |---|---|---|
-| 5 | Tools that reach the network (fetch, search): what may leave the computer, the reader with no tools, text from outside kept apart | The one place where an obedient small model can leak what is private. A mistake is a security hole |
-| 5 | The facts for it: search engines, the named third-party projects, their licences, which repository is the real one | Every source is checked before anything is built on it or downloaded |
 | 5 | The sandbox on macOS (Seatbelt) and on Windows; a filter on what a program may ask of the kernel | Security, and it cannot be tried here: only on the checks' machines |
 | 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | A measurement that decides a security design |
 | 5 | The whole of what a program printed, kept and one press away (brief 4.18); showing what a change changed, side by side | Well defined, no new risk, mostly window work |
@@ -142,13 +144,13 @@ list made for the split stays, because it says what is left and what to watch in
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | Models browser and downloader | A whole feature with a clear edge, and a pattern to follow (the runtime installer) |
 | 6 | Settings for each model: the research, and applying what the makers recommend | It meets `docs/LATER.md` 1 |
-| 6 | Where keys are kept (the vault) and how a provider is allowed to be used | Secrets and money |
+| 6 | Where keys are kept (the vault) and how a provider is allowed to be used. With it: search services that need a key (Brave and others), which is what would make search good | Secrets and money |
 | 6 | Each provider's own client (Anthropic, Gemini, OpenRouter, Claude Code, OpenCode); usage shown | Documented interfaces, one at a time |
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
 | 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
 | 8 | Files, the viewer, the editor, artifacts | Window work with a clear edge |
-| 8 | The browser a model drives: what it may see and do | Logged-in pages are the most private thing there is |
+| 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts | Logged-in pages are the most private thing there is |
 | 9 | Voice: the libraries, the screen | Research and building, little risk |
 | 9 | Email and the messaging platforms: reading and sending in a person's name | Messages from outside are injected text; sending cannot be undone |
 | 9 | Markets: charts, indicators, the Pine editor | Nothing here places an order |
@@ -156,9 +158,12 @@ list made for the split stays, because it says what is left and what to watch in
 | 10 | The updater, signing releases, hardening server mode | A wrong update reaches everyone; an open server is an open computer |
 | – | The system accent on Windows and macOS; the per-model context size | Small and bounded |
 
-In hand now: tools that reach the network, starting with the facts for search and fetch. After that, in
-this order unless the owner says otherwise: the whole of what a program printed and showing what a change
-changed; the models browser and downloader; the sandbox on macOS and Windows.
+Done from this list on 2026-11-21: reading from the internet, and the facts for it (DECISIONS N). What it
+left for later is in the rows it touches: search with a key waits for the vault, pages that need scripts
+wait for the browser.
+
+Next, in this order unless the owner says otherwise: the whole of what a program printed and showing what
+a change changed; the models browser and downloader; the sandbox on macOS and Windows.
 
 ## Set aside for later
 
@@ -170,6 +175,9 @@ model, from a short trial when a model is first used.
 - **Before the first release:** did the previous Demido check `elpideus/demido-studio` for updates? That name
   now belongs to this repository, so an old installation that checks it would be offered this project's
   releases. I have not looked at the old code and will not. No release exists yet, so nothing is offered today.
+- **The search list.** Of the search projects the brief names, none is built in, and neither is DuckDuckGo
+  (DECISIONS N7, research note 15): they work by disguise, or are refused. Built: Wikipedia and Mwmbl. If
+  you want it otherwise, say so. If you agree, the next step for search is your own key, with the vault.
 - Signing the Windows and macOS builds. It costs money every year (DECISIONS R7).
 - A usage policy for the name and logo, to replace the holding notice (DECISIONS A13).
 - Whether to rerun the research sweep or let it be done directly (the earlier run stalled and has ended).

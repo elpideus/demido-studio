@@ -111,6 +111,8 @@ pub struct Chat {
     sandbox: crate::sandbox::Sandbox,
     /// Where folders are saved before a program runs in them.
     kept_in: std::path::PathBuf,
+    /// The one way a model reads from the internet.
+    web: Arc<crate::web::Web>,
 }
 
 /// The saved folders of a session that are kept: the newest ones. An older run of a program can then no
@@ -146,7 +148,21 @@ impl Chat {
             // Looked for where the server starts, once (`with_sandbox`): looking starts a program.
             sandbox: crate::sandbox::Sandbox::not_looked_for(),
             kept_in: std::env::temp_dir().join("demido-saved-folders"),
+            // Keeps nothing on disk until the server says where (`with_web`).
+            web: Arc::new(crate::web::Web::new(None)),
         }
+    }
+
+    /// The same, reading from the internet through `web`: the one that keeps what it read, or, in a test,
+    /// one that asks a stand-in.
+    pub fn with_web(mut self, web: Arc<crate::web::Web>) -> Self {
+        self.web = web;
+        self
+    }
+
+    /// Whether models may read from the internet at all: the person's setting.
+    pub(crate) fn internet(&self) -> bool {
+        self.settings.value::<bool>("web.use").unwrap_or(true)
     }
 
     /// The same, saving folders under `place` before a program runs in them.
@@ -394,7 +410,7 @@ impl Chat {
     /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are
     /// off. A session with a folder is shown the tools that reach into it too.
     pub fn tools_told(&self, session: &Session) -> Option<String> {
-        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| turn::told_about_tools(session.folder.is_some()))
+        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| turn::told_about_tools(session.folder.is_some(), self.internet()))
     }
 
     fn asking(&self) -> std::sync::MutexGuard<'_, HashMap<String, Waiting>> {

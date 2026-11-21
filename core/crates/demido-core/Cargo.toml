@@ -9,6 +9,8 @@ rust-version.workspace = true
 [dependencies]
 axum.workspace = true
 directories.workspace = true
+dom_smoothie.workspace = true
+encoding_rs.workspace = true
 flate2.workspace = true
 jiff.workspace = true
 nvml-wrapper.workspace = true
@@ -23,6 +25,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
+url.workspace = true
 utoipa.workspace = true
 uuid.workspace = true
 zip.workspace = true

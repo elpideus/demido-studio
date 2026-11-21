@@ -41,6 +41,9 @@ pub const NONE: &str = "none";
 pub const PLAN: &str = "plan";
 /// The tool that runs a program. It is run by `chat`, through the sandbox.
 pub const RUN: &str = "run_command";
+/// The tools that read from the internet. They are run by `chat`, through `web`.
+pub const SEARCH: &str = "search_web";
+pub const READ_PAGE: &str = "read_page";
 
 /// What an argument may be.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -78,6 +81,9 @@ pub enum Reach {
     Changes,
     /// Runs a program in the session's folder. In a sandbox where this computer has one.
     Runs,
+    /// Reads from the internet: a search, or one page. Only reads; what can leave is the address and the
+    /// words searched for (`web`).
+    Network,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -119,6 +125,13 @@ const TOOLS: &[Tool] = &[
         args: &[arg("command", Kind::Text)],
         reach: Reach::Runs,
     },
+    Tool {
+        name: SEARCH,
+        does: "Searches the internet: pages with their addresses. Use it for what is recent, and for facts you are not sure of.",
+        args: &[arg("query", Kind::Text)],
+        reach: Reach::Network,
+    },
+    Tool { name: READ_PAGE, does: "The text of a web page, from its address. You cannot see a page without it.", args: &[arg("url", Kind::Text)], reach: Reach::Network },
     Tool { name: PLAN, does: "For work that needs several steps: write the steps as a list first.", args: &[arg("steps", Kind::List)], reach: Reach::Nothing },
 ];
 
@@ -136,9 +149,23 @@ pub fn without_plan() -> Vec<&'static Tool> {
 }
 
 /// The tools a session is offered. Those that reach into a folder are there only when the session has one;
-/// `plan` only where work may still be split.
-pub fn offered(has_folder: bool, may_plan: bool) -> Vec<&'static Tool> {
-    TOOLS.iter().filter(|t| (has_folder || t.reach == Reach::Nothing) && (may_plan || t.name != PLAN)).collect()
+/// those that read from the internet only when the person has that turned on; `plan` only where work may
+/// still be split.
+pub fn offered(has_folder: bool, may_plan: bool, internet: bool) -> Vec<&'static Tool> {
+    TOOLS
+        .iter()
+        .filter(|t| match t.reach {
+            Reach::Nothing => true,
+            Reach::Network => internet,
+            Reach::Reads | Reach::Changes | Reach::Runs => has_folder,
+        })
+        .filter(|t| may_plan || t.name != PLAN)
+        .collect()
+}
+
+/// Whether a step brought in text from the internet: its result holds addresses a model may then open.
+pub fn from_the_internet(step: &Step) -> bool {
+    step.state == "done" && named(&step.tool).is_some_and(|t| t.reach == Reach::Network)
 }
 
 /// The tool of that name.
@@ -492,13 +519,22 @@ mod tests {
         assert!(list.ends_with("- none(): No tool is needed. Answer from what you know."));
         assert!(!listed(&without_plan()).contains("plan("));
         // A session without a folder is not offered the tools that reach into one.
-        assert_eq!(shape(&offered(false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "none"]));
-        assert_eq!(shape(&offered(false, true))["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
+        assert_eq!(shape(&offered(false, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "none"]));
+        assert_eq!(shape(&offered(false, true, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
         assert_eq!(
-            shape(&offered(true, true))["properties"]["tool"]["enum"],
+            shape(&offered(true, true, false))["properties"]["tool"]["enum"],
             json!(["time", "calculate", "list_files", "read_file", "search_files", "add_to_file", "write_file", "edit_file", "run_command", "plan", "none"])
         );
-        assert_eq!((named("write_file").unwrap().reach, named("read_file").unwrap().reach, named("time").unwrap().reach), (Reach::Changes, Reach::Reads, Reach::Nothing));
+        // Reading from the internet needs no folder, only the person's setting.
+        assert_eq!(shape(&offered(false, false, true))["properties"]["tool"]["enum"], json!(["time", "calculate", "search_web", "read_page", "none"]));
+        assert!(list.contains("- search_web(query: text): Searches the internet") && list.contains("- read_page(url: text): The text of a web page"));
+        assert_eq!(
+            (named("write_file").unwrap().reach, named("read_file").unwrap().reach, named("time").unwrap().reach, named("read_page").unwrap().reach),
+            (Reach::Changes, Reach::Reads, Reach::Nothing, Reach::Network)
+        );
+        let step = |tool: &str, state: &str| Step { tool: tool.into(), state: state.into(), ..Step::default() };
+        assert!(from_the_internet(&step("search_web", "done")) && from_the_internet(&step("read_page", "done")));
+        assert!(!from_the_internet(&step("read_page", "failed")) && !from_the_internet(&step("read_file", "done")), "a file is not a giver of addresses: a model could write one into it");
     }
 
     #[test]
@@ -537,7 +573,7 @@ mod tests {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));
@@ -584,6 +620,11 @@ mod tests {
         let gave = |tool: &str, args: Value| run(tool, args.as_object().unwrap(), &ground).map(|done| done.gave);
         assert_eq!(gave("time", json!({})), Ok("14:05, Saturday, 21 November 2026".into()));
         assert_eq!(gave("calculate", json!({ "expression": "437 * 4 + 35" })), Ok("1783".into()));
+        // A sum written with its answer, or with room for one: the sum is worked out, the answer is not taken.
+        assert_eq!(gave("calculate", json!({ "expression": "17 * 23 = 391" })), Ok("391".into()));
+        assert_eq!(gave("calculate", json!({ "expression": "17 * 23 = 400" })), Ok("391".into()));
+        assert_eq!(gave("calculate", json!({ "expression": "17 * 23 =" })), Ok("391".into()));
+        assert!(gave("calculate", json!({ "expression": "x = 5" })).is_err() && gave("calculate", json!({ "expression": "= 5" })).is_err());
         assert_eq!(gave("calculate", json!({ "expression": "days until 25 December" })), Ok("34 days".into()));
         assert_eq!(gave("calculate", json!({ "expression": "17:30 - time()" })), Ok("3 hours 25 minutes".into()));
         assert!(gave("calculate", json!({ "expression": "1 / 0" })).is_err());

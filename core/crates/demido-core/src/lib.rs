@@ -18,6 +18,7 @@
 //! - [`auth`]      the key that every request needs, even from this computer
 //! - [`api`]       the HTTP API, and the server that offers it
 //! - [`ui`]        serving the web UI from the same address
+//! - [`web`]       reading from the internet: one page, or a search, and what may leave the computer
 //! - [`kept`]      keeping an answer for a short while, so a burst of the same question costs one answer
 
 pub mod api;
@@ -39,6 +40,7 @@ pub mod settings;
 pub mod system;
 pub mod tools;
 pub mod ui;
+pub mod web;
 
 pub use error::{Error, Result};
 

@@ -470,6 +470,12 @@ pub fn work_out(expression: &str, today: Option<(i64, i64, i64)>, now: Option<i6
     if expression.chars().count() > 500 {
         return Err("the expression is too long. Split it into smaller sums".into());
     }
+    // "17 * 23 = 391" and "17 * 23 =": a sum written with its answer, or with room for it. The sum is what
+    // stands before the sign; the answer is worked out, not taken from the model.
+    let expression = match expression.split_once('=') {
+        Some((sum, answer)) if !sum.trim().is_empty() && answer.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || matches!(c, '.' | ',' | '?')) => sum,
+        _ => expression,
+    };
     if let Some(days) = days_between(expression, today) {
         return Ok(days);
     }

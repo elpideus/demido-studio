@@ -65,7 +65,12 @@ impl Core {
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let sessions = Arc::new(Sessions::new(db));
-        let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone()).keeping_in(paths.home().join("saved-folders")).with_sandbox(crate::sandbox::Sandbox::find()));
+        let chat = Arc::new(
+            Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
+                .keeping_in(paths.home().join("saved-folders"))
+                .with_sandbox(crate::sandbox::Sandbox::find())
+                .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))))),
+        );
         Ok(Self { settings, events, auth, runtimes, engine, sessions, chat })
     }
 }

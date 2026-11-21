@@ -19,6 +19,7 @@
 //!   directly for the steps, they list them. So a plan is asked for directly, when the person wants one,
 //!   and Demido keeps the list and walks it: the model is only ever asked to do the task in hand.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -26,9 +27,10 @@ use serde_json::{Value, json};
 
 use super::Chat;
 use crate::Result;
-use crate::permissions::{self, Level, Said};
+use crate::permissions::{self, Address, Around, Level, Said};
 use crate::sessions::{Session, Task};
 use crate::tools::{self, Asked, Step, Tool};
+use crate::web::{self, guard};
 
 const REPLY: &str = "Reply with one JSON object, nothing else: {\"tool\": \"name\", \"args\": {...}}";
 /// The steps are asked for as instructions. Asked only to "list the steps", models wrote each step with its
@@ -53,6 +55,14 @@ pub(super) struct Words {
     ask_next: String,
     /// Said after the last result, where it stays in the conversation.
     use_result: String,
+    /// The same, after what came from the internet. A model that found nothing to the point made an
+    /// answer up all the same (asked for the newest version of a program, one wrote "4.5.0"), so it is
+    /// told that "it was not found" is an answer.
+    use_found: String,
+    /// Said when the last tool gave nothing but one before it gave something. Told only that "the tool
+    /// gave nothing", a model that had read the page it was asked about answered only that a later tool
+    /// was not allowed, and left out what the person asked for.
+    use_the_rest: String,
 }
 
 impl Words {
@@ -66,6 +76,14 @@ impl Words {
             ask: format!("Does the request need a tool? Most do not. {REPLY}"),
             ask_next: format!("Above is the tool's result. Is another tool needed? Mostly not. {REPLY}"),
             use_result: format!("Above is the tool's result. The person asked: \"{}\" Answer that.", one_line(request, 300)),
+            use_found: format!(
+                "Above is what was found on the internet. The person asked: \"{}\" Answer that from what was found. If it is not there, say that it was not found.",
+                one_line(request, 300)
+            ),
+            use_the_rest: format!(
+                "Above is why that tool gave nothing. The person asked: \"{}\" Answer that from what the tools before it gave, and say in a few words that the last one was not run.",
+                one_line(request, 300)
+            ),
         }
     }
     fn task(label: &str) -> Self {
@@ -73,14 +91,16 @@ impl Words {
             ask: format!("Does task {label} need a tool? Most do not. {REPLY}"),
             ask_next: format!("Above is the tool's result. Does task {label} need another tool? Mostly not. {REPLY}"),
             use_result: format!("Above is the tool's result. Write the result of task {label}, in one or two sentences."),
+            use_found: format!("Above is what was found on the internet. Write the result of task {label} from it, in one or two sentences. If it is not there, say that it was not found."),
+            use_the_rest: format!("Above is why that tool gave nothing. Write the result of task {label} from what the tools before it gave, in one or two sentences."),
         }
     }
 }
 
 /// The list of tools and the question a model is asked before each answer, for a person to read.
-pub(super) fn told_about_tools(has_folder: bool) -> String {
+pub(super) fn told_about_tools(has_folder: bool, internet: bool) -> String {
     let folder = if has_folder { "\n\n(the files in the folder, by their paths, as they are at that moment)" } else { "" };
-    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered(has_folder, true)), Words::request("").ask)
+    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered(has_folder, true, internet)), Words::request("").ask)
 }
 
 /// How the last message of a piece of work ends.
@@ -118,7 +138,9 @@ pub(super) fn after_request(steps: &[Step], end: &End, words: &Words) -> Vec<Val
             (false, End::Decide(tools)) => format!("{tools}\n\n{result}\n\n{}", words.ask_next),
             // A tool that gave nothing has nothing to answer from. Asked to "answer the request" all the same,
             // a real model said the file did not exist when the person had only said no.
+            (false, End::Answer) if step.state != "done" && steps.iter().any(|s| s.state == "done") => format!("{result}\n\n{}", words.use_the_rest),
             (false, End::Answer) if step.state != "done" => format!("{result}\n\n{NOTHING_CAME}"),
+            (false, End::Answer) if tools::from_the_internet(step) => format!("{result}\n\n{}", words.use_found),
             (false, End::Answer) => format!("{result}\n\n{}", words.use_result),
         }));
     }
@@ -289,7 +311,61 @@ fn task_text(request: &str, tasks: &[Task], now: &Task, instruction: &str) -> St
     format!("{request}\n\n<tasks>\n{}\n</tasks>\n\n{instruction}", listing(tasks, Some(now), SHOWN_OF_A_RESULT))
 }
 
+/// What a session has had from outside itself.
+#[derive(Default)]
+struct SoFar {
+    /// The addresses the person wrote, each in the form two writings of an address are compared in.
+    by_the_person: HashSet<String>,
+    /// The addresses that a search or a page brought in. A model may open these and the person's unasked;
+    /// any other it wrote itself.
+    from_the_internet: HashSet<String>,
+    /// Something was read from the internet.
+    read_the_internet: bool,
+}
+
 impl Chat {
+    /// What a session has had from the internet and from the person so far, in this request (`steps`) and
+    /// in earlier ones.
+    fn so_far(&self, session: &Session, steps: &[Step]) -> Result<SoFar> {
+        let mut so_far = SoFar::default();
+        let of_a_step = |step: &Step, so_far: &mut SoFar| {
+            if tools::from_the_internet(step) {
+                so_far.read_the_internet = true;
+                so_far.from_the_internet.extend(guard::addresses_in(&step.result, false));
+            }
+        };
+        for message in self.sessions.messages(&session.id)? {
+            match message.role.as_str() {
+                "user" => so_far.by_the_person.extend(guard::addresses_in(&message.content, true)),
+                _ => message.steps.iter().for_each(|step| of_a_step(step, &mut so_far)),
+            }
+        }
+        // Work that was split into tasks keeps its steps with the tasks.
+        for task in self.sessions.tasks(&session.id)? {
+            task.steps.iter().for_each(|step| of_a_step(step, &mut so_far));
+        }
+        steps.iter().for_each(|step| of_a_step(step, &mut so_far));
+        Ok(so_far)
+    }
+
+    /// A search that is really something else, as real models ask for it. Asked to read a page the person
+    /// named, one model searched for "number of herons in the page http://…" and never read the page: that
+    /// becomes reading the page. Another searched for a search engine's own address with the words inside
+    /// it: that becomes a search for the words.
+    fn search_as_meant(&self, session: &Session, steps: &[Step], tool: String, args: serde_json::Map<String, Value>) -> Result<(String, serde_json::Map<String, Value>)> {
+        let query = args.get("query").and_then(Value::as_str).unwrap_or_default();
+        let Some(url) = (tool == tools::SEARCH).then(|| guard::urls_in(query, false).into_iter().next()).flatten() else {
+            return Ok((tool, args));
+        };
+        if self.so_far(session, steps)?.by_the_person.contains(&guard::same_as(&url)) {
+            return Ok((tools::READ_PAGE.into(), serde_json::Map::from_iter([("url".to_string(), json!(url.as_str()))])));
+        }
+        let inside = url.query_pairs().find(|(name, _)| matches!(name.as_ref(), "q" | "query" | "search")).map(|(_, words)| words.into_owned());
+        let around = || query.split_whitespace().filter(|word| !word.contains("://")).collect::<Vec<_>>().join(" ");
+        let words = inside.filter(|w| !w.trim().is_empty()).unwrap_or_else(around);
+        Ok(if words.trim().is_empty() { (tool, args) } else { (tool, serde_json::Map::from_iter([("query".to_string(), json!(words))])) })
+    }
+
     /// Asks the model something the person does not see being written: which tool, which steps, what a task
     /// gave. Thinking is off for these: measured, it costs seconds here and changes nothing.
     async fn quietly(&self, session: &Session, messages: Vec<Value>, shape: Option<Value>, at_most: u32, stop: &AtomicBool) -> Result<String> {
@@ -362,6 +438,7 @@ impl Chat {
                     return Ok(if titles.len() > 1 { Some(titles) } else { None });
                 }
                 Ok(Asked::Tool { tool, args }) => {
+                    let (tool, args) = self.search_as_meant(session, steps, tool, args)?;
                     let args = Value::Object(args);
                     // Asking for the same thing again means the model is going round. It has what the tool gives.
                     if steps.iter().any(|s| s.tool == tool && s.args == args) {
@@ -385,11 +462,28 @@ impl Chat {
                             }
                         }
                     }
-                    let asks = permissions::asks(level, reach, held) && !self.granted(&session.id, &tool);
+                    // An address can carry text away. One the model was given cannot hold what the model has
+                    // read; one it wrote itself can, and so that one waits for the person, each time.
+                    let (mut address, mut by_the_person, mut after_the_internet) = (Address::NotOne, false, false);
+                    if matches!(reach, tools::Reach::Network | tools::Reach::Changes) {
+                        let so_far = self.so_far(session, steps)?;
+                        // Text from outside can tell a model what to do. Once it is there, a change waits too.
+                        after_the_internet = so_far.read_the_internet;
+                        if tool == tools::READ_PAGE
+                            && let Ok(url) = guard::address(args.get("url").and_then(Value::as_str).unwrap_or_default())
+                        {
+                            let same = guard::same_as(&url);
+                            by_the_person = so_far.by_the_person.contains(&same);
+                            address = if by_the_person || so_far.from_the_internet.contains(&same) { Address::Given } else { Address::Written };
+                        }
+                    }
+                    let once_only = address == Address::Written;
+                    let around = Around { held, address, after_the_internet };
+                    let asks = permissions::asks(level, reach, around) && !(self.granted(&session.id, &tool) && !once_only);
                     steps.push(Step { tool: tool.clone(), args: args.clone(), state: if asks { "waiting" } else { "running" }.into(), ..Step::default() });
                     changed(steps);
-                    let why = permissions::why(level, reach, held, self.sandbox.why_not.as_deref());
-                    if asks && self.ask_person(session, answer_id, &tool, args.as_object().expect("made as one"), reach, why, stop).await? == Said::No {
+                    let why = permissions::why(level, reach, around, self.sandbox.why_not.as_deref());
+                    if asks && self.ask_person(session, answer_id, &tool, args.as_object().expect("made as one"), reach, why, once_only, stop).await? == Said::No {
                         if let Some((_, place)) = &saved {
                             let _ = std::fs::remove_dir_all(place);
                         }
@@ -420,6 +514,22 @@ impl Chat {
                                 Err(why) => Err(why),
                             },
                         }
+                    } else if tool == tools::SEARCH {
+                        let on = |id: &str| self.settings.value::<bool>(id).unwrap_or(true);
+                        let which = web::Which { wikipedia: on("web.wikipedia"), mwmbl: on("web.mwmbl"), language: self.settings.value::<String>("web.language").unwrap_or_else(|_| "en".into()) };
+                        // What comes back from the internet is text from outside, like a file's.
+                        self.web
+                            .search(args.get("query").and_then(Value::as_str).unwrap_or_default(), request, &which, stop)
+                            .await
+                            .map(|found| tools::Done { gave: tools::clean(&found.told()), changed: None })
+                    } else if tool == tools::READ_PAGE {
+                        // This computer and its own network are read only at an address the person wrote, and
+                        // only when the person turned that on.
+                        let may_be_local = by_the_person && self.settings.value::<bool>("web.local").unwrap_or(false);
+                        self.web
+                            .read(args.get("url").and_then(Value::as_str).unwrap_or_default(), request, may_be_local, stop)
+                            .await
+                            .map(|read| tools::Done { gave: tools::clean(&read.gave), changed: None })
                     } else {
                         tools::run(&tool, args.as_object().expect("made as one"), &tools::Ground { clock: self.clock, folder, seen: &seen })
                     };
@@ -443,7 +553,8 @@ impl Chat {
                         Err(why) => (step.state, step.result) = ("failed".into(), why),
                     }
                     // Told that a file is outside the folder, a model is not left to look for another way in.
-                    let out_of_bounds = step.state == "failed" && step.result.contains(tools::files::OUTSIDE);
+                    // The same for an address on this computer or its network.
+                    let out_of_bounds = step.state == "failed" && (step.result.contains(tools::files::OUTSIDE) || step.result.contains(guard::NOT_PUBLIC));
                     let (state, took_ms, change) = (step.state.clone(), step.took_ms, step.change.clone());
                     changed(steps);
                     self.events.append("tool.used", Some(&session.id), json!({ "tool": tool, "args": args, "state": state, "took_ms": took_ms, "change": change }))?;
@@ -468,7 +579,17 @@ impl Chat {
 
     /// Waits for the person's yes or no to one use of a tool. Stopping the answer counts as no.
     #[allow(clippy::too_many_arguments)]
-    async fn ask_person(&self, session: &Session, answer_id: &str, tool: &str, args: &serde_json::Map<String, Value>, reach: tools::Reach, why: String, stop: &AtomicBool) -> Result<Said> {
+    async fn ask_person(
+        &self,
+        session: &Session,
+        answer_id: &str,
+        tool: &str,
+        args: &serde_json::Map<String, Value>,
+        reach: tools::Reach,
+        why: String,
+        once_only: bool,
+        stop: &AtomicBool,
+    ) -> Result<Said> {
         let folder = session.folder.clone();
         let exists = |path: &str| folder.as_deref().and_then(|f| tools::files::inside(std::path::Path::new(f), path).ok()).is_some_and(|p| p.exists());
         let request = permissions::Request {
@@ -480,6 +601,7 @@ impl Chat {
             reach,
             what: permissions::what(tool, args, exists),
             why,
+            once_only,
             asked_at: crate::now_ms(),
         };
         let (answer, mut answered) = tokio::sync::oneshot::channel();
@@ -496,7 +618,8 @@ impl Chat {
             }
         };
         self.asking().remove(&session.id);
-        if said == Said::Session {
+        // A yes to an address the model wrote is for that address, whatever was pressed.
+        if said == Said::Session && !once_only {
             self.granted_in().entry(session.id.clone()).or_default().insert(tool.to_string());
         }
         self.events.append("permission.answered", Some(&session.id), json!({ "request": request.id, "tool": tool, "said": said, "stopped": stop.load(Ordering::Relaxed) }))?;
@@ -581,7 +704,7 @@ impl Chat {
                 break;
             }
             let has_folder = session.folder.is_some();
-            let Err(parts) = self.do_one(session, answer_id, before, request, task, &tools::offered(has_folder, true), stop).await? else {
+            let Err(parts) = self.do_one(session, answer_id, before, request, task, &tools::offered(has_folder, true, self.internet()), stop).await? else {
                 continue;
             };
             // The model split this task. Its parts are done one by one; a part is not split again.
@@ -590,7 +713,7 @@ impl Chat {
                     break;
                 }
                 // `plan` is not offered, so this cannot ask to split.
-                let _ = self.do_one(session, answer_id, before, request, &part, &tools::offered(has_folder, false), stop).await?;
+                let _ = self.do_one(session, answer_id, before, request, &part, &tools::offered(has_folder, false, self.internet()), stop).await?;
             }
             // What the whole task gave, from what its parts gave.
             let all = self.sessions.tasks_of(answer_id)?;
@@ -616,7 +739,8 @@ impl Chat {
         let always = self.settings.value::<String>("tools.plan").is_ok_and(|v| v == "always");
         let mut planned = if plan_first || always { self.split(session, &before, &request, if plan_first { 2 } else { 1 }, stop).await? } else { None };
         if planned.is_none() {
-            planned = self.use_tools(session, answer_id, &before, &request, &Words::request(&request), &tools::offered(session.folder.is_some(), true), &mut steps, stop, &shown).await?;
+            planned =
+                self.use_tools(session, answer_id, &before, &request, &Words::request(&request), &tools::offered(session.folder.is_some(), true, self.internet()), &mut steps, stop, &shown).await?;
         }
         let Some(titles) = planned else { return Ok(()) };
         let started = Instant::now();

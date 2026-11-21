@@ -10,6 +10,7 @@ use crate::runtime::{Runtimes, Source};
 use crate::settings::Settings;
 
 mod folders_and_permissions;
+mod the_internet;
 mod tools_and_tasks;
 
 /// It is always the same minute of the same Saturday, whatever the real clock says.
@@ -58,6 +59,8 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
     let sessions = Arc::new(Sessions::new(db));
     // The tests in this file are about plain chat: one request to the model for each turn. Tools have their own.
     kept_settings.set("tools.use", json!(false)).unwrap();
+    // Nor do they reach the internet: the tests that do have a stand-in site (`the_internet`).
+    kept_settings.set("web.use", json!(false)).unwrap();
     let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()).with_clock(CLOCK).keeping_in(home.join("saved-folders")));
     World { chat, sessions, engine, events, stand, home, settings: kept_settings }
 }
