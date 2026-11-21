@@ -498,3 +498,9 @@ and that most of the brief's search list was not built in: "I give you permissio
 how Demido Studios did search in it's previous version and do the same or similar."
 A single exception to the rule above ("Never look at previous Demido Studio versions"), for search only.
 What was read and what was taken: `docs/DECISIONS.md` N13, `docs/research/15-search-and-fetch.md`.
+
+**2026-11-21, RustXNG.** On why the brief names it: "In the previous version of Demido Studio, Searxng ran
+inside of Demido's python runtime, without exposing a port or whatnot, basically it's code was being used
+directly by Demido. This is why I proposed RustXNG, cause I thought it would be easier to integrate."
+After I had tried it and reported what it asks by default and what it would add: "Leave it out".
+Recorded in `docs/DECISIONS.md` N14.

@@ -49,7 +49,7 @@ specialised sources: very good for facts and for programming, weak for everythin
 
 | Project | Verdict | Why |
 |---|---|---|
-| RustXNG | **Worth adding later, as a program beside Demido** | Careful about terms, many sources, ready programs with checksums. As a separate program talked to on this computer, its AGPL and Demido's GPL stay apart (its own `NOTICE` says the same), and it is downloaded from its makers, not passed on. Against: it is five weeks old, changes daily, has one maintainer, and adds 34 MB and a second program to look after |
+| RustXNG | **Left out, by the owner's decision** after it was tried (see "RustXNG, looked at closely and tried") | Careful about terms, many sources, ready programs with checksums. As a separate program talked to on this computer, its AGPL and Demido's GPL stay apart (its own `NOTICE` says the same), and it is downloaded from its makers, not passed on. Against: it is five weeks old, changes daily, has one maintainer, and adds 34 MB and a second program to look after |
 | DonSeTch, SoSearch | **Not built in. I will not build on them** | They work by making a program look like a person's browser so that sites which refuse programs let it in. That is getting round a block, and it puts the person's own network address at risk of being banned. SoSearch's licence rules it out by itself |
 | a3s-search, metadata-search-engine-rs | **Not needed** | Their licences would do. What they add over Demido's own two sources is reading more result pages for people (Brave, Yahoo, Startpage, Bing), which those engines forbid or block |
 | spider | **Not needed yet** | Reading one page needs no crawler. It may serve later for "read this whole site" |
@@ -128,6 +128,12 @@ it, and I have not gone back to look: the permission was for once.)
 What it would add to the ladder as it stands: little for everyday questions (Exa and DuckDuckGo come
 first and find more), something for programming questions when those two will not answer, and a third
 source that does not lean on anyone's free limit.
+
+Why an aggregator finds so little: it has no index of its own, it asks others. SearXNG, in the previous
+Demido, asked Google, Bing, DuckDuckGo, Brave and many more by reading their result pages. RustXNG knows
+273 sources, and its maker switched off every one that forbids programs or blocks them; 34 are on. Its
+"full" set turns a few back on against their terms (not tried). Shown this, the owner decided to leave
+RustXNG out (DECISIONS N14).
 
 ## Fetching a page: what others do
 
