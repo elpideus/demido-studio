@@ -28,6 +28,21 @@ How sure each line is, said every time:
 | Pictures and sound in a message | Typed content parts, for models that take them. |
 | Steering without words | `--control-vector` (a file of directions inside the model), `--lora`. |
 
+## Seen: the runtime says what each loaded model can do
+
+Asked of the running runtime on 2026-11-21 (`GET /props?model=…`, for the 1.7B test model). It answers, for
+a model that is loaded:
+
+- its chat template, word for word (4,100 characters for Qwen3, and it names `enable_thinking`);
+- what the template supports: a system message, tool calls, several tool calls at once, levels of
+  reasoning effort (none for Qwen3: thinking is on or off);
+- what the model takes in besides text: pictures, video, sound (none of them for this one);
+- the sampling settings it runs with when nothing is said (temperature 0.8, top-k 40, top-p 0.95, min-p 0.05).
+
+So whether a model can think, takes tools, or reads pictures does not have to be guessed from its name. It
+is read from the runtime the first time the model is loaded, and kept. That is where the switch for thinking
+(brief 4.9) and the roster's "what it can take in" (DECISIONS O1) will get their facts.
+
 ## Tried: how to ask a small model for a tool call
 
 `core/dev/tool-call-trial.py`. 26 short requests: 20 need one of four tools, 6 need none ("What is 7 times
