@@ -389,7 +389,7 @@ function Composer({ session, model, onFolder }: { session: Session; model: Model
 // ───────────────────────── inspector ─────────────────────────
 function Inspector({ session, model }: { session: Session; model: Model }) {
   const agents = useStore((s) => s.agents).filter((a) => a.sessionId === session.id)
-  const compactAt = useSetting('context.autoCompact', 24)
+  const compactAt = useSetting('context.compactAt', 24)
   const used = session.contextUsed
   const stateText = model.state === 'lent' ? `Lent to ${model.lentTo}. Back when it finishes.` : model.state === 'loaded' ? 'Loaded. Unloads after 5 min idle.' : model.state === 'loading' ? `Loading: ${model.loadProgress ?? 0}%` : model.state === 'generating' ? 'Generating.' : model.state === 'queued' ? 'Waiting for memory.' : 'Asleep on disk. Loads when you send.'
   return (

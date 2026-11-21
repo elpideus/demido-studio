@@ -80,7 +80,9 @@ export const CORE_SECTIONS: SettingsSection[] = [
   {
     id: 'context', title: 'Context and compaction', order: 4,
     settings: [
-      { id: 'context.autoCompact', type: 'slider', label: 'Auto-compaction', desc: 'Summarises older messages when the context reaches this size.', default: 24, min: 4, max: 32, step: 1, format: (v) => `${v}k`,
+      /* The same two ids as the core's registry, so that with a core these rows are drawn from its description, in this order. */
+      { id: 'context.autoCompact', type: 'switch', label: 'Make long conversations shorter by themselves', desc: 'When a session nears what the model can hold, the older messages are replaced by a short account of them.', default: true },
+      { id: 'context.compactAt', type: 'slider', label: 'Make shorter at', desc: 'How long a conversation may get before its older part is replaced by an account.', default: 24, min: 4, max: 32, step: 1, format: (v) => `${v}k`,
         details: 'Default 24k tokens, computed from the default model (32k context) and your free memory. Lower keeps answers fast and leaves room for agents; higher keeps more of the conversation word for word.' },
       { id: 'context.showSummary', type: 'switch', label: 'Show the summary', desc: 'After compaction, shows what was kept so you can correct it.', default: true },
       { id: 'context.compressOutput', type: 'switch', label: 'Compress command output', desc: 'Long output is shortened before the model sees it. The full output stays one press away.', default: true },

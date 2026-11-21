@@ -16,6 +16,7 @@ struct World {
     events: Arc<EventLog>,
     stand: Arc<Stand>,
     home: PathBuf,
+    settings: Arc<Settings>,
 }
 
 fn world(name: &str) -> World {
@@ -38,6 +39,7 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
     let db = Arc::new(Db::memory().unwrap());
     let events = Arc::new(EventLog::new(db.clone()));
     let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
+    let kept_settings = settings.clone();
     let runtimes = Arc::new(Runtimes::new(&home, events.clone(), Source::default()).unwrap());
     let stand = Stand::new(models);
     let engine = Engine::new(&home, runtimes, settings, events.clone(), Arc::new(StandLauncher(stand.clone())));
@@ -46,8 +48,8 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
         None => engine,
     });
     let sessions = Arc::new(Sessions::new(db));
-    let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone()));
-    World { chat, sessions, engine, events, stand, home }
+    let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()));
+    World { chat, sessions, engine, events, stand, home, settings: kept_settings }
 }
 
 impl World {
@@ -306,5 +308,128 @@ async fn a_model_that_does_not_think_cannot_be_told_to() {
     assert!(err.contains("does not think"), "{err}");
     assert_eq!(w.chat.change(&session.id, Some("Greeting"), None, Some("off")).await.unwrap().title, "Greeting");
     assert!(matches!(w.chat.change(&session.id, None, Some("no-such-model"), None).await, Err(Error::NotFound(_))));
+    w.end().await;
+}
+
+/// Says something and waits for the answer.
+async fn turn(w: &World, session_id: &str, text: &str) -> Message {
+    w.chat.say(session_id, text).unwrap();
+    w.answered(session_id).await
+}
+
+#[tokio::test]
+async fn a_conversation_is_made_shorter_by_hand_and_the_model_gets_the_account() {
+    let w = world("shorter");
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    // Too short to make shorter: there is nothing older than the last exchange.
+    turn(&w, &session.id, "My name is Ada and I like green.").await;
+    assert!(matches!(w.chat.compact(&session.id, "asked").await, Err(Error::Invalid(_))));
+    turn(&w, &session.id, "I live in Turin.").await;
+    turn(&w, &session.id, "What do I like?").await;
+
+    *w.stand.reply.lock().unwrap() = "Ada likes green and lives in Turin.".into();
+    let account = w.chat.compact(&session.id, "asked").await.unwrap();
+    assert_eq!((account.upto_seq, account.content.as_str(), account.why.as_str()), (4, "Ada likes green and lives in Turin.", "asked"));
+    // The model was asked for an account of the older four messages, and of nothing newer.
+    let asked = w.stand.asked.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(asked["messages"][0]["content"], ACCOUNT_ROLE);
+    let transcript = asked["messages"][1]["content"].as_str().unwrap();
+    // The conversation first, fenced off as material. What to do with it comes after it: told first, small
+    // models go on with the conversation in place of writing the account.
+    assert!(transcript.starts_with("<conversation>\nPerson: My name is Ada and I like green.") && transcript.contains("Person: I live in Turin."), "{transcript}");
+    assert!(transcript.ends_with(&format!("</conversation>\n\n{ACCOUNT_INSTRUCTIONS}")), "{transcript}");
+    assert!(!transcript.contains("What do I like?"), "the last exchange stays word for word");
+    assert_eq!(asked["chat_template_kwargs"]["enable_thinking"], false);
+    assert!(kinds(&w.events).contains(&"session.compacted".to_string()));
+
+    // From now on the model is given the account in place of those messages. The messages are all still there.
+    *w.stand.reply.lock().unwrap() = "Green.".into();
+    turn(&w, &session.id, "And where do I live?").await;
+    let next = w.stand.asked.lock().unwrap().last().cloned().unwrap();
+    let told = next["messages"][0]["content"].as_str().unwrap();
+    assert!(told.starts_with(INSTRUCTIONS) && told.ends_with("Earlier in this conversation, in short:\nAda likes green and lives in Turin."), "{told}");
+    assert_eq!(
+        next["messages"].as_array().unwrap().iter().skip(1).map(|m| m["content"].as_str().unwrap()).collect::<Vec<_>>(),
+        ["What do I like?", "Red, blue and yellow are the three primary colours of paint.", "And where do I live?"]
+    );
+    assert_eq!(w.sessions.messages(&session.id).unwrap().len(), 8);
+
+    // Made shorter a second time: the new account is written from the old one and what came after it.
+    *w.stand.reply.lock().unwrap() = "Ada, Turin, green. She asked what she likes.".into();
+    let second = w.chat.compact(&session.id, "asked").await.unwrap();
+    assert_eq!(second.upto_seq, 6);
+    let again = w.stand.asked.lock().unwrap().last().cloned().unwrap();
+    assert!(again["messages"][1]["content"].as_str().unwrap().starts_with("<conversation>\nNotes on what came before:\nAda likes green and lives in Turin."));
+    assert_eq!(w.sessions.summaries(&session.id).unwrap().len(), 2);
+    w.end().await;
+}
+
+#[tokio::test]
+async fn a_conversation_that_grows_too_long_is_made_shorter_by_itself() {
+    let w = world("auto");
+    w.settings.set("context.compactAt", json!("1000")).unwrap();
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    let long = |about: &str| format!("{about} {}", "and so on ".repeat(100));
+    turn(&w, &session.id, &long("First: the budget is 400 euros.")).await;
+    let room = w.chat.context_use(&session.id).unwrap();
+    assert_eq!((room.limit, room.compact_at, room.auto), (8192, 1000, true));
+    assert!(room.used > 200 && room.used < 1000, "one long message is not yet too much: {}", room.used);
+    assert!(w.sessions.summaries(&session.id).unwrap().is_empty());
+
+    // More long messages, until one of them finds the conversation past the size. Before that message is
+    // answered, an account of the older part is written; then the answer.
+    *w.stand.reply.lock().unwrap() = "Budget 400 euros. More was said after.".into();
+    let mut said = 1;
+    let (before, text) = loop {
+        said += 1;
+        assert!(said <= 8, "the conversation was never made shorter");
+        let before = w.stand.asked.lock().unwrap().len();
+        let text = long(&format!("Message {said}: what was the budget?"));
+        assert_eq!(turn(&w, &session.id, &text).await.state, "done");
+        if !w.sessions.summaries(&session.id).unwrap().is_empty() {
+            break (before, text);
+        }
+        assert_eq!(w.stand.asked.lock().unwrap().len(), before + 1, "under the size, the model is asked once: for the answer");
+    };
+    let asked = w.stand.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), before + 2, "one request for the account, one for the answer");
+    assert_eq!(asked[before]["messages"][0]["content"], ACCOUNT_ROLE);
+    assert!(asked[before]["messages"][1]["content"].as_str().unwrap().starts_with("<conversation>\nPerson: First: the budget is 400 euros."));
+    let prompt = &asked[before + 1]["messages"];
+    assert!(prompt[0]["content"].as_str().unwrap().ends_with("Earlier in this conversation, in short:\nBudget 400 euros. More was said after."));
+    assert!(!prompt.to_string().contains("First: the budget"), "the oldest message is no longer given word for word");
+    assert_eq!(prompt.as_array().unwrap().last().unwrap()["content"].as_str(), Some(text.trim()), "what was just said is");
+    let accounts = w.sessions.summaries(&session.id).unwrap();
+    assert_eq!((accounts.len(), accounts[0].why.as_str()), (1, "auto"));
+    assert!(accounts[0].tokens_before > 1000, "it was past the size: {}", accounts[0].tokens_before);
+    assert!(w.chat.context_use(&session.id).unwrap().used < accounts[0].tokens_before, "and is smaller now");
+    let log = w.events.after(0, 200).unwrap();
+    assert!(log.iter().any(|e| e.kind == "session.compacted" && e.data["why"] == "auto"));
+
+    // Switched off, it is left alone however long it gets.
+    w.settings.set("context.autoCompact", json!(false)).unwrap();
+    for i in 0..4 {
+        turn(&w, &session.id, &long(&format!("Later {i}."))).await;
+    }
+    assert_eq!(w.sessions.summaries(&session.id).unwrap().len(), 1);
+    assert!(w.chat.context_use(&session.id).unwrap().used > 1000);
+    w.end().await;
+}
+
+#[tokio::test]
+async fn the_size_is_three_quarters_of_the_room_unless_a_smaller_one_is_chosen() {
+    let w = world("sizes");
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    assert_eq!(w.chat.context_use(&session.id).unwrap().compact_at, 6144, "three quarters of 8192");
+    w.settings.set("context.compactAt", json!("24000")).unwrap();
+    assert_eq!(w.chat.context_use(&session.id).unwrap().compact_at, 6144, "a size above the room is brought down to it");
+    w.settings.set("models.context", json!("32768")).unwrap();
+    assert_eq!((w.chat.context_use(&session.id).unwrap().limit, w.chat.context_use(&session.id).unwrap().compact_at), (32768, 24000));
+    // While an answer is being written, the session cannot be made shorter.
+    w.stand.word_every_ms.store(40, Ordering::Relaxed);
+    w.chat.say(&session.id, "Hello.").unwrap();
+    assert!(matches!(w.chat.compact(&session.id, "asked").await, Err(Error::Busy(_))));
+    w.chat.stop(&session.id);
+    w.answered(&session.id).await;
     w.end().await;
 }

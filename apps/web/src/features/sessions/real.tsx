@@ -9,7 +9,7 @@ import remarkGfm from 'remark-gfm'
 import { ArrowUp, Plus, Square, Trash2 } from 'lucide-react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
-import { answerNow, changeSession, deleteSession, newSession, readSession, say, stopAnswer, useReal, type CoreMessage } from '@/data/real-sessions'
+import { answerNow, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, useReal, type ContextUse, type CoreMessage } from '@/data/real-sessions'
 import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal, Tip } from '@/ui'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
@@ -94,7 +94,38 @@ function MessageView({ m, live }: { m: CoreMessage; live?: { text: string; thoug
   )
 }
 
-function Composer({ id, answering }: { id: string; answering: boolean }) {
+/** How full the session is, and the way to make it shorter. */
+function Room({ id, context, busy, canShorten }: { id: string; context: ContextUse; busy: boolean; canShorten: boolean }) {
+  const shortening = useReal((s) => Boolean(s.shortening[id]))
+  const full = Math.min(100, Math.round((context.used / context.limit) * 100))
+  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+  if (shortening) return <span className="d-type-caption d-text-secondary"><Glyph name="task-running" busy /> Writing an account of the older part…</span>
+  return (
+    <>
+      <Tip label={`About ${context.used.toLocaleString()} of the ${context.limit.toLocaleString()} tokens the model is loaded with room for. ${context.auto ? `At ${context.compact_at.toLocaleString()} the older part is replaced by a short account, by itself.` : 'It is not made shorter by itself (Settings › Context and compaction).'}`}>
+        <span className="app-row" style={{ gap: 'var(--d-space-6)' }}>
+          <span className="d-meter" style={{ width: '3.5rem' }} role="meter" aria-valuenow={full} aria-valuemin={0} aria-valuemax={100} aria-label="How full the session is"><span style={{ '--d-meter': `${full}%` } as React.CSSProperties} /></span>
+          <span className="d-type-caption d-text-tertiary d-mono">{k(context.used)} of {k(context.limit)}</span>
+        </span>
+      </Tip>
+      <Tip label="The model writes a short account of the older messages and works from that. The messages stay here for you.">
+        <Button variant="ghost" size="sm" disabled={busy || !canShorten} onClick={() => void makeShorter(id)}>Make shorter</Button>
+      </Tip>
+    </>
+  )
+}
+
+/** Where a session was made shorter: what is above is no longer given to the model word for word. */
+function Cut({ account }: { account: { content: string; why: string; tokens_before: number } }) {
+  return (
+    <Signal level="note">
+      Made shorter here{account.why === 'auto' ? ', by itself: the conversation had reached about ' + account.tokens_before.toLocaleString() + ' tokens' : ''}. The model no longer sees the messages above word for word. They stay here for you; the model is given this account of them:
+      <span style={{ display: 'block', marginBlockStart: 'var(--d-space-6)', whiteSpace: 'pre-wrap' }}>{account.content}</span>
+    </Signal>
+  )
+}
+
+function Composer({ id, answering, context, canShorten }: { id: string; answering: boolean; context: ContextUse; canShorten: boolean }) {
   const [text, setText] = useState('')
   const input = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { input.current?.focus() }, [id])
@@ -109,7 +140,7 @@ function Composer({ id, answering }: { id: string; answering: boolean }) {
       <textarea ref={input} className="d-composer__input" rows={1} placeholder="Ask something" aria-label="Message" value={text} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
       <div className="d-composer__bar">
-        <span className="d-type-caption d-text-tertiary">Enter sends. Shift and Enter starts a new line.</span>
+        <Room id={id} context={context} busy={answering} canShorten={canShorten} />
         <span className="d-composer__spacer" />
         {answering
           ? <Tip label="Stop"><Button variant="primary" iconOnly aria-label="Stop" onClick={() => void stopAnswer(id)}><Icon icon={Square} size="sm" /></Button></Tip>
@@ -130,7 +161,9 @@ function Chat() {
   const thread = useRef<HTMLDivElement>(null)
   const [told, setTold] = useState(false)
   const [sure, setSure] = useState(false)
-  useEffect(() => { void readSession(id); setTold(false); setSure(false) }, [id])
+  useEffect(() => { setTold(false); setSure(false) }, [id])
+  // Only a session the list knows is asked for: the address may still name one that is gone, or one of the preview's.
+  useEffect(() => { if (known) void readSession(id) }, [id, known])
   // Follow the answer down as it is written.
   const last = detail?.messages.at(-1)
   const height = (last ? (writing[last.id]?.text.length ?? 0) + (writing[last.id]?.thought.length ?? 0) : 0) + (detail?.messages.length ?? 0)
@@ -142,6 +175,9 @@ function Chat() {
   if (!detail) return <section className="chat" aria-label="Conversation" />
   const { session, messages } = detail
   const answering = messages.some((m) => m.state === 'answering')
+  // The account in force, and the last message it stands for.
+  const account = detail.summaries.at(-1)
+  const covered = account?.upto_seq ?? 0
   return (
     <section className="chat" aria-label="Conversation">
       <header className="chat__head chat__head--tools">
@@ -176,10 +212,16 @@ function Chat() {
               <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. It answers from what it knows: it cannot look anything up or do anything yet.</p>
             </div>
           )}
-          {messages.map((m) => <MessageView key={m.id} m={m} live={writing[m.id]} />)}
+          {messages.map((m) => (
+            <div key={m.id} className="chat__blocks" style={m.seq <= covered ? { opacity: 0.55 } : undefined}>
+              {account && m.seq === covered + 1 && <Cut account={account} />}
+              <MessageView m={m} live={writing[m.id]} />
+            </div>
+          ))}
+          {account && covered >= (messages.at(-1)?.seq ?? 0) && <Cut account={account} />}
         </div>
       </div>
-      <Composer id={id} answering={answering} />
+      <Composer id={id} answering={answering} context={detail.context} canShorten={messages.filter((m) => m.seq > covered).length >= 4} />
     </section>
   )
 }

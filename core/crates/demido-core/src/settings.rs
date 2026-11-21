@@ -99,6 +99,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
     let sections = vec![
         section("appearance", "Appearance", None),
         section("models", "Models and memory", Some("Models load only when needed and unload when idle.")),
+        section("context", "Context and compaction", Some("A model can only hold so much of a conversation in mind. When a session gets long, the older part is replaced by a short account of it.")),
         section("server", "Server and remote use", Some("How this computer offers Demido to its own window, to browsers and to other devices.")),
         section("events", "The log of what happened", None),
         section("updates", "Updates", None),
@@ -155,6 +156,28 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             ),
             choices(&[("4096", "4k"), ("8192", "8k"), ("16384", "16k"), ("32768", "32k")]),
             json!("8192"),
+            true,
+        ),
+        def(
+            "context.autoCompact",
+            "Make long conversations shorter by themselves",
+            "When a session nears what the model can hold, the older messages are replaced by a short account of them.",
+            Some(
+                "Default on. The messages stay in the session for you to read; only the model stops seeing them word for word, and sees the account in their place. Off means a session that has grown too long is refused until you make it shorter by hand or start a new one.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
+        def(
+            "context.compactAt",
+            "Make shorter at",
+            "How long a conversation may get, in tokens, before its older part is replaced by an account.",
+            Some(
+                "Default Automatic: three quarters of what the model is loaded with (Context size, under Models and memory), so there is always room for the answer. A size larger than that is brought down to it. Smaller keeps answers fast and leaves the model less to lose track of; larger keeps more of the conversation word for word.",
+            ),
+            choices(&[("auto", "Automatic"), ("1000", "1k"), ("2000", "2k"), ("4000", "4k"), ("6000", "6k"), ("8000", "8k"), ("12000", "12k"), ("16000", "16k"), ("24000", "24k")]),
+            json!("auto"),
             true,
         ),
         def(

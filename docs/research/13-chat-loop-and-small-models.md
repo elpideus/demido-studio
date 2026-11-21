@@ -97,6 +97,42 @@ ways of writing the history were tried (plain, with an empty thought, with the m
 it. The cost is small: reading runs at about 3,000 tokens a second on this card and writing at about 150, so
 re-reading an answer takes about a twentieth of the time it took to write.
 
+## Tried: how to ask a small model for an account of a conversation
+
+Compaction (brief 4.15) needs the model to write a short account of the older part of a conversation. The
+first wording I built put the instruction in the system message and the conversation after it. On the real
+1.7B model the result was wrong in a way that matters: it answered the conversation's last question and
+called a trip in May a trip in October.
+
+So five ways of asking were measured, `core/dev/account-trial.py`: three conversations (a trip, a bug, a
+purchase), each ending in a request, with five facts each that an account must keep. Counted: how many of the
+15 facts are in the account, and in how many of the 3 the model went on with the conversation and did not
+write an account. Temperature 0.2, thinking off, at most 400 tokens.
+
+| Way of asking | 0.6B: facts kept | 0.6B: went on | 1.7B: facts kept | 1.7B: went on |
+|---|---|---|---|---|
+| Instruction first (system), then the conversation | 1 of 15 | 2 of 3 | 3 of 15 | 2 of 3 |
+| The conversation fenced, then the instruction | 12 | 1 | 13 | 1 |
+| A one-line role first, the conversation fenced, the instruction last | **13** | 1 | **14** | **0** |
+| The same, asking for a form described in words | 12 | 2 | 13 | 0 |
+| The same, with the form forced by a schema | 10 | 2 | 13 | 0 |
+
+What this says:
+
+- **Where the instruction stands decides nearly everything.** A small model treats the last thing it read as
+  the thing to do. If that is a person's request inside the material, it carries the request out.
+- **A form does not help, and forcing it costs** the smaller model facts (10 of 15). The same finding as for
+  tool calls above: the shape is not what these models get wrong.
+- **It is not solved.** With the best wording the 0.6B model still went on with the conversation once in
+  three. Nothing in Demido checks an account yet.
+
+A small measurement: three conversations, two models of one family, one run each. Enough to choose a
+wording; not enough to call the rule proven for other families.
+
+The rule taken from it (DECISIONS L13): material first and fenced, what to do with it last. It applies
+beyond accounts, to everything a model is handed: pages, files, tool results. That is also where technique
+13 below starts.
+
 ## What others report (Search; not read in full)
 
 - "The Constraint Tax" (arXiv 2605.26128, May 2026): for models under 3B, a hard tool-call schema made every
@@ -127,10 +163,10 @@ Each with how sure it is and when it gets built. "Item" is the number in `docs/P
 | 7 | **A task list the model keeps** (brief 4.6) | The work is split into tasks and sub-tasks. Each turn the model is shown where it is: the task in hand, what is done, what is next. | Memory. Not tried | Item 4, after plain chat |
 | 8 | **A fresh start for each piece** (brief 4.17) | A sub-task that does not need the conversation is given to an agent with an empty context. | Memory. Not tried | Item 7 |
 | 9 | **The same beginning every time** | The prompt always starts with the same bytes (instructions, tools), and history is only ever added to. The runtime then does not read it again. | Read: the cache exists and reports itself. To be seen on the first real session | Item 4, from the first turn |
-| 10 | **Compaction** (brief 4.15) | When the conversation nears what the model can hold, the oldest part is replaced by a short account of it. By hand or by itself, with a size worked out from the model and the memory. | Read: tokens can be counted before sending. Not tried | Item 4, after plain chat |
+| 10 | **Compaction** (brief 4.15) | When the conversation nears what the model can hold, the oldest part is replaced by a short account of it. By hand or by itself, with a size worked out from the model and the memory. | Built and tried on the real models, by hand and by itself. The size is never asked for: the runtime's count of the last answer is counted on from. The wording of the request was measured (above) | Done in item 4. Open: a check that an account is a good one; a default size worked out per model |
 | 11 | **Each model its own settings** (brief 4.2) | Temperature and the rest as the model's makers recommend, not one default for all. | Research owed | With the models work (item 6) |
 | 12 | **Catching a model that loops** | A reply that repeats itself or runs on is stopped, and the turn says so. | Memory. Not tried | Item 4 |
-| 13 | **Outside text is data** (brief 4.4) | What comes from pages, files, mail and tools is marked as material, never as instructions. | Research note 05, not yet fact-checked | Item 5 |
+| 13 | **Outside text is data** (brief 4.4) | What comes from pages, files, mail and tools is marked as material, never as instructions. | Research note 05, not yet fact-checked. Tried here for one case: material fenced and put before the instruction (above) | Item 5 |
 | 14 | **A model for each job** (the owner's addition) | Mechanical work goes to the fastest model that fits; the careful one plans. | Designed (DECISIONS O); not tried | Item 7 |
 
 ## "Vector reasoning": what is feasible, honestly (withdrawn by the owner; kept for the record)
@@ -165,6 +201,8 @@ storage; a turn is run by the core, streamed as news that is told and not kept, 
 complete; the beginning of the prompt never changes; thinking is off until its switch exists; what a model's
 answer says about its own speed is kept for the roster. No tools yet: the mechanism above is built with the
 first real tools.
+
+Added since: the switch for thinking and "Answer now" (L6); making a long conversation shorter (L11 to L14).
 
 ## Sources
 

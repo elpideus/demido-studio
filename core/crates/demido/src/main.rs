@@ -111,6 +111,11 @@ enum SessionsCommand {
         /// Its id, or the first letters of it.
         id: String,
     },
+    /// Make a session shorter for the model: its older part is replaced by a short account. The messages stay.
+    Shorten {
+        /// Its id, or the first letters of it.
+        id: String,
+    },
     /// Delete a session and everything said in it.
     Delete {
         /// Its id, or the first letters of it.
@@ -509,7 +514,18 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
         Some(SessionsCommand::Show { id }) => {
             let detail = server.get(&format!("/api/v1/sessions/{}", session_meant(&server, &id)?))?;
             println!("{} · {} · {}", detail["session"]["title"].as_str().unwrap_or("?"), detail["session"]["model"].as_str().unwrap_or("?"), detail["session"]["id"].as_str().unwrap_or("?"));
+            let c = &detail["context"];
+            println!("About {} of {} tokens in use. Made shorter at {}{}.", c["used"], c["limit"], c["compact_at"], if c["auto"] == true { ", by itself" } else { ", only when you ask" });
+            // The account in force stands for the messages up to this place.
+            let account = detail["summaries"].as_array().and_then(|all| all.last()).cloned();
+            let covered = account.as_ref().and_then(|a| a["upto_seq"].as_u64()).unwrap_or(0);
             for m in detail["messages"].as_array().into_iter().flatten() {
+                if covered > 0 && m["seq"].as_u64() == Some(covered + 1) {
+                    println!(
+                        "\n──── Made shorter here. The model no longer sees what is above word for word. It is given this account: ────\n{}\n────",
+                        account.as_ref().and_then(|a| a["content"].as_str()).unwrap_or("")
+                    );
+                }
                 let who = if m["role"] == "user" { "You" } else { m["model"].as_str().unwrap_or("Model") };
                 let how = match m["state"].as_str() {
                     Some("stopped") => "  [stopped]",
@@ -522,6 +538,17 @@ fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {
                     println!("{why}");
                 }
             }
+        }
+        Some(SessionsCommand::Shorten { id }) => {
+            let id = session_meant(&server, &id)?;
+            println!("Writing an account of the older part…");
+            let a = server.send_patiently("POST", &format!("/api/v1/sessions/{id}/compact"), None, Duration::from_secs(300))?;
+            println!(
+                "Made shorter: it was about {} tokens. The model is now given this in place of the messages up to number {}:\n\n{}\n\nThe messages themselves are all still in the session.",
+                a["tokens_before"],
+                a["upto_seq"],
+                a["content"].as_str().unwrap_or("")
+            );
         }
         Some(SessionsCommand::Delete { id }) => {
             let gone = server.send("DELETE", &format!("/api/v1/sessions/{}", session_meant(&server, &id)?), None)?;

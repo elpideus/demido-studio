@@ -14,7 +14,13 @@
 //! on easy requests buys nothing. A thought that runs long can be ended from outside ("Answer now"), and
 //! the model then goes on to its answer.
 //!
-//! Not built yet: tools, the task list, making a long conversation shorter (compaction), settings per model.
+//! A conversation that nears what the model can hold is made shorter (brief 4.15): the model writes a short
+//! account of the older part, and from then on it is given that account in place of those messages. The
+//! messages stay in the session for the person to read. It happens by itself before a turn that would not
+//! fit comfortably, and by hand whenever the person asks. How long a conversation is, is not asked of
+//! anyone: the runtime said how many tokens the last turn was, and that is counted on from.
+//!
+//! Not built yet: tools, the task list, settings per model.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,12 +33,47 @@ use utoipa::ToSchema;
 
 use crate::engine::{Engine, Piece};
 use crate::events::EventLog;
-use crate::sessions::{Message, Session, Sessions, title_from};
+use crate::sessions::{Message, Session, Sessions, Summary, title_from};
+use crate::settings::Settings;
 use crate::{Error, Result};
 
 /// What every model is told first, in every session. The answer style of the brief (4.14): the answer
 /// first, short, like a manual. Kept short itself, and it never changes within a session.
 pub const INSTRUCTIONS: &str = "Answer first. Then numbered steps, only if steps are needed. One idea per sentence. Exact values with units. No filler, no praise. Do not repeat the question.";
+
+/// What the model is told when it writes the account that will stand for the older part of a conversation.
+///
+/// The order is the point. The conversation comes first, fenced off as material; what to do with it comes
+/// after it. Measured on the two test models (`core/dev/account-trial.py`, research note 13): told what to do
+/// first and then shown the conversation, they went on with the conversation and kept 1 and 3 of 15 facts.
+/// Told last, they kept 13 and 14.
+pub const ACCOUNT_ROLE: &str = "You write notes on conversations. You never continue or answer them.";
+pub const ACCOUNT_INSTRUCTIONS: &str = "Above is a conversation between a person and a model. Do not continue it and do not answer it. Write notes on it for someone who takes over: who the person is, what they want, every fact and number they gave, what was decided, and what is still open. Short lines.";
+
+/// An account may be this long, in tokens.
+const ACCOUNT_AT_MOST: u64 = 400;
+/// When a conversation is made shorter, the newest messages stay word for word: about this share of the
+/// size at which it is made shorter.
+const KEPT_WORD_FOR_WORD: f64 = 0.4;
+
+/// How much of what the model can hold a session is using.
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct ContextUse {
+    /// About how many tokens the next prompt will be. From the runtime's own count of the last turn, plus
+    /// an estimate for what was said since.
+    pub used: u64,
+    /// How many tokens the model is loaded with room for.
+    pub limit: u64,
+    /// At this many, the older part of the conversation is replaced by an account.
+    pub compact_at: u64,
+    /// Whether that happens by itself.
+    pub auto: bool,
+}
+
+/// About how many tokens a text is, when nothing has counted it. On the generous side.
+fn roughly(text: &str) -> u64 {
+    (text.chars().count() as u64).div_ceil(3)
+}
 
 /// Pieces of an answer are gathered and passed on about this often: often enough to read as writing,
 /// not so often that the window does nothing else.
@@ -50,6 +91,7 @@ pub struct Chat {
     sessions: Arc<Sessions>,
     engine: Arc<Engine>,
     events: Arc<EventLog>,
+    settings: Arc<Settings>,
     /// The sessions that are being answered right now.
     turns: Mutex<HashMap<String, Running>>,
 }
@@ -64,8 +106,129 @@ struct Running {
 }
 
 impl Chat {
-    pub fn new(sessions: Arc<Sessions>, engine: Arc<Engine>, events: Arc<EventLog>) -> Self {
-        Self { sessions, engine, events, turns: Mutex::default() }
+    pub fn new(sessions: Arc<Sessions>, engine: Arc<Engine>, events: Arc<EventLog>, settings: Arc<Settings>) -> Self {
+        Self { sessions, engine, events, settings, turns: Mutex::default() }
+    }
+
+    /// What the model is loaded with room for, and the size at which a conversation is made shorter.
+    fn limits(&self) -> (u64, u64) {
+        let limit = self.settings.value::<String>("models.context").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8192);
+        // Three quarters, so there is always room for the answer. A size chosen by hand never goes above that.
+        let most = limit * 3 / 4;
+        let chosen = self.settings.value::<String>("context.compactAt").ok().and_then(|v| v.parse::<u64>().ok());
+        (limit, chosen.map_or(most, |c| c.min(most)))
+    }
+
+    /// The messages the model is still given word for word: the ones after the last account.
+    fn in_view(&self, session_id: &str) -> Result<(Option<Summary>, Vec<Message>)> {
+        let account = self.sessions.summaries(session_id)?.pop();
+        let after = account.as_ref().map_or(0, |a| a.upto_seq);
+        Ok((account, self.sessions.messages(session_id)?.into_iter().filter(|m| m.seq > after).collect()))
+    }
+
+    /// About how many tokens the next prompt of a session will be.
+    fn tokens_in_view(account: &Option<Summary>, messages: &[Message]) -> u64 {
+        // The last answer the runtime timed says exactly how long the conversation was up to and including it,
+        // as long as nothing was made shorter since. From there on it is an estimate.
+        let counted = messages.iter().rposition(|m| m.timings.is_some());
+        match counted {
+            Some(at) => {
+                let t = messages[at].timings.as_ref().expect("just found");
+                t.reused + t.read + t.written + messages[at + 1..].iter().map(|m| roughly(&m.content) + 4).sum::<u64>()
+            }
+            None => roughly(INSTRUCTIONS) + account.as_ref().map_or(0, |a| roughly(&a.content)) + messages.iter().map(|m| roughly(&m.content) + 4).sum::<u64>(),
+        }
+    }
+
+    /// How much of what the model can hold this session is using.
+    pub fn context_use(&self, session_id: &str) -> Result<ContextUse> {
+        let (account, messages) = self.in_view(session_id)?;
+        let (limit, compact_at) = self.limits();
+        // An account made after the last timed answer makes that count too high: estimate from scratch then.
+        let stale = account.as_ref().is_some_and(|a| messages.iter().all(|m| m.timings.is_none() || m.created_at < a.created_at));
+        let used = if stale {
+            Self::tokens_in_view(
+                &account,
+                &messages
+                    .iter()
+                    .cloned()
+                    .map(|mut m| {
+                        m.timings = None;
+                        m
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            Self::tokens_in_view(&account, &messages)
+        };
+        Ok(ContextUse { used, limit, compact_at, auto: self.settings.value::<bool>("context.autoCompact").unwrap_or(true) })
+    }
+
+    /// Makes a session shorter for the model: writes an account of its older part and gives the model that
+    /// account from now on, in place of those messages. The messages stay. `why` is `asked` or `auto`.
+    pub async fn compact(&self, session_id: &str, why: &str) -> Result<Summary> {
+        if self.answering(session_id) {
+            return Err(Error::Busy("This session is writing an answer. Wait for it, or stop it, and then make it shorter.".into()));
+        }
+        let session = self.sessions.get(session_id)?;
+        self.account_of(&session, why, None).await
+    }
+
+    /// Writes the account. `still_to_answer` is the answer about to be written, when this happens inside a turn.
+    async fn account_of(&self, session: &Session, why: &str, still_to_answer: Option<&str>) -> Result<Summary> {
+        let (before, messages) = self.in_view(&session.id)?;
+        let said: Vec<&Message> = messages.iter().filter(|m| Some(m.id.as_str()) != still_to_answer && !(m.role == "assistant" && m.content.trim().is_empty())).collect();
+        let (_, compact_at) = self.limits();
+        let tokens_before = self.context_use(&session.id)?.used;
+        // The newest messages stay word for word, and never fewer than the last thing the person said and, if
+        // it was answered, its answer. When it happens by itself, as many more as fit in a share of the
+        // size. When the person asks, only those two: they asked for it to be as short as it gets.
+        let room = if why == "asked" { 0 } else { (compact_at as f64 * KEPT_WORD_FOR_WORD) as u64 };
+        let (mut keep, mut kept_tokens) = (0, 0);
+        for m in said.iter().rev() {
+            let size = roughly(&m.content) + 4;
+            if keep >= 2 && kept_tokens + size > room {
+                break;
+            }
+            keep += 1;
+            kept_tokens += size;
+        }
+        let older = &said[..said.len().saturating_sub(keep.max(1))];
+        let Some(last_covered) = older.last() else {
+            return Err(Error::Invalid("There is nothing to make shorter yet: the conversation is only a few messages long.".into()));
+        };
+        self.events.tell("session.compacting", Some(&session.id), json!({ "why": why, "messages": older.len() }));
+        let mut transcript = String::new();
+        if let Some(earlier) = &before {
+            transcript.push_str(&format!("Notes on what came before:\n{}\n\n", earlier.content.trim()));
+        }
+        for m in older {
+            transcript.push_str(&format!("{}: {}\n\n", if m.role == "user" { "Person" } else { "Model" }, m.content.trim()));
+        }
+        // The material first, fenced. What to do with it, last.
+        let asked = format!("<conversation>\n{}\n</conversation>\n\n{ACCOUNT_INSTRUCTIONS}", transcript.trim_end());
+        self.engine.load(&session.model).await?;
+        let body = json!({
+            "model": session.model,
+            "messages": [{ "role": "system", "content": ACCOUNT_ROLE }, { "role": "user", "content": asked }],
+            "stream": true,
+            "max_tokens": ACCOUNT_AT_MOST,
+            "temperature": 0.2,
+            "chat_template_kwargs": { "enable_thinking": false },
+            "reasoning_effort": "none",
+        });
+        let written = self.engine.answer(&session.model, body, &AtomicBool::new(false), &mut |_| {}).await?;
+        let account = written.content.trim();
+        if account.is_empty() {
+            return Err(Error::Other("The model wrote nothing when asked for an account of the conversation, so nothing was made shorter.".into()));
+        }
+        let summary = self.sessions.summarise(&session.id, last_covered.seq, account, why, tokens_before)?;
+        self.events.append(
+            "session.compacted",
+            Some(&session.id),
+            json!({ "summary": summary.id, "why": why, "upto_seq": summary.upto_seq, "messages": older.len(), "tokens_before": tokens_before }),
+        )?;
+        Ok(summary)
     }
 
     fn turns(&self) -> std::sync::MutexGuard<'_, HashMap<String, Running>> {
@@ -188,10 +351,17 @@ impl Chat {
     }
 
     /// The prompt for the next answer: the instructions, then what was said, oldest first. Nothing that was
-    /// in an earlier prompt is ever changed or left out later, so the runtime never reads it twice.
+    /// in an earlier prompt is changed or left out later, so the runtime never reads it twice. The one
+    /// exception is when the conversation is made shorter: then the older messages give way to an account
+    /// of them, once, and the prompt is stable again from there.
     fn prompt(&self, session: &Session, answer_id: &str) -> Result<Vec<Value>> {
-        let mut messages = vec![json!({ "role": "system", "content": INSTRUCTIONS })];
-        for m in self.sessions.messages(&session.id)? {
+        let (account, in_view) = self.in_view(&session.id)?;
+        let told = match &account {
+            Some(account) => format!("{INSTRUCTIONS}\n\nEarlier in this conversation, in short:\n{}", account.content),
+            None => INSTRUCTIONS.to_string(),
+        };
+        let mut messages = vec![json!({ "role": "system", "content": told })];
+        for m in in_view {
             // The answer about to be written is not part of its own question. An answer that failed said nothing.
             if m.id == answer_id || (m.role == "assistant" && m.content.trim().is_empty()) {
                 continue;
@@ -215,6 +385,15 @@ impl Chat {
         let outcome = async {
             // The model is loaded if it is not: its loading is told by the engine's own news.
             self.engine.load(&session.model).await?;
+            // A conversation that has grown past the set size is made shorter first, so that this answer has room.
+            let room = self.context_use(&session.id)?;
+            if room.auto && room.used > room.compact_at {
+                match self.account_of(&session, "auto", Some(&answer_id)).await {
+                    Ok(_) | Err(Error::Invalid(_)) => {}
+                    // If the account cannot be written, the answer is still tried: the runtime says no if it truly does not fit.
+                    Err(e) => tracing::warn!("A session could not be made shorter: {e}"),
+                }
+            }
             let thinks = session.thinking != "off";
             let mut body = json!({
                 "model": session.model,

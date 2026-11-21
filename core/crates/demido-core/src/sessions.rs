@@ -65,6 +65,23 @@ pub struct Message {
     pub created_at: i64,
 }
 
+/// An account of the older part of a session, which the model is given in place of those messages.
+/// The messages themselves stay, for the person to read.
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct Summary {
+    pub id: String,
+    pub session_id: String,
+    /// The messages up to and including this place in the session are covered by the account.
+    pub upto_seq: u32,
+    /// The account, as the model wrote it.
+    pub content: String,
+    /// `asked`: the person asked for it. `auto`: the conversation was getting too long for the model.
+    pub why: String,
+    /// About how many tokens the conversation was before.
+    pub tokens_before: u64,
+    pub created_at: i64,
+}
+
 pub struct Sessions {
     db: Arc<Db>,
 }
@@ -188,6 +205,37 @@ impl Sessions {
         self.message(id)
     }
 
+    /// Every time this session was made shorter, oldest first. The last one is the one in force.
+    pub fn summaries(&self, session_id: &str) -> Result<Vec<Summary>> {
+        self.db.with(|c| {
+            c.prepare("SELECT id, session_id, upto_seq, content, why, tokens_before, created_at FROM summaries WHERE session_id = ?1 ORDER BY upto_seq, created_at")?
+                .query_map([session_id], |r| {
+                    Ok(Summary {
+                        id: r.get(0)?,
+                        session_id: r.get(1)?,
+                        upto_seq: r.get(2)?,
+                        content: r.get(3)?,
+                        why: r.get(4)?,
+                        tokens_before: r.get::<_, i64>(5)?.max(0) as u64,
+                        created_at: r.get(6)?,
+                    })
+                })?
+                .collect()
+        })
+    }
+
+    /// Writes down an account that stands for the messages up to `upto_seq`.
+    pub fn summarise(&self, session_id: &str, upto_seq: u32, content: &str, why: &str, tokens_before: u64) -> Result<Summary> {
+        let (id, now) = (uuid::Uuid::now_v7().to_string(), now_ms());
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO summaries (id, session_id, upto_seq, content, why, tokens_before, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![id, session_id, upto_seq, content, why, tokens_before as i64, now],
+            )
+        })?;
+        Ok(Summary { id, session_id: session_id.to_string(), upto_seq, content: content.to_string(), why: why.to_string(), tokens_before, created_at: now })
+    }
+
     /// An answer that was being written when Demido stopped was never finished. Say so, once, when Demido starts.
     pub fn close_unfinished(&self) -> Result<usize> {
         self.db.with(|c| c.execute("UPDATE messages SET state = 'stopped', problem = 'Demido was stopped while this was being written.' WHERE state = 'answering'", []))
@@ -247,6 +295,25 @@ mod tests {
         let after = s.message(&r.id).unwrap();
         assert_eq!((after.state.as_str(), after.content.as_str()), ("stopped", "Half an ans"));
         assert!(after.problem.unwrap().contains("Demido was stopped"));
+    }
+
+    #[test]
+    fn an_account_stands_for_the_older_messages_and_goes_with_the_session() {
+        let s = fresh();
+        let a = s.create(None, "small").unwrap();
+        for i in 0..6 {
+            s.add(&a.id, if i % 2 == 0 { "user" } else { "assistant" }, &format!("message {i}"), "done", None).unwrap();
+        }
+        assert!(s.summaries(&a.id).unwrap().is_empty());
+        s.summarise(&a.id, 2, "They greeted each other.", "asked", 900).unwrap();
+        let later = s.summarise(&a.id, 4, "They greeted each other and agreed on a plan.", "auto", 1400).unwrap();
+        let all = s.summaries(&a.id).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all.last(), Some(&later), "the last one is the one in force");
+        // The messages themselves are all still there.
+        assert_eq!(s.messages(&a.id).unwrap().len(), 6);
+        s.delete(&a.id).unwrap();
+        assert!(s.summaries(&a.id).unwrap().is_empty());
     }
 
     #[test]

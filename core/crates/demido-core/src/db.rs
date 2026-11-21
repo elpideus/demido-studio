@@ -52,6 +52,16 @@ const MIGRATIONS: &[&str] = &[
      ) STRICT;",
     // 3: each session says whether its model thinks first: off, on, or one of the model's levels
     "ALTER TABLE sessions ADD COLUMN thinking TEXT NOT NULL DEFAULT 'off';",
+    // 4: a long conversation made shorter. The messages stay; the model is given the account in their place.
+    "CREATE TABLE summaries (
+        id            TEXT PRIMARY KEY,
+        session_id    TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+        upto_seq      INTEGER NOT NULL,     -- the messages up to and including this one are covered
+        content       TEXT NOT NULL,        -- the account of them, as the model wrote it
+        why           TEXT NOT NULL,        -- asked (by the person) or auto (it was getting too long)
+        tokens_before INTEGER NOT NULL,     -- about how long the conversation was
+        created_at    INTEGER NOT NULL
+     ) STRICT;",
 ];
 
 pub struct Db {
@@ -95,7 +105,8 @@ mod tests {
         let db = Db::memory().unwrap();
         let version: i64 = db.with(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0))).unwrap();
         assert_eq!(version, MIGRATIONS.len() as i64);
-        let tables: i64 = db.with(|c| c.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('settings', 'events', 'sessions', 'messages')", [], |r| r.get(0))).unwrap();
-        assert_eq!(tables, 4);
+        let tables: i64 =
+            db.with(|c| c.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('settings', 'events', 'sessions', 'messages', 'summaries')", [], |r| r.get(0))).unwrap();
+        assert_eq!(tables, 5);
     }
 }

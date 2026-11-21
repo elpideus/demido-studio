@@ -124,6 +124,11 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 90 | **One conversation, every window.** Because the core runs the turn and tells it as news, an answer started in a terminal is written in the open window at the same moment. | Done |
 | 91 | **"Answer now."** A small model can think for a thousand tokens about a greeting. While it thinks, one press ends the thought and makes it answer with what it has. The runtime has the control for it; the voice mode in the preview had the same idea. | Done |
 | 92 | **A limit on thinking, set once.** Besides the button: a number of tokens after which a thought is ended by itself. The runtime takes such a budget only when it starts, not per question, so Demido would count and end the thought itself. | Raised |
+| 93 | **Show what the model still knows.** When a conversation is made shorter, the window does not hide it: the older messages stay, dimmed, and a note at the cut prints the account the model now has in their place. A person can read it and see what was lost before it matters. | Done |
+| 94 | **Check an account before trusting it.** The smaller test model still answers the conversation, in place of writing notes on it, about once in three. A cheap check is possible without a second model: every number and every capitalised name in the older messages should appear in the account; if many are missing, ask once more, and if it is still poor, keep more messages word for word and say so. | Raised |
+| 95 | **Let a person mend the account.** The account is plain text the model reads. A person who sees a wrong or missing fact in it could correct it in place, and the model would know from the next turn. | Raised |
+| 96 | **Pin a message.** "Never lose this one": a pinned message stays word for word through every shortening. Useful for a specification or a list of rules given at the start. | Raised |
+| 97 | **A stronger model writes the account.** With a model for each agent (DECISIONS O), the account could be written by the most careful model that is loaded, not by the session's own. It is rare work where care pays more than speed. | Raised; with item 7 |
 
 ## Pushback on the brief so far
 

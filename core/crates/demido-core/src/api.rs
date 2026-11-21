@@ -29,7 +29,7 @@ use tokio_stream::{Stream, StreamExt};
 use utoipa::{OpenApi, ToSchema};
 
 use crate::auth::{Auth, COOKIE, LINK_LIFETIME};
-use crate::chat::{Chat, Turn};
+use crate::chat::{Chat, ContextUse, Turn};
 use crate::db::Db;
 use crate::desktop::Appearance;
 use crate::engine::{Engine, LocalModel, ModelList, ProcessLauncher};
@@ -37,7 +37,7 @@ use crate::events::{Event, EventLog};
 use crate::kept::Kept;
 use crate::paths::Paths;
 use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
-use crate::sessions::{Message, Session, Sessions};
+use crate::sessions::{Message, Session, Sessions, Summary};
 use crate::settings::{Entry, Section, Settings};
 use crate::system::{Advice, SystemInfo};
 use crate::ui::Ui;
@@ -64,7 +64,7 @@ impl Core {
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let sessions = Arc::new(Sessions::new(db));
-        let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone()));
+        let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone()));
         Ok(Self { settings, events, auth, runtimes, engine, sessions, chat })
     }
 }
@@ -377,6 +377,11 @@ pub struct SessionDetail {
     /// What thinking can be set to for this session's model, besides `off`. Empty: the model does not think.
     /// `null`: not known yet, because the model has never been loaded.
     pub thinking_choices: Option<Vec<String>>,
+    /// Each time the session was made shorter, oldest first. The model is given the last account in place
+    /// of the messages up to its `upto_seq`; the messages themselves are all still in `messages`.
+    pub summaries: Vec<Summary>,
+    /// How much of what the model can hold the session is using.
+    pub context: ContextUse,
 }
 
 /// One session with everything said in it, and what the model is told first.
@@ -384,7 +389,15 @@ pub struct SessionDetail {
 async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<Json<SessionDetail>> {
     let session = app.sessions.get(&id)?;
     let thinking_choices = app.engine.list().await?.models.into_iter().find(|m| m.id == session.model).and_then(|m| m.thinking);
-    Ok(Json(SessionDetail { messages: app.sessions.messages(&id)?, instructions: crate::chat::INSTRUCTIONS.to_string(), answering: app.chat.answering(&id), thinking_choices, session }))
+    Ok(Json(SessionDetail {
+        messages: app.sessions.messages(&id)?,
+        instructions: crate::chat::INSTRUCTIONS.to_string(),
+        answering: app.chat.answering(&id),
+        thinking_choices,
+        summaries: app.sessions.summaries(&id)?,
+        context: app.chat.context_use(&id)?,
+        session,
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -400,6 +413,15 @@ pub struct SessionChange {
 #[utoipa::path(patch, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = SessionChange, responses((status = 200, body = Session), (status = 404, body = Problem)))]
 async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(body): Json<SessionChange>) -> Result<Json<Session>> {
     Ok(Json(app.chat.change(&id, body.title.as_deref(), body.model.as_deref(), body.thinking.as_deref()).await?))
+}
+
+/// Makes a session shorter for the model: it writes a short account of the older part of the conversation,
+/// and is given that account from then on in place of those messages. The messages stay in the session.
+/// Answers when the account is written, which takes a few seconds. Also happens by itself when a session
+/// nears what the model can hold (the settings under "Context and compaction").
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/compact", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Summary), (status = 404, body = Problem), (status = 409, body = Problem), (status = 422, body = Problem)))]
+async fn session_compact(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Summary>> {
+    Ok(Json(app.chat.compact(&id, "asked").await?))
 }
 
 /// Ends the thought the session's model is in, so that it goes on to its answer now.
@@ -543,7 +565,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -574,6 +596,7 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/messages", post(session_say))
         .route("/sessions/{id}/stop", post(session_stop))
         .route("/sessions/{id}/answer-now", post(session_answer_now))
+        .route("/sessions/{id}/compact", post(session_compact))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))
@@ -736,13 +759,13 @@ mod tests {
         let runtimes = Arc::new(Runtimes::new(home, events.clone(), Source::default()).unwrap());
         let engine = Arc::new(Engine::new(home, runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let app = App {
-            settings,
+            settings: settings.clone(),
             events: events.clone(),
             auth: auth.clone(),
             runtimes,
             engine: engine.clone(),
             sessions: sessions.clone(),
-            chat: Arc::new(Chat::new(sessions, engine, events.clone())),
+            chat: Arc::new(Chat::new(sessions, engine, events.clone(), settings.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
