@@ -1,4 +1,4 @@
-/* Sessions, for real: conversations with a model on this computer, kept and run by the core.
+/* Sessions, for real: conversations with a model on this computer, or one chosen elsewhere, kept and run by the core.
 
    This is what is built of the Sessions screen: talking, thinking, making a long session shorter, the first
    tools (the clock, the calculator) and work split into tasks. The preview (the same pages without a core)
@@ -9,6 +9,7 @@ import { Prose } from '@/ui/prose'
 import { ArrowUp, Folder, ListChecks, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, type LucideIcon } from 'lucide-react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
+import { chosenModels, dollars, useProviders } from '@/data/providers'
 import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
 import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal, StepRow, Tip } from '@/ui'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
@@ -19,13 +20,27 @@ function ago(at: number): string {
   return min < 1 ? 'now' : min < 60 ? `${min} min` : min < 60 * 48 ? `${Math.round(min / 60)} h` : `${Math.round(min / 60 / 24)} d`
 }
 
+/** The model a new session starts with: the core picks one on this computer. With none here, the first one
+    the person chose elsewhere, named, so that it is their choice and not the core's. */
+function firstModel(): string | undefined {
+  if (useLocal.getState().list?.models.length) return undefined
+  return chosenModels(useProviders.getState().providers)[0]?.id
+}
+
+/** The provider a session's model runs at, by name. `null` for a model on this computer. */
+function elsewhere(model: string | null | undefined): string | null {
+  if (!model || !model.includes('/')) return null
+  const id = model.split('/')[0]
+  return useProviders.getState().providers?.find((p) => p.id === id)?.name ?? id
+}
+
 function List() {
   const list = useReal((s) => s.list)
   const { '*': rest } = useParams()
   const current = rest?.split('/')[0]
   const navigate = useNavigate()
   const start = async () => {
-    const id = await newSession()
+    const id = await newSession(firstModel())
     if (id) navigate(`/sessions/${id}`)
   }
   return (
@@ -49,7 +64,7 @@ function List() {
         </ul>
       </div>
       <div className="app-side__foot">
-        <span>These conversations are real: kept by the core, answered by a model on this computer.</span>
+        <span>These conversations are real: kept by the core, answered by a model on this computer, or by one you chose elsewhere (Providers).</span>
         <NotBuilt block>Pages that need scripts, PDFs, and the search services that need a key; the second look that Smart is to give; a sandbox on macOS and Windows; groups and search. The preview shows where these are going.</NotBuilt>
       </div>
     </aside>
@@ -178,6 +193,7 @@ function TaskList({ tasks, changes, parent = null }: { tasks: CoreTask[]; change
 
 function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: CoreMessage; live?: { text: string; thought: string }; doing?: { steps?: CoreStep[]; tasks?: CoreTask[] }; tasks: CoreTask[]; changes: CoreChange[]; asking?: PermissionRequest | null; folder: boolean }) {
   const loading = useLocal((s) => s.list?.models.find((x) => x.id === m.model)?.state === 'loading')
+  const at = useProviders(() => elsewhere(m.model))
   if (m.role === 'user')
     return <article className="d-message" data-from="user"><div className="d-message__body" style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div></article>
   const writing = m.state === 'answering'
@@ -191,7 +207,7 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
   return (
     <article className="d-message" data-from="assistant">
       <div className="d-message__body chat__blocks">
-        {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {loading ? `Loading ${m.model}…` : 'Waking the model…'}</p>}
+        {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {at ? `Asking ${at}…` : loading ? `Loading ${m.model}…` : 'Waking the model…'}</p>}
         {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} session={m.session_id} />)}
         {split.length > 0 && <TaskList tasks={split} changes={changes} />}
         {writing && asking && <Asking request={asking} />}
@@ -202,7 +218,8 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
             <pre>{thought}</pre>
           </details>
         )}
-        {writing && thought && !text && <div><Button size="sm" onClick={() => void answerNow(m.session_id)}>Answer now</Button></div>}
+        {/* A provider's model cannot be told from outside to end its thought. */}
+        {writing && thought && !text && !at && <div><Button size="sm" onClick={() => void answerNow(m.session_id)}>Answer now</Button></div>}
         {text && <Prose text={text} />}
         {/* In a session with a folder, an answer about files that read no file is an answer from nowhere. Small models write those. */}
         {folder && m.state === 'done' && !busy && <p className="d-type-caption d-text-tertiary">No file was read or changed for this answer.</p>}
@@ -211,7 +228,8 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
       </div>
       {!writing && t && t.written > 0 && (
         <p className="d-type-caption d-text-tertiary" style={{ marginBlockStart: 'var(--d-space-4)' }}>
-          {m.model} · {t.written} tokens at {Math.round(t.per_second)} a second · of the prompt, {t.read} tokens read and {t.reused} not read again
+          {m.model} · {t.written} tokens at {Math.round(t.per_second)} a second · of the prompt, {t.read} tokens read and {t.reused} {at ? `from ${at}'s cache` : 'not read again'}
+          {t.cost_usd !== undefined && <> · <Tip label={t.cost_exact ? `What ${at ?? 'the provider'} said this answer cost, with every request made for it (the tools it chose, its tasks).` : `What this answer cost, with every request made for it, as Demido counted it from the tokens ${at ?? 'the provider'} reported and the prices it read.`}><span>{dollars(t.cost_usd)}{t.cost_exact ? '' : ' (estimated)'}</span></Tip></>}
         </p>
       )}
     </article>
@@ -288,6 +306,8 @@ function Chat() {
   const writing = useReal((s) => s.writing)
   const working = useReal((s) => s.working)
   const models = useLocal((s) => s.list?.models) ?? []
+  const providers = useProviders((s) => s.providers)
+  const remote = chosenModels(providers)
   const navigate = useNavigate()
   const thread = useRef<HTMLDivElement>(null)
   const [told, setTold] = useState(false)
@@ -317,16 +337,20 @@ function Chat() {
   // The account in force, and the last message it stands for.
   const account = detail.summaries.at(-1)
   const covered = account?.upto_seq ?? 0
+  const at = elsewhere(session.model)
+  // A model that always thinks cannot be told not to: "off" asks for the least.
+  const always = remote.find((r) => r.id === session.model)?.always_thinks ?? false
+  const offLabel = always ? 'Least thinking' : 'No thinking'
   return (
     <section className="chat" aria-label="Conversation">
       <header className="chat__head chat__head--tools">
         <h1 className="chat__title">{session.title}</h1>
         {detail.thinking_choices && detail.thinking_choices.length > 0 && (
-          <Tip label="Whether the model thinks before it answers. Slower; it can help on hard questions.">
+          <Tip label={always ? 'This model always thinks before it answers. "Least thinking" asks it for as little as it does.' : 'Whether the model thinks before it answers. Slower; it can help on hard questions.'}>
             <span>
               {detail.thinking_choices.length <= 3
-                ? <Segmented small label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: 'No thinking' }, ...detail.thinking_choices.map((c) => ({ value: c, label: c === 'on' ? 'Think first' : `Think: ${c}` }))]} />
-                : <Select label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: 'No thinking' }, ...detail.thinking_choices.map((c) => ({ value: c, label: `Think: ${c}` }))]} />}
+                ? <Segmented small label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: offLabel }, ...detail.thinking_choices.map((c) => ({ value: c, label: c === 'on' ? 'Think first' : `Think: ${c}` }))]} />
+                : <Select label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: offLabel }, ...detail.thinking_choices.map((c) => ({ value: c, label: `Think: ${c}` }))]} />}
             </span>
           </Tip>
         )}
@@ -342,8 +366,12 @@ function Chat() {
               options={(Object.keys(LEVELS) as Level[]).map((l) => ({ value: l, label: LEVELS[l].label }))} />
           </span>
         </Tip>
+        {at && <Tip label={`What is said in this session, and what its tools read, is sent to ${at}. Each answer costs money: Providers shows the month's count and limit.`}><span className="d-badge d-badge--outline">Sent to {at}</span></Tip>}
         <Select label="Model for this session" value={session.model} onChange={(model) => void changeSession(id, { model })}
-          options={[...new Set([session.model, ...models.map((m) => m.id)])].map((m) => ({ value: m, label: m }))} />
+          options={[...new Set([session.model, ...models.map((m) => m.id), ...remote.map((m) => m.id)])].map((m) => {
+            const there = remote.find((r) => r.id === m)
+            return { value: m, label: there ? `${there.name} · ${elsewhere(m)}${there.free ? ', free' : ''}` : m }
+          })} />
         <Button variant="ghost" size="sm" pressed={told} onClick={() => setTold(!told)}>What the model is told</Button>
         {sure
           ? <><Button size="sm" variant="ghost" onClick={() => setSure(false)}>Keep</Button><Button size="sm" variant="danger" onClick={async () => { await deleteSession(id); navigate('/sessions') }}>Delete it all</Button></>
@@ -374,7 +402,7 @@ function Chat() {
             <div className="chat__welcome">
               <span dangerouslySetInnerHTML={{ __html: logo }} />
               <h2 className="d-type-title-2">What do you want to know?</h2>
-              <p className="d-text-secondary">{session.model} loads when you send, and unloads when it has been idle. {!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} ${internet}` : `It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. ${internet}`}</p>
+              <p className="d-text-secondary">{at ? `${remote.find((r) => r.id === session.model)?.name ?? session.model} runs at ${at}: what you write here, and what its tools read, is sent there, and each answer costs money. ` : `${session.model} loads when you send, and unloads when it has been idle. `}{!detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} ${internet}` : `It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. ${internet}`}</p>
             </div>
           )}
           {messages.map((m) => (
@@ -401,8 +429,8 @@ function Empty() {
         <div className="chat__welcome">
           <span dangerouslySetInnerHTML={{ __html: logo }} />
           <h2 className="d-type-title-2">No session yet</h2>
-          <p className="d-text-secondary">A session is a conversation with a model on this computer.</p>
-          <div className="chat__ideas"><Button variant="primary" disabled={!list} onClick={async () => { const id = await newSession(); if (id) navigate(`/sessions/${id}`) }}>Start a session</Button></div>
+          <p className="d-text-secondary">A session is a conversation with a model on this computer, or with one you chose elsewhere (Providers).</p>
+          <div className="chat__ideas"><Button variant="primary" disabled={!list} onClick={async () => { const id = await newSession(firstModel()); if (id) navigate(`/sessions/${id}`) }}>Start a session</Button></div>
         </div>
       </div></div>
     </section>

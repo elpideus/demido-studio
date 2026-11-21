@@ -128,6 +128,11 @@ Windows, and tools other people write.
    GGUF models, whether each fits this computer, a quantization recommended, downloads checked and resumable,
    a vision part downloaded with its model. Left in it: gated models (with the vault), deleting a model from
    the window, settings for each model.
+   The vault and three providers are built (DECISIONS U, research note 18): keys in the system keyring (a
+   file only the user can read where there is none), never shown again and never seen by a model; Anthropic,
+   Gemini and OpenRouter in sessions, chosen by the person, with what each answer cost and a limit for the
+   month. Tried against stand-ins; the first real request waits for the owner's key. Left in it: Claude Code
+   and OpenCode.
 7. Agents (a model for each, chosen by the orchestrating model or by Demido's rule: DECISIONS, section O),
    lending, schedules, session messaging.
 8. Files, artifacts, editor. Browser, search, fetch.
@@ -149,8 +154,8 @@ list made for the split stays, because it says what is left and what to watch in
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | Settings for each model: the research, and applying what the makers recommend | It meets `docs/LATER.md` 1 |
-| 6 | Where keys are kept (the vault) and how a provider is allowed to be used. With it: search services that need a key (Brave and others), which is what would make search good | Secrets and money |
-| 6 | Each provider's own client (Anthropic, Gemini, OpenRouter, Claude Code, OpenCode); usage shown | Documented interfaces, one at a time |
+| 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good, and the Hugging Face key for gated models (H8) | Secrets and money |
+| 6 | ~~Anthropic, Gemini and OpenRouter; usage shown.~~ Done (DECISIONS U), tried against stand-ins: the first real request waits for your key. Left: Claude Code and OpenCode, which are programs with loops of their own | Documented interfaces, one at a time; never touch a program's login |
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
 | 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
@@ -172,8 +177,11 @@ T19).
 
 Also done on 2026-11-21: the models browser and downloader (DECISIONS H).
 
-Next, in this order unless the owner says otherwise: the sandbox on macOS and Windows; settings for each
-model (the research first).
+Also done on 2026-11-21: the vault, and Anthropic, Gemini and OpenRouter with what they cost (DECISIONS U,
+research note 18).
+
+Next, in this order unless the owner says otherwise: Claude Code and OpenCode (the rest of plan item 6); the
+sandbox on macOS and Windows; settings for each model (the research first).
 
 ## Set aside for later
 
@@ -188,6 +196,11 @@ model, from a short trial when a model is first used.
 - **Search, for your eye.** It now works as the previous version did, a ladder of sources (DECISIONS N6),
   with two things left out on purpose: a browser's name in place of Demido's, and Brave's and Bing's
   pages (N7). Say so if you want either otherwise.
+- **A first real request to a provider.** Everything for Anthropic, Gemini and OpenRouter is built and
+  tested against stand-ins that answer the way their documentation shows. A real request needs your own key,
+  which I may not enter for you, and it costs money (OpenRouter's free models cost nothing). When you add a
+  key on the Providers screen (or `demido keys add anthropic`), one short question in a session is the trial;
+  tell me what it said if anything looks wrong.
 - Signing the Windows and macOS builds. It costs money every year (DECISIONS R7).
 - A usage policy for the name and logo, to replace the holding notice (DECISIONS A13).
 - Whether to rerun the research sweep or let it be done directly (the earlier run stalled and has ended).

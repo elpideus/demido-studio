@@ -154,8 +154,26 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 120 | **Recommend models by what Demido measured, not by what is popular.** Demido already has trials of tool use (research notes 13 and 14). Run on a model the person downloads, they would say how well it does Demido's work, and that, kept, is the recommendation that means something: "on this computer, this one used tools right 7 times out of 8". | Idea | Not built |
 | 121 | **Delete a model from the window**, and see where it came from on its page (the note is already kept beside the models). | Idea | Not built |
 | 122 | **Say when a model has a newer version.** The commit each model was downloaded from is kept; asking Hugging Face for the repository's commit now would say whether it changed. | Idea | Not built |
+| 123 | **A limit for each provider, and one for each answer.** Today there is one limit for the month, all providers together. One per provider, and a ceiling for a single answer ("ask me before an answer that would cost more than $0.50"), would catch a long conversation on an expensive model before it adds up. | Idea | Not built |
+| 124 | **Half price for work that can wait.** Anthropic's batch interface costs half, and answers within a day. Schedules and monitors (plan item 7) that run at night could use it. | Idea | Not built |
+| 125 | **A model elsewhere as the second look.** Smart is to have a model judge whether a program needs your yes (T). A small fast model elsewhere (Haiku 5.5 costs $0.10 a million tokens read) could be that judge while the local model does the work, if you accept that what it judges leaves the computer. | Idea | Not built |
+| 126 | **Anthropic's own figure for what was spent.** An ordinary key cannot ask; an admin key can (the Admin API's cost report). With one in the vault, the Anthropic card could show Anthropic's figure beside Demido's count. | Idea | Not built |
+| 127 | **Keys for a server, locked.** On a server without a desktop the keys are in a file only the user can read. Note 05 planned better there: a vault file locked with a passphrase typed after boot, or by systemd's own encrypted credentials. | Idea | Not built |
 
 ## Pushback on the brief so far
+
+- **Every answer from a model elsewhere is two requests or more, and both are paid.** Demido first asks a
+  model whether it needs a tool, then for the answer (L, T): that is what makes small local models usable,
+  and on a provider it is a second request each turn. Anthropic's cache makes the second one cheap, because
+  the beginning is the same, and the cost under each answer counts both. A session with tools off is one
+  request a turn. I kept the same loop for every model, so that a session behaves the same wherever its
+  model runs; say if you want big models elsewhere to skip the question and use the provider's own tool calls.
+- **The preview promised the keyring, and the keyring is what it is.** The mock Providers screen said keys
+  live "in your system keyring, never in a file". That holds on a desktop. On a server without one there is
+  no keyring, and the key is in a file only your user can read; the screen says which, for each key.
+- **Demido's count is not the bill.** For Anthropic and Gemini it is tokens times the prices I read today.
+  It errs high (regular prices, never the introductory ones), and the screen says so, but a provider that
+  changes its prices will be counted wrong until the table is updated.
 
 - **Logo checkpoint.** I started exploring new logo concepts before learning a logo existed, and stopped that
   work when you pointed to it. Nothing from it is in the kit.

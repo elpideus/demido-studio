@@ -72,6 +72,13 @@ pub struct Timings {
     pub per_second: f64,
     /// Milliseconds from asking to the last token.
     pub took_ms: u64,
+    /// What the answer cost at a provider, in dollars, with everything asked of the model for it. `null`
+    /// for a model on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    /// Whether that is the provider's own figure (`true`), or Demido's count from tokens and prices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_exact: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
@@ -536,7 +543,7 @@ mod tests {
         let q = s.add(&a.id, "user", "Name three colours.", "done", None).unwrap();
         let r = s.add(&a.id, "assistant", "", "answering", Some("small")).unwrap();
         assert_eq!((q.seq, r.seq, r.state.as_str()), (1, 2, "answering"));
-        let t = Timings { reused: 27, read: 25, written: 11, per_second: 235.5, took_ms: 62 };
+        let t = Timings { reused: 27, read: 25, written: 11, per_second: 235.5, took_ms: 62, ..Timings::default() };
         let done = s.finish(&r.id, "Red, blue, yellow.", Some("  "), "done", None, Some(&t)).unwrap();
         assert_eq!((done.content.as_str(), done.thought, done.state.as_str(), done.timings), ("Red, blue, yellow.", None, "done", Some(t)));
         let said = s.messages(&a.id).unwrap();

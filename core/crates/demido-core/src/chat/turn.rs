@@ -383,7 +383,7 @@ impl Chat {
             body["temperature"] = json!(0);
             body["response_format"] = json!({ "type": "json_schema", "schema": shape });
         }
-        Ok(self.engine.answer(&session.model, body, stop, &mut |_| {}).await?.content)
+        Ok(self.ask(session, body, stop, &mut |_| {}).await?.content)
     }
 
     /// Asks which tool is needed, uses it, and asks again, until the model needs none. `Some` when it asked
@@ -446,6 +446,15 @@ impl Chat {
                 Ok(Asked::Tool { tool, args }) => {
                     let (tool, args) = self.search_as_meant(session, steps, tool, args)?;
                     let args = Value::Object(args);
+                    // A key Demido keeps is never sent anywhere by a tool, whatever the model was told. It can
+                    // only have come from something it read, so nothing more is asked of it.
+                    if self.holds_a_key(&args.to_string()) {
+                        let problem = "it holds one of the keys Demido keeps, and no tool is ever given a key";
+                        self.events.append("tool.refused", Some(&session.id), json!({ "tool": tool, "problem": problem }))?;
+                        steps.push(Step { tool, args: json!({}), result: problem.into(), state: "refused".into(), ..Step::default() });
+                        changed(steps);
+                        break;
+                    }
                     // Asking for the same thing again means the model is going round. It has what the tool gives.
                     if steps.iter().any(|s| s.tool == tool && s.args == args) {
                         break;
@@ -518,7 +527,7 @@ impl Chat {
                                 Ok(ran) => {
                                     // The whole of what it printed is kept, as a terminal would show it; the model
                                     // is told the short view. What a program prints is text from outside, like a file's.
-                                    kept_output = self.keep_output(&session.id, &tools::output::as_a_terminal_shows(&ran.output));
+                                    kept_output = self.keep_output(&session.id, &self.hide(&tools::output::as_a_terminal_shows(&ran.output)));
                                     let told = tools::clean(&ran.told());
                                     if ran.stopped.is_none() { Ok(tools::Done { gave: told, changed: None }) } else { Err(told) }
                                 }
@@ -578,9 +587,10 @@ impl Chat {
                             let _ = std::fs::remove_dir_all(old);
                         }
                     }
+                    // Whatever a tool gave, a key Demido keeps is taken out before the model or the person reads it.
                     match outcome {
                         Ok(done) => {
-                            (step.state, step.result) = ("done".into(), done.gave);
+                            (step.state, step.result) = ("done".into(), self.hide(&done.gave));
                             // What a changed file held before is kept, so that the change can be undone.
                             if let Some(made) = done.changed {
                                 // What it changed, made now: later changes to the file are theirs, not this one's.
@@ -590,7 +600,7 @@ impl Chat {
                                 step.change = Some(self.sessions.add_change(&session.id, answer_id, &made.path, made.before.as_deref(), Some((diff.0, &diff.1)))?.id);
                             }
                         }
-                        Err(why) => (step.state, step.result) = ("failed".into(), why),
+                        Err(why) => (step.state, step.result) = ("failed".into(), self.hide(&why)),
                     }
                     // Told that a file is outside the folder, a model is not left to look for another way in.
                     // The same for an address on this computer or its network.

@@ -95,6 +95,29 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE changes ADD COLUMN checkpoint TEXT;",
     // 8: what a change changed, as a diff made at the moment of the change, and its size in a few words
     "ALTER TABLE changes ADD COLUMN diff TEXT; ALTER TABLE changes ADD COLUMN diff_stat TEXT;",
+    // 9: models elsewhere the person chose, and what each request to a provider cost
+    "CREATE TABLE remote_models (
+        id        TEXT PRIMARY KEY,         -- provider/model, as a session names it
+        provider  TEXT NOT NULL,
+        facts     TEXT NOT NULL,            -- JSON: what the provider said about it when it was chosen
+        chosen_at INTEGER NOT NULL
+     ) STRICT;
+     CREATE TABLE usage (
+        seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+        at            INTEGER NOT NULL,     -- milliseconds since 1970
+        provider      TEXT NOT NULL,
+        model         TEXT NOT NULL,        -- its name at the provider
+        session_id    TEXT,                 -- kept when the session is deleted: the money was spent
+        message_id    TEXT,                 -- the answer it was asked for
+        input         INTEGER NOT NULL,     -- tokens read at the full price
+        cached        INTEGER NOT NULL,     -- tokens read from the provider's cache
+        cache_written INTEGER NOT NULL,     -- tokens written to the provider's cache
+        output        INTEGER NOT NULL,     -- tokens written, thinking included
+        cost_usd      REAL NOT NULL,
+        exact         INTEGER NOT NULL      -- 1: the provider's own figure. 0: Demido's count from tokens and prices
+     ) STRICT;
+     CREATE INDEX usage_at ON usage (at);
+     CREATE INDEX usage_of_message ON usage (message_id);",
 ];
 
 pub struct Db {

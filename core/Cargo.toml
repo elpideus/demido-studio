@@ -24,6 +24,14 @@ encoding_rs = "0.8"
 flate2 = "1.1"
 # Dates and times with the system's own time zone. Read from crates.io on 2026-11-21: 1.0.1, Unlicense OR MIT.
 jiff = "1"
+# Where keys are kept: the system's own keyring, one crate per system. Read from crates.io on 2026-11-21:
+# keyring-core 1.1.0, zbus-secret-service-keyring-store 1.0.1, apple-native-keyring-store 1.0.2,
+# windows-native-keyring-store 1.1.0, all MIT OR Apache-2.0 (docs/research/05-security-injection.md, 18-keys-and-providers.md).
+# The Secret Service is reached in Rust (zbus, with Rust's own crypto): no C library, no OpenSSL.
+keyring-core = "1.1"
+zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-crypto-rust"] }
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
+windows-native-keyring-store = { version = "1.1", default-features = false }
 nvml-wrapper = "0.13"
 # rustls with the system's own list of trusted certificates. No OpenSSL.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream", "json", "system-proxy", "gzip", "brotli"] }

@@ -8,7 +8,8 @@ import { create } from 'zustand'
 import { coreGet, coreSend, onCoreEvent } from './core'
 import { toast } from './store'
 
-export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number }
+/** `cost_usd`: what the answer cost at a provider, with everything asked for it; absent for a model on this computer. `cost_exact`: the provider's own figure, or Demido's count from tokens and prices. */
+export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number; cost_usd?: number; cost_exact?: boolean }
 /** One use of a tool. `waiting`: for the person's yes. `refused`: the request could not be used, or the person said no; nothing ran.
     `change`: the id of the change it made to a file, for undoing it. */
 export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null }

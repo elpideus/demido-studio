@@ -26,6 +26,8 @@ struct World {
     stand: Arc<Stand>,
     home: PathBuf,
     settings: Arc<Settings>,
+    /// The keys Demido keeps, in a file in `home`: none unless a test puts one there.
+    vault: Arc<crate::vault::Vault>,
 }
 
 fn world(name: &str) -> World {
@@ -56,14 +58,21 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
         Some(wait) => engine.idle_after(wait),
         None => engine,
     });
+    let vault = Arc::new(crate::vault::Vault::in_file(&home));
+    let providers = Arc::new(crate::providers::Providers::new(db.clone(), vault.clone(), kept_settings.clone(), events.clone()));
     let sessions = Arc::new(Sessions::new(db));
     // The tests in this file are about plain chat: one request to the model for each turn. Tools have their own.
     kept_settings.set("tools.use", json!(false)).unwrap();
     // Nor do they reach the internet: the tests that do have a stand-in site (`the_internet`).
     kept_settings.set("web.use", json!(false)).unwrap();
-    let chat =
-        Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone()).with_clock(CLOCK).keeping_in(home.join("saved-folders")).keeping_outputs_in(home.join("outputs")));
-    World { chat, sessions, engine, events, stand, home, settings: kept_settings }
+    let chat = Arc::new(
+        Chat::new(sessions.clone(), engine.clone(), events.clone(), kept_settings.clone())
+            .with_clock(CLOCK)
+            .keeping_in(home.join("saved-folders"))
+            .keeping_outputs_in(home.join("outputs"))
+            .with_providers(providers),
+    );
+    World { chat, sessions, engine, events, stand, home, settings: kept_settings, vault }
 }
 
 impl World {
@@ -223,11 +232,11 @@ async fn a_session_needs_a_model_that_is_there_and_something_to_say() {
     }
     assert!(!w.chat.answering(&session.id));
 
-    // With no models at all, there is nothing to start a session with, and it says where to put one.
+    // With no models at all, there is nothing to start a session with, and it says where to get one.
     std::fs::remove_file(w.home.join("models/small.gguf")).unwrap();
     std::fs::remove_file(w.home.join("models/big.gguf")).unwrap();
     let err = w.chat.start(None, None).await.unwrap_err().to_string();
-    assert!(err.contains("Put a GGUF file in"), "{err}");
+    assert!(err.contains("put a GGUF file in") && err.contains("Providers screen"), "{err}");
     w.end().await;
 }
 

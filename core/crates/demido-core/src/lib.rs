@@ -21,6 +21,8 @@
 //! - [`ui`]        serving the web UI from the same address
 //! - [`web`]       reading from the internet: one page, or a search, and what may leave the computer
 //! - [`kept`]      keeping an answer for a short while, so a burst of the same question costs one answer
+//! - [`vault`]     where keys are kept: the system's keyring, or a file only the user can read
+//! - [`providers`] models that run elsewhere (Anthropic, Gemini, OpenRouter), and what they cost
 
 pub mod api;
 pub mod auth;
@@ -35,6 +37,7 @@ pub mod hub;
 pub mod kept;
 pub mod paths;
 pub mod permissions;
+pub mod providers;
 pub mod runtime;
 pub mod sandbox;
 pub mod sessions;
@@ -42,6 +45,7 @@ pub mod settings;
 pub mod system;
 pub mod tools;
 pub mod ui;
+pub mod vault;
 pub mod web;
 
 pub use error::{Error, Result};

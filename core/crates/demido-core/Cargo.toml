@@ -13,6 +13,7 @@ dom_smoothie.workspace = true
 encoding_rs.workspace = true
 flate2.workspace = true
 jiff.workspace = true
+keyring-core.workspace = true
 nvml-wrapper.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
@@ -30,6 +31,15 @@ url.workspace = true
 utoipa.workspace = true
 uuid.workspace = true
 zip.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

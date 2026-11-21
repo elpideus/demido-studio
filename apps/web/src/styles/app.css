@@ -512,6 +512,39 @@
     display: grid;
     gap: var(--d-space-4);
   }
+  /* The models of a provider: chosen ones on its card, all of them in the dialog that chooses. */
+  .prov__models,
+  .prov__spent {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .prov__models > li,
+  .prov__spent > li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--d-space-12);
+    padding-block: var(--d-space-8);
+    border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+  }
+  .prov__spent > li {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
+  }
+  .app-dialog--wide .prov__models {
+    max-height: min(60vh, 32rem);
+    overflow-y: auto;
+  }
+  @media (max-width: 40rem) {
+    .prov__spent > li {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .prov__spent > li > :nth-child(2) {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
 
   /* ───────── messaging: chats and bots ───────── */
   .msgs__lines {

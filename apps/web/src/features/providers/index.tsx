@@ -1,14 +1,18 @@
 /* Providers: where models can run besides this computer.
-   A provider can hold several accounts (two API keys, a personal and a work login). One of them is the
-   default; each shows its own usage. Accounts live in a small store of their own, so they stay while you
-   move around the preview. */
+
+   With a core behind the pages, this is real (`real.tsx`): the keys Demido keeps, the models chosen at each
+   provider, and what they cost this month. Without one, the preview below shows where it is going: several
+   accounts per provider, and Claude Code and OpenCode. Accounts live in a small store of their own, so they
+   stay while you move around the preview. */
 import { useState } from 'react'
 import { create } from 'zustand'
 import { Cloud, Ellipsis, Plus } from 'lucide-react'
 import type { Feature } from '@/app/registry'
+import { useCore } from '@/data/core'
 import { toast, useStore } from '@/data/store'
 import type { Provider } from '@/data/types'
 import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal } from '@/ui'
+import { RealProviders } from './real'
 
 type Usage = NonNullable<Provider['usage']>
 interface Account { id: string; provider: string; label: string; hint: string; isDefault: boolean; usage?: Usage }
@@ -64,6 +68,12 @@ function Meter({ name, u }: { name: string; u: Usage[number] }) {
 }
 
 function ProvidersPage() {
+  const core = useCore()
+  if (core.state === 'looking') return <Page title="Providers"><p className="app-empty"><Glyph name="task-running" /> Looking for the core…</p></Page>
+  return core.state === 'ready' ? <RealProviders /> : <PreviewProviders />
+}
+
+function PreviewProviders() {
   const providers = useStore((s) => s.providers)
   const accounts = useAccounts((s) => s.accounts)
   const [adding, setAdding] = useState<{ p: Provider; edit?: Account } | null>(null)

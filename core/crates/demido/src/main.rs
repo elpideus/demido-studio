@@ -43,6 +43,17 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// The keys Demido keeps for providers. Their values are never shown again.
+    Keys {
+        #[command(subcommand)]
+        command: Option<KeysCommand>,
+    },
+    /// What models elsewhere cost this month, as Demido counted it, and the month's limit.
+    Usage {
+        /// Print JSON instead of text.
+        #[arg(long)]
+        json: bool,
+    },
     /// Read and change settings.
     Settings {
         #[command(subcommand)]
@@ -207,6 +218,20 @@ enum RuntimeCommand {
 }
 
 #[derive(Subcommand)]
+enum KeysCommand {
+    /// The keys Demido keeps: names, where each is kept, last four characters. The same as `demido keys`.
+    List,
+    /// Keep a key, in place of one of that name. It is asked for without being shown, or read from a pipe:
+    /// demido keys add anthropic < key.txt
+    Add {
+        /// anthropic, gemini or openrouter.
+        name: String,
+    },
+    /// Delete a key from wherever it is kept.
+    Remove { name: String },
+}
+
+#[derive(Subcommand)]
 enum SettingsCommand {
     /// Every setting, with its value.
     List {
@@ -271,6 +296,8 @@ async fn run(cli: Cli) -> Result<()> {
             if json { println!("{}", serde_json::to_string_pretty(&info)?) } else { print_system(&info) }
         }
         Command::Settings { command } => settings(&paths, command)?,
+        Command::Keys { command } => keys(&paths, command.unwrap_or(KeysCommand::List))?,
+        Command::Usage { json } => usage(&paths, json)?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
         Command::Ask { text, session, model, think, no_think, thinking, plan, folder, level } => {
@@ -324,6 +351,135 @@ async fn run(cli: Cli) -> Result<()> {
 }
 
 // ───────── settings ─────────
+
+/// Reads a line from the terminal without showing it, or from a pipe.
+fn read_hidden(prompt: &str) -> Result<String> {
+    use std::io::IsTerminal;
+    let mut line = String::new();
+    if !std::io::stdin().is_terminal() {
+        std::io::stdin().read_line(&mut line)?;
+        return Ok(line.trim().to_string());
+    }
+    eprint!("{prompt}");
+    std::io::stderr().flush()?;
+    // The terminal is told not to show what is typed, and told again to show it, whatever happens.
+    #[cfg(unix)]
+    let hidden = std::process::Command::new("stty").arg("-echo").stdin(std::process::Stdio::inherit()).status().is_ok_and(|s| s.success());
+    #[cfg(not(unix))]
+    let hidden = false;
+    if !hidden {
+        eprint!("(it will show as you type) ");
+    }
+    let read = std::io::stdin().read_line(&mut line);
+    #[cfg(unix)]
+    if hidden {
+        let _ = std::process::Command::new("stty").arg("echo").stdin(std::process::Stdio::inherit()).status();
+        eprintln!();
+    }
+    read?;
+    Ok(line.trim().to_string())
+}
+
+fn print_key(k: &Value) {
+    println!(
+        "  {:<12} …{}  kept in the {}  added {} ago",
+        k["name"].as_str().unwrap_or("?"),
+        k["ends_with"].as_str().unwrap_or(""),
+        if k["kept_in"] == "keyring" { "system keyring" } else { "file" },
+        ago(((demido_core::now_ms() - k["added_at"].as_i64().unwrap_or(0)) / 1000).max(0) as u64)
+    );
+}
+
+fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
+    let server = Server::find(paths);
+    // With a server running, go through it: it keeps what it read of the keys in memory.
+    let core = if server.is_none() { Some(Core::open(paths)?) } else { None };
+    match command {
+        KeysCommand::List => {
+            let view = match (&server, &core) {
+                (Some(s), _) => s.get("/api/v1/vault")?,
+                (None, Some(c)) => serde_json::to_value(c.providers.vault().view())?,
+                _ => unreachable!(),
+            };
+            println!("{}", view["where_words"].as_str().unwrap_or_default());
+            let kept = view["keys"].as_array().cloned().unwrap_or_default();
+            if kept.is_empty() {
+                println!("\nNo key is kept yet. Add one with: demido keys add <name>");
+            } else {
+                println!();
+                kept.iter().for_each(print_key);
+            }
+            let names: Vec<&str> = view["known"].as_array().into_iter().flatten().filter_map(|k| k["name"].as_str()).collect();
+            println!("\nKeys Demido can keep: {}.", names.join(", "));
+        }
+        KeysCommand::Add { name } => {
+            let value = read_hidden(&format!("The {name} key: "))?;
+            if value.is_empty() {
+                bail!("Nothing was given, so nothing was kept.");
+            }
+            let facts = match (&server, &core) {
+                (Some(s), _) => s.send("PUT", &format!("/api/v1/vault/{name}"), Some(&json!({ "value": value })))?,
+                (None, Some(c)) => {
+                    let facts = c.providers.vault().put(&name, &value)?;
+                    c.events.append("vault.key.added", Some(&facts.name), json!({ "kept_in": facts.kept_in, "ends_with": facts.ends_with }))?;
+                    serde_json::to_value(facts)?
+                }
+                _ => unreachable!(),
+            };
+            println!(
+                "Kept: the {} ending in …{}, in the {}.",
+                facts["label"].as_str().unwrap_or(&name),
+                facts["ends_with"].as_str().unwrap_or(""),
+                if facts["kept_in"] == "keyring" { "system keyring" } else { "file only your user can read" }
+            );
+        }
+        KeysCommand::Remove { name } => {
+            match (&server, &core) {
+                (Some(s), _) => {
+                    s.send("DELETE", &format!("/api/v1/vault/{name}"), None)?;
+                }
+                (None, Some(c)) => {
+                    let gone = c.providers.vault().remove(&name)?;
+                    c.events.append("vault.key.removed", Some(&gone.name), json!({ "kept_in": gone.kept_in }))?;
+                }
+                _ => unreachable!(),
+            }
+            println!("The {name} key is deleted.");
+        }
+    }
+    Ok(())
+}
+
+fn usage(paths: &Paths, json: bool) -> Result<()> {
+    let spending = match Server::find(paths) {
+        Some(s) => s.get("/api/v1/usage")?,
+        None => serde_json::to_value(Core::open(paths)?.providers.spending()?)?,
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&spending)?);
+        return Ok(());
+    }
+    let spent = spending["spent_usd"].as_f64().unwrap_or(0.0);
+    let limit = spending["limit_usd"].as_f64().map_or("no limit".to_string(), |l| format!("the limit is ${l:.2}"));
+    if spending["by_model"].as_array().is_none_or(|m| m.is_empty()) {
+        println!("This month: nothing sent to models elsewhere yet; {limit}.");
+        return Ok(());
+    }
+    let how = if spending["exact"] == true { "as the providers said" } else { "partly counted by Demido from tokens and prices" };
+    println!("This month: ${spent:.4}, {how}; {limit}. Prices read on {}.", spending["prices_read_on"].as_str().unwrap_or("?"));
+    for m in spending["by_model"].as_array().into_iter().flatten() {
+        println!(
+            "  {:<44} ${:<10.4} {} requests, {} tokens read, {} written{}",
+            format!("{}/{}", m["provider"].as_str().unwrap_or("?"), m["model"].as_str().unwrap_or("?")),
+            m["cost_usd"].as_f64().unwrap_or(0.0),
+            m["requests"],
+            m["input"],
+            m["output"],
+            if m["exact"] == true { "" } else { " (estimated)" }
+        );
+    }
+    Ok(())
+}
 
 fn settings(paths: &Paths, command: SettingsCommand) -> Result<()> {
     let server = Server::find(paths);

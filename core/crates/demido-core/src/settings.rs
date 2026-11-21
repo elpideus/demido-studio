@@ -106,6 +106,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "The internet",
             Some("What a model may read from the internet. It can only read: it sends no form, no password, nothing about you. Every use is shown in the answer it was for."),
         ),
+        section("providers", "Providers and spending", Some("Models that run elsewhere, with your own keys. They cost money: this is how much Demido may spend, and Demido stops there.")),
         section("permissions", "Permission levels", Some("How much a model may do without asking you first. Each session has its own level; this is where new ones start.")),
         section("server", "Server and remote use", Some("How this computer offers Demido to its own window, to browsers and to other devices.")),
         section("events", "The log of what happened", None),
@@ -245,7 +246,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Search with Exa",
             "Exa is a search engine for assistants. It searches the whole web and answers with the passages of each page that match.",
             Some(
-                "Default on. Demido uses the service Exa offers assistants without an account (mcp.exa.ai), which has a free limit; when Exa says the limit is reached, Demido leaves it alone for a quarter of an hour and asks the next source. The words of a search go to Exa, a company in the United States; nothing else does. Without a key Exa answers only a direct connection over IPv4. Not built: your own Exa key, which would lift the limit (it waits for the place where keys are kept).",
+                "Default on. Demido uses the service Exa offers assistants without an account (mcp.exa.ai), which has a free limit; when Exa says the limit is reached, Demido leaves it alone for a quarter of an hour and asks the next source. The words of a search go to Exa, a company in the United States; nothing else does. Without a key Exa answers only a direct connection over IPv4. Not built: your own Exa key, which would lift the limit (the vault that would keep it is built; using a search key is not).",
             ),
             Kind::Switch,
             json!(true),
@@ -316,6 +317,17 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             ),
             Kind::Switch,
             json!(false),
+            true,
+        ),
+        def(
+            "providers.monthlyLimit",
+            "Spend at most",
+            "What Demido may spend on models elsewhere in a month, all providers together. It sends nothing more once its count reaches this.",
+            Some(
+                "Default $10. Demido counts every request it sends: OpenRouter's own figure for what it cost, and for Anthropic and Gemini the tokens they report at the prices Demido read from their pages (the date is on the Providers screen). Where a provider charges less for a while, Demido counts the regular price, so its count is above the bill. Before each request it checks the count with what the request will at least cost. The month is your computer's calendar month. Free models are never stopped. This is Demido's own limit: set one with the provider too, where it offers that (Anthropic's console, OpenRouter's key settings), because only that one holds whatever program uses the key.",
+            ),
+            choices(&[("1", "$1"), ("5", "$5"), ("10", "$10"), ("25", "$25"), ("50", "$50"), ("100", "$100"), ("250", "$250"), ("none", "No limit")]),
+            json!("10"),
             true,
         ),
         def(

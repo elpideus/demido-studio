@@ -45,8 +45,8 @@ Then, in another terminal:
 cargo run --manifest-path core/Cargo.toml -- open
 ```
 
-The same UI opens, served by the real core. Four screens are real then (Sessions, Models, Setup and part of
-Settings); every other screen is still the scripted preview and says so. In a session the model can read
+The same UI opens, served by the real core. Five screens are real then (Sessions, Models, Providers, Setup
+and part of Settings); every other screen is still the scripted preview and says so. In a session the model can read
 the clock, calculate, and do work as a list of tasks. Give the session a folder and it can read and change
 the files in it and run programs there, and nowhere else, asking first where the session's level says so.
 On Linux the programs run shut in a sandbox; everything a model changed can be undone. It can also
@@ -54,7 +54,10 @@ search the internet without an account (it tries Exa, DuckDuckGo, and Wikipedia 
 read a page from its address: it only
 reads there, and it asks before opening an address it wrote itself. To talk to a model, the core needs
 a model runtime (Setup installs it) and a GGUF model: Models › Discover finds and downloads one from
-Hugging Face, or `demido models download <owner/name>`.
+Hugging Face, or `demido models download <owner/name>`. Or a model elsewhere, with your own key: Providers
+keeps an Anthropic, Gemini or OpenRouter key in your system's keyring (or `demido keys add anthropic`), you
+choose the models a session may use, and Demido counts what each answer costs and stops at the month's limit
+you set (`demido usage`).
 
 ## See the brand kit
 

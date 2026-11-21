@@ -23,7 +23,11 @@
 //! Before an answer is written, the model is asked whether it needs a tool, and work can be split into
 //! tasks that Demido walks one by one. That part is in `turn.rs`, with what was measured to shape it.
 //!
-//! Not built yet: tools that reach outside Demido (files, commands, the network), settings per model.
+//! A session's model may run elsewhere (`provider/model`, see `providers`): the turn is the same, and only
+//! the asking goes to the provider. A model elsewhere is not loaded; it is checked (chosen, key kept, the
+//! month's limit not reached) instead.
+//!
+//! Not built yet: settings per model.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -115,7 +119,13 @@ pub struct Chat {
     web: Arc<crate::web::Web>,
     /// Where the whole of what programs printed is kept, a folder for each session.
     outputs: std::path::PathBuf,
+    /// Models elsewhere, and the keys for them. `None` in a test that has none.
+    providers: Option<Arc<crate::providers::Providers>>,
 }
+
+/// A conversation with a model elsewhere is given at most this many tokens of it, however much the model
+/// can hold: each turn sends the whole of it again, and is paid for.
+const REMOTE_MOST_IN_VIEW: u64 = 200_000;
 
 /// Of the outputs a session's programs printed, the newest this many are kept.
 const OUTPUTS_KEPT: usize = 50;
@@ -137,6 +147,8 @@ struct Running {
     stop: Arc<AtomicBool>,
     /// The runtime's own name for the answer, once it has said it. A thought is ended by it.
     named: Arc<Mutex<Option<String>>>,
+    /// The answer being written, once it is stored: what a provider's cost is counted against.
+    answer: Option<String>,
 }
 
 impl Chat {
@@ -156,7 +168,55 @@ impl Chat {
             // Keeps nothing on disk until the server says where (`with_web`).
             web: Arc::new(crate::web::Web::new(None)),
             outputs: std::env::temp_dir().join("demido-outputs"),
+            providers: None,
         }
+    }
+
+    /// The same, able to ask models elsewhere, with the keys their vault keeps.
+    pub fn with_providers(mut self, providers: Arc<crate::providers::Providers>) -> Self {
+        self.providers = Some(providers);
+        self
+    }
+
+    fn providers(&self) -> Result<&Arc<crate::providers::Providers>> {
+        self.providers.as_ref().ok_or_else(|| Error::Invalid("This Demido cannot ask models elsewhere.".into()))
+    }
+
+    /// The text with every key Demido keeps taken out.
+    pub(crate) fn hide(&self, text: &str) -> String {
+        match &self.providers {
+            Some(p) => p.vault().hide_in(text),
+            None => text.to_string(),
+        }
+    }
+
+    /// Whether the text holds a key Demido keeps.
+    pub(crate) fn holds_a_key(&self, text: &str) -> bool {
+        self.providers.as_ref().is_some_and(|p| p.vault().holds_one(text))
+    }
+
+    /// Makes a session's model ready: loads one on this computer, checks one elsewhere.
+    async fn ready(&self, model: &str) -> Result<()> {
+        if crate::providers::split(model).is_some() { self.providers()?.ready(model).map(|_| ()) } else { self.engine.load(model).await.map(|_| ()) }
+    }
+
+    /// Asks a session's model, wherever it runs. A provider's cost is counted against the answer being written.
+    pub(crate) async fn ask(&self, session: &Session, body: Value, stop: &AtomicBool, heard: &mut (dyn FnMut(Piece) + Send)) -> Result<Answer> {
+        if crate::providers::split(&session.model).is_none() {
+            return self.engine.answer(&session.model, body, stop, heard).await;
+        }
+        let answer = self.turns().get(&session.id).and_then(|r| r.answer.clone());
+        let asking = crate::providers::For { session: Some(&session.id), message: answer.as_deref() };
+        self.providers()?.answer(&session.model, body, stop, heard, asking).await
+    }
+
+    /// What thinking can be set to for a model, besides off: as its runtime or its provider says. `None`
+    /// until a model on this computer has been loaded once.
+    pub async fn thinking_choices(&self, model: &str) -> Result<Option<Vec<String>>> {
+        if crate::providers::split(model).is_some() {
+            return Ok(self.providers()?.chosen_one(model)?.map(|m| m.thinking));
+        }
+        Ok(self.engine.list().await?.models.into_iter().find(|m| m.id == model).and_then(|m| m.thinking))
     }
 
     /// The same, keeping the whole of what programs printed under `place`.
@@ -234,9 +294,14 @@ impl Chat {
         self
     }
 
-    /// What the model is loaded with room for, and the size at which a conversation is made shorter.
-    fn limits(&self) -> (u64, u64) {
-        let limit = self.settings.value::<String>("models.context").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8192);
+    /// What the model is loaded with room for, and the size at which a conversation is made shorter. A model
+    /// elsewhere holds what its provider says, up to `REMOTE_MOST_IN_VIEW`: past that, every turn costs a lot.
+    fn limits(&self, model: &str) -> (u64, u64) {
+        let remote = crate::providers::split(model).and(self.providers.as_ref()).and_then(|p| p.chosen_one(model).ok().flatten());
+        let limit = match remote {
+            Some(m) => m.context_length.unwrap_or(REMOTE_MOST_IN_VIEW).min(REMOTE_MOST_IN_VIEW),
+            None => self.settings.value::<String>("models.context").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8192),
+        };
         // Three quarters, so there is always room for the answer. A size chosen by hand never goes above that.
         let most = limit * 3 / 4;
         let chosen = self.settings.value::<String>("context.compactAt").ok().and_then(|v| v.parse::<u64>().ok());
@@ -267,7 +332,7 @@ impl Chat {
     /// How much of what the model can hold this session is using.
     pub fn context_use(&self, session_id: &str) -> Result<ContextUse> {
         let (account, messages) = self.in_view(session_id)?;
-        let (limit, compact_at) = self.limits();
+        let (limit, compact_at) = self.limits(&self.sessions.get(session_id)?.model);
         // An account made after the last timed answer makes that count too high: estimate from scratch then.
         let stale = account.as_ref().is_some_and(|a| messages.iter().all(|m| m.timings.is_none() || m.created_at < a.created_at));
         let used = if stale {
@@ -302,7 +367,7 @@ impl Chat {
     async fn account_of(&self, session: &Session, why: &str, still_to_answer: Option<&str>) -> Result<Summary> {
         let (before, messages) = self.in_view(&session.id)?;
         let said: Vec<&Message> = messages.iter().filter(|m| Some(m.id.as_str()) != still_to_answer && !(m.role == "assistant" && m.content.trim().is_empty())).collect();
-        let (_, compact_at) = self.limits();
+        let (_, compact_at) = self.limits(&session.model);
         let tokens_before = self.context_use(&session.id)?.used;
         // The newest messages stay word for word, and never fewer than the last thing the person said and, if
         // it was answered, its answer. When it happens by itself, as many more as fit in a share of the
@@ -331,7 +396,7 @@ impl Chat {
         }
         // The material first, fenced. What to do with it, last.
         let asked = format!("<conversation>\n{}\n</conversation>\n\n{ACCOUNT_INSTRUCTIONS}", transcript.trim_end());
-        self.engine.load(&session.model).await?;
+        self.ready(&session.model).await?;
         let body = json!({
             "model": session.model,
             "messages": [{ "role": "system", "content": ACCOUNT_ROLE }, { "role": "user", "content": asked }],
@@ -341,7 +406,7 @@ impl Chat {
             "chat_template_kwargs": { "enable_thinking": false },
             "reasoning_effort": "none",
         });
-        let written = self.engine.answer(&session.model, body, &AtomicBool::new(false), &mut |_| {}).await?;
+        let written = self.ask(session, body, &AtomicBool::new(false), &mut |_| {}).await?;
         let account = written.content.trim();
         if account.is_empty() {
             return Err(Error::Other("The model wrote nothing when asked for an account of the conversation, so nothing was made shorter.".into()));
@@ -365,7 +430,14 @@ impl Chat {
     }
 
     /// Starts a session. With no model named, it takes one that is loaded; with none loaded, the first on disk.
+    /// A model elsewhere is taken only when it is named, and only once it is chosen.
     pub async fn start(&self, title: Option<&str>, model: Option<&str>) -> Result<Session> {
+        if let Some(named) = model.filter(|m| crate::providers::split(m).is_some()) {
+            if self.providers()?.chosen_one(named)?.is_none() {
+                return Err(Error::Invalid(format!("{named} is not chosen. Choose it on the Providers screen first: nothing is sent to a model you did not choose.")));
+            }
+            return self.started(title, named);
+        }
         let on_disk = self.engine.list().await?;
         let model = match model {
             Some(named) => on_disk
@@ -373,14 +445,19 @@ impl Chat {
                 .iter()
                 .find(|m| m.id == named)
                 .ok_or_else(|| Error::NotFound(format!("There is no model called \"{named}\" in {}. `demido models` lists what is there.", on_disk.folder)))?,
-            None => on_disk
-                .models
-                .iter()
-                .find(|m| m.state == "loaded")
-                .or(on_disk.models.first())
-                .ok_or_else(|| Error::Invalid(format!("There is no model to talk to yet. Put a GGUF file in {}.", on_disk.folder)))?,
+            None => on_disk.models.iter().find(|m| m.state == "loaded").or(on_disk.models.first()).ok_or_else(|| {
+                Error::Invalid(format!(
+                    "There is no model on this computer to talk to yet. Download one on the Models screen (or put a GGUF file in {}), or name a model you chose on the Providers screen.",
+                    on_disk.folder
+                ))
+            })?,
         };
-        let session = self.sessions.create(title, &model.id)?;
+        let id = model.id.clone();
+        self.started(title, &id)
+    }
+
+    fn started(&self, title: Option<&str>, model: &str) -> Result<Session> {
+        let session = self.sessions.create(title, model)?;
         // A new session starts at the level the person chose for new sessions.
         let level = self.settings.value::<String>("permissions.level").ok().filter(|l| Level::from(l).is_some());
         let session = match level {
@@ -415,7 +492,7 @@ impl Chat {
             return Err(Error::Invalid("Nothing was written.".into()));
         }
         let session = self.sessions.get(session_id)?;
-        let running = Running { stop: Arc::new(AtomicBool::new(false)), named: Arc::default() };
+        let running = Running { stop: Arc::new(AtomicBool::new(false)), named: Arc::default(), answer: None };
         {
             let mut turns = self.turns();
             if turns.contains_key(session_id) {
@@ -433,7 +510,12 @@ impl Chat {
             Ok(Turn { said, answer })
         })();
         let turn = match written {
-            Ok(turn) => turn,
+            Ok(turn) => {
+                if let Some(r) = self.turns().get_mut(session_id) {
+                    r.answer = Some(turn.answer.id.clone());
+                }
+                turn
+            }
             Err(e) => {
                 self.turns().remove(session_id);
                 return Err(e);
@@ -572,16 +654,19 @@ impl Chat {
     /// on this computer; a way of thinking must be one the model has.
     pub async fn change(&self, session_id: &str, title: Option<&str>, model: Option<&str>, thinking: Option<&str>) -> Result<Session> {
         let before = self.sessions.get(session_id)?;
-        let models = self.engine.list().await?.models;
-        if let Some(named) = model
-            && !models.iter().any(|m| m.id == named)
-        {
-            return Err(Error::NotFound(format!("There is no model called \"{named}\" on this computer.")));
+        if let Some(named) = model {
+            if crate::providers::split(named).is_some() {
+                if self.providers()?.chosen_one(named)?.is_none() {
+                    return Err(Error::Invalid(format!("{named} is not chosen. Choose it on the Providers screen first: nothing is sent to a model you did not choose.")));
+                }
+            } else if !self.engine.list().await?.models.iter().any(|m| m.id == named) {
+                return Err(Error::NotFound(format!("There is no model called \"{named}\" on this computer.")));
+            }
         }
         if let Some(wanted) = thinking.filter(|t| *t != "off") {
             // What the session's model (the new one, if it is being changed) can be set to. Not known until
             // the model has been loaded once; then "on" is taken on trust and the runtime decides.
-            let choices = models.iter().find(|m| m.id == model.unwrap_or(&before.model)).and_then(|m| m.thinking.clone());
+            let choices = self.thinking_choices(model.unwrap_or(&before.model)).await?;
             match choices {
                 Some(can) if can.is_empty() => return Err(Error::Invalid(format!("{} does not think before it answers, so there is nothing to turn on.", model.unwrap_or(&before.model)))),
                 Some(can) if !can.iter().any(|c| c == wanted) => return Err(Error::Invalid(format!("Thinking can be: off, {}. \"{wanted}\" is not one of them.", can.join(", ")))),
@@ -599,6 +684,10 @@ impl Chat {
         let named = self.turns().get(session_id).and_then(|r| r.named.lock().unwrap_or_else(|e| e.into_inner()).clone());
         let Some(named) = named else { return Ok(false) };
         let session = self.sessions.get(session_id)?;
+        // A provider's model cannot be told this from outside.
+        if crate::providers::split(&session.model).is_some() {
+            return Ok(false);
+        }
         self.engine.end_thought(&session.model, &named).await
     }
 
@@ -680,8 +769,8 @@ impl Chat {
             }
         };
         let outcome: Result<Answer> = async {
-            // The model is loaded if it is not: its loading is told by the engine's own news.
-            self.engine.load(&session.model).await?;
+            // The model is loaded if it is not: its loading is told by the engine's own news. One elsewhere is checked.
+            self.ready(&session.model).await?;
             // A conversation that has grown past the set size is made shorter first, so that this answer has room.
             let room = self.context_use(&session.id)?;
             if room.auto && room.used > room.compact_at {
@@ -750,7 +839,7 @@ impl Chat {
                     tell(&mut waiting);
                 }
             };
-            let mut answer = self.engine.answer(&session.model, body.clone(), &running.stop, &mut heard).await?;
+            let mut answer = self.ask(&session, body.clone(), &running.stop, &mut heard).await?;
             // A request for a tool where the answer should be: the asking is over, so nothing more is run. The
             // model is told so once and tries again. (Tried on a real model: after a command that printed
             // nothing, it wrote the same request again as its answer.)
@@ -761,7 +850,7 @@ impl Chat {
                     .push(json!({ "role": "user", "content": "That is a request for a tool, not an answer. No more tools can be used now. Answer the person in plain words, from what you have." }));
                 body["messages"] = Value::Array(messages);
                 again.store(true, Ordering::Relaxed);
-                answer = self.engine.answer(&session.model, body, &running.stop, &mut heard).await?;
+                answer = self.ask(&session, body, &running.stop, &mut heard).await?;
             }
             if used_a_tool && (answer.content.trim_start().starts_with('{') || answer.content.trim_start().starts_with("<result>")) {
                 if let Some(inside) = turn::unwrapped(&answer.content) {
@@ -782,6 +871,14 @@ impl Chat {
         .await;
         tell(&mut waiting);
         self.turns().remove(&session.id);
+        // What the answer cost elsewhere, with everything asked for it (the tools it chose, its tasks).
+        let cost = self.providers.as_ref().filter(|_| crate::providers::split(&session.model).is_some()).and_then(|p| p.cost_of(&answer_id).ok().flatten());
+        let outcome = outcome.map(|mut answer| {
+            if let Some((usd, exact)) = cost {
+                (answer.timings.cost_usd, answer.timings.cost_exact) = (Some(usd), Some(exact));
+            }
+            answer
+        });
         let ended = match outcome {
             Ok(answer) => {
                 // A request for a tool where the answer should be is shown, and said to be no answer.

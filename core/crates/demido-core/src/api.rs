@@ -37,11 +37,13 @@ use crate::events::{Event, EventLog};
 use crate::kept::Kept;
 use crate::paths::Paths;
 use crate::permissions;
+use crate::providers::{Account, ProviderView, Providers, RemoteModel, Spending};
 use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
 use crate::sessions::{Change, Message, Session, Sessions, Summary, Task};
 use crate::settings::{Entry, Section, Settings};
 use crate::system::{Advice, SystemInfo};
 use crate::ui::Ui;
+use crate::vault::{KeyFacts, Vault, VaultView};
 use crate::{Error, Result, VERSION, now_ms};
 
 /// The parts of the core that work without a server: what the command line uses directly.
@@ -54,6 +56,8 @@ pub struct Core {
     pub sessions: Arc<Sessions>,
     pub chat: Arc<Chat>,
     pub hub: Arc<crate::hub::Hub>,
+    /// Models elsewhere, and the vault that keeps their keys.
+    pub providers: Arc<Providers>,
 }
 
 impl Core {
@@ -65,16 +69,19 @@ impl Core {
         let auth = Arc::new(Auth::open(&paths.key())?);
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
+        let vault = Arc::new(Vault::open(paths.home()));
+        let providers = Arc::new(Providers::new(db.clone(), vault, settings.clone(), events.clone()));
         let sessions = Arc::new(Sessions::new(db));
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
+                .with_providers(providers.clone())
                 .keeping_in(paths.home().join("saved-folders"))
                 .keeping_outputs_in(paths.home().join("outputs"))
                 .with_sandbox(crate::sandbox::Sandbox::find())
                 .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))))),
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub })
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers })
     }
 }
 
@@ -103,6 +110,7 @@ pub struct App {
     pub sessions: Arc<Sessions>,
     pub chat: Arc<Chat>,
     pub hub: Arc<crate::hub::Hub>,
+    pub providers: Arc<Providers>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -447,7 +455,7 @@ pub struct SessionDetail {
 #[utoipa::path(get, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = SessionDetail), (status = 404, body = Problem)))]
 async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<Json<SessionDetail>> {
     let session = app.sessions.get(&id)?;
-    let thinking_choices = app.engine.list().await?.models.into_iter().find(|m| m.id == session.model).and_then(|m| m.thinking);
+    let thinking_choices = app.chat.thinking_choices(&session.model).await?;
     Ok(Json(SessionDetail {
         messages: app.sessions.messages(&id)?,
         instructions: app.chat.told_first(&session),
@@ -648,6 +656,84 @@ async fn session_stop(State(app): State<App>, Path(id): Path<String>) -> Json<St
     Json(Stopped { stopped: app.chat.stop(&id) })
 }
 
+// ───────── keys, providers and what they cost ─────────
+
+/// The keys Demido keeps: their names, where each is kept and its last four characters. Never a value.
+#[utoipa::path(get, path = "/api/v1/vault", tag = "providers", responses((status = 200, body = VaultView)))]
+async fn vault_get(State(app): State<App>) -> Json<VaultView> {
+    Json(app.providers.vault().view())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct NewKey {
+    /// The key, as the provider gave it. It is kept, and never given back.
+    pub value: String,
+}
+
+/// Keeps a key, in place of the one of that name if there was one. What comes back is what is known about
+/// it, without its value.
+#[utoipa::path(put, path = "/api/v1/vault/{name}", tag = "providers", params(("name" = String, Path, description = "anthropic, gemini or openrouter")), request_body = NewKey, responses((status = 200, body = KeyFacts), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn vault_put(State(app): State<App>, Path(name): Path<String>, Json(body): Json<NewKey>) -> Result<Json<KeyFacts>> {
+    let vault = app.providers.vault().clone();
+    let facts = tokio::task::spawn_blocking(move || vault.put(&name, &body.value)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("vault.key.added", Some(&facts.name), json!({ "kept_in": facts.kept_in, "ends_with": facts.ends_with }))?;
+    Ok(Json(facts))
+}
+
+/// Lets a key go: it is deleted from wherever it was kept.
+#[utoipa::path(delete, path = "/api/v1/vault/{name}", tag = "providers", params(("name" = String, Path, description = "anthropic, gemini or openrouter")), responses((status = 200, body = KeyFacts), (status = 404, body = Problem)))]
+async fn vault_remove(State(app): State<App>, Path(name): Path<String>) -> Result<Json<KeyFacts>> {
+    let vault = app.providers.vault().clone();
+    let gone = tokio::task::spawn_blocking(move || vault.remove(&name)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("vault.key.removed", Some(&gone.name), json!({ "kept_in": gone.kept_in }))?;
+    Ok(Json(gone))
+}
+
+/// The providers: each one's key (never its value), the models chosen there, and what Demido counted this month.
+#[utoipa::path(get, path = "/api/v1/providers", tag = "providers", responses((status = 200, body = Vec<ProviderView>)))]
+async fn providers_list(State(app): State<App>) -> Result<Json<Vec<ProviderView>>> {
+    Ok(Json(app.providers.view()?))
+}
+
+#[derive(Deserialize)]
+struct ModelsQuery {
+    fresh: Option<bool>,
+}
+
+/// The models a provider has, as it says. Its list is asked again after an hour, or with `fresh=true`.
+#[utoipa::path(get, path = "/api/v1/providers/{id}/models", tag = "providers", params(("id" = String, Path, description = "anthropic, gemini or openrouter"), ("fresh" = Option<bool>, Query, description = "Ask the provider now, not from what was kept")), responses((status = 200, body = Vec<RemoteModel>), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn provider_models(State(app): State<App>, Path(id): Path<String>, Query(q): Query<ModelsQuery>) -> Result<Json<Vec<RemoteModel>>> {
+    Ok(Json(app.providers.models(&id, q.fresh.unwrap_or(false)).await?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ModelChoice {
+    /// The model's name at the provider, or as a session names it (`provider/model`).
+    pub model: String,
+    /// True to choose it, false to let it go.
+    pub chosen: bool,
+}
+
+/// Chooses a model of a provider, so that sessions may use it, or lets it go. Nothing is sent to a model
+/// that is not chosen.
+#[utoipa::path(put, path = "/api/v1/providers/{id}/chosen", tag = "providers", params(("id" = String, Path, description = "anthropic, gemini or openrouter")), request_body = ModelChoice, responses((status = 200, body = RemoteModel), (status = 404, body = Problem)))]
+async fn provider_choose(State(app): State<App>, Path(id): Path<String>, Json(body): Json<ModelChoice>) -> Result<Json<RemoteModel>> {
+    Ok(Json(app.providers.choose(&id, &body.model, body.chosen).await?))
+}
+
+/// What the provider itself says about the key's account: what it spent, its limits. Only OpenRouter can
+/// be asked this with an ordinary key; for the others it says where to look.
+#[utoipa::path(get, path = "/api/v1/providers/{id}/account", tag = "providers", params(("id" = String, Path, description = "anthropic, gemini or openrouter")), responses((status = 200, body = Account), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn provider_account(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Account>> {
+    Ok(Json(app.providers.account(&id).await?))
+}
+
+/// What Demido counted this month on models elsewhere, by model, and the month's limit.
+#[utoipa::path(get, path = "/api/v1/usage", tag = "providers", responses((status = 200, body = Spending)))]
+async fn usage(State(app): State<App>) -> Result<Json<Spending>> {
+    Ok(Json(app.providers.spending()?))
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct SettingsList {
     pub sections: Vec<Section>,
@@ -759,8 +845,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, vault_put, vault_remove, providers_list, provider_models, provider_choose, provider_account, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -799,6 +885,13 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/undo", post(session_undo))
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
+        .route("/vault", get(vault_get))
+        .route("/vault/{name}", axum::routing::put(vault_put).delete(vault_remove))
+        .route("/providers", get(providers_list))
+        .route("/providers/{id}/models", get(provider_models))
+        .route("/providers/{id}/chosen", axum::routing::put(provider_choose))
+        .route("/providers/{id}/account", get(provider_account))
+        .route("/usage", get(usage))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))
@@ -847,6 +940,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         sessions: core.sessions.clone(),
         chat: core.chat.clone(),
         hub: core.hub.clone(),
+        providers: core.providers.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -958,6 +1052,7 @@ mod tests {
         let db = Arc::new(Db::memory().unwrap());
         let events = Arc::new(EventLog::new(db.clone()));
         let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
+        let providers = Arc::new(Providers::new(db.clone(), Arc::new(Vault::in_file(home)), settings.clone(), events.clone()));
         let sessions = Arc::new(Sessions::new(db));
         let auth = Arc::new(Auth::with_key(KEY.into()));
         let runtimes = Arc::new(Runtimes::new(home, events.clone(), Source::default()).unwrap());
@@ -969,8 +1064,9 @@ mod tests {
             runtimes,
             engine: engine.clone(),
             sessions: sessions.clone(),
-            chat: Arc::new(Chat::new(sessions, engine, events.clone(), settings.clone())),
+            chat: Arc::new(Chat::new(sessions, engine, events.clone(), settings.clone()).with_providers(providers.clone())),
             hub: Arc::new(crate::hub::Hub::new(home.join("models"), events.clone())),
+            providers,
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -1133,6 +1229,40 @@ mod tests {
         assert_eq!(send(&r, foreign).await.0, StatusCode::FORBIDDEN);
         let own = request("DELETE", "/api/v1/settings/events.keepDays").header("cookie", &cookie).header("origin", "http://127.0.0.1:7341").body(Body::empty()).unwrap();
         assert_eq!(send(&r, own).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_key_goes_in_through_the_api_and_never_comes_out() {
+        let home = std::env::temp_dir().join(format!("demido-api-vault-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).unwrap();
+        let (r, _, events) = app_at(&home);
+        let key = |b: axum::http::request::Builder| b.header("authorization", format!("Bearer {KEY}")).header("content-type", "application/json");
+        let secret = "sk-or-v1-test-not-a-real-key-7f3a";
+        let (status, facts) = send(&r, key(request("PUT", "/api/v1/vault/openrouter")).body(Body::from(json!({ "value": secret }).to_string())).unwrap()).await;
+        assert_eq!((status, facts["ends_with"].as_str(), facts["kept_in"].as_str()), (StatusCode::OK, Some("7f3a"), Some("file")));
+        // Nowhere the API answers, and nowhere in the log, is the value.
+        for path in ["/api/v1/vault", "/api/v1/providers", "/api/v1/events?after=0"] {
+            let (status, said) = send(&r, key(request("GET", path)).body(Body::empty()).unwrap()).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert!(!said.to_string().contains("not-a-real-key"), "{path}: {said}");
+        }
+        let (_, providers) = send(&r, key(request("GET", "/api/v1/providers")).body(Body::empty()).unwrap()).await;
+        let openrouter = providers.as_array().unwrap().iter().find(|p| p["id"] == "openrouter").unwrap();
+        assert_eq!((openrouter["key"]["ends_with"].as_str(), openrouter["spent_usd"].as_f64()), (Some("7f3a"), Some(0.0)));
+        // A key Demido does not know of is not kept.
+        let (status, _) = send(&r, key(request("PUT", "/api/v1/vault/bank")).body(Body::from(r#"{"value":"0123456789abcdef"}"#)).unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = send(&r, key(request("DELETE", "/api/v1/vault/openrouter")).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, vault) = send(&r, key(request("GET", "/api/v1/vault")).body(Body::empty()).unwrap()).await;
+        assert_eq!(vault["keys"], json!([]));
+        let kinds: Vec<String> = events.after(0, 50).unwrap().into_iter().map(|e| e.kind).collect();
+        assert!(kinds.contains(&"vault.key.added".to_string()) && kinds.contains(&"vault.key.removed".to_string()), "{kinds:?}");
+        // A model elsewhere that was not chosen cannot be given to a session.
+        let (status, said) = send(&r, key(request("POST", "/api/v1/sessions")).body(Body::from(r#"{"model":"anthropic/claude-opus-5-5"}"#)).unwrap()).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{said}");
+        assert!(said["error"]["message"].as_str().unwrap().contains("not chosen"), "{said}");
+        std::fs::remove_dir_all(home).ok();
     }
 
     #[tokio::test]
