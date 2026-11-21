@@ -209,8 +209,14 @@ export function startCore(): Promise<void> {
   return started
 }
 
-/** "Automatic" follows the system's accent. The core can read it, but only its own computer's. */
-async function readSystemAccent() {
+/** "Automatic" follows the system's accent. The core can read it, but only its own computer's.
+    Getting the focus back fires two signals at once; one reading serves both. */
+let readingAccent: Promise<void> | null = null
+function readSystemAccent(): Promise<void> {
+  readingAccent ??= readSystemAccentNow().finally(() => { readingAccent = null })
+  return readingAccent
+}
+async function readSystemAccentNow() {
   const here = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname)
   let seen: CoreAppearance = { accent: null, source: null, supported: false }
   if (here) {

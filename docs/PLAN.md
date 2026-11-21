@@ -78,8 +78,8 @@ The order. Items 1 and 2 are done; item 3 is under way.
    reading the system accent (Linux portal first).
    Done on 2026-11-21 (DECISIONS, section K). Left open inside it: the system accent on Windows and macOS.
 3. Local inference: runtime install, hardware detection, load / unload, memory budget.
-   Hardware detection and the installer are built (DECISIONS K8, K9, K15 to K21). The installer is tested
-   against a stand-in publisher; the first real download waits for the owner. Next: start the runtime
+   Hardware detection and the installer are built (DECISIONS K8, K9, K15 to K21), and the real runtime is
+   installed on the owner's computer (CUDA 13.5, 170 MB; it starts and sees the card). Next: start the runtime
    with a model, stop it when idle, and the memory budget. Reading the runtime's current documentation
    first showed that it now does much of this itself (research note 12, DECISIONS K22, proposed); that
    has to be tried on the real runtime before anything is built on it.
@@ -95,9 +95,6 @@ Checkpoints: one report per numbered item, more often where a decision is the ow
 
 ## Needs the owner before it can start
 
-- **The first real runtime download.** Everything is built and tested without it. The recommended build for
-  this computer is 170 MB (llama.cpp, CUDA 13.5, from `github.com/ggml-org/llama.cpp`); the processor-only
-  build is 22 MB. It is a download and a program that gets run, so it waits for a yes.
 - **Before the first release:** did the previous Demido check `elpideus/demido-studio` for updates? That name
   now belongs to this repository, so an old installation that checks it would be offered this project's
   releases. I have not looked at the old code and will not. No release exists yet, so nothing is offered today.

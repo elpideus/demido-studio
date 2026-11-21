@@ -78,14 +78,21 @@ for; picks the files that suit this computer; downloads each (a download that st
 stopped); checks size and SHA-256 against the list; unpacks without letting the archive write outside its
 folder; asks the program for its version, to know now whether it starts on this system.
 
-**Tested against a stand-in publisher on this computer, not yet against the real files.** The real download
-waits for the owner's yes. Until it has run, these are assumptions:
+**Run for real on 2026-11-21**, on the owner's computer, after the owner's yes: the CUDA 13.5 build, 170 MB,
+downloaded in about 11 seconds, checksum matched, 234 MB on disk. What had been assumptions, and how they
+turned out:
 
-- that the archive holds `llama-server` within five folders of its top (the installer looks for it there);
-- that NVIDIA's libraries belong beside that program (the installer unpacks them there, and also puts every
-  folder that holds libraries on the program's search path when it starts it);
-- that this system's own CUDA 13.4 libraries are enough for the CUDA 13.5 build. If not, the try at the end
-  fails with the missing library's name, and the libraries are downloaded too (424 MB).
+- *The archive holds `llama-server` near its top.* Yes: one folder down (`llama-b12359/llama-server`), with
+  its libraries beside it in the same folder.
+- *This system's own CUDA 13.4 libraries are enough for the CUDA 13.5 build.* Yes, as far as tried: the
+  program starts and lists the card (`CUDA0: NVIDIA GeForce RTX 3060 (11908 MiB)`), using `libcudart.so.13`
+  and `libcublas.so.13` from the system. So NVIDIA's 424 MB were not needed here. Not tried yet: answering
+  with a model loaded.
+- *NVIDIA's libraries belong beside the program.* Not tried: they were not needed. Still an assumption.
+
+One thing the real program taught: asking for its version does not load the part that talks to the graphics
+card. Asking it to list its devices does. The installer now asks both, so a CUDA build with a missing library
+is installed with a caution ("it sees no graphics card") instead of looking fine until the first question.
 
 ## Not checked yet
 

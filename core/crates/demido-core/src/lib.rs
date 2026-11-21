@@ -15,6 +15,7 @@
 //! - [`auth`]      the key that every request needs, even from this computer
 //! - [`api`]       the HTTP API, and the server that offers it
 //! - [`ui`]        serving the web UI from the same address
+//! - [`kept`]      keeping an answer for a short while, so a burst of the same question costs one answer
 
 pub mod api;
 pub mod auth;
@@ -22,6 +23,7 @@ pub mod db;
 pub mod desktop;
 pub mod error;
 pub mod events;
+pub mod kept;
 pub mod paths;
 pub mod runtime;
 pub mod settings;

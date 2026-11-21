@@ -9,7 +9,7 @@ Every decision, its reason, and its status. Newest thinking wins; superseded ent
 - **Provisional**: comes from research that has not been independently fact-checked yet. Do not build on it without the check.
 - **Open**: not decided.
 
-Last updated: 2026-11-20 (interactive preview checkpoint).
+Last updated: 2026-11-21 (the core, the repository, the runtime installer, caching).
 
 ---
 
@@ -180,21 +180,61 @@ licences were read from crates.io and the GitHub API, not from memory.
 | K5 | **The event log is the memory of what happened**: append-only, numbered, kept for a number of days that is itself a setting. | Built |
 | K6 | **Settings are declared once, in the core.** The registry holds id, kind, default, range, the words, and whether it is built. Only values that differ from the default are stored. A change writes an event. The UI's own setting list (`features/settings`) moves onto this registry next. | Built. The Settings screen draws the core's settings from the core's own description (K13) |
 | K7 | **A key is needed even on this computer.** Made on first start, kept in a file only the user can read. A browser gets in by a one-use link traded for a session cookie; the key never appears in an address. A foreign `Host` is refused; a change made with a cookie must come from Demido's own pages. Remote use (encryption, passkeys) is not built. | Built |
-| K8 | **The model runtime is llama.cpp's `llama-server`, run as a separate process**, downloaded from llama.cpp's own releases, never shipped by Demido. A process, so that unloading a model is certain. | The installer is built (K15 to K20) and tested against a stand-in publisher; **the real download has not been run** (it waits for the owner's yes). Starting it with a model is not built |
+| K8 | **The model runtime is llama.cpp's `llama-server`, run as a separate process**, downloaded from llama.cpp's own releases, never shipped by Demido. A process, so that unloading a model is certain. | The installer is built (K15 to K21). **Run for real on 2026-11-21:** the CUDA 13.5 build, 170 MB, checked, unpacked, and it starts and sees the graphics card. Starting it with a model is not built |
 | K9 | **Demido reads the computer and recommends a build.** NVIDIA: ask the driver which CUDA it supports and take the newest build it can run. AMD and Intel: Vulkan first. No card: the processor build. The rule is a tested, pure function. | Built. Tested on Linux, Windows and macOS by the checks on GitHub (R3), where the program also runs and reads the build machine. No real Windows or Mac with a graphics card has run it yet |
 | K10 | **The UI talks to the core through one file** (`apps/web/src/data/core.ts`). Screens move from scripted to real one at a time, and each says which it is showing. Setup's "This computer" is the first. | Built |
 | K11 | **The core finds the web UI in a folder named `ui` beside the program.** That is how a release is laid out: unpack, start, and it works from any folder. `--ui-dir` and `DEMIDO_UI_DIR` still win; in the repository it falls back to `apps/web/dist`. Carrying the UI inside the program is not built. | Built |
 | K13 | **Two kinds of setting, side by side, until the preview is gone.** A setting the core declares is real: the core keeps it, checks it, logs the change, and tells every open window (change the theme on the command line and the window follows). Everything else is still the preview's, kept in the browser, and is marked "Not built yet" whenever a core is behind the pages. A setting moves into the core's registry when the thing it controls is built there, and its copy in the UI is deleted then. The UI never chooses: `setting`, `useSetting` and `setSetting` look the id up. A slider tells the core its last value once the hand rests, so a drag is one entry in the log, not thirty. | Built for Appearance (theme, accent, custom accent, text size), the listen address and the log's length |
 | K14 | **"Automatic" accent follows the real system accent, read by the core.** A browser cannot read it; the core can, on its own computer. On Linux it asks the desktop's portal (`org.freedesktop.appearance`, `accent-color`: KDE Plasma 6, GNOME 47 and later) through `busctl`, or `gdbus` if that is missing; both come with nearly every Linux desktop. A D-Bus library (zbus 6.5, MIT) was tried and dropped: about thirty more packages to answer one question. It comes back when a second thing needs D-Bus. The window asks again each time it gets the focus back, since the accent is changed in the system's own settings. A window on another computer than the core does not use it and says why. | Built for Linux. **Not built for Windows and macOS**, and the Settings screen says so there |
-| K15 | **Which build: the publisher's stable one.** The core asks GitHub for llama.cpp's stable release, follows its pointer to the per-commit build, and offers the files that suit this computer, the recommended one first. Three questions without signing in; the answer is kept for an hour, because GitHub allows sixty an hour. Nothing is asked until the person asks. | Built; read against the real release list |
+| K15 | **Which build: the publisher's stable one.** The core asks GitHub for llama.cpp's stable release, follows its pointer to the per-commit build, and offers the files that suit this computer, the recommended one first. Three questions without signing in; the answer is kept for an hour, because GitHub allows sixty an hour. Nothing is asked until the person asks. | Built; used for the real download. How little it asks: section P |
 | K16 | **A download is checked before it is trusted, and can go on.** Bytes go to `<name>.part`; a new try asks only for the rest. A complete file must have the size and the SHA-256 its publisher lists, or it is deleted (after one fresh retry) and nothing is installed. Files are only taken from the publisher's own address, whatever the list says. | Built and tested (a broken line, a tampered file, a foreign address) |
 | K17 | **An archive is not trusted.** Before anything is written: plain names only, links only to places inside the folder, no devices, and a ceiling on how much may come out. Unpacked under a name that says "not finished", renamed only when all of it succeeded. | Built and tested |
-| K18 | **Installed means tried.** After unpacking, the core asks the program for its version. If it does not start on this system, that is known at once and shown in the program's own words, not found at the first question to a model. | Built; tried only with the stand-in's script |
+| K18 | **Installed means tried.** After unpacking, the core asks the program for its version. If it does not start on this system, that is known at once and shown in the program's own words, not found at the first question to a model. | Built. On the real runtime it says its version and lists the card it sees (`CUDA0: NVIDIA GeForce RTX 3060`). A build for a graphics card that sees no card is installed with a caution. `demido runtime check` tries an installed one again without downloading |
 | K19 | **The folder is the truth.** An installed runtime is a folder with a note in it (`demido-runtime.json`: what it is, where each file came from, its checksum, whether it starts). Nothing about it is in the database: deleting the folder removes it. | Built |
 | K20 | **Progress is told, not kept.** A download reports several times a second. That goes out on the event stream without a number and is not written to the log; the log keeps the start and the end. One installation at a time; it can be stopped, and what was downloaded stays for the next try. | Built |
 | K21 | **A development build can use a stand-in publisher** (`DEMIDO_DEV_RUNTIME_SOURCE`), so the whole installation can be tried in the real window without the internet. A release build has no such switch: the address that decides which program gets installed is not left open. A setting for mirrors is a separate, later decision (IDEAS 80). | Built |
 | K22 | **Proposed: Demido runs one `llama-server` in router mode and steers it, instead of keeping one process per model itself.** The runtime now loads and unloads models on request (one child process each), measures what each needs, and makes room by unloading the least recently used while keeping a set amount of memory free. Demido would decide when to load and unload (sessions, agents, schedules, its idle timer), own the models and their per-model values, and draw the memory picture from the runtime's own numbers. The runtime's own downloader, tools and web UI stay unused. This would revise K8. Research note 12. | **Proposed. Not decided: it must be tried on the real runtime first** (seven things to try are listed in the note) |
 | K12 | **A release's version comes from its tag.** The release build stamps the program with it (`DEMIDO_VERSION`), and the build stops if the program then says anything else. Other builds say what `Cargo.toml` says. So nobody has to remember to raise a number before tagging. | Built |
+
+## P. Caching (owner's direction, 2026-11-21)
+
+The owner's rule: use caching whenever possible, to make as few requests as possible and to make Demido
+faster. It is a rule for everything built from here on, not a feature.
+
+| # | Decision | Status |
+|---|---|---|
+| P1 | **Ask once.** Anything asked of another computer, and anything that costs time to work out and does not change by itself, is kept. It is asked for again only when it may have changed, or when a person asks to look again. | Rule |
+| P2 | **Each kept answer has a lifetime, and says its age.** Short for what moves (memory in use: seconds), long for what rarely does (a release list: an hour), for good for what cannot change (a file whose name carries its fingerprint; a published build's list of files). Where a person sees a kept answer, they see how old it is. | Rule |
+| P3 | **Asking again is made cheap.** "Only if it changed since this mark" (an ETag) instead of the whole answer again. | Rule; built for the release list and for the UI's files |
+| P4 | **Kept on disk when a restart should not cost a request.** | Built for the release list |
+| P5 | **One question at a time for the same thing.** When several parts of a screen want the same answer in the same instant, the work is done once. | Built (`kept.rs`) for the hardware and the desktop's look; in the UI for the system accent |
+| P6 | **Without the network, the last answer is better than none**, as long as it says it is old and why. | Built for the release list |
+| P7 | **There is always a way to ask fresh**: "Ask again", "Read again", `--fresh`, `fresh=true`. A cache nobody can get past is a bug. | Built wherever something is kept |
+| P8 | **Never by accident.** What the API says is marked "do not keep", so no browser or proxy keeps a stale answer in between. Keeping is done on purpose, in the core or in the UI's store, where it can be seen and ended. Keys, sessions and anything that decides access are never kept this way. | Built |
+
+What is kept today:
+
+| What | Kept for | Where | Asking again |
+|---|---|---|---|
+| llama.cpp's release list | 1 hour without asking; then one "only if changed" question | memory and disk | `Ask again`, `--fresh` |
+| A published build's list of files | for good (it cannot change) | with the release list | never needed |
+| A download in progress | until it is complete | `<name>.part` on disk | goes on from where it stopped |
+| This computer's hardware | 5 seconds | the server's memory | `Read again`, `fresh=true` |
+| Which runtime build suits this computer | while the server runs | the server's memory | restart |
+| The desktop's accent | 2 seconds | the server's memory | getting the focus back |
+| Settings | until changed; changes arrive as events | the server's memory, the UI's store | not needed |
+| The settings as last seen (for the first frame) | until the core answers | the browser | automatic |
+| UI files with a fingerprint in the name | for good | the browser | never needed |
+| The UI's page (`index.html`) | checked every time, sent only when changed | the browser | automatic |
+| What the API says | not at all | | |
+
+Measured on 2026-11-21, against a stand-in publisher that counts: the first look at the release list asks
+three questions; a second look within the hour asks none; "Ask again" asks one and gets "not changed";
+after a restart none; with the publisher unreachable, the last answer is shown as old.
+
+Not built: keeping model files' metadata and search results (there is no models screen in the core yet);
+sending the UI's files compressed; a cache for web pages and searches (needs its own rules about privacy and
+freshness, with the browser and search work).
 
 ## D. Not researched yet
 

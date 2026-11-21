@@ -32,6 +32,7 @@ use crate::auth::{Auth, COOKIE, LINK_LIFETIME};
 use crate::db::Db;
 use crate::desktop::Appearance;
 use crate::events::{Event, EventLog};
+use crate::kept::Kept;
 use crate::paths::Paths;
 use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
 use crate::settings::{Entry, Section, Settings};
@@ -82,6 +83,10 @@ pub struct App {
     pub runtimes: Arc<Runtimes>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
+    /// This computer as last read. Memory in use moves, so it is kept only for seconds.
+    pub system: Arc<Kept<SystemInfo>>,
+    /// The desktop's look as last read.
+    pub appearance: Arc<Kept<Appearance>>,
     pub ui: Ui,
     pub started: Instant,
     /// The names this server answers to, for example `127.0.0.1:7341`. Empty means any (not loopback).
@@ -151,7 +156,14 @@ async fn guard(State(app): State<App>, req: Request, next: Next) -> Response {
             }
         }
     }
-    next.run(req).await
+    let api = path.starts_with("/api/");
+    let mut res = next.run(req).await;
+    // What the API says is true now and may not be a second later. A browser must not keep it.
+    // (Keeping answers is done on purpose, in the core and in the UI's own store, never by accident in between.)
+    if api && !res.headers().contains_key(header::CACHE_CONTROL) {
+        res.headers_mut().insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+    }
+    res
 }
 
 // ───────── what the API offers ─────────
@@ -170,25 +182,37 @@ async fn health(State(app): State<App>) -> Json<Health> {
     Json(Health { status: "ok".into(), version: VERSION.into(), uptime_s: app.started.elapsed().as_secs() })
 }
 
-/// What this computer has, and which model runtime suits it. Read fresh on every call.
-#[utoipa::path(get, path = "/api/v1/system", tag = "system", responses((status = 200, body = SystemInfo), (status = 401, body = Problem)))]
-async fn system() -> Json<SystemInfo> {
-    // Asking the driver can take a moment; keep it off the threads that answer requests.
-    Json(tokio::task::spawn_blocking(crate::system::detect).await.expect("reading the hardware does not panic"))
+#[derive(Deserialize)]
+struct FreshQuery {
+    fresh: Option<bool>,
+}
+
+/// What this computer has, and which model runtime suits it. A reading is kept for five seconds;
+/// `fresh=true` reads again now.
+#[utoipa::path(get, path = "/api/v1/system", tag = "system", params(("fresh" = Option<bool>, Query, description = "Read again now, even if a reading is seconds old")), responses((status = 200, body = SystemInfo), (status = 401, body = Problem)))]
+async fn system(State(app): State<App>, Query(q): Query<FreshQuery>) -> Json<SystemInfo> {
+    Json(app.system_info(q.fresh.unwrap_or(false)).await)
 }
 
 /// What the desktop of this computer looks like: its accent colour, when it has one and says so.
 /// Only means something to a window on the same computer as the core.
 #[utoipa::path(get, path = "/api/v1/system/appearance", tag = "system", responses((status = 200, body = Appearance), (status = 401, body = Problem)))]
-async fn appearance() -> Json<Appearance> {
-    Json(tokio::task::spawn_blocking(crate::desktop::read).await.expect("asking the desktop does not panic"))
+async fn appearance(State(app): State<App>) -> Json<Appearance> {
+    // A window asks when it gets the focus back, often twice in the same instant. One asking serves both.
+    Json(app.appearance.get(false, || async { tokio::task::spawn_blocking(crate::desktop::read).await.expect("asking the desktop does not panic") }).await)
 }
 
 // ───────── the model runtime ─────────
 
 impl App {
+    /// This computer. Reading it asks the graphics driver, which takes a moment, so a reading is kept for a
+    /// few seconds and shared by everyone who asks meanwhile. `fresh` reads again now.
+    async fn system_info(&self, fresh: bool) -> SystemInfo {
+        self.system.get(fresh, || async { tokio::task::spawn_blocking(crate::system::detect).await.expect("reading the hardware does not panic") }).await
+    }
+
     async fn advice(&self) -> &Advice {
-        self.advice.get_or_init(|| async { tokio::task::spawn_blocking(|| crate::system::detect().runtime).await.expect("reading the hardware does not panic") }).await
+        self.advice.get_or_init(|| async { self.system_info(false).await.runtime }).await
     }
 }
 
@@ -260,6 +284,14 @@ pub struct Stopped {
 #[utoipa::path(delete, path = "/api/v1/runtime/install", tag = "runtime", responses((status = 200, body = Stopped)))]
 async fn runtime_stop(State(app): State<App>) -> Json<Stopped> {
     Json(Stopped { stopped: app.runtimes.stop() })
+}
+
+/// Tries an installed runtime again: does it start, and which graphics cards does it see? Nothing is
+/// downloaded. For after a driver update.
+#[utoipa::path(post, path = "/api/v1/runtime/installed/{id}/check", tag = "runtime", params(("id" = String, Path, description = "For example llama.cpp-b12359-cuda-13.5")), responses((status = 200, body = Installed), (status = 404, body = Problem)))]
+async fn runtime_check(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Installed>> {
+    let runtimes = app.runtimes.clone();
+    Ok(Json(tokio::task::spawn_blocking(move || runtimes.check(&id)).await.expect("trying a program does not panic")?))
 }
 
 /// Deletes an installed runtime from this computer.
@@ -370,13 +402,14 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
     if req.uri().path().starts_with("/api/") {
         return problem(StatusCode::NOT_FOUND, "not_found", format!("There is nothing at {}. The API is described at /api/v1/openapi.json.", req.uri().path()));
     }
-    app.ui.serve(req.uri().path()).await
+    let has = req.headers().get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok());
+    app.ui.serve(req.uri().path(), has).await
 }
 
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_remove, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -398,6 +431,7 @@ pub fn router(app: App) -> Router {
         .route("/runtime/available", get(runtime_available))
         .route("/runtime/install", post(runtime_install).delete(runtime_stop))
         .route("/runtime/installed/{id}", axum::routing::delete(runtime_remove))
+        .route("/runtime/installed/{id}/check", post(runtime_check))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))
@@ -443,6 +477,8 @@ pub async fn serve(opts: Options) -> Result<()> {
         auth: core.auth,
         runtimes: core.runtimes,
         advice: Arc::default(),
+        system: Arc::new(Kept::new(SYSTEM_KEEPS)),
+        appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
         ui: ui.clone(),
         started: Instant::now(),
         hosts: Arc::new(hosts_for(&local)),
@@ -483,6 +519,12 @@ pub async fn serve(opts: Options) -> Result<()> {
     Ok(served?)
 }
 
+/// How long a reading of the hardware is used. Long enough for a screen that asks three times while it opens;
+/// short enough that "memory in use" is not old news.
+const SYSTEM_KEEPS: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long a reading of the desktop's look is used.
+const APPEARANCE_KEEPS: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Told (not kept) when the server is asked to stop.
 const STOPPING: &str = "server.stopping";
 /// How long requests under way get to finish once the server is asked to stop.
@@ -521,8 +563,18 @@ mod tests {
         let auth = Arc::new(Auth::with_key(KEY.into()));
         // A folder that does not exist: these tests install nothing.
         let runtimes = Arc::new(Runtimes::new(&std::env::temp_dir().join("demido-api-tests-no-runtimes"), events.clone(), Source::default()).unwrap());
-        let app =
-            App { settings, events: events.clone(), auth: auth.clone(), runtimes, advice: Arc::default(), ui: Ui::default(), started: Instant::now(), hosts: Arc::new(vec!["127.0.0.1:7341".into()]) };
+        let app = App {
+            settings,
+            events: events.clone(),
+            auth: auth.clone(),
+            runtimes,
+            advice: Arc::default(),
+            system: Arc::new(Kept::new(SYSTEM_KEEPS)),
+            appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
+            ui: Ui::default(),
+            started: Instant::now(),
+            hosts: Arc::new(vec!["127.0.0.1:7341".into()]),
+        };
         (router(app), auth, events)
     }
 
@@ -555,6 +607,15 @@ mod tests {
         let told = text.split("\n\n").find(|block| block.contains("event: test.told")).expect("the told event arrived");
         assert!(!told.contains("id:"), "{told}");
         assert!(!text.contains("test.after"), "nothing is sent after the stop");
+    }
+
+    #[tokio::test]
+    async fn what_the_api_says_is_never_kept_by_a_browser() {
+        let (r, _) = app();
+        for path in ["/api/v1/health", "/api/v1/settings", "/api/v1/nothing-here"] {
+            let res = r.clone().oneshot(request("GET", path).header("authorization", format!("Bearer {KEY}")).body(Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(res.headers().get(header::CACHE_CONTROL).and_then(|v| v.to_str().ok()), Some("no-store"), "{path}");
+        }
     }
 
     #[tokio::test]

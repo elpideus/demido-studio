@@ -4,15 +4,38 @@
 //! naming the per-commit build it stands for (`b12359`). The build is where the files are: one archive per
 //! system and kind of graphics card, each listed with its size and its SHA-256.
 //!
-//! Three questions to GitHub, without signing in. GitHub allows sixty an hour from one address, so the
-//! answer is kept for an hour (in `mod.rs`).
+//! Asking costs: GitHub allows sixty questions an hour from one address, and every question is time. So the
+//! answer is kept (on disk, by `mod.rs`) and asking again is made cheap:
+//!
+//! - Within the hour, nothing is asked at all.
+//! - After that, one question: "has the stable release changed since this mark?" (`If-None-Match`).
+//!   Usually the answer is "no", with no body, and everything kept stays good.
+//! - A build's list of files does not change once published. If the stable release still points at the
+//!   build that is kept, that list is not asked for again.
+//!
+//! So: three questions the first time, none within the hour, one small one after it.
 
-use reqwest::{Client, Response, StatusCode};
-use serde::Deserialize;
+use reqwest::{Client, Response, StatusCode, header};
+use serde::{Deserialize, Serialize};
 
 use super::{Offer, RemoteFile, Source};
 use crate::system::Advice;
-use crate::{Error, Result};
+use crate::{Error, Result, now_ms};
+
+/// What the publisher lists, as last read.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(super) struct Published {
+    /// The stable release, for example `v1.0.0`.
+    pub release: String,
+    /// The build it stands for, for example `b12359`.
+    pub build: String,
+    /// Every file of that build.
+    pub files: Vec<RemoteFile>,
+    /// The publisher's mark for the stable release as it was read. Sent back when asking again.
+    pub mark: Option<String>,
+    /// When the publisher was last asked, in milliseconds since 1970.
+    pub asked_at: i64,
+}
 
 #[derive(Deserialize)]
 struct Release {
@@ -64,29 +87,27 @@ pub(super) fn root_cause(e: &dyn std::error::Error) -> String {
     cause.to_string()
 }
 
-async fn release(http: &Client, source: &Source, which: &str) -> Result<Release> {
+/// Asks for one release. With `unless`, asks "only if it changed since this mark" and gives `None` when it did not.
+async fn release(http: &Client, source: &Source, which: &str, unless: Option<&str>) -> Result<Option<(Release, Option<String>)>> {
     let address = format!("{}/repos/{}/releases/{which}", source.api, source.repo);
-    let res = answered(&address, http.get(&address).header("accept", "application/vnd.github+json").header("x-github-api-version", "2022-11-28").send().await).await?;
-    res.json::<Release>().await.map_err(|e| Error::Net(format!("{} answered, but not with a release list Demido can read. ({})", host(&address), root_cause(&e))))
+    let mut ask = http.get(&address).header("accept", "application/vnd.github+json").header("x-github-api-version", "2022-11-28");
+    if let Some(mark) = unless {
+        ask = ask.header(header::IF_NONE_MATCH, mark);
+    }
+    let sent = ask.send().await;
+    if let Ok(res) = &sent
+        && res.status() == StatusCode::NOT_MODIFIED
+    {
+        return Ok(None);
+    }
+    let res = answered(&address, sent).await?;
+    let mark = res.headers().get(header::ETAG).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let release = res.json::<Release>().await.map_err(|e| Error::Net(format!("{} answered, but not with a release list Demido can read. ({})", host(&address), root_cause(&e))))?;
+    Ok(Some((release, mark)))
 }
 
-/// The stable release, the build it stands for, and that build's files.
-pub(super) async fn read(http: &Client, source: &Source) -> Result<(String, String, Vec<RemoteFile>)> {
-    let stable = release(http, source, "latest").await?;
-    let build = match stable.assets.iter().find(|a| a.name == "nightly-tag.txt") {
-        Some(pointer) => {
-            source.allows(&pointer.browser_download_url)?;
-            let text = answered(&pointer.browser_download_url, http.get(&pointer.browser_download_url).send().await).await?.text().await.map_err(|e| Error::Net(root_cause(&e)))?;
-            let tag = text.trim().to_string();
-            if !plain(&tag) {
-                return Err(Error::Net(format!("The stable release {} points at a build with a name Demido does not accept. Nothing was downloaded.", stable.tag_name)));
-            }
-            release(http, source, &format!("tags/{tag}")).await?
-        }
-        // No pointer: the stable release holds the files itself.
-        None => Release { tag_name: stable.tag_name.clone(), assets: stable.assets },
-    };
-    let files = build
+fn files_of(release: Release) -> Vec<RemoteFile> {
+    release
         .assets
         .into_iter()
         .map(|a| RemoteFile {
@@ -95,8 +116,33 @@ pub(super) async fn read(http: &Client, source: &Source) -> Result<(String, Stri
             url: a.browser_download_url,
             size: a.size,
         })
-        .collect();
-    Ok((stable.tag_name, build.tag_name, files))
+        .collect()
+}
+
+/// Asks the publisher: the stable release, the build it stands for, and that build's files.
+/// `known` is the last answer, if there is one. What has not changed is not asked for again.
+pub(super) async fn read(http: &Client, source: &Source, known: Option<&Published>) -> Result<Published> {
+    let Some((stable, mark)) = release(http, source, "latest", known.and_then(|k| k.mark.as_deref())).await? else {
+        // "Not changed since your mark." Everything known stays good.
+        let known = known.expect("only asked with a mark when there is a known answer");
+        return Ok(Published { asked_at: now_ms(), ..known.clone() });
+    };
+    let Some(pointer) = stable.assets.iter().find(|a| a.name == "nightly-tag.txt") else {
+        // No pointer: the stable release holds the files itself.
+        return Ok(Published { release: stable.tag_name.clone(), build: stable.tag_name.clone(), files: files_of(stable), mark, asked_at: now_ms() });
+    };
+    source.allows(&pointer.browser_download_url)?;
+    let text = answered(&pointer.browser_download_url, http.get(&pointer.browser_download_url).send().await).await?.text().await.map_err(|e| Error::Net(root_cause(&e)))?;
+    let tag = text.trim().to_string();
+    if !plain(&tag) {
+        return Err(Error::Net(format!("The stable release {} points at a build with a name Demido does not accept. Nothing was downloaded.", stable.tag_name)));
+    }
+    // A build's files do not change once published: the list that is kept for this build is still right.
+    if let Some(known) = known.filter(|k| k.build == tag && !k.files.is_empty()) {
+        return Ok(Published { release: stable.tag_name, mark, asked_at: now_ms(), ..known.clone() });
+    }
+    let (build, _) = release(http, source, &format!("tags/{tag}"), None).await?.expect("asked without a mark, so there is an answer");
+    Ok(Published { release: stable.tag_name, build: build.tag_name.clone(), files: files_of(build), mark, asked_at: now_ms() })
 }
 
 /// Which of the published files suit this computer, in the order of the advice: the recommended one first.

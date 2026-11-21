@@ -45,8 +45,11 @@ use crate::{Error, Result, VERSION, now_ms};
 
 pub const RUNTIME: &str = "llama.cpp";
 const NOTE: &str = "demido-runtime.json";
-/// How long an answer from the publisher is good for. GitHub allows sixty questions an hour; one look takes three.
-const ANSWER_KEEPS: Duration = Duration::from_secs(3600);
+/// How long an answer from the publisher is used without asking again. After that it is asked "only if
+/// changed", which is one small question (see `catalog`).
+const ANSWER_KEEPS_MS: i64 = 3_600_000;
+/// The publisher's last answer, kept beside the runtimes so that a restart does not ask again.
+const KEPT_ANSWER: &str = "published.json";
 
 /// Where the runtime's files come from. One fixed place in the real program; a test names a stand-in.
 #[derive(Clone, Debug)]
@@ -114,8 +117,11 @@ pub struct Available {
     pub build: String,
     /// What suits this computer, the recommended one first.
     pub offers: Vec<Offer>,
-    /// When the publisher was asked, in milliseconds since 1970. The answer is kept for an hour.
+    /// When the publisher was last asked, in milliseconds since 1970. Within an hour of it, nothing is asked.
     pub asked_at: i64,
+    /// `null` normally. When the publisher could not be reached, this says why, and the rest is its last
+    /// answer, as old as `asked_at` says.
+    pub stale: Option<String>,
 }
 
 /// A runtime on this computer.
@@ -140,6 +146,14 @@ pub struct Installed {
     pub version: Option<String>,
     /// Why it does not start, in the program's own words. `null` when it does.
     pub problem: Option<String>,
+    /// What it can run models on, as it lists them itself: `CUDA0: NVIDIA GeForce RTX 3060 (11908 MiB)`.
+    /// Empty for a build that runs on the processor.
+    #[serde(default)]
+    pub devices: Vec<String>,
+    /// Set when it starts but something is not as it should be. For example: a build for a graphics card
+    /// that sees no card, so models would run on the processor.
+    #[serde(default)]
+    pub caution: Option<String>,
     pub installed_at: i64,
     /// Bytes on disk.
     pub size: u64,
@@ -173,7 +187,9 @@ pub struct Status {
 struct State {
     installing: Option<Progress>,
     stop: Option<Arc<AtomicBool>>,
-    available: Option<(Instant, Available)>,
+    /// The publisher's last answer. Read from disk the first time it is needed.
+    published: Option<catalog::Published>,
+    looked_on_disk: bool,
 }
 
 pub struct Runtimes {
@@ -221,24 +237,57 @@ impl Runtimes {
         Status { runtime: RUNTIME.into(), folder: self.dir.display().to_string(), installed: self.installed(), installing: self.state().installing.clone() }
     }
 
-    /// What the publisher offers for this computer. Asked at most once an hour unless `fresh`.
-    pub async fn available(&self, advice: &Advice, fresh: bool) -> Result<Available> {
-        if !fresh
-            && let Some((when, kept)) = &self.state().available
-            && when.elapsed() < ANSWER_KEEPS
-        {
-            return Ok(kept.clone());
+    /// The publisher's last answer, from memory, or from disk the first time.
+    fn known(&self) -> Option<catalog::Published> {
+        let mut state = self.state();
+        if !state.looked_on_disk {
+            state.looked_on_disk = true;
+            state.published = std::fs::read(self.dir.join(KEPT_ANSWER)).ok().and_then(|text| serde_json::from_slice(&text).ok());
         }
-        let (release, build, files) = catalog::read(&self.http, &self.source).await?;
-        let mut offers = catalog::offers(advice, &build, &files);
+        state.published.clone()
+    }
+
+    fn keep(&self, answer: &catalog::Published) {
+        self.state().published = Some(answer.clone());
+        // Written beside its final place and moved there, so a crash never leaves half a file.
+        let saved = (|| -> std::io::Result<()> {
+            std::fs::create_dir_all(&self.dir)?;
+            let beside = self.dir.join(format!("{KEPT_ANSWER}.new"));
+            std::fs::write(&beside, serde_json::to_vec(answer).unwrap_or_default())?;
+            std::fs::rename(beside, self.dir.join(KEPT_ANSWER))
+        })();
+        if let Err(e) = saved {
+            tracing::warn!("The publisher's answer could not be kept on disk, so it will be asked again after a restart: {e}");
+        }
+    }
+
+    /// What the publisher offers for this computer.
+    ///
+    /// Within an hour of the last answer nothing is asked: the answer is kept, on disk too. After that,
+    /// or with `fresh`, the publisher is asked whether anything changed, which is usually one small question.
+    /// If it cannot be reached and there is an earlier answer, that answer is given, marked `stale`.
+    pub async fn available(&self, advice: &Advice, fresh: bool) -> Result<Available> {
+        let known = self.known();
+        let young = known.as_ref().is_some_and(|k| (0..ANSWER_KEEPS_MS).contains(&(now_ms() - k.asked_at)));
+        let (published, stale) = match known {
+            Some(known) if young && !fresh => (known, None),
+            known => match catalog::read(&self.http, &self.source, known.as_ref()).await {
+                Ok(answer) => {
+                    self.keep(&answer);
+                    (answer, None)
+                }
+                // Better the last answer, saying how old it is, than none.
+                Err(Error::Net(why)) if known.is_some() => (known.expect("checked"), Some(why)),
+                Err(e) => return Err(e),
+            },
+        };
+        let mut offers = catalog::offers(advice, &published.build, &published.files);
         for offer in offers.iter_mut().filter(|o| !o.extra.is_empty()) {
             // "cuda-13.5" needs NVIDIA's libraries of generation 13.
             let generation = offer.id.strip_prefix("cuda-").and_then(|v| v.split('.').next()).unwrap_or("").to_string();
             offer.needs_extra = !tokio::task::spawn_blocking(move || cuda_libraries_here(&generation)).await.unwrap_or(false);
         }
-        let answer = Available { runtime: RUNTIME.into(), release, offers, build, asked_at: now_ms() };
-        self.state().available = Some((Instant::now(), answer.clone()));
-        Ok(answer)
+        Ok(Available { runtime: RUNTIME.into(), release: published.release, build: published.build, offers, asked_at: published.asked_at, stale })
     }
 
     fn tell(&self, progress: Progress) {
@@ -359,15 +408,9 @@ impl Runtimes {
 
         // 3. Try it: a program that does not start on this system should be known now, not at the first question.
         self.tell(Progress { id: id.clone(), name: offer.name.clone(), step: "trying".into(), file: None, done: total, total });
-        let (version, problem) = match &server {
-            None => (None, Some(format!("The download holds no llama-server program. {RUNTIME}'s releases may have changed their layout."))),
-            Some(server) => {
-                let (root, server, dirs) = (partial.clone(), server.clone(), lib_dirs.clone());
-                match tokio::task::spawn_blocking(move || try_it(&root, &server, &dirs)).await.map_err(|e| Error::Other(e.to_string()))? {
-                    Ok(said) => (Some(said), None),
-                    Err(why) => (None, Some(why)),
-                }
-            }
+        let tried = {
+            let (root, server, dirs, backend) = (partial.clone(), server.clone(), lib_dirs.clone(), offer.id.clone());
+            tokio::task::spawn_blocking(move || try_it(&root, server.as_deref(), &dirs, &backend)).await.map_err(|e| Error::Other(e.to_string()))?
         };
 
         // 4. Write the note, give the folder its real name, and drop the archives.
@@ -381,8 +424,10 @@ impl Runtimes {
             checked,
             server,
             lib_dirs,
-            version,
-            problem,
+            version: tried.version,
+            problem: tried.problem,
+            devices: tried.devices,
+            caution: tried.caution,
             installed_at: now_ms(),
             size,
         };
@@ -414,6 +459,23 @@ impl Runtimes {
             }
             None => false,
         }
+    }
+
+    /// Tries an installed runtime again and writes down what it says now. Nothing is downloaded.
+    /// For after a driver was updated, or when the first try did not look at everything it looks at today.
+    pub fn check(&self, id: &str) -> Result<Installed> {
+        let Some(mut found) = self.installed().into_iter().find(|i| i.id == id) else {
+            return Err(Error::NotFound(format!("No runtime called \"{id}\" is installed. `demido runtime` lists what is.")));
+        };
+        let root = self.dir.join(&found.id);
+        let tried = try_it(&root, found.server.as_deref(), &found.lib_dirs, &found.backend);
+        let changed = (&found.version, &found.problem, &found.devices, &found.caution) != (&tried.version, &tried.problem, &tried.devices, &tried.caution);
+        (found.version, found.problem, found.devices, found.caution) = (tried.version, tried.problem, tried.devices, tried.caution);
+        if changed {
+            std::fs::write(root.join(NOTE), serde_json::to_vec_pretty(&found)?)?;
+            self.events.append("runtime.checked", Some(&found.id), json!({ "version": found.version, "problem": found.problem, "devices": found.devices, "caution": found.caution }))?;
+        }
+        Ok(found)
     }
 
     /// Deletes an installed runtime from this computer.
@@ -506,12 +568,19 @@ pub fn command(root: &Path, server: &str, lib_dirs: &[String]) -> std::process::
     cmd
 }
 
-/// Asks the program for its version. `Ok` is what it said; `Err` is why it does not start, in its own words.
-fn try_it(root: &Path, server: &str, lib_dirs: &[String]) -> std::result::Result<String, String> {
+/// What a try found out.
+struct Tried {
+    version: Option<String>,
+    problem: Option<String>,
+    devices: Vec<String>,
+    caution: Option<String>,
+}
+
+/// Runs the program with one argument and waits for it to end. `Ok` is whether it ended well, and all it said.
+fn run_briefly(root: &Path, server: &str, lib_dirs: &[String], argument: &str, seconds: u64) -> std::result::Result<(bool, String), String> {
     use std::process::Stdio;
-    let mut child = command(root, server, lib_dirs).arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("It could not be started: {e}"))?;
-    // A version is said at once. A program still silent after this long is not going to say it.
-    let until = Instant::now() + Duration::from_secs(20);
+    let mut child = command(root, server, lib_dirs).arg(argument).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("It could not be started: {e}"))?;
+    let until = Instant::now() + Duration::from_secs(seconds);
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
@@ -519,20 +588,53 @@ fn try_it(root: &Path, server: &str, lib_dirs: &[String]) -> std::result::Result
             _ => {
                 child.kill().ok();
                 child.wait().ok();
-                return Err("It was started and did not answer within 20 seconds.".into());
+                return Err(format!("It was started and did not answer within {seconds} seconds."));
             }
         }
     }
     let out = child.wait_with_output().map_err(|e| format!("It started, but what it said could not be read: {e}"))?;
-    let said = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    let lines: Vec<&str> = said.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    Ok((out.status.success(), format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))))
+}
+
+/// The lines under "Available devices:" in what the program says when asked to list them, without the
+/// memory that happened to be free at that moment: that number is old the second after it is written down.
+fn devices_in(said: &str) -> Vec<String> {
+    let lasting = |line: &str| -> String {
+        let line: String = line.chars().take(200).collect();
+        match (line.strip_suffix(" free)"), line.rfind(", ")) {
+            (Some(_), Some(comma)) if line[..comma].contains('(') => format!("{})", &line[..comma]),
+            _ => line,
+        }
+    };
+    said.lines().skip_while(|l| !l.to_ascii_lowercase().contains("available devices")).skip(1).map(str::trim).take_while(|l| !l.is_empty()).map(lasting).collect()
+}
+
+/// Tries an unpacked runtime: does it start, what does it call itself, and what can it run models on?
+/// A program that does not start on this system should be known now, not at the first question to a model.
+fn try_it(root: &Path, server: Option<&str>, lib_dirs: &[String], backend: &str) -> Tried {
+    let nothing = |problem: String| Tried { version: None, problem: Some(problem), devices: Vec::new(), caution: None };
+    let Some(server) = server else {
+        return nothing(format!("The download holds no llama-server program. {RUNTIME}'s releases may have changed their layout."));
+    };
     let short = |l: &str| l.chars().take(200).collect::<String>();
-    if out.status.success() {
-        Ok(lines.iter().find(|l| l.to_ascii_lowercase().contains("version")).or(lines.first()).map(|l| short(l)).unwrap_or_else(|| "It started and said nothing.".into()))
-    } else {
-        let words = lines.iter().take(3).map(|l| short(l)).collect::<Vec<_>>().join(" / ");
-        Err(if words.is_empty() { format!("It stopped at once ({}).", out.status) } else { words })
-    }
+    // A version is said at once. A program still silent after twenty seconds is not going to say it.
+    let version = match run_briefly(root, server, lib_dirs, "--version", 20) {
+        Err(why) => return nothing(why),
+        Ok((well, said)) => {
+            let lines: Vec<&str> = said.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            if !well {
+                let words = lines.iter().take(3).map(|l| short(l)).collect::<Vec<_>>().join(" / ");
+                return nothing(if words.is_empty() { "It stopped at once, without a word.".into() } else { words });
+            }
+            lines.iter().find(|l| l.to_ascii_lowercase().contains("version")).or(lines.first()).map(|l| short(l)).unwrap_or_else(|| "It started and said nothing.".into())
+        }
+    };
+    // Listing devices loads the part that talks to the graphics card. If a library that part needs is
+    // missing, this is where it shows: the program still starts, and sees no card.
+    let devices = run_briefly(root, server, lib_dirs, "--list-devices", 30).map(|(_, said)| devices_in(&said)).unwrap_or_default();
+    let caution = (devices.is_empty() && backend != "cpu")
+        .then(|| "It starts, but it sees no graphics card to run models on, so they would run on the processor only. A library it needs may be missing.".to_string());
+    Tried { version: Some(version), problem: None, devices, caution }
 }
 
 #[cfg(test)]

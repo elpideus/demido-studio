@@ -97,6 +97,11 @@ enum RuntimeCommand {
     },
     /// Stop the installation under way. What was downloaded is kept.
     Stop,
+    /// Try an installed runtime again: does it start, which graphics cards does it see? Downloads nothing.
+    Check {
+        /// Its id, as `demido runtime` shows it.
+        id: String,
+    },
     /// Delete an installed runtime from this computer.
     Remove {
         /// Its id, as `demido runtime` shows it.
@@ -409,6 +414,22 @@ fn mb(bytes: u64) -> String {
     }
 }
 
+/// What trying a runtime found, one line each, each line starting with `lead`.
+fn print_tried(r: &Value, lead: &str) {
+    println!("{lead}{}", if r["checked"] == true { "Every file matched the checksum its publisher lists." } else { "NOTE: the publisher listed no checksum, so the download was not checked." });
+    match (r["version"].as_str(), r["problem"].as_str()) {
+        (Some(said), _) => println!("{lead}It starts. It says: {said}"),
+        (None, Some(why)) => println!("{lead}CAUTION: it does not start. {why}"),
+        _ => {}
+    }
+    for device in r["devices"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        println!("{lead}It sees: {device}");
+    }
+    if let Some(caution) = r["caution"].as_str() {
+        println!("{lead}CAUTION: {caution}");
+    }
+}
+
 fn print_runtime_status(status: &Value) {
     println!("Model runtime: {}", status["runtime"].as_str().unwrap_or("?"));
     println!("  Kept in      {}", status["folder"].as_str().unwrap_or("?"));
@@ -416,15 +437,7 @@ fn print_runtime_status(status: &Value) {
     for r in &installed {
         println!("  Installed    {} ({}) · {} on disk", r["name"].as_str().unwrap_or("?"), r["build"].as_str().unwrap_or("?"), mb(r["size"].as_u64().unwrap_or(0)));
         println!("               id {}", r["id"].as_str().unwrap_or("?"));
-        println!(
-            "               {}",
-            if r["checked"] == true { "Every file matched the checksum its publisher lists." } else { "NOTE: the publisher listed no checksum, so the download was not checked." }
-        );
-        match (r["version"].as_str(), r["problem"].as_str()) {
-            (Some(said), _) => println!("               It starts. It says: {said}"),
-            (None, Some(why)) => println!("               CAUTION: it does not start. {why}"),
-            _ => {}
-        }
+        print_tried(r, "               ");
     }
     if let Some(p) = status["installing"].as_object() {
         println!("  Installing   {} · {}", p["name"].as_str().unwrap_or("?"), progress_words(&status["installing"]));
@@ -467,11 +480,9 @@ fn last_step(last: &str) -> Value {
 
 fn print_installed(r: &Value) {
     println!("Installed {} ({}), {} on disk.", r["name"].as_str().unwrap_or("?"), r["build"].as_str().unwrap_or("?"), mb(r["size"].as_u64().unwrap_or(0)));
-    println!("{}", if r["checked"] == true { "Every file matched the checksum its publisher lists." } else { "NOTE: the publisher listed no checksum, so the download was not checked." });
-    match (r["version"].as_str(), r["problem"].as_str()) {
-        (Some(said), _) => println!("It starts. It says: {said}"),
-        (None, Some(why)) => println!("CAUTION: it does not start. {why}\nIf it names a missing NVIDIA library, install again with --with-extra."),
-        _ => {}
+    print_tried(r, "");
+    if r["problem"].is_string() || r["caution"].is_string() {
+        println!("If a library from NVIDIA is what is missing, install again with --with-extra.");
     }
 }
 
@@ -500,6 +511,12 @@ async fn runtime(paths: &Paths, command: Option<RuntimeCommand>) -> Result<()> {
                 return Ok(());
             }
             println!("{} {} (build {}), as its publisher offers it for this computer", a["runtime"].as_str().unwrap_or("?"), a["release"].as_str().unwrap_or("?"), a["build"].as_str().unwrap_or("?"));
+            let age_s = (demido_core::now_ms() - a["asked_at"].as_i64().unwrap_or(0)).max(0) as u64 / 1000;
+            match a["stale"].as_str() {
+                Some(why) => println!("NOTE: the publisher could not be asked now, so this is its answer from {} ago. {why}", ago(age_s)),
+                None if age_s >= 60 => println!("Asked {} ago. The answer is kept for an hour; --fresh asks again now.", ago(age_s)),
+                None => {}
+            }
             for o in a["offers"].as_array().into_iter().flatten() {
                 println!(
                     "\n  {:<11} {} · {}{}",
@@ -592,6 +609,18 @@ async fn runtime(paths: &Paths, command: Option<RuntimeCommand>) -> Result<()> {
             Some(s) if s.send("DELETE", "/api/v1/runtime/install", None)?["stopped"] == true => println!("Stopping. What was downloaded is kept, so the next try goes on from there."),
             _ => println!("Nothing is being installed."),
         },
+        Some(RuntimeCommand::Check { id }) => {
+            let r = match (&server, &core) {
+                (Some(s), _) => s.send("POST", &format!("/api/v1/runtime/installed/{id}/check"), None)?,
+                (None, Some(c)) => {
+                    let (runtimes, id) = (c.runtimes.clone(), id.clone());
+                    serde_json::to_value(tokio::task::spawn_blocking(move || runtimes.check(&id)).await??)?
+                }
+                _ => unreachable!(),
+            };
+            println!("{} ({})", r["name"].as_str().unwrap_or("?"), r["build"].as_str().unwrap_or("?"));
+            print_tried(&r, "  ");
+        }
         Some(RuntimeCommand::Remove { id }) => {
             let gone = match (&server, &core) {
                 (Some(s), _) => s.send("DELETE", &format!("/api/v1/runtime/installed/{id}"), None)?,

@@ -114,6 +114,8 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 80 | **A setting for a mirror.** Where GitHub is slow or blocked, people need another place to fetch the runtime from. It decides which program gets installed, so it needs a warning and probably a pinned checksum list. | Raised |
 | 81 | **Say before downloading that NVIDIA's libraries are 424 MB.** The offer shows the size and whether this system seems to have them already, and leaves them out when it does. | Done |
 | 82 | **The server stops when asked, even with a window open.** A window keeps a live connection to the server; that connection kept the server from stopping at all. Every open stream now ends when the server is asked to stop, a download under way is stopped cleanly, and nothing gets more than five seconds. Found while testing, not reported by anyone. | Done |
+| 83 | **Try an installed runtime again without downloading it.** After a driver update, or when a build that did not start might start now. `demido runtime check`, and "Try again" on the Setup screen. | Done |
+| 84 | **Send the UI's files compressed.** The script is 800 kB and a quarter of that compressed. On the same computer it makes no difference; from another device it will. Best done once, when the UI is built, not on every request. | Raised |
 
 ## Pushback on the brief so far
 

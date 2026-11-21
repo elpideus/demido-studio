@@ -9,6 +9,15 @@ import { Button, Glyph, NotBuilt, Signal, Switch } from '@/ui'
 const MB = 1024 * 1024
 const mb = (bytes: number) => (bytes < MB ? 'under 1 MB' : bytes < 10 * MB ? `${(bytes / MB).toFixed(1)} MB` : `${Math.round(bytes / MB)} MB`)
 
+/** How long ago, in words: "just now", "12 minutes ago", "3 hours ago". */
+function ago(at: number): string {
+  const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours} hour${hours === 1 ? '' : 's'} ago` : `${Math.round(hours / 24)} days ago`
+}
+
 function words(p: CoreProgress): string {
   switch (p.step) {
     case 'downloading': return p.total > 0 ? `Downloading ${p.file ?? ''} · ${mb(p.done)} of ${mb(p.total)}` : `Downloading ${p.file ?? ''} · ${mb(p.done)}`
@@ -33,18 +42,32 @@ function InstalledRow({ r, onGone }: { r: CoreInstalled; onGone: () => void }) {
     setBusy(false)
     setSure(false)
   }
+  /** Asks the installed program again whether it starts and what it sees. Nothing is downloaded. */
+  const tryAgain = async () => {
+    setBusy(true)
+    try {
+      const now = await coreSend<CoreInstalled>('POST', `/runtime/installed/${encodeURIComponent(r.id)}/check`)
+      toast(now.problem ? `It still does not start. ${now.problem}` : now.caution ?? 'It starts.', undefined, now.problem ? 'task-failed' : 'task-done')
+      onGone()
+    } catch (e) {
+      toast(`Not tried. ${(e as Error).message}`, undefined, 'task-failed')
+    }
+    setBusy(false)
+  }
   return (
     <div className="d-setting">
       <div className="d-setting__text">
         <span className="d-setting__label"><Glyph name={r.version ? 'task-done' : 'task-failed'} label={r.version ? 'starts' : 'does not start'} />{r.name}<span className="d-badge">Installed</span></span>
         <span className="d-setting__desc">Build {r.build} · {mb(r.size)} on disk · {r.checked ? 'every file matched the checksum its publisher lists' : 'NOTE: its publisher listed no checksum, so the download was not checked'}.</span>
         {r.version && <span className="d-setting__desc d-text-tertiary">It starts. It says: <span className="d-mono">{r.version}</span></span>}
+        {r.devices.map((d) => <span key={d} className="d-setting__desc d-text-tertiary">It sees: <span className="d-mono">{d}</span></span>)}
+        {r.caution && <span className="d-setting__desc">CAUTION: {r.caution}</span>}
         {r.problem && <span className="d-setting__desc">CAUTION: it does not start. <span className="d-mono">{r.problem}</span></span>}
       </div>
       <div className="d-setting__control">
         {sure
           ? <><Button size="sm" variant="ghost" onClick={() => setSure(false)}>Keep</Button><Button size="sm" variant="danger" disabled={busy} onClick={remove}>Remove {mb(r.size)}</Button></>
-          : <Button size="sm" variant="ghost" onClick={() => setSure(true)}>Remove</Button>}
+          : <><Button size="sm" variant="ghost" disabled={busy} onClick={tryAgain}>Try again</Button><Button size="sm" variant="ghost" onClick={() => setSure(true)}>Remove</Button></>}
       </div>
     </div>
   )
@@ -175,7 +198,8 @@ export function RealRuntime() {
             {offered.offers.map((o) => <OfferRow key={o.id} o={o} busy={Boolean(installing)} installed={status.installed.some((r) => r.build === offered.build && r.backend === o.id)} onInstall={(extra) => install(o, extra)} />)}
             {offered.offers.length === 0 && <p className="app-empty">Nothing in this build suits this computer.</p>}
           </div>
-          <p className="d-type-caption d-text-tertiary">Each file is checked against the SHA-256 its publisher lists, and a download that stops goes on from where it stopped. Kept in <span className="d-mono">{status.folder}</span>.</p>
+          {offered.stale && <Signal level="note">GitHub could not be asked just now, so this is what it offered {ago(offered.asked_at)}. {offered.stale}</Signal>}
+          <p className="d-type-caption d-text-tertiary">{!offered.stale && `Asked ${ago(offered.asked_at)}. The answer is kept for an hour, so looking again costs nothing. `}Each file is checked against the SHA-256 its publisher lists, and a download that stops goes on from where it stopped. Kept in <span className="d-mono">{status.folder}</span>.</p>
         </div>
       )}
       <NotBuilt block>Starting the runtime with a model, and stopping it when idle. Installing it is real; nothing uses it yet.</NotBuilt>

@@ -29,7 +29,7 @@ That opens the UI in your browser, signed in. The Setup screen now shows this co
 | `demido system` | This computer: processor, memory, graphics cards, and which model runtime suits it. `--json`. |
 | `demido settings list` | Every setting with its value. Also `get <id>`, `set <id> <value>`, `reset <id>`. |
 | `demido events` | The log of what happened. `--after <n>`, `--limit <n>`, `--json`. |
-| `demido runtime` | The program that runs models: what is installed. `available` asks its publisher what suits this computer; `install [id]` downloads, checks, unpacks and tries one; `stop`; `remove <id>`. |
+| `demido runtime` | The program that runs models: what is installed. `available` asks its publisher what suits this computer; `install [id]` downloads, checks, unpacks and tries one; `check <id>` tries an installed one again; `stop`; `remove <id>`. |
 | `demido open` | Opens the web UI in your browser, signed in. `--print` only prints the link. |
 
 With a server running, the command line asks the server. Without one, it works on the files directly.
@@ -47,7 +47,8 @@ With a server running, the command line asks the server. Without one, it works o
 | `…/runtime/` | The model runtime: what its publisher offers (`catalog.rs`), downloading with a check (`fetch.rs`), unpacking without trust (`unpack.rs`), and installing, listing and removing (`mod.rs`). |
 | `…/auth.rs` | The key every request needs, and the one-use link that lets a browser in. |
 | `…/api.rs` | The API, its guard, its own description, and the server. |
-| `…/ui.rs` | Serving the web UI from the same address. |
+| `…/ui.rs` | Serving the web UI from the same address, so that a browser is never sent the same file twice. |
+| `…/kept.rs` | Keeping an answer for a few seconds, so a burst of the same question costs one answer. |
 | `crates/demido/src/main.rs` | The `demido` program. |
 
 The API describes itself at `/api/v1/openapi.json`.
@@ -60,8 +61,7 @@ cargo test --manifest-path core/Cargo.toml
 
 ## Not built yet
 
-Starting the model runtime with a model (installing it is built, and has only been run against a stand-in
-publisher so far). Sessions, tools, models, providers. Carrying the web UI inside
+Starting the model runtime with a model (installing it is built). Sessions, tools, models, providers. Carrying the web UI inside
 the binary (a release keeps it in a folder named `ui` beside the program, and the program finds it there).
 Use from other devices (encryption, passkeys). Windows and macOS are tested by the checks on GitHub, on machines
 without a graphics card; no real Windows or Mac has run it yet.

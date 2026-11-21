@@ -457,3 +457,13 @@ Follow-up clarifications:
 * If Claude Code finds ideas, suggestions or better ideas, it should discuss them with me, never holding back.
 * There should be automatic building on GitHub tag/release, just like the current one (do not look at the current one).
 * Claude Code decides the technical choices (stack, architecture, structure, plan) itself.
+
+---
+
+## Added by the owner after the brief
+
+Said in conversation, kept here in the owner's words so that the brief stays the whole of what was asked.
+
+**2026-11-21, caching.** "Also a thing I forgot to tell you in the brief is to use caching whenever possible
+in order to do as few requests as possible and to make Demido Studio faster."
+How it is applied: `docs/DECISIONS.md`, section P.
