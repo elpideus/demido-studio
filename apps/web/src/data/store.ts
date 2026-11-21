@@ -3,13 +3,14 @@
    will change it through API events. Swapping the mock for the real client means replacing this file's
    functions; the components do not change. */
 import { create } from 'zustand'
-import { coreGet, coreSend, look, onCoreEvent, type CoreSection, type CoreSetting, type CoreSettings } from './core'
+import { coreGet, coreSend, look, onCoreEvent, type CoreAppearance, type CoreSection, type CoreSetting, type CoreSettings } from './core'
 import { AGENTS, ARTIFACTS, CHARACTERS, MODELS, PROVIDERS, SCHEDULES, SESSIONS, SYSTEM, TOOLS } from './fixtures'
 import type { Agent, Artifact, Block, Character, Message, Model, PermissionLevel, Provider, Schedule, Session, Task, Toast, Tool, SessionGroup } from './types'
 
 const SETTINGS_KEY = 'demido-preview-settings'
 /** What the core's settings were on the last visit, so the theme is right before the core has answered. */
 const CORE_SETTINGS_KEY = 'demido-core-settings'
+const SYSTEM_ACCENT_KEY = 'demido-core-system-accent'
 export const IDLE_UNLOAD_PREVIEW_MS = 45_000
 
 interface State {
@@ -18,6 +19,9 @@ interface State {
   /** Settings the core declares, by id, with their values. Empty when no core is behind these pages. */
   core: Record<string, CoreSetting>
   coreSections: CoreSection[]
+  /** The system's accent as the core reads it. `null` until a core has answered (and always, in the preview).
+      `here` is false when this window is on another computer than the core: its desktop is not ours. */
+  systemAccent: (CoreAppearance & { here: boolean }) | null
   sessions: Session[]
   groups: SessionGroup[]
   models: Model[]
@@ -45,11 +49,20 @@ function loadStored(key: string): Record<string, unknown> {
 }
 /** The core's values as last seen. Used only until the core answers. */
 let remembered: Record<string, unknown> = loadStored(CORE_SETTINGS_KEY)
+/** The system accent as last read through the core, for the same reason. */
+let rememberedAccent: string | null = (() => {
+  try {
+    return localStorage.getItem(SYSTEM_ACCENT_KEY)
+  } catch {
+    return null
+  }
+})()
 
 export const useStore = create<State>(() => ({
   settings: loadStored(SETTINGS_KEY),
   core: {},
   coreSections: [],
+  systemAccent: null,
   sessions: structuredClone(SESSIONS).map((s) => ({ ...s, groupId: FILED[s.id] })),
   groups: [{ id: 'g-code', name: 'Billing service', open: true }, { id: 'g-home', name: 'Home', open: true }],
   models: structuredClone(MODELS),
@@ -167,8 +180,10 @@ export function startCore(): Promise<void> {
       // No core here (the preview), or this browser is not let in: nothing remembered applies.
       if (Object.keys(remembered).length) {
         remembered = {}
+        rememberedAccent = null
         try {
           localStorage.removeItem(CORE_SETTINGS_KEY)
+          localStorage.removeItem(SYSTEM_ACCENT_KEY)
         } catch {}
         applyAppearance()
       }
@@ -186,8 +201,34 @@ export function startCore(): Promise<void> {
     } catch (e) {
       toast(`The core did not give its settings. ${(e as Error).message}`, undefined, 'task-failed')
     }
+    void readSystemAccent()
+    // The accent is changed in the system's own settings, which means leaving this window. Ask again on return.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) void readSystemAccent() })
+    window.addEventListener('focus', () => void readSystemAccent())
   })()
   return started
+}
+
+/** "Automatic" follows the system's accent. The core can read it, but only its own computer's. */
+async function readSystemAccent() {
+  const here = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname)
+  let seen: CoreAppearance = { accent: null, source: null, supported: false }
+  if (here) {
+    try {
+      seen = await coreGet<CoreAppearance>('/system/appearance')
+    } catch {
+      return // keep what was known; the next look may work
+    }
+  }
+  const before = get().systemAccent
+  if (before && before.accent === seen.accent && before.supported === seen.supported && before.here === here) return
+  set({ systemAccent: { ...seen, here } })
+  rememberedAccent = seen.accent
+  try {
+    if (seen.accent) localStorage.setItem(SYSTEM_ACCENT_KEY, seen.accent)
+    else localStorage.removeItem(SYSTEM_ACCENT_KEY)
+  } catch {}
+  applyAppearance()
 }
 
 /** Theme, text size and accent are applied to <html>, where the brand tokens read them. */
@@ -199,7 +240,10 @@ export function applyAppearance() {
   const size = setting('appearance.textSize', 100)
   el.style.fontSize = size === 100 ? '' : `${size}%`
   const mode = setting<string>('appearance.accent', 'auto')
-  const system = setting('preview.systemAccent', '')
+  // With a core, the system accent is the real one (or none). Only the preview pretends.
+  const read = get().systemAccent
+  const withCore = read !== null || Object.keys(remembered).length > 0
+  const system = withCore ? (read ? read.accent : rememberedAccent) ?? '' : setting('preview.systemAccent', '')
   const accent = mode === 'custom' ? setting('appearance.accentCustom', '#68efaf') : mode === 'auto' ? system : ''
   if (accent) el.style.setProperty('--d-color-accent-source', accent)
   else el.style.removeProperty('--d-color-accent-source')

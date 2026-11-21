@@ -306,6 +306,12 @@ fn print_system(s: &SystemInfo) {
     println!("  System       {} {}, kernel {} ({})", s.os.name, s.os.version, s.os.kernel, s.os.arch);
     println!("  Processor    {} · {} threads{}", s.cpu.model, s.cpu.threads, if s.cpu.features.is_empty() { String::new() } else { format!(" · {}", s.cpu.features.join(", ")) });
     println!("  Memory       {:.1} GB, {:.1} GB free", s.memory.total_gb, s.memory.available_gb);
+    let look = demido_core::desktop::read();
+    match (&look.accent, look.supported) {
+        (Some(colour), _) => println!("  Accent       {colour}  [found by the desktop's {}]", look.source.as_deref().unwrap_or("settings")),
+        (None, true) => println!("  Accent       the desktop reports none"),
+        (None, false) => println!("  Accent       not built yet for this system"),
+    }
     if s.gpus.is_empty() {
         println!("  Graphics     none that can run models was found");
     }

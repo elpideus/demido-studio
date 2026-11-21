@@ -42,6 +42,7 @@ With a server running, the command line asks the server. Without one, it works o
 | `…/events.rs` | The append-only log, and its live stream. |
 | `…/settings.rs` | The registry of every setting, and their values. Add a setting here and it appears everywhere. |
 | `…/system.rs` | Reading the hardware, and the advice on which runtime build to download. |
+| `…/desktop.rs` | What the desktop looks like: its accent colour (Linux, through the desktop's portal). |
 | `…/auth.rs` | The key every request needs, and the one-use link that lets a browser in. |
 | `…/api.rs` | The API, its guard, its own description, and the server. |
 | `…/ui.rs` | Serving the web UI from the same address. |

@@ -108,6 +108,8 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 74 | **Proof of where a build came from.** GitHub can attach a signed statement to every release file saying which commit and which workflow built it; anyone can check it with one command. Free for a public repository. Not added yet: it can only be tried on a real release. | Raised |
 | 75 | **Keep the pinned actions fresh.** The workflows name exact commits, which is safe and also goes stale. A bot can open a change when an action has a new version. It adds noise, so it waits for a yes. | Raised |
 | 76 | **A rehearsal before every release.** The release workflow can be started by hand: it builds all six archives and publishes nothing. Worth doing before a tag, because a tag that fails to build is public. | Done |
+| 77 | **Stay signed in across a restart.** A browser's session lives in the server's memory, so restarting the server signs every browser out and `demido open` is needed again. Keeping a fingerprint of each session in the database would fix it. | Raised |
+| 78 | **Follow the accent while the window is in front.** The portal announces a change of accent. Listening for it needs a lasting D-Bus connection; today the window asks again when it gets the focus back, which covers changing it in the system's settings. | Raised |
 
 ## Pushback on the brief so far
 

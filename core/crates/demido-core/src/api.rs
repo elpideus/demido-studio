@@ -30,6 +30,7 @@ use utoipa::{OpenApi, ToSchema};
 
 use crate::auth::{Auth, COOKIE, LINK_LIFETIME};
 use crate::db::Db;
+use crate::desktop::Appearance;
 use crate::events::{Event, EventLog};
 use crate::paths::Paths;
 use crate::settings::{Entry, Section, Settings};
@@ -151,6 +152,13 @@ async fn system() -> Json<SystemInfo> {
     Json(tokio::task::spawn_blocking(crate::system::detect).await.expect("reading the hardware does not panic"))
 }
 
+/// What the desktop of this computer looks like: its accent colour, when it has one and says so.
+/// Only means something to a window on the same computer as the core.
+#[utoipa::path(get, path = "/api/v1/system/appearance", tag = "system", responses((status = 200, body = Appearance), (status = 401, body = Problem)))]
+async fn appearance() -> Json<Appearance> {
+    Json(tokio::task::spawn_blocking(crate::desktop::read).await.expect("asking the desktop does not panic"))
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct SettingsList {
     pub sections: Vec<Section>,
@@ -253,7 +261,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -270,6 +278,7 @@ pub fn router(app: App) -> Router {
         .route("/health", get(health))
         .route("/openapi.json", get(openapi))
         .route("/system", get(system))
+        .route("/system/appearance", get(appearance))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))

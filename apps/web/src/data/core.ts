@@ -28,6 +28,8 @@ export interface CoreSettingDef { id: string; section: string; label: string; de
 export interface CoreSetting { def: CoreSettingDef; value: unknown; changed: boolean }
 export interface CoreSection { id: string; title: string; lead: string | null }
 export interface CoreSettings { sections: CoreSection[]; settings: CoreSetting[] }
+/** The desktop's look, as the core reads it on its own computer. `supported` is false where reading it is not built yet. */
+export interface CoreAppearance { accent: string | null; source: string | null; supported: boolean }
 /** One line of the core's log of what happened. `seq` is its number; `subject` is what it is about. */
 export interface CoreEvent { seq: number; id: string; at: number; kind: string; subject: string | null; data: Record<string, unknown> }
 

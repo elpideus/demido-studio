@@ -133,6 +133,19 @@ function Row({ def, preview }: { def: SettingDef; preview: boolean }) {
 // ───────────── settings the core declares: drawn from the core's own description ─────────────
 /** Controls with a shape of their own, by setting id. Everything else is drawn from the setting's kind. */
 const OWN_CONTROL: Record<string, ComponentType> = { 'appearance.accent': AccentControl }
+/** What the system's accent is, said under the Accent setting: Automatic follows it. */
+function SystemAccentNote() {
+  const seen = useStore((s) => s.systemAccent)
+  if (!seen) return null
+  if (!seen.here) return <> This window is on another computer than the core, so your system's accent cannot be read here.</>
+  if (!seen.supported) return <> Reading the system accent on this system: <NotBuilt /></>
+  if (!seen.accent) return <> Your system reports no accent colour.</>
+  return <> Your system reports <span className="app-swatch" style={{ background: seen.accent }} aria-hidden="true" /> <code>{seen.accent}</code>.</>
+}
+/** Words added under a setting's description, by setting id. */
+const OWN_NOTE: Record<string, ComponentType> = { 'appearance.accent': SystemAccentNote }
+/** Rows that only exist so the preview can pretend. With a core they are gone: the real thing is read instead. */
+const PREVIEW_ONLY = new Set(['preview.systemAccent'])
 /** Settings that are shown inside another setting's control, so they get no row of their own. */
 const INSIDE_ANOTHER = new Set(['appearance.accentCustom'])
 /** A choice between a few short words reads faster side by side than in a list. */
@@ -161,8 +174,9 @@ function CoreControl({ entry }: { entry: CoreSetting }) {
 
 function CoreRow({ entry }: { entry: CoreSetting }) {
   const { def } = entry
+  const Note = OWN_NOTE[def.id]
   return (
-    <SettingRow label={def.label} desc={<>{def.desc} {!def.built && <NotBuilt />}</>} details={def.details ?? undefined} changed={entry.changed} onReset={() => setSetting(def.id, undefined)} wide={def.kind.type === 'slider'}>
+    <SettingRow label={def.label} desc={<>{def.desc}{Note && <Note />} {!def.built && <NotBuilt />}</>} details={def.details ?? undefined} changed={entry.changed} onReset={() => setSetting(def.id, undefined)} wide={def.kind.type === 'slider'}>
       <CoreControl entry={entry} />
     </SettingRow>
   )
@@ -187,7 +201,7 @@ function SettingsPage() {
     }
     const out: ShownSection[] = [...CORE_SECTIONS, ...allFeatures().flatMap((f: Feature) => f.settings ?? [])].map((s) => ({
       id: s.id, title: s.title, lead: s.lead, order: s.order,
-      rows: s.settings.filter((d) => !INSIDE_ANOTHER.has(d.id) || !core[d.id]).map((d) => {
+      rows: s.settings.filter((d) => (!INSIDE_ANOTHER.has(d.id) || !core[d.id]) && !(live && PREVIEW_ONLY.has(d.id))).map((d) => {
         if (core[d.id]) placed.add(d.id)
         return core[d.id] ? row(s.title, core[d.id]) : row(s.title, undefined, d)
       }),
@@ -203,7 +217,7 @@ function SettingsPage() {
       section.rows.push(row(section.title, entry))
     }
     return out.sort((a, b) => a.order - b.order)
-  }, [core, coreSections])
+  }, [core, coreSections, live])
   const needle = q.trim().toLowerCase()
   const shown = sections.map((s) => ({ ...s, rows: s.rows.filter((r) => !needle || r.words.includes(needle)) })).filter((s) => s.rows.length)
   const total = sections.reduce((n, s) => n + s.rows.length, 0)

@@ -10,6 +10,7 @@
 //! - [`events`]    the append-only log of what happened, and its live stream
 //! - [`settings`]  every setting there is: what it means, its default, its value
 //! - [`system`]    what this computer has, and which model runtime suits it
+//! - [`desktop`]   what the desktop looks like: its accent colour
 //! - [`auth`]      the key that every request needs, even from this computer
 //! - [`api`]       the HTTP API, and the server that offers it
 //! - [`ui`]        serving the web UI from the same address
@@ -17,6 +18,7 @@
 pub mod api;
 pub mod auth;
 pub mod db;
+pub mod desktop;
 pub mod error;
 pub mod events;
 pub mod paths;

@@ -2473,3 +2473,6 @@
     }
   }
 }
+
+/* A small sample of a colour, inside a sentence. */
+.app-swatch { display: inline-block; width: 0.8em; height: 0.8em; border-radius: var(--d-radius-xs); border: 1px solid var(--d-color-border-default); vertical-align: -0.05em; }

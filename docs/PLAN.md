@@ -70,12 +70,13 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 
 ### Step 3. Real feature work
 
-The order. Item 1 is done; item 2 is under way.
+The order. Items 1 and 2 are done; item 3 is next.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.
 2. Core skeleton: daemon, API, storage, settings system, event log, CLI. Includes the Accent setting and
    reading the system accent (Linux portal first).
+   Done on 2026-11-21 (DECISIONS, section K). Left open inside it: the system accent on Windows and macOS.
 3. Local inference: runtime install, hardware detection, load / unload, memory budget.
 4. Chat loop with the small-model techniques: constrained tool calls, repair, task list, compaction.
 5. Tools system, permission levels, sandbox, injection defence.
