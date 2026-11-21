@@ -15,9 +15,10 @@ The order of the first three steps is the owner's (brief section 0). Everything 
 - Storage, the settings registry, the event log with its live stream, the key and the browser link, the
   API with its own description.
 - It reads this computer's real hardware and recommends the model runtime build to download.
-- Served by the core, the Setup screen shows that real hardware, and the Settings screen keeps Appearance,
-  the listen address and the log's length in the core. Every other screen is still the scripted preview,
-  and says so.
+- Served by the core, three things are real. Setup: this computer's hardware, and installing the model
+  runtime. Models › On this computer: the models in Demido's folder, loaded and unloaded for real, with
+  the indicator in the corner following. Settings: Appearance, Models and memory, the listen address and
+  the log's length. Everything else is still the scripted preview, and says so.
 - The project is public at `github.com/elpideus/demido-studio`. Every change is checked on Linux, Windows
   and macOS; a version tag builds six archives (DECISIONS, section R).
 
@@ -70,7 +71,8 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 
 ### Step 3. Real feature work
 
-The order. Items 1 and 2 are done; item 3 is under way.
+The order. Items 1 and 2 are done; item 3 is nearly done; item 4 (the chat loop) is next, and needs the
+research on small-model techniques first.
 
 1. Repository on GitHub: confirm the account, rename the old repo, create the new one, release CI on tag.
    Done on 2026-11-21 (DECISIONS, section R). The old repository is now `demido-studio-fourth`.
@@ -79,10 +81,10 @@ The order. Items 1 and 2 are done; item 3 is under way.
    Done on 2026-11-21 (DECISIONS, section K). Left open inside it: the system accent on Windows and macOS.
 3. Local inference: runtime install, hardware detection, load / unload, memory budget.
    Hardware detection and the installer are built (DECISIONS K8, K9, K15 to K21), and the real runtime is
-   installed on the owner's computer (CUDA 13.5, 170 MB; it starts and sees the card). Next: start the runtime
-   with a model, stop it when idle, and the memory budget. Reading the runtime's current documentation
-   first showed that it now does much of this itself (research note 12, DECISIONS K22, proposed); that
-   has to be tried on the real runtime before anything is built on it.
+   installed on the owner's computer (CUDA 13.5, 170 MB; it starts and sees the card). Loading, unloading
+   and unloading when idle are built too (DECISIONS K22, K23): the runtime's own router does the fitting
+   into memory, tried on the real card before it was relied on. Left in this item: the memory picture
+   in the UI (the budget bar is still scripted), and a context chosen per model.
 4. Chat loop with the small-model techniques: constrained tool calls, repair, task list, compaction.
 5. Tools system, permission levels, sandbox, injection defence.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.

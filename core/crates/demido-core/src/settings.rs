@@ -98,6 +98,7 @@ fn choices(pairs: &[(&str, &str)]) -> Kind {
 pub fn registry() -> (Vec<Section>, Vec<Def>) {
     let sections = vec![
         section("appearance", "Appearance", None),
+        section("models", "Models and memory", Some("Models load only when needed and unload when idle.")),
         section("server", "Server and remote use", Some("How this computer offers Demido to its own window, to browsers and to other devices.")),
         section("events", "The log of what happened", None),
         section("updates", "Updates", None),
@@ -123,6 +124,37 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             Some("Default 100% · Range 85 to 130%. Every size in Demido is relative to this, so spacing and controls grow with the text."),
             Kind::Slider { min: 85.0, max: 130.0, step: 5.0, unit: "%".into() },
             json!(100),
+            true,
+        ),
+        def(
+            "models.idleUnload",
+            "Idle unload",
+            "Unloads a model after this long without use.",
+            Some("Default 5 min. Lower frees memory sooner. Higher avoids waiting for a reload. Unloading ends the model's process, so its memory is free again for certain."),
+            choices(&[("1", "1 min"), ("5", "5 min"), ("15", "15 min"), ("60", "1 h"), ("never", "Never")]),
+            json!("5"),
+            true,
+        ),
+        def(
+            "models.reserve",
+            "Memory kept free",
+            "Graphics memory Demido never uses, so your desktop stays smooth.",
+            Some(
+                "Default 0.9 GB · Range 0.5 to 3 GB. Lower fits larger models; too low and the desktop stutters or a load fails. When a model would not fit beside what is loaded, the one used longest ago is unloaded first. Takes effect the next time the model runtime starts (it stops by itself five minutes after the last model is unloaded).",
+            ),
+            Kind::Slider { min: 0.5, max: 3.0, step: 0.1, unit: "GB".into() },
+            json!(0.9),
+            true,
+        ),
+        def(
+            "models.context",
+            "Context size",
+            "How much a model can hold in mind at once, in tokens. Larger needs more memory.",
+            Some(
+                "Default 8192. Demido sets this for every model: left alone, a model takes all the memory it can find (a 610 MB model took 5.3 GB when tried). Not built yet: choosing it for each model by itself. Takes effect the next time the model runtime starts.",
+            ),
+            choices(&[("4096", "4k"), ("8192", "8k"), ("16384", "16k"), ("32768", "32k")]),
+            json!("8192"),
             true,
         ),
         def(

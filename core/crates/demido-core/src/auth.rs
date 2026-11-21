@@ -90,7 +90,8 @@ impl Auth {
     }
 }
 
-fn write_private(path: &Path, text: &str) -> Result<()> {
+/// Writes a file that only the user can read.
+pub(crate) fn write_private(path: &Path, text: &str) -> Result<()> {
     #[cfg(unix)]
     {
         use std::io::Write;

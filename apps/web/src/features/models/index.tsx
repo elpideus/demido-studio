@@ -1,7 +1,10 @@
 /* Models: find one, read its card, download it, load it.
    Left: the list (what is rising, what suits this computer, everything, in pages).
    Right: the model card of the one you picked, with its files and what it does on this computer. */
-import { useMemo, useState } from 'react'
+import { useCore } from '@/data/core'
+import { useLocal } from '@/data/local-models'
+import { LocalDetail, LocalList } from './local'
+import { useEffect, useMemo, useState } from 'react'
 import { AudioLines, Box, Boxes, Brain, ChevronLeft, ChevronRight, Download, Eye, Heart, Search, Star, TrendingUp, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
@@ -187,6 +190,12 @@ function ModelsPage() {
   const [sort, setSort] = useState<'recommended' | 'trending' | 'downloads' | 'likes' | 'updated' | 'size'>('downloads')
   const [page, setPage] = useState(0)
   const [open, setOpen] = useState(models[0].id)
+  // With a core behind the pages, "On this computer" is real: the models in Demido's folder, loaded and unloaded for real.
+  const real = useCore().state === 'ready'
+  const local = useLocal((s) => s.list)
+  const [openLocal, setOpenLocal] = useState<string | null>(null)
+  const mineForReal = real && view === 'mine'
+  useEffect(() => { if (real) setView('mine') }, [real])
   const needle = q.trim().toLowerCase()
   const searching = needle !== '' || caps.length > 0 || fitsOnly
 
@@ -234,7 +243,12 @@ function ModelsPage() {
         <label className="d-check" style={{ paddingInline: 'var(--d-space-6)' }}><Switch label="Only what fits this computer" checked={fitsOnly} onChange={(v) => { setFitsOnly(v); reset() }} /><span className="d-check__text">Only what fits this computer</span></label>
 
         <div className="app-side__scroll">
-          {view === 'discover' && !searching ? (
+          {mineForReal ? (
+            <>
+              <p className="d-list__label">In Demido's models folder{local ? ` · ${local.models.length}` : ''}</p>
+              <LocalList open={openLocal ?? local?.models[0]?.id ?? null} onOpen={setOpenLocal} />
+            </>
+          ) : view === 'discover' && !searching ? (
             <>
               <p className="d-list__label">Rising this week</p>
               {list(trending, true)}
@@ -255,7 +269,7 @@ function ModelsPage() {
             </>
           )}
         </div>
-        {(view !== 'discover' || searching) && pages > 1 && (
+        {!mineForReal && (view !== 'discover' || searching) && pages > 1 && (
           <div className="models__pages">
             <Button variant="ghost" size="sm" iconOnly aria-label="Previous page" disabled={at === 0} onClick={() => setPage(at - 1)}><Icon icon={ChevronLeft} /></Button>
             <span className="d-type-caption d-text-secondary">{at * PAGE + 1}–{Math.min(matches.length, at * PAGE + PAGE)} of {matches.length} · page {at + 1} of {pages}</span>
@@ -263,12 +277,12 @@ function ModelsPage() {
           </div>
         )}
         <div className="app-side__foot">
-          <span>{SYSTEM.gpu} · {SYSTEM.vramGb.toFixed(1)} GB · {SYSTEM.ramGb} GB RAM</span>
-          <Budget compact />
-          <span>Model families are real. Sizes, counts and licence labels here are illustrative.</span>
+          {!real && <span>{SYSTEM.gpu} · {SYSTEM.vramGb.toFixed(1)} GB · {SYSTEM.ramGb} GB RAM</span>}
+          {!real && <Budget compact />}
+          <span>{real ? '"On this computer" is real. Discover and All are still the scripted preview: model families are real; sizes, counts and licence labels are illustrative.' : 'Model families are real. Sizes, counts and licence labels here are illustrative.'}</span>
         </div>
       </aside>
-      <Detail key={current.id} model={current} />
+      {mineForReal ? <LocalDetail id={openLocal} /> : <Detail key={current.id} model={current} />}
     </div>
   )
 }

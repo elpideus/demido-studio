@@ -60,6 +60,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// The models on this computer: list them, load one, unload one.
+    Models {
+        #[command(subcommand)]
+        command: Option<ModelsCommand>,
+    },
     /// The program that runs models: what is installed, what is offered, installing it.
     Runtime {
         #[command(subcommand)]
@@ -70,6 +75,20 @@ enum Command {
         /// Only print the link; do not start a browser.
         #[arg(long)]
         print: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelsCommand {
+    /// Load a model into memory and wait until it is ready. Needs a running server.
+    Load {
+        /// Its name, as `demido models` shows it.
+        id: String,
+    },
+    /// Unload a model: its process ends and its memory is free again.
+    Unload {
+        /// Its name, as `demido models` shows it.
+        id: String,
     },
 }
 
@@ -175,6 +194,7 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::Settings { command } => settings(&paths, command)?,
         Command::Runtime { command } => runtime(&paths, command).await?,
+        Command::Models { command } => models(&paths, command).await?,
         Command::Events { after, limit, json } => {
             let events: Value = match Server::find(&paths) {
                 Some(s) => s.get(&format!("/api/v1/events?limit={limit}{}", after.map(|a| format!("&after={a}")).unwrap_or_default()))?,
@@ -401,7 +421,66 @@ fn print_system(s: &SystemInfo) {
     }
     println!("  Comes from   {}", r.source);
     println!("\nInstall it with: demido runtime install");
-    println!("Not built yet: starting it with a model.");
+    println!("Then load a model with it: demido models");
+}
+
+// ───────── models ─────────
+
+fn print_models(list: &Value) {
+    println!("Models on this computer: {}", list["folder"].as_str().unwrap_or("?"));
+    let models = list["models"].as_array().cloned().unwrap_or_default();
+    let widest = models.iter().filter_map(|m| m["id"].as_str()).map(|id| id.chars().count()).max().unwrap_or(0);
+    for m in &models {
+        let mut says = vec![m["state"].as_str().unwrap_or("?").to_string()];
+        if let Some(needs) = m["needs_mb"].as_u64() {
+            says.push(format!("needs {needs} MiB on the graphics card"));
+        }
+        if let Some(idle) = m["idle_for_s"].as_u64() {
+            says.push(format!("idle for {}", ago(idle)));
+        }
+        if let Some(left) = m["unloads_in_s"].as_u64() {
+            says.push(format!("unloads in {}", if left > 60 { ago(left.div_ceil(60) * 60) } else { ago(left) }));
+        }
+        println!("  {:<widest$}  {:>8}  {}", m["id"].as_str().unwrap_or("?"), mb(m["size"].as_u64().unwrap_or(0)), says.join(" · "));
+    }
+    if models.is_empty() {
+        println!("  None. Put GGUF files in that folder. (Not built yet: downloading models from within Demido.)");
+    }
+    let e = &list["engine"];
+    let idle = e["idle_unload_min"].as_u64().map_or("never unloaded for being idle".to_string(), |m| format!("unloaded after {m} min idle"));
+    match e["runtime"].as_str() {
+        Some(name) => println!(
+            "\nRuntime: {name}, {}. Context {} tokens · {} MiB of graphics memory kept free · models {idle}.",
+            if e["running"] == true { "running" } else { "not running (it starts when a model is loaded)" },
+            e["context"],
+            e["margin_mb"]
+        ),
+        None => println!("\nNo model runtime is installed, so nothing can be loaded. Install one with: demido runtime install"),
+    }
+}
+
+async fn models(paths: &Paths, command: Option<ModelsCommand>) -> Result<()> {
+    let server = Server::find(paths);
+    match (command, &server) {
+        (None, Some(s)) => print_models(&s.get("/api/v1/models")?),
+        // Without a server nothing is loaded, and the folder can be read directly.
+        (None, None) => print_models(&serde_json::to_value(Core::open(paths)?.engine.list().await?)?),
+        (Some(_), None) => bail!("A loaded model lives in the server. Start one first: demido serve"),
+        (Some(ModelsCommand::Load { id }), Some(s)) => {
+            println!("Loading {id}. A large model takes a while the first time.");
+            // Loading can take minutes; the usual patience of this command line is seconds.
+            let m = s.send_patiently("POST", &format!("/api/v1/models/{id}/load"), None, Duration::from_secs(960))?;
+            let needs = m["needs_mb"].as_u64().map(|n| format!(" It needs {n} MiB on the graphics card.")).unwrap_or_default();
+            // "in 5 min" for 299 seconds: a wait is rounded up, not down.
+            let leaves = m["unloads_in_s"].as_u64().map_or("It stays loaded until you unload it.".to_string(), |left| format!("Unused, it is unloaded in {}.", ago(left.div_ceil(60) * 60)));
+            println!("{} is loaded.{needs} {leaves}", m["id"].as_str().unwrap_or(&id));
+        }
+        (Some(ModelsCommand::Unload { id }), Some(s)) => {
+            s.send("POST", &format!("/api/v1/models/{id}/unload"), None)?;
+            println!("{id} is unloaded. Its memory is free again.");
+        }
+    }
+    Ok(())
 }
 
 // ───────── the model runtime ─────────
@@ -446,7 +525,7 @@ fn print_runtime_status(status: &Value) {
         println!("  Installed    none yet");
         println!("\nSee what is offered for this computer: demido runtime available");
     }
-    println!("\nNot built yet: starting it with a model.");
+    println!("\nLoad a model with it: demido models");
 }
 
 fn progress_words(p: &Value) -> String {
@@ -653,10 +732,15 @@ impl Server {
         self.send("GET", path, None)
     }
 
-    /// One small HTTP request to this computer. Enough for the command line; no outside library needed.
     fn send(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+        self.send_patiently(method, path, body, Duration::from_secs(15))
+    }
+
+    /// One small HTTP request to this computer. Enough for the command line; no outside library needed.
+    /// `patience` is how long to wait for the answer.
+    fn send_patiently(&self, method: &str, path: &str, body: Option<&Value>, patience: Duration) -> Result<Value> {
         let mut stream = TcpStream::connect_timeout(&self.address.parse()?, Duration::from_secs(2))?;
-        stream.set_read_timeout(Some(Duration::from_secs(15)))?;
+        stream.set_read_timeout(Some(patience))?;
         let body = body.map(Value::to_string).unwrap_or_default();
         let origin = format!("http://{}", self.address);
         write!(

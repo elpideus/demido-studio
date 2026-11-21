@@ -108,6 +108,8 @@ Three things the trial showed that the documentation did not make plain:
 What the runtime measured, for the budget (context 4096): the 0.6B model needs 1360 MiB (633 model, 470
 context, 324 working memory); the 1.7B model needs 2508 MiB.
 
+Built on this the same day: `core/crates/demido-core/src/engine/` (DECISIONS K23).
+
 Not tried: several requests at once to one model; a model with a vision part; two graphics cards; Windows
 and macOS; what a long-running router does to memory over days.
 

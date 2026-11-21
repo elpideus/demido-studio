@@ -217,6 +217,11 @@ impl Runtimes {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Where runtimes are kept. An installed runtime is the folder in here named after its id.
+    pub fn folder(&self) -> &Path {
+        &self.dir
+    }
+
     /// Every runtime on this computer, the newest first. A folder without a readable note is not one.
     pub fn installed(&self) -> Vec<Installed> {
         let Ok(folders) = std::fs::read_dir(&self.dir) else { return Vec::new() };

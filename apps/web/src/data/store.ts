@@ -3,6 +3,7 @@
    will change it through API events. Swapping the mock for the real client means replacing this file's
    functions; the components do not change. */
 import { create } from 'zustand'
+import { startLocal } from './local-models'
 import { coreGet, coreSend, look, onCoreEvent, type CoreAppearance, type CoreSection, type CoreSetting, type CoreSettings } from './core'
 import { AGENTS, ARTIFACTS, CHARACTERS, MODELS, PROVIDERS, SCHEDULES, SESSIONS, SYSTEM, TOOLS } from './fixtures'
 import type { Agent, Artifact, Block, Character, Message, Model, PermissionLevel, Provider, Schedule, Session, Task, Toast, Tool, SessionGroup } from './types'
@@ -202,6 +203,7 @@ export function startCore(): Promise<void> {
       toast(`The core did not give its settings. ${(e as Error).message}`, undefined, 'task-failed')
     }
     void readSystemAccent()
+    startLocal()
     // The accent is changed in the system's own settings, which means leaving this window. Ask again on return.
     document.addEventListener('visibilitychange', () => { if (!document.hidden) void readSystemAccent() })
     window.addEventListener('focus', () => void readSystemAccent())

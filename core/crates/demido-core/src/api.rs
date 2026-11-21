@@ -31,6 +31,7 @@ use utoipa::{OpenApi, ToSchema};
 use crate::auth::{Auth, COOKIE, LINK_LIFETIME};
 use crate::db::Db;
 use crate::desktop::Appearance;
+use crate::engine::{Engine, LocalModel, ModelList, ProcessLauncher};
 use crate::events::{Event, EventLog};
 use crate::kept::Kept;
 use crate::paths::Paths;
@@ -46,6 +47,7 @@ pub struct Core {
     pub events: Arc<EventLog>,
     pub auth: Arc<Auth>,
     pub runtimes: Arc<Runtimes>,
+    pub engine: Arc<Engine>,
 }
 
 impl Core {
@@ -56,7 +58,8 @@ impl Core {
         let settings = Arc::new(Settings::load(db, events.clone())?);
         let auth = Arc::new(Auth::open(&paths.key())?);
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
-        Ok(Self { settings, events, auth, runtimes })
+        let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
+        Ok(Self { settings, events, auth, runtimes, engine })
     }
 }
 
@@ -81,6 +84,7 @@ pub struct App {
     pub events: Arc<EventLog>,
     pub auth: Arc<Auth>,
     pub runtimes: Arc<Runtimes>,
+    pub engine: Arc<Engine>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -301,6 +305,35 @@ async fn runtime_remove(State(app): State<App>, Path(id): Path<String>) -> Resul
     Ok(Json(tokio::task::spawn_blocking(move || runtimes.remove(&id)).await.expect("deleting a folder does not panic")?))
 }
 
+// ───────── models ─────────
+
+/// The models on this computer and what each is doing: unloaded, loading or loaded, what it needs, and
+/// when it will be unloaded for being idle. Looking starts nothing.
+#[utoipa::path(get, path = "/api/v1/models", tag = "models", responses((status = 200, body = ModelList), (status = 401, body = Problem)))]
+async fn models_list(State(app): State<App>) -> Result<Json<ModelList>> {
+    Ok(Json(app.engine.list().await?))
+}
+
+/// Loads a model and answers when it is ready, which takes from a second to minutes. Starts the model
+/// runtime if it is not running. Progress comes on the event stream as `model.loading`. A model that
+/// cannot fit on the graphics card is refused, with the numbers.
+#[utoipa::path(post, path = "/api/v1/models/{id}/load", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), responses((status = 200, body = LocalModel), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn model_load(State(app): State<App>, Path(id): Path<String>) -> Result<Json<LocalModel>> {
+    Ok(Json(app.engine.load(&id).await?))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct Unloaded {
+    pub unloaded: bool,
+}
+
+/// Unloads a model: its process ends and its memory is free again.
+#[utoipa::path(post, path = "/api/v1/models/{id}/unload", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), responses((status = 200, body = Unloaded), (status = 422, body = Problem)))]
+async fn model_unload(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Unloaded>> {
+    app.engine.unload(&id, "asked").await?;
+    Ok(Json(Unloaded { unloaded: true }))
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct SettingsList {
     pub sections: Vec<Section>,
@@ -409,8 +442,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -432,6 +465,9 @@ pub fn router(app: App) -> Router {
         .route("/runtime/install", post(runtime_install).delete(runtime_stop))
         .route("/runtime/installed/{id}", axum::routing::delete(runtime_remove))
         .route("/runtime/installed/{id}/check", post(runtime_check))
+        .route("/models", get(models_list))
+        .route("/models/{id}/load", post(model_load))
+        .route("/models/{id}/unload", post(model_unload))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
         .route("/events", get(events_list))
@@ -476,6 +512,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         events: core.events.clone(),
         auth: core.auth,
         runtimes: core.runtimes,
+        engine: core.engine.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -500,11 +537,26 @@ pub async fn serve(opts: Options) -> Result<()> {
     }
 
     let (stopping, mut stopped) = tokio::sync::watch::channel(false);
-    let (events, runtimes) = (core.events.clone(), app.runtimes.clone());
+    // A runtime left running by an earlier Demido that was killed would hold graphics memory for nothing.
+    core.engine.end_leftover();
+    // Every few seconds: unload what nobody uses, stop a runtime with nothing loaded, notice one that died.
+    let caretaker = {
+        let engine = core.engine.clone();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(LOOK_AFTER_EVERY);
+            loop {
+                every.tick().await;
+                engine.look_after().await;
+            }
+        })
+    };
+    let (events, runtimes, engine) = (core.events.clone(), app.runtimes.clone(), core.engine.clone());
     let asked_to_stop = async move {
         stop_signal().await;
         tracing::info!("Stopping.");
+        caretaker.abort();
         runtimes.stop(); // a download under way keeps what it has, and says so in the log
+        engine.shutdown().await; // loaded models are unloaded and the model runtime ends
         events.tell(STOPPING, None, json!({})); // ends every open event stream
         let _ = stopping.send(true);
     };
@@ -524,6 +576,9 @@ pub async fn serve(opts: Options) -> Result<()> {
 const SYSTEM_KEEPS: std::time::Duration = std::time::Duration::from_secs(5);
 /// How long a reading of the desktop's look is used.
 const APPEARANCE_KEEPS: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How often loaded models and the model runtime are looked after.
+const LOOK_AFTER_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Told (not kept) when the server is asked to stop.
 const STOPPING: &str = "server.stopping";
@@ -563,11 +618,13 @@ mod tests {
         let auth = Arc::new(Auth::with_key(KEY.into()));
         // A folder that does not exist: these tests install nothing.
         let runtimes = Arc::new(Runtimes::new(&std::env::temp_dir().join("demido-api-tests-no-runtimes"), events.clone(), Source::default()).unwrap());
+        let engine = Arc::new(Engine::new(&std::env::temp_dir().join("demido-api-tests-no-runtimes"), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let app = App {
             settings,
             events: events.clone(),
             auth: auth.clone(),
             runtimes,
+            engine,
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),

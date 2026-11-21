@@ -12,6 +12,7 @@
 //! - [`system`]    what this computer has, and which model runtime suits it
 //! - [`desktop`]   what the desktop looks like: its accent colour
 //! - [`runtime`]   the program that runs models: finding it, downloading it, keeping it
+//! - [`engine`]    running models: starting the runtime, loading and unloading, unloading what is idle
 //! - [`auth`]      the key that every request needs, even from this computer
 //! - [`api`]       the HTTP API, and the server that offers it
 //! - [`ui`]        serving the web UI from the same address
@@ -21,6 +22,7 @@ pub mod api;
 pub mod auth;
 pub mod db;
 pub mod desktop;
+pub mod engine;
 pub mod error;
 pub mod events;
 pub mod kept;

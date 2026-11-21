@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { Popover } from '@base-ui/react/popover'
+import { unloadLocal, useLocal } from '@/data/local-models'
 import { applyAppearance, dismissToast, memoryBudget, startCore, useStore } from '@/data/store'
 import { Budget, Button, Glyph, MODEL_STATE_LABEL, Tip, TooltipProvider } from '@/ui'
 import { allFeatures, GROUPS } from './registry'
@@ -70,7 +71,48 @@ function Rail() {
 }
 
 /** "Now": what is in memory and what is running, one press away from anywhere. */
+/** What is loaded now, for real: the core's list of models. Shown instead of the scripted one when a core is behind the pages. */
+function NowReal() {
+  const list = useLocal((s) => s.list)!
+  const waiting = useLocal((s) => s.waiting)
+  const loaded = list.models.filter((m) => m.state === 'loaded')
+  const loading = list.models.filter((m) => m.state === 'loading' || waiting[m.id] === 'loading')
+  const glyph = loading.length ? 'model-loading' : loaded.length ? 'model-loaded' : 'model-unloaded'
+  const inUse = loaded.reduce((sum, m) => sum + (m.needs_mb ?? 0), 0) / 1024
+  const says = loading.length ? `${loading[0].id}: loading` : loaded.length ? `${loaded.map((m) => m.id).join(', ')}: loaded` : 'No model loaded'
+  return (
+    <Popover.Root>
+      <Tip side="right" label={says}>
+        <Popover.Trigger className="app-rail__now" aria-label="What is loaded now">
+          <Glyph name={glyph} busy={loading.length > 0} tone={loaded.length && !loading.length ? 'live' : undefined} size="1.25rem" />
+          <span className="d-mono">{inUse.toFixed(1)} GB</span>
+        </Popover.Trigger>
+      </Tip>
+      <Popover.Portal>
+        <Popover.Positioner side="right" align="end" sideOffset={10} className="app-layer">
+          <Popover.Popup className="d-menu app-pop app-now">
+            <Popover.Title className="d-type-headline">Now</Popover.Title>
+            <p className="d-type-caption d-text-secondary">{list.engine.runtime ?? 'No model runtime is installed'}{list.engine.runtime ? (list.engine.running ? ' · running' : ' · not running') : ''}</p>
+            <p className="d-menu__label">Loaded</p>
+            {loaded.length === 0 && loading.length === 0 && <p className="d-text-tertiary app-now__empty">No model is loaded. Models unload on their own when idle.</p>}
+            {loading.map((m) => <p key={m.id} className="app-now__row"><Glyph name="model-loading" busy /> {m.id} is loading</p>)}
+            {loaded.map((m) => (
+              <p key={m.id} className="app-now__row"><Glyph name="model-loaded" tone="live" /> {m.id}{m.needs_mb !== null ? ` · ${(m.needs_mb / 1024).toFixed(1)} GB` : ''}<span className="app-spacer" /><Button size="sm" variant="ghost" disabled={Boolean(waiting[m.id])} onClick={() => unloadLocal(m.id)}>Unload</Button></p>
+            ))}
+            <p className="d-type-caption d-text-tertiary">Graphics memory the loaded models need, as the runtime measured it. {(list.engine.margin_mb / 1024).toFixed(1)} GB is kept free.</p>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  )
+}
+
 function Now() {
+  const real = useLocal((s) => s.list !== null)
+  return real ? <NowReal /> : <NowScripted />
+}
+
+function NowScripted() {
   const models = useStore((s) => s.models)
   const agents = useStore((s) => s.agents)
   const schedules = useStore((s) => s.schedules)

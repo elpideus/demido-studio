@@ -116,6 +116,8 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 82 | **The server stops when asked, even with a window open.** A window keeps a live connection to the server; that connection kept the server from stopping at all. Every open stream now ends when the server is asked to stop, a download under way is stopped cleanly, and nothing gets more than five seconds. Found while testing, not reported by anyone. | Done |
 | 83 | **Try an installed runtime again without downloading it.** After a driver update, or when a build that did not start might start now. `demido runtime check`, and "Try again" on the Setup screen. | Done |
 | 84 | **Send the UI's files compressed.** The script is 800 kB and a quarter of that compressed. On the same computer it makes no difference; from another device it will. Best done once, when the UI is built, not on every request. | Raised |
+| 85 | **Do not leave a runtime behind in the first place.** Today a server that is killed leaves the runtime running, and the next start ends it. On Linux the runtime could be told to end when its parent dies; that needs a little low-level code. Until a server is started again, the memory stays taken. | Raised |
+| 86 | **A models folder of your own choosing.** Models are large; people keep them on another disk, or share them with other programs. Today the folder is fixed inside Demido's data folder. | Raised |
 
 ## Pushback on the brief so far
 
