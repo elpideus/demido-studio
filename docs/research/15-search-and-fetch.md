@@ -108,6 +108,27 @@ kept a search for a quarter of an hour. Its client sent a browser's name (Chrome
 | The built-in browser as the last rung | Not yet: there is no built-in browser. It belongs with plan item 8 |
 | (not in it) Wikipedia and Mwmbl | Kept as the last rung: they answer when everything above is turned off or refuses |
 
+## RustXNG, looked at closely and tried
+
+After the ladder was built the owner said how the previous Demido had used SearXNG: "Searxng ran inside of
+Demido's python runtime, without exposing a port or whatnot, basically it's code was being used directly
+by Demido. This is why I proposed RustXNG, cause I thought it would be easier to integrate." (The file I
+had read showed only a setting for a SearXNG server's address; the part that ran SearXNG inside was not in
+it, and I have not gone back to look: the permission was for once.)
+
+| Fact | How sure |
+|---|---|
+| RustXNG is a library as well as a program: `src/lib.rs` gives `Searcher`, `SearchRequest`, `SearchResponse`, `Settings`. A Rust program can call it directly, with no server and no port. It is not on crates.io; it would be taken from its repository at a fixed tag | Read: its `src/lib.rs`, `src/aggregator.rs`, crates.io |
+| As a library it brings with it: a second copy of the HTTP client Demido uses (an older version), a web server and its page templates, a full-text search engine (tantivy), two token tables (tiktoken), an MCP server, and more. With its default features it also brings a second SQLite, which cannot be built into one program with Demido's; those features can be turned off | Read: its `Cargo.toml` |
+| It also runs as a helper that is asked through its standard input and output (`rustxng mcp`): no port at all. Its makers publish ready programs for Linux, macOS and Windows with SHA-256 sums | Read: its readme and `release-manifest.json` |
+| **Tried:** the ready program for Linux (v0.32.0, 34.7 MB; its checksum matched the sum beside it and the one in the manifest), shut in bubblewrap with the network and nothing of the person's, asked over a pipe. It starts at once and answers a search in about a second | Run on the owner's computer, 2026-11-21 |
+| **Tried:** what it finds, with its default set of sources. For general questions it asks Wikipedia, Mwmbl, Wiby and Wikidata, which is what Demido's last rung already asks, and it found the same: an article when there is one, and for "newest version of llama.cpp" or "weather in Rome today" nothing to the point. Asked for its programming sources as well, it adds Stack Overflow, Hacker News, GitHub and the package registries: for "tokio spawn_blocking when to use" the Stack Overflow question of that name came third | Fifteen searches |
+| Its licence is AGPL-3.0-or-later. Built into Demido, section 13 of both licences applies to the whole: whoever changes Demido and offers it to others over a network must offer them the source. Run as a separate program it stays apart, which is what its own `NOTICE` says | Read: its `NOTICE`; GPLv3 section 13 |
+
+What it would add to the ladder as it stands: little for everyday questions (Exa and DuckDuckGo come
+first and find more), something for programming questions when those two will not answer, and a third
+source that does not lean on anyone's free limit.
+
 ## Fetching a page: what others do
 
 | Fact | Source |
