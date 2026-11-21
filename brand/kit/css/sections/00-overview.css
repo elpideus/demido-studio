@@ -1,0 +1,104 @@
+.kit-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(var(--d-space-32), 6vw, var(--d-space-80));
+  min-height: min(70dvh, 38rem);
+}
+
+.kit-hero__mark svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.kit-hero__text {
+  display: grid;
+  gap: var(--d-space-16);
+  justify-items: start;
+}
+.kit-hero__text .kit-eyebrow {
+  width: 100%;
+}
+
+.kit-hero__title {
+  font-size: clamp(2.5rem, 6vw, var(--d-type-display-size));
+  line-height: var(--d-type-display-leading);
+  letter-spacing: var(--d-type-display-tracking);
+  font-weight: var(--d-type-display-weight);
+}
+
+.kit-hero__line {
+  color: var(--d-color-text-secondary);
+  font-size: var(--d-type-title-2-size);
+  line-height: var(--d-type-title-2-leading);
+  letter-spacing: var(--d-type-title-2-tracking);
+}
+
+.kit-hero .kit-row {
+  margin-block-start: var(--d-space-8);
+}
+
+/* The logo draws in: the ring first, then the two stems, then both eyes open together.
+   The eyes are tall ovals leaning 32.3 degrees. They open along their LONG side: each starts as a slit
+   across its short axis and grows along the diagonal to full length. Not a pop, and not sideways.
+   While the ring draws, its two ends are round (stroke-linecap: round on the circle); once it closes they meet
+   and the ring is the plain closed circle of the master.
+   The last frame is exactly the master artwork. Plays once on load and on "Replay". */
+[data-logo-draw] .lg-ring,
+[data-logo-draw] .lg-stem,
+[data-logo-draw] .lg-bar {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+[data-logo-draw] .lg-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+[data-logo-draw][data-play] .lg-ring {
+  animation: lg-draw 720ms var(--d-ease-in-out) both;
+}
+[data-logo-draw][data-play] .lg-stem--1 {
+  animation: lg-draw 420ms var(--d-ease-out) 380ms both;
+}
+[data-logo-draw][data-play] .lg-stem--2 {
+  animation: lg-draw 460ms var(--d-ease-out) 560ms both;
+}
+[data-logo-draw][data-play] .lg-bar {
+  animation: lg-draw 220ms var(--d-ease-out) 520ms both;
+}
+/* One rule for both eyes: same delay, same duration, so they open at the same instant. */
+[data-logo-draw][data-play] .lg-eye {
+  animation: lg-eye-open 440ms var(--d-ease-out) 900ms both;
+}
+
+@keyframes lg-draw {
+  from { stroke-dashoffset: 1; }
+}
+@keyframes lg-eye-open {
+  /* rotate the long axis onto x, scale x, rotate back: the scale acts along the eye's own long axis */
+  from { transform: rotate(-32.3deg) scaleX(0.04) rotate(32.3deg); opacity: 0; }
+  10% { opacity: 1; }
+  to { transform: rotate(-32.3deg) scaleX(1) rotate(32.3deg); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-logo-draw][data-play] :is(.lg-ring, .lg-stem, .lg-bar, .lg-eye) {
+    animation: lg-fade var(--d-duration-slow) var(--d-ease-standard) both !important;
+  }
+  @keyframes lg-fade {
+    from { opacity: 0; }
+  }
+}
+
+@media (max-width: 56rem) {
+  .kit-hero {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    min-height: 0;
+  }
+  .kit-hero__mark {
+    width: 8rem;
+  }
+}

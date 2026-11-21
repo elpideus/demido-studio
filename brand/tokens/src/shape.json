@@ -1,0 +1,27 @@
+{
+  "radius": {
+    "$type": "dimension",
+    "$description": "Nested corners follow: inner radius = outer radius - padding. Where the engine supports it, corners are continuous (corner-shape: squircle).",
+    "none": { "$value": "0" },
+    "xs": { "$value": "0.25rem", "$description": "4 px. Badges, inline code, checkboxes." },
+    "sm": { "$value": "0.375rem", "$description": "6 px. Menu items, small controls." },
+    "md": { "$value": "0.5rem", "$description": "8 px. Buttons, inputs, list rows." },
+    "lg": { "$value": "0.75rem", "$description": "12 px. Cards, popovers." },
+    "xl": { "$value": "1rem", "$description": "16 px. Dialogs, sheets, the composer." },
+    "2xl": { "$value": "1.5rem", "$description": "24 px. Large media, onboarding panels." },
+    "full": { "$value": "999px", "$description": "Pills and circles." }
+  },
+  "stroke": {
+    "$type": "dimension",
+    "hairline": { "$value": "1px", "$description": "All dividers and borders. Never thicker for decoration." },
+    "focus": { "$value": "2px", "$description": "Focus ring width." },
+    "focus-offset": { "$value": "2px", "$description": "Gap between a control and its focus ring." },
+    "icon": { "$value": "1.5px", "$description": "Icon stroke at 16-20 px." },
+    "glyph": { "$value": "1.75px", "$description": "Status glyph stroke (circle states, dock states) at 16 px." }
+  },
+  "opacity": {
+    "$type": "number",
+    "disabled": { "$value": 0.4 },
+    "dragging": { "$value": 0.7, "$description": "Large objects go semi-transparent while they travel." }
+  }
+}

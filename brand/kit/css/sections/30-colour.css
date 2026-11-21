@@ -1,0 +1,202 @@
+/* The accent on this page follows the setting below it: the script sets --d-color-accent-source on <html>,
+   exactly as the app will, and every accent token recomputes from it (see tokens/src/color.json). */
+
+.kit-colour__green {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--d-space-12) var(--d-space-16);
+}
+.kit-colour__chip {
+  display: flex;
+  align-items: center;
+  gap: var(--d-space-12);
+  padding: var(--d-space-10) var(--d-space-16) var(--d-space-10) var(--d-space-10);
+  border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+  border-radius: var(--d-radius-lg);
+  background: var(--d-color-bg-canvas);
+  color: var(--d-color-text-primary);
+}
+/* The chips always show Demido green itself, whatever accent is selected below. */
+.kit-colour__chip i {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--d-radius-md);
+  background: oklch(0.86 0.15 160);
+}
+.kit-colour__chip[data-theme="light"] i {
+  background: oklch(0.56 0.126 160);
+}
+.kit-colour__chip span {
+  display: grid;
+  gap: var(--d-space-2);
+}
+.kit-colour__chip strong {
+  font-weight: var(--d-font-weight-medium);
+}
+.kit-colour__chip code {
+  color: var(--d-color-text-secondary);
+}
+
+.kit-colour__resolved {
+  gap: var(--d-space-8);
+}
+.kit-colour__resolved > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--d-space-8);
+  height: var(--d-size-control-md);
+  padding-inline: var(--d-space-6) var(--d-space-10);
+  border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+  border-radius: var(--d-radius-md);
+  background: var(--d-color-bg-canvas);
+  color: var(--d-color-text-primary);
+}
+.kit-colour__resolved i {
+  width: 1rem;
+  height: 1rem;
+  border-radius: var(--d-radius-xs);
+  background: var(--d-color-accent-base);
+}
+.kit-colour__resolved output {
+  font-family: var(--d-font-family-mono);
+  font-size: var(--d-type-code-size);
+}
+
+.kit-colour__simframe {
+  margin-block-start: var(--d-space-16);
+}
+.kit-colour__simlabel {
+  color: var(--d-color-text-secondary);
+}
+[data-accent-sim] .d-button i {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: var(--d-radius-full);
+  box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-default);
+}
+[data-accent-sim] .d-button[aria-pressed="true"] {
+  --_bg: var(--d-color-bg-inverse);
+  --_bg-hover: var(--d-color-bg-inverse);
+  --_bg-active: var(--d-color-bg-inverse);
+  --_fg: var(--d-color-text-inverse);
+}
+.kit-colour__simframe .d-notbuilt {
+  margin-inline-start: var(--d-space-4);
+  vertical-align: middle;
+}
+
+/* ---------- section ---------- */
+.kit-colour__uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--d-space-24) var(--d-space-40);
+  padding-block: var(--d-space-8);
+}
+.kit-colour__use {
+  display: grid;
+  justify-items: start;
+  align-content: space-between;
+  gap: var(--d-space-10);
+}
+.kit-colour__use small {
+  color: var(--d-color-text-tertiary);
+  font-size: var(--d-type-caption-size);
+}
+.kit-colour__focus {
+  width: 9rem;
+  border-color: var(--d-color-focus);
+  outline: var(--d-stroke-focus) solid var(--d-color-focus);
+  outline-offset: 0;
+}
+/* the "do not" examples are deliberately wrong */
+.kit-colour__wrong {
+  --_bg: var(--d-color-accent-base);
+  --_bg-hover: var(--d-color-accent-base);
+  --_bg-active: var(--d-color-accent-base);
+  --_fg: var(--d-color-accent-on);
+  pointer-events: none;
+}
+.kit-colour__wrong-title {
+  color: var(--d-color-accent-base);
+  font-size: var(--d-type-title-3-size);
+  font-weight: var(--d-font-weight-semibold);
+}
+
+.kit-colour__theme {
+  display: grid;
+  background: var(--d-color-bg-canvas);
+}
+.kit-colour__theme-name {
+  padding: var(--d-space-16) var(--d-space-20) var(--d-space-12);
+  color: var(--d-color-text-tertiary);
+  font-size: var(--d-type-micro-size);
+  font-weight: var(--d-type-micro-weight);
+  letter-spacing: var(--d-type-micro-tracking);
+  text-transform: uppercase;
+}
+.kit-colour__ramp {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-inline: var(--d-space-20);
+  border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+  border-radius: var(--d-radius-md);
+  overflow: hidden;
+}
+.kit-colour__sw {
+  display: flex;
+  align-items: flex-end;
+  height: 4.5rem;
+  padding: var(--d-space-6);
+  border: 0;
+  color: var(--d-color-text-secondary);
+  font-family: var(--d-font-family-mono);
+  font-size: 0.625rem;
+  text-align: start;
+  cursor: copy;
+}
+.kit-colour__sw + .kit-colour__sw {
+  border-inline-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+}
+.kit-colour__sw--inv {
+  color: var(--d-color-text-inverse);
+}
+.kit-colour__text {
+  display: grid;
+  gap: var(--d-space-6);
+  margin: 0;
+  padding: var(--d-space-20);
+  list-style: none;
+}
+.kit-colour__text li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--d-space-16);
+}
+.kit-colour__text output {
+  font-family: var(--d-font-family-mono);
+  font-size: var(--d-type-code-size);
+}
+.kit-colour__lines {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--d-space-12);
+  padding: 0 var(--d-space-20) var(--d-space-20);
+}
+.kit-colour__lines i {
+  padding: var(--d-space-8);
+  border: var(--d-stroke-hairline) solid;
+  border-radius: var(--d-radius-md);
+  color: var(--d-color-text-tertiary);
+  font-family: var(--d-font-family-mono);
+  font-size: var(--d-type-micro-size);
+  font-style: normal;
+  font-variation-settings: normal;
+}
+.kit-colour__signals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--d-space-12);
+  background: var(--d-color-bg-canvas);
+}

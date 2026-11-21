@@ -1,0 +1,144 @@
+/* Button
+   <button class="d-button">Unload</button>
+   Variants: --primary (one per view), --ghost, --danger.   Sizes: --sm, --lg.   Shape: --icon (square, needs aria-label).
+   States: :disabled / [aria-disabled="true"], [data-loading] (keeps its width; put a .d-glyph[data-glyph="task-running"] inside).
+   The default button is the quiet one. Primary is monochrome: the accent colour is reserved for live models. */
+
+@layer demido.components {
+  .d-button {
+    --_h: var(--d-size-control-md);
+    --_px: var(--d-space-12);
+    --_bg: var(--d-color-fill-control);
+    --_bg-hover: var(--d-color-fill-pressed);
+    --_bg-active: var(--d-color-border-default);
+    --_fg: var(--d-color-text-primary);
+
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--d-space-6);
+    height: var(--_h);
+    min-width: var(--_h);
+    padding: 0 var(--_px);
+    border: 0;
+    border-radius: var(--d-radius-md);
+    background: var(--_bg);
+    color: var(--_fg);
+    font-size: var(--d-type-body-size);
+    font-weight: var(--d-font-weight-medium);
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: default;
+    user-select: none;
+    transition:
+      background-color var(--d-duration-fast) var(--d-ease-standard),
+      color var(--d-duration-fast) var(--d-ease-standard),
+      transform var(--d-duration-instant) var(--d-ease-out);
+  }
+
+  /* Pointer targets never drop below the minimum, whatever the visual size. */
+  .d-button::before {
+    content: "";
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: max(100%, var(--d-size-hit));
+    height: max(100%, var(--d-size-hit));
+    translate: -50% -50%;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .d-button:hover {
+      background: var(--_bg-hover);
+    }
+  }
+
+  /* Feedback on press, not on release. */
+  .d-button:active {
+    background: var(--_bg-active);
+    transform: scale(0.97);
+  }
+
+  .d-button > svg,
+  .d-button > .d-glyph {
+    flex: none;
+    width: var(--d-size-icon-md);
+    height: var(--d-size-icon-md);
+  }
+
+  .d-button--primary {
+    --_bg: var(--d-color-bg-inverse);
+    --_bg-hover: color-mix(in oklab, var(--d-color-bg-inverse) 90%, var(--d-color-bg-canvas));
+    --_bg-active: color-mix(in oklab, var(--d-color-bg-inverse) 80%, var(--d-color-bg-canvas));
+    --_fg: var(--d-color-text-inverse);
+  }
+
+  .d-button--ghost {
+    --_bg: transparent;
+    --_bg-hover: var(--d-color-fill-hover);
+    --_bg-active: var(--d-color-fill-pressed);
+    --_fg: var(--d-color-text-secondary);
+  }
+  .d-button--ghost:hover,
+  .d-button--ghost:active,
+  .d-button--ghost[aria-pressed="true"] {
+    --_fg: var(--d-color-text-primary);
+  }
+  .d-button--ghost[aria-pressed="true"] {
+    --_bg: var(--d-color-fill-selected);
+  }
+
+  .d-button--danger {
+    --_bg: var(--d-color-danger-tint);
+    --_bg-hover: color-mix(in oklab, var(--d-color-danger-base) 24%, transparent);
+    --_bg-active: color-mix(in oklab, var(--d-color-danger-base) 32%, transparent);
+    --_fg: var(--d-color-danger-base);
+  }
+
+  .d-button--sm {
+    --_h: var(--d-size-control-sm);
+    --_px: var(--d-space-8);
+    gap: var(--d-space-4);
+    border-radius: var(--d-radius-sm);
+    font-size: var(--d-type-caption-size);
+  }
+  .d-button--sm > svg,
+  .d-button--sm > .d-glyph {
+    width: var(--d-size-icon-sm);
+    height: var(--d-size-icon-sm);
+  }
+
+  .d-button--lg {
+    --_h: var(--d-size-control-lg);
+    --_px: var(--d-space-16);
+    gap: var(--d-space-8);
+    border-radius: calc(var(--d-radius-md) + var(--d-space-2));
+    font-size: var(--d-type-headline-size);
+  }
+
+  .d-button--icon {
+    --_px: 0;
+    width: var(--_h);
+  }
+
+  .d-button:disabled,
+  .d-button[aria-disabled="true"] {
+    opacity: var(--d-opacity-disabled);
+    pointer-events: none;
+  }
+
+  .d-button[data-loading] {
+    pointer-events: none;
+  }
+
+  @supports (corner-shape: squircle) {
+    .d-button {
+      corner-shape: squircle;
+      border-radius: calc(var(--d-radius-md) * 1.6);
+    }
+    .d-button--sm {
+      border-radius: calc(var(--d-radius-sm) * 1.6);
+    }
+  }
+}

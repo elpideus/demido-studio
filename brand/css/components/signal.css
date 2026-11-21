@@ -1,0 +1,86 @@
+/* Signal: the three words of the manual register, plus error. See brand/voice.md.
+   <div class="d-signal" data-level="caution" role="note">
+     <span class="d-signal__label">CAUTION</span>
+     <div class="d-signal__body">Option 2 leaves no room for an agent or a voice model.</div>
+     <div class="d-signal__actions">…buttons…</div>      (optional)
+   </div>
+   data-level: note · caution · warning · error.   role="note" (use role="alert" only for errors that just happened).
+   Three cues, always together: the glyph, the word, the colour. NOTE has no colour: it is not an alarm.
+     NOTE     worth knowing; nothing breaks if skipped
+     CAUTION  work, time or money can be lost
+     WARNING  cannot be undone, or exposes the machine or private data
+   .d-signal--inline: one line inside running text or a row. */
+
+@layer demido.components {
+  .d-signal {
+    --_tone: var(--d-color-text-secondary);
+    --_tint: var(--d-color-fill-control);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--d-space-4) var(--d-space-10);
+    padding: var(--d-space-10) var(--d-space-12);
+    border-radius: var(--d-radius-md);
+    background: var(--_tint);
+    color: var(--d-color-text-primary);
+  }
+  .d-signal__label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-6);
+    color: var(--_tone);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-font-weight-semibold);
+    letter-spacing: var(--d-type-micro-tracking);
+    line-height: var(--d-type-body-leading);
+    white-space: nowrap;
+  }
+  /* the glyph: i · ! · ! in a triangle-like diamond · x */
+  .d-signal__label::before {
+    content: "";
+    flex: none;
+    width: var(--d-size-icon-sm);
+    height: var(--d-size-icon-sm);
+    align-self: center;
+    background: currentColor;
+    -webkit-mask: var(--_glyph) center / contain no-repeat;
+    mask: var(--_glyph) center / contain no-repeat;
+  }
+  .d-signal__body {
+    min-width: 0;
+  }
+  .d-signal__actions {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--d-space-6);
+    margin-block-start: var(--d-space-6);
+  }
+
+  .d-signal[data-level="note"] {
+    --_glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='M8 7.5v3.25M8 5.1v.05'/%3E%3C/svg%3E");
+  }
+  .d-signal[data-level="caution"] {
+    --_tone: var(--d-color-caution-base);
+    --_tint: var(--d-color-caution-tint);
+    --_glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2.2 14.3 13H1.7Z'/%3E%3Cpath d='M8 6.6v2.9M8 11.1v.05'/%3E%3C/svg%3E");
+  }
+  .d-signal[data-level="warning"] {
+    --_tone: var(--d-color-danger-base);
+    --_tint: var(--d-color-danger-tint);
+    --_glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.4 1.75h5.2l3.65 3.65v5.2l-3.65 3.65H5.4L1.75 10.6V5.4Z'/%3E%3Cpath d='M8 4.9v3.6M8 10.9v.05'/%3E%3C/svg%3E");
+  }
+  .d-signal[data-level="error"] {
+    --_tone: var(--d-color-danger-base);
+    --_tint: var(--d-color-danger-tint);
+    --_glyph: var(--d-glyph-task-failed);
+  }
+
+  .d-signal--inline {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--d-space-8);
+    padding: 0;
+    background: none;
+  }
+}

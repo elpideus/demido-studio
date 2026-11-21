@@ -1,0 +1,171 @@
+/* Field: label, control, help, error
+   <label class="d-field">
+     <span class="d-field__label">API key</span>
+     <input class="d-input" type="text" placeholder="sk-...">
+     <span class="d-field__help">Stored in your system keyring.</span>
+   </label>
+   Controls: .d-input (input, textarea, select). Add .d-input--mono for values people copy exactly.
+   With an icon or a trailing button, wrap the control:
+     <span class="d-input-wrap"><span class="d-icon">…</span><input class="d-input" …><button class="d-button d-button--ghost d-button--sm d-button--icon" aria-label="Clear">…</button></span>
+   Invalid: aria-invalid="true" on the control plus a .d-field__error line (text, never colour alone). */
+
+@layer demido.components {
+  .d-field {
+    display: grid;
+    align-content: start;
+    gap: var(--d-space-6);
+    min-width: 0;
+  }
+  .d-field__label {
+    color: var(--d-color-text-primary);
+    font-weight: var(--d-font-weight-medium);
+  }
+  .d-field__help,
+  .d-field__error {
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    line-height: var(--d-type-caption-leading);
+  }
+  .d-field__error {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-4);
+    color: var(--d-color-danger-base);
+  }
+
+  .d-input {
+    width: 100%;
+    min-width: 0;
+    height: var(--d-size-control-md);
+    padding: 0 var(--d-space-10);
+    border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    border-radius: var(--d-radius-md);
+    background: var(--d-color-bg-sunken);
+    color: var(--d-color-text-primary);
+    font-size: var(--d-type-body-size);
+    transition:
+      border-color var(--d-duration-fast) var(--d-ease-standard),
+      background-color var(--d-duration-fast) var(--d-ease-standard);
+  }
+  .d-input::placeholder {
+    color: var(--d-color-text-tertiary);
+    opacity: 1;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-input:hover {
+      border-color: var(--d-color-border-strong);
+    }
+  }
+  .d-input:focus-visible {
+    border-color: var(--d-color-focus);
+    outline-offset: 0;
+  }
+  .d-input[aria-invalid="true"] {
+    border-color: var(--d-color-danger-base);
+  }
+  .d-input:disabled {
+    opacity: var(--d-opacity-disabled);
+    pointer-events: none;
+  }
+  .d-input--mono {
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-code-size);
+    font-variant-ligatures: none;
+  }
+  .d-input--lg {
+    height: var(--d-size-control-lg);
+    padding-inline: var(--d-space-12);
+  }
+
+  textarea.d-input {
+    height: auto;
+    min-height: calc(var(--d-size-control-md) * 2.5);
+    padding-block: var(--d-space-8);
+    line-height: var(--d-type-body-leading);
+    resize: vertical;
+  }
+
+  select.d-input {
+    appearance: none;
+    padding-inline-end: var(--d-space-32);
+    cursor: default;
+  }
+  /* The chevron is drawn by the wrapper so it follows the text colour. */
+  .d-select {
+    position: relative;
+    display: grid;
+    align-self: start;
+    min-width: 0;
+  }
+  .d-select::after {
+    content: "";
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-end: var(--d-space-10);
+    width: 0.4375rem;
+    height: 0.4375rem;
+    border: solid var(--d-color-text-secondary);
+    border-width: 0 var(--d-stroke-icon) var(--d-stroke-icon) 0;
+    translate: 0 -70%;
+    rotate: 45deg;
+    pointer-events: none;
+  }
+
+  /* Colour well: a native colour input, shown as a swatch.
+     <input class="d-colorwell" type="color" value="#68efaf" aria-label="Custom accent colour"> */
+  .d-colorwell {
+    appearance: none;
+    flex: none;
+    width: var(--d-size-control-md);
+    height: var(--d-size-control-md);
+    padding: var(--d-space-2);
+    border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    border-radius: var(--d-radius-md);
+    background: var(--d-color-bg-sunken);
+    cursor: default;
+    transition: border-color var(--d-duration-fast) var(--d-ease-standard), scale var(--d-duration-instant) var(--d-ease-out);
+  }
+  .d-colorwell::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .d-colorwell::-webkit-color-swatch {
+    border: 0;
+    border-radius: calc(var(--d-radius-md) - var(--d-space-2) - var(--d-stroke-hairline));
+  }
+  .d-colorwell::-moz-color-swatch {
+    border: 0;
+    border-radius: calc(var(--d-radius-md) - var(--d-space-2) - var(--d-stroke-hairline));
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-colorwell:hover {
+      border-color: var(--d-color-border-strong);
+    }
+  }
+  .d-colorwell:active {
+    scale: 0.95;
+  }
+
+  /* Control with something inside it: a leading icon, a trailing button. */
+  .d-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .d-input-wrap > .d-icon {
+    position: absolute;
+    inset-inline-start: var(--d-space-10);
+    color: var(--d-color-text-tertiary);
+    pointer-events: none;
+  }
+  .d-input-wrap > .d-icon ~ .d-input {
+    padding-inline-start: calc(var(--d-space-10) + var(--d-size-icon-md) + var(--d-space-6));
+  }
+  .d-input-wrap > .d-button {
+    position: absolute;
+    inset-inline-end: var(--d-space-2);
+  }
+  .d-input-wrap:has(> .d-button) > .d-input {
+    padding-inline-end: calc(var(--d-size-control-sm) + var(--d-space-6));
+  }
+}

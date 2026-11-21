@@ -1,0 +1,156 @@
+/* Card and list row.
+   <article class="d-card">
+     <header class="d-card__head">…</header>
+     <div class="d-card__body">…</div>
+     <footer class="d-card__foot">…</footer>
+   </article>
+   .d-card--interactive: the whole card is one target (wrap in <a> or <button>).
+
+   <ul class="d-list">
+     <li><a class="d-row" href="#" aria-current="true">
+       <span class="d-row__lead"> glyph or icon </span>
+       <span class="d-row__text"><span class="d-row__title">Sweater price watch</span><span class="d-row__sub">shopping · monitor</span></span>
+       <span class="d-row__meta">12 min</span>
+     </a></li>
+   </ul>
+   Selected: aria-current="true" or aria-selected="true". .d-list__label is a group heading. .d-row--compact for dense lists. */
+
+@layer demido.components {
+  .d-card {
+    display: grid;
+    min-width: 0;
+    border: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+    border-radius: var(--d-radius-lg);
+    background: var(--d-color-bg-surface);
+    color: inherit;
+    text-decoration: none;
+    text-align: start;
+  }
+  .d-card__head,
+  .d-card__body,
+  .d-card__foot {
+    padding: var(--d-space-16);
+    min-width: 0;
+  }
+  .d-card__head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--d-space-12);
+    padding-block-end: 0;
+  }
+  .d-card__head + .d-card__body {
+    padding-block-start: var(--d-space-12);
+  }
+  .d-card__foot {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-8);
+    padding-block: var(--d-space-12);
+    border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+  }
+  .d-card__title {
+    font-size: var(--d-type-headline-size);
+    line-height: var(--d-type-headline-leading);
+    letter-spacing: var(--d-type-headline-tracking);
+    font-weight: var(--d-type-headline-weight);
+  }
+  .d-card__sub {
+    color: var(--d-color-text-secondary);
+    font-size: var(--d-type-caption-size);
+  }
+
+  .d-card--interactive {
+    cursor: default;
+    transition:
+      border-color var(--d-duration-fast) var(--d-ease-standard),
+      background-color var(--d-duration-fast) var(--d-ease-standard),
+      transform var(--d-duration-instant) var(--d-ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-card--interactive:hover {
+      border-color: var(--d-color-border-default);
+      background: var(--d-color-bg-raised);
+    }
+  }
+  .d-card--interactive:active {
+    transform: scale(0.99);
+  }
+
+  /* ---------- list ---------- */
+  .d-list {
+    display: grid;
+    gap: var(--d-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .d-list__label {
+    padding: var(--d-space-12) var(--d-space-8) var(--d-space-4);
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-type-micro-weight);
+    letter-spacing: var(--d-type-micro-tracking);
+    text-transform: uppercase;
+  }
+
+  .d-row {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-8);
+    width: 100%;
+    min-height: 2.5rem;
+    padding: var(--d-space-6) var(--d-space-8);
+    border: 0;
+    border-radius: var(--d-radius-md);
+    background: transparent;
+    color: var(--d-color-text-primary);
+    text-align: start;
+    text-decoration: none;
+    cursor: default;
+    transition: background-color var(--d-duration-fast) var(--d-ease-standard);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-row:hover {
+      background: var(--d-color-fill-hover);
+    }
+  }
+  .d-row:active {
+    background: var(--d-color-fill-pressed);
+  }
+  .d-row[aria-current="true"],
+  .d-row[aria-selected="true"] {
+    background: var(--d-color-fill-selected);
+  }
+  .d-row__lead {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: var(--d-size-icon-lg);
+    color: var(--d-color-text-secondary);
+  }
+  .d-row__text {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+  }
+  .d-row__title,
+  .d-row__sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .d-row__sub {
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+  }
+  .d-row__meta {
+    flex: none;
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    font-variant-numeric: tabular-nums;
+  }
+  .d-row--compact {
+    min-height: var(--d-size-control-md);
+    padding-block: var(--d-space-2);
+  }
+}

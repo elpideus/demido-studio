@@ -1,0 +1,127 @@
+{
+  "duration": {
+    "$type": "duration",
+    "$description": "Only for motion a user cannot interrupt (hover, colour, opacity, small state changes). Anything the user can grab or reverse uses a spring. UI motion stays under 300 ms; exits are shorter than entries. Actions triggered from the keyboard do not animate.",
+    "instant": {
+      "$value": "80ms",
+      "$description": "Press feedback. Shown on pointer-down, never on release."
+    },
+    "fast": {
+      "$value": "140ms",
+      "$description": "Hover, colour, small fades."
+    },
+    "base": {
+      "$value": "200ms",
+      "$description": "Default for state changes."
+    },
+    "moderate": {
+      "$value": "280ms",
+      "$description": "Popovers, menus, toasts entering."
+    },
+    "slow": {
+      "$value": "400ms",
+      "$description": "Panels, large surfaces, page-level changes."
+    },
+    "deliberate": {
+      "$value": "640ms",
+      "$description": "Signature moments only: the logo drawing in, first run."
+    }
+  },
+  "ease": {
+    "$type": "cubicBezier",
+    "out": {
+      "$value": [
+        0.23,
+        1,
+        0.32,
+        1
+      ],
+      "$description": "Default. Anything entering, leaving or responding to the user. Exits use the same curve, only shorter."
+    },
+    "in-out": {
+      "$value": [
+        0.77,
+        0,
+        0.175,
+        1
+      ],
+      "$description": "Things that travel from one place to another while staying on screen."
+    },
+    "sheet": {
+      "$value": [
+        0.32,
+        0.72,
+        0,
+        1
+      ],
+      "$description": "Sheets and drawers when a spring is not available."
+    },
+    "standard": {
+      "$value": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "$description": "Colour, opacity and other non-spatial changes."
+    },
+    "linear": {
+      "$value": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "$description": "Progress and constant rotation only."
+    }
+  },
+  "spring": {
+    "$type": "spring",
+    "$description": "Apple-style parameters: response in seconds (how fast it reaches the target) and damping ratio (1 = no overshoot). The build also emits a CSS linear() curve and a settle duration for each, for places where a spring library is not available. In code prefer a real, interruptible spring with the same parameters.",
+    "default": {
+      "$value": {
+        "response": 0.35,
+        "damping": 1
+      },
+      "$description": "Critically damped. The house default for anything that moves."
+    },
+    "snappy": {
+      "$value": {
+        "response": 0.25,
+        "damping": 1
+      },
+      "$description": "Small controls: toggles, segmented controls, checkmarks."
+    },
+    "gentle": {
+      "$value": {
+        "response": 0.5,
+        "damping": 1
+      },
+      "$description": "Large surfaces: panels, sheets, layout shifts."
+    },
+    "momentum": {
+      "$value": {
+        "response": 0.3,
+        "damping": 0.8
+      },
+      "$description": "A little overshoot. Only where the gesture itself carried momentum: a flicked sheet, a dropped item, a thrown card."
+    }
+  },
+  "signature": {
+    "spinner-period": {
+      "$type": "duration",
+      "$value": "900ms",
+      "$description": "One turn of the in-progress arc. Linear."
+    },
+    "pulse-period": {
+      "$type": "duration",
+      "$value": "1800ms",
+      "$description": "Breathing of a live model while it generates. Opacity only, never scale."
+    },
+    "stagger": {
+      "$type": "duration",
+      "$value": "40ms",
+      "$description": "Delay between list items entering. Cap the total at 240 ms."
+    }
+  }
+}

@@ -1,0 +1,102 @@
+/* Segmented control: pick one of a few. Native radios, a thumb that slides.
+   <div class="d-segmented" role="radiogroup" aria-label="Permission level">
+     <label><input type="radio" name="perm" checked><span>Cautious</span></label>
+     <label><input type="radio" name="perm"><span>Balanced</span></label>
+     ...
+   </div>
+   Up to six options, equal widths. Add .d-segmented--sm for dense toolbars. Changing it from the keyboard moves
+   the thumb without animation; a click slides it. */
+
+@layer demido.components {
+  .d-segmented {
+    --_n: 2;
+    --_i: 0;
+    --_pad: var(--d-space-2);
+    --_h: var(--d-size-control-md);
+    position: relative;
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    padding: var(--_pad);
+    border-radius: var(--d-radius-md);
+    background: var(--d-color-bg-sunken);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+    isolation: isolate;
+  }
+  .d-segmented:has(> label:nth-child(3)) { --_n: 3; }
+  .d-segmented:has(> label:nth-child(4)) { --_n: 4; }
+  .d-segmented:has(> label:nth-child(5)) { --_n: 5; }
+  .d-segmented:has(> label:nth-child(6)) { --_n: 6; }
+  .d-segmented:has(> label:nth-child(2) > input:checked) { --_i: 1; }
+  .d-segmented:has(> label:nth-child(3) > input:checked) { --_i: 2; }
+  .d-segmented:has(> label:nth-child(4) > input:checked) { --_i: 3; }
+  .d-segmented:has(> label:nth-child(5) > input:checked) { --_i: 4; }
+  .d-segmented:has(> label:nth-child(6) > input:checked) { --_i: 5; }
+
+  /* the thumb */
+  .d-segmented::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset-block: var(--_pad);
+    inset-inline-start: var(--_pad);
+    width: calc((100% - 2 * var(--_pad)) / var(--_n));
+    border-radius: calc(var(--d-radius-md) - var(--_pad));
+    background: var(--d-color-bg-raised);
+    box-shadow: var(--d-shadow-1), inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+    translate: calc(var(--_i) * 100%) 0;
+    transition: translate var(--d-spring-snappy-duration) var(--d-spring-snappy);
+  }
+  .d-segmented:has(:focus-visible)::before {
+    transition: none;
+  }
+
+  .d-segmented > label {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: calc(var(--_h) - 2 * var(--_pad));
+    padding-inline: var(--d-space-12);
+    border-radius: calc(var(--d-radius-md) - var(--_pad));
+    color: var(--d-color-text-secondary);
+    font-weight: var(--d-font-weight-medium);
+    white-space: nowrap;
+    cursor: default;
+    transition: color var(--d-duration-fast) var(--d-ease-standard), scale var(--d-duration-instant) var(--d-ease-out);
+  }
+  .d-segmented > label:has(input:checked) {
+    color: var(--d-color-text-primary);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-segmented > label:hover {
+      color: var(--d-color-text-primary);
+    }
+  }
+  .d-segmented > label:active {
+    scale: 0.97;
+  }
+  .d-segmented > label:has(:focus-visible) {
+    outline: var(--d-stroke-focus) solid var(--d-color-focus);
+    outline-offset: 0;
+  }
+  .d-segmented input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: default;
+  }
+
+  .d-segmented--sm {
+    --_h: var(--d-size-control-sm);
+    border-radius: var(--d-radius-sm);
+  }
+  .d-segmented--sm > label {
+    padding-inline: var(--d-space-8);
+    font-size: var(--d-type-caption-size);
+  }
+  .d-segmented--fill {
+    display: grid;
+    width: 100%;
+  }
+}

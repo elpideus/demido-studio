@@ -1,0 +1,79 @@
+/* Permission request: the card a model raises when it wants to do something that could cause damage.
+   <section class="d-permission" data-risk="high" aria-labelledby="p1">
+     <header class="d-permission__head">
+       <span class="d-permission__risk">High risk</span>
+       <h3 class="d-permission__title" id="p1">Run a shell command</h3>
+     </header>
+     <pre class="d-permission__what"><code>rm -rf ./build ./dist</code></pre>
+     <p class="d-permission__why">Wants to clear old build output before rebuilding.</p>
+     <details class="d-disclosure"><summary>Full request</summary>…exact tool call…</details>
+     <div class="d-permission__actions">
+       <button class="d-button">Deny</button>
+       <button class="d-button">Always allow in this session</button>
+       <button class="d-button d-button--primary">Allow once</button>
+     </div>
+   </section>
+   data-risk: low · medium · high. The exact action is always shown in mono, before the model's reason for it:
+   what it will do is a fact, why is a claim. The risk label is text first; colour only supports it. */
+
+@layer demido.components {
+  .d-permission {
+    --_tone: var(--d-color-text-secondary);
+    display: grid;
+    gap: var(--d-space-10);
+    padding: var(--d-space-16);
+    border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    border-radius: var(--d-radius-lg);
+    background: var(--d-color-bg-surface);
+  }
+  .d-permission[data-risk="medium"] { --_tone: var(--d-color-caution-base); }
+  .d-permission[data-risk="high"] { --_tone: var(--d-color-danger-base); }
+
+  .d-permission__head {
+    display: grid;
+    gap: var(--d-space-4);
+  }
+  .d-permission__risk {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-6);
+    color: var(--_tone);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-font-weight-semibold);
+    letter-spacing: var(--d-type-micro-tracking);
+    text-transform: uppercase;
+  }
+  .d-permission__risk::before {
+    content: "";
+    width: var(--d-size-icon-sm);
+    height: var(--d-size-icon-sm);
+    background: currentColor;
+    -webkit-mask: var(--d-glyph-task-needs-input) center / contain no-repeat;
+    mask: var(--d-glyph-task-needs-input) center / contain no-repeat;
+  }
+  .d-permission__title {
+    font-size: var(--d-type-headline-size);
+    line-height: var(--d-type-headline-leading);
+    font-weight: var(--d-type-headline-weight);
+  }
+  .d-permission__what {
+    padding: var(--d-space-10) var(--d-space-12);
+    border-radius: var(--d-radius-md);
+    background: var(--d-color-bg-sunken);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+    color: var(--d-color-text-primary);
+    line-height: var(--d-type-code-leading);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .d-permission__why {
+    color: var(--d-color-text-secondary);
+  }
+  .d-permission__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--d-space-8);
+    margin-block-start: var(--d-space-4);
+  }
+}

@@ -1,0 +1,17 @@
+.kit-convo {
+  display: grid;
+  gap: var(--d-space-24);
+  padding-block: var(--d-space-32) var(--d-space-24);
+}
+.kit-convo > * {
+  width: 100%;
+  max-width: var(--d-size-measure);
+  margin-inline: auto;
+}
+.kit-convo__answer {
+  display: grid;
+  gap: var(--d-space-12);
+}
+.kit-convo__answer > .d-step + .d-step {
+  margin-block-start: calc(-1 * var(--d-space-10));
+}

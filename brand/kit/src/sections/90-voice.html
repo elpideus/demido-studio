@@ -1,0 +1,106 @@
+<!-- id: voice | title: Voice | group: Brand -->
+<div class="kit-head">
+  <p class="kit-eyebrow">12 · Brand</p>
+  <h2 class="kit-title" id="voice-title">Voice</h2>
+  <p class="kit-lead">Demido writes in three registers. Each has one job, and they do not mix. The full rules are in <code>brand/voice.md</code>.</p>
+</div>
+
+<div class="kit-grid" style="--kit-min: 15rem">
+  <div class="kit-frame kit-stack">
+    <p class="kit-voice__reg">Manual</p>
+    <h3 class="d-type-title-3">Text for people</h3>
+    <p class="d-text-secondary">Answers, interface text, errors, docs. Job: be understood in one pass.</p>
+  </div>
+  <div class="kit-frame kit-stack">
+    <p class="kit-voice__reg">Caveman</p>
+    <h3 class="d-type-title-3">Text for models</h3>
+    <p class="d-text-secondary">Prompts, tool guidance, thinking, messages between agents and sessions. Job: the fewest tokens that keep the meaning.</p>
+  </div>
+  <div class="kit-frame kit-stack">
+    <p class="kit-voice__reg">Reference</p>
+    <h3 class="d-type-title-3">Settings and tool pages</h3>
+    <p class="d-text-secondary">Job: be complete and exact. What it does, when to change it, default, range, cost, trade-off.</p>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Manual</h3>
+  <p class="kit-sub__text">Written for attention that is short and valuable. Answer first. One idea per sentence. Numbered steps, one action each. Exact values with units. No filler, no praise, no apology, no exclamation marks.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-frame--canvas kit-rule" data-kind="dont">
+    <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true"></span>Not this</span>
+    <div class="d-prose d-text-secondary">
+      <p>Great question! It looks like the model you selected might be a little too large for your graphics card, so you may run into some slowdowns. You might want to consider trying a smaller quantization if that's something you're open to.</p>
+    </div>
+  </div>
+  <div class="kit-frame kit-frame--canvas kit-rule" data-kind="do">
+    <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>This</span>
+    <div class="d-prose">
+      <p><strong>This model does not fit your GPU.</strong> It needs 9.8 GB. You have 7.6 GB free.</p>
+      <ol>
+        <li>Pick <code>Q4_K_M</code> (6.1 GB). Recommended.</li>
+        <li>Or keep <code>Q6_K</code> and run 11 of 33 layers on the CPU. Slower: about 9 tokens/s.</li>
+      </ol>
+    </div>
+    <div class="d-signal" data-level="caution" role="note"><span class="d-signal__label">CAUTION</span><div class="d-signal__body">Option 2 leaves no room for an agent or a voice model.</div></div>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Caveman</h3>
+  <p class="kit-sub__text">Small models lose the thread in long prose, so everything only a model reads is short and literal. You can always open it and read it: nothing is hidden. It is just not written for you.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-frame--canvas kit-rule" data-kind="dont">
+    <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true"></span>Not this <span class="kit-voice__count" data-count-for="cave-bad"></span></span>
+    <pre class="d-code kit-voice__pre" id="cave-bad">You are a helpful assistant with access to a file editing tool. Before you make any changes to a file, it's important that you first read the file so that you understand its contents. Please be careful not to guess file paths.</pre>
+  </div>
+  <div class="kit-frame kit-frame--canvas kit-rule" data-kind="do">
+    <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>This <span class="kit-voice__count" data-count-for="cave-good"></span></span>
+    <pre class="d-code kit-voice__pre" id="cave-good">Edit files with edit_file.
+Read file first → then edit.
+Path unknown → list_dir. Never guess path.</pre>
+  </div>
+</div>
+<p class="kit-caption">Token counts are approximate (words × 1.3). Caveman covers prompts, the guidance part of a Tool, tool index entries, thinking, compaction summaries, agent briefs and reports, and session-to-session messages. It never applies to an answer shown to a person.</p>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Interface text</h3>
+</div>
+<div class="kit-frame">
+  <table class="kit-table kit-voice__table">
+    <thead><tr><th></th><th>Not this</th><th>This</th></tr></thead>
+    <tbody>
+      <tr><td>Buttons</td><td class="d-text-tertiary">OK · Submit · Click here</td><td><strong>Load model</strong> · <strong>Unload</strong> · <strong>Lend to agent</strong></td></tr>
+      <tr><td>Confirming</td><td class="d-text-tertiary">Are you sure?</td><td>Delete 3 sessions? This cannot be undone. → <strong>Delete 3 sessions</strong></td></tr>
+      <tr><td>Errors</td><td class="d-text-tertiary">Oops! Something went wrong.</td><td>Download stopped at 1.8 of 2.5 GB: the connection dropped. Nothing is lost. → <strong>Resume</strong></td></tr>
+      <tr><td>Empty</td><td class="d-text-tertiary">Nothing here yet!</td><td>Schedules you create appear here. → <strong>New schedule</strong></td></tr>
+      <tr><td>Numbers</td><td class="d-text-tertiary">a lot of memory · soon</td><td><span class="d-mono">6.2 GB</span> · <span class="d-mono">38 tokens/s</span> · in 4 min</td></tr>
+      <tr><td>Unfinished</td><td class="d-text-tertiary">a dead button</td><td><span class="d-notbuilt"><span class="d-glyph" data-glyph="task-pending" aria-hidden="true"></span>Not built yet</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">One word per thing</h3>
+  <p class="kit-sub__text">The same word in the interface, the docs, the prompts and the code.</p>
+</div>
+<div class="kit-frame">
+  <table class="kit-table kit-voice__table">
+    <thead><tr><th>We say</th><th>It means</th><th>Not</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Model</strong></td><td>Weights that can be loaded</td><td class="d-text-tertiary">LLM, AI, engine</td></tr>
+      <tr><td><strong>Runtime</strong></td><td>The program that runs a model</td><td class="d-text-tertiary">Backend</td></tr>
+      <tr><td><strong>Provider</strong></td><td>A remote service or CLI that runs models elsewhere</td><td class="d-text-tertiary">API, cloud</td></tr>
+      <tr><td><strong>Session</strong></td><td>One conversation and its files</td><td class="d-text-tertiary">Chat, thread</td></tr>
+      <tr><td><strong>Agent</strong></td><td>A helper with a fresh context, started by a session</td><td class="d-text-tertiary">Sub-agent, worker</td></tr>
+      <tr><td><strong>Task</strong></td><td>One item of the task list; may hold sub-tasks</td><td class="d-text-tertiary">To-do, step</td></tr>
+      <tr><td><strong>Tool</strong></td><td>Functionality plus guidance in one package</td><td class="d-text-tertiary">Skill, MCP, plugin</td></tr>
+      <tr><td><strong>Loaded / Unloaded</strong></td><td>In memory / not. In pictures: awake / asleep</td><td class="d-text-tertiary">Active, running, cold</td></tr>
+      <tr><td><strong>Lent</strong></td><td>Temporarily used by an agent or a schedule</td><td class="d-text-tertiary">Borrowed, shared</td></tr>
+      <tr><td><strong>Permission level</strong></td><td>Cautious, Balanced, Autonomous, Smart</td><td class="d-text-tertiary">Mode</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="kit-caption">First mention: <strong>Demido Studio</strong>. After that: <strong>Demido</strong>. The command is <code>demido</code>. The line under the name: <strong>Make small models behave.</strong></p>

@@ -1,0 +1,261 @@
+/* Demido Studio type specimen. Plain CSS. Colour is near-monochrome; one amber signal only. */
+
+:root {
+  --bg: #101010;
+  --surface: #181818;
+  --surface-2: #202020;
+  --line: #2a2a2a;
+  --text: #ececea;
+  --text-2: #a4a4a1;
+  --text-3: #73736f;
+  --caution: #e8b34a;
+  --fallback: serif; /* deliberate: a missing glyph or a font that failed to load is obvious */
+  --mr: 400; --mm: 500;              /* mono weights: regular, medium. ?mw=450,550 overrides */
+  --wr: 400; --wm: 500; --ws: 600;   /* text weights: regular, medium, semibold. ?tw=320,420,520 overrides */
+  --it-var: normal;                  /* ?itv=CRSV:1 adds variation settings to sans italics */
+}
+:root[data-theme="light"] {
+  --bg: #f6f6f4;
+  --surface: #ffffff;
+  --surface-2: #f0f0ee;
+  --line: #e2e2df;
+  --text: #171716;
+  --text-2: #5f5f5c;
+  --text-3: #8b8b87;
+  --caution: #8a5a00;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans), var(--fallback);
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: var(--wr);
+  font-optical-sizing: auto;           /* uses the opsz axis where the font has one */
+  font-variation-settings: var(--sans-var);
+  font-synthesis: weight style;        /* a font without italics shows a synthesised oblique: that is the evidence */
+  font-kerning: normal;
+}
+:root[data-fontfail="1"] body::before {
+  content: "FONT DID NOT LOAD"; display: block; background: #b00020; color: #fff; padding: 6px 12px; font: 700 14px sans-serif;
+}
+
+/* numbers that carry data */
+.n, .tbl td.n, .tbl th.n, .numcol.s, .field b, dd, .est .n, .tasks-head .n {
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+code, .mono, .foot, .mn-20, .mn-13, .mn-12, .mn-code, .tag, dd, .field, .numcol.m, [class^="lg-m"], [class*=" lg-m"], .card-name span, .cap span, figcaption, .titlebar em, .meta {
+  font-family: var(--mono), var(--fallback);
+  font-variation-settings: normal;
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0, "liga" 0;   /* no code ligatures: what you read is what is there */
+  font-variant-numeric: slashed-zero;
+  font-weight: var(--mr);                      /* mono weights: ?mw=450,550 ; ?tw= only moves the sans */
+}
+.tasks .run code, .field b { font-weight: var(--mm); }
+
+/* ------------------------------------------------------------ chrome */
+.picker { display: flex; gap: 16px; padding: 8px 20px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--text-2); }
+.picker select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+:root[data-shot="1"] .picker { display: none; }
+
+.meta { display: flex; flex-direction: column; gap: 2px; padding: 14px 20px 0; font-size: 11px; line-height: 1.5; color: var(--text-3); }
+.meta .meta-fonts { color: var(--text); font-size: 13px; }
+
+.page { padding: 16px 20px 24px; }
+.cols { display: grid; grid-template-columns: 688px 688px; gap: 24px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.blk { min-width: 0; }
+:root[data-view="all"] .blk-lockups { margin-bottom: 26px; }
+:root[data-view="all"] .blk-display { margin-top: 26px; }
+
+.cap { margin: 0 0 10px; font: var(--ws) 11px/1.4 var(--sans), var(--fallback); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); display: flex; gap: 10px; align-items: baseline; }
+.cap span { font-size: 10.5px; font-weight: var(--mr); letter-spacing: 0; text-transform: none; color: var(--text-3); }
+
+/* view switching: a block is hidden unless its data-v lists the current view */
+:root:not([data-view="all"]) .meta,
+:root:not([data-view="all"]) .picker,
+:root:not([data-view="all"]) .cap { display: none; }
+:root[data-view="all"] .blk:not([data-v~="all"]),
+:root[data-view="lockups"] .blk:not([data-v~="lockups"]),
+:root[data-view="lockup-tile"] .blk:not([data-v~="lockup-tile"]),
+:root[data-view="wordmark"] .blk:not([data-v~="wordmark"]),
+:root[data-view="glyphs"] .blk:not([data-v~="glyphs"]),
+:root[data-view="chat"] .blk:not([data-v~="chat"]),
+:root[data-view="ui"] .blk:not([data-v~="ui"]),
+:root[data-view="settings"] .blk:not([data-v~="settings"]),
+:root[data-view="display"] .blk:not([data-v~="display"]),
+:root[data-view="legibility"] .blk:not([data-v~="legibility"]),
+:root[data-view="mono"] .blk:not([data-v~="mono"]) { display: none; }
+:root:not([data-view="all"]) .page { padding: 16px; }
+:root:not([data-view="all"]) .cols, :root:not([data-view="all"]) .col { display: block; }
+
+/* ------------------------------------------------------------ lockups */
+.lockup {
+  --ls: -0.01em;
+  --sym: calc(var(--cap) * var(--k) * 1em);
+  /* The box is exactly as tall as the symbol. Items share a baseline at the bottom of the symbol;
+     the wordmark is then lifted so that half its cap height sits on the symbol's centre line.
+     Only the font's cap height is needed, so the result does not depend on ascent/descent metrics. */
+  display: inline-flex; align-items: baseline; white-space: nowrap; height: var(--sym);
+  font-size: var(--fs); line-height: 1; color: var(--text);
+}
+.lockup .sym { flex: none; width: var(--sym); height: var(--sym); margin-right: calc(var(--sym) * var(--gap, 0.30)); }
+.lockup .wm { letter-spacing: var(--ls); transform: translateY(calc(var(--cap) * (var(--k) - 1) / -2 * 1em)); }
+.lockup .a { font-weight: var(--w); }
+.lockup .b { font-weight: var(--w2); }
+
+figure { margin: 0; }
+figcaption { font-size: 10.5px; color: var(--text-3); margin-bottom: 6px; }
+.lk-grid { display: grid; gap: 26px 32px; margin-bottom: 30px; }
+.lk-72 { grid-template-columns: 1fr 1fr; }
+.lk-72 figure { height: 124px; }
+.lk-72b { grid-template-columns: repeat(3, 1fr); }
+.lk-72b figure { height: 124px; }
+.lk-32 { grid-template-columns: repeat(4, 1fr); gap: 16px 24px; }
+.lk-32 figure { height: 70px; }
+
+.titlebars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px 16px; }
+.titlebar { display: flex; align-items: center; gap: 22px; height: 44px; padding: 0 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.titlebar nav { display: flex; gap: 16px; font-size: 13px; color: var(--text-2); }
+.titlebar em { margin-left: auto; font-style: normal; font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+
+/* compact tile */
+.blk-lktile { padding: 4px 8px; }
+.lt-row { display: flex; align-items: flex-start; gap: 26px; }
+.lt-72 { height: 118px; }
+.lt-32 { height: 64px; }
+.lt-20 { height: 40px; gap: 26px; }
+
+/* ------------------------------------------------------------ chat */
+.chat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px 16px; }
+.user { margin: 0 0 14px; padding: 8px 12px; background: var(--surface-2); border-radius: 10px; width: fit-content; margin-left: auto; color: var(--text); }
+.answer p { margin: 0 0 8px; }
+.answer .lead { font-weight: var(--ws); font-size: 15px; margin-bottom: 4px; }
+.answer ol { margin: 10px 0 12px; padding-left: 0; list-style: none; counter-reset: s; }
+.answer ol li { counter-increment: s; position: relative; padding-left: 26px; margin: 4px 0; }
+.answer ol li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 18px; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.answer strong { font-weight: var(--ws); }
+code { font-size: 0.93em; padding: 1px 5px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--line); }
+.caution { padding: 8px 12px; border-left: 2px solid var(--caution); background: var(--surface-2); border-radius: 0 8px 8px 0; margin: 12px 0 14px !important; }
+.caution .sig { font-weight: var(--ws); font-size: 12px; letter-spacing: 0.06em; color: var(--caution); margin-right: 6px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0 10px; }
+.tbl th { text-align: left; font-weight: var(--wm); font-size: 12px; color: var(--text-2); padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.tbl td { padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--text-2); }
+.tbl .n { text-align: right; }
+.tbl tr.pick td { color: var(--text); }
+.tbl td code { background: none; border: 0; padding: 0; font-size: 12.5px; }
+.note { color: var(--text-2); font-size: 13px; }
+.note em, .answer em { font-variation-settings: var(--it-var); }
+.foot { display: flex; gap: 14px; margin: 12px 0 0 !important; font-size: 11.5px; color: var(--text-3); }
+
+/* ------------------------------------------------------------ task list + sidebar */
+.blk-ui { display: grid; grid-template-columns: 392px 272px; gap: 24px; }
+.tasks { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 12px; font-size: 13px; line-height: 1.4; }
+.tasks-head { display: flex; justify-content: space-between; font-weight: var(--ws); margin-bottom: 8px; }
+.tasks-head .n { font-weight: var(--wr); color: var(--text-2); font-size: 12px; }
+.tasks ul { list-style: none; margin: 0; padding: 0; }
+.tasks li { display: grid; grid-template-columns: 16px 1fr; column-gap: 9px; align-items: start; padding: 4px 0; }
+.tasks li > svg { width: 16px; height: 16px; margin-top: 1px; }
+.tasks li > ul { grid-column: 2; margin-top: 4px; }
+.tasks li > ul li { padding: 3px 0; }
+.tasks .done { color: var(--text-2); }
+.tasks .done > svg { color: var(--text-2); }
+.tasks .run { color: var(--text); font-weight: var(--wm); }
+.tasks .run > svg { color: var(--text); }
+.tasks .pend { color: var(--text-3); font-weight: var(--wr); }
+.tasks .pend > svg { color: var(--text-3); }
+.tasks code { font-size: 12px; padding: 0 4px; }
+
+.side { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 6px 8px; font-size: 13px; line-height: 1.35; }
+.side-h { font-size: 11px; font-weight: var(--ws); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); padding: 10px 8px 4px; }
+.side a { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; color: var(--text-2); }
+.side a.on { background: var(--surface-2); color: var(--text); font-weight: var(--wm); }
+.side .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag { flex: none; font-size: 10.5px; line-height: 1; padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--text-3); }
+
+/* ------------------------------------------------------------ settings + model card */
+.blk-settings { display: grid; grid-template-columns: 360px 304px; gap: 24px; }
+.set { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.set-h { font-size: 13px; font-weight: var(--ws); margin-bottom: 4px; }
+.set .row { display: flex; gap: 14px; align-items: center; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--line); }
+.set label { display: block; font-size: 13px; font-weight: var(--wm); line-height: 1.3; }
+.set p { margin: 2px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.field { flex: none; display: inline-flex; align-items: baseline; gap: 5px; min-width: 92px; justify-content: flex-end; padding: 5px 8px; font-size: 12.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; }
+.field b { color: var(--text); }
+.field i { font-style: normal; color: var(--text-3); font-size: 11.5px; }
+.est { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 9px; font-size: 12px; color: var(--text-2); }
+.est .n { color: var(--text); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.card-name { font-size: 15px; font-weight: var(--ws); line-height: 1.3; }
+.card-name span { font-size: 12.5px; font-weight: var(--mr); color: var(--text-2); margin-left: 2px; }
+.card-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.badges { display: flex; gap: 6px; margin: 10px 0 10px; }
+.badges span { font-size: 11px; font-weight: var(--wm); line-height: 1; padding: 4px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-2); }
+.card dl { margin: 0; }
+.card dl div { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.card dt { color: var(--text-2); }
+.card dd { margin: 0; font-size: 12px; color: var(--text); }
+.card-state { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; }
+.card-state svg { width: 14px; height: 14px; }
+.card-state span, .card-state em { white-space: nowrap; }
+.card-state em { margin-left: auto; font-style: normal; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------ legibility */
+.lg { display: grid; grid-template-columns: 1fr 190px; gap: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.lg p { margin: 0 0 7px; white-space: nowrap; }
+.lg-s20 { font-size: 20px; line-height: 1.3; }
+.lg-s14 { font-size: 14px; }
+.lg-s12 { font-size: 12px; color: var(--text-2); }
+.lg-m20 { font-size: 20px; line-height: 1.3; margin-top: 12px !important; }
+.lg-m13 { font-size: 13px; }
+.lg-m12 { font-size: 12px; color: var(--text-2); }
+.lg-cov { color: var(--text-2); margin-top: 10px !important; }
+.lg-cov + .lg-cov { margin-top: 0 !important; }
+.lg-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.numcol { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; line-height: 1.55; }
+.numcol i { font: var(--mr) 10.5px/1.6 var(--mono), var(--fallback); color: var(--text-3); margin-bottom: 2px; white-space: nowrap; }
+
+/* ------------------------------------------------------------ display */
+.blk-display p { margin: 0; }
+.d56 { font-size: 56px; line-height: 1.08; font-weight: var(--ws); letter-spacing: -0.02em; white-space: nowrap; }
+.d32row { display: flex; gap: 48px; margin-top: 14px; }
+.d32 { font-size: 32px; line-height: 1.15; font-weight: var(--ws); letter-spacing: -0.02em; white-space: nowrap; }
+.d32.w500 { font-weight: var(--wm); color: var(--text-2); }
+.dsub { font-size: 18px; line-height: 1.45; color: var(--text-2); margin-top: 14px !important; max-width: 760px; }
+
+/* ------------------------------------------------------------ mono in use */
+.mn { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.mn p { margin: 0 0 8px; white-space: nowrap; }
+.mn-20 { font-size: 20px; line-height: 1.3; }
+.mn-13 { font-size: 13px; }
+.mn-code { margin: 10px 0; padding: 10px 12px; font-size: 13px; line-height: 1.55; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.mn-code .c { color: var(--text-3); }
+.mn-code i { color: var(--text-3); }
+.mn-12 { font-size: 12px; color: var(--text-2); }
+.mn-pair { font-size: 14px; white-space: normal !important; margin: 10px 0 0 !important; }
+
+/* display tile for contact sheets: stack the two 32 px lines, drop the sub-line */
+:root[data-view="display"] .d32row { flex-direction: column; gap: 6px; }
+:root[data-view="display"] .dsub { display: none; }
+
+/* ------------------------------------------------------------ wordmark study */
+.wm-h { margin: 0 0 14px; font: var(--ws) 13px/1.4 var(--sans), var(--fallback); color: var(--text-2); }
+.wm-grid { display: grid; gap: 18px 28px; margin-bottom: 26px; }
+.wm-2 { grid-template-columns: 1fr 1fr; }
+.wm-2 figure { height: 116px; }
+.wm-3 { grid-template-columns: 1fr 1fr 1fr; }
+.wm-3 figure { height: 96px; }
+.wm-4 { grid-template-columns: repeat(4, 1fr); }
+.wm-4 figure { height: 62px; }
+
+/* ------------------------------------------------------------ glyphs */
+.gl { margin: 0 0 6px; font-size: 30px; line-height: 1.25; white-space: nowrap; }
+.gl-r { font-weight: var(--wr); }
+.gl-s { font-weight: var(--ws); }
+.gl-sm { font-size: 20px; line-height: 1.5; color: var(--text-2); }
+.gl em { font-variation-settings: var(--it-var); }

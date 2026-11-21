@@ -1,0 +1,131 @@
+<!-- id: surfaces | title: Cards and labels | group: Components -->
+<div class="kit-head">
+  <p class="kit-eyebrow">09 · Components</p>
+  <h2 class="kit-title" id="surfaces-title">Cards and labels</h2>
+  <p class="kit-lead">Surfaces separate by lightness and a hairline, not by decoration. Labels are neutral unless they report a state, and a coloured label always carries a glyph or icon as well.</p>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Labels</h3>
+</div>
+<div class="kit-frame kit-stack">
+  <div class="kit-row">
+    <span class="d-badge">GGUF</span>
+    <span class="d-badge d-badge--outline">4.0 B</span>
+    <span class="d-badge" data-tone="live"><span class="d-glyph" data-glyph="model-loaded" aria-hidden="true"></span>Loaded</span>
+    <span class="d-badge" data-tone="success"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>Audit passed</span>
+    <span class="d-badge" data-tone="caution"><span class="d-glyph" data-glyph="task-needs-input" aria-hidden="true"></span>Needs you</span>
+    <span class="d-badge" data-tone="danger"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true"></span>Failed</span>
+    <span class="d-badge" data-tone="info"><!--@icon info-->Update available</span>
+  </div>
+  <div class="kit-row">
+    <span class="d-chip"><!--@icon eye-->Vision</span>
+    <span class="d-chip"><!--@icon audio-lines-->Audio</span>
+    <span class="d-chip"><!--@icon wrench-->Tools</span>
+    <span class="d-chip"><!--@icon brain-->Thinking</span>
+    <span class="d-chip" data-off><!--@icon boxes-->Embedding</span>
+    <span class="kit-caption" style="margin: 0">Capability chips. A struck-through chip says the model lacks it.</span>
+  </div>
+  <div class="kit-row">
+    <span class="d-badge d-badge--outline">External</span>
+    <span class="d-badge d-badge--dashed">Deprecated</span>
+    <span class="d-notbuilt"><span class="d-glyph" data-glyph="task-pending" aria-hidden="true"></span>Not built yet</span>
+    <span><kbd class="d-kbd">Ctrl</kbd><kbd class="d-kbd">K</kbd></span>
+    <span class="kit-caption" style="margin: 0">Dashed always means "not here yet" or "on its way out".</span>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">A model, a tool, a character</h3>
+  <p class="kit-sub__text">The three cards people will read most. Facts are in mono with tabular numbers. The recommendation says why.</p>
+</div>
+<div class="kit-grid" style="--kit-min: 18rem">
+  <article class="d-card">
+    <header class="d-card__head">
+      <span class="d-glyph" data-glyph="model-unloaded" role="img" aria-label="Unloaded" style="--d-glyph-size: 1.25rem; margin-top: 0.125rem; color: var(--d-color-text-tertiary)"></span>
+      <div class="kit-stack" style="gap: var(--d-space-2); flex: 1; min-width: 0">
+        <h4 class="d-card__title">Qwen3 4B Instruct</h4>
+        <span class="d-card__sub">Qwen · Apache-2.0</span>
+      </div>
+      <span class="d-badge">Recommended</span>
+    </header>
+    <div class="d-card__body kit-stack" style="gap: var(--d-space-12)">
+      <div class="kit-row" style="gap: var(--d-space-6)">
+        <span class="d-chip"><!--@icon wrench-->Tools</span>
+        <span class="d-chip"><!--@icon brain-->Thinking</span>
+        <span class="d-chip" data-off><!--@icon eye-->Vision</span>
+      </div>
+      <dl class="kit-facts">
+        <div><dt>Quantization</dt><dd>Q4_K_M</dd></div>
+        <div><dt>File</dt><dd>2.5 GB</dd></div>
+        <div><dt>Memory, 32k context</dt><dd>6.1 GB</dd></div>
+        <div><dt>Fits your GPU</dt><dd>Yes, with 1 agent</dd></div>
+      </dl>
+    </div>
+    <footer class="d-card__foot">
+      <button class="d-button d-button--primary" type="button"><!--@icon download-->Download</button>
+      <button class="d-button d-button--ghost" type="button">Other quantizations</button>
+    </footer>
+  </article>
+
+  <article class="d-card">
+    <header class="d-card__head">
+      <!--@icon globe lg-->
+      <div class="kit-stack" style="gap: var(--d-space-2); flex: 1; min-width: 0">
+        <h4 class="d-card__title">Web search</h4>
+        <span class="d-card__sub">Demido · v0.3.1</span>
+      </div>
+      <span class="d-badge" data-tone="success"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>Audited</span>
+    </header>
+    <div class="d-card__body kit-stack" style="gap: var(--d-space-12)">
+      <p class="d-text-secondary">Searches several engines, merges and ranks the results.</p>
+      <dl class="kit-facts">
+        <div><dt>Index cost</dt><dd>14 tokens</dd></div>
+        <div><dt>Can</dt><dd>use the network</dd></div>
+        <div><dt>Cannot</dt><dd>read files, run commands</dd></div>
+      </dl>
+    </div>
+    <footer class="d-card__foot">
+      <button class="d-button" type="button"><!--@icon pencil-->Edit guidance</button>
+      <span class="d-badge d-badge--outline" style="margin-inline-start: auto">External</span>
+    </footer>
+  </article>
+
+  <article class="d-card">
+    <header class="d-card__head">
+      <span class="d-avatar d-avatar--lg">Mi</span>
+      <div class="kit-stack" style="gap: var(--d-space-2); flex: 1; min-width: 0">
+        <h4 class="d-card__title">Mira</h4>
+        <span class="d-card__sub">Character · research</span>
+      </div>
+    </header>
+    <div class="d-card__body kit-stack" style="gap: var(--d-space-12)">
+      <p class="d-text-secondary">Reads long documents and answers with sources. Careful, brief.</p>
+      <dl class="kit-facts">
+        <div><dt>Model</dt><dd>Gemma 3n E4B</dd></div>
+        <div><dt>Temperature</dt><dd>0.30</dd></div>
+        <div><dt>Voice</dt><dd>Not set</dd></div>
+      </dl>
+    </div>
+    <footer class="d-card__foot">
+      <button class="d-button" type="button">Start a session</button>
+      <button class="d-button d-button--ghost" type="button">Edit</button>
+    </footer>
+  </article>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Not built yet</h3>
+  <p class="kit-sub__text">The brief's rule: no silent stubs. Anything planned but unfinished wears this marker, in the preview and in the app, and never looks like a live control.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <div class="d-notbuilt d-notbuilt--block">
+    <strong><span class="d-glyph" data-glyph="task-pending" aria-hidden="true"></span>Not built yet</strong>
+    <span>Voice cloning. You will record or load audio here; Demido cleans it and makes a voice you can name.</span>
+  </div>
+  <div class="kit-frame kit-row">
+    <button class="d-button" type="button" disabled><!--@icon chart-candlestick-->Backtest</button>
+    <span class="d-notbuilt"><span class="d-glyph" data-glyph="task-pending" aria-hidden="true"></span>Not built yet</span>
+    <span class="kit-caption" style="margin: 0; flex-basis: 100%">Beside a control: the control is disabled and the marker says why.</span>
+  </div>
+</div>

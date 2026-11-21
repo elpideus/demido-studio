@@ -1,0 +1,176 @@
+/* Activity in the answer stream: tool steps, thinking, artifacts. Everything a model did is one line that opens.
+   Step (a tool call):
+     <details class="d-step" data-state="done">
+       <summary><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-step__what">Ran <code>cargo test</code></span><span class="d-step__meta">42 of 1,180 lines · 3.2 s</span></summary>
+       <div class="d-step__body">
+         <p class="d-step__label">Request</p><pre class="d-code">…exact call…</pre>
+         <p class="d-step__label">Output · compressed</p><pre class="d-code">…</pre>
+         <button class="d-button d-button--sm">Show full output (1,180 lines)</button>
+       </div>
+     </details>
+     data-state uses the task circle states: running · done · failed · needs-input.
+     Compression is always stated in the summary ("42 of 1,180 lines"), and the full output is one press away.
+   Untrusted content marker (text that came from a web page, an email, a file, another session):
+     <span class="d-untrusted">From the web · treated as data</span>
+   Thinking:
+     <details class="d-thinking"><summary>Thought for 6 s</summary><pre>…model thinking, caveman register…</pre></details>
+   Artifact:
+     <article class="d-artifact"><span class="d-icon">…</span><div class="d-artifact__text"><span class="d-artifact__name">price-watch.md</span><span class="d-artifact__meta">Markdown · 1.2 KB</span></div>
+       <button class="d-button d-button--ghost d-button--sm">v3</button><button class="d-button d-button--sm">Open</button></article> */
+
+@layer demido.components {
+  .d-step,
+  .d-thinking {
+    min-width: 0;
+  }
+  .d-step > summary,
+  .d-thinking > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-8);
+    min-height: var(--d-size-control-md);
+    margin-inline: calc(-1 * var(--d-space-8));
+    padding-inline: var(--d-space-8);
+    border-radius: var(--d-radius-md);
+    color: var(--d-color-text-secondary);
+    list-style: none;
+    cursor: default;
+    user-select: none;
+    transition: background-color var(--d-duration-fast) var(--d-ease-standard), color var(--d-duration-fast) var(--d-ease-standard);
+  }
+  .d-step > summary::-webkit-details-marker,
+  .d-thinking > summary::-webkit-details-marker {
+    display: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-step > summary:hover,
+    .d-thinking > summary:hover {
+      background: var(--d-color-fill-hover);
+      color: var(--d-color-text-primary);
+    }
+  }
+  .d-step > summary:active,
+  .d-thinking > summary:active {
+    background: var(--d-color-fill-pressed);
+  }
+  /* a chevron at the end shows it opens */
+  .d-step > summary::after,
+  .d-thinking > summary::after {
+    content: "";
+    flex: none;
+    width: 0.375rem;
+    height: 0.375rem;
+    margin-inline: var(--d-space-4);
+    border: solid var(--d-color-text-tertiary);
+    border-width: 0 var(--d-stroke-icon) var(--d-stroke-icon) 0;
+    rotate: -45deg;
+    transition: rotate var(--d-duration-base) var(--d-ease-out);
+  }
+  .d-step[open] > summary::after,
+  .d-thinking[open] > summary::after {
+    rotate: 45deg;
+  }
+
+  .d-step__what {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .d-step__what code {
+    color: var(--d-color-text-primary);
+  }
+  .d-step__meta {
+    flex: none;
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .d-step[data-state="running"] > summary { color: var(--d-color-text-primary); }
+  .d-step[data-state="running"] > summary > .d-glyph { --_mask: var(--d-glyph-task-running); animation: d-glyph-spin var(--d-signature-spinner-period) linear infinite; }
+  .d-step[data-state="done"] > summary > .d-glyph { --_mask: var(--d-glyph-task-done); }
+  .d-step[data-state="failed"] > summary > .d-glyph { --_mask: var(--d-glyph-task-failed); color: var(--d-color-danger-base); }
+  .d-step[data-state="needs-input"] > summary > .d-glyph { --_mask: var(--d-glyph-task-needs-input); color: var(--d-color-caution-base); }
+
+  .d-step__body {
+    display: grid;
+    justify-items: start;
+    gap: var(--d-space-8);
+    margin: var(--d-space-4) 0 var(--d-space-12) calc(var(--d-size-icon-md) + var(--d-space-8));
+    animation: d-disclosure-in var(--d-duration-base) var(--d-ease-out);
+  }
+  .d-step__body > .d-code {
+    justify-self: stretch;
+  }
+  .d-step__label {
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-type-micro-weight);
+    letter-spacing: var(--d-type-micro-tracking);
+    text-transform: uppercase;
+  }
+
+  .d-untrusted {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-6);
+    height: 1.25rem;
+    padding-inline: var(--d-space-6);
+    border: var(--d-stroke-hairline) dashed var(--d-color-border-strong);
+    border-radius: var(--d-radius-xs);
+    color: var(--d-color-text-secondary);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-font-weight-medium);
+    white-space: nowrap;
+  }
+
+  /* ---------- thinking ---------- */
+  .d-thinking > summary {
+    display: inline-flex;
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+  }
+  .d-thinking > pre {
+    margin: var(--d-space-4) 0 var(--d-space-8);
+    padding-inline-start: var(--d-space-12);
+    border-inline-start: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    color: var(--d-color-text-secondary);
+    font-size: var(--d-type-code-size);
+    line-height: var(--d-type-code-leading);
+    white-space: pre-wrap;
+    animation: d-disclosure-in var(--d-duration-base) var(--d-ease-out);
+  }
+
+  /* ---------- artifact ---------- */
+  .d-artifact {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-10);
+    max-width: 26rem;
+    padding: var(--d-space-8) var(--d-space-8) var(--d-space-8) var(--d-space-12);
+    border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    border-radius: var(--d-radius-lg);
+    background: var(--d-color-bg-surface);
+  }
+  .d-artifact > .d-icon {
+    --d-icon-size: var(--d-size-icon-lg);
+    color: var(--d-color-text-secondary);
+  }
+  .d-artifact__text {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+  }
+  .d-artifact__name {
+    overflow: hidden;
+    font-weight: var(--d-font-weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .d-artifact__meta {
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+  }
+}

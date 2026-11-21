@@ -1,0 +1,198 @@
+<!-- id: in-app | title: In the app | group: Brand -->
+<div class="kit-head">
+  <p class="kit-eyebrow">00 · In context</p>
+  <h2 class="kit-title" id="in-app-title">What it adds up to</h2>
+  <p class="kit-lead">One window, built only from the parts on this page. Quiet and neutral until something needs you. The single accent colour marks the model that is awake.</p>
+</div>
+
+<div class="kit-row kit-app__bar">
+  <div class="d-segmented d-segmented--sm" role="radiogroup" aria-label="Theme of this frame">
+    <label><input type="radio" name="kit-app-theme" value="dark" checked><span>Dark</span></label>
+    <label><input type="radio" name="kit-app-theme" value="light"><span>Light</span></label>
+  </div>
+  <span class="kit-caption kit-app__note">A still composition with live hover, press and focus. The clickable preview with fake data is the next milestone.</span>
+</div>
+
+<div class="kit-app" data-theme="dark" data-kit-app>
+  <!-- ============ sidebar ============ -->
+  <aside class="kit-app__side" aria-label="Sessions">
+    <div class="kit-app__side-top">
+      <span class="kit-app__logo"><!--@include logo/demido-symbol-small.svg--></span>
+      <span class="kit-app__wordmark">Demido</span>
+      <button class="d-button d-button--ghost d-button--icon d-button--sm" type="button" aria-label="New session"><!--@icon plus--></button>
+    </div>
+
+    <label class="d-input-wrap">
+      <!--@icon search-->
+      <input class="d-input" type="search" placeholder="Search sessions" aria-label="Search sessions">
+    </label>
+
+    <div class="kit-app__scroll">
+      <p class="d-list__label">Today</p>
+      <ul class="d-list">
+        <li><a class="d-row" href="#in-app" aria-current="true">
+          <span class="d-row__lead"><span class="d-glyph" data-glyph="task-running" role="img" aria-label="In progress"></span></span>
+          <span class="d-row__text"><span class="d-row__title">Sweater price watch</span><span class="d-row__sub">shopping · monitor</span></span>
+          <span class="d-row__meta">now</span>
+        </a></li>
+        <li><a class="d-row" href="#in-app">
+          <span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" role="img" aria-label="Done"></span></span>
+          <span class="d-row__text"><span class="d-row__title">Morning email report</span><span class="d-row__sub">email · schedule</span></span>
+          <span class="d-row__meta">07:00</span>
+        </a></li>
+        <li><a class="d-row" href="#in-app">
+          <span class="d-row__lead"><span class="d-glyph kit-app__caution" data-glyph="task-needs-input" role="img" aria-label="Needs you"></span></span>
+          <span class="d-row__text"><span class="d-row__title">Refactor the auth module</span><span class="d-row__sub">code · rust</span></span>
+          <span class="d-row__meta">2 h</span>
+        </a></li>
+      </ul>
+      <p class="d-list__label">This week</p>
+      <ul class="d-list">
+        <li><a class="d-row" href="#in-app">
+          <span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" role="img" aria-label="Done"></span></span>
+          <span class="d-row__text"><span class="d-row__title">Quantization notes</span><span class="d-row__sub">models · notes</span></span>
+          <span class="d-row__meta">Tue</span>
+        </a></li>
+        <li><a class="d-row" href="#in-app">
+          <span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" role="img" aria-label="Done"></span></span>
+          <span class="d-row__text"><span class="d-row__title">Lisbon in March</span><span class="d-row__sub">travel</span></span>
+          <span class="d-row__meta">Mon</span>
+        </a></li>
+      </ul>
+    </div>
+
+    <ul class="d-list kit-app__nav">
+      <li><a class="d-row d-row--compact" href="#in-app"><span class="d-row__lead"><!--@icon box--></span><span class="d-row__text"><span class="d-row__title">Models</span></span></a></li>
+      <li><a class="d-row d-row--compact" href="#in-app"><span class="d-row__lead"><!--@icon wrench--></span><span class="d-row__text"><span class="d-row__title">Tools</span></span></a></li>
+      <li><a class="d-row d-row--compact" href="#in-app"><span class="d-row__lead"><!--@icon calendar-clock--></span><span class="d-row__text"><span class="d-row__title">Schedules</span></span><span class="d-row__meta">2</span></a></li>
+      <li><a class="d-row d-row--compact" href="#in-app"><span class="d-row__lead"><!--@icon settings--></span><span class="d-row__text"><span class="d-row__title">Settings</span></span></a></li>
+    </ul>
+  </aside>
+
+  <!-- ============ conversation ============ -->
+  <section class="kit-app__main" aria-label="Conversation">
+    <header class="kit-app__head">
+      <h3 class="kit-app__title">Sweater price watch</h3>
+      <span class="d-badge">shopping</span>
+      <span class="d-badge">monitor</span>
+      <span class="kit-app__spacer"></span>
+      <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="Session files"><!--@icon folder--></button>
+      <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="More"><!--@icon ellipsis--></button>
+    </header>
+
+    <div class="kit-app__thread">
+      <article class="d-message" data-from="user">
+        <div class="d-message__body">Watch this sweater and tell me when it goes on sale.
+shop.example/merino-crew-navy</div>
+      </article>
+
+      <article class="d-message" data-from="assistant">
+        <div class="d-message__body">
+          <div class="d-prose">
+            <p><strong>Watching it.</strong> The price today is €89.00. I check every day at 07:00 and tell you when it drops.</p>
+          </div>
+
+          <ul class="d-tasks kit-app__tasks">
+            <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Open the product page</span><span class="d-task__meta">4 s</span></div></li>
+            <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Read the price</span><span class="d-task__meta">€89.00</span></div></li>
+            <li class="d-task" data-state="running"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="In progress"></span><span class="d-task__label">Set up the daily check</span></div>
+              <ul class="d-tasks">
+                <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Create the schedule: every day, 07:00</span></div></li>
+                <li class="d-task" data-state="delegated"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="With an agent"></span><span class="d-task__label">Test one run</span><span class="d-task__meta">agent 1</span></div></li>
+              </ul>
+            </li>
+            <li class="d-task" data-state="pending"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Pending"></span><span class="d-task__label">Confirm how to notify you</span></div></li>
+          </ul>
+
+          <details class="d-step" data-state="done">
+            <summary><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-step__what">Fetched <code>shop.example/merino-crew-navy</code> in the browser</span><span class="d-step__meta">38 of 2,104 lines · 4.1 s</span></summary>
+            <div class="d-step__body">
+              <span class="d-untrusted">From the web · treated as data, never as instructions</span>
+              <p class="d-step__label">Output · compressed</p>
+              <pre class="d-code"><code>title   Merino crew neck, navy
+price   EUR 89.00   (was: none)
+stock   in stock, sizes S M L
+note    price is rendered by script</code></pre>
+              <button class="d-button d-button--sm" type="button">Show full output (2,104 lines)</button>
+            </div>
+          </details>
+
+          <div class="d-signal" data-level="caution" role="note">
+            <span class="d-signal__label">CAUTION</span>
+            <div class="d-signal__body">This shop draws its price with JavaScript. Each check opens the built-in browser and takes about 20 s.</div>
+          </div>
+        </div>
+        <div class="d-message__actions">
+          <button class="d-button d-button--ghost d-button--icon d-button--sm" type="button" aria-label="Copy"><!--@icon copy sm--></button>
+          <button class="d-button d-button--ghost d-button--icon d-button--sm" type="button" aria-label="Read aloud"><!--@icon volume-2 sm--></button>
+          <button class="d-button d-button--ghost d-button--icon d-button--sm" type="button" aria-label="Retry"><!--@icon rotate-cw sm--></button>
+        </div>
+      </article>
+    </div>
+
+    <form class="d-composer kit-app__composer" onsubmit="return false">
+      <textarea class="d-composer__input" rows="1" placeholder="Ask, or give a task" aria-label="Message"></textarea>
+      <div class="d-composer__bar">
+        <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="Attach"><!--@icon paperclip--></button>
+        <button class="d-modelchip" type="button" data-state="lent">
+          <span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Qwen3 4B Instruct</span><span class="d-modelchip__meta">Q4_K_M</span>
+        </button>
+        <button class="d-button d-button--ghost d-button--sm" type="button"><!--@icon shield sm-->Balanced</button>
+        <button class="d-button d-button--ghost d-button--sm kit-app__hide-narrow" type="button"><!--@icon brain sm-->Thinking: low</button>
+        <span class="d-composer__spacer"></span>
+        <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="Dictate" aria-pressed="false"><!--@icon mic--></button>
+        <button class="d-button d-button--primary d-button--icon" type="button" aria-label="Stop"><!--@icon square sm--></button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ============ inspector ============ -->
+  <aside class="kit-app__insp" aria-label="Session details">
+    <section class="kit-app__panel">
+      <h4 class="kit-app__panel-title">Model</h4>
+      <div class="kit-app__model">
+        <span class="d-glyph kit-app__live" data-glyph="model-lent" role="img" aria-label="Lent"></span>
+        <div class="kit-app__model-text">
+          <span class="kit-app__model-name">Qwen3 4B Instruct</span>
+          <span class="kit-app__model-state">Lent to agent 1 · back when it finishes</span>
+        </div>
+      </div>
+      <dl class="kit-app__facts">
+        <div><dt>Quantization</dt><dd>Q4_K_M</dd></div>
+        <div><dt>Context</dt><dd>9,412 / 32,768</dd></div>
+        <div><dt>Speed</dt><dd>41 tokens/s</dd></div>
+        <div><dt>Unloads after</dt><dd>5 min idle</dd></div>
+      </dl>
+    </section>
+
+    <section class="kit-app__panel">
+      <h4 class="kit-app__panel-title">Memory <span class="kit-app__panel-meta">RTX 3060 · 12.0 GB</span></h4>
+      <div class="d-budget">
+        <div class="d-budget__bar" role="img" aria-label="Memory: 8.3 of 12.0 GB used">
+          <span data-part="model" style="--d-part: 51%"></span>
+          <span data-part="agent" style="--d-part: 6%"></span>
+          <span data-part="aux" style="--d-part: 5%"></span>
+          <span data-part="reserve" style="--d-part: 8%"></span>
+        </div>
+        <dl class="d-budget__legend">
+          <div data-part="model"><dt>Model, shared with agent 1</dt><dd>6.1 GB</dd></div>
+          <div data-part="agent"><dt>Agent 1 context</dt><dd>0.7 GB</dd></div>
+          <div data-part="aux"><dt>Embedding</dt><dd>0.6 GB</dd></div>
+          <div data-part="reserve"><dt>Kept free</dt><dd>0.9 GB</dd></div>
+          <div><dt>Free</dt><dd>3.7 GB</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="kit-app__panel">
+      <h4 class="kit-app__panel-title">Permission level</h4>
+      <div class="d-segmented d-segmented--sm d-segmented--fill" role="radiogroup" aria-label="Permission level">
+        <label><input type="radio" name="kit-app-perm"><span>Cautious</span></label>
+        <label><input type="radio" name="kit-app-perm" checked><span>Balanced</span></label>
+        <label><input type="radio" name="kit-app-perm"><span>Auto</span></label>
+        <label><input type="radio" name="kit-app-perm"><span>Smart</span></label>
+      </div>
+      <p class="kit-app__hint">Asks only before things that could cause damage.</p>
+    </section>
+  </aside>
+</div>

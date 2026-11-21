@@ -1,0 +1,164 @@
+<!-- id: colour | title: Colour | group: Foundations -->
+<div class="kit-head">
+  <p class="kit-eyebrow">03 · Foundations</p>
+  <h2 class="kit-title" id="colour-title">Colour</h2>
+  <p class="kit-lead">True neutral greys, like your screenshot, with no tint. One accent: Demido green, unless you or your system choose another. Four signals that appear only when true. When nothing needs you, the only colour on screen is the model that is awake.</p>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Demido green</h3>
+  <p class="kit-sub__text">Demido's colour is green. In the interface it means one thing: alive. The model that is awake wears it, keyboard focus wears it, and good news wears it. It is soft enough to sit beside your mark, clearly green rather than teal, and it stays apart from caution, danger and info, including for red-green colour blindness.</p>
+</div>
+<div class="kit-frame kit-stack">
+  <div class="kit-colour__green">
+    <div class="kit-colour__chip" data-theme="dark"><i></i><span><strong>On dark</strong><code>#68efaf</code></span></div>
+    <div class="kit-colour__chip" data-theme="light"><i></i><span><strong>On light</strong><code>#038a5a</code></span></div>
+    <p class="kit-caption" style="margin: 0">One colour, <code>oklch(0.86 0.15 160)</code>. Each theme holds its lightness where it reads; the hue and strength stay.</p>
+  </div>
+  <div class="kit-colour__uses">
+    <div class="kit-colour__use">
+      <button class="d-modelchip" type="button" data-state="generating"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Qwen3 4B Instruct</span><span class="d-modelchip__meta">Q4_K_M</span></button>
+      <small>The model that is awake</small>
+    </div>
+    <div class="kit-colour__use">
+      <span class="d-badge" data-tone="live"><span class="d-glyph" data-glyph="model-loaded" aria-hidden="true"></span>Loaded</span>
+      <small>Its label</small>
+    </div>
+    <div class="kit-colour__use">
+      <input class="d-input kit-colour__focus" type="text" value="Focus ring" readonly aria-label="Example of the focus ring">
+      <small>Keyboard focus</small>
+    </div>
+    <div class="kit-colour__use">
+      <div class="d-budget" style="width: 9rem"><div class="d-budget__bar" role="img" aria-label="Memory used by the awake model"><span data-part="model" style="--d-part: 51%"></span><span data-part="agent" style="--d-part: 9%"></span></div></div>
+      <small>Its share of memory</small>
+    </div>
+  </div>
+  <div class="kit-grid kit-grid--2">
+    <div class="kit-rule" data-kind="do">
+      <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>Small marks that mean "awake", and focus</span>
+      <div class="kit-row"><button class="d-button d-button--primary" type="button">Load model</button><span class="d-glyph" data-glyph="model-loaded" role="img" aria-label="Loaded" style="color: var(--d-color-accent-base)"></span></div>
+    </div>
+    <div class="kit-rule" data-kind="dont">
+      <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true"></span>Buttons, headings, large fills, decoration</span>
+      <div class="kit-row"><button class="d-button kit-colour__wrong" type="button" tabindex="-1">Load model</button><span class="kit-colour__wrong-title">Models</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">The accent is a setting</h3>
+  <p class="kit-sub__text">Green is the default, not a rule. If your system has an accent colour, Demido follows it, wherever that colour comes from. You can also pick any colour. Change it here and the whole page follows.</p>
+</div>
+<section class="d-settings" data-accent-setting>
+  <h3 class="d-settings__title">Appearance</h3>
+  <div class="d-setting">
+    <div class="d-setting__text">
+      <span class="d-setting__label">Accent colour <span class="d-setting__changed" data-accent-changed hidden>Changed</span></span>
+      <span class="d-setting__desc" data-accent-desc>Uses your system's accent colour when it has one. Otherwise Demido green.</span>
+    </div>
+    <div class="d-setting__control">
+      <input class="d-colorwell" type="color" value="#68efaf" aria-label="Custom accent colour" data-accent-custom hidden>
+      <span class="d-select"><select class="d-input" aria-label="Accent colour" data-accent-mode>
+        <option value="auto" selected>Automatic</option>
+        <option value="green">Demido green</option>
+        <option value="custom">Custom</option>
+      </select></span>
+    </div>
+    <details class="d-disclosure d-setting__more">
+      <summary>Details</summary>
+      <div class="d-disclosure__body">Default <span class="d-mono">Automatic</span>. Automatic follows the system accent whenever the system reports one, whether it comes from your wallpaper or was set by hand. With no system accent it is Demido green. Whichever colour comes in, Demido keeps its hue and strength and holds its lightness in a band that reads on the current theme, so a very dark or very pale accent still shows. Success stays Demido green whatever you pick.</div>
+    </details>
+  </div>
+  <div class="d-setting">
+    <div class="d-setting__text">
+      <span class="d-setting__label">In use now</span>
+      <span class="d-setting__desc" data-accent-source-text>Demido green.</span>
+    </div>
+    <div class="d-setting__control kit-colour__resolved">
+      <span data-theme="dark"><i></i><output data-accent-hex="dark"></output></span>
+      <span data-theme="light"><i></i><output data-accent-hex="light"></output></span>
+    </div>
+  </div>
+</section>
+<div class="kit-frame kit-stack kit-colour__simframe">
+  <p class="kit-colour__simlabel">A web page cannot read your system accent. Pretend the system reports:</p>
+  <div class="kit-row" role="group" aria-label="Simulated system accent" data-accent-sim>
+    <button class="d-button d-button--sm" type="button" data-sim="" aria-pressed="true">Nothing</button>
+    <button class="d-button d-button--sm" type="button" data-sim="#e6a5d9" aria-pressed="false"><i style="background: #e6a5d9"></i>Your KDE accent today</button>
+    <button class="d-button d-button--sm" type="button" data-sim="#3daee9" aria-pressed="false"><i style="background: #3daee9"></i>Plasma blue</button>
+    <button class="d-button d-button--sm" type="button" data-sim="#f67400" aria-pressed="false"><i style="background: #f67400"></i>Orange</button>
+    <button class="d-button d-button--sm" type="button" data-sim="#1b2a4a" aria-pressed="false"><i style="background: #1b2a4a"></i>Very dark navy</button>
+  </div>
+  <p class="kit-caption" style="margin: 0">"Your KDE accent today" is what your desktop reported when this page was built: <code>#e6a5d9</code>. The navy shows the lightness guard: too dark to see on a dark background, so Demido lifts it and keeps its hue. <span class="d-notbuilt"><span class="d-glyph" data-glyph="task-pending" aria-hidden="true"></span>Reading the system live: not built yet</span></p>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Neutrals</h3>
+  <p class="kit-sub__text">Dark is the default. Light gets the same care. Click a name to copy its token.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-frame--flush kit-colour__theme" data-theme="dark">
+    <p class="kit-colour__theme-name">Dark</p>
+    <div class="kit-colour__ramp">
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-sunken" style="background: var(--d-color-bg-sunken)"><span>bg-sunken</span></button>
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-canvas" style="background: var(--d-color-bg-canvas)"><span>bg-canvas</span></button>
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-surface" style="background: var(--d-color-bg-surface)"><span>bg-surface</span></button>
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-raised" style="background: var(--d-color-bg-raised)"><span>bg-raised</span></button>
+      <button class="kit-colour__sw kit-colour__sw--inv" type="button" data-token="--d-color-bg-inverse" style="background: var(--d-color-bg-inverse)"><span>bg-inverse</span></button>
+    </div>
+    <ul class="kit-colour__text">
+      <li style="color: var(--d-color-text-primary)"><span>Primary text</span><output data-contrast="--d-color-text-primary"></output></li>
+      <li style="color: var(--d-color-text-secondary)"><span>Secondary: supporting text, done items</span><output data-contrast="--d-color-text-secondary"></output></li>
+      <li style="color: var(--d-color-text-tertiary)"><span>Tertiary: metadata, pending items</span><output data-contrast="--d-color-text-tertiary"></output></li>
+      <li style="color: var(--d-color-text-disabled)"><span>Disabled</span><output data-contrast="--d-color-text-disabled"></output></li>
+      <li style="color: var(--d-color-accent-text)"><span>Accent as text</span><output data-contrast="--d-color-accent-text"></output></li>
+    </ul>
+    <div class="kit-colour__lines"><i style="border-color: var(--d-color-border-hairline)">hairline</i><i style="border-color: var(--d-color-border-default)">default</i><i style="border-color: var(--d-color-border-strong)">strong</i></div>
+  </div>
+  <div class="kit-frame kit-frame--flush kit-colour__theme" data-theme="light">
+    <p class="kit-colour__theme-name">Light</p>
+    <div class="kit-colour__ramp">
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-sunken" style="background: var(--d-color-bg-sunken)"><span>bg-sunken</span></button>
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-canvas" style="background: var(--d-color-bg-canvas)"><span>bg-canvas</span></button>
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-surface" style="background: var(--d-color-bg-surface)"><span>bg-surface</span></button>
+      <button class="kit-colour__sw" type="button" data-token="--d-color-bg-raised" style="background: var(--d-color-bg-raised)"><span>bg-raised</span></button>
+      <button class="kit-colour__sw kit-colour__sw--inv" type="button" data-token="--d-color-bg-inverse" style="background: var(--d-color-bg-inverse)"><span>bg-inverse</span></button>
+    </div>
+    <ul class="kit-colour__text">
+      <li style="color: var(--d-color-text-primary)"><span>Primary text</span><output data-contrast="--d-color-text-primary"></output></li>
+      <li style="color: var(--d-color-text-secondary)"><span>Secondary: supporting text, done items</span><output data-contrast="--d-color-text-secondary"></output></li>
+      <li style="color: var(--d-color-text-tertiary)"><span>Tertiary: metadata, pending items</span><output data-contrast="--d-color-text-tertiary"></output></li>
+      <li style="color: var(--d-color-text-disabled)"><span>Disabled</span><output data-contrast="--d-color-text-disabled"></output></li>
+      <li style="color: var(--d-color-accent-text)"><span>Accent as text</span><output data-contrast="--d-color-accent-text"></output></li>
+    </ul>
+    <div class="kit-colour__lines"><i style="border-color: var(--d-color-border-hairline)">hairline</i><i style="border-color: var(--d-color-border-default)">default</i><i style="border-color: var(--d-color-border-strong)">strong</i></div>
+  </div>
+</div>
+<p class="kit-caption">The numbers are contrast ratios against the canvas, measured live in your browser. Body text needs 4.5:1. Disabled text is exempt by design.</p>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Signals</h3>
+  <p class="kit-sub__text">Each one is a glyph, a word and a colour together. The colours were chosen to stay apart from each other and from the accent, including for red-green colour blindness. Signal colours are for a glyph and a short label, never for running text.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-colour__signals" data-theme="dark">
+    <span class="d-badge" data-tone="live"><span class="d-glyph" data-glyph="model-loaded" aria-hidden="true"></span>Awake</span>
+    <span class="d-badge" data-tone="success"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>Success</span>
+    <span class="d-badge" data-tone="caution"><span class="d-glyph" data-glyph="task-needs-input" aria-hidden="true"></span>Caution</span>
+    <span class="d-badge" data-tone="danger"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true"></span>Danger</span>
+    <span class="d-badge" data-tone="info"><!--@icon info-->Info</span>
+  </div>
+  <div class="kit-frame kit-colour__signals" data-theme="light">
+    <span class="d-badge" data-tone="live"><span class="d-glyph" data-glyph="model-loaded" aria-hidden="true"></span>Awake</span>
+    <span class="d-badge" data-tone="success"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>Success</span>
+    <span class="d-badge" data-tone="caution"><span class="d-glyph" data-glyph="task-needs-input" aria-hidden="true"></span>Caution</span>
+    <span class="d-badge" data-tone="danger"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true"></span>Danger</span>
+    <span class="d-badge" data-tone="info"><!--@icon info-->Info</span>
+  </div>
+</div>
+<div class="kit-stack" style="gap: var(--d-space-8); margin-block-start: var(--d-space-16)">
+  <div class="d-signal" data-level="note" role="note"><span class="d-signal__label">NOTE</span><div class="d-signal__body">Success is Demido green, always, even when the accent is another colour. With the default accent, "awake" and "success" share the green on purpose: both are good news, and their glyphs differ (an eye, a check).</div></div>
+  <div class="d-signal" data-level="note" role="note"><span class="d-signal__label">NOTE</span><div class="d-signal__body">Measured for red-green colour blindness: on dark, green stays 11 or more away from caution, danger and info (our target is 8). On light, green and caution come to 7.8, just under target; the glyph shape tells them apart.</div></div>
+  <div class="d-signal" data-level="caution" role="note"><span class="d-signal__label">CAUTION</span><div class="d-signal__body">A custom or system accent can land on a signal colour: a red accent looks like danger, an amber one like caution. Demido never relies on colour alone, so nothing breaks, but the glyph and the word then carry the meaning.</div></div>
+  <div class="d-signal" data-level="note" role="note"><span class="d-signal__label">NOTE</span><div class="d-signal__body">On light, danger is a deep crimson on purpose. A brighter red collapses into caution for people with red-green colour blindness.</div></div>
+</div>

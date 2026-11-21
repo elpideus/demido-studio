@@ -1,0 +1,110 @@
+/* Meter: progress, usage, and the memory budget.
+   Simple:   <div class="d-meter" role="meter" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" aria-label="Download"><span style="--d-meter: 62%"></span></div>
+   Unknown duration: add data-indeterminate.
+   Tone (data-tone on .d-meter): live · caution · danger. Default is neutral.
+
+   Budget: one bar, labelled parts, a legend with numbers. Used for VRAM and RAM.
+     <div class="d-budget">
+       <div class="d-budget__bar" role="img" aria-label="Memory: 9.4 of 12 GB used">
+         <span data-part="model" style="--d-part: 51%"></span>
+         <span data-part="agent" style="--d-part: 12%"></span>
+         <span data-part="aux" style="--d-part: 9%"></span>
+         <span data-part="reserve" style="--d-part: 6%"></span>
+       </div>
+       <dl class="d-budget__legend"><div data-part="model"><dt>Main model</dt><dd>6.1 GB</dd></div>…</dl>
+     </div>
+   Parts are told apart by lightness and pattern as well as by label, never by hue alone. Only the live model
+   uses the accent. */
+
+@layer demido.components {
+  .d-meter {
+    --_fill: var(--d-color-text-primary);
+    position: relative;
+    height: 0.25rem;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-border-default);
+    overflow: hidden;
+  }
+  .d-meter > span {
+    display: block;
+    width: var(--d-meter, 0%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--_fill);
+    transition: width var(--d-duration-moderate) var(--d-ease-out);
+  }
+  .d-meter[data-tone="live"] { --_fill: var(--d-color-accent-base); }
+  .d-meter[data-tone="caution"] { --_fill: var(--d-color-caution-base); }
+  .d-meter[data-tone="danger"] { --_fill: var(--d-color-danger-base); }
+  .d-meter--lg {
+    height: 0.5rem;
+  }
+  .d-meter[data-indeterminate] > span {
+    width: 35%;
+    animation: d-meter-slide 1.4s var(--d-ease-in-out) infinite;
+  }
+  @keyframes d-meter-slide {
+    from { translate: -100% 0; }
+    to { translate: 290% 0; }
+  }
+
+  .d-budget {
+    display: grid;
+    gap: var(--d-space-10);
+    min-width: 0;
+  }
+  .d-budget__bar {
+    display: flex;
+    gap: var(--d-space-2);
+    height: 0.5rem;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-bg-sunken);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+    overflow: hidden;
+  }
+  .d-budget__bar > span {
+    flex: 0 0 var(--d-part, 0%);
+    min-width: 0;
+    border-radius: 0.0625rem;
+    background: var(--_part);
+    transition: flex-basis var(--d-duration-moderate) var(--d-ease-out);
+  }
+  .d-budget [data-part="model"] { --_part: var(--d-color-accent-base); }
+  .d-budget [data-part="agent"] { --_part: var(--d-color-text-primary); }
+  .d-budget [data-part="aux"] { --_part: var(--d-color-text-tertiary); }
+  .d-budget [data-part="reserve"] {
+    --_part: repeating-linear-gradient(-45deg, var(--d-color-border-strong) 0 0.125rem, transparent 0.125rem 0.25rem);
+  }
+
+  .d-budget__legend {
+    display: grid;
+    gap: var(--d-space-4);
+    margin: 0;
+  }
+  .d-budget__legend > div {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-8);
+  }
+  .d-budget__legend > div::before {
+    content: "";
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 0.125rem;
+    background: var(--_part, transparent);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-default);
+  }
+  .d-budget__legend dt {
+    flex: 1;
+    min-width: 0;
+    color: var(--d-color-text-secondary);
+  }
+  .d-budget__legend dd {
+    margin: 0;
+    color: var(--d-color-text-primary);
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-code-size);
+    font-variant-numeric: tabular-nums;
+  }
+}

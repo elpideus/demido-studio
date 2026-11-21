@@ -1,0 +1,72 @@
+<!-- id: state | title: State glyphs | group: Foundations -->
+<div class="kit-head">
+  <p class="kit-eyebrow">06 · Foundations</p>
+  <h2 class="kit-title" id="state-title">State is always visible</h2>
+  <p class="kit-lead">Two glyph families, never mixed. <strong>Circles are work</strong>: they echo the ring of the logo and come straight from your task-list reference. <strong>Eyes are models</strong>: the tilted ellipse from the logo. An open eye is a model that is awake. A glance tells you what is happening and to what.</p>
+</div>
+
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame">
+    <p class="kit-state__family">Work · circles</p>
+    <ul class="kit-state__list">
+      <li><span class="d-glyph" data-glyph="task-pending" aria-hidden="true"></span><span class="kit-state__name">Pending</span><span class="kit-state__note">Not started. Dashed means "not here yet" everywhere.</span></li>
+      <li><span class="d-glyph" data-glyph="task-running" aria-hidden="true"></span><span class="kit-state__name">In progress</span><span class="kit-state__note">The only circle that moves.</span></li>
+      <li><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span><span class="kit-state__name">Done</span><span class="kit-state__note">Solid. Stays neutral: finishing is normal.</span></li>
+      <li><span class="d-glyph" data-glyph="task-delegated" aria-hidden="true"></span><span class="kit-state__name">With an agent</span><span class="kit-state__note">A satellite: someone else has it.</span></li>
+      <li><span class="d-glyph kit-state--caution" data-glyph="task-needs-input" aria-hidden="true"></span><span class="kit-state__name">Needs you</span><span class="kit-state__note">Paused until you answer.</span></li>
+      <li><span class="d-glyph kit-state--danger" data-glyph="task-failed" aria-hidden="true"></span><span class="kit-state__name">Failed</span><span class="kit-state__note">Colour appears only here and above.</span></li>
+      <li><span class="d-glyph" data-glyph="task-skipped" aria-hidden="true"></span><span class="kit-state__name">Skipped</span><span class="kit-state__note">Decided not to do it.</span></li>
+    </ul>
+  </div>
+
+  <div class="kit-frame">
+    <p class="kit-state__family">Models · eyes</p>
+    <ul class="kit-state__list">
+      <li><span class="d-glyph" data-glyph="model-unloaded" aria-hidden="true"></span><span class="kit-state__name">Unloaded</span><span class="kit-state__note">Asleep on disk. Uses no memory.</span></li>
+      <li><span class="d-glyph" data-glyph="model-queued" aria-hidden="true"></span><span class="kit-state__name">Waiting for memory</span><span class="kit-state__note">Will load when something unloads.</span></li>
+      <li><span class="d-glyph" data-glyph="model-loading" aria-hidden="true"></span><span class="kit-state__name">Loading</span><span class="kit-state__note">The eye stays still; a line travels round it.</span></li>
+      <li><span class="d-glyph kit-state--live" data-glyph="model-loaded" aria-hidden="true"></span><span class="kit-state__name">Loaded</span><span class="kit-state__note">Awake. The accent colour means exactly this.</span></li>
+      <li><span class="d-glyph kit-state--live" data-glyph="model-loaded" data-busy aria-hidden="true"></span><span class="kit-state__name">Generating</span><span class="kit-state__note">Awake and working: it breathes.</span></li>
+      <li><span class="d-glyph kit-state--live" data-glyph="model-lent" aria-hidden="true"></span><span class="kit-state__name">Lent</span><span class="kit-state__note">In use by an agent or a schedule; it comes back.</span></li>
+      <li><span class="d-glyph kit-state--danger" data-glyph="model-error" aria-hidden="true"></span><span class="kit-state__name">Failed to load</span><span class="kit-state__note">Says why, and what to do.</span></li>
+    </ul>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">The task list</h3>
+  <p class="kit-sub__text">Built from your screenshot: solid disc with a check, a turning arc with the brightest text, dashed circle with dimmer text. Sub-tasks hang under their parent. Press <strong>Step</strong> to watch states change.</p>
+</div>
+
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-frame--canvas">
+    <ul class="d-tasks" data-tasks-demo>
+      <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Audit fake config loader</span></div></li>
+      <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Refactor imaginary auth module</span></div></li>
+      <li class="d-task" data-state="running"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="In progress"></span><span class="d-task__label">Write tests for pretend parser</span></div>
+        <ul class="d-tasks">
+          <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">List the parser's public functions</span></div></li>
+          <li class="d-task" data-state="delegated"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="With an agent"></span><span class="d-task__label">Generate edge-case inputs</span><span class="d-task__meta">agent 1</span></div></li>
+          <li class="d-task" data-state="pending"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Pending"></span><span class="d-task__label">Run the suite and fix failures</span></div></li>
+        </ul>
+      </li>
+      <li class="d-task" data-state="pending"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Pending"></span><span class="d-task__label">Update made-up changelog</span></div></li>
+      <li class="d-task" data-state="pending"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Pending"></span><span class="d-task__label">Verify nonexistent build passes</span></div></li>
+    </ul>
+    <div class="kit-row kit-state__controls">
+      <button class="d-button d-button--sm" type="button" data-tasks-step>Step</button>
+      <button class="d-button d-button--sm d-button--ghost" type="button" data-tasks-reset>Reset</button>
+    </div>
+  </div>
+
+  <div class="kit-frame kit-frame--canvas">
+    <ul class="d-tasks">
+      <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Find the sweater's product page</span><span class="d-task__meta">4 s</span></div></li>
+      <li class="d-task" data-state="failed"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Failed"></span><span class="d-task__label">Read the price</span><span class="d-task__meta">page needs JavaScript</span></div></li>
+      <li class="d-task" data-state="needs-input"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Needs you"></span><span class="d-task__label">Open it in the browser instead?</span></div></li>
+      <li class="d-task" data-state="skipped"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Skipped"></span><span class="d-task__label">Compare with last week's price</span></div></li>
+      <li class="d-task" data-state="pending"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Pending"></span><span class="d-task__label">Schedule a daily check at 07:00</span></div></li>
+    </ul>
+    <p class="kit-caption">Colour shows up only on the two rows that need attention.</p>
+  </div>
+</div>

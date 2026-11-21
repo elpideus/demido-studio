@@ -1,0 +1,169 @@
+/* Demido Studio base styles. Requires tokens/dist/tokens.css (and fonts/fonts.css for the brand typefaces).
+   Element defaults and text styles only. Components live in css/components/. */
+
+@layer demido.base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: var(--d-font-family-sans);
+    font-size: 100%; /* never set px here: the UI scale setting and the user's browser setting both act on this */
+    font-optical-sizing: auto;
+    font-synthesis-weight: none;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--d-color-bg-canvas);
+    color: var(--d-color-text-primary);
+    accent-color: var(--d-color-accent-base);
+    scrollbar-color: var(--d-color-border-strong) transparent;
+    scrollbar-width: thin;
+  }
+
+  body {
+    margin: 0;
+    font-size: var(--d-type-body-size);
+    line-height: var(--d-type-body-leading);
+    letter-spacing: var(--d-type-body-tracking);
+    font-weight: var(--d-type-body-weight);
+  }
+
+  h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd, figure, blockquote, pre {
+    margin: 0;
+  }
+
+  ul[class], ol[class] {
+    padding: 0;
+    list-style: none;
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+
+  p, li, dd {
+    text-wrap: pretty;
+  }
+
+  a {
+    color: inherit;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: from-font;
+  }
+
+  button, input, select, textarea {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  img, svg, video, canvas {
+    display: block;
+    max-width: 100%;
+  }
+
+  /* Geologica's weights are tuned down (see tokens): browser-default bold (700) would be far too heavy. */
+  b, strong {
+    font-weight: var(--d-font-weight-semibold);
+  }
+  em, i, cite {
+    font-style: italic;
+    font-variation-settings: "CRSV" 1; /* Geologica's cursive forms for true italics */
+  }
+
+  code, kbd, samp, pre {
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-code-size);
+    font-weight: var(--d-font-weight-mono);
+    font-variant-ligatures: none;
+    font-feature-settings: "calt" 0, "liga" 0;
+  }
+
+  ::selection {
+    background: var(--d-color-accent-tint);
+    color: var(--d-color-text-primary);
+  }
+
+  /* One focus style everywhere. Keyboard only; pointer users get press feedback instead. */
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: var(--d-stroke-focus) solid var(--d-color-focus);
+    outline-offset: var(--d-stroke-focus-offset);
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  /* Numbers that people compare or that change in place never jiggle. */
+  .d-num,
+  table,
+  time,
+  output {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .d-mono {
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-code-size);
+    font-weight: var(--d-font-weight-mono);
+    letter-spacing: var(--d-type-code-tracking);
+    font-variant-ligatures: none;
+    font-feature-settings: "calt" 0, "liga" 0;
+  }
+
+  /* ---------- text styles ---------- */
+  .d-type-display { font-size: var(--d-type-display-size); line-height: var(--d-type-display-leading); letter-spacing: var(--d-type-display-tracking); font-weight: var(--d-type-display-weight); }
+  .d-type-title-1 { font-size: var(--d-type-title-1-size); line-height: var(--d-type-title-1-leading); letter-spacing: var(--d-type-title-1-tracking); font-weight: var(--d-type-title-1-weight); }
+  .d-type-title-2 { font-size: var(--d-type-title-2-size); line-height: var(--d-type-title-2-leading); letter-spacing: var(--d-type-title-2-tracking); font-weight: var(--d-type-title-2-weight); }
+  .d-type-title-3 { font-size: var(--d-type-title-3-size); line-height: var(--d-type-title-3-leading); letter-spacing: var(--d-type-title-3-tracking); font-weight: var(--d-type-title-3-weight); }
+  .d-type-headline { font-size: var(--d-type-headline-size); line-height: var(--d-type-headline-leading); letter-spacing: var(--d-type-headline-tracking); font-weight: var(--d-type-headline-weight); }
+  .d-type-reading { font-size: var(--d-type-reading-size); line-height: var(--d-type-reading-leading); letter-spacing: var(--d-type-reading-tracking); font-weight: var(--d-type-reading-weight); }
+  .d-type-body { font-size: var(--d-type-body-size); line-height: var(--d-type-body-leading); letter-spacing: var(--d-type-body-tracking); font-weight: var(--d-type-body-weight); }
+  .d-type-caption { font-size: var(--d-type-caption-size); line-height: var(--d-type-caption-leading); letter-spacing: var(--d-type-caption-tracking); font-weight: var(--d-type-caption-weight); }
+  .d-type-micro { font-size: var(--d-type-micro-size); line-height: var(--d-type-micro-leading); letter-spacing: var(--d-type-micro-tracking); font-weight: var(--d-type-micro-weight); text-transform: uppercase; }
+
+  .d-text-secondary { color: var(--d-color-text-secondary); }
+  .d-text-tertiary { color: var(--d-color-text-tertiary); }
+
+  .d-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* ---------- user preferences ---------- */
+  /* More contrast: every outline steps up one level, so controls are told apart by a 3:1 edge. */
+  @media (prefers-contrast: more) {
+    :root {
+      --d-color-border-hairline: var(--d-color-border-default);
+      --d-color-border-default: var(--d-color-border-strong);
+    }
+  }
+
+  /* Reduced motion keeps colour and opacity changes (they explain state) and drops movement. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-property: color, background-color, border-color, outline-color, opacity, fill, stroke, box-shadow !important;
+      transition-duration: var(--d-duration-fast) !important;
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}

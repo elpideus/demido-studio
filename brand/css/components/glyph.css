@@ -1,0 +1,123 @@
+/* State glyph
+   <span class="d-glyph" data-glyph="task-done" role="img" aria-label="Done"></span>
+   One element, drawn as a mask and coloured by currentColor. The shapes come from brand/icons/state/*.svg
+   (built into --d-glyph-* by the token build).
+   Two families, never mixed:
+     circles = work     task-pending · task-running · task-done · task-failed · task-needs-input · task-skipped · task-delegated
+     eyes    = models   model-unloaded · model-queued · model-loading · model-loaded · model-lent · model-error
+   The eye is the tilted ellipse from the logo: open (solid) means the model is awake. Size follows font-size (1.23em = 16 px at 13 px text); set --d-glyph-size to override.
+
+   Loading and running look the same on purpose: a short bright line travels round a faint outline.
+   On the circle the whole glyph turns (a turning circle looks still). The eye must NOT turn, so its outline
+   stays put and only the line travels along it: a second mask layer, a conic sweep, moves round the centre. */
+
+/* The angle of the travelling line. Registered so it can be animated. */
+@property --d-glyph-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@layer demido.components {
+  .d-glyph {
+    --_mask: var(--d-glyph-task-pending);
+    /* fallback for engines that cannot intersect mask layers: the still loading glyph, no motion */
+    --_loading-layers: var(--d-glyph-model-loading);
+    --_loading-motion: none;
+    display: inline-block;
+    flex: none;
+    width: var(--d-glyph-size, var(--d-size-icon-md));
+    height: var(--d-glyph-size, var(--d-size-icon-md));
+    background: currentColor;
+    -webkit-mask-image: var(--_layers, var(--_mask));
+    mask-image: var(--_layers, var(--_mask));
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain, 100% 100%;
+    mask-size: contain, 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+    vertical-align: -0.2em;
+  }
+
+  @supports (mask-composite: intersect) or (-webkit-mask-composite: source-in) {
+    .d-glyph {
+      /* layer 1: the eye's outline, still. layer 2: a sweep that is opaque for a quarter turn and faint
+         for the rest. Intersected, they give a bright line on a faint outline; turning layer 2 moves the line. */
+      --_loading-layers:
+        var(--d-glyph-model-unloaded),
+        conic-gradient(from var(--d-glyph-angle), #000 0 26%, rgb(0 0 0 / 0.22) 26% 100%);
+      --_loading-motion: d-glyph-travel;
+    }
+  }
+
+  .d-glyph[data-glyph="task-pending"] { --_mask: var(--d-glyph-task-pending); }
+  .d-glyph[data-glyph="task-running"] { --_mask: var(--d-glyph-task-running); }
+  .d-glyph[data-glyph="task-done"] { --_mask: var(--d-glyph-task-done); }
+  .d-glyph[data-glyph="task-failed"] { --_mask: var(--d-glyph-task-failed); }
+  .d-glyph[data-glyph="task-needs-input"] { --_mask: var(--d-glyph-task-needs-input); }
+  .d-glyph[data-glyph="task-skipped"] { --_mask: var(--d-glyph-task-skipped); }
+  .d-glyph[data-glyph="task-delegated"] { --_mask: var(--d-glyph-task-delegated); }
+
+  .d-glyph[data-glyph="model-unloaded"] { --_mask: var(--d-glyph-model-unloaded); }
+  .d-glyph[data-glyph="model-queued"] { --_mask: var(--d-glyph-model-queued); }
+  .d-glyph[data-glyph="model-loaded"] { --_mask: var(--d-glyph-model-loaded); }
+  .d-glyph[data-glyph="model-lent"] { --_mask: var(--d-glyph-model-lent); }
+  .d-glyph[data-glyph="model-error"] { --_mask: var(--d-glyph-model-error); }
+
+  /* Motion. Two glyphs move, at the same pace: the running arc and the loading line. Linear, constant. */
+  .d-glyph[data-glyph="task-running"] {
+    animation: d-glyph-spin var(--d-signature-spinner-period) linear infinite;
+  }
+  /* Any host that shows a loading model sets these two lines (see the model chip in composer.css). */
+  .d-glyph[data-glyph="model-loading"] {
+    --_layers: var(--_loading-layers);
+    animation: var(--_loading-motion) var(--d-signature-spinner-period) linear infinite;
+  }
+
+  /* A live model that is generating breathes. Opacity only. Add data-busy to the glyph. */
+  .d-glyph[data-glyph="model-loaded"][data-busy] {
+    animation: d-glyph-breathe var(--d-signature-pulse-period) var(--d-ease-in-out) infinite;
+  }
+
+  /* When a state lands (done, failed) the glyph settles in. Add data-settle when the state changes. */
+  .d-glyph[data-settle] {
+    animation: d-glyph-settle var(--d-spring-snappy-duration) var(--d-spring-snappy) both;
+  }
+  /* A model that has just loaded opens its eye, the same move as the logo. */
+  .d-glyph[data-glyph="model-loaded"][data-settle] {
+    animation: d-glyph-eye-open var(--d-duration-moderate) var(--d-ease-out) both;
+  }
+
+  @keyframes d-glyph-spin {
+    to { rotate: 1turn; }
+  }
+  @keyframes d-glyph-travel {
+    to { --d-glyph-angle: 360deg; }
+  }
+  @keyframes d-glyph-breathe {
+    50% { opacity: 0.45; }
+  }
+  @keyframes d-glyph-settle {
+    from { scale: 0.82; opacity: 0.4; }
+  }
+  @keyframes d-glyph-eye-open {
+    /* opens along the eye's long (diagonal) axis, like the logo */
+    from { transform: rotate(-32.3deg) scaleX(0.08) rotate(32.3deg); opacity: 0.4; }
+    to { transform: rotate(-32.3deg) scaleX(1) rotate(32.3deg); opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .d-glyph[data-glyph="task-running"],
+    .d-glyph[data-glyph="model-loading"] {
+      animation-duration: 2.4s !important;
+      animation-iteration-count: infinite !important;
+    }
+    .d-glyph[data-glyph="model-loaded"][data-busy] {
+      animation-duration: 2.4s !important;
+      animation-iteration-count: infinite !important;
+    }
+  }
+}

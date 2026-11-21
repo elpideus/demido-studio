@@ -1,0 +1,137 @@
+/* Composer and model chip.
+   <form class="d-composer">
+     <textarea class="d-composer__input" rows="1" placeholder="Ask, or give a task"></textarea>
+     <div class="d-composer__bar">
+       <button class="d-button d-button--ghost d-button--icon" aria-label="Attach">…</button>
+       <button class="d-modelchip" data-state="loaded">…</button>
+       <button class="d-button d-button--ghost d-button--sm">Balanced</button>
+       <span class="d-composer__spacer"></span>
+       <button class="d-button d-button--ghost d-button--icon" aria-label="Dictate" aria-pressed="false">…</button>
+       <button class="d-button d-button--primary d-button--icon" aria-label="Send">…</button>
+     </div>
+   </form>
+   While generating, Send becomes Stop (same place, same size). Dictating: aria-pressed="true" on the mic.
+
+   Model chip: where the accent colour lives.
+     <button class="d-modelchip" data-state="loaded">
+       <span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Qwen3 4B Instruct</span><span class="d-modelchip__meta">Q4_K_M</span>
+     </button>
+   data-state: unloaded · queued · loading · loaded · generating · lent · error. The glyph follows the state. */
+
+@layer demido.components {
+  .d-composer {
+    display: grid;
+    gap: var(--d-space-4);
+    padding: var(--d-space-8);
+    border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    border-radius: var(--d-radius-xl);
+    background: var(--d-color-bg-surface);
+    box-shadow: var(--d-shadow-1);
+    transition: border-color var(--d-duration-fast) var(--d-ease-standard);
+  }
+  .d-composer:focus-within {
+    border-color: var(--d-color-border-strong);
+  }
+  .d-composer__input {
+    width: 100%;
+    min-height: 2.75rem;
+    max-height: 40dvh;
+    padding: var(--d-space-6) var(--d-space-8);
+    border: 0;
+    background: transparent;
+    color: var(--d-color-text-primary);
+    font-size: var(--d-type-reading-size);
+    line-height: var(--d-type-reading-leading);
+    resize: none;
+    field-sizing: content;
+  }
+  .d-composer__input::placeholder {
+    color: var(--d-color-text-tertiary);
+    opacity: 1;
+  }
+  .d-composer__input:focus-visible {
+    outline: none; /* the whole composer shows focus */
+  }
+  .d-composer__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-4);
+    min-width: 0;
+  }
+  .d-composer__spacer {
+    flex: 1;
+  }
+  .d-composer [aria-label="Dictate"][aria-pressed="true"] {
+    --_bg: var(--d-color-danger-tint);
+    --_fg: var(--d-color-danger-base);
+  }
+
+  /* ---------- model chip ---------- */
+  .d-modelchip {
+    --_tone: var(--d-color-text-tertiary);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-6);
+    height: var(--d-size-control-md);
+    min-width: 0;
+    padding: 0 var(--d-space-10) 0 var(--d-space-8);
+    border: 0;
+    border-radius: var(--d-radius-full);
+    background: transparent;
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-default);
+    color: var(--d-color-text-primary);
+    font-weight: var(--d-font-weight-medium);
+    white-space: nowrap;
+    cursor: default;
+    transition:
+      background-color var(--d-duration-fast) var(--d-ease-standard),
+      box-shadow var(--d-duration-base) var(--d-ease-standard),
+      transform var(--d-duration-instant) var(--d-ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-modelchip:hover {
+      background: var(--d-color-fill-hover);
+    }
+  }
+  .d-modelchip:active {
+    transform: scale(0.97);
+  }
+  .d-modelchip > .d-glyph {
+    color: var(--_tone);
+    transition: color var(--d-duration-base) var(--d-ease-standard);
+  }
+  .d-modelchip__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .d-modelchip__meta {
+    color: var(--d-color-text-tertiary);
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-font-weight-regular);
+  }
+
+  .d-modelchip[data-state="unloaded"] > .d-glyph { --_mask: var(--d-glyph-model-unloaded); }
+  .d-modelchip[data-state="queued"] > .d-glyph { --_mask: var(--d-glyph-model-queued); }
+  /* Loading: the eye stays still and a line travels round it (see glyph.css). */
+  .d-modelchip[data-state="loading"] > .d-glyph {
+    --_mask: var(--d-glyph-model-loading);
+    --_layers: var(--_loading-layers);
+    animation: var(--_loading-motion) var(--d-signature-spinner-period) linear infinite;
+  }
+  .d-modelchip[data-state="loaded"] > .d-glyph,
+  .d-modelchip[data-state="generating"] > .d-glyph { --_mask: var(--d-glyph-model-loaded); }
+  .d-modelchip[data-state="generating"] > .d-glyph { animation: d-glyph-breathe var(--d-signature-pulse-period) var(--d-ease-in-out) infinite; }
+  .d-modelchip[data-state="lent"] > .d-glyph { --_mask: var(--d-glyph-model-lent); }
+  .d-modelchip[data-state="error"] > .d-glyph { --_mask: var(--d-glyph-model-error); }
+
+  .d-modelchip:is([data-state="loaded"], [data-state="generating"], [data-state="lent"]) {
+    --_tone: var(--d-color-accent-base);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) color-mix(in oklab, var(--d-color-accent-base) 45%, transparent);
+  }
+  .d-modelchip[data-state="loading"] { --_tone: var(--d-color-text-primary); }
+  .d-modelchip[data-state="error"] { --_tone: var(--d-color-danger-base); }
+  .d-modelchip:is([data-state="unloaded"], [data-state="queued"]) .d-modelchip__name {
+    color: var(--d-color-text-secondary);
+  }
+}

@@ -1,0 +1,3 @@
+node_modules
+# raw captures: about 120 MB, rebuilt by tools/run-all.sh
+out/shots/

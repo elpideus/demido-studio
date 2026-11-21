@@ -1,0 +1,16 @@
+.kit-meter-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--d-space-12);
+}
+.kit-meter-line > .d-mono {
+  color: var(--d-color-text-secondary);
+  white-space: nowrap;
+}
+/* The dialog drawn in place, so it can be seen without opening it. */
+.kit-dialog-static {
+  position: static;
+  width: 100%;
+  max-width: 22rem;
+}

@@ -1,0 +1,3607 @@
+{
+ "inter": {
+  "id": "inter",
+  "package": "@fontsource-variable/inter",
+  "family": "Inter",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "opsz",
+   "wght"
+  ],
+  "css_family": "Inter Variable",
+  "css": [
+   "opsz.css"
+  ],
+  "css_italic": [
+   "opsz-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "opsz",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "greek",
+   "greek-ext",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v20",
+  "last_modified": "2025-09-10",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter) Inter-Italic[opsz,wght].ttf: Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 1.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 48256,
+  "latin_rep_bytes": 72920,
+  "latin_italic_bytes": 51832,
+  "all_subsets_wght_bytes": 218512,
+  "all_subsets_italic_bytes": 234268,
+  "all_subsets_rep_bytes": 340256,
+  "stem_over_cap": {
+   "400": 0.114,
+   "500": 0.1415,
+   "600": 0.1697,
+   "700": 0.1972
+  },
+  "stem_grid": {
+   "100": 0.0309,
+   "150": 0.0449,
+   "200": 0.0584,
+   "250": 0.0724,
+   "300": 0.0865,
+   "350": 0.0999,
+   "400": 0.114,
+   "450": 0.1281,
+   "500": 0.1415,
+   "550": 0.1556,
+   "600": 0.1697,
+   "650": 0.1831,
+   "700": 0.1972,
+   "750": 0.2146,
+   "800": 0.2314,
+   "850": 0.2495,
+   "900": 0.2683
+  },
+  "bowl_o": [
+   0.944,
+   0.805
+  ],
+  "dot_i": 0.788,
+  "adv_400": 0.4863,
+  "weight_equal_colour": 414,
+  "adv_equal_colour": 0.4868,
+  "upm": 2048,
+  "xheight": 0.546,
+  "capheight": 0.728,
+  "asc": 0.969,
+  "desc": -0.241,
+  "avg_adv_em": 0.4863,
+  "default_digits_tabular": false,
+  "zero_adv": 0.631,
+  "axes": [
+   [
+    "opsz",
+    14.0,
+    14.0,
+    32.0
+   ],
+   [
+    "wght",
+    100.0,
+    400.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 518
+ },
+ "ibm-plex-sans": {
+  "id": "ibm-plex-sans",
+  "package": "@fontsource-variable/ibm-plex-sans",
+  "family": "IBM Plex Sans",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wdth",
+   "wght"
+  ],
+  "css_family": "IBM Plex Sans Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   700
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "greek",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v23",
+  "last_modified": "2025-09-08",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2019 IBM Corp. All rights reserved. IBMPlexSans-Italic[wdth,wght].ttf: Copyright 2019 IBM Corp. All rights reserved.",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 1.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 45712,
+  "latin_rep_bytes": 45712,
+  "latin_italic_bytes": 50184,
+  "all_subsets_wght_bytes": 162416,
+  "all_subsets_italic_bytes": 180168,
+  "all_subsets_rep_bytes": 162416,
+  "stem_over_cap": {
+   "400": 0.1146,
+   "500": 0.1562,
+   "600": 0.1834,
+   "700": 0.212
+  },
+  "stem_grid": {
+   "100": 0.0301,
+   "150": 0.0401,
+   "200": 0.0501,
+   "250": 0.0659,
+   "300": 0.0817,
+   "350": 0.0989,
+   "400": 0.1146,
+   "450": 0.1332,
+   "500": 0.1562,
+   "550": 0.1691,
+   "600": 0.1834,
+   "650": 0.1977,
+   "700": 0.212
+  },
+  "bowl_o": [
+   0.886,
+   0.812
+  ],
+  "dot_i": 0.846,
+  "adv_400": 0.4558,
+  "weight_equal_colour": 409,
+  "adv_equal_colour": 0.4566,
+  "upm": 1000,
+  "xheight": 0.516,
+  "capheight": 0.698,
+  "asc": 1.025,
+  "desc": -0.275,
+  "avg_adv_em": 0.4558,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    700.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "mark",
+   "numr"
+  ],
+  "glyphs": 270
+ },
+ "mona-sans": {
+  "id": "mona-sans",
+  "package": "@fontsource-variable/mona-sans",
+  "family": "Mona Sans",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wdth",
+   "wght"
+  ],
+  "css_family": "Mona Sans Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   200,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v4",
+  "last_modified": "2025-09-05",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [
+   "Mona"
+  ],
+  "attribution": "Copyright 2022 The Mona Sans Project Authors (https://github.com/github/mona-sans), with Reserved Font Name \"Mona\" MonaSans-Italic[wdth,wght].ttf: Copyright 2022 The Mona Sans Project Authors (https://github.com/github/mona-sans), with Reserved Font Name \"Mona\"",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.56
+  },
+  "missing_symbols": "→←✓≥≤≠≈µ",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 39788,
+  "latin_rep_bytes": 39788,
+  "latin_italic_bytes": 41812,
+  "all_subsets_wght_bytes": 62464,
+  "all_subsets_italic_bytes": 65572,
+  "all_subsets_rep_bytes": 62464,
+  "stem_over_cap": {
+   "400": 0.1111,
+   "500": 0.1413,
+   "600": 0.1715,
+   "700": 0.2016
+  },
+  "stem_grid": {
+   "200": 0.0508,
+   "250": 0.0658,
+   "300": 0.0809,
+   "350": 0.096,
+   "400": 0.1111,
+   "450": 0.1262,
+   "500": 0.1413,
+   "550": 0.1564,
+   "600": 0.1715,
+   "650": 0.1866,
+   "700": 0.2016,
+   "750": 0.2167,
+   "800": 0.2318,
+   "850": 0.2469,
+   "900": 0.262
+  },
+  "bowl_o": [
+   0.956,
+   0.81
+  ],
+  "dot_i": 0.809,
+  "adv_400": 0.4729,
+  "weight_equal_colour": 423,
+  "adv_equal_colour": 0.4747,
+  "upm": 1000,
+  "xheight": 0.517,
+  "capheight": 0.729,
+  "asc": 1.09,
+  "desc": -0.32,
+  "avg_adv_em": 0.4636,
+  "default_digits_tabular": false,
+  "zero_adv": 0.612,
+  "axes": [
+   [
+    "wght",
+    200.0,
+    200.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "numr",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 276
+ },
+ "instrument-sans": {
+  "id": "instrument-sans",
+  "package": "@fontsource-variable/instrument-sans",
+  "family": "Instrument Sans",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wdth",
+   "wght"
+  ],
+  "css_family": "Instrument Sans Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   400,
+   700
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v4",
+  "last_modified": "2025-09-05",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2022 The Instrument Sans Project Authors (https://github.com/Instrument/instrument-sans) InstrumentSans-Italic[wdth,wght].ttf: Copyright 2022 The Instrument Sans Project Authors (https://github.com/Instrument/instrument-sans)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.56
+  },
+  "missing_symbols": "→←✓≥≤≠≈µ",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 30092,
+  "latin_rep_bytes": 30092,
+  "latin_italic_bytes": 31828,
+  "all_subsets_wght_bytes": 41236,
+  "all_subsets_italic_bytes": 43476,
+  "all_subsets_rep_bytes": 41236,
+  "stem_over_cap": {
+   "400": 0.1111,
+   "500": 0.1431,
+   "600": 0.1764,
+   "700": 0.2083
+  },
+  "stem_grid": {
+   "400": 0.1111,
+   "450": 0.1278,
+   "500": 0.1431,
+   "550": 0.1597,
+   "600": 0.1764,
+   "650": 0.1917,
+   "700": 0.2083
+  },
+  "bowl_o": [
+   1.026,
+   0.804
+  ],
+  "dot_i": 1.0,
+  "adv_400": 0.4625,
+  "weight_equal_colour": 421,
+  "adv_equal_colour": 0.4638,
+  "upm": 1000,
+  "xheight": 0.51,
+  "capheight": 0.72,
+  "asc": 0.97,
+  "desc": -0.25,
+  "avg_adv_em": 0.4625,
+  "default_digits_tabular": false,
+  "zero_adv": 0.666,
+  "axes": [
+   [
+    "wght",
+    400.0,
+    400.0,
+    700.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "mkmk",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 244
+ },
+ "hanken-grotesk": {
+  "id": "hanken-grotesk",
+  "package": "@fontsource-variable/hanken-grotesk",
+  "family": "Hanken Grotesk",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Hanken Grotesk Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic-ext",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v12",
+  "last_modified": "2025-09-02",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2021 The Hanken Grotesk Project Authors (https://github.com/marcologous/hanken-grotesk) HankenGrotesk-Italic[wght].ttf: Copyright 2021 The Hanken Grotesk Project Authors (https://github.com/marcologous/hanken-grotesk)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.5
+  },
+  "missing_symbols": "→←↑↓✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 34704,
+  "latin_rep_bytes": 34704,
+  "latin_italic_bytes": 35592,
+  "all_subsets_wght_bytes": 65280,
+  "all_subsets_italic_bytes": 67584,
+  "all_subsets_rep_bytes": 65280,
+  "stem_over_cap": {
+   "400": 0.1205,
+   "500": 0.1392,
+   "600": 0.1578,
+   "700": 0.1779
+  },
+  "stem_grid": {
+   "100": 0.0287,
+   "150": 0.0445,
+   "200": 0.0588,
+   "250": 0.0746,
+   "300": 0.0904,
+   "350": 0.1047,
+   "400": 0.1205,
+   "450": 0.1306,
+   "500": 0.1392,
+   "550": 0.1492,
+   "600": 0.1578,
+   "650": 0.1679,
+   "700": 0.1779,
+   "750": 0.1865,
+   "800": 0.1966,
+   "850": 0.2052,
+   "900": 0.2152
+  },
+  "bowl_o": [
+   0.959,
+   0.799
+  ],
+  "dot_i": 1.0,
+  "adv_400": 0.4592,
+  "weight_equal_colour": 392,
+  "adv_equal_colour": 0.4589,
+  "upm": 1000,
+  "xheight": 0.493,
+  "capheight": 0.697,
+  "asc": 1.0,
+  "desc": -0.303,
+  "avg_adv_em": 0.4592,
+  "default_digits_tabular": true,
+  "zero_adv": 0.56,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr"
+  ],
+  "glyphs": 268
+ },
+ "atkinson-hyperlegible-next": {
+  "id": "atkinson-hyperlegible-next",
+  "package": "@fontsource-variable/atkinson-hyperlegible-next",
+  "family": "Atkinson Hyperlegible Next",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Atkinson Hyperlegible Next Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   200,
+   800
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v7",
+  "last_modified": "2025-09-05",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next) AtkinsonHyperlegibleNext-Italic[wght].ttf: Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 0.97,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.44
+  },
+  "missing_symbols": "→←↑↓✓≥≤≠≈µ",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 33996,
+  "latin_rep_bytes": 33996,
+  "latin_italic_bytes": 37644,
+  "all_subsets_wght_bytes": 53088,
+  "all_subsets_italic_bytes": 57776,
+  "all_subsets_rep_bytes": 53088,
+  "stem_over_cap": {
+   "400": 0.1257,
+   "500": 0.1587,
+   "600": 0.1826,
+   "700": 0.2081
+  },
+  "stem_grid": {
+   "200": 0.0808,
+   "250": 0.0913,
+   "300": 0.1003,
+   "350": 0.1138,
+   "400": 0.1257,
+   "450": 0.1422,
+   "500": 0.1587,
+   "550": 0.1707,
+   "600": 0.1826,
+   "650": 0.1961,
+   "700": 0.2081,
+   "750": 0.2275,
+   "800": 0.2485
+  },
+  "bowl_o": [
+   0.971,
+   0.807
+  ],
+  "dot_i": 0.787,
+  "adv_400": 0.4511,
+  "weight_equal_colour": 368,
+  "adv_equal_colour": 0.447,
+  "upm": 1000,
+  "xheight": 0.496,
+  "capheight": 0.668,
+  "asc": 0.984,
+  "desc": -0.316,
+  "avg_adv_em": 0.4511,
+  "default_digits_tabular": false,
+  "zero_adv": 0.648,
+  "axes": [
+   [
+    "wght",
+    200.0,
+    400.0,
+    800.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "frac",
+   "kern",
+   "locl",
+   "mark",
+   "mkmk",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 247
+ },
+ "geist": {
+  "id": "geist",
+  "package": "@fontsource-variable/geist",
+  "family": "Geist",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Geist Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v5",
+  "last_modified": "2026-05-13",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) Geist-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 29400,
+  "latin_rep_bytes": 29400,
+  "latin_italic_bytes": 31008,
+  "all_subsets_wght_bytes": 76420,
+  "all_subsets_italic_bytes": 81356,
+  "all_subsets_rep_bytes": 76420,
+  "stem_over_cap": {
+   "400": 0.1183,
+   "500": 0.1493,
+   "600": 0.1803,
+   "700": 0.2113
+  },
+  "stem_grid": {
+   "100": 0.0423,
+   "150": 0.0549,
+   "200": 0.0676,
+   "250": 0.0803,
+   "300": 0.093,
+   "350": 0.1056,
+   "400": 0.1183,
+   "450": 0.1338,
+   "500": 0.1493,
+   "550": 0.1648,
+   "600": 0.1803,
+   "650": 0.1958,
+   "700": 0.2113,
+   "750": 0.2268,
+   "800": 0.2423,
+   "850": 0.2577,
+   "900": 0.2732
+  },
+  "bowl_o": [
+   0.94,
+   0.809
+  ],
+  "dot_i": 1.0,
+  "adv_400": 0.4763,
+  "weight_equal_colour": 399,
+  "adv_equal_colour": 0.4762,
+  "upm": 1000,
+  "xheight": 0.53,
+  "capheight": 0.71,
+  "asc": 1.005,
+  "desc": -0.295,
+  "avg_adv_em": 0.4763,
+  "default_digits_tabular": false,
+  "zero_adv": 0.663,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 288
+ },
+ "wix-madefor-text": {
+  "id": "wix-madefor-text",
+  "package": "@fontsource-variable/wix-madefor-text",
+  "family": "Wix Madefor Text",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Wix Madefor Text Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   400,
+   800
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v17",
+  "last_modified": "2025-09-10",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-Italic[wght].ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-Regular.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-Italic.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-Medium.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-MediumItalic.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-SemiBold.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-SemiBoldItalic.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-Bold.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-BoldItalic.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-ExtraBold.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/) WixMadeforText-ExtraBoldItalic.ttf: Copyright 2021 The Wix Madefor Project Authors (https://github.com/wix/wixmadefor/)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 0.97,
+   "cyrillic": 1.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 20244,
+  "latin_rep_bytes": 20244,
+  "latin_italic_bytes": 21364,
+  "all_subsets_wght_bytes": 56648,
+  "all_subsets_italic_bytes": 38356,
+  "all_subsets_rep_bytes": 56648,
+  "stem_over_cap": {
+   "400": 0.1077,
+   "500": 0.1399,
+   "600": 0.1622,
+   "700": 0.1846
+  },
+  "stem_grid": {
+   "400": 0.1077,
+   "450": 0.1245,
+   "500": 0.1399,
+   "550": 0.151,
+   "600": 0.1622,
+   "650": 0.1734,
+   "700": 0.1846,
+   "750": 0.2056,
+   "800": 0.228
+  },
+  "bowl_o": [
+   0.972,
+   0.801
+  ],
+  "dot_i": 0.795,
+  "adv_400": 0.4727,
+  "weight_equal_colour": 431,
+  "adv_equal_colour": 0.4746,
+  "upm": 1000,
+  "xheight": 0.492,
+  "capheight": 0.715,
+  "asc": 1.008,
+  "desc": -0.252,
+  "avg_adv_em": 0.4727,
+  "default_digits_tabular": false,
+  "zero_adv": 0.64,
+  "axes": [
+   [
+    "wght",
+    400.0,
+    400.0,
+    800.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "locl",
+   "mark",
+   "numr"
+  ],
+  "glyphs": 267
+ },
+ "public-sans": {
+  "id": "public-sans",
+  "package": "@fontsource-variable/public-sans",
+  "family": "Public Sans",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Public Sans Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v21",
+  "last_modified": "2025-09-16",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans) PublicSans-Italic[wght].ttf: Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.5
+  },
+  "missing_symbols": "→←↑↓✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 26832,
+  "latin_rep_bytes": 26832,
+  "latin_italic_bytes": 28292,
+  "all_subsets_wght_bytes": 53020,
+  "all_subsets_italic_bytes": 56012,
+  "all_subsets_rep_bytes": 53020,
+  "stem_over_cap": {
+   "400": 0.1259,
+   "500": 0.1459,
+   "600": 0.1653,
+   "700": 0.1978
+  },
+  "stem_grid": {
+   "100": 0.0539,
+   "150": 0.0698,
+   "200": 0.0851,
+   "250": 0.0961,
+   "300": 0.1065,
+   "350": 0.1162,
+   "400": 0.1259,
+   "450": 0.1355,
+   "500": 0.1459,
+   "550": 0.1556,
+   "600": 0.1653,
+   "650": 0.1819,
+   "700": 0.1978,
+   "750": 0.2144,
+   "800": 0.231,
+   "850": 0.2469,
+   "900": 0.2635
+  },
+  "bowl_o": [
+   0.908,
+   0.813
+  ],
+  "dot_i": 1.0,
+  "adv_400": 0.4747,
+  "weight_equal_colour": 359,
+  "adv_equal_colour": 0.4736,
+  "upm": 2000,
+  "xheight": 0.517,
+  "capheight": 0.723,
+  "asc": 0.95,
+  "desc": -0.225,
+  "avg_adv_em": 0.4651,
+  "default_digits_tabular": false,
+  "zero_adv": 0.579,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    100.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "numr",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 278
+ },
+ "reddit-sans": {
+  "id": "reddit-sans",
+  "package": "@fontsource-variable/reddit-sans",
+  "family": "Reddit Sans",
+  "group": "neutral",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Reddit Sans Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   200,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v6",
+  "last_modified": "2025-09-16",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright (c) 2020-2023, Reddit, Inc. (https://github.com/reddit/redditsans) RedditSans-Italic[wght].ttf: Copyright (c) 2020-2023, Reddit, Inc. (https://github.com/reddit/redditsans)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 41844,
+  "latin_rep_bytes": 41844,
+  "latin_italic_bytes": 44380,
+  "all_subsets_wght_bytes": 87532,
+  "all_subsets_italic_bytes": 89820,
+  "all_subsets_rep_bytes": 87532,
+  "stem_over_cap": {
+   "400": 0.1166,
+   "500": 0.1383,
+   "600": 0.16,
+   "700": 0.1872
+  },
+  "stem_grid": {
+   "200": 0.0407,
+   "250": 0.0624,
+   "300": 0.0841,
+   "350": 0.1004,
+   "400": 0.1166,
+   "450": 0.1275,
+   "500": 0.1383,
+   "550": 0.1492,
+   "600": 0.16,
+   "650": 0.1736,
+   "700": 0.1872,
+   "750": 0.2007,
+   "800": 0.2143,
+   "850": 0.2279,
+   "900": 0.2414
+  },
+  "bowl_o": [
+   0.976,
+   0.798
+  ],
+  "dot_i": 0.79,
+  "adv_400": 0.459,
+  "weight_equal_colour": 406,
+  "adv_equal_colour": 0.4593,
+  "upm": 2048,
+  "xheight": 0.518,
+  "capheight": 0.72,
+  "asc": 1.01,
+  "desc": -0.289,
+  "avg_adv_em": 0.459,
+  "default_digits_tabular": false,
+  "zero_adv": 0.65,
+  "axes": [
+   [
+    "wght",
+    200.0,
+    400.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 286
+ },
+ "figtree": {
+  "id": "figtree",
+  "package": "@fontsource-variable/figtree",
+  "family": "Figtree",
+  "group": "round",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Figtree Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   300,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v9",
+  "last_modified": "2025-09-11",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree) Figtree-Italic[wght].ttf: Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 20156,
+  "latin_rep_bytes": 20156,
+  "latin_italic_bytes": 20928,
+  "all_subsets_wght_bytes": 30436,
+  "all_subsets_italic_bytes": 31304,
+  "all_subsets_rep_bytes": 30436,
+  "stem_over_cap": {
+   "400": 0.1143,
+   "500": 0.1343,
+   "600": 0.16,
+   "700": 0.1886
+  },
+  "stem_grid": {
+   "300": 0.0857,
+   "350": 0.1,
+   "400": 0.1143,
+   "450": 0.1243,
+   "500": 0.1343,
+   "550": 0.1471,
+   "600": 0.16,
+   "650": 0.1743,
+   "700": 0.1886,
+   "750": 0.2057,
+   "800": 0.2229,
+   "850": 0.24,
+   "900": 0.2571
+  },
+  "bowl_o": [
+   0.978,
+   0.801
+  ],
+  "dot_i": 0.785,
+  "adv_400": 0.4563,
+  "weight_equal_colour": 418,
+  "adv_equal_colour": 0.457,
+  "upm": 1000,
+  "xheight": 0.5,
+  "capheight": 0.7,
+  "asc": 0.95,
+  "desc": -0.25,
+  "avg_adv_em": 0.4512,
+  "default_digits_tabular": false,
+  "zero_adv": 0.638,
+  "axes": [
+   [
+    "wght",
+    300.0,
+    300.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr",
+   "pnum",
+   "rvrn",
+   "tnum"
+  ],
+  "glyphs": 265
+ },
+ "onest": {
+  "id": "onest",
+  "package": "@fontsource-variable/onest",
+  "family": "Onest",
+  "group": "round",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "wght"
+  ],
+  "css_family": "Onest Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [],
+  "italic_kind": "none",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "latin",
+   "latin-ext",
+   "math",
+   "symbols",
+   "vietnamese"
+  ],
+  "version": "v11",
+  "last_modified": "2026-08-25",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2021 The Onest Project Authors (https://github.com/simpals/onest)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.94
+  },
+  "missing_symbols": "µ",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 33760,
+  "latin_rep_bytes": 33760,
+  "latin_italic_bytes": null,
+  "all_subsets_wght_bytes": 144660,
+  "all_subsets_italic_bytes": 0,
+  "all_subsets_rep_bytes": 144660,
+  "stem_over_cap": {
+   "400": 0.1202,
+   "500": 0.1457,
+   "600": 0.1726,
+   "700": 0.198
+  },
+  "stem_grid": {
+   "100": 0.0594,
+   "150": 0.0693,
+   "200": 0.0792,
+   "250": 0.0905,
+   "300": 0.1004,
+   "350": 0.1103,
+   "400": 0.1202,
+   "450": 0.133,
+   "500": 0.1457,
+   "550": 0.1598,
+   "600": 0.1726,
+   "650": 0.1853,
+   "700": 0.198,
+   "750": 0.2107,
+   "800": 0.2249,
+   "850": 0.2376,
+   "900": 0.2504
+  },
+  "bowl_o": [
+   0.959,
+   0.813
+  ],
+  "dot_i": 0.8,
+  "adv_400": 0.4779,
+  "weight_equal_colour": 389,
+  "adv_equal_colour": 0.4777,
+  "upm": 1000,
+  "xheight": 0.527,
+  "capheight": 0.707,
+  "asc": 0.97,
+  "desc": -0.305,
+  "avg_adv_em": 0.4779,
+  "default_digits_tabular": false,
+  "zero_adv": 0.665,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "kern",
+   "locl",
+   "mark",
+   "mkmk",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 271
+ },
+ "dm-sans": {
+  "id": "dm-sans",
+  "package": "@fontsource-variable/dm-sans",
+  "family": "DM Sans",
+  "group": "round",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "opsz",
+   "wght"
+  ],
+  "css_family": "DM Sans Variable",
+  "css": [
+   "opsz.css"
+  ],
+  "css_italic": [
+   "opsz-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "opsz",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v17",
+  "last_modified": "2025-09-11",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts) DMSans-Italic[opsz,wght].ttf: Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 36932,
+  "latin_rep_bytes": 62724,
+  "latin_italic_bytes": 39712,
+  "all_subsets_wght_bytes": 55160,
+  "all_subsets_italic_bytes": 60520,
+  "all_subsets_rep_bytes": 94016,
+  "stem_over_cap": {
+   "400": 0.12,
+   "500": 0.1429,
+   "600": 0.1714,
+   "700": 0.1929
+  },
+  "stem_grid": {
+   "100": 0.0286,
+   "150": 0.0471,
+   "200": 0.0643,
+   "250": 0.0814,
+   "300": 0.1,
+   "350": 0.11,
+   "400": 0.12,
+   "450": 0.1314,
+   "500": 0.1429,
+   "550": 0.1571,
+   "600": 0.1714,
+   "650": 0.1829,
+   "700": 0.1929,
+   "750": 0.1957,
+   "800": 0.2,
+   "850": 0.2071,
+   "900": 0.2143
+  },
+  "bowl_o": [
+   0.973,
+   0.798
+  ],
+  "dot_i": 0.798,
+  "adv_400": 0.4748,
+  "weight_equal_colour": 390,
+  "adv_equal_colour": 0.4742,
+  "upm": 1000,
+  "xheight": 0.526,
+  "capheight": 0.7,
+  "asc": 0.992,
+  "desc": -0.31,
+  "avg_adv_em": 0.4795,
+  "default_digits_tabular": false,
+  "zero_adv": 0.656,
+  "axes": [
+   [
+    "opsz",
+    9.0,
+    9.0,
+    40.0
+   ],
+   [
+    "wght",
+    100.0,
+    400.0,
+    1000.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr"
+  ],
+  "glyphs": 270
+ },
+ "manrope": {
+  "id": "manrope",
+  "package": "@fontsource-variable/manrope",
+  "family": "Manrope",
+  "group": "round",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "wght"
+  ],
+  "css_family": "Manrope Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [],
+  "italic_kind": "none",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   200,
+   800
+  ],
+  "styles": [
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "greek",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v20",
+  "last_modified": "2025-09-05",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2019 The Manrope Project Authors (https://github.com/sharanda/manrope)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 1.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 24836,
+  "latin_rep_bytes": 24836,
+  "latin_italic_bytes": null,
+  "all_subsets_wght_bytes": 74972,
+  "all_subsets_italic_bytes": 0,
+  "all_subsets_rep_bytes": 74972,
+  "stem_over_cap": {
+   "400": 0.1021,
+   "500": 0.1236,
+   "600": 0.1451,
+   "700": 0.1674
+  },
+  "stem_grid": {
+   "200": 0.0583,
+   "250": 0.0694,
+   "300": 0.0799,
+   "350": 0.091,
+   "400": 0.1021,
+   "450": 0.1125,
+   "500": 0.1236,
+   "550": 0.1347,
+   "600": 0.1451,
+   "650": 0.1562,
+   "700": 0.1674,
+   "750": 0.1778,
+   "800": 0.1889
+  },
+  "bowl_o": [
+   0.929,
+   0.806
+  ],
+  "dot_i": 1.0,
+  "adv_400": 0.4637,
+  "weight_equal_colour": 475,
+  "adv_equal_colour": 0.4696,
+  "upm": 2000,
+  "xheight": 0.54,
+  "capheight": 0.72,
+  "asc": 1.066,
+  "desc": -0.3,
+  "avg_adv_em": 0.4478,
+  "default_digits_tabular": false,
+  "zero_adv": 0.578,
+  "axes": [
+   [
+    "wght",
+    200.0,
+    200.0,
+    800.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "numr",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 280
+ },
+ "albert-sans": {
+  "id": "albert-sans",
+  "package": "@fontsource-variable/albert-sans",
+  "family": "Albert Sans",
+  "group": "round",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Albert Sans Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v4",
+  "last_modified": "2025-09-11",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2021 The Albert Sans Project Authors (https://github.com/usted/Albert-Sans) AlbertSans-Italic[wght].ttf: Copyright 2021 The Albert Sans Project Authors (https://github.com/usted/Albert-Sans)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.5
+  },
+  "missing_symbols": "→←↑↓✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 32020,
+  "latin_rep_bytes": 32020,
+  "latin_italic_bytes": 34252,
+  "all_subsets_wght_bytes": 55392,
+  "all_subsets_italic_bytes": 58700,
+  "all_subsets_rep_bytes": 55392,
+  "stem_over_cap": {
+   "400": 0.1071,
+   "500": 0.1357,
+   "600": 0.1614,
+   "700": 0.1829
+  },
+  "stem_grid": {
+   "100": 0.0314,
+   "150": 0.0414,
+   "200": 0.0529,
+   "250": 0.0671,
+   "300": 0.0814,
+   "350": 0.0943,
+   "400": 0.1071,
+   "450": 0.1214,
+   "500": 0.1357,
+   "550": 0.1486,
+   "600": 0.1614,
+   "650": 0.1729,
+   "700": 0.1829,
+   "750": 0.1957,
+   "800": 0.2086,
+   "850": 0.2214,
+   "900": 0.2343
+  },
+  "bowl_o": [
+   0.988,
+   0.803
+  ],
+  "dot_i": 0.791,
+  "adv_400": 0.4711,
+  "weight_equal_colour": 438,
+  "adv_equal_colour": 0.4716,
+  "upm": 1000,
+  "xheight": 0.5,
+  "capheight": 0.7,
+  "asc": 0.95,
+  "desc": -0.25,
+  "avg_adv_em": 0.4711,
+  "default_digits_tabular": false,
+  "zero_adv": 0.629,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "frac",
+   "kern",
+   "liga",
+   "locl"
+  ],
+  "glyphs": 219
+ },
+ "outfit": {
+  "id": "outfit",
+  "package": "@fontsource-variable/outfit",
+  "family": "Outfit",
+  "group": "round",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "wght"
+  ],
+  "css_family": "Outfit Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [],
+  "italic_kind": "none",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v15",
+  "last_modified": "2025-09-05",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 32292,
+  "latin_rep_bytes": 32292,
+  "latin_italic_bytes": null,
+  "all_subsets_wght_bytes": 47100,
+  "all_subsets_italic_bytes": 0,
+  "all_subsets_rep_bytes": 47100,
+  "stem_over_cap": {
+   "400": 0.1331,
+   "500": 0.1627,
+   "600": 0.1953,
+   "700": 0.2263
+  },
+  "stem_grid": {
+   "100": 0.0459,
+   "150": 0.0607,
+   "200": 0.0754,
+   "250": 0.0902,
+   "300": 0.105,
+   "350": 0.1183,
+   "400": 0.1331,
+   "450": 0.1479,
+   "500": 0.1627,
+   "550": 0.179,
+   "600": 0.1953,
+   "650": 0.2101,
+   "700": 0.2263,
+   "750": 0.2426,
+   "800": 0.2589,
+   "850": 0.2737,
+   "900": 0.2899
+  },
+  "bowl_o": [
+   1.026,
+   0.792
+  ],
+  "dot_i": 0.797,
+  "adv_400": 0.4493,
+  "weight_equal_colour": 349,
+  "adv_equal_colour": 0.4491,
+  "upm": 1000,
+  "xheight": 0.46,
+  "capheight": 0.676,
+  "asc": 1.0,
+  "desc": -0.26,
+  "avg_adv_em": 0.4483,
+  "default_digits_tabular": false,
+  "zero_adv": 0.659,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    100.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "frac",
+   "kern",
+   "liga",
+   "mark",
+   "mkmk",
+   "pnum",
+   "rvrn",
+   "tnum"
+  ],
+  "glyphs": 249
+ },
+ "plus-jakarta-sans": {
+  "id": "plus-jakarta-sans",
+  "package": "@fontsource-variable/plus-jakarta-sans",
+  "family": "Plus Jakarta Sans",
+  "group": "round",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Plus Jakarta Sans Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   200,
+   800
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic-ext",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v12",
+  "last_modified": "2025-09-10",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2020 The Plus Jakarta Sans Project Authors (https://github.com/tokotype/PlusJakartaSans) PlusJakartaSans-Italic[wght].ttf: Copyright 2020 The Plus Jakarta Sans Project Authors (https://github.com/tokotype/PlusJakartaSans)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 27348,
+  "latin_rep_bytes": 27348,
+  "latin_italic_bytes": 29600,
+  "all_subsets_wght_bytes": 59144,
+  "all_subsets_italic_bytes": 63704,
+  "all_subsets_rep_bytes": 59144,
+  "stem_over_cap": {
+   "400": 0.1007,
+   "500": 0.1262,
+   "600": 0.1517,
+   "700": 0.1758
+  },
+  "stem_grid": {
+   "200": 0.0604,
+   "250": 0.0711,
+   "300": 0.0805,
+   "350": 0.0913,
+   "400": 0.1007,
+   "450": 0.1128,
+   "500": 0.1262,
+   "550": 0.1383,
+   "600": 0.1517,
+   "650": 0.1638,
+   "700": 0.1758,
+   "750": 0.1893,
+   "800": 0.2013
+  },
+  "bowl_o": [
+   1.0,
+   0.793
+  ],
+  "dot_i": 1.0,
+  "adv_400": 0.4733,
+  "weight_equal_colour": 469,
+  "adv_equal_colour": 0.4767,
+  "upm": 1000,
+  "xheight": 0.536,
+  "capheight": 0.745,
+  "asc": 1.038,
+  "desc": -0.222,
+  "avg_adv_em": 0.4733,
+  "default_digits_tabular": false,
+  "zero_adv": 0.732,
+  "axes": [
+   [
+    "wght",
+    200.0,
+    400.0,
+    800.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "numr",
+   "pnum",
+   "tnum"
+  ],
+  "glyphs": 285
+ },
+ "geologica": {
+  "id": "geologica",
+  "package": "@fontsource-variable/geologica",
+  "family": "Geologica",
+  "group": "round",
+  "extra": true,
+  "variable": true,
+  "fs_axes": [
+   "CRSV",
+   "SHRP",
+   "slnt",
+   "wght"
+  ],
+  "css_family": "Geologica Variable",
+  "css": [
+   "full.css"
+  ],
+  "css_italic": [],
+  "italic_kind": "slnt + CRSV axes (designed italic)",
+  "spec_key": "full",
+  "italic_var": "CRSV:1",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "greek",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v5",
+  "last_modified": "2025-09-10",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2020 The Geologica Project Authors (https://github.com/googlefonts/geologica)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 1.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": true,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 24944,
+  "latin_rep_bytes": 48536,
+  "latin_italic_bytes": null,
+  "all_subsets_wght_bytes": 94520,
+  "all_subsets_italic_bytes": 0,
+  "all_subsets_rep_bytes": 179008,
+  "stem_over_cap": {
+   "400": 0.1571,
+   "500": 0.1829,
+   "600": 0.2086,
+   "700": 0.2343
+  },
+  "stem_grid": {
+   "100": 0.08,
+   "150": 0.0929,
+   "200": 0.1057,
+   "250": 0.1186,
+   "300": 0.1314,
+   "350": 0.1443,
+   "400": 0.1571,
+   "450": 0.17,
+   "500": 0.1829,
+   "550": 0.1957,
+   "600": 0.2086,
+   "650": 0.2214,
+   "700": 0.2343,
+   "750": 0.2471,
+   "800": 0.26,
+   "850": 0.2729,
+   "900": 0.2857
+  },
+  "bowl_o": [
+   1.042,
+   0.791
+  ],
+  "dot_i": 0.796,
+  "adv_400": 0.4875,
+  "weight_equal_colour": 248,
+  "adv_equal_colour": 0.477,
+  "upm": 2000,
+  "xheight": 0.48,
+  "capheight": 0.7,
+  "asc": 0.975,
+  "desc": -0.275,
+  "avg_adv_em": 0.4669,
+  "default_digits_tabular": false,
+  "zero_adv": 0.674,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    100.0,
+    900.0
+   ],
+   [
+    "CRSV",
+    0.0,
+    0.0,
+    1.0
+   ],
+   [
+    "SHRP",
+    0.0,
+    0.0,
+    100.0
+   ],
+   [
+    "slnt",
+    -12.0,
+    0.0,
+    0.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "frac",
+   "kern",
+   "liga",
+   "locl",
+   "mark",
+   "mkmk",
+   "pnum",
+   "rvrn",
+   "tnum"
+  ],
+  "glyphs": 278
+ },
+ "google-sans-flex": {
+  "id": "google-sans-flex",
+  "package": "@fontsource-variable/google-sans-flex",
+  "family": "Google Sans Flex",
+  "group": "round",
+  "extra": true,
+  "variable": true,
+  "fs_axes": [
+   "GRAD",
+   "ROND",
+   "opsz",
+   "slnt",
+   "wdth",
+   "wght"
+  ],
+  "css_family": "Google Sans Flex Variable",
+  "css": [
+   "full.css"
+  ],
+  "css_italic": [],
+  "italic_kind": "slnt axis (oblique)",
+  "spec_key": "full",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "normal"
+  ],
+  "subsets": [
+   "canadian-aboriginal",
+   "cherokee",
+   "latin",
+   "latin-ext",
+   "math",
+   "nushu",
+   "symbols",
+   "syriac",
+   "tifinagh",
+   "vietnamese"
+  ],
+  "version": "v23",
+  "last_modified": "2026-10-01",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2015 Google LLC. All Rights Reserved.",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.02,
+   "vietnamese": 1.0,
+   "symbols": 0.72
+  },
+  "missing_symbols": "→←↑↓✓",
+  "has_tnum": true,
+  "has_zero": true,
+  "has_case": false,
+  "stylistic": [
+   "ss01",
+   "ss02"
+  ],
+  "latin_wght_bytes": 50832,
+  "latin_rep_bytes": 1401788,
+  "latin_italic_bytes": null,
+  "all_subsets_wght_bytes": 189856,
+  "all_subsets_italic_bytes": 0,
+  "all_subsets_rep_bytes": 5236236,
+  "stem_over_cap": {
+   "400": 0.1166,
+   "500": 0.1508,
+   "600": 0.1851,
+   "700": 0.2193
+  },
+  "stem_grid": {
+   "100": 0.0433,
+   "150": 0.0559,
+   "200": 0.0677,
+   "250": 0.0803,
+   "300": 0.0922,
+   "350": 0.1041,
+   "400": 0.1166,
+   "450": 0.1334,
+   "500": 0.1508,
+   "550": 0.1676,
+   "600": 0.1851,
+   "650": 0.2018,
+   "700": 0.2193,
+   "750": 0.236,
+   "800": 0.2535,
+   "850": 0.2703,
+   "900": 0.2877
+  },
+  "bowl_o": [
+   1.006,
+   0.799
+  ],
+  "dot_i": 0.793,
+  "adv_400": 0.4849,
+  "weight_equal_colour": 404,
+  "adv_equal_colour": 0.4855,
+  "upm": 2000,
+  "xheight": 0.51,
+  "capheight": 0.716,
+  "asc": 0.966,
+  "desc": -0.286,
+  "avg_adv_em": 0.4592,
+  "default_digits_tabular": false,
+  "zero_adv": 0.645,
+  "axes": [
+   [
+    "opsz",
+    6.0,
+    18.0,
+    144.0
+   ],
+   [
+    "wdth",
+    25.0,
+    100.0,
+    151.0
+   ],
+   [
+    "wght",
+    1.0,
+    400.0,
+    1000.0
+   ],
+   [
+    "GRAD",
+    0.0,
+    0.0,
+    100.0
+   ],
+   [
+    "ROND",
+    0.0,
+    0.0,
+    100.0
+   ],
+   [
+    "slnt",
+    -10.0,
+    0.0,
+    0.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "kern",
+   "liga",
+   "lnum",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr",
+   "pnum",
+   "ss01",
+   "ss02",
+   "tnum",
+   "zero"
+  ],
+  "glyphs": 349
+ },
+ "jetbrains-mono": {
+  "id": "jetbrains-mono",
+  "package": "@fontsource-variable/jetbrains-mono",
+  "family": "JetBrains Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "JetBrains Mono Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   800
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "greek",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v24",
+  "last_modified": "2025-09-11",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) JetBrainsMono-Italic[wght].ttf: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 1.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 40404,
+  "latin_rep_bytes": 40404,
+  "latin_italic_bytes": 42964,
+  "all_subsets_wght_bytes": 86244,
+  "all_subsets_italic_bytes": 92620,
+  "all_subsets_rep_bytes": 86244,
+  "stem_over_cap": {
+   "400": 0.1233,
+   "500": 0.1466,
+   "600": 0.1603,
+   "700": 0.1712
+  },
+  "stem_grid": {
+   "100": 0.0685,
+   "150": 0.0795,
+   "200": 0.0904,
+   "250": 0.0986,
+   "300": 0.1096,
+   "350": 0.1151,
+   "400": 0.1233,
+   "450": 0.1356,
+   "500": 0.1466,
+   "550": 0.1548,
+   "600": 0.1603,
+   "650": 0.1658,
+   "700": 0.1712,
+   "750": 0.189,
+   "800": 0.2055
+  },
+  "bowl_o": [
+   0.796,
+   0.858
+  ],
+  "dot_i": 0.813,
+  "adv_400": 0.6,
+  "weight_equal_colour": 368,
+  "adv_equal_colour": 0.6,
+  "upm": 1000,
+  "xheight": 0.55,
+  "capheight": 0.73,
+  "asc": 1.02,
+  "desc": -0.3,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    800.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "frac",
+   "locl",
+   "mark"
+  ],
+  "glyphs": 394
+ },
+ "geist-mono": {
+  "id": "geist-mono",
+  "package": "@fontsource-variable/geist-mono",
+  "family": "Geist Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Geist Mono Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   900
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "latin",
+   "latin-ext",
+   "symbols2",
+   "vietnamese"
+  ],
+  "version": "v6",
+  "last_modified": "2026-06-08",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git) GeistMono-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 23128,
+  "latin_rep_bytes": 23128,
+  "latin_italic_bytes": 25516,
+  "all_subsets_wght_bytes": 70448,
+  "all_subsets_italic_bytes": 77192,
+  "all_subsets_rep_bytes": 70448,
+  "stem_over_cap": {
+   "400": 0.1183,
+   "500": 0.1423,
+   "600": 0.1662,
+   "700": 0.1915
+  },
+  "stem_grid": {
+   "100": 0.0423,
+   "150": 0.0549,
+   "200": 0.0676,
+   "250": 0.0803,
+   "300": 0.093,
+   "350": 0.1056,
+   "400": 0.1183,
+   "450": 0.1296,
+   "500": 0.1423,
+   "550": 0.1535,
+   "600": 0.1662,
+   "650": 0.1789,
+   "700": 0.1915,
+   "750": 0.2028,
+   "800": 0.2155,
+   "850": 0.2268,
+   "900": 0.2394
+  },
+  "bowl_o": [
+   0.896,
+   0.809
+  ],
+  "dot_i": 1.0,
+  "adv_400": 0.6,
+  "weight_equal_colour": 399,
+  "adv_equal_colour": 0.6,
+  "upm": 1000,
+  "xheight": 0.53,
+  "capheight": 0.71,
+  "asc": 1.005,
+  "desc": -0.295,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    900.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr"
+  ],
+  "glyphs": 264
+ },
+ "commit-mono": {
+  "id": "commit-mono",
+  "package": "@fontsource/commit-mono",
+  "family": "Commit Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": false,
+  "fs_axes": [],
+  "css_family": "Commit Mono",
+  "css": [
+   "400.css",
+   "500.css",
+   "600.css",
+   "700.css"
+  ],
+  "css_italic": [
+   "400-italic.css"
+  ],
+  "italic_kind": "italic files (static)",
+  "spec_key": "400",
+  "italic_var": "",
+  "weights": [
+   200,
+   700
+  ],
+  "styles": [
+   "normal",
+   "italic"
+  ],
+  "subsets": [
+   "latin"
+  ],
+  "version": "v1.132",
+  "last_modified": "2024-07-15",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Eigil Nikolajsen",
+  "source": "https://github.com/eigilnikolajsen/commit-mono",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 1.0,
+   "vietnamese": 0.07,
+   "symbols": 1.0
+  },
+  "missing_symbols": "",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [
+   "cv01",
+   "cv02",
+   "cv03",
+   "cv04",
+   "cv05",
+   "cv06",
+   "cv07",
+   "cv08",
+   "cv09",
+   "cv10",
+   "cv11",
+   "ss01",
+   "ss02",
+   "ss03",
+   "ss04",
+   "ss05"
+  ],
+  "latin_wght_bytes": 48128,
+  "latin_rep_bytes": 48128,
+  "latin_italic_bytes": 51112,
+  "all_subsets_wght_bytes": 48128,
+  "all_subsets_italic_bytes": 51112,
+  "all_subsets_rep_bytes": 48128,
+  "stem_over_cap": {
+   "400": 0.12,
+   "500": 0.1371,
+   "600": 0.1543,
+   "700": 0.1714
+  },
+  "stem_grid": {
+   "400": 0.12,
+   "500": 0.1371,
+   "600": 0.1543,
+   "700": 0.1714
+  },
+  "bowl_o": [
+   0.861,
+   0.797
+  ],
+  "dot_i": 0.786,
+  "adv_400": 0.6,
+  "weight_equal_colour": null,
+  "adv_equal_colour": null,
+  "upm": 1000,
+  "xheight": 0.54,
+  "capheight": 0.7,
+  "asc": 0.9,
+  "desc": -0.2,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [],
+  "features": [
+   "calt",
+   "cv01",
+   "cv02",
+   "cv03",
+   "cv04",
+   "cv05",
+   "cv06",
+   "cv07",
+   "cv08",
+   "cv09",
+   "cv10",
+   "cv11",
+   "ss01",
+   "ss02",
+   "ss03",
+   "ss04",
+   "ss05"
+  ],
+  "glyphs": 1932
+ },
+ "ibm-plex-mono": {
+  "id": "ibm-plex-mono",
+  "package": "@fontsource/ibm-plex-mono",
+  "family": "IBM Plex Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": false,
+  "fs_axes": [],
+  "css_family": "IBM Plex Mono",
+  "css": [
+   "400.css",
+   "500.css",
+   "600.css",
+   "700.css"
+  ],
+  "css_italic": [
+   "400-italic.css"
+  ],
+  "italic_kind": "italic files (static)",
+  "spec_key": "400",
+  "italic_var": "",
+  "weights": [
+   100,
+   700
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "latin",
+   "latin-ext",
+   "vietnamese"
+  ],
+  "version": "v20",
+  "last_modified": "2025-09-16",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ThinItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLight.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Light.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-LightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Regular.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Italic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Medium.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-MediumItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Bold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-BoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved.",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 0.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 14708,
+  "latin_rep_bytes": 14708,
+  "latin_italic_bytes": 16448,
+  "all_subsets_wght_bytes": 49192,
+  "all_subsets_italic_bytes": 55604,
+  "all_subsets_rep_bytes": 49192,
+  "stem_over_cap": {
+   "400": 0.1146,
+   "500": 0.1562,
+   "600": 0.1834,
+   "700": 0.212
+  },
+  "stem_grid": {
+   "400": 0.1146,
+   "500": 0.1562,
+   "600": 0.1834,
+   "700": 0.212
+  },
+  "bowl_o": [
+   0.933,
+   0.813
+  ],
+  "dot_i": 0.854,
+  "adv_400": 0.6,
+  "weight_equal_colour": null,
+  "adv_equal_colour": null,
+  "upm": 1000,
+  "xheight": 0.516,
+  "capheight": 0.698,
+  "asc": 1.025,
+  "desc": -0.275,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "mark",
+   "numr"
+  ],
+  "glyphs": 280
+ },
+ "martian-mono": {
+  "id": "martian-mono",
+  "package": "@fontsource-variable/martian-mono",
+  "family": "Martian Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "wdth",
+   "wght"
+  ],
+  "css_family": "Martian Mono Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [],
+  "italic_kind": "none",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   800
+  ],
+  "styles": [
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v6",
+  "last_modified": "2025-09-16",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2020 The Martian Mono Project Authors (https://github.com/evilmartians/mono)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 23556,
+  "latin_rep_bytes": 23556,
+  "latin_italic_bytes": null,
+  "all_subsets_wght_bytes": 53196,
+  "all_subsets_italic_bytes": 0,
+  "all_subsets_rep_bytes": 53196,
+  "stem_over_cap": {
+   "400": 0.1375,
+   "500": 0.1575,
+   "600": 0.18,
+   "700": 0.2025
+  },
+  "stem_grid": {
+   "100": 0.05,
+   "150": 0.0675,
+   "200": 0.085,
+   "250": 0.1025,
+   "300": 0.12,
+   "350": 0.1287,
+   "400": 0.1375,
+   "450": 0.1475,
+   "500": 0.1575,
+   "550": 0.1688,
+   "600": 0.18,
+   "650": 0.1912,
+   "700": 0.2025,
+   "750": 0.2137,
+   "800": 0.225
+  },
+  "bowl_o": [
+   0.888,
+   0.812
+  ],
+  "dot_i": 0.82,
+  "adv_400": 0.7,
+  "weight_equal_colour": 294,
+  "adv_equal_colour": 0.7,
+  "upm": 1000,
+  "xheight": 0.6,
+  "capheight": 0.8,
+  "asc": 1.0,
+  "desc": -0.2,
+  "avg_adv_em": 0.7,
+  "default_digits_tabular": true,
+  "zero_adv": 0.7,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    800.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr",
+   "rvrn"
+  ],
+  "glyphs": 276
+ },
+ "atkinson-hyperlegible-mono": {
+  "id": "atkinson-hyperlegible-mono",
+  "package": "@fontsource-variable/atkinson-hyperlegible-mono",
+  "family": "Atkinson Hyperlegible Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Atkinson Hyperlegible Mono Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   200,
+   800
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v8",
+  "last_modified": "2025-09-16",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono) AtkinsonHyperlegibleMono-Italic[wght].ttf: Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 0.97,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.44
+  },
+  "missing_symbols": "→←↑↓✓≥≤≠≈µ",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 17752,
+  "latin_rep_bytes": 17752,
+  "latin_italic_bytes": 19084,
+  "all_subsets_wght_bytes": 28492,
+  "all_subsets_italic_bytes": 30524,
+  "all_subsets_rep_bytes": 28492,
+  "stem_over_cap": {
+   "400": 0.1272,
+   "500": 0.1647,
+   "600": 0.1871,
+   "700": 0.2111
+  },
+  "stem_grid": {
+   "200": 0.0808,
+   "250": 0.0928,
+   "300": 0.1033,
+   "350": 0.1153,
+   "400": 0.1272,
+   "450": 0.1452,
+   "500": 0.1647,
+   "550": 0.1751,
+   "600": 0.1871,
+   "650": 0.1991,
+   "700": 0.2111,
+   "750": 0.229,
+   "800": 0.247
+  },
+  "bowl_o": [
+   0.995,
+   0.807
+  ],
+  "dot_i": 0.788,
+  "adv_400": 0.632,
+  "weight_equal_colour": 361,
+  "adv_equal_colour": 0.632,
+  "upm": 1000,
+  "xheight": 0.496,
+  "capheight": 0.668,
+  "asc": 0.984,
+  "desc": -0.316,
+  "avg_adv_em": 0.632,
+  "default_digits_tabular": true,
+  "zero_adv": 0.632,
+  "axes": [
+   [
+    "wght",
+    200.0,
+    200.0,
+    800.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "frac",
+   "locl",
+   "mark",
+   "mkmk"
+  ],
+  "glyphs": 237
+ },
+ "monaspace-neon": {
+  "id": "monaspace-neon",
+  "package": "@fontsource/monaspace-neon",
+  "family": "Monaspace Neon",
+  "group": "mono",
+  "extra": false,
+  "variable": false,
+  "fs_axes": [],
+  "css_family": "Monaspace Neon",
+  "css": [
+   "400.css",
+   "500.css",
+   "600.css",
+   "700.css"
+  ],
+  "css_italic": [
+   "400-italic.css"
+  ],
+  "italic_kind": "italic files (static)",
+  "spec_key": "400",
+  "italic_var": "",
+  "weights": [
+   200,
+   800
+  ],
+  "styles": [
+   "normal",
+   "italic"
+  ],
+  "subsets": [
+   "latin"
+  ],
+  "version": "v1.101",
+  "last_modified": "2024-07-04",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [
+   "Monaspace"
+  ],
+  "attribution": "githubnext",
+  "source": "https://github.com/githubnext/monaspace",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.02,
+   "vietnamese": 0.1,
+   "symbols": 0.94
+  },
+  "missing_symbols": "✓",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": true,
+  "stylistic": [
+   "cv30",
+   "cv60",
+   "cv61",
+   "ss01",
+   "ss02",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss06",
+   "ss07",
+   "ss08",
+   "ss09"
+  ],
+  "latin_wght_bytes": 44476,
+  "latin_rep_bytes": 44476,
+  "latin_italic_bytes": 48428,
+  "all_subsets_wght_bytes": 44476,
+  "all_subsets_italic_bytes": 48428,
+  "all_subsets_rep_bytes": 44476,
+  "stem_over_cap": {
+   "400": 0.1301,
+   "500": 0.1521,
+   "600": 0.174,
+   "700": 0.1973
+  },
+  "stem_grid": {
+   "400": 0.1301,
+   "500": 0.1521,
+   "600": 0.174,
+   "700": 0.1973
+  },
+  "bowl_o": [
+   0.945,
+   0.814
+  ],
+  "dot_i": 0.809,
+  "adv_400": 0.62,
+  "weight_equal_colour": null,
+  "adv_equal_colour": null,
+  "upm": 2000,
+  "xheight": 0.513,
+  "capheight": 0.73,
+  "asc": 0.782,
+  "desc": -0.217,
+  "avg_adv_em": 0.62,
+  "default_digits_tabular": true,
+  "zero_adv": 0.62,
+  "axes": [],
+  "features": [
+   "aalt",
+   "calt",
+   "case",
+   "ccmp",
+   "cv30",
+   "cv60",
+   "cv61",
+   "dnom",
+   "fina",
+   "frac",
+   "init",
+   "liga",
+   "locl",
+   "medi",
+   "numr",
+   "ordn",
+   "sinf",
+   "ss01",
+   "ss02",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss06",
+   "ss07",
+   "ss08",
+   "ss09",
+   "subs",
+   "sups"
+  ],
+  "glyphs": 779
+ },
+ "spline-sans-mono": {
+  "id": "spline-sans-mono",
+  "package": "@fontsource-variable/spline-sans-mono",
+  "family": "Spline Sans Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Spline Sans Mono Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   300,
+   700
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v13",
+  "last_modified": "2025-09-10",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2022 The Spline Sans Mono Project Authors (https://github.com/SorkinType/SplineSansMono) SplineSansMono-Italic[wght].ttf: Copyright 2022 The Spline Sans Mono Project Authors (https://github.com/SorkinType/SplineSansMono)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.5
+  },
+  "missing_symbols": "→←↑↓✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 36476,
+  "latin_rep_bytes": 36476,
+  "latin_italic_bytes": 38312,
+  "all_subsets_wght_bytes": 57292,
+  "all_subsets_italic_bytes": 59596,
+  "all_subsets_rep_bytes": 57292,
+  "stem_over_cap": {
+   "400": 0.1327,
+   "500": 0.1602,
+   "600": 0.1864,
+   "700": 0.205
+  },
+  "stem_grid": {
+   "300": 0.0873,
+   "350": 0.11,
+   "400": 0.1327,
+   "450": 0.1465,
+   "500": 0.1602,
+   "550": 0.1733,
+   "600": 0.1864,
+   "650": 0.196,
+   "700": 0.205
+  },
+  "bowl_o": [
+   0.876,
+   0.811
+  ],
+  "dot_i": 0.798,
+  "adv_400": 0.6,
+  "weight_equal_colour": 368,
+  "adv_equal_colour": 0.6,
+  "upm": 2000,
+  "xheight": 0.545,
+  "capheight": 0.727,
+  "asc": 0.964,
+  "desc": -0.236,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [
+   [
+    "wght",
+    300.0,
+    400.0,
+    700.0
+   ]
+  ],
+  "features": [
+   "ccmp",
+   "dnom",
+   "frac",
+   "locl",
+   "mark",
+   "mkmk",
+   "numr"
+  ],
+  "glyphs": 269
+ },
+ "red-hat-mono": {
+  "id": "red-hat-mono",
+  "package": "@fontsource-variable/red-hat-mono",
+  "family": "Red Hat Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Red Hat Mono Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   300,
+   700
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v16",
+  "last_modified": "2025-09-10",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2024 The Red Hat Project Authors (https://github.com/RedHatOfficial/RedHatFont) RedHatMono-Italic[wght].ttf: Copyright 2024 The Red Hat Project Authors (https://github.com/RedHatOfficial/RedHatFont)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 22412,
+  "latin_rep_bytes": 22412,
+  "latin_italic_bytes": 24244,
+  "all_subsets_wght_bytes": 34132,
+  "all_subsets_italic_bytes": 37068,
+  "all_subsets_rep_bytes": 34132,
+  "stem_over_cap": {
+   "400": 0.1043,
+   "500": 0.1357,
+   "600": 0.18,
+   "700": 0.2314
+  },
+  "stem_grid": {
+   "300": 0.0714,
+   "350": 0.0886,
+   "400": 0.1043,
+   "450": 0.12,
+   "500": 0.1357,
+   "550": 0.1543,
+   "600": 0.18,
+   "650": 0.2057,
+   "700": 0.2314
+  },
+  "bowl_o": [
+   0.98,
+   0.792
+  ],
+  "dot_i": 0.787,
+  "adv_400": 0.6,
+  "weight_equal_colour": 444,
+  "adv_equal_colour": 0.6,
+  "upm": 1000,
+  "xheight": 0.488,
+  "capheight": 0.7,
+  "asc": 1.018,
+  "desc": -0.305,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [
+   [
+    "wght",
+    300.0,
+    400.0,
+    700.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "locl",
+   "mark",
+   "numr"
+  ],
+  "glyphs": 258
+ },
+ "dm-mono": {
+  "id": "dm-mono",
+  "package": "@fontsource/dm-mono",
+  "family": "DM Mono",
+  "group": "mono",
+  "extra": false,
+  "variable": false,
+  "fs_axes": [],
+  "css_family": "DM Mono",
+  "css": [
+   "400.css",
+   "500.css"
+  ],
+  "css_italic": [
+   "400-italic.css"
+  ],
+  "italic_kind": "italic files (static)",
+  "spec_key": "400",
+  "italic_var": "",
+  "weights": [
+   300,
+   500
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "latin",
+   "latin-ext"
+  ],
+  "version": "v16",
+  "last_modified": "2025-09-16",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono) DMMono-LightItalic.ttf: Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono) DMMono-Regular.ttf: Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono) DMMono-Italic.ttf: Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono) DMMono-Medium.ttf: Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono) DMMono-MediumItalic.ttf: Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 0.0,
+   "greek": 0.0,
+   "vietnamese": 0.07,
+   "symbols": 0.5
+  },
+  "missing_symbols": "→←↑↓✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 14820,
+  "latin_rep_bytes": 14820,
+  "latin_italic_bytes": 16012,
+  "all_subsets_wght_bytes": 24372,
+  "all_subsets_italic_bytes": 25996,
+  "all_subsets_rep_bytes": 24372,
+  "stem_over_cap": {
+   "400": 0.12,
+   "500": 0.1514
+  },
+  "stem_grid": {
+   "400": 0.12,
+   "500": 0.1514
+  },
+  "bowl_o": [
+   0.95,
+   0.805
+  ],
+  "dot_i": 0.791,
+  "adv_400": 0.6,
+  "weight_equal_colour": null,
+  "adv_equal_colour": null,
+  "upm": 1000,
+  "xheight": 0.496,
+  "capheight": 0.7,
+  "asc": 0.992,
+  "desc": -0.31,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [],
+  "features": [
+   "ccmp",
+   "frac",
+   "locl",
+   "mark",
+   "mkmk"
+  ],
+  "glyphs": 229
+ },
+ "lilex": {
+  "id": "lilex",
+  "package": "@fontsource-variable/lilex",
+  "family": "Lilex",
+  "group": "mono",
+  "extra": true,
+  "variable": true,
+  "fs_axes": [
+   "ital",
+   "wght"
+  ],
+  "css_family": "Lilex Variable",
+  "css": [
+   "wght.css"
+  ],
+  "css_italic": [
+   "wght-italic.css"
+  ],
+  "italic_kind": "italic file",
+  "spec_key": "wght",
+  "italic_var": "",
+  "weights": [
+   100,
+   700
+  ],
+  "styles": [
+   "italic",
+   "normal"
+  ],
+  "subsets": [
+   "cyrillic",
+   "cyrillic-ext",
+   "greek",
+   "latin",
+   "latin-ext",
+   "symbols2",
+   "vietnamese"
+  ],
+  "version": "v1",
+  "last_modified": "2025-12-10",
+  "license": "OFL-1.1",
+  "license_file_line": "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
+  "reserved_font_names": [],
+  "attribution": "Copyright 2019 The Lilex Project Authors (https://github.com/mishamyrt/Lilex) Lilex-Italic[wght].ttf: Copyright 2019 The Lilex Project Authors (https://github.com/mishamyrt/Lilex)",
+  "source": "https://github.com/google/fonts",
+  "coverage": {
+   "latin_ext": 1.0,
+   "cyrillic": 1.0,
+   "greek": 1.0,
+   "vietnamese": 1.0,
+   "symbols": 0.61
+  },
+  "missing_symbols": "→←✓≥≤≠≈",
+  "has_tnum": false,
+  "has_zero": false,
+  "has_case": false,
+  "stylistic": [],
+  "latin_wght_bytes": 39600,
+  "latin_rep_bytes": 39600,
+  "latin_italic_bytes": 44148,
+  "all_subsets_wght_bytes": 112368,
+  "all_subsets_italic_bytes": 129588,
+  "all_subsets_rep_bytes": 112368,
+  "stem_over_cap": {
+   "400": 0.1146,
+   "500": 0.1461,
+   "600": 0.1805,
+   "700": 0.212
+  },
+  "stem_grid": {
+   "100": 0.0301,
+   "150": 0.0444,
+   "200": 0.0573,
+   "250": 0.0716,
+   "300": 0.0874,
+   "350": 0.1003,
+   "400": 0.1146,
+   "450": 0.1318,
+   "500": 0.1461,
+   "550": 0.1633,
+   "600": 0.1805,
+   "650": 0.1948,
+   "700": 0.212
+  },
+  "bowl_o": [
+   0.928,
+   0.814
+  ],
+  "dot_i": 0.855,
+  "adv_400": 0.6,
+  "weight_equal_colour": 410,
+  "adv_equal_colour": 0.6,
+  "upm": 1000,
+  "xheight": 0.516,
+  "capheight": 0.698,
+  "asc": 0.999,
+  "desc": -0.301,
+  "avg_adv_em": 0.6,
+  "default_digits_tabular": true,
+  "zero_adv": 0.6,
+  "axes": [
+   [
+    "wght",
+    100.0,
+    400.0,
+    700.0
+   ]
+  ],
+  "features": [
+   "calt",
+   "ccmp",
+   "dnom",
+   "frac",
+   "locl",
+   "mark",
+   "numr"
+  ],
+  "glyphs": 454
+ }
+}

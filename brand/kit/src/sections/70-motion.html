@@ -1,0 +1,90 @@
+<!-- id: motion | title: Motion | group: Foundations -->
+<div class="kit-head">
+  <p class="kit-eyebrow">07 · Foundations</p>
+  <h2 class="kit-title" id="motion-title">Motion</h2>
+  <p class="kit-lead">Movement shows cause and effect: where something came from, what changed, what is still working. It is quick, it can always be interrupted, and it is never there to impress.</p>
+</div>
+
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame">
+    <p class="kit-motion__label">Does</p>
+    <ul class="kit-motion__rules">
+      <li>Answers on press, not on release.</li>
+      <li>Enters with ease-out. Leaves the same way, faster.</li>
+      <li>Stays under 300 ms, except large surfaces.</li>
+      <li>Uses a spring for anything you can grab.</li>
+      <li>Starts from where the thing is now, even mid-move.</li>
+      <li>Opens menus from their trigger, dialogs from the centre.</li>
+    </ul>
+  </div>
+  <div class="kit-frame">
+    <p class="kit-motion__label">Never</p>
+    <ul class="kit-motion__rules">
+      <li>Animates what you do from the keyboard.</li>
+      <li>Animates what you see dozens of times a day.</li>
+      <li>Grows anything from nothing: entries start at 95% and fade.</li>
+      <li>Bounces, unless your own gesture had momentum.</li>
+      <li>Blocks input while something moves.</li>
+      <li>Moves when you asked for reduced motion: it fades instead.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Timing</h3>
+  <p class="kit-sub__text">Press <strong>Play</strong>. Each dot travels with one token. Springs are described the way Apple does it: response (how fast) and damping (1 = no overshoot).</p>
+</div>
+<div class="kit-frame kit-stack" data-motion-players>
+  <div class="kit-row"><button class="d-button d-button--sm d-button--primary" type="button" data-motion-play>Play</button><span class="kit-caption" style="margin: 0">Durations use ease-out. Easings run for 600 ms so the curve is visible.</span></div>
+  <div class="kit-motion__tracks">
+    <div class="kit-motion__track" style="--t-dur: var(--d-duration-instant); --t-ease: var(--d-ease-out)"><button class="kit-token" type="button">--d-duration-instant</button><span class="kit-motion__lane"><i></i></span><small>80 ms · press</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-duration-fast); --t-ease: var(--d-ease-out)"><button class="kit-token" type="button">--d-duration-fast</button><span class="kit-motion__lane"><i></i></span><small>140 ms · hover, colour</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-duration-base); --t-ease: var(--d-ease-out)"><button class="kit-token" type="button">--d-duration-base</button><span class="kit-motion__lane"><i></i></span><small>200 ms · state changes</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-duration-moderate); --t-ease: var(--d-ease-out)"><button class="kit-token" type="button">--d-duration-moderate</button><span class="kit-motion__lane"><i></i></span><small>280 ms · menus, toasts</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-duration-slow); --t-ease: var(--d-ease-out)"><button class="kit-token" type="button">--d-duration-slow</button><span class="kit-motion__lane"><i></i></span><small>400 ms · panels</small></div>
+    <div class="kit-motion__track" style="--t-dur: 600ms; --t-ease: var(--d-ease-out)"><button class="kit-token" type="button">--d-ease-out</button><span class="kit-motion__lane"><i></i></span><small>default: arriving, responding</small></div>
+    <div class="kit-motion__track" style="--t-dur: 600ms; --t-ease: var(--d-ease-in-out)"><button class="kit-token" type="button">--d-ease-in-out</button><span class="kit-motion__lane"><i></i></span><small>moving across the screen</small></div>
+    <div class="kit-motion__track" style="--t-dur: 600ms; --t-ease: var(--d-ease-sheet)"><button class="kit-token" type="button">--d-ease-sheet</button><span class="kit-motion__lane"><i></i></span><small>sheets and drawers</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-spring-snappy-duration); --t-ease: var(--d-spring-snappy)"><button class="kit-token" type="button">--d-spring-snappy</button><span class="kit-motion__lane"><i></i></span><small>0.25 s, 1.0 · small controls</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-spring-default-duration); --t-ease: var(--d-spring-default)"><button class="kit-token" type="button">--d-spring-default</button><span class="kit-motion__lane"><i></i></span><small>0.35 s, 1.0 · the house spring</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-spring-gentle-duration); --t-ease: var(--d-spring-gentle)"><button class="kit-token" type="button">--d-spring-gentle</button><span class="kit-motion__lane"><i></i></span><small>0.5 s, 1.0 · large surfaces</small></div>
+    <div class="kit-motion__track" style="--t-dur: var(--d-spring-momentum-duration); --t-ease: var(--d-spring-momentum)"><button class="kit-token" type="button">--d-spring-momentum</button><span class="kit-motion__lane"><i></i></span><small>0.3 s, 0.8 · after a flick only</small></div>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Interruptible, with momentum</h3>
+  <p class="kit-sub__text">The standard every draggable thing in Demido must meet. Drag the card and let go: it carries your speed, lands on the nearest stop to where it was <em>heading</em>, and resists at the ends. Catch it mid-flight and it follows your hand at once. Arrow keys move it with no animation.</p>
+</div>
+<div class="kit-frame kit-frame--sunken kit-motion__stage" data-spring-demo>
+  <div class="kit-motion__rail" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="kit-motion__card" role="slider" tabindex="0" aria-label="Draggable card with three stops" aria-valuemin="1" aria-valuemax="3" aria-valuenow="1" aria-valuetext="Stop 1 of 3">
+    <span class="d-glyph" data-glyph="model-loaded" aria-hidden="true"></span><span>Drag me</span>
+  </div>
+</div>
+<p class="kit-caption">Built with Pointer Events and a real spring on the animation frame: 1:1 tracking from where you grabbed, release speed handed to the spring, Apple's momentum projection to pick the stop, rubber-banding past the ends. Transform only.</p>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Signature motions</h3>
+  <p class="kit-sub__text">Four moves carry the brand. Everything else is plain.</p>
+</div>
+<div class="kit-grid" style="--kit-min: 13rem" data-signature>
+  <div class="kit-frame kit-motion__sig">
+    <span class="kit-motion__sig-stage"><span class="d-glyph" data-glyph="task-running" aria-hidden="true"></span></span>
+    <strong>The arc turns</strong><small>Work in progress. 900 ms a turn, constant.</small>
+  </div>
+  <div class="kit-frame kit-motion__sig">
+    <span class="kit-motion__sig-stage" style="color: var(--d-color-accent-base)"><span class="d-glyph" data-glyph="model-loaded" data-busy aria-hidden="true"></span></span>
+    <strong>The eye breathes</strong><small>A model is generating. Opacity only.</small>
+  </div>
+  <div class="kit-frame kit-motion__sig">
+    <span class="kit-motion__sig-stage" style="color: var(--d-color-accent-base)"><span class="d-glyph" data-glyph="model-loaded" data-sig="eye" aria-hidden="true"></span></span>
+    <strong>The eye opens</strong><small>A model has loaded. Along its long side, like the logo.</small>
+    <button class="d-button d-button--sm" type="button" data-sig-play="eye">Replay</button>
+  </div>
+  <div class="kit-frame kit-motion__sig">
+    <span class="kit-motion__sig-stage"><span class="d-glyph" data-glyph="task-done" data-sig="done" aria-hidden="true"></span></span>
+    <strong>Done settles</strong><small>A task finished. One short spring, no bounce.</small>
+    <button class="d-button d-button--sm" type="button" data-sig-play="done">Replay</button>
+  </div>
+</div>

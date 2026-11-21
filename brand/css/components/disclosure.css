@@ -1,0 +1,70 @@
+/* Disclosure: the "nothing hidden" control. Detail is one step away, never removed.
+   <details class="d-disclosure">
+     <summary>Details</summary>
+     <div class="d-disclosure__body"> ...the full thing: raw value, prompt, complete output... </div>
+   </details>
+   Variant: .d-disclosure--inline (no indent; the body continues the text).
+   Opening does not animate height; the chevron turns and the content fades in. */
+
+@layer demido.components {
+  .d-disclosure {
+    min-width: 0;
+  }
+  .d-disclosure > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-6);
+    min-height: var(--d-size-control-sm);
+    margin-inline-start: calc(-1 * var(--d-space-6));
+    padding-inline: var(--d-space-6);
+    border-radius: var(--d-radius-sm);
+    color: var(--d-color-text-secondary);
+    font-size: var(--d-type-caption-size);
+    font-weight: var(--d-font-weight-medium);
+    list-style: none;
+    cursor: default;
+    user-select: none;
+    transition: background-color var(--d-duration-fast) var(--d-ease-standard), color var(--d-duration-fast) var(--d-ease-standard);
+  }
+  .d-disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  .d-disclosure > summary::before {
+    content: "";
+    flex: none;
+    width: 0.375rem;
+    height: 0.375rem;
+    margin-inline: 0.125rem 0.1875rem;
+    border: solid currentColor;
+    border-width: 0 var(--d-stroke-icon) var(--d-stroke-icon) 0;
+    rotate: -45deg;
+    transition: rotate var(--d-duration-base) var(--d-ease-out);
+  }
+  .d-disclosure[open] > summary::before {
+    rotate: 45deg;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-disclosure > summary:hover {
+      background: var(--d-color-fill-hover);
+      color: var(--d-color-text-primary);
+    }
+  }
+  .d-disclosure > summary:active {
+    background: var(--d-color-fill-pressed);
+  }
+
+  .d-disclosure__body {
+    margin-block-start: var(--d-space-8);
+    padding-inline-start: var(--d-space-12);
+    border-inline-start: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    color: var(--d-color-text-secondary);
+    animation: d-disclosure-in var(--d-duration-base) var(--d-ease-out);
+  }
+  .d-disclosure--inline > .d-disclosure__body {
+    padding-inline-start: 0;
+    border-inline-start: 0;
+  }
+  @keyframes d-disclosure-in {
+    from { opacity: 0; translate: 0 calc(-1 * var(--d-space-4)); }
+  }
+}

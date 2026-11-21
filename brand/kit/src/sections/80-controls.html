@@ -1,0 +1,186 @@
+<!-- id: controls | title: Controls | group: Components -->
+<div class="kit-head">
+  <p class="kit-eyebrow">08 · Components</p>
+  <h2 class="kit-title" id="controls-title">Controls</h2>
+  <p class="kit-lead">Native elements, restyled. Every control answers on press, shows focus the same way, and works from the keyboard. Selected and "on" are solid neutral: the accent colour is not spent here.</p>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Buttons</h3>
+  <p class="kit-sub__text">One primary button per view, and it is monochrome. The default button is the quiet one.</p>
+</div>
+<div class="kit-frame kit-stack">
+  <div class="kit-row">
+    <button class="d-button d-button--primary" type="button">Load model</button>
+    <button class="d-button" type="button">Unload</button>
+    <button class="d-button d-button--ghost" type="button">Cancel</button>
+    <button class="d-button d-button--danger" type="button">Delete 3 sessions</button>
+    <button class="d-button" type="button" disabled>Lend to agent</button>
+    <button class="d-button" type="button" data-loading><span class="d-glyph" data-glyph="task-running" aria-hidden="true"></span>Downloading</button>
+  </div>
+  <div class="kit-row">
+    <button class="d-button d-button--sm" type="button">Small</button>
+    <button class="d-button" type="button">Default</button>
+    <button class="d-button d-button--lg d-button--primary" type="button">Large</button>
+    <button class="d-button d-button--icon" type="button" aria-label="Attach"><!--@icon paperclip--></button>
+    <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="Dictate"><!--@icon mic--></button>
+    <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="Session files" aria-pressed="true"><!--@icon folder--></button>
+    <button class="d-button" type="button"><!--@icon download-->Download</button>
+  </div>
+  <p class="kit-caption">Sizes 24, 28 and 36 px. Pointer targets never fall below 28 px, whatever the visual size. Press any of them: the feedback is on press, not release.</p>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Fields</h3>
+</div>
+<div class="kit-frame">
+  <div class="kit-grid">
+    <label class="d-field">
+      <span class="d-field__label">Session name</span>
+      <input class="d-input" type="text" value="Sweater price watch">
+      <span class="d-field__help">Named automatically. Change it any time.</span>
+    </label>
+    <label class="d-field">
+      <span class="d-field__label">OpenRouter API key</span>
+      <span class="d-input-wrap">
+        <input class="d-input d-input--mono" type="password" value="sk-or-v1-0000000000000000" aria-describedby="key-help">
+        <button class="d-button d-button--ghost d-button--sm d-button--icon" type="button" aria-label="Show key"><!--@icon eye sm--></button>
+      </span>
+      <span class="d-field__help" id="key-help">Stored in your system keyring. Never written to a file.</span>
+    </label>
+    <label class="d-field">
+      <span class="d-field__label">Search models</span>
+      <span class="d-input-wrap">
+        <!--@icon search-->
+        <input class="d-input" type="search" placeholder="Name, publisher or capability">
+      </span>
+    </label>
+    <label class="d-field">
+      <span class="d-field__label">Idle unload</span>
+      <span class="d-select">
+        <select class="d-input">
+          <option>1 min</option><option selected>5 min</option><option>15 min</option><option>1 h</option><option>Never</option>
+        </select>
+      </span>
+    </label>
+    <label class="d-field">
+      <span class="d-field__label">Context size</span>
+      <input class="d-input d-input--mono" type="text" inputmode="numeric" value="200000" aria-invalid="true" aria-describedby="ctx-err">
+      <span class="d-field__error" id="ctx-err"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true" style="--d-glyph-size: 0.875rem"></span>This model supports up to 32,768 tokens.</span>
+    </label>
+    <label class="d-field">
+      <span class="d-field__label">System prompt</span>
+      <textarea class="d-input d-input--mono" rows="3">Answer first.
+Steps numbered. One action each.
+Exact units. No filler.</textarea>
+    </label>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Switches, checkboxes, radios</h3>
+  <p class="kit-sub__text">A switch acts at once. A checkbox belongs to a form that is applied later.</p>
+</div>
+<div class="kit-frame">
+  <div class="kit-grid">
+    <div class="kit-stack" style="gap: 0">
+      <label class="d-check"><input class="d-switch" type="checkbox" role="switch" checked><span class="d-check__text">Unload when idle</span></label>
+      <label class="d-check"><input class="d-switch" type="checkbox" role="switch"><span class="d-check__text">Update tools automatically<small>Off by default. On means you accept updates without reviewing them.</small></span></label>
+      <label class="d-check"><input class="d-switch" type="checkbox" role="switch" disabled><span class="d-check__text">Voice mode</span></label>
+    </div>
+    <div class="kit-stack" style="gap: 0">
+      <label class="d-check"><input class="d-checkbox" type="checkbox" checked><span class="d-check__text">Vision</span></label>
+      <label class="d-check"><input class="d-checkbox" type="checkbox" checked><span class="d-check__text">Tools</span></label>
+      <label class="d-check"><input class="d-checkbox" type="checkbox"><span class="d-check__text">Search inside session contents<small>Slower. Keep it off unless you need it.</small></span></label>
+    </div>
+    <div class="kit-stack" style="gap: 0">
+      <label class="d-check"><input class="d-radio" type="radio" name="kit-radio" checked><span class="d-check__text">Recommended quantization<small>Q4_K_M · 2.5 GB · fits with room for one agent</small></span></label>
+      <label class="d-check"><input class="d-radio" type="radio" name="kit-radio"><span class="d-check__text">Highest quality that fits<small>Q6_K · 3.3 GB · no room for an agent</small></span></label>
+    </div>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Choosing one of a few</h3>
+  <p class="kit-sub__text">The four permission levels and the thinking level are segmented controls. The thumb slides on a click and jumps on a key press.</p>
+</div>
+<div class="kit-frame kit-stack">
+  <div class="kit-stack" style="gap: var(--d-space-8)">
+    <div class="kit-row"><div class="d-segmented" role="radiogroup" aria-label="Permission level" data-perm-demo>
+      <label><input type="radio" name="kit-perm" value="cautious"><span>Cautious</span></label>
+      <label><input type="radio" name="kit-perm" value="balanced" checked><span>Balanced</span></label>
+      <label><input type="radio" name="kit-perm" value="autonomous"><span>Autonomous</span></label>
+      <label><input type="radio" name="kit-perm" value="smart"><span>Smart</span></label>
+    </div></div>
+    <p class="d-text-secondary" data-perm-text aria-live="polite">Asks only before things that could cause damage.</p>
+  </div>
+  <div class="kit-row">
+    <div class="d-segmented d-segmented--sm" role="radiogroup" aria-label="Thinking">
+      <label><input type="radio" name="kit-think"><span>Off</span></label>
+      <label><input type="radio" name="kit-think" checked><span>Low</span></label>
+      <label><input type="radio" name="kit-think"><span>Medium</span></label>
+      <label><input type="radio" name="kit-think"><span>High</span></label>
+    </div>
+    <span class="kit-caption" style="margin: 0">Thinking level, small size, for the composer.</span>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Settings</h3>
+  <p class="kit-sub__text">Every setting is one row: what it does, the control, and a Details line that opens the full reference: default, range, cost, trade-off. Nothing is hidden, nothing is dumped. A changed value is marked so it never drifts unseen.</p>
+</div>
+<section class="d-settings">
+  <h3 class="d-settings__title">Model loading</h3>
+  <div class="d-setting">
+    <div class="d-setting__text">
+      <span class="d-setting__label">Idle unload</span>
+      <span class="d-setting__desc">Unloads the model after this long without use.</span>
+    </div>
+    <div class="d-setting__control">
+      <span class="d-select"><select class="d-input" aria-label="Idle unload"><option>1 min</option><option selected>5 min</option><option>15 min</option><option>Never</option></select></span>
+    </div>
+    <details class="d-disclosure d-setting__more">
+      <summary>Details</summary>
+      <div class="d-disclosure__body">Default <span class="d-mono">5 min</span> · Range <span class="d-mono">0 to 120 min</span>, or Never. Lower frees memory sooner. Higher avoids reload waits: about 4 s for this model.</div>
+    </details>
+  </div>
+  <div class="d-setting">
+    <div class="d-setting__text">
+      <span class="d-setting__label">Temperature <span class="d-setting__changed">Changed</span></span>
+      <span class="d-setting__desc">How much the model varies its wording. Lower is steadier.</span>
+    </div>
+    <div class="d-setting__control" style="width: 15rem">
+      <div class="d-slider" style="flex: 1">
+        <input type="range" min="0" max="2" step="0.05" value="0.4" aria-label="Temperature" data-slider style="--d-slider-mark: 35%">
+        <output class="d-slider__value">0.40</output>
+      </div>
+    </div>
+    <details class="d-disclosure d-setting__more">
+      <summary>Details</summary>
+      <div class="d-disclosure__body">Default <span class="d-mono">0.70</span> from the model card (the tick on the track) · Range <span class="d-mono">0 to 2</span>. Sent to the runtime as <span class="d-mono">temperature</span>. Below 0.3 small models repeat themselves more; above 1.0 tool calls break more often.</div>
+    </details>
+  </div>
+  <div class="d-setting">
+    <div class="d-setting__text">
+      <span class="d-setting__label">Auto-compaction</span>
+      <span class="d-setting__desc">Summarises older messages when the context reaches this size.</span>
+    </div>
+    <div class="d-setting__control" style="width: 15rem">
+      <div class="d-slider" style="flex: 1">
+        <input type="range" min="4" max="32" step="1" value="24" aria-label="Auto-compaction threshold in thousand tokens" data-slider data-suffix="k" data-decimals="0" style="--d-slider-mark: 71.4%">
+        <output class="d-slider__value">24k</output>
+      </div>
+    </div>
+    <details class="d-disclosure d-setting__more">
+      <summary>Details</summary>
+      <div class="d-disclosure__body">Default <span class="d-mono">24k tokens</span>, computed from this model (32k context) and your free memory (3.7 GB). Lower keeps answers fast and leaves room for agents; higher keeps more of the conversation word for word.</div>
+    </details>
+  </div>
+  <div class="d-setting">
+    <div class="d-setting__text">
+      <span class="d-setting__label">Lend to agents</span>
+      <span class="d-setting__desc">Lets an agent use the loaded model while the session waits for it.</span>
+    </div>
+    <div class="d-setting__control"><input class="d-switch" type="checkbox" role="switch" checked aria-label="Lend to agents"></div>
+  </div>
+</section>

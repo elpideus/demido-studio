@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-neutral="neutral" data-accent="magenta" data-primary="mono">
+<head>
+<meta charset="utf-8">
+<title>Demido Studio colour specimen</title>
+<!-- Query: ?neutral=neutral|warm|cool &accent=lime|green|mint|cyan|blue|orchid|magenta|orange|yellow|mono &theme=dark|light &primary=mono|accent -->
+<script>
+  (function () {
+    var q = new URLSearchParams(location.search), r = document.documentElement;
+    ['neutral', 'accent', 'theme', 'primary'].forEach(function (k) { if (q.get(k)) r.setAttribute('data-' + k, q.get(k)); });
+  })();
+</script>
+<link rel="stylesheet" href="out/tokens.css">
+<link rel="stylesheet" href="specimen.css">
+</head>
+<body>
+<!--SPRITE-->
+<div class="board">
+
+  <!-- ============ P1: app shell ============ -->
+  <section class="panel shell" aria-label="App shell">
+    <aside class="side">
+      <div class="brand">
+        <svg class="logo" width="26" height="26" role="img" aria-label="Demido Studio"><use href="#i-logo"/></svg>
+        <span class="brand-name">Demido Studio</span>
+      </div>
+      <button class="btn secondary block"><svg class="i"><use href="#i-plus"/></svg><span>New session</span><kbd>Ctrl N</kbd></button>
+
+      <div class="side-label">Sessions</div>
+      <a class="row is-selected"><svg class="i live"><use href="#i-task-running"/></svg><span class="row-t">Refactor the importer</span></a>
+      <a class="row"><svg class="i done"><use href="#i-task-done"/></svg><span class="row-t">Summarise the notes</span></a>
+      <a class="row"><svg class="i warn"><use href="#i-task-needs-input"/></svg><span class="row-t">Rename photos</span><span class="row-m warn-t">Needs you</span></a>
+      <a class="row is-pending"><svg class="i"><use href="#i-task-pending"/></svg><span class="row-t">Nightly backup</span><span class="row-m">02:00</span></a>
+
+      <div class="side-label">Library</div>
+      <a class="row plain"><span class="row-t">Models</span><span class="row-m">14</span></a>
+      <a class="row plain"><span class="row-t">Agents</span><span class="row-m">3</span></a>
+      <a class="row plain"><span class="row-t">Schedules</span><span class="row-m">2</span></a>
+      <a class="row plain"><span class="row-t">Settings</span></a>
+
+      <div class="dock">
+        <div class="dock-top">
+          <svg class="i live"><use href="#i-lamp"/></svg>
+          <span class="dock-name">qwen2.5-coder 7B</span>
+        </div>
+        <div class="dock-meta"><span class="live-t">Loaded</span> · 2 sessions</div>
+        <div class="meter slim" role="meter" aria-label="VRAM" aria-valuenow="64" aria-valuemin="0" aria-valuemax="100"><i style="width:64%"></i></div>
+        <div class="dock-foot"><span>VRAM</span><span class="num">5.1 of 8.0 GB</span></div>
+      </div>
+    </aside>
+
+    <main class="chat">
+      <header class="chat-head">
+        <h1>Refactor the importer</h1>
+        <span class="head-meta num">38 tok/s</span>
+        <button class="btn ghost sm">Stop</button>
+      </header>
+
+      <div class="thread">
+        <div class="msg user">Split importer.py into parsing and validation. Keep the tests green.</div>
+
+        <div class="msg bot">
+          <p>Plan: four steps, about three minutes on this model.</p>
+          <ol class="manual">
+            <li><span>Parsing moves to <code>parse.py</code>.</span></li>
+            <li><span>Validation moves to <code>validate.py</code>.</span></li>
+            <li><span><code>importer.py</code> keeps its public API.</span></li>
+          </ol>
+        </div>
+
+        <div class="tasks" aria-label="Tasks">
+          <div class="tasks-head"><span class="tasks-title">Tasks</span><span class="tasks-count">1 of 4 done</span><span class="tasks-time num">01:42</span></div>
+          <ul class="tl">
+            <li class="t done"><svg class="i"><use href="#i-task-done"/></svg><span>Read importer.py and its tests</span></li>
+            <li class="t run"><svg class="i live"><use href="#i-task-running"/></svg><span>Split parsing from validation</span>
+              <ul class="tl sub">
+                <li class="t done"><svg class="i"><use href="#i-task-done"/></svg><span>Extract parse_row()</span></li>
+                <li class="t run"><svg class="i live"><use href="#i-task-running"/></svg><span>Move validators to validate.py</span></li>
+                <li class="t pend"><svg class="i"><use href="#i-task-pending"/></svg><span>Update imports</span></li>
+              </ul>
+            </li>
+            <li class="t pend"><svg class="i"><use href="#i-task-pending"/></svg><span>Run the test suite</span></li>
+            <li class="t pend"><svg class="i"><use href="#i-task-pending"/></svg><span>Summarise the change</span></li>
+          </ul>
+        </div>
+
+        <div class="msg bot stream"><p>Moving <code>validate_row()</code> and its two helpers<span class="caret"></span></p></div>
+      </div>
+
+      <div class="composer is-focus">
+        <div class="composer-text">Then update the changelog<span class="tcaret"></span></div>
+        <div class="composer-bar">
+          <button class="btn ghost icon" aria-label="Attach"><svg class="i"><use href="#i-plus"/></svg></button>
+          <button class="btn ghost sm">qwen2.5-coder 7B <svg class="i"><use href="#i-chev"/></svg></button>
+          <span class="grow"></span>
+          <span class="hint">Enter to send</span>
+          <button class="btn primary">Send <svg class="i"><use href="#i-up"/></svg></button>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ============ P2: models and telemetry ============ -->
+  <section class="panel pad" aria-label="Models and telemetry">
+    <h2 class="sec">Models</h2>
+    <div class="card model is-live">
+      <svg class="i lg live"><use href="#i-lamp"/></svg>
+      <div class="model-main">
+        <div class="model-name">qwen2.5-coder <span class="model-tag">7B · Q4_K_M · 4.7 GB</span></div>
+        <div class="model-meta"><span class="badge live"><svg class="i xs"><use href="#i-dot"/></svg>Loaded</span><span>5.1 GB VRAM · lent to 2 sessions · unloads when idle for 5 min</span></div>
+      </div>
+      <button class="btn secondary">Unload</button>
+    </div>
+    <div class="card model">
+      <svg class="i lg idle"><use href="#i-ring"/></svg>
+      <div class="model-main">
+        <div class="model-name">phi-4-mini <span class="model-tag">3.8B · Q5_K_M · 2.8 GB</span></div>
+        <div class="model-meta"><span class="badge">On disk</span><span>Loads in about 3 s when a session needs it</span></div>
+      </div>
+      <button class="btn secondary">Load</button>
+    </div>
+
+    <h2 class="sec">Usage</h2>
+    <div class="card usage">
+      <div class="use-row">
+        <div class="use-top"><span class="use-name">VRAM</span><span class="use-val num">5.1 of 8.0 GB</span></div>
+        <div class="meter" role="meter" aria-label="VRAM" aria-valuenow="64" aria-valuemin="0" aria-valuemax="100"><i style="width:64%"></i></div>
+      </div>
+      <div class="use-row is-caution">
+        <div class="use-top"><span class="use-name">Context</span><span class="use-flag"><svg class="i"><use href="#i-caution"/></svg>Near limit</span><span class="use-val num">7,372 of 8,192 tokens</span></div>
+        <div class="meter" role="meter" aria-label="Context" aria-valuenow="90" aria-valuemin="0" aria-valuemax="100"><i style="width:90%"></i></div>
+      </div>
+    </div>
+
+    <h2 class="sec">Tokens per second <span class="sec-sub">last 60 s</span></h2>
+    <div class="card chart">
+      <div class="legend" id="legend"></div>
+      <svg id="chart" viewBox="0 0 624 150" width="624" height="150" role="img" aria-label="Line chart: tokens per second for four models over the last 60 seconds"></svg>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+
+    <h2 class="sec">Menu and tooltip <span class="sec-sub">overlay surface</span></h2>
+    <div class="over-row">
+      <div class="menu" role="menu">
+        <div class="mi" role="menuitem">Load now<kbd>Ctrl L</kbd></div>
+        <div class="mi is-hover" role="menuitem">Lend to this session<kbd>Ctrl B</kbd></div>
+        <div class="mi is-disabled" role="menuitem" aria-disabled="true">Unload<span class="mi-note">in use</span></div>
+        <div class="msep"></div>
+        <div class="mi is-danger" role="menuitem">Delete from disk</div>
+      </div>
+      <div class="over-col">
+        <div class="tooltip" role="tooltip">Unloads after 5 min idle <kbd>U</kbd></div>
+        <div class="toast" role="status"><svg class="i live"><use href="#i-lamp"/></svg><div><strong>qwen2.5-coder is loaded</strong><span>2.9 s · 5.1 GB VRAM</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ P3: controls ============ -->
+  <section class="panel pad" aria-label="Controls">
+    <h2 class="sec">Buttons</h2>
+    <div class="grid-btn">
+      <span></span><span class="col-h">Rest</span><span class="col-h">Hover</span><span class="col-h">Pressed</span><span class="col-h">Disabled</span>
+
+      <span class="row-h">Primary, mono <em class="inuse mono-on">in use</em></span>
+      <button class="btn pmono">Load model</button><button class="btn pmono is-hover">Load model</button><button class="btn pmono is-pressed">Load model</button><button class="btn pmono" disabled>Load model</button>
+
+      <span class="row-h">Primary, accent <em class="inuse accent-on">in use</em></span>
+      <button class="btn paccent">Load model</button><button class="btn paccent is-hover">Load model</button><button class="btn paccent is-pressed">Load model</button><button class="btn paccent" disabled>Load model</button>
+
+      <span class="row-h">Secondary</span>
+      <button class="btn secondary">Unload</button><button class="btn secondary is-hover">Unload</button><button class="btn secondary is-pressed">Unload</button><button class="btn secondary" disabled>Unload</button>
+
+      <span class="row-h">Ghost</span>
+      <button class="btn ghost">Cancel</button><button class="btn ghost is-hover">Cancel</button><button class="btn ghost is-pressed">Cancel</button><button class="btn ghost" disabled>Cancel</button>
+
+      <span class="row-h">Destructive</span>
+      <button class="btn danger">Delete model</button><button class="btn danger is-hover">Delete model</button><button class="btn danger is-pressed">Delete model</button><button class="btn danger" disabled>Delete model</button>
+    </div>
+
+    <h2 class="sec">Input</h2>
+    <div class="grid-3">
+      <label class="field"><span class="field-l">Rest</span><input class="input" value="" placeholder="Search models"></label>
+      <label class="field"><span class="field-l">Focus</span><input class="input is-focus" value="qwen2.5"></label>
+      <label class="field"><span class="field-l">Error</span><input class="input is-invalid" value="8193" aria-invalid="true"><span class="field-msg bad"><svg class="i"><use href="#i-danger"/></svg>Largest context for this model is 8,192.</span></label>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h2 class="sec">Toggle</h2>
+        <div class="toggles">
+          <label class="tg"><span class="switch" role="switch" aria-checked="false"><i></i></span>Off</label>
+          <label class="tg"><span class="switch is-on" role="switch" aria-checked="true"><i></i></span>On</label>
+          <label class="tg"><span class="switch is-on is-focus" role="switch" aria-checked="true"><i></i></span>Focus</label>
+          <label class="tg is-disabled"><span class="switch" role="switch" aria-checked="false" aria-disabled="true"><i></i></span>Disabled</label>
+        </div>
+      </div>
+      <div>
+        <h2 class="sec">Segmented control</h2>
+        <div class="seg" role="tablist"><button role="tab" aria-selected="true" class="is-on">Chat</button><button role="tab">Agent</button><button role="tab">Schedule</button></div>
+      </div>
+    </div>
+
+    <h2 class="sec">Badges</h2>
+    <div class="badges">
+      <span class="badge live"><svg class="i xs"><use href="#i-dot"/></svg>Loaded</span>
+      <span class="badge live"><svg class="i xs"><use href="#i-task-running"/></svg>Generating</span>
+      <span class="badge">On disk</span>
+      <span class="badge ok"><svg class="i xs"><use href="#i-task-done"/></svg>Verified</span>
+      <span class="badge warn"><svg class="i xs"><use href="#i-caution"/></svg>Low VRAM</span>
+      <span class="badge bad"><svg class="i xs"><use href="#i-danger"/></svg>Failed</span>
+      <span class="badge info"><svg class="i xs"><use href="#i-info"/></svg>Update ready</span>
+    </div>
+
+    <h2 class="sec">Task states</h2>
+    <div class="states">
+      <span><svg class="i"><use href="#i-task-pending"/></svg>Pending</span>
+      <span class="s-run"><svg class="i live"><use href="#i-task-running"/></svg>In progress</span>
+      <span class="s-done"><svg class="i"><use href="#i-task-done"/></svg>Done</span>
+      <span class="s-warn"><svg class="i warn"><use href="#i-task-needs-input"/></svg>Needs you</span>
+      <span class="s-bad"><svg class="i bad"><use href="#i-task-failed"/></svg>Failed</span>
+      <span><svg class="i"><use href="#i-task-skipped"/></svg>Skipped</span>
+      <span class="s-done"><svg class="i"><use href="#i-task-delegated"/></svg>With an agent</span>
+    </div>
+
+    <h2 class="sec">Text and borders on the four surfaces</h2>
+    <div class="surfaces">
+      <div class="surf s-sunken"><b>Sunken</b><span class="x1">Primary text</span><span class="x2">Secondary text</span><span class="x3">Tertiary text</span><span class="x4">Disabled</span><i class="b-hair"></i><i class="b-strong"></i></div>
+      <div class="surf s-bg"><b>Background</b><span class="x1">Primary text</span><span class="x2">Secondary text</span><span class="x3">Tertiary text</span><span class="x4">Disabled</span><i class="b-hair"></i><i class="b-strong"></i></div>
+      <div class="surf s-raised"><b>Raised</b><span class="x1">Primary text</span><span class="x2">Secondary text</span><span class="x3">Tertiary text</span><span class="x4">Disabled</span><i class="b-hair"></i><i class="b-strong"></i></div>
+      <div class="surf s-overlay"><b>Overlay</b><span class="x1">Primary text</span><span class="x2">Secondary text</span><span class="x3">Tertiary text</span><span class="x4">Disabled</span><i class="b-hair"></i><i class="b-strong"></i></div>
+    </div>
+  </section>
+
+  <!-- ============ P4: banners, app icon, swatches ============ -->
+  <section class="panel pad" aria-label="Banners, app icon and swatches">
+    <h2 class="sec">Banners</h2>
+    <div class="banner warn" role="status">
+      <svg class="i"><use href="#i-caution"/></svg>
+      <div class="banner-body"><strong>Context is 90% full</strong><span>Older messages are summarised at 8,192 tokens.</span></div>
+      <button class="btn secondary sm">Compact now</button>
+    </div>
+    <div class="banner bad" role="alert">
+      <svg class="i"><use href="#i-danger"/></svg>
+      <div class="banner-body"><strong>Model failed to load</strong><span>Not enough VRAM: needs 9.2 GB, 8.0 GB free.</span></div>
+      <button class="btn secondary sm">Pick a smaller quant</button>
+    </div>
+    <div class="banner-pair">
+      <div class="banner ok compact" role="status"><svg class="i"><use href="#i-task-done"/></svg><div class="banner-body"><strong>Checksum verified</strong></div></div>
+      <div class="banner info compact" role="status"><svg class="i"><use href="#i-info"/></svg><div class="banner-body"><strong>Version 0.4.1 is ready</strong></div></div>
+    </div>
+
+    <h2 class="sec">App icon</h2>
+    <div class="tiles">
+      <figure><div class="tile t-black"><svg width="74" height="74"><use href="#i-logo"/></svg></div><figcaption>Near-black</figcaption></figure>
+      <figure><div class="tile t-accent"><svg width="74" height="74"><use href="#i-logo"/></svg></div><figcaption>Accent</figcaption></figure>
+      <figure><div class="tile t-white"><svg width="74" height="74"><use href="#i-logo"/></svg></div><figcaption>White</figcaption></figure>
+      <figure><div class="tile t-small t-black"><svg width="22" height="22"><use href="#i-logo"/></svg></div><div class="tile t-small t-accent"><svg width="22" height="22"><use href="#i-logo"/></svg></div><div class="tile t-small t-white"><svg width="22" height="22"><use href="#i-logo"/></svg></div><figcaption>32 px</figcaption></figure>
+    </div>
+
+    <h2 class="sec">Neutral ramp <span class="sec-sub" id="cap-neutral"></span></h2>
+    <div class="ramp" id="ramp"></div>
+
+    <h2 class="sec">Accent <span class="sec-sub" id="cap-accent"></span></h2>
+    <div class="sw-row" id="sw-accent"></div>
+
+    <h2 class="sec">Signals</h2>
+    <div class="sw-row" id="sw-sem"></div>
+
+    <div class="stamp" id="stamp"></div>
+  </section>
+</div>
+
+<script src="out/meta.js"></script>
+<script src="specimen.js"></script>
+</body>
+</html>

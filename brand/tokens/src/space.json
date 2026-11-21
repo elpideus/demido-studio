@@ -1,0 +1,61 @@
+{
+  "space": {
+    "$type": "dimension",
+    "$description": "4 px grid with 2 px half steps. The name is the size in px at 100% UI scale. Values are rem so the whole UI follows the user's text-size setting.",
+    "0": { "$value": "0" },
+    "1": { "$value": "0.0625rem", "$description": "Hairline offsets only." },
+    "2": { "$value": "0.125rem" },
+    "4": { "$value": "0.25rem" },
+    "6": { "$value": "0.375rem" },
+    "8": { "$value": "0.5rem" },
+    "10": { "$value": "0.625rem" },
+    "12": { "$value": "0.75rem" },
+    "16": { "$value": "1rem" },
+    "20": { "$value": "1.25rem" },
+    "24": { "$value": "1.5rem" },
+    "32": { "$value": "2rem" },
+    "40": { "$value": "2.5rem" },
+    "48": { "$value": "3rem" },
+    "64": { "$value": "4rem" },
+    "80": { "$value": "5rem" },
+    "96": { "$value": "6rem" },
+    "128": { "$value": "8rem" }
+  },
+  "size": {
+    "$type": "dimension",
+    "control": {
+      "sm": { "$value": "1.5rem", "$description": "24 px. Dense toolbars, inline chips." },
+      "md": { "$value": "1.75rem", "$description": "28 px. Default desktop control height." },
+      "lg": { "$value": "2.25rem", "$description": "36 px. Primary actions, composer." },
+      "touch": { "$value": "2.75rem", "$description": "44 px. Minimum on touch screens." }
+    },
+    "icon": {
+      "xs": { "$value": "0.75rem", "$description": "12 px. Inline status glyphs in dense rows." },
+      "sm": { "$value": "0.875rem", "$description": "14 px." },
+      "md": { "$value": "1rem", "$description": "16 px. Default." },
+      "lg": { "$value": "1.25rem", "$description": "20 px." },
+      "xl": { "$value": "1.5rem", "$description": "24 px." }
+    },
+    "hit": { "$value": "1.75rem", "$description": "Smallest pointer target. Anything smaller gets invisible padding up to this." },
+    "sidebar": { "$value": "16.5rem", "$description": "264 px. Default session sidebar width; user-resizable." },
+    "measure": { "$value": "44rem", "$description": "704 px. Maximum line length for chat and reading text." },
+    "inspector": { "$value": "22.5rem", "$description": "360 px. Right-hand detail panel." }
+  },
+  "breakpoint": {
+    "$type": "dimension",
+    "$description": "Container widths, not device names. Layouts change when the content stops fitting.",
+    "compact": { "$value": "40rem" },
+    "medium": { "$value": "60rem" },
+    "wide": { "$value": "80rem" }
+  },
+  "z": {
+    "$type": "number",
+    "base": { "$value": 0 },
+    "sticky": { "$value": 100 },
+    "dropdown": { "$value": 1000 },
+    "scrim": { "$value": 1100 },
+    "dialog": { "$value": 1200 },
+    "toast": { "$value": 1300 },
+    "tooltip": { "$value": 1400 }
+  }
+}

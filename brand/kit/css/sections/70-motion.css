@@ -1,0 +1,145 @@
+.kit-motion__label {
+  margin-block-end: var(--d-space-10);
+  color: var(--d-color-text-tertiary);
+  font-size: var(--d-type-micro-size);
+  font-weight: var(--d-type-micro-weight);
+  letter-spacing: var(--d-type-micro-tracking);
+  text-transform: uppercase;
+}
+.kit-motion__rules {
+  display: grid;
+  gap: var(--d-space-6);
+  margin: 0;
+  padding-inline-start: 1.1em;
+  list-style: disc;
+}
+.kit-motion__rules li::marker {
+  color: var(--d-color-text-tertiary);
+}
+
+.kit-motion__tracks {
+  display: grid;
+  gap: var(--d-space-6);
+}
+.kit-motion__track {
+  display: grid;
+  grid-template-columns: 13rem minmax(4rem, 1fr) 13rem;
+  align-items: center;
+  gap: var(--d-space-16);
+}
+.kit-motion__track .kit-token {
+  justify-self: start;
+}
+.kit-motion__track small {
+  color: var(--d-color-text-tertiary);
+  font-size: var(--d-type-caption-size);
+}
+.kit-motion__lane {
+  position: relative;
+  display: block;
+  height: 1.25rem;
+  border-radius: var(--d-radius-full);
+  background: var(--d-color-bg-sunken);
+  box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+}
+.kit-motion__lane i {
+  position: absolute;
+  inset: 0.1875rem auto 0.1875rem 0.1875rem;
+  aspect-ratio: 1;
+  border-radius: var(--d-radius-full);
+  background: var(--d-color-text-primary);
+  /* left animates the travel in percent of the lane; a specimen, not a pattern for app code */
+  left: 0.1875rem;
+  transition: left var(--t-dur) var(--t-ease);
+}
+[data-motion-players][data-on] .kit-motion__lane i {
+  left: calc(100% - 1.0625rem);
+}
+
+/* ---------- spring stage ---------- */
+.kit-motion__stage {
+  position: relative;
+  height: 9rem;
+  padding: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.kit-motion__rail {
+  position: absolute;
+  inset: 50% var(--d-space-48) auto;
+  display: flex;
+  justify-content: space-between;
+  height: 0;
+  border-block-start: var(--d-stroke-hairline) dashed var(--d-color-border-strong);
+}
+.kit-motion__rail i {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-block-start: -0.25rem;
+  border-radius: var(--d-radius-full);
+  background: var(--d-color-border-strong);
+}
+.kit-motion__card {
+  position: absolute;
+  inset-block-start: calc(50% - 1.5rem);
+  inset-inline-start: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--d-space-8);
+  height: 3rem;
+  padding-inline: var(--d-space-16);
+  border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+  border-radius: var(--d-radius-lg);
+  background: var(--d-color-bg-overlay);
+  box-shadow: var(--d-shadow-2);
+  font-weight: var(--d-font-weight-medium);
+  white-space: nowrap;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  will-change: transform;
+}
+.kit-motion__card[data-dragging] {
+  cursor: grabbing;
+}
+.kit-motion__card .d-glyph {
+  color: var(--d-color-accent-base);
+}
+
+/* ---------- signature ---------- */
+.kit-motion__sig {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: var(--d-space-6);
+}
+.kit-motion__sig-stage {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-block-end: var(--d-space-6);
+  border-radius: var(--d-radius-lg);
+  background: var(--d-color-bg-sunken);
+}
+.kit-motion__sig-stage .d-glyph {
+  --d-glyph-size: 1.75rem;
+}
+.kit-motion__sig strong {
+  font-weight: var(--d-font-weight-semibold);
+}
+.kit-motion__sig small {
+  color: var(--d-color-text-secondary);
+  font-size: var(--d-type-caption-size);
+}
+.kit-motion__sig .d-button {
+  margin-block-start: var(--d-space-6);
+}
+
+@media (max-width: 48rem) {
+  .kit-motion__track {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--d-space-4);
+    padding-block: var(--d-space-6);
+  }
+}

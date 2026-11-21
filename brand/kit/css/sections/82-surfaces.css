@@ -1,0 +1,25 @@
+/* Fact lists inside the specimen cards: label on the left, value in mono on the right. */
+.kit-facts {
+  display: grid;
+  gap: var(--d-space-4);
+  margin: 0;
+}
+.kit-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--d-space-12);
+}
+.kit-facts dt {
+  color: var(--d-color-text-secondary);
+}
+.kit-facts dd {
+  margin: 0;
+  font-family: var(--d-font-family-mono);
+  font-size: var(--d-type-code-size);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.d-card__head > .d-icon {
+  margin-block-start: 0.125rem;
+  color: var(--d-color-text-secondary);
+}

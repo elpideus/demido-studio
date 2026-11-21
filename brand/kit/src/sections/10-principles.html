@@ -1,0 +1,129 @@
+<!-- id: principles | title: Principles | group: Brand -->
+<div class="kit-head">
+  <p class="kit-eyebrow">01 · Brand</p>
+  <h2 class="kit-title" id="principles-title">Five rules everything follows</h2>
+  <p class="kit-lead">Demido is calm, exact and open about what it is doing. When a design question comes up, these decide it.</p>
+</div>
+
+<ol class="kit-principles">
+  <li class="kit-principle">
+    <div class="kit-principle__text">
+      <span class="kit-principle__n">1</span>
+      <h3 class="kit-principle__name">Quiet until it matters</h3>
+      <p class="kit-principle__rule">The interface is neutral by default. Colour is a signal, never decoration.</p>
+      <ul class="kit-principle__means">
+        <li>One accent colour, with one meaning: a model is awake here.</li>
+        <li>Caution and failure colours appear only while that state is true.</li>
+        <li>Finishing something is normal, so "done" stays neutral.</li>
+      </ul>
+    </div>
+    <div class="kit-frame kit-principle__demo" data-quiet-demo data-state="normal">
+      <div class="d-segmented d-segmented--sm" role="radiogroup" aria-label="Example state">
+        <label><input type="radio" name="kit-quiet" value="normal" checked><span>All normal</span></label>
+        <label><input type="radio" name="kit-quiet" value="attention"><span>Needs attention</span></label>
+      </div>
+      <ul class="d-tasks">
+        <li class="d-task" data-state="done"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Morning email report</span><span class="d-task__meta">07:00</span></div></li>
+        <li class="d-task" data-state="done" data-when-attention="needs-input"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label" data-normal="Sweater price check" data-attention="Sweater price check: allow the browser?">Sweater price check</span><span class="d-task__meta">07:02</span></div></li>
+        <li class="d-task" data-state="done" data-when-attention="failed"><div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label" data-normal="Tool updates" data-attention="Tool updates: 1 failed its audit">Tool updates</span><span class="d-task__meta">07:05</span></div></li>
+      </ul>
+    </div>
+  </li>
+
+  <li class="kit-principle">
+    <div class="kit-principle__text">
+      <span class="kit-principle__n">2</span>
+      <h3 class="kit-principle__name">Nothing hidden</h3>
+      <p class="kit-principle__rule">Detail is one step away, never removed.</p>
+      <ul class="kit-principle__means">
+        <li>Every summary opens to the full thing: the raw output, the exact prompt, the real request.</li>
+        <li>Shortened content says how much it left out.</li>
+        <li>Every setting is reachable, and a changed one is marked.</li>
+      </ul>
+    </div>
+    <div class="kit-frame kit-principle__demo">
+      <details class="d-step" data-state="done">
+        <summary><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-step__what">Ran <code>git status</code></span><span class="d-step__meta">4 of 61 lines</span></summary>
+        <div class="d-step__body">
+          <pre class="d-code"><code>branch   main, 2 ahead
+changed  src/parser.rs  src/lexer.rs
+new      tests/quotes.rs
+(57 untracked build files left out)</code></pre>
+          <button class="d-button d-button--sm" type="button">Show full output (61 lines)</button>
+        </div>
+      </details>
+      <details class="d-disclosure">
+        <summary>What the model was told</summary>
+        <div class="d-disclosure__body"><pre class="d-code"><code>Run shell with shell.run.
+Read output → then act.
+Output long → ask for full. Never guess.</code></pre></div>
+      </details>
+    </div>
+  </li>
+
+  <li class="kit-principle">
+    <div class="kit-principle__text">
+      <span class="kit-principle__n">3</span>
+      <h3 class="kit-principle__name">Read in one pass</h3>
+      <p class="kit-principle__rule">Written like an aircraft manual, for attention that is short and valuable.</p>
+      <ul class="kit-principle__means">
+        <li>The answer comes first. Then numbered steps, one action each.</li>
+        <li>Exact values with units. No filler, no praise, no apology.</li>
+        <li>Three signal words, used exactly: NOTE, CAUTION, WARNING.</li>
+      </ul>
+    </div>
+    <div class="kit-frame kit-principle__demo kit-principle__pair">
+      <div>
+        <p class="kit-principle__tag">Not this</p>
+        <p class="d-text-tertiary">Great question! It looks like the model might be a little too large for your graphics card, so you may run into some slowdowns. You might want to consider a smaller quantization.</p>
+      </div>
+      <div>
+        <p class="kit-principle__tag">This</p>
+        <p><strong>This model does not fit your GPU.</strong> It needs 9.8 GB. You have 7.6 GB free.</p>
+        <ol class="kit-principle__steps"><li>Pick <code>Q4_K_M</code> (6.1 GB).</li><li>Or keep <code>Q6_K</code> at about 9 tokens/s.</li></ol>
+      </div>
+    </div>
+  </li>
+
+  <li class="kit-principle">
+    <div class="kit-principle__text">
+      <span class="kit-principle__n">4</span>
+      <h3 class="kit-principle__name">State is always visible</h3>
+      <p class="kit-principle__rule">You never have to ask what is loaded, running or waiting.</p>
+      <ul class="kit-principle__means">
+        <li>Circles are work. Eyes are models. The two never mix.</li>
+        <li>Loading, lending and unloading are shown as they happen.</li>
+        <li>Unfinished parts of the app say "Not built yet".</li>
+      </ul>
+    </div>
+    <div class="kit-frame kit-principle__demo">
+      <div class="kit-principle__status">
+        <span><span class="d-glyph" data-glyph="model-loaded" data-busy role="img" aria-label="Generating" style="color: var(--d-color-accent-base)"></span>Qwen3 4B, generating</span>
+        <span><span class="d-glyph" data-glyph="task-running" role="img" aria-label="In progress"></span>3 of 5 tasks</span>
+        <span><span class="d-glyph" data-glyph="task-delegated" role="img" aria-label="With an agent"></span>1 agent</span>
+        <span><span class="d-glyph" data-glyph="model-unloaded" role="img" aria-label="Unloaded"></span>Voice, asleep</span>
+      </div>
+      <p class="kit-caption" style="margin: 0">A status line built from the two glyph families.</p>
+    </div>
+  </li>
+
+  <li class="kit-principle">
+    <div class="kit-principle__text">
+      <span class="kit-principle__n">5</span>
+      <h3 class="kit-principle__name">Motion explains</h3>
+      <p class="kit-principle__rule">Movement shows cause and effect. It never decorates and never makes you wait.</p>
+      <ul class="kit-principle__means">
+        <li>Controls answer on press, not on release.</li>
+        <li>Anything you can grab can be grabbed again mid-move.</li>
+        <li>Things you do all day, and anything from the keyboard, do not animate.</li>
+      </ul>
+    </div>
+    <div class="kit-frame kit-principle__demo">
+      <div class="kit-row">
+        <button class="d-modelchip" type="button" data-state="unloaded" data-wake-demo><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Gemma 3n E4B</span></button>
+        <button class="d-button d-button--sm" type="button" data-wake-btn>Load</button>
+      </div>
+      <p class="kit-caption" style="margin: 0">Press Load. A line travels round the eye while it loads, then the eye opens: the same move as the logo.</p>
+    </div>
+  </li>
+</ol>

@@ -1,0 +1,105 @@
+<!-- id: space | title: Space and shape | group: Foundations -->
+<div class="kit-head">
+  <p class="kit-eyebrow">05 · Foundations</p>
+  <h2 class="kit-title" id="space-title">Space and shape</h2>
+  <p class="kit-lead">A 4 px grid, soft corners that follow the logo's roundness, hairlines instead of boxes. Sizes are in rem, so the whole interface follows your text-size setting.</p>
+</div>
+
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame">
+    <p class="kit-space__label">Spacing · the name is the size in px</p>
+    <ul class="kit-space__scale">
+      <li style="--s: var(--d-space-2)"><i></i><button class="kit-token" type="button">--d-space-2</button></li>
+      <li style="--s: var(--d-space-4)"><i></i><button class="kit-token" type="button">--d-space-4</button></li>
+      <li style="--s: var(--d-space-6)"><i></i><button class="kit-token" type="button">--d-space-6</button></li>
+      <li style="--s: var(--d-space-8)"><i></i><button class="kit-token" type="button">--d-space-8</button></li>
+      <li style="--s: var(--d-space-12)"><i></i><button class="kit-token" type="button">--d-space-12</button></li>
+      <li style="--s: var(--d-space-16)"><i></i><button class="kit-token" type="button">--d-space-16</button></li>
+      <li style="--s: var(--d-space-24)"><i></i><button class="kit-token" type="button">--d-space-24</button></li>
+      <li style="--s: var(--d-space-32)"><i></i><button class="kit-token" type="button">--d-space-32</button></li>
+      <li style="--s: var(--d-space-48)"><i></i><button class="kit-token" type="button">--d-space-48</button></li>
+      <li style="--s: var(--d-space-64)"><i></i><button class="kit-token" type="button">--d-space-64</button></li>
+      <li style="--s: var(--d-space-96)"><i></i><button class="kit-token" type="button">--d-space-96</button></li>
+    </ul>
+    <p class="kit-caption">Inside a control: 4 to 12. Between related things: 8 to 16. Between groups: 24 to 48. Between sections: 64 to 96.</p>
+  </div>
+
+  <div class="kit-frame kit-stack">
+    <p class="kit-space__label">Corners</p>
+    <div class="kit-space__radii">
+      <span style="--r: var(--d-radius-xs)"><i></i>xs · 4</span>
+      <span style="--r: var(--d-radius-sm)"><i></i>sm · 6</span>
+      <span style="--r: var(--d-radius-md)"><i></i>md · 8</span>
+      <span style="--r: var(--d-radius-lg)"><i></i>lg · 12</span>
+      <span style="--r: var(--d-radius-xl)"><i></i>xl · 16</span>
+      <span style="--r: var(--d-radius-2xl)"><i></i>2xl · 24</span>
+    </div>
+    <p class="kit-space__label" style="margin-block-start: var(--d-space-8)">Nested corners: inner = outer − padding</p>
+    <div class="kit-row" style="gap: var(--d-space-24)">
+      <div class="kit-rule" data-kind="do">
+        <div class="kit-space__nest" style="--outer: var(--d-radius-xl); --inner: calc(var(--d-radius-xl) - var(--d-space-8))"><i></i></div>
+        <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span>16 outside, 8 inside</span>
+      </div>
+      <div class="kit-rule" data-kind="dont">
+        <div class="kit-space__nest" style="--outer: var(--d-radius-xl); --inner: var(--d-radius-xl)"><i></i></div>
+        <span class="kit-rule__label"><span class="d-glyph" data-glyph="task-failed" aria-hidden="true"></span>Same radius twice</span>
+      </div>
+    </div>
+    <p class="kit-caption" style="margin: 0">Where the engine supports it, corners are continuous (<code>corner-shape: squircle</code>), like the curves of the mark.</p>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Depth</h3>
+  <p class="kit-sub__text">Surfaces separate by lightness and a hairline first. Shadow is only for things that float above the app.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-frame--canvas kit-space__depth" data-theme="dark">
+    <div style="background: var(--d-color-bg-sunken)">Sunken</div>
+    <div style="background: var(--d-color-bg-surface); box-shadow: var(--d-shadow-1)">Surface · shadow 1</div>
+    <div style="background: var(--d-color-bg-overlay); box-shadow: var(--d-shadow-2)">Overlay · shadow 2</div>
+    <div style="background: var(--d-color-bg-overlay); box-shadow: var(--d-shadow-3)">Dialog · shadow 3</div>
+  </div>
+  <div class="kit-frame kit-frame--canvas kit-space__depth" data-theme="light">
+    <div style="background: var(--d-color-bg-sunken)">Sunken</div>
+    <div style="background: var(--d-color-bg-surface); box-shadow: var(--d-shadow-1)">Surface · shadow 1</div>
+    <div style="background: var(--d-color-bg-overlay); box-shadow: var(--d-shadow-2)">Overlay · shadow 2</div>
+    <div style="background: var(--d-color-bg-overlay); box-shadow: var(--d-shadow-3)">Dialog · shadow 3</div>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Material</h3>
+  <p class="kit-sub__text">Bars that stay in place are translucent, and content scrolls underneath. Scroll the list. With "reduce transparency" on in your system, the bar becomes solid.</p>
+</div>
+<div class="kit-frame kit-frame--flush kit-space__material">
+  <div class="kit-space__bar"><span class="d-type-headline">Sessions</span><button class="d-button d-button--ghost d-button--sm" type="button">Filter</button></div>
+  <ul class="d-list">
+    <li><span class="d-row"><span class="d-row__lead"><span class="d-glyph" data-glyph="task-running" aria-hidden="true"></span></span><span class="d-row__text"><span class="d-row__title">Sweater price watch</span><span class="d-row__sub">shopping · monitor</span></span><span class="d-row__meta">now</span></span></li>
+    <li><span class="d-row"><span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span></span><span class="d-row__text"><span class="d-row__title">Morning email report</span><span class="d-row__sub">email · schedule</span></span><span class="d-row__meta">07:00</span></span></li>
+    <li><span class="d-row"><span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span></span><span class="d-row__text"><span class="d-row__title">Refactor the auth module</span><span class="d-row__sub">code · rust</span></span><span class="d-row__meta">2 h</span></span></li>
+    <li><span class="d-row"><span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span></span><span class="d-row__text"><span class="d-row__title">Quantization notes</span><span class="d-row__sub">models · notes</span></span><span class="d-row__meta">Tue</span></span></li>
+    <li><span class="d-row"><span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span></span><span class="d-row__text"><span class="d-row__title">Lisbon in March</span><span class="d-row__sub">travel</span></span><span class="d-row__meta">Mon</span></span></li>
+    <li><span class="d-row"><span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span></span><span class="d-row__text"><span class="d-row__title">GPU driver update</span><span class="d-row__sub">system</span></span><span class="d-row__meta">12 Nov</span></span></li>
+    <li><span class="d-row"><span class="d-row__lead"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span></span><span class="d-row__text"><span class="d-row__title">Tax receipts, sorted</span><span class="d-row__sub">files</span></span><span class="d-row__meta">9 Nov</span></span></li>
+  </ul>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Sizes</h3>
+</div>
+<div class="kit-frame">
+  <table class="kit-table">
+    <thead><tr><th>Token</th><th>Size</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td><button class="kit-token" type="button">--d-size-control-sm</button></td><td class="d-mono">24 px</td><td>Dense toolbars, chips</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-size-control-md</button></td><td class="d-mono">28 px</td><td>Default control height</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-size-control-lg</button></td><td class="d-mono">36 px</td><td>Primary actions</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-size-hit</button></td><td class="d-mono">28 px</td><td>Smallest pointer target; 44 px on touch screens</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-size-sidebar</button></td><td class="d-mono">264 px</td><td>Session sidebar, resizable</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-size-measure</button></td><td class="d-mono">704 px</td><td>Longest line of reading text</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-stroke-hairline</button></td><td class="d-mono">1 px</td><td>Every divider and border</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-stroke-icon</button></td><td class="d-mono">1.5 px</td><td>Icon strokes, round caps and joins</td></tr>
+    </tbody>
+  </table>
+</div>

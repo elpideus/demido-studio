@@ -1,0 +1,181 @@
+/* Conversation: messages, answer text, code.
+   <article class="d-message" data-from="user"><div class="d-message__body">Watch this sweater's price.</div></article>
+   <article class="d-message" data-from="assistant">
+     <div class="d-message__body d-prose"> …rendered markdown… </div>
+     <div class="d-message__actions"> copy · read aloud · retry (ghost icon buttons) </div>
+   </article>
+   The user speaks in a quiet bubble. The assistant has no bubble: its answer is the page.
+   .d-prose styles rendered markdown in the "reading" text style, capped at --d-size-measure.
+   <pre class="d-code"><code>…</code></pre> with an optional header:
+     <figure class="d-codeblock"><figcaption><span>bash</span><button class="d-button d-button--ghost d-button--sm">Copy</button></figcaption><pre class="d-code">…</pre></figure> */
+
+@layer demido.components {
+  .d-message {
+    display: grid;
+    gap: var(--d-space-6);
+    min-width: 0;
+  }
+  .d-message[data-from="user"] {
+    justify-items: end;
+  }
+  .d-message[data-from="user"] > .d-message__body {
+    max-width: min(34rem, 85%);
+    padding: var(--d-space-8) var(--d-space-12);
+    border-radius: var(--d-radius-xl);
+    border-end-end-radius: var(--d-radius-xs);
+    background: var(--d-color-fill-control);
+    font-size: var(--d-type-reading-size);
+    line-height: var(--d-type-reading-leading);
+    white-space: pre-wrap;
+  }
+  .d-message[data-from="assistant"] > .d-message__body {
+    max-width: var(--d-size-measure);
+  }
+  .d-message__actions {
+    display: flex;
+    gap: var(--d-space-2);
+    margin-inline-start: calc(-1 * var(--d-space-6));
+    opacity: 0;
+    transition: opacity var(--d-duration-fast) var(--d-ease-standard);
+  }
+  /* Shown on hover, and always when anything inside has focus or on touch screens: never unreachable. */
+  .d-message:hover > .d-message__actions,
+  .d-message:focus-within > .d-message__actions {
+    opacity: 1;
+  }
+  @media (hover: none) {
+    .d-message__actions {
+      opacity: 1;
+    }
+  }
+
+  /* ---------- rendered markdown ---------- */
+  .d-prose {
+    font-size: var(--d-type-reading-size);
+    line-height: var(--d-type-reading-leading);
+    letter-spacing: var(--d-type-reading-tracking);
+    overflow-wrap: anywhere;
+  }
+  .d-prose > * + * {
+    margin-block-start: 0.75em;
+  }
+  .d-prose :is(h1, h2, h3, h4) {
+    margin-block-start: 1.4em;
+    font-size: var(--d-type-headline-size);
+    line-height: var(--d-type-headline-leading);
+    letter-spacing: var(--d-type-headline-tracking);
+    font-weight: var(--d-type-headline-weight);
+  }
+  .d-prose :is(h1, h2) {
+    font-size: var(--d-type-title-3-size);
+    line-height: var(--d-type-title-3-leading);
+    letter-spacing: var(--d-type-title-3-tracking);
+  }
+  .d-prose > :first-child {
+    margin-block-start: 0;
+  }
+  .d-prose strong {
+    font-weight: var(--d-font-weight-semibold);
+  }
+  .d-prose :is(ul, ol) {
+    display: grid;
+    gap: 0.3em;
+    padding-inline-start: 1.5em;
+  }
+  .d-prose ol {
+    list-style: decimal;
+  }
+  .d-prose ul {
+    list-style: disc;
+  }
+  .d-prose li::marker {
+    color: var(--d-color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+  .d-prose a {
+    color: var(--d-color-text-primary);
+    text-decoration-line: underline;
+    text-decoration-color: var(--d-color-border-strong);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .d-prose a:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+  .d-prose blockquote {
+    padding-inline-start: var(--d-space-12);
+    border-inline-start: var(--d-stroke-focus) solid var(--d-color-border-default);
+    color: var(--d-color-text-secondary);
+  }
+  .d-prose :not(pre) > code {
+    padding: 0.1em 0.35em;
+    border-radius: var(--d-radius-xs);
+    background: var(--d-color-fill-control);
+    font-size: 0.86em;
+  }
+  .d-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--d-type-body-size);
+    line-height: var(--d-type-body-leading);
+  }
+  .d-prose :is(th, td) {
+    padding: var(--d-space-6) var(--d-space-16) var(--d-space-6) 0;
+    border-block-end: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+    text-align: start;
+    vertical-align: baseline;
+  }
+  .d-prose th {
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    font-weight: var(--d-font-weight-medium);
+  }
+  .d-prose td[data-num],
+  .d-prose th[data-num] {
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-code-size);
+    text-align: end;
+  }
+  .d-prose hr {
+    height: var(--d-stroke-hairline);
+    border: 0;
+    background: var(--d-color-border-hairline);
+  }
+
+  /* ---------- code ---------- */
+  .d-code {
+    margin: 0;
+    padding: var(--d-space-12);
+    border-radius: var(--d-radius-md);
+    background: var(--d-color-bg-sunken);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+    color: var(--d-color-text-primary);
+    font-size: var(--d-type-code-size);
+    line-height: var(--d-type-code-leading);
+    overflow-x: auto;
+    tab-size: 2;
+  }
+  .d-codeblock {
+    margin: 0;
+    border-radius: var(--d-radius-md);
+    background: var(--d-color-bg-sunken);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+    overflow: hidden;
+  }
+  .d-codeblock > figcaption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--d-size-control-lg);
+    padding: 0 var(--d-space-6) 0 var(--d-space-12);
+    border-block-end: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+    color: var(--d-color-text-tertiary);
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-caption-size);
+  }
+  .d-codeblock > .d-code {
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+  }
+}

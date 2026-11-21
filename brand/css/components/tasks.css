@@ -1,0 +1,82 @@
+/* Task list
+   <ul class="d-tasks">
+     <li class="d-task" data-state="done">
+       <div class="d-task__row"><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-task__label">Audit config loader</span></div>
+       <ul class="d-tasks"> ...sub-tasks... </ul>
+     </li>
+   </ul>
+   data-state: pending | running | done | failed | needs-input | skipped | delegated
+   The glyph is chosen by the state; do not set data-glyph by hand. Optional: .d-task__meta at the row end (agent name, duration).
+   Text brightness is the hierarchy: running is brightest, done steps back, pending is dimmest. */
+
+@layer demido.components {
+  .d-tasks {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--d-type-body-size);
+    line-height: var(--d-type-body-leading);
+  }
+
+  .d-tasks .d-tasks {
+    /* sub-tasks hang under the parent's label, not under its glyph */
+    margin-inline-start: calc(var(--d-size-icon-md) + var(--d-space-8));
+  }
+
+  .d-task {
+    --_fg: var(--d-color-text-tertiary);
+    color: var(--_fg);
+  }
+
+  .d-task__row {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-8);
+    min-height: 1.625rem;
+    color: var(--_fg);
+    transition: color var(--d-duration-base) var(--d-ease-standard);
+  }
+
+  .d-task__label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .d-task__meta {
+    flex: none;
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .d-task[data-state="pending"] > .d-task__row > .d-glyph { --_mask: var(--d-glyph-task-pending); }
+  .d-task[data-state="running"] > .d-task__row > .d-glyph { --_mask: var(--d-glyph-task-running); animation: d-glyph-spin var(--d-signature-spinner-period) linear infinite; }
+  .d-task[data-state="done"] > .d-task__row > .d-glyph { --_mask: var(--d-glyph-task-done); }
+  .d-task[data-state="failed"] > .d-task__row > .d-glyph { --_mask: var(--d-glyph-task-failed); }
+  .d-task[data-state="needs-input"] > .d-task__row > .d-glyph { --_mask: var(--d-glyph-task-needs-input); }
+  .d-task[data-state="skipped"] > .d-task__row > .d-glyph { --_mask: var(--d-glyph-task-skipped); }
+  .d-task[data-state="delegated"] > .d-task__row > .d-glyph { --_mask: var(--d-glyph-task-delegated); }
+
+  .d-task[data-state="running"] { --_fg: var(--d-color-text-primary); }
+  .d-task[data-state="running"] > .d-task__row > .d-task__label { font-weight: var(--d-font-weight-medium); }
+  .d-task[data-state="done"] { --_fg: var(--d-color-text-secondary); }
+  .d-task[data-state="delegated"] { --_fg: var(--d-color-text-secondary); }
+  .d-task[data-state="skipped"] > .d-task__row > .d-task__label { text-decoration: line-through; text-decoration-color: var(--d-color-border-strong); }
+
+  /* Colour only where attention is needed. */
+  .d-task[data-state="failed"] > .d-task__row > .d-glyph { color: var(--d-color-danger-base); }
+  .d-task[data-state="failed"] { --_fg: var(--d-color-text-primary); }
+  .d-task[data-state="needs-input"] > .d-task__row > .d-glyph { color: var(--d-color-caution-base); }
+  .d-task[data-state="needs-input"] { --_fg: var(--d-color-text-primary); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .d-task[data-state="running"] > .d-task__row > .d-glyph {
+      animation-duration: 2.4s !important;
+      animation-iteration-count: infinite !important;
+    }
+  }
+}

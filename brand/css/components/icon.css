@@ -1,0 +1,31 @@
+/* Icon
+   <span class="d-icon" aria-hidden="true"> ...inline SVG from brand/icons/ui... </span>
+   UI icons are Lucide (ISC licence), drawn with a 1.5 px stroke and round caps and joins so they sit with the logo.
+   The stroke keeps its width at every size (it does not scale with the icon). Size: --d-icon-size (default 16 px).
+   Icons are decoration next to a label (aria-hidden) or carry the label themselves (role="img" + aria-label). */
+
+@layer demido.components {
+  .d-icon {
+    display: inline-block;
+    flex: none;
+    width: var(--d-icon-size, var(--d-size-icon-md));
+    height: var(--d-icon-size, var(--d-size-icon-md));
+    color: inherit;
+    vertical-align: -0.2em;
+  }
+  .d-icon > svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--d-stroke-icon);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .d-icon > svg * {
+    vector-effect: non-scaling-stroke;
+  }
+  .d-icon--sm { --d-icon-size: var(--d-size-icon-sm); }
+  .d-icon--lg { --d-icon-size: var(--d-size-icon-lg); }
+  .d-icon--xl { --d-icon-size: var(--d-size-icon-xl); }
+}

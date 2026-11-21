@@ -1,0 +1,28 @@
+.kit-voice__reg {
+  color: var(--d-color-text-tertiary);
+  font-size: var(--d-type-micro-size);
+  font-weight: var(--d-type-micro-weight);
+  letter-spacing: var(--d-type-micro-tracking);
+  text-transform: uppercase;
+}
+.kit-voice__pre {
+  white-space: pre-wrap;
+}
+.kit-voice__count {
+  margin-inline-start: auto;
+  color: var(--d-color-text-tertiary);
+  font-family: var(--d-font-family-mono);
+  font-size: var(--d-type-caption-size);
+  font-weight: var(--d-font-weight-mono);
+}
+.kit-rule__label {
+  width: 100%;
+}
+.kit-voice__table td:first-child {
+  width: 9rem;
+  color: var(--d-color-text-secondary);
+  white-space: nowrap;
+}
+.kit-voice__table td {
+  padding-block: var(--d-space-10);
+}

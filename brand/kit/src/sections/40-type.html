@@ -1,0 +1,87 @@
+<!-- id: type | title: Typography | group: Foundations -->
+<div class="kit-head">
+  <p class="kit-eyebrow">04 · Foundations</p>
+  <h2 class="kit-title" id="type-title">Typography</h2>
+  <p class="kit-lead">Two typefaces, both bundled with the app so text looks the same on Linux, Windows, macOS and the web. Geologica for everything people read. JetBrains Mono for everything people copy.</p>
+</div>
+
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-stack">
+    <p class="kit-type__family">Geologica</p>
+    <p class="kit-type__big">Make small models behave.</p>
+    <p class="kit-type__abc">Aa Bb Dd Ee Gg Mm Oo Qq Rr Ss 0123456789</p>
+    <p class="d-text-secondary">Chosen from 19 candidates because its letters are the closest to your mark: an almost circular <em>o</em>, round dots, soft joins. It also covers Latin, Cyrillic, Greek and Vietnamese, and has true italics. SIL Open Font License.</p>
+  </div>
+  <div class="kit-frame kit-stack">
+    <p class="kit-type__family">JetBrains Mono</p>
+    <p class="kit-type__big kit-type__big--mono">Q4_K_M · 32,768 · 0O 1lI</p>
+    <p class="kit-type__abc d-mono">Aa Bb Dd Ee Gg Mm Oo Qq Rr Ss 0123456789</p>
+    <p class="d-text-secondary">For code, model names, quantizations, sizes, paths: anything where one wrong character matters. Marked zero, distinct <span class="d-mono">1 l I</span>. Ligatures are off, so what you see is what is typed. SIL Open Font License.</p>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Weights</h3>
+  <p class="kit-sub__text">Geologica is drawn dark: its 250 has the stroke of an ordinary 400. So the weights are tuned down and live in the tokens. Never type a number like 400 or 700.</p>
+</div>
+<div class="kit-frame">
+  <table class="kit-table kit-type__weights">
+    <thead><tr><th>Token</th><th>Value</th><th>Sample</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td><button class="kit-token" type="button">--d-font-weight-regular</button></td><td class="d-mono">250</td><td style="font-weight: var(--d-font-weight-regular)">Unloads after 5 min idle</td><td>Body text</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-font-weight-small</button></td><td class="d-mono">300</td><td style="font-weight: var(--d-font-weight-small); font-size: var(--d-type-caption-size)">Unloads after 5 min idle</td><td>Text at 12 px and below</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-font-weight-medium</button></td><td class="d-mono">350</td><td style="font-weight: var(--d-font-weight-medium)">Unloads after 5 min idle</td><td>Labels, buttons</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-font-weight-semibold</button></td><td class="d-mono">450</td><td style="font-weight: var(--d-font-weight-semibold)">Unloads after 5 min idle</td><td>Headings, bold in text</td></tr>
+      <tr><td><button class="kit-token" type="button">--d-font-weight-bold</button></td><td class="d-mono">550</td><td style="font-weight: var(--d-font-weight-bold)">Unloads after 5 min idle</td><td>Rare</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Scale</h3>
+  <p class="kit-sub__text">Ten styles. Large text tightens its tracking and leading; small text opens them. Sizes are in rem: change your text size and the whole interface follows.</p>
+</div>
+<div class="kit-frame kit-type__scale">
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-display">display</button><small>56 / 1.04 / −2.8%</small></span><p class="d-type-display">Demido Studio</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-title-1">title-1</button><small>32 / 1.12 / −2.2%</small></span><p class="d-type-title-1">Models on this computer</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-title-2">title-2</button><small>24 / 1.2 / −1.8%</small></span><p class="d-type-title-2">Recommended for your system</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-title-3">title-3</button><small>18 / 1.3 / −1.2%</small></span><p class="d-type-title-3">Delete 3 sessions?</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-headline">headline</button><small>14 / 1.35 · 450</small></span><p class="d-type-headline">Sweater price watch</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-reading">reading</button><small>15 / 1.6</small></span><p class="d-type-reading" style="max-width: 34rem">Watching it. The price today is €89.00. I check every day at 07:00 and tell you when it drops.</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-body">body</button><small>14 / 1.45</small></span><p class="d-type-body">Unloads the model after this long without use.</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-caption">caption</button><small>12 / 1.4 · 300</small></span><p class="d-type-caption d-text-secondary">shopping · monitor · edited 2 min ago</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-type-micro">micro</button><small>11 / 1.3 / +6% · caps</small></span><p class="d-type-micro d-text-secondary">Permission level</p></div>
+  <div class="kit-type__row"><span class="kit-type__meta"><button class="kit-token" type="button" data-copy=".d-mono">code</button><small>13 / 1.55 · mono</small></span><p class="d-mono">Qwen3-4B-Instruct-Q4_K_M.gguf · 2.5 GB</p></div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Details that carry</h3>
+</div>
+<div class="kit-grid" style="--kit-min: 17rem">
+  <div class="kit-frame kit-stack">
+    <p class="kit-type__family">Numbers line up</p>
+    <table class="kit-table">
+      <tbody>
+        <tr><td>Gemma 3n E4B</td><td class="d-mono" style="text-align: end">5.2 GB</td><td class="d-mono" style="text-align: end">38</td></tr>
+        <tr><td>Qwen3 4B Instruct</td><td class="d-mono" style="text-align: end">6.1 GB</td><td class="d-mono" style="text-align: end">41</td></tr>
+        <tr><td>Mistral Small 24B</td><td class="d-mono" style="text-align: end">17.9 GB</td><td class="d-mono" style="text-align: end">3</td></tr>
+      </tbody>
+    </table>
+    <p class="kit-caption" style="margin: 0">Data is mono and right-aligned. Numbers that change in place use tabular figures and never jiggle.</p>
+  </div>
+  <div class="kit-frame kit-stack">
+    <p class="kit-type__family">Italic is real</p>
+    <p class="d-type-reading">The model <em>thinks</em> first, then answers. <em>Italics use Geologica's cursive forms</em>, not a slanted roman.</p>
+    <p class="kit-caption" style="margin: 0">Used sparingly: emphasis inside a sentence, titles of things.</p>
+  </div>
+  <div class="kit-frame kit-stack">
+    <p class="kit-type__family">Beyond Latin</p>
+    <p class="d-type-reading">Маленькие модели, большая работа.<br>Μικρά μοντέλα, μεγάλη δουλειά.<br>Mô hình nhỏ, việc lớn.</p>
+    <p class="kit-caption" style="margin: 0">Cyrillic, Greek and Vietnamese are native. Chinese, Japanese, Korean, Arabic and Hebrew fall back to the system font for now.</p>
+  </div>
+</div>
+
+<div class="kit-stack" style="gap: var(--d-space-8); margin-block-start: var(--d-space-24)">
+  <div class="d-signal" data-level="caution" role="note"><span class="d-signal__label">CAUTION</span><div class="d-signal__body">The weights were tuned on Linux only. Geologica 250 at 12 to 13 px must be checked on Windows and macOS before they are frozen. If it fails there, the runner-up is Inter with the same mono: safer, but it is the default of the whole category and its ovals only tolerate your mark.</div></div>
+  <div class="d-signal" data-level="note" role="note"><span class="d-signal__label">NOTE</span><div class="d-signal__body">The bundled font files have no arrows or check mark, so those glyphs fall back to the system font here. The app build will subset the upstream fonts with them kept.</div></div>
+</div>

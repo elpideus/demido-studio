@@ -1,0 +1,87 @@
+/* Slider: a native range input with a readout.
+   <div class="d-slider">
+     <input type="range" min="0" max="2" step="0.05" value="0.7" style="--d-slider-fill: 35%">
+     <output class="d-slider__value">0.70</output>
+   </div>
+   Set --d-slider-fill (0%..100%) from script so the filled part follows the value. Optional
+   --d-slider-mark (0%..100%) draws a tick, for example at the computed default. The readout is tabular and
+   never changes width. */
+
+@layer demido.components {
+  .d-slider {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-12);
+    min-width: 0;
+  }
+  .d-slider__value {
+    flex: none;
+    min-width: 3.5ch;
+    color: var(--d-color-text-primary);
+    font-family: var(--d-font-family-mono);
+    font-size: var(--d-type-code-size);
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+  }
+
+  .d-slider input[type="range"] {
+    --_track: 0.25rem;
+    --_thumb: 1rem;
+    appearance: none;
+    flex: 1;
+    min-width: 0;
+    height: var(--d-size-hit);
+    margin: 0;
+    background: transparent;
+    cursor: default;
+  }
+  .d-slider input[type="range"]::-webkit-slider-runnable-track {
+    height: var(--_track);
+    border-radius: var(--d-radius-full);
+    background:
+      linear-gradient(var(--d-color-text-tertiary), var(--d-color-text-tertiary)) var(--d-slider-mark, -10%) 50% / var(--d-stroke-focus) 300% no-repeat,
+      linear-gradient(to right, var(--d-color-text-primary) var(--d-slider-fill, 0%), var(--d-color-border-default) var(--d-slider-fill, 0%));
+  }
+  .d-slider input[type="range"]::-moz-range-track {
+    height: var(--_track);
+    border-radius: var(--d-radius-full);
+    background: linear-gradient(to right, var(--d-color-text-primary) var(--d-slider-fill, 0%), var(--d-color-border-default) var(--d-slider-fill, 0%));
+  }
+  .d-slider input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: var(--_thumb);
+    height: var(--_thumb);
+    margin-top: calc((var(--_track) - var(--_thumb)) / 2);
+    border: 0;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-bg-inverse);
+    box-shadow: var(--d-shadow-1), 0 0 0 var(--d-stroke-hairline) var(--d-color-border-default);
+    transition: scale var(--d-duration-instant) var(--d-ease-out);
+  }
+  .d-slider input[type="range"]::-moz-range-thumb {
+    width: var(--_thumb);
+    height: var(--_thumb);
+    border: 0;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-bg-inverse);
+    box-shadow: var(--d-shadow-1), 0 0 0 var(--d-stroke-hairline) var(--d-color-border-default);
+  }
+  .d-slider input[type="range"]:active::-webkit-slider-thumb {
+    scale: 1.12;
+  }
+  .d-slider input[type="range"]:focus-visible {
+    outline: none;
+  }
+  .d-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+    outline: var(--d-stroke-focus) solid var(--d-color-focus);
+    outline-offset: var(--d-stroke-focus-offset);
+  }
+  .d-slider input[type="range"]:focus-visible::-moz-range-thumb {
+    outline: var(--d-stroke-focus) solid var(--d-color-focus);
+    outline-offset: var(--d-stroke-focus-offset);
+  }
+  .d-slider:has(input:disabled) {
+    opacity: var(--d-opacity-disabled);
+    pointer-events: none;
+  }
+}

@@ -1,0 +1,92 @@
+/* Setting row and group. Every setting in the product uses this, so every setting is reachable and explained.
+   <section class="d-settings">
+     <h3 class="d-settings__title">Model loading</h3>
+     <div class="d-setting">
+       <div class="d-setting__text">
+         <span class="d-setting__label">Idle unload</span>
+         <span class="d-setting__desc">Unloads the model after this long without use.</span>
+       </div>
+       <div class="d-setting__control"> ...one control... </div>
+       <details class="d-disclosure d-setting__more"> ...Reference text: default, range, unit, cost, trade-off... </details>
+     </div>
+   </section>
+   A changed value shows .d-setting__changed ("Changed · Reset"), so nothing drifts from its default unseen. */
+
+@layer demido.components {
+  .d-settings {
+    container-type: inline-size;
+    display: grid;
+    border: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+    border-radius: var(--d-radius-lg);
+    background: var(--d-color-bg-surface);
+  }
+  .d-settings__title {
+    padding: var(--d-space-12) var(--d-space-16) var(--d-space-8);
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-type-micro-weight);
+    letter-spacing: var(--d-type-micro-tracking);
+    text-transform: uppercase;
+  }
+
+  .d-setting {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--d-space-4) var(--d-space-24);
+    padding: var(--d-space-12) var(--d-space-16);
+  }
+  .d-setting + .d-setting {
+    border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+  }
+  .d-setting__text {
+    display: grid;
+    gap: var(--d-space-2);
+    min-width: 0;
+  }
+  .d-setting__label {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-8);
+    font-weight: var(--d-font-weight-medium);
+  }
+  .d-setting__desc {
+    color: var(--d-color-text-secondary);
+    font-size: var(--d-type-caption-size);
+    line-height: var(--d-type-caption-leading);
+  }
+  .d-setting__control {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--d-space-8);
+    min-width: 0;
+  }
+  .d-setting__more {
+    grid-column: 1 / -1;
+  }
+  .d-setting__changed {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-4);
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    font-weight: var(--d-font-weight-regular);
+  }
+  .d-setting__changed::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-text-secondary);
+  }
+
+  @container (max-width: 28rem) {
+    .d-setting {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .d-setting__control {
+      justify-content: flex-start;
+    }
+  }
+}

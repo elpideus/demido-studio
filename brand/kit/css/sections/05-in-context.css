@@ -1,0 +1,245 @@
+/* "In the app": one composed window. Layout only; every visible part is a real component from brand/css. */
+
+.kit-section[data-section="05-in-context"] {
+  max-width: 78rem;
+}
+
+.kit-app__bar {
+  justify-content: space-between;
+  margin-block-end: var(--d-space-12);
+}
+.kit-app__note {
+  margin: 0;
+}
+
+.kit-app {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: 15.5rem minmax(0, 1fr) 17.5rem;
+  height: min(47.5rem, 86dvh);
+  min-height: 34rem;
+  border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+  border-radius: var(--d-radius-xl);
+  background: var(--d-color-bg-canvas);
+  color: var(--d-color-text-primary);
+  box-shadow: var(--d-shadow-3);
+  overflow: hidden;
+}
+
+/* ---------- sidebar ---------- */
+.kit-app__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--d-space-8);
+  min-height: 0;
+  padding: var(--d-space-12) var(--d-space-8) var(--d-space-8);
+  border-inline-end: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+  background: var(--d-color-bg-sunken);
+}
+.kit-app__side-top {
+  display: flex;
+  align-items: center;
+  gap: var(--d-space-8);
+  padding: 0 var(--d-space-2) var(--d-space-4) var(--d-space-8);
+}
+.kit-app__logo {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+}
+.kit-app__logo svg {
+  width: 100%;
+  height: 100%;
+}
+.kit-app__wordmark {
+  flex: 1;
+  font-size: var(--d-type-headline-size);
+  font-weight: var(--d-font-weight-semibold);
+  letter-spacing: var(--d-type-headline-tracking);
+}
+.kit-app__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.kit-app__nav {
+  padding-block-start: var(--d-space-8);
+  border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+}
+.kit-app__nav .d-row__lead {
+  --d-icon-size: var(--d-size-icon-md);
+}
+.kit-app__caution {
+  color: var(--d-color-caution-base);
+}
+.kit-app__live {
+  color: var(--d-color-accent-base);
+}
+
+/* ---------- conversation ---------- */
+.kit-app__main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+.kit-app__head {
+  display: flex;
+  align-items: center;
+  gap: var(--d-space-8);
+  height: 3rem;
+  padding-inline: var(--d-space-20) var(--d-space-12);
+  border-block-end: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+}
+.kit-app__title {
+  overflow: hidden;
+  font-size: var(--d-type-headline-size);
+  font-weight: var(--d-type-headline-weight);
+  letter-spacing: var(--d-type-headline-tracking);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kit-app__spacer {
+  flex: 1;
+}
+.kit-app__thread {
+  display: grid;
+  align-content: start;
+  gap: var(--d-space-24);
+  min-height: 0;
+  padding: var(--d-space-24) var(--d-space-24) var(--d-space-16);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.kit-app__thread > .d-message {
+  width: 100%;
+  max-width: var(--d-size-measure);
+  margin-inline: auto;
+}
+.kit-app__thread .d-message[data-from="assistant"] > .d-message__body {
+  display: grid;
+  gap: var(--d-space-12);
+}
+.kit-app__tasks {
+  padding-block: var(--d-space-2);
+}
+.kit-app__composer {
+  width: calc(100% - 2 * var(--d-space-24));
+  max-width: var(--d-size-measure);
+  margin: 0 auto var(--d-space-16);
+}
+
+/* ---------- inspector ---------- */
+.kit-app__insp {
+  display: grid;
+  align-content: start;
+  min-height: 0;
+  border-inline-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.kit-app__panel {
+  display: grid;
+  gap: var(--d-space-12);
+  padding: var(--d-space-16);
+}
+.kit-app__panel + .kit-app__panel {
+  border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline);
+}
+.kit-app__panel-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--d-space-8);
+  color: var(--d-color-text-tertiary);
+  font-size: var(--d-type-micro-size);
+  font-weight: var(--d-type-micro-weight);
+  letter-spacing: var(--d-type-micro-tracking);
+  text-transform: uppercase;
+}
+.kit-app__panel-meta {
+  font-family: var(--d-font-family-mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.kit-app__model {
+  display: flex;
+  align-items: center;
+  gap: var(--d-space-10);
+}
+.kit-app__model .d-glyph {
+  --d-glyph-size: 1.5rem;
+}
+.kit-app__model-text {
+  display: grid;
+  min-width: 0;
+}
+.kit-app__model-name {
+  font-weight: var(--d-font-weight-medium);
+}
+.kit-app__model-state {
+  color: var(--d-color-text-secondary);
+  font-size: var(--d-type-caption-size);
+}
+.kit-app__facts {
+  display: grid;
+  gap: var(--d-space-4);
+  margin: 0;
+}
+.kit-app__facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--d-space-12);
+}
+.kit-app__facts dt {
+  color: var(--d-color-text-secondary);
+}
+.kit-app__facts dd {
+  margin: 0;
+  font-family: var(--d-font-family-mono);
+  font-size: var(--d-type-code-size);
+  font-variant-numeric: tabular-nums;
+}
+.kit-app__hint {
+  color: var(--d-color-text-secondary);
+  font-size: var(--d-type-caption-size);
+}
+
+/* ---------- the window narrows the way the app will ---------- */
+@container (max-width: 62rem) {
+  .kit-app__insp {
+    display: none;
+  }
+}
+@media (max-width: 78rem) {
+  .kit-app {
+    grid-template-columns: 15.5rem minmax(0, 1fr);
+  }
+  .kit-app__insp {
+    display: none;
+  }
+}
+@media (max-width: 48rem) {
+  .kit-app {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+  }
+  .kit-app__side {
+    display: none;
+  }
+  .kit-app__thread {
+    padding-inline: var(--d-space-16);
+  }
+  .kit-app__composer {
+    width: calc(100% - 2 * var(--d-space-16));
+  }
+  .kit-app__hide-narrow,
+  .kit-app__head .d-badge {
+    display: none;
+  }
+  .kit-app__note {
+    flex-basis: 100%;
+  }
+}

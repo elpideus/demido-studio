@@ -1,0 +1,338 @@
+{
+  "color": {
+    "$type": "color",
+    "$description": "True neutral greys (no tint), so the accent is the only hue on screen. Values and contrast were measured in brand/explorations/lab/color.",
+    "bg": {
+      "canvas": {
+        "$value": {
+          "dark": "oklch(0.191 0 0)",
+          "light": "oklch(0.976 0 0)"
+        },
+        "$description": "The app background. Most of the screen is this. #141414 / #f7f7f7."
+      },
+      "sunken": {
+        "$value": {
+          "dark": "oklch(0.168 0 0)",
+          "light": "oklch(0.955 0 0)"
+        },
+        "$description": "Wells: code blocks, inputs, tracks, the sidebar."
+      },
+      "surface": {
+        "$value": {
+          "dark": "oklch(0.222 0 0)",
+          "light": "oklch(0.995 0 0)"
+        },
+        "$description": "Raised surfaces: cards, the composer, grouped rows."
+      },
+      "raised": {
+        "$value": {
+          "dark": "oklch(0.252 0 0)",
+          "light": "oklch(1 0 0)"
+        },
+        "$description": "A surface on top of a surface: the segmented thumb, a hovered card."
+      },
+      "overlay": {
+        "$value": {
+          "dark": "oklch(0.252 0 0)",
+          "light": "oklch(1 0 0)"
+        },
+        "$description": "Menus, popovers, dialogs, toasts."
+      },
+      "inverse": {
+        "$value": {
+          "dark": "oklch(0.985 0 0)",
+          "light": "oklch(0.164 0 0)"
+        },
+        "$description": "The logo's own colour as a fill: the primary button, tooltips, an 'on' switch."
+      }
+    },
+    "fill": {
+      "$description": "Translucent, so they work on any background.",
+      "control": {
+        "$value": {
+          "dark": "oklch(1 0 0 / 0.075)",
+          "light": "oklch(0 0 0 / 0.055)"
+        },
+        "$description": "Resting fill of secondary controls."
+      },
+      "hover": {
+        "$value": {
+          "dark": "oklch(1 0 0 / 0.055)",
+          "light": "oklch(0 0 0 / 0.04)"
+        }
+      },
+      "pressed": {
+        "$value": {
+          "dark": "oklch(1 0 0 / 0.11)",
+          "light": "oklch(0 0 0 / 0.085)"
+        }
+      },
+      "selected": {
+        "$value": {
+          "dark": "oklch(1 0 0 / 0.09)",
+          "light": "oklch(0 0 0 / 0.065)"
+        }
+      }
+    },
+    "border": {
+      "hairline": {
+        "$value": {
+          "dark": "oklch(1 0 0 / 0.09)",
+          "light": "oklch(0 0 0 / 0.09)"
+        },
+        "$description": "Dividers and the edges of surfaces."
+      },
+      "default": {
+        "$value": {
+          "dark": "oklch(1 0 0 / 0.16)",
+          "light": "oklch(0 0 0 / 0.17)"
+        },
+        "$description": "Control outlines. With 'more contrast' on, controls use border.strong instead."
+      },
+      "strong": {
+        "$value": {
+          "dark": "oklch(1 0 0 / 0.39)",
+          "light": "oklch(0 0 0 / 0.45)"
+        },
+        "$description": "Reaches 3:1 on every surface: hovered controls, off switches, anything identified by its outline alone."
+      }
+    },
+    "text": {
+      "primary": {
+        "$value": {
+          "dark": "oklch(0.931 0 0)",
+          "light": "oklch(0.222 0 0)"
+        },
+        "$description": "15.0:1 on the dark canvas."
+      },
+      "secondary": {
+        "$value": {
+          "dark": "oklch(0.786 0 0)",
+          "light": "oklch(0.409 0 0)"
+        },
+        "$description": "Supporting text, done items. 9.4:1."
+      },
+      "tertiary": {
+        "$value": {
+          "dark": "oklch(0.686 0 0)",
+          "light": "oklch(0.521 0 0)"
+        },
+        "$description": "Metadata, placeholders, units, pending items. 6.6:1."
+      },
+      "disabled": {
+        "$value": {
+          "dark": "oklch(0.457 0 0)",
+          "light": "oklch(0.719 0 0)"
+        }
+      },
+      "inverse": {
+        "$value": {
+          "dark": "oklch(0.164 0 0)",
+          "light": "oklch(1 0 0)"
+        },
+        "$description": "Text on an inverse fill."
+      }
+    },
+    "accent": {
+      "$description": "Demido's colour is green. It means alive: a model that is awake. It is also the focus ring. The accent can be replaced: every shade below derives from accent.source, which the app sets from the Accent setting (automatic, Demido green, the system accent, or a custom colour). Never a large fill, never decoration, never the primary button.",
+      "source": {
+        "$value": "oklch(0.86 0.15 160)",
+        "$description": "The one input colour. Default: Demido green (#68efaf). Overwrite --d-color-accent-source to change the accent everywhere."
+      },
+      "base": {
+        "$value": {
+          "dark": "oklch(0.86 0.15 160)",
+          "light": "oklch(0.56 0.126 160)"
+        },
+        "$derived": {
+          "dark": "oklch(from var(--d-color-accent-source) clamp(0.74, l, 0.9) c h)",
+          "light": "oklch(from var(--d-color-accent-source) clamp(0.42, l, 0.56) calc(c * 0.84) h)"
+        },
+        "$description": "The source, with its lightness held in a band that stays visible on this theme's background. On light the strength is eased a little so the colour stays inside what every screen can show."
+      },
+      "hover": {
+        "$value": {
+          "dark": "oklch(0.905 0.15 160)",
+          "light": "oklch(0.515 0.1159 160)"
+        },
+        "$derived": {
+          "dark": "oklch(from var(--d-color-accent-base) calc(l + 0.045) c h)",
+          "light": "oklch(from var(--d-color-accent-base) calc(l - 0.045) calc(c * 0.92) h)"
+        }
+      },
+      "pressed": {
+        "$value": {
+          "dark": "oklch(0.8 0.15 160)",
+          "light": "oklch(0.47 0.1058 160)"
+        },
+        "$derived": {
+          "dark": "oklch(from var(--d-color-accent-base) calc(l - 0.06) c h)",
+          "light": "oklch(from var(--d-color-accent-base) calc(l - 0.09) calc(c * 0.84) h)"
+        }
+      },
+      "tint": {
+        "$value": {
+          "dark": "oklch(0.86 0.15 160 / 0.16)",
+          "light": "oklch(0.56 0.126 160 / 0.11)"
+        },
+        "$derived": {
+          "dark": "oklch(from var(--d-color-accent-base) l c h / 0.16)",
+          "light": "oklch(from var(--d-color-accent-base) l c h / 0.11)"
+        },
+        "$description": "Quiet background behind something live."
+      },
+      "text": {
+        "$value": {
+          "dark": "oklch(0.86 0.15 160)",
+          "light": "oklch(0.5 0.1125 160)"
+        },
+        "$derived": {
+          "dark": "oklch(from var(--d-color-accent-source) clamp(0.78, l, 0.92) c h)",
+          "light": "oklch(from var(--d-color-accent-source) clamp(0.3, l, 0.5) calc(c * 0.75) h)"
+        },
+        "$description": "The accent used as text or an icon: lightness held where it reads on this theme."
+      },
+      "on": {
+        "$value": {
+          "dark": "oklch(0.164 0 0)",
+          "light": "oklch(1 0 0)"
+        },
+        "$derived": "oklch(from var(--d-color-accent-base) clamp(0.164, (0.67 - l) * 1000, 1) 0 0)",
+        "$description": "Text on an accent fill: near-black on a light accent, white on a dark one."
+      }
+    },
+    "focus": {
+      "$value": {
+        "dark": "oklch(0.86 0.15 160)",
+        "light": "oklch(0.56 0.126 160)"
+      },
+      "$derived": "var(--d-color-accent-base)",
+      "$description": "Focus ring: 2 px with a 2 px gap. Follows the accent."
+    },
+    "success": {
+      "$description": "Signals are for a glyph plus a short label, never for running text, and never alone: each has its own glyph shape. Success is always Demido green, whatever accent the user picks.",
+      "base": {
+        "$value": {
+          "dark": "oklch(0.86 0.15 160)",
+          "light": "oklch(0.5 0.1125 160)"
+        }
+      },
+      "tint": {
+        "$value": {
+          "dark": "oklch(0.86 0.15 160 / 0.14)",
+          "light": "oklch(0.5 0.1125 160 / 0.11)"
+        }
+      }
+    },
+    "caution": {
+      "base": {
+        "$value": {
+          "dark": "oklch(0.859 0.15 88)",
+          "light": "oklch(0.529 0.113 72)"
+        }
+      },
+      "tint": {
+        "$value": {
+          "dark": "oklch(0.859 0.15 88 / 0.13)",
+          "light": "oklch(0.529 0.113 72 / 0.12)"
+        }
+      }
+    },
+    "danger": {
+      "base": {
+        "$value": {
+          "dark": "oklch(0.72 0.174 26)",
+          "light": "oklch(0.43 0.175 26)"
+        },
+        "$description": "On light this is a deep crimson on purpose: it stays apart from caution for people with red-green colour blindness."
+      },
+      "tint": {
+        "$value": {
+          "dark": "oklch(0.72 0.174 26 / 0.16)",
+          "light": "oklch(0.55 0.2 26 / 0.1)"
+        }
+      }
+    },
+    "info": {
+      "base": {
+        "$value": {
+          "dark": "oklch(0.76 0.126 246)",
+          "light": "oklch(0.541 0.159 270)"
+        }
+      },
+      "tint": {
+        "$value": {
+          "dark": "oklch(0.76 0.126 246 / 0.14)",
+          "light": "oklch(0.541 0.159 270 / 0.1)"
+        }
+      }
+    },
+    "scrim": {
+      "$value": {
+        "dark": "oklch(0 0 0 / 0.6)",
+        "light": "oklch(0.2 0 0 / 0.32)"
+      },
+      "$description": "Dims the app behind a dialog."
+    }
+  },
+  "shadow": {
+    "$type": "shadow",
+    "$description": "Dark surfaces separate by lightness and a hairline first; shadow only lifts overlays.",
+    "1": {
+      "$value": {
+        "dark": [
+          "0 1px 2px oklch(0 0 0 / 0.32)"
+        ],
+        "light": [
+          "0 1px 2px oklch(0 0 0 / 0.07)",
+          "0 0 0 1px oklch(0 0 0 / 0.03)"
+        ]
+      },
+      "$description": "Cards that sit on the canvas."
+    },
+    "2": {
+      "$value": {
+        "dark": [
+          "0 8px 24px -4px oklch(0 0 0 / 0.55)",
+          "0 2px 6px oklch(0 0 0 / 0.3)"
+        ],
+        "light": [
+          "0 8px 24px -6px oklch(0 0 0 / 0.16)",
+          "0 2px 6px oklch(0 0 0 / 0.06)"
+        ]
+      },
+      "$description": "Menus, popovers, toasts."
+    },
+    "3": {
+      "$value": {
+        "dark": [
+          "0 24px 64px -12px oklch(0 0 0 / 0.7)",
+          "0 8px 20px oklch(0 0 0 / 0.35)"
+        ],
+        "light": [
+          "0 24px 64px -16px oklch(0 0 0 / 0.24)",
+          "0 8px 20px oklch(0 0 0 / 0.08)"
+        ]
+      },
+      "$description": "Dialogs and sheets."
+    }
+  },
+  "material": {
+    "$description": "Translucent chrome that content scrolls under. Falls back to bg.overlay when transparency is reduced.",
+    "bg": {
+      "$type": "color",
+      "$value": {
+        "dark": "oklch(0.21 0 0 / 0.72)",
+        "light": "oklch(0.985 0 0 / 0.74)"
+      }
+    },
+    "blur": {
+      "$type": "dimension",
+      "$value": "20px"
+    },
+    "saturate": {
+      "$type": "number",
+      "$value": "160%"
+    }
+  }
+}

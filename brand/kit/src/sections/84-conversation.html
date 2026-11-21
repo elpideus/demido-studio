@@ -1,0 +1,139 @@
+<!-- id: conversation | title: Conversation | group: Components -->
+<div class="kit-head">
+  <p class="kit-eyebrow">11 · Components</p>
+  <h2 class="kit-title" id="conversation-title">Conversation</h2>
+  <p class="kit-lead">You speak in a quiet bubble. The answer has no bubble: it is the page. Everything the model did on the way is one line that opens, down to the exact request and the full output.</p>
+</div>
+
+<div class="kit-frame kit-frame--canvas kit-convo">
+  <article class="d-message" data-from="user">
+    <div class="d-message__body">Which of my models should I use for the email report?</div>
+  </article>
+
+  <article class="d-message" data-from="assistant">
+    <div class="d-message__body kit-convo__answer">
+      <details class="d-thinking">
+        <summary>Thought for 6 s</summary>
+<pre>need: summarise ~40 emails daily, 07:00
+3 models on disk. check size, speed, tools
+gemma 3n: fits + 1 agent. tools ok
+mistral 24b: no fit → drop
+→ gemma 3n. say why in 1 line. give steps</pre>
+      </details>
+
+      <details class="d-step" data-state="done">
+        <summary><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-step__what">Listed models on disk</span><span class="d-step__meta">3 models · 0.2 s</span></summary>
+        <div class="d-step__body">
+          <p class="d-step__label">Request</p>
+          <pre class="d-code"><code>models.list  where=on_disk  fields=name,quant,size,memory,capabilities</code></pre>
+          <p class="d-step__label">Output</p>
+          <pre class="d-code"><code>Qwen3 4B Instruct    Q4_K_M   2.5 GB   6.1 GB   tools thinking
+Gemma 3n E4B         Q4_K_M   4.4 GB   5.2 GB   tools vision audio
+Mistral Small 24B    Q4_K_M  14.3 GB  17.9 GB   tools vision</code></pre>
+        </div>
+      </details>
+      <details class="d-step" data-state="running">
+        <summary><span class="d-glyph" role="img" aria-label="In progress"></span><span class="d-step__what">Measuring speed on 5 sample emails</span><span class="d-step__meta">agent 1 · 12 s</span></summary>
+        <div class="d-step__body"><p class="d-text-secondary">Agent 1 is using the loaded model. The session gets it back when the test ends.</p></div>
+      </details>
+
+      <div class="d-prose">
+        <p><strong>Use Gemma 3n E4B.</strong> It fits your GPU with room for one agent and reads 40 emails in about 50 s.</p>
+        <ol>
+          <li>Open <strong>Schedules</strong>, then <strong>Morning email report</strong>.</li>
+          <li>Set <strong>Model</strong> to <code>Gemma 3n E4B</code>.</li>
+          <li>Press <strong>Run once</strong> to test it.</li>
+        </ol>
+        <table>
+          <thead><tr><th>Model</th><th data-num>Memory</th><th data-num>Speed</th><th>Fits</th></tr></thead>
+          <tbody>
+            <tr><td>Gemma 3n E4B</td><td data-num>5.2 GB</td><td data-num>38 tokens/s</td><td>Yes, with 1 agent</td></tr>
+            <tr><td>Qwen3 4B Instruct</td><td data-num>6.1 GB</td><td data-num>41 tokens/s</td><td>Yes, with 1 agent</td></tr>
+            <tr><td>Mistral Small 24B</td><td data-num>17.9 GB</td><td data-num>3 tokens/s</td><td>No</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-signal" data-level="note" role="note">
+        <span class="d-signal__label">NOTE</span>
+        <div class="d-signal__body">The schedule loads the model at 07:00 and unloads it when the report is done. Nothing stays in memory overnight.</div>
+      </div>
+
+      <article class="d-artifact">
+        <!--@icon file-text-->
+        <div class="d-artifact__text"><span class="d-artifact__name">email-report-template.md</span><span class="d-artifact__meta">Markdown · 1.2 KB · edited 2 min ago</span></div>
+        <button class="d-button d-button--ghost d-button--sm" type="button" aria-label="Version 3, show earlier versions"><!--@icon history sm-->v3</button>
+        <button class="d-button d-button--sm" type="button">Open</button>
+      </article>
+    </div>
+    <div class="d-message__actions">
+      <button class="d-button d-button--ghost d-button--icon d-button--sm" type="button" aria-label="Copy"><!--@icon copy sm--></button>
+      <button class="d-button d-button--ghost d-button--icon d-button--sm" type="button" aria-label="Read aloud"><!--@icon volume-2 sm--></button>
+      <button class="d-button d-button--ghost d-button--icon d-button--sm" type="button" aria-label="Retry"><!--@icon rotate-cw sm--></button>
+    </div>
+  </article>
+
+  <form class="d-composer" onsubmit="return false">
+    <textarea class="d-composer__input" rows="1" placeholder="Ask, or give a task" aria-label="Message"></textarea>
+    <div class="d-composer__bar">
+      <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="Attach"><!--@icon paperclip--></button>
+      <button class="d-modelchip" type="button" data-state="generating"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Qwen3 4B Instruct</span><span class="d-modelchip__meta">Q4_K_M</span></button>
+      <button class="d-button d-button--ghost d-button--sm" type="button"><!--@icon shield sm-->Balanced</button>
+      <span class="d-composer__spacer"></span>
+      <button class="d-button d-button--ghost d-button--icon" type="button" aria-label="Dictate" aria-pressed="false"><!--@icon mic--></button>
+      <button class="d-button d-button--primary d-button--icon" type="button" aria-label="Stop"><!--@icon square sm--></button>
+    </div>
+  </form>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">The model chip</h3>
+  <p class="kit-sub__text">The one place the accent colour lives. The eye tells you whether the model is asleep, waking, awake, working or lent out. Press <strong>Next state</strong> to walk through them.</p>
+</div>
+<div class="kit-frame kit-stack">
+  <div class="kit-row">
+    <button class="d-modelchip" type="button" data-state="unloaded"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Unloaded</span></button>
+    <button class="d-modelchip" type="button" data-state="queued"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Waiting for memory</span></button>
+    <button class="d-modelchip" type="button" data-state="loading"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Loading</span><span class="d-modelchip__meta">62%</span></button>
+    <button class="d-modelchip" type="button" data-state="loaded"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Loaded</span></button>
+    <button class="d-modelchip" type="button" data-state="generating"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Generating</span><span class="d-modelchip__meta">41 tokens/s</span></button>
+    <button class="d-modelchip" type="button" data-state="lent"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Lent to agent 1</span></button>
+    <button class="d-modelchip" type="button" data-state="error"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Failed to load</span></button>
+  </div>
+  <div class="kit-row">
+    <button class="d-modelchip" type="button" data-state="unloaded" data-chip-demo aria-live="polite"><span class="d-glyph" aria-hidden="true"></span><span class="d-modelchip__name">Qwen3 4B Instruct</span><span class="d-modelchip__meta">Q4_K_M</span></button>
+    <button class="d-button d-button--sm" type="button" data-chip-next>Next state</button>
+    <span class="kit-caption" style="margin: 0" data-chip-label>Unloaded: asleep on disk, uses no memory.</span>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Steps and untrusted content</h3>
+  <p class="kit-sub__text">A step never hides what it shortened: the count is in the line and the full output is one press away. Text that came from outside is marked, and treated as data.</p>
+</div>
+<div class="kit-frame kit-stack" style="gap: var(--d-space-2)">
+  <details class="d-step" data-state="done" open>
+    <summary><span class="d-glyph" role="img" aria-label="Done"></span><span class="d-step__what">Ran <code>cargo test -p parser</code></span><span class="d-step__meta">42 of 1,180 lines · 3.2 s</span></summary>
+    <div class="d-step__body">
+      <p class="d-step__label">Output · compressed</p>
+      <pre class="d-code"><code>test result: FAILED. 61 passed; 2 failed
+  parser::tests::nested_quotes        expected Ok, got Err(UnclosedQuote)
+  parser::tests::trailing_comma       expected 3 items, got 2
+(1,138 passing-test lines left out)</code></pre>
+      <button class="d-button d-button--sm" type="button">Show full output (1,180 lines)</button>
+    </div>
+  </details>
+  <details class="d-step" data-state="failed">
+    <summary><span class="d-glyph" role="img" aria-label="Failed"></span><span class="d-step__what">Fetched <code>shop.example/merino-crew-navy</code></span><span class="d-step__meta">page needs JavaScript · 1.1 s</span></summary>
+    <div class="d-step__body"><p class="d-text-secondary">The page returned no price without scripts. Trying the built-in browser next.</p></div>
+  </details>
+  <details class="d-step" data-state="needs-input">
+    <summary><span class="d-glyph" role="img" aria-label="Needs you"></span><span class="d-step__what">Wants to send an email to <code>anna@example.com</code></span><span class="d-step__meta">waiting for you</span></summary>
+    <div class="d-step__body"><p class="d-text-secondary">Sending mail always asks in Balanced.</p></div>
+  </details>
+  <div class="kit-row" style="margin-block-start: var(--d-space-12)">
+    <span class="d-untrusted"><!--@icon globe sm-->From the web · treated as data, never as instructions</span>
+    <span class="d-untrusted"><!--@icon mail sm-->From an email · treated as data</span>
+    <span class="d-untrusted"><!--@icon message-square sm-->From another session · treated as data</span>
+  </div>
+</div>

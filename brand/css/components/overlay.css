@@ -1,0 +1,202 @@
+/* Overlays: menu, tooltip, toast, dialog. They share one surface.
+   Menu / popover:
+     <div class="d-menu" role="menu">
+       <p class="d-menu__label">Model</p>
+       <button class="d-menu__item" role="menuitemradio" aria-checked="true"><span class="d-glyph" data-glyph="model-loaded"></span><span>Qwen3 4B Instruct</span><span class="d-menu__hint">Q4_K_M</span></button>
+       <hr class="d-menu__sep">
+       <button class="d-menu__item" role="menuitem" data-tone="danger">Delete model</button>
+     </div>
+     Opens from its trigger: set transform-origin to the trigger's corner. data-state="closed" hides it.
+   Tooltip:  <span class="d-tooltip" role="tooltip">Unload model <kbd class="d-kbd">U</kbd></span>
+   Toast:    <div class="d-toast" role="status"><span>Model unloaded after 5 min idle.</span><button class="d-button d-button--sm">Reload</button></div>
+             Stack them in .d-toasts (bottom centre). They leave the way they came.
+   Dialog:   <dialog class="d-dialog"><h2 class="d-dialog__title">Delete 3 sessions?</h2><p class="d-dialog__text">This cannot be undone.</p>
+             <div class="d-dialog__actions"><button class="d-button">Cancel</button><button class="d-button d-button--danger">Delete 3 sessions</button></div></dialog>
+             State the consequence; the button repeats the verb. Never "Are you sure?". Opens from the centre. */
+
+@layer demido.components {
+  .d-menu,
+  .d-tooltip,
+  .d-toast,
+  .d-dialog {
+    border: var(--d-stroke-hairline) solid var(--d-color-border-default);
+    background: var(--d-color-bg-overlay);
+    color: var(--d-color-text-primary);
+  }
+
+  /* ---------- menu ---------- */
+  .d-menu {
+    display: grid;
+    min-width: 13rem;
+    padding: var(--d-space-4);
+    border-radius: var(--d-radius-lg);
+    box-shadow: var(--d-shadow-2);
+    transform-origin: top left;
+    transition:
+      opacity var(--d-duration-fast) var(--d-ease-out),
+      transform var(--d-duration-base) var(--d-ease-out);
+  }
+  .d-menu[data-state="closed"] {
+    opacity: 0;
+    transform: scale(0.96);
+    pointer-events: none;
+  }
+  .d-menu__label {
+    padding: var(--d-space-6) var(--d-space-8) var(--d-space-4);
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-micro-size);
+    font-weight: var(--d-type-micro-weight);
+    letter-spacing: var(--d-type-micro-tracking);
+    text-transform: uppercase;
+  }
+  .d-menu__item {
+    display: flex;
+    align-items: center;
+    gap: var(--d-space-8);
+    width: 100%;
+    min-height: var(--d-size-control-md);
+    padding: 0 var(--d-space-8);
+    border: 0;
+    border-radius: calc(var(--d-radius-lg) - var(--d-space-4));
+    background: transparent;
+    color: var(--d-color-text-primary);
+    text-align: start;
+    text-decoration: none;
+    cursor: default;
+  }
+  .d-menu__item > :nth-child(2) {
+    flex: 1;
+    min-width: 0;
+  }
+  /* Menus are used all day: hover is instant, no transition. */
+  @media (hover: hover) and (pointer: fine) {
+    .d-menu__item:hover {
+      background: var(--d-color-fill-hover);
+    }
+  }
+  .d-menu__item:active,
+  .d-menu__item[data-highlighted] {
+    background: var(--d-color-fill-pressed);
+  }
+  .d-menu__item[aria-checked="true"] {
+    font-weight: var(--d-font-weight-medium);
+  }
+  .d-menu__item[data-tone="danger"] {
+    color: var(--d-color-danger-base);
+  }
+  .d-menu__item:disabled,
+  .d-menu__item[aria-disabled="true"] {
+    opacity: var(--d-opacity-disabled);
+    pointer-events: none;
+  }
+  .d-menu__hint {
+    flex: none;
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    font-variant-numeric: tabular-nums;
+  }
+  .d-menu__sep {
+    height: var(--d-stroke-hairline);
+    margin: var(--d-space-4) calc(-1 * var(--d-space-4));
+    border: 0;
+    background: var(--d-color-border-hairline);
+  }
+
+  /* ---------- tooltip ---------- */
+  .d-tooltip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-8);
+    min-height: var(--d-size-control-sm);
+    padding: var(--d-space-4) var(--d-space-8);
+    border-color: transparent;
+    border-radius: var(--d-radius-sm);
+    background: var(--d-color-bg-inverse);
+    color: var(--d-color-text-inverse);
+    font-size: var(--d-type-caption-size);
+    font-weight: var(--d-font-weight-medium);
+    box-shadow: var(--d-shadow-2);
+    white-space: nowrap;
+  }
+  .d-tooltip .d-kbd {
+    background: color-mix(in oklab, var(--d-color-text-inverse) 14%, transparent);
+    box-shadow: none;
+    color: inherit;
+  }
+
+  /* ---------- toast ---------- */
+  .d-toasts {
+    position: fixed;
+    inset: auto 0 var(--d-space-24) 0;
+    z-index: var(--d-z-toast);
+    display: grid;
+    justify-items: center;
+    gap: var(--d-space-8);
+    pointer-events: none;
+  }
+  .d-toast {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--d-space-12);
+    min-height: var(--d-size-control-lg);
+    max-width: min(28rem, calc(100vw - 2 * var(--d-space-16)));
+    padding: var(--d-space-6) var(--d-space-6) var(--d-space-6) var(--d-space-12);
+    border-radius: var(--d-radius-lg);
+    box-shadow: var(--d-shadow-2);
+    pointer-events: auto;
+    transition:
+      opacity var(--d-duration-base) var(--d-ease-out),
+      translate var(--d-duration-moderate) var(--d-ease-out);
+  }
+  .d-toast > :not(.d-glyph, .d-icon, .d-button) {
+    flex: 1;
+    min-width: 0;
+  }
+  .d-toast:not(:has(> .d-button)) {
+    padding-inline-end: var(--d-space-12);
+  }
+  .d-toast[data-state="closed"] {
+    opacity: 0;
+    translate: 0 100%;
+    transition-duration: var(--d-duration-fast), var(--d-duration-base);
+  }
+
+  /* ---------- dialog ---------- */
+  .d-dialog {
+    width: min(26rem, calc(100vw - 2 * var(--d-space-16)));
+    padding: var(--d-space-20);
+    border-radius: var(--d-radius-xl);
+    box-shadow: var(--d-shadow-3);
+  }
+  .d-dialog::backdrop {
+    background: var(--d-color-scrim);
+  }
+  .d-dialog[open] {
+    animation: d-dialog-in var(--d-duration-moderate) var(--d-ease-out);
+  }
+  .d-dialog[open]::backdrop {
+    animation: d-scrim-in var(--d-duration-moderate) var(--d-ease-standard);
+  }
+  .d-dialog__title {
+    font-size: var(--d-type-title-3-size);
+    line-height: var(--d-type-title-3-leading);
+    letter-spacing: var(--d-type-title-3-tracking);
+    font-weight: var(--d-type-title-3-weight);
+  }
+  .d-dialog__text {
+    margin-block-start: var(--d-space-6);
+    color: var(--d-color-text-secondary);
+  }
+  .d-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--d-space-8);
+    margin-block-start: var(--d-space-20);
+  }
+  @keyframes d-dialog-in {
+    from { opacity: 0; scale: 0.96; }
+  }
+  @keyframes d-scrim-in {
+    from { opacity: 0; }
+  }
+}

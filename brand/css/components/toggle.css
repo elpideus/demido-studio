@@ -1,0 +1,135 @@
+/* Switch, checkbox, radio. Native inputs, restyled.
+   <label class="d-check"><input class="d-switch" type="checkbox" role="switch" checked> Unload when idle</label>
+   <label class="d-check"><input class="d-checkbox" type="checkbox"> Search inside session contents</label>
+   <label class="d-check"><input class="d-radio" type="radio" name="x"> Ask every time</label>
+   .d-check lays out the control and its text; add .d-check__text > small for a second line.
+   A switch acts at once; a checkbox is part of a form that is applied later. On = solid neutral, not the accent. */
+
+@layer demido.components {
+  .d-check {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: var(--d-space-8);
+    min-height: var(--d-size-hit);
+    padding-block: var(--d-space-4);
+    cursor: default;
+  }
+  .d-check__text {
+    display: grid;
+    gap: var(--d-space-2);
+  }
+  .d-check__text small {
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+  }
+  .d-check:has(:disabled) {
+    opacity: var(--d-opacity-disabled);
+    pointer-events: none;
+  }
+
+  /* ---------- switch ---------- */
+  .d-switch {
+    --_w: 2rem;
+    --_h: 1.125rem;
+    --_pad: 0.125rem;
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: var(--_w);
+    height: var(--_h);
+    margin: 0;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-border-strong);
+    cursor: default;
+    transition: background-color var(--d-duration-base) var(--d-ease-standard);
+  }
+  .d-switch::before {
+    content: "";
+    position: absolute;
+    inset: var(--_pad) auto var(--_pad) var(--_pad);
+    aspect-ratio: 1;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-bg-inverse);
+    box-shadow: var(--d-shadow-1);
+    transition:
+      translate var(--d-spring-snappy-duration) var(--d-spring-snappy),
+      scale var(--d-duration-instant) var(--d-ease-out),
+      background-color var(--d-duration-base) var(--d-ease-standard);
+  }
+  .d-switch:checked {
+    background: var(--d-color-bg-inverse);
+  }
+  .d-switch:checked::before {
+    translate: calc(var(--_w) - var(--_h)) 0;
+    background: var(--d-color-bg-canvas);
+  }
+  .d-switch:active::before {
+    scale: 0.88;
+  }
+
+  /* ---------- checkbox and radio ---------- */
+  .d-checkbox,
+  .d-radio {
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin: 0.0625rem 0 0;
+    border: var(--d-stroke-icon) solid var(--d-color-border-strong);
+    border-radius: var(--d-radius-xs);
+    background: transparent;
+    cursor: default;
+    transition:
+      background-color var(--d-duration-fast) var(--d-ease-standard),
+      border-color var(--d-duration-fast) var(--d-ease-standard),
+      scale var(--d-duration-instant) var(--d-ease-out);
+  }
+  .d-radio {
+    border-radius: var(--d-radius-full);
+  }
+  .d-checkbox:active,
+  .d-radio:active {
+    scale: 0.92;
+  }
+  .d-checkbox:checked,
+  .d-radio:checked {
+    border-color: var(--d-color-bg-inverse);
+    background: var(--d-color-bg-inverse);
+  }
+  /* The check: two sides of a small rotated box. */
+  .d-checkbox::after {
+    content: "";
+    position: absolute;
+    inset: 0.1875rem 0.125rem 0.25rem;
+    border: solid var(--d-color-text-inverse);
+    border-width: 0 0 var(--d-stroke-glyph) var(--d-stroke-glyph);
+    rotate: -45deg;
+    translate: 0 -0.0625rem;
+    opacity: 0;
+    scale: 0.8;
+    transition:
+      opacity var(--d-duration-fast) var(--d-ease-standard),
+      scale var(--d-spring-snappy-duration) var(--d-spring-snappy);
+  }
+  .d-checkbox:checked::after {
+    opacity: 1;
+    scale: 1;
+  }
+  .d-radio::after {
+    content: "";
+    position: absolute;
+    inset: 0.25rem;
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-text-inverse);
+    opacity: 0;
+    scale: 0.6;
+    transition:
+      opacity var(--d-duration-fast) var(--d-ease-standard),
+      scale var(--d-spring-snappy-duration) var(--d-spring-snappy);
+  }
+  .d-radio:checked::after {
+    opacity: 1;
+    scale: 1;
+  }
+}

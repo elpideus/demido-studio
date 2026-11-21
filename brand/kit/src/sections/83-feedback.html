@@ -1,0 +1,157 @@
+<!-- id: feedback | title: Feedback | group: Components -->
+<div class="kit-head">
+  <p class="kit-eyebrow">10 · Components</p>
+  <h2 class="kit-title" id="feedback-title">Feedback</h2>
+  <p class="kit-lead">This is where colour is allowed, and only when the state is true. Each signal has three cues that always travel together: a glyph, a word and a colour.</p>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Signal words</h3>
+  <p class="kit-sub__text">Three levels from the manual register, plus error. NOTE has no colour: it is not an alarm.</p>
+</div>
+<div class="kit-stack" style="gap: var(--d-space-8)">
+  <div class="d-signal" data-level="note" role="note">
+    <span class="d-signal__label">NOTE</span>
+    <div class="d-signal__body">Free OpenCode models may use your prompts for training during their free period.</div>
+  </div>
+  <div class="d-signal" data-level="caution" role="note">
+    <span class="d-signal__label">CAUTION</span>
+    <div class="d-signal__body">This model needs 9.8 GB. You have 7.6 GB free. It will run 11 of 33 layers on the CPU, at about 9 tokens/s.</div>
+  </div>
+  <div class="d-signal" data-level="warning" role="note">
+    <span class="d-signal__label">WARNING</span>
+    <div class="d-signal__body">Autonomous never asks before running commands. Anything it deletes is gone.
+      <div class="d-signal__actions"><button class="d-button d-button--sm" type="button">Keep Balanced</button><button class="d-button d-button--sm d-button--danger" type="button">Switch to Autonomous</button></div>
+    </div>
+  </div>
+  <div class="d-signal" data-level="error" role="note">
+    <span class="d-signal__label">ERROR</span>
+    <div class="d-signal__body">Download stopped at 1.8 of 2.5 GB: the connection dropped. Nothing is lost. <button class="d-button d-button--sm" type="button" style="margin-inline-start: var(--d-space-8)">Resume</button></div>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Asking permission</h3>
+  <p class="kit-sub__text">What the model will do is a fact, so it comes first, in mono, exactly as it will run. Why is the model's claim, so it comes second. The full request is one step away.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <section class="d-permission" data-risk="high" aria-labelledby="kit-perm-1">
+    <header class="d-permission__head">
+      <span class="d-permission__risk">High risk · deletes files</span>
+      <h3 class="d-permission__title" id="kit-perm-1">Run a shell command</h3>
+    </header>
+    <pre class="d-permission__what"><code>rm -rf ./build ./dist</code></pre>
+    <p class="d-permission__why">Wants to clear old build output before rebuilding. 2 folders, 418 files, inside the session folder.</p>
+    <details class="d-disclosure">
+      <summary>Full request</summary>
+      <div class="d-disclosure__body"><pre class="d-code"><code>tool      shell.run
+cwd       ~/sessions/refactor-auth
+command   rm -rf ./build ./dist
+asked by  main session · Qwen3 4B Instruct</code></pre></div>
+    </details>
+    <div class="d-permission__actions">
+      <button class="d-button" type="button">Deny</button>
+      <button class="d-button" type="button">Always allow in this session</button>
+      <button class="d-button d-button--primary" type="button">Allow once</button>
+    </div>
+  </section>
+
+  <section class="d-permission" data-risk="low" aria-labelledby="kit-perm-2">
+    <header class="d-permission__head">
+      <span class="d-permission__risk">Low risk · reads only</span>
+      <h3 class="d-permission__title" id="kit-perm-2">Read your inbox</h3>
+    </header>
+    <pre class="d-permission__what"><code>email.list  account=personal  since=yesterday 07:00</code></pre>
+    <p class="d-permission__why">Needed for the morning email report. Subjects and senders only; message bodies are not opened.</p>
+    <div class="d-permission__actions">
+      <button class="d-button" type="button">Deny</button>
+      <button class="d-button" type="button">Always allow for this schedule</button>
+      <button class="d-button d-button--primary" type="button">Allow once</button>
+    </div>
+  </section>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Progress, usage, memory</h3>
+  <p class="kit-sub__text">Numbers sit beside every bar. The memory budget tells its parts apart by lightness and pattern as well as by label; only the model that is awake gets the accent.</p>
+</div>
+<div class="kit-grid kit-grid--2">
+  <div class="kit-frame kit-stack">
+    <div class="kit-stack" style="gap: var(--d-space-6)">
+      <div class="kit-meter-line"><span>Downloading Qwen3 4B Instruct</span><span class="d-mono">1.8 / 2.5 GB · 2 min left</span></div>
+      <div class="d-meter d-meter--lg" role="meter" aria-valuenow="72" aria-valuemin="0" aria-valuemax="100" aria-label="Download"><span style="--d-meter: 72%"></span></div>
+    </div>
+    <div class="kit-stack" style="gap: var(--d-space-6)">
+      <div class="kit-meter-line"><span>Checking the file</span><span class="d-mono">sha256</span></div>
+      <div class="d-meter" data-indeterminate role="progressbar" aria-label="Checking the file"><span></span></div>
+    </div>
+    <div class="kit-stack" style="gap: var(--d-space-6)">
+      <div class="kit-meter-line"><span>Claude Code · programmatic credit</span><span class="d-mono">$17.40 / $20.00 · resets 1 Dec</span></div>
+      <div class="d-meter" data-tone="caution" role="meter" aria-valuenow="87" aria-valuemin="0" aria-valuemax="100" aria-label="Claude Code credit used"><span style="--d-meter: 87%"></span></div>
+    </div>
+    <div class="kit-stack" style="gap: var(--d-space-6)">
+      <div class="kit-meter-line"><span>OpenRouter · credits</span><span class="d-mono">$3.12 / $10.00</span></div>
+      <div class="d-meter" role="meter" aria-valuenow="31" aria-valuemin="0" aria-valuemax="100" aria-label="OpenRouter credits used"><span style="--d-meter: 31%"></span></div>
+    </div>
+  </div>
+
+  <div class="kit-frame kit-stack">
+    <div class="kit-meter-line"><span>Memory · RTX 3060</span><span class="d-mono">8.3 / 12.0 GB</span></div>
+    <div class="d-budget">
+      <div class="d-budget__bar" role="img" aria-label="Memory: 8.3 of 12.0 GB used">
+        <span data-part="model" style="--d-part: 51%"></span>
+        <span data-part="agent" style="--d-part: 6%"></span>
+        <span data-part="aux" style="--d-part: 5%"></span>
+        <span data-part="reserve" style="--d-part: 8%"></span>
+      </div>
+      <dl class="d-budget__legend">
+        <div data-part="model"><dt>Main model, awake</dt><dd>6.1 GB</dd></div>
+        <div data-part="agent"><dt>Agent 1 context</dt><dd>0.7 GB</dd></div>
+        <div data-part="aux"><dt>Embedding model</dt><dd>0.6 GB</dd></div>
+        <div data-part="reserve"><dt>Kept free for the system</dt><dd>0.9 GB</dd></div>
+        <div><dt>Free</dt><dd>3.7 GB</dd></div>
+      </dl>
+    </div>
+    <p class="kit-caption" style="margin: 0">Room for one more agent (0.7 GB each). A second model of this size does not fit.</p>
+  </div>
+</div>
+
+<div class="kit-sub">
+  <h3 class="kit-sub__title">Menus, tooltips, toasts, dialogs</h3>
+  <p class="kit-sub__text">One overlay surface. Menus open from their trigger and do not animate their hover: they are used all day. A dialog states the consequence and its button repeats the verb.</p>
+</div>
+<div class="kit-grid" style="--kit-min: 17rem">
+  <div class="kit-frame kit-frame--sunken kit-frame--center">
+    <div class="d-menu" role="menu" aria-label="Model">
+      <p class="d-menu__label">Loaded</p>
+      <button class="d-menu__item" type="button" role="menuitemradio" aria-checked="true"><span class="d-glyph" data-glyph="model-loaded" aria-hidden="true" style="color: var(--d-color-accent-base)"></span><span>Qwen3 4B Instruct</span><span class="d-menu__hint">6.1 GB</span></button>
+      <p class="d-menu__label">On disk</p>
+      <button class="d-menu__item" type="button" role="menuitemradio" aria-checked="false"><span class="d-glyph" data-glyph="model-unloaded" aria-hidden="true"></span><span>Gemma 3n E4B</span><span class="d-menu__hint">4.4 GB</span></button>
+      <button class="d-menu__item" type="button" role="menuitemradio" aria-checked="false" disabled><span class="d-glyph" data-glyph="model-unloaded" aria-hidden="true"></span><span>Mistral Small 24B</span><span class="d-menu__hint">does not fit</span></button>
+      <hr class="d-menu__sep">
+      <button class="d-menu__item" type="button" role="menuitem"><!--@icon download--><span>Browse models</span><span class="d-menu__hint"><kbd class="d-kbd">Ctrl</kbd><kbd class="d-kbd">M</kbd></span></button>
+      <button class="d-menu__item" type="button" role="menuitem" data-tone="danger"><!--@icon trash-2--><span>Unload now</span></button>
+    </div>
+  </div>
+
+  <div class="kit-frame kit-frame--sunken kit-stack" style="align-content: center; justify-items: center; gap: var(--d-space-20)">
+    <span class="d-tooltip" role="tooltip">Unload model <span><kbd class="d-kbd">Ctrl</kbd><kbd class="d-kbd">U</kbd></span></span>
+    <div class="d-toast" role="status"><span>Model unloaded after 5 min idle.</span><button class="d-button d-button--sm" type="button">Reload</button></div>
+    <div class="d-toast" role="status"><span class="d-glyph" data-glyph="task-done" aria-hidden="true"></span><span>Schedule saved. Next run: tomorrow, 07:00.</span></div>
+  </div>
+
+  <div class="kit-frame kit-frame--sunken kit-stack" style="align-content: center; justify-items: center; gap: var(--d-space-16)">
+    <div class="d-dialog kit-dialog-static" role="group" aria-label="Example dialog">
+      <h2 class="d-dialog__title">Delete 3 sessions?</h2>
+      <p class="d-dialog__text">Their messages, files and artifacts are removed from this computer. This cannot be undone.</p>
+      <div class="d-dialog__actions"><button class="d-button" type="button">Cancel</button><button class="d-button d-button--danger" type="button">Delete 3 sessions</button></div>
+    </div>
+    <button class="d-button d-button--sm" type="button" data-dialog-open>Open it for real</button>
+  </div>
+</div>
+
+<dialog class="d-dialog" data-dialog>
+  <h2 class="d-dialog__title">Delete 3 sessions?</h2>
+  <p class="d-dialog__text">Their messages, files and artifacts are removed from this computer. This cannot be undone.</p>
+  <form method="dialog" class="d-dialog__actions"><button class="d-button" type="submit" autofocus>Cancel</button><button class="d-button d-button--danger" type="submit">Delete 3 sessions</button></form>
+</dialog>

@@ -1,0 +1,236 @@
+{
+  "font": {
+    "family": {
+      "$type": "fontFamily",
+      "sans": {
+        "$value": [
+          "Geologica Variable",
+          "Geologica",
+          "system-ui",
+          "sans-serif"
+        ],
+        "$description": "UI, text, display and the wordmark. Round forms that echo the logo; covers Latin, Cyrillic, Greek and Vietnamese."
+      },
+      "mono": {
+        "$value": [
+          "JetBrains Mono Variable",
+          "JetBrains Mono",
+          "ui-monospace",
+          "monospace"
+        ],
+        "$description": "Code, data, identifiers: anything a person may copy exactly. Ligatures are off."
+      }
+    },
+    "weight": {
+      "$type": "number",
+      "$description": "Geologica is drawn dark: its 250 has the stroke of a usual 400. Always use these tokens, never numeric weights like 400 or 700. Measured in brand/explorations/lab/type.",
+      "regular": {
+        "$value": 250,
+        "$description": "Body text. Stroke equals Inter 400."
+      },
+      "small": {
+        "$value": 300,
+        "$description": "Text at 12 px and below, so thin strokes hold on 1x screens."
+      },
+      "medium": {
+        "$value": 350,
+        "$description": "Labels, buttons, emphasis. Equals Inter 500."
+      },
+      "semibold": {
+        "$value": 450,
+        "$description": "Headings and bold in running text. Equals Inter 600."
+      },
+      "bold": {
+        "$value": 550,
+        "$description": "Rare: the heaviest we set."
+      },
+      "mono": {
+        "$value": 400,
+        "$description": "JetBrains Mono regular."
+      }
+    }
+  },
+  "type": {
+    "$description": "Text styles. Sizes in rem, so the UI follows the user's text size (14 px base at 100%). Tracking is size-specific: large text tightens, small text opens. Leading tightens as size grows.",
+    "display": {
+      "size": {
+        "$type": "dimension",
+        "$value": "3.5rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.04
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "-0.028em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.semibold}"
+      }
+    },
+    "title-1": {
+      "size": {
+        "$type": "dimension",
+        "$value": "2rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.12
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "-0.022em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.semibold}"
+      }
+    },
+    "title-2": {
+      "size": {
+        "$type": "dimension",
+        "$value": "1.5rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.2
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "-0.018em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.semibold}"
+      }
+    },
+    "title-3": {
+      "size": {
+        "$type": "dimension",
+        "$value": "1.125rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.3
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "-0.012em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.semibold}"
+      }
+    },
+    "headline": {
+      "size": {
+        "$type": "dimension",
+        "$value": "0.875rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.35
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "-0.004em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.semibold}"
+      }
+    },
+    "reading": {
+      "size": {
+        "$type": "dimension",
+        "$value": "0.9375rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.6
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "0em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.regular}"
+      }
+    },
+    "body": {
+      "size": {
+        "$type": "dimension",
+        "$value": "0.875rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.45
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "0em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.regular}"
+      }
+    },
+    "caption": {
+      "size": {
+        "$type": "dimension",
+        "$value": "0.75rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.4
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "0.004em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.small}"
+      }
+    },
+    "micro": {
+      "size": {
+        "$type": "dimension",
+        "$value": "0.6875rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.3
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "0.06em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.medium}"
+      }
+    },
+    "code": {
+      "size": {
+        "$type": "dimension",
+        "$value": "0.8125rem"
+      },
+      "leading": {
+        "$type": "number",
+        "$value": 1.55
+      },
+      "tracking": {
+        "$type": "dimension",
+        "$value": "0em"
+      },
+      "weight": {
+        "$type": "number",
+        "$value": "{font.weight.mono}"
+      }
+    }
+  }
+}
