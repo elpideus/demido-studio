@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# rust
+target/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# local state
+.env
+.env.*
+!.env.example
+*.log
+.shots/
+.DS_Store
+Thumbs.db
+
+# editors and assistants (per-machine)
+.claude/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# brand lab: the reports and the scripts are kept. The images are rebuilt by those scripts and stay out
+# (38 MB of comparison sheets, and the raw captures behind them). See brand/explorations/lab/README.md.
+brand/explorations/lab/color/sheets/*.png
+brand/explorations/lab/type/out/**/*.png
+brand/explorations/**/node_modules/
+brand/explorations/**/renders/
+brand/explorations/**/shots/
