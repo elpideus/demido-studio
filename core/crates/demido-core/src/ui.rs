@@ -81,13 +81,39 @@ impl Ui {
 }
 
 /// What the window's own pages may load and run (IDEAS 136): Demido's own files, and nothing from anywhere
-/// else. Nothing a model writes is shown as a page with this address (Markdown is drawn as text, pages and
-/// files are in frames of no address that run nothing), so this is a second wall: what got past the first
-/// could neither run a script nor send anything out. A page shown in a frame of its own (`srcdoc`) is under
-/// this policy too, so a picture it names on the internet is not fetched either. Styles may be written in
+/// else. Nothing a model writes is shown as a page with this address (Markdown is drawn as text; a page a
+/// model gave runs in `/page-frame`, of no address and with its own policy; the folder's pages and files are
+/// in frames of no address that run nothing), so this is a second wall: what got past the first could
+/// neither run a script nor send anything out. A page shown in a frame of its own (`srcdoc`) is under this
+/// policy too, so a picture it names on the internet is not fetched either; and `frame-src 'self'` keeps a
+/// frame from sending itself to another address (measured, DECISIONS Q15). Styles may be written in
 /// the page, as React and the editor write them; scripts may not. Small fonts come inside the styles
 /// (`data:`), as the build puts them there.
 const POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+/// What a page a model gave may do while it runs (DECISIONS Q15). `sandbox allow-scripts` without
+/// `allow-same-origin`: a document of no address, which cannot act on Demido as the person or reach its
+/// storage, even if it is opened by itself; no forms, no windows of its own, no moving the window. Its
+/// scripts and styles only from the page itself, pictures and sounds only from inside it (`data:`,
+/// `blob:`), and every connection shut (`default-src 'none'` covers fetch, sockets, beacons, frames and
+/// workers). Only Demido's own window may hold it in a frame.
+pub const PAGE_FRAME_POLICY: &str = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
+
+/// The frame's document: it holds nothing of its own. The window hands it the page's text once it has
+/// loaded, and it becomes that page; it takes the text from the window that holds it and from nowhere else,
+/// and only once.
+const PAGE_FRAME: &str = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>A page a model gave</title></head><body><script>\n\"use strict\";\naddEventListener(\"message\", function take(e) {\n  if (e.source !== parent || typeof e.data !== \"string\") return;\n  removeEventListener(\"message\", take);\n  document.open();\n  document.write(e.data);\n  document.close();\n});\n</script></body></html>\n";
+
+/// The frame a page a model gave runs in (`/page-frame`), with its own policy. Open: it holds nothing, and
+/// the window that frames it is the one that is signed in.
+pub fn page_frame() -> Response {
+    let mut res = ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], PAGE_FRAME).into_response();
+    let headers = res.headers_mut();
+    headers.insert(header::CONTENT_SECURITY_POLICY, header::HeaderValue::from_static(PAGE_FRAME_POLICY));
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, header::HeaderValue::from_static("nosniff"));
+    headers.insert(header::REFERRER_POLICY, header::HeaderValue::from_static("no-referrer"));
+    res
+}
 
 /// A short mark of the policy (FNV-1a), for the page's own mark.
 fn policy_mark() -> u32 {
@@ -118,6 +144,22 @@ mod tests {
 
     fn head(res: &Response, name: header::HeaderName) -> String {
         res.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("").to_string()
+    }
+
+    #[test]
+    fn a_page_a_model_gave_runs_with_no_address_and_no_way_out() {
+        let res = page_frame();
+        let policy = head(&res, header::CONTENT_SECURITY_POLICY);
+        let directives: Vec<&str> = policy.split(';').map(str::trim).collect();
+        assert_eq!(directives[0], "sandbox allow-scripts", "scripts, and nothing else the sandbox could allow: {policy}");
+        assert!(!policy.contains("allow-same-origin") && !policy.contains("allow-top-navigation") && !policy.contains("allow-popups") && !policy.contains("allow-forms"), "{policy}");
+        assert!(directives.contains(&"default-src 'none'") && !policy.contains("connect-src"), "nothing may connect: {policy}");
+        for d in &directives {
+            assert!(!d.contains("http") && !d.contains('*') && !d.contains("'self'") || d.starts_with("frame-ancestors"), "no address to load from: {d}");
+        }
+        assert!(directives.contains(&"frame-ancestors 'self'"), "{policy}");
+        assert_eq!((head(&res, header::X_CONTENT_TYPE_OPTIONS).as_str(), head(&res, header::REFERRER_POLICY).as_str()), ("nosniff", "no-referrer"));
+        assert!(head(&res, header::CONTENT_TYPE).starts_with("text/html"));
     }
 
     #[tokio::test]

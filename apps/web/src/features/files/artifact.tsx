@@ -1,6 +1,7 @@
 /* An artifact: a file a model gave in the session, with every version (DECISIONS Q10 to Q14). Shown as what
-   it is, at any of its versions, and downloaded under its name. A page in it runs nothing, as a page in the
-   folder does not (Q2); a drawing (SVG) is shown as a picture, in which it runs nothing either. */
+   it is, at any of its versions, and downloaded under its name. A page in it runs its scripts, in a frame of
+   no address with every connection shut (Q15); a drawing (SVG) is shown as a picture, in which it runs
+   nothing. */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { FileCode, FileText, Image } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -50,6 +51,38 @@ function Drawing({ text, name }: { text: string; name: string }) {
   const url = useMemo(() => URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' })), [text])
   useEffect(() => () => URL.revokeObjectURL(url), [url])
   return <div className="files__media"><img src={url} alt={name} /></div>
+}
+
+/** One showing of a page: the core's frame (`/page-frame`, its own policy), handed the text once, when it
+    has loaded. The frame has no address of its own, so the text is sent to it without naming one; before
+    its first load nothing else can be in it. */
+function PageFrame({ text, title }: { text: string; title: string }) {
+  const given = useRef(false)
+  return (
+    <iframe className="files__frame" title={title} src="/page-frame" sandbox="allow-scripts" referrerPolicy="no-referrer"
+      onLoad={(e) => {
+        if (given.current) return
+        given.current = true
+        e.currentTarget.contentWindow?.postMessage(text, '*')
+      }} />
+  )
+}
+
+/** A page a model gave, running (DECISIONS Q15). While it is edited, it is shown again once the typing
+    stops for a moment, in a new frame: a page that ran is never handed a second text. */
+function RunningPage({ text, title }: { text: string; title: string }) {
+  const [shown, setShown] = useState({ text, n: 0 })
+  useEffect(() => {
+    if (text === shown.text) return
+    const t = window.setTimeout(() => setShown((s) => ({ text, n: s.n + 1 })), 400)
+    return () => window.clearTimeout(t)
+  }, [text, shown.text])
+  return (
+    <div className="files__running">
+      <p className="d-type-caption d-text-tertiary files__running-note">This page runs its scripts, shut off from the internet. A running page may still find a way to send out what it holds, so one with something private in it is better read as its source.</p>
+      <PageFrame key={shown.n} text={shown.text} title={title} />
+    </div>
+  )
 }
 
 /** Puts a version into the session's folder, as a file of its own on disk. A file that is there is replaced
@@ -172,8 +205,7 @@ export function ArtifactView({ session, id, n: asked, folder, onPut }: { session
           <div className="files__preview">
             {a.shown_as === 'markdown' ? <Prose text={text}/>
               : a.shown_as === 'svg' ? <Drawing text={text} name={a.name} />
-              // A page in a frame that runs nothing and reaches nothing: no scripts, no forms, no address of its own.
-              : <iframe className="files__frame" title={`${a.name}, as a page`} sandbox="" srcDoc={text} />}
+              : <RunningPage text={text} title={`${a.name}, as a page`} />}
           </div>
         )}
       </div>

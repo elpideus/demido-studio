@@ -267,6 +267,44 @@
         }
       }
     },
+    "code": {
+      "$description": "Highlighting, in the editor and in code in an answer (the owner's direction, 2026-11-22: DECISIONS Q7). Hues kept away from the signals' (green 160, amber 72 to 88, red 26, blue 246 to 270) and softer than them, so a signal still reads as one. Every one is at least 7.6:1 on the dark backgrounds and 5.5:1 on the light ones, from sunken to raised.",
+      "keyword": {
+        "$value": {
+          "dark": "oklch(0.78 0.12 305)",
+          "light": "oklch(0.47 0.16 305)"
+        },
+        "$description": "Keywords, tags in a page, headings in Markdown."
+      },
+      "string": {
+        "$value": {
+          "dark": "oklch(0.8 0.1 200)",
+          "light": "oklch(0.48 0.08 205)"
+        },
+        "$description": "Strings, attribute values, links in Markdown."
+      },
+      "number": {
+        "$value": {
+          "dark": "oklch(0.8 0.11 55)",
+          "light": "oklch(0.49 0.12 50)"
+        },
+        "$description": "Numbers, true and false, null."
+      },
+      "type": {
+        "$value": {
+          "dark": "oklch(0.83 0.1 120)",
+          "light": "oklch(0.47 0.095 125)"
+        },
+        "$description": "Types, classes, namespaces, attribute names."
+      },
+      "definition": {
+        "$value": {
+          "dark": "oklch(0.8 0.11 350)",
+          "light": "oklch(0.48 0.15 355)"
+        },
+        "$description": "The name being defined: a function, a type."
+      }
+    },
     "scrim": {
       "$value": {
         "dark": "oklch(0 0 0 / 0.6)",

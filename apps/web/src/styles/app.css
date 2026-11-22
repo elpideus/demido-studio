@@ -1593,33 +1593,66 @@
     text-align: end;
   }
 
-  /* code in an answer, highlighted as the editor highlights it: weight, lightness and slant, no hues (Q7) */
-  .d-prose .tok-keyword, .d-prose .tok-bool, .d-prose .tok-definition, .d-prose .tok-heading, .d-prose .tok-strong {
+  /* highlighting, in the editor and in code in an answer: the same classes (ui/code-highlighter.ts), the
+     brand's code colours (Q7). Weight and slant stay with them, so a piece is told apart without colour too. */
+  :is(.d-prose, .cm-editor) .tok-keyword {
+    color: var(--d-color-code-keyword);
     font-weight: 650;
   }
-  .d-prose .tok-number, .d-prose .tok-atom {
+  :is(.d-prose, .cm-editor) .tok-string {
+    color: var(--d-color-code-string);
+  }
+  :is(.d-prose, .cm-editor) .tok-special {
     font-weight: 550;
   }
-  .d-prose .tok-comment {
+  :is(.d-prose, .cm-editor) .tok-number {
+    color: var(--d-color-code-number);
+  }
+  :is(.d-prose, .cm-editor) .tok-type {
+    color: var(--d-color-code-type);
+    font-style: italic;
+  }
+  :is(.d-prose, .cm-editor) .tok-definition {
+    color: var(--d-color-code-definition);
+    font-weight: 650;
+  }
+  :is(.d-prose, .cm-editor) .tok-comment {
     color: var(--d-color-text-tertiary);
     font-style: italic;
   }
-  .d-prose .tok-string, .d-prose .tok-string2, .d-prose .tok-link, .d-prose .tok-url {
-    color: var(--d-color-text-secondary);
-  }
-  .d-prose .tok-typeName, .d-prose .tok-className, .d-prose .tok-namespace, .d-prose .tok-emphasis {
-    font-style: italic;
-  }
-  .d-prose .tok-punctuation, .d-prose .tok-operator, .d-prose .tok-meta {
+  :is(.d-prose, .cm-editor) .tok-punctuation, :is(.d-prose, .cm-editor) .tok-meta {
     color: var(--d-color-text-tertiary);
   }
-  .d-prose .tok-definition {
+  :is(.d-prose, .cm-editor) .tok-heading {
+    color: var(--d-color-code-keyword);
+    font-weight: 750;
+  }
+  :is(.d-prose, .cm-editor) .tok-heading.tok-minor {
+    font-weight: 650;
+  }
+  :is(.d-prose, .cm-editor) .tok-strong {
+    font-weight: 750;
+  }
+  :is(.d-prose, .cm-editor) .tok-emphasis {
+    font-style: italic;
+  }
+  :is(.d-prose, .cm-editor) .tok-strikethrough {
+    text-decoration: line-through;
+  }
+  :is(.d-prose, .cm-editor) .tok-link {
+    color: var(--d-color-code-string);
     text-decoration: underline;
-    text-decoration-color: var(--d-color-border-strong);
     text-underline-offset: 3px;
   }
-  .d-prose .tok-invalid {
+  :is(.d-prose, .cm-editor) .tok-quote {
+    color: var(--d-color-text-secondary);
+    font-style: italic;
+  }
+  /* what is wrong is the one signal here: danger's colour, and a line no hue is needed to see */
+  :is(.d-prose, .cm-editor) .tok-invalid {
     color: var(--d-color-danger-base);
+    text-decoration: underline wavy;
+    text-underline-offset: 3px;
   }
 
   /* ───────── files ───────── */
@@ -1701,6 +1734,18 @@
     border: 0;
     background: white;
     color-scheme: light;
+  }
+  /* a page a model gave, running (Q15): what it can still do is said above it */
+  .files__running {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: var(--d-space-8);
+    height: 100%;
+    min-height: 0;
+  }
+  .files__running-note {
+    margin: 0;
+    max-width: 72ch;
   }
   /* a PDF's pages, one under another */
   .files__pages {

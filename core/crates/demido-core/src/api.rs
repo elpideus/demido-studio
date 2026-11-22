@@ -1382,6 +1382,7 @@ pub fn router(app: App) -> Router {
     Router::new()
         .nest("/api/v1", api)
         .route("/enter", get(enter))
+        .route("/page-frame", get(|| async { crate::ui::page_frame() }))
         .route("/programs/approve/{token}", post(program_approve).get(program_approve_stream))
         .fallback(ui_file)
         .layer(middleware::from_fn_with_state(app.clone(), guard))

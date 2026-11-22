@@ -1,42 +1,16 @@
 /* A file's text, in an editor: CodeMirror 6 (MIT). Its language is found from its name and loaded only when
    a file of it is opened; a name it does not know is plain text.
 
-   Highlighting is quiet on purpose (DECISIONS Q7): structure is told by weight, lightness and slant, not by
-   hues, which Demido keeps for signals. Only what is wrong (an error in the text) has a colour, danger's. */
+   Highlighting has colours (DECISIONS Q7), the brand's code tokens, given by the same classes as code in an
+   answer (ui/code-highlighter.ts; the colours are in app.css). */
 import { useEffect, useRef, type RefObject } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { bracketMatching, HighlightStyle, indentOnInput, LanguageDescription, syntaxHighlighting } from '@codemirror/language'
+import { bracketMatching, indentOnInput, LanguageDescription, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
-import { tags as t } from '@lezer/highlight'
-
-const quiet = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.modifier, t.self, t.null, t.bool], fontWeight: '650' },
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: 'var(--d-color-text-tertiary)', fontStyle: 'italic' },
-  { tag: [t.string, t.special(t.string), t.regexp, t.character, t.escape], color: 'var(--d-color-text-secondary)' },
-  { tag: [t.typeName, t.className, t.namespace], fontStyle: 'italic' },
-  { tag: [t.function(t.definition(t.variableName)), t.definition(t.typeName), t.definition(t.className)], fontWeight: '650', textDecoration: 'underline', textDecorationColor: 'var(--d-color-border-strong)', textUnderlineOffset: '3px' },
-  { tag: [t.punctuation, t.bracket, t.operator, t.separator, t.derefOperator], color: 'var(--d-color-text-tertiary)' },
-  { tag: [t.number, t.integer, t.float, t.atom, t.unit], fontWeight: '550' },
-  { tag: [t.meta, t.processingInstruction, t.annotation], color: 'var(--d-color-text-tertiary)' },
-  // Pages and other markup
-  { tag: [t.tagName], fontWeight: '650' },
-  { tag: [t.attributeName], color: 'var(--d-color-text-secondary)' },
-  { tag: [t.attributeValue], color: 'var(--d-color-text-secondary)' },
-  // Markdown, as it reads
-  { tag: [t.heading, t.heading1, t.heading2, t.heading3], fontWeight: '750' },
-  { tag: [t.heading4, t.heading5, t.heading6], fontWeight: '650' },
-  { tag: t.strong, fontWeight: '750' },
-  { tag: t.emphasis, fontStyle: 'italic' },
-  { tag: t.strikethrough, textDecoration: 'line-through' },
-  { tag: [t.link, t.url], color: 'var(--d-color-text-secondary)', textDecoration: 'underline', textUnderlineOffset: '3px' },
-  { tag: t.quote, color: 'var(--d-color-text-secondary)', fontStyle: 'italic' },
-  { tag: t.monospace, color: 'var(--d-color-text-secondary)' },
-  { tag: t.contentSeparator, color: 'var(--d-color-text-tertiary)' },
-  { tag: t.invalid, color: 'var(--d-color-danger-base)' },
-])
+import { codeHighlighter } from '../../ui/code-highlighter'
 
 const look = EditorView.theme({
   '&': { height: '100%', color: 'var(--d-color-text-primary)', backgroundColor: 'var(--d-color-bg-sunken)', fontSize: 'var(--d-type-code-size)' },
@@ -111,7 +85,7 @@ export default function Code({ name, text, readOnly, wrap, onChange, onSave, flu
           highlightActiveLine(),
           highlightSelectionMatches(),
           search({ top: false }),
-          syntaxHighlighting(quiet),
+          syntaxHighlighting(codeHighlighter),
           look,
           language.of([]),
           wrap ? EditorView.lineWrapping : [],

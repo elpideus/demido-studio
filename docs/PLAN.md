@@ -168,7 +168,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory. **On hold** (the owner, 2026-11-22; O13: no second model by default) | The hardest design left, and the product's main promise |
 | 7 | Schedules and monitors that run with nobody there: decided by the owner (DECISIONS J): always autonomous, every tool, no level | Nobody is there to say no, so all a run did must be easy to read |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
-| 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS Q1 to Q14, research note 23), and with them a long file written into the folder (T24). Left from the owner's answers of 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts (Q15) | Window work with a clear edge; Q15 runs a model's code in the window |
+| 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS Q1 to Q14, research note 23), and with them a long file written into the folder (T24). ~~Left from the owner's answers of 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts (Q15)~~ done; one way out of a running page stays open, WebRTC (Q15, IDEAS 142) | Window work with a clear edge; Q15 runs a model's code in the window |
 | 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts (~~PDFs~~ done, N15) | Logged-in pages are the most private thing there is |
 | 9 | Voice: the libraries, the screen | Research and building, little risk |
 | 9 | Email and the messaging platforms: reading and sending in a person's name. Gmail by app password first (DECISIONS Y1) | Messages from outside are injected text; sending cannot be undone |
@@ -201,9 +201,10 @@ Also done on 2026-11-22: the owner's decisions on what was waiting for them: Sma
 (T26), agents (O13, O14: on hold), schedules (section J), highlighting (Q7), artifacts (Q14), pages that run
 (Q15), and email's Google preset (Y1).
 
-Next, in this order unless the owner says otherwise: the two window changes the owner's answers asked for,
-colours in highlighting (Q7) and a page a model gave running its scripts (Q15); then Smart as the model
-deciding (T6), measured first; then the sandbox on Windows (T26), researched and tried on the checks' Windows
+Also done on 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts in a frame
+of no address, with what it can still send out measured (Q15).
+
+Next, in this order unless the owner says otherwise: Smart as the model deciding (T6), measured first; then the sandbox on Windows (T26), researched and tried on the checks' Windows
 machine; then schedules (section J). Agents wait.
 
 ## Set aside for later
