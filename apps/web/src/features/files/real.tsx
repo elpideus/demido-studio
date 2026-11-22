@@ -409,7 +409,7 @@ export function RealFiles() {
         : session && open?.kind === 'artifact' ? <ArtifactView key={`${open.id}:${open.n ?? 'last'}`} session={session.id} id={open.id} n={open.n} folder={session.folder ?? null} onPut={openFile} />
         : <section className="chat" aria-label="File"><div className="files__preview app-stack">
           <p className="app-empty">{session ? 'Pick a file on the left.' : 'The files of a session with a folder, and the files models gave you, are shown here.'}</p>
-          <NotBuilt block>Deleting a folder here; editing a file a model gave you.</NotBuilt>
+          <NotBuilt block>Deleting a folder here.</NotBuilt>
         </div></section>}
     </div>
   )

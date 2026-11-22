@@ -1,10 +1,10 @@
 /* An artifact: a file a model gave in the session, with every version (DECISIONS F10 to F14). Shown as what
    it is, at any of its versions, and downloaded under its name. A page in it runs nothing, as a page in the
    folder does not (F2); a drawing (SVG) is shown as a picture, in which it runs nothing either. */
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { FileCode, FileText, Image } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { listArtifacts, putIntoFolder, readArtifact, readVersion, versionFileUrl, type Artifact, type ArtifactShownAs, type Version, type VersionFacts } from '@/data/artifacts'
+import { keepAsFile, listArtifacts, putIntoFolder, readArtifact, readVersion, versionFileUrl, type Artifact, type ArtifactShownAs, type Version, type VersionFacts } from '@/data/artifacts'
 import { CoreProblem, useFolderTicks, type FolderEntry } from '@/data/session-files'
 import { Button, Dialog, Glyph, Icon, Segmented, Select, Signal } from '@/ui'
 import { Prose } from '@/ui/prose'
@@ -100,6 +100,11 @@ export function ArtifactView({ session, id, n: asked, folder, onPut }: { session
   const [version, setVersion] = useState<Version | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<'preview' | 'split' | 'source'>('preview')
+  // The person's own edit, from the version shown: saved, it is a new version, and the model's stays.
+  const [editing, setEditing] = useState<{ from: number; text: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [refused, setRefused] = useState<string | null>(null)
+  const flush = useRef<(() => void) | null>(null)
   useEffect(() => {
     let alive = true
     readArtifact(session, id).then((f) => { if (alive) { setFacts(f); setError(null) } }, (e: Error) => { if (alive) setError(e.message) })
@@ -120,9 +125,25 @@ export function ArtifactView({ session, id, n: asked, folder, onPut }: { session
   const previewable = a.shown_as !== 'text'
   const panes = previewable ? view : 'source'
   const made = facts.versions.find((v) => v.n === version.n)
+  const text = editing?.text ?? version.text
+  const save = async () => {
+    flush.current?.()
+    if (!editing || saving || editing.text === version.text) return
+    setSaving(true)
+    setRefused(null)
+    try {
+      await keepAsFile(session, a.name, editing.text)
+      setEditing(null)
+      setN(null)
+    } catch (e) {
+      setRefused((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
   const size = (bytes: number) => (bytes < 1000 ? `${bytes} bytes` : bytes < 1_000_000 ? `${(bytes / 1000).toFixed(1)} kB` : `${(bytes / 1_000_000).toFixed(1)} MB`)
   return (
-    <section className="chat" style={{ gridTemplateRows: 'auto minmax(0, 1fr)' }} aria-label={`${a.name}, a file the model gave you`}>
+    <section className="chat" style={{ gridTemplateRows: refused ? 'auto auto minmax(0, 1fr)' : 'auto minmax(0, 1fr)' }} aria-label={`${a.name}, a file the model gave you`}>
       <header className="chat__head chat__head--tools">
         <span className="chat__title">{a.name}</span>
         <span className="d-type-caption d-text-tertiary">{made ? `${size(made.size)} · made ${when(made.made_at)}` : ''}</span>
@@ -132,19 +153,27 @@ export function ArtifactView({ session, id, n: asked, folder, onPut }: { session
             options={[...facts.versions].reverse().map((v) => ({ value: String(v.n), label: v.n === last ? `Version ${v.n}, the latest` : `Version ${v.n}` }))} />
         )}
         {previewable && <Segmented small label="View" value={view} onChange={setView} options={[{ value: 'preview', label: a.shown_as === 'html' ? 'As a page' : a.shown_as === 'svg' ? 'As a picture' : 'As it reads' }, { value: 'split', label: 'Side by side' }, { value: 'source', label: 'Source' }]} />}
-        {folder && <IntoFolder session={session} artifact={a} n={version.n} onPut={onPut} />}
-        <a className="d-button d-button--sm" href={versionFileUrl(session, id, version.n)} download={a.name}>Download</a>
+        {editing ? <>
+          <Button size="sm" variant="ghost" onClick={() => { setEditing(null); setRefused(null) }}>Cancel</Button>
+          <Button size="sm" variant="primary" disabled={saving || editing.text === version.text} onClick={() => void save()} title="Save as a new version (Ctrl+S, or ⌘S on a Mac). The one you edited stays.">Save as a new version</Button>
+        </> : <>
+          <Button size="sm" variant="ghost" onClick={() => { setEditing({ from: version.n, text: version.text }); if (previewable) setView('split') }}>Edit</Button>
+          {folder && <IntoFolder session={session} artifact={a} n={version.n} onPut={onPut} />}
+          <a className="d-button d-button--sm" href={versionFileUrl(session, id, version.n)} download={a.name}>Download</a>
+        </>}
       </header>
+      {refused && <div className="files__notice"><Signal level="error">It was not saved: {refused}</Signal></div>}
       <div className="files__panes" data-view={panes === 'source' ? 'edit' : panes === 'preview' ? 'preview' : 'split'}>
         <Suspense fallback={<p className="app-empty files__edit"><Glyph name="task-running" busy /> Opening…</p>}>
-          <Code key={`${id}:${version.n}`} name={a.name} text={version.text} readOnly wrap={a.shown_as === 'markdown'} onChange={() => {}} onSave={() => {}} />
+          <Code key={`${id}:${version.n}:${editing ? 'edit' : 'read'}`} name={a.name} text={text} readOnly={!editing} wrap={a.shown_as === 'markdown'}
+            onChange={(t) => setEditing((e) => (e ? { ...e, text: t } : e))} onSave={() => void save()} flush={flush} />
         </Suspense>
         {previewable && (
           <div className="files__preview">
-            {a.shown_as === 'markdown' ? <Prose text={version.text}/>
-              : a.shown_as === 'svg' ? <Drawing text={version.text} name={a.name} />
+            {a.shown_as === 'markdown' ? <Prose text={text}/>
+              : a.shown_as === 'svg' ? <Drawing text={text} name={a.name} />
               // A page in a frame that runs nothing and reaches nothing: no scripts, no forms, no address of its own.
-              : <iframe className="files__frame" title={`${a.name}, as a page`} sandbox="" srcDoc={version.text} />}
+              : <iframe className="files__frame" title={`${a.name}, as a page`} sandbox="" srcDoc={text} />}
           </div>
         )}
       </div>
