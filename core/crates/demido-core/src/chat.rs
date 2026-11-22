@@ -863,6 +863,11 @@ impl Chat {
                     body["reasoning_effort"] = json!(session.thinking);
                 }
             }
+            // How a model on this computer picks its words: the person's settings for it, or its maker's,
+            // for this way of answering (`engine::sampling`). A model elsewhere is left to its provider.
+            if crate::providers::split(&session.model).is_none() {
+                self.engine.sampling_for(&session.model, thinks).into_request(&mut body);
+            }
             // The answer so far, looked at now and then: a model that goes round is stopped (`turn::going_round`).
             let (mut written, mut look_at, mut ends_at) = (String::new(), 400usize, None);
             // After a tool was used, a small model sometimes hands its answer back wrapped the way the tool's

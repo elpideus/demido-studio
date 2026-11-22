@@ -162,6 +162,11 @@ enum ModelsCommand {
         /// Its name, as `demido models` shows it.
         id: String,
     },
+    /// How a model picks its words, thinking and not: what each answer is sent with, and who says so.
+    Settings {
+        /// Its name, as `demido models` shows it.
+        id: String,
+    },
     /// Search Hugging Face for models the runtime can run, with whether each would fit this computer.
     Search {
         /// Words to look for. Without them: what is rising this week.
@@ -1176,12 +1181,44 @@ fn print_models(list: &Value) {
     }
 }
 
+/// A model's settings, a way of answering to a line.
+fn print_model_settings(view: &Value) {
+    let line = |s: &Value| {
+        let names = [("temperature", "temperature"), ("top_p", "top-p"), ("top_k", "top-k"), ("min_p", "min-p"), ("presence_penalty", "presence penalty"), ("repeat_penalty", "repeat penalty")];
+        names.iter().filter_map(|(k, name)| s[*k].as_f64().map(|v| format!("{name} {v}"))).collect::<Vec<_>>().join(", ")
+    };
+    let from = |c: &Value| match c["from"].as_str() {
+        Some("yours") => "your own settings, over its maker's",
+        Some("maker") => "as its maker recommends",
+        Some("file") => "as its file says (Demido sends nothing)",
+        _ => "the runtime's own (Demido sends nothing)",
+    };
+    println!("{}", view["model"].as_str().unwrap_or("?"));
+    for (label, key) in [("Thinking", "thinking"), ("Not thinking", "plain")] {
+        println!("  {label:<13} {}: {}", from(&view[key]), line(&view[key]["in_effect"]));
+    }
+    match view["maker"].as_object() {
+        Some(m) => {
+            println!("  Its maker:    {}, {}{}", m["who"].as_str().unwrap_or("?"), m["source"].as_str().unwrap_or(""), m["read_on"].as_str().map(|d| format!(" (read on {d})")).unwrap_or_default())
+        }
+        None => println!("  Its maker:    says nothing Demido knows of"),
+    }
+}
+
 async fn models(paths: &Paths, command: Option<ModelsCommand>) -> Result<()> {
     let server = Server::find(paths);
     match (command, &server) {
         (None, Some(s)) => print_models(&s.get("/api/v1/models")?),
         // Without a server nothing is loaded, and the folder can be read directly.
         (None, None) => print_models(&serde_json::to_value(Core::open(paths)?.engine.list().await?)?),
+        // A model's settings are kept in the data folder: read directly when no server runs.
+        (Some(ModelsCommand::Settings { id }), server) => {
+            let view = match server {
+                Some(s) => s.get(&format!("/api/v1/models/{id}/settings"))?,
+                None => serde_json::to_value(Core::open(paths)?.engine.model_settings(&id)?)?,
+            };
+            print_model_settings(&view);
+        }
         (Some(_), None) => bail!("A loaded model lives in the server. Start one first: demido serve"),
         (Some(ModelsCommand::Load { id }), Some(s)) => {
             println!("Loading {id}. A large model takes a while the first time.");

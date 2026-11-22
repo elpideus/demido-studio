@@ -173,6 +173,9 @@ pub struct HubModel {
     /// The most it can hold in mind, in tokens, as its files say.
     pub context_length: Option<u64>,
     pub licence: Option<String>,
+    /// The model it was made from, as its card names it (`owner/name`): for a GGUF, the original.
+    #[serde(default)]
+    pub base_model: Option<String>,
     /// It needs signing in to Hugging Face and accepting its maker's terms. Not downloadable yet.
     pub gated: bool,
     /// What it takes in besides text, as its files say: `images`, `sound`.
@@ -272,6 +275,13 @@ struct Source {
     files: Vec<HubFile>,
     licence: Option<String>,
     downloaded_at: i64,
+    /// The model it was made from, as its repository's card names it (`owner/name`).
+    #[serde(default)]
+    base_model: Option<String>,
+    /// The settings in that model's own `generation_config.json`, read when it was downloaded
+    /// (`engine::sampling`). `null` when there is none, or it says nothing of them.
+    #[serde(default)]
+    maker_sampling: Option<crate::engine::sampling::Sampling>,
 }
 
 // ----- reading Hugging Face's answers ---------------------------------------------------------------------
@@ -309,6 +319,7 @@ fn model_from(item: &Value, machine: &Machine) -> Option<HubModel> {
     let number = |pointer: &str| item.pointer(pointer).and_then(Value::as_u64);
     let params = number("/gguf/total").filter(|p| *p > 0);
     let licence = item.pointer("/cardData/license").and_then(|l| l.as_str().map(str::to_string).or_else(|| l.as_array().and_then(|a| a.first()).and_then(Value::as_str).map(str::to_string)));
+    let base_model = item.pointer("/cardData/base_model").and_then(|b| b.as_str().map(str::to_string).or_else(|| b.as_array().and_then(|a| a.first()).and_then(Value::as_str).map(str::to_string)));
     let (takes, does) = abilities(item);
     // Q4_K_M is about 4.85 bits a weight.
     let usual_size = params.map(|p| (p as f64 * 0.606) as u64);
@@ -322,6 +333,7 @@ fn model_from(item: &Value, machine: &Machine) -> Option<HubModel> {
         architecture: item.pointer("/gguf/architecture").and_then(Value::as_str).map(str::to_string),
         context_length: number("/gguf/context_length"),
         licence,
+        base_model,
         gated: !matches!(item.get("gated"), None | Some(Value::Bool(false)) | Some(Value::Null)),
         takes,
         does,
@@ -662,7 +674,16 @@ impl Hub {
         let (hub, id, source) = (
             self.clone(),
             download.id.clone(),
-            Source { repo: repo.into(), revision: detail.revision.clone(), quant: quant.into(), files: files.clone(), licence: detail.model.licence.clone(), downloaded_at: 0 },
+            Source {
+                repo: repo.into(),
+                revision: detail.revision.clone(),
+                quant: quant.into(),
+                files: files.clone(),
+                licence: detail.model.licence.clone(),
+                downloaded_at: 0,
+                base_model: detail.model.base_model.clone(),
+                maker_sampling: None,
+            },
         );
         tokio::spawn(async move { hub.carry_out(&id, files, several, source, &stop).await });
         Ok(download)
@@ -709,6 +730,7 @@ impl Hub {
                 tokio::fs::remove_dir(&incoming).await.ok();
             }
             source.downloaded_at = now_ms();
+            source.maker_sampling = self.maker_sampling(source.base_model.as_deref()).await;
             self.note_source(&download.local_id, &source);
             Ok(())
         }
@@ -728,6 +750,19 @@ impl Hub {
             let _ = self.events.append(kind, Some(&done.local_id), json!({ "repo": done.repo, "quant": done.quant, "problem": problem }));
         }
         self.stops.lock().expect("not poisoned").remove(id);
+    }
+
+    /// The settings a model's maker put in its `generation_config.json`, for the model a download was made
+    /// from. One small file, once; nothing when it is not there or says nothing of them.
+    async fn maker_sampling(&self, base_model: Option<&str>) -> Option<crate::engine::sampling::Sampling> {
+        let base = base_model.filter(|b| b.split('/').count() == 2 && !b.contains(".."))?;
+        let address = format!("{}/{base}/resolve/main/generation_config.json", self.base);
+        let got = self.http.get(&address).timeout(Duration::from_secs(20)).send().await.ok()?;
+        if !got.status().is_success() {
+            return None;
+        }
+        let config: Value = got.json().await.ok()?;
+        Some(crate::engine::sampling::from_generation_config(&config)).filter(|s| !s.is_empty())
     }
 
     /// Writes down where a model came from, beside the models.

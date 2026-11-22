@@ -488,6 +488,15 @@
     background: var(--d-color-fill-selected);
   }
 
+  /* ───────── models: a model's settings, a row each, thinking and not ───────── */
+  .mdl__sampling {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 7rem 7rem;
+    align-items: center;
+    gap: var(--d-space-10) var(--d-space-12);
+    margin-block-start: var(--d-space-16);
+  }
+
   /* ───────── providers: the accounts of one provider ───────── */
   .prov__accounts {
     display: grid;

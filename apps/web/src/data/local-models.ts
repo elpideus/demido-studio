@@ -101,3 +101,38 @@ export function unloadsIn(m: LocalModel, readAt: number, now: number): number | 
   // `now` may be a clock that ticks every few seconds and so lags behind `readAt`: never count backwards.
   return m.unloads_in_s === null ? null : Math.max(0, m.unloads_in_s - Math.round(Math.max(0, now - readAt) / 1000))
 }
+
+/** How a model picks each word. Each is missing where nothing is said. */
+export interface Sampling { temperature?: number; top_p?: number; top_k?: number; min_p?: number; presence_penalty?: number; repeat_penalty?: number }
+/** One way of answering: what Demido sends (empty: nothing), what is in effect in the end, and why. */
+export interface Chosen { sent: Sampling; in_effect: Sampling; from: 'yours' | 'maker' | 'file' | 'runtime' }
+export interface MakerSays { who: string; source: string; read_on: string | null; how: 'card' | 'generation_config'; thinking: Sampling; plain: Sampling }
+export interface ModelSettings { model: string; thinking: Chosen; plain: Chosen; maker: MakerSays | null; yours: { thinking: Sampling; plain: Sampling; changed_at: number }; in_file: Sampling; runtime: Sampling }
+
+/** A model's settings, thinking and not. Throws with the core's words. */
+export function readModelSettings(id: string): Promise<ModelSettings> {
+  return coreGet<ModelSettings>(`/models/${encodeURIComponent(id)}/settings`)
+}
+
+/** Keeps the person's own settings for a model; both empty, it follows its maker again. The settings now, or null with the reason shown. */
+export async function saveModelSettings(id: string, thinking: Sampling, plain: Sampling): Promise<ModelSettings | null> {
+  try {
+    const now = await coreSend<ModelSettings>('PUT', `/models/${encodeURIComponent(id)}/settings`, { thinking, plain })
+    toast(`Kept: ${id} is asked with your settings from its next answer.`, undefined, 'task-done')
+    return now
+  } catch (e) {
+    toast(`Not kept. ${(e as Error).message}`, undefined, 'task-failed')
+    return null
+  }
+}
+
+export async function resetModelSettings(id: string): Promise<ModelSettings | null> {
+  try {
+    const now = await coreSend<ModelSettings>('DELETE', `/models/${encodeURIComponent(id)}/settings`)
+    toast(`${id} follows its maker's settings again.`, undefined, 'task-done')
+    return now
+  } catch (e) {
+    toast(`Not changed. ${(e as Error).message}`, undefined, 'task-failed')
+    return null
+  }
+}

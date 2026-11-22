@@ -169,7 +169,7 @@ async fn site(State(seen): State<Arc<Mutex<Seen>>>, headers: HeaderMap, request:
     };
     let model = |id: &str, gated: Value, siblings: Vec<Value>| {
         json(
-            json!({ "id": id, "author": id.split('/').next(), "sha": "abc123", "gated": gated, "downloads": 10, "likes": 2, "pipeline_tag": "text-generation", "cardData": { "license": "apache-2.0" }, "gguf": { "total": 40u64, "architecture": "llama", "context_length": 2048, "chat_template": "{{ messages }}" }, "siblings": siblings }),
+            json!({ "id": id, "author": id.split('/').next(), "sha": "abc123", "gated": gated, "downloads": 10, "likes": 2, "pipeline_tag": "text-generation", "cardData": { "license": "apache-2.0", "base_model": [id.trim_end_matches("-GGUF")] }, "gguf": { "total": 40u64, "architecture": "llama", "context_length": 2048, "chat_template": "{{ messages }}" }, "siblings": siblings }),
         )
     };
     let entry = |name: &str, bytes: &[u8]| json!({ "rfilename": name, "size": bytes.len(), "lfs": { "sha256": sha(bytes), "size": bytes.len() } });
@@ -194,6 +194,8 @@ async fn site(State(seen): State<Arc<Mutex<Seen>>>, headers: HeaderMap, request:
         "/test/tiny-GGUF/resolve/abc123/tiny-Q8_0.gguf" if wrong => file(&[b"X".as_slice(), &TINY[1..]].concat()),
         "/test/tiny-GGUF/resolve/abc123/tiny-Q8_0.gguf" | "/test/seeing-GGUF/resolve/abc123/seeing-Q4_K_M.gguf" => file(TINY),
         "/test/seeing-GGUF/resolve/abc123/mmproj-seeing-f16.gguf" => file(VISION),
+        // The model the tiny one was made from, with its maker's settings.
+        "/test/tiny/resolve/main/generation_config.json" => json(json!({ "do_sample": true, "temperature": 0.5, "top_k": 30, "top_p": 0.9, "eos_token_id": 2 })),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -275,6 +277,9 @@ async fn a_model_is_downloaded_checked_put_in_place_and_written_down() {
         (sources["tiny-Q8_0"]["repo"].as_str(), sources["tiny-Q8_0"]["revision"].as_str(), sources["tiny-Q8_0"]["licence"].as_str()),
         (Some("test/tiny-GGUF"), Some("abc123"), Some("apache-2.0"))
     );
+    // The model it was made from, and the settings its maker gives it, for asking it the maker's way.
+    assert_eq!(sources["tiny-Q8_0"]["base_model"], "test/tiny");
+    assert_eq!(sources["tiny-Q8_0"]["maker_sampling"], json!({ "temperature": 0.5, "top_p": 0.9, "top_k": 30 }));
     let kinds: Vec<String> = w.events.after(0, 50).unwrap().into_iter().map(|e| e.kind).collect();
     assert_eq!(kinds, ["model.download.started", "model.downloaded"]);
     // Now it is on disk, and the page says so; a second download of it is refused.

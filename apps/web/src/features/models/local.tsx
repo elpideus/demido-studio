@@ -1,7 +1,7 @@
 /* "On this computer", for real: the models in Demido's folder, and loading and unloading them through the core. */
 import { useEffect, useState } from 'react'
-import { loadLocal, unloadLocal, unloadsIn, useLocal, type LocalModel } from '@/data/local-models'
-import { Button, Facts, Glyph, NotBuilt, Page, Signal } from '@/ui'
+import { loadLocal, readModelSettings, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
+import { Button, Dialog, Facts, Glyph, NotBuilt, Page, Signal } from '@/ui'
 
 const MB = 1024 * 1024
 export const size = (bytes: number) => (bytes >= 1024 * MB ? `${(bytes / 1024 / MB).toFixed(1)} GB` : `${Math.round(bytes / MB)} MB`)
@@ -50,6 +50,111 @@ export function LocalList({ open, onOpen }: { open: string | null; onOpen: (id: 
   )
 }
 
+/** The settings a model picks its words with, by their names, with what each means and may be. */
+const KNOBS: { key: keyof Sampling; name: string; hint: string; whole?: boolean; low: number; high: number; step: number }[] = [
+  { key: 'temperature', name: 'Temperature', hint: 'How freely it picks: 0 is always the likeliest word.', low: 0, high: 2, step: 0.05 },
+  { key: 'top_p', name: 'Top-p', hint: 'It picks among the likeliest words that together make up this much of the chance.', low: 0, high: 1, step: 0.01 },
+  { key: 'top_k', name: 'Top-k', hint: 'It picks among this many of the likeliest words. 0: no such limit.', whole: true, low: 0, high: 1000, step: 1 },
+  { key: 'min_p', name: 'Min-p', hint: 'A word is let in only if it is at least this likely, against the likeliest.', low: 0, high: 1, step: 0.01 },
+  { key: 'presence_penalty', name: 'Presence penalty', hint: 'How much less it picks a word it has used already: against going round.', low: -2, high: 2, step: 0.1 },
+  { key: 'repeat_penalty', name: 'Repeat penalty', hint: 'How much less it picks a word for each time it used it lately. 1: not at all.', low: 0.5, high: 2, step: 0.01 },
+]
+
+/** A set of settings in a line: "temperature 0.6 · top-p 0.95 · top-k 20". */
+function inWords(s: Sampling): string {
+  return KNOBS.filter((k) => s[k.key] !== undefined).map((k) => `${k.name.toLowerCase()} ${s[k.key]}`).join(' · ')
+}
+
+function fromWords(c: Chosen, maker: string | null): string {
+  if (c.from === 'yours') return 'your own settings, the rest as its maker says'
+  if (c.from === 'maker') return `as ${maker ?? 'its maker'} recommends`
+  if (c.from === 'file') return 'as its file says: Demido sends nothing'
+  return "the runtime's own: Demido sends nothing"
+}
+
+/** Changing a model's settings: for each way of answering, any setting may be left to its maker. */
+function SettingsDialog({ s, onDone }: { s: ModelSettings; onDone: (now: ModelSettings | null) => void }) {
+  const start = (which: 'thinking' | 'plain') => Object.fromEntries(KNOBS.map((k) => [k.key, s.yours[which][k.key]?.toString() ?? ''])) as Record<keyof Sampling, string>
+  const [thinking, setThinking] = useState(() => start('thinking'))
+  const [plain, setPlain] = useState(() => start('plain'))
+  const [saving, setSaving] = useState(false)
+  const read = (typed: Record<keyof Sampling, string>): Sampling => Object.fromEntries(KNOBS.filter((k) => typed[k.key].trim() !== '').map((k) => [k.key, Number(typed[k.key])])) as Sampling
+  const bad = KNOBS.some((k) => [thinking, plain].some((typed) => {
+    const v = typed[k.key].trim()
+    if (v === '') return false
+    const n = Number(v)
+    return Number.isNaN(n) || n < k.low || n > k.high || (k.whole && !Number.isInteger(n))
+  }))
+  const save = async () => {
+    if (bad || saving) return
+    setSaving(true)
+    const now = await saveModelSettings(s.model, read(thinking), read(plain))
+    setSaving(false)
+    if (now) onDone(now)
+  }
+  // What a setting left empty is: its maker's, or else the file's or the runtime's.
+  const under = (which: 'thinking' | 'plain', k: keyof Sampling) => (s.maker?.[which][k] ?? s.in_file[k] ?? s.runtime[k])
+  return (
+    <Dialog open wide onOpenChange={(o) => !o && onDone(null)} title={`How ${s.model} picks its words`}
+      text={<>Each setting you leave empty is {s.maker ? `${s.maker.who}'s` : "the runtime's"}, shown in grey. These are for the answers you read; Demido's own short questions to the model (which tool, which steps) keep theirs.</>}
+      actions={<>
+        {(Object.keys(s.yours.thinking).length > 0 || Object.keys(s.yours.plain).length > 0) && <Button variant="ghost" onClick={async () => onDone(await resetModelSettings(s.model))}>{s.maker ? `Use ${s.maker.who}'s again` : 'Use the runtime\'s again'}</Button>}
+        <Button onClick={() => onDone(null)}>Cancel</Button>
+        <Button variant="primary" disabled={bad || saving} onClick={() => void save()}>{saving ? 'Keeping them…' : 'Keep these'}</Button>
+      </>}>
+      <form className="mdl__sampling" onSubmit={(e) => { e.preventDefault(); void save() }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void save() } }}>
+        <span /><span className="d-type-caption d-text-secondary">When it thinks</span><span className="d-type-caption d-text-secondary">When it does not</span>
+        {KNOBS.map((k) => (
+          <div key={k.key} style={{ display: 'contents' }}>
+            <span className="app-stack" style={{ gap: 'var(--d-space-2)' }}><span>{k.name}</span><span className="d-type-caption d-text-secondary">{k.hint}</span></span>
+            {(['thinking', 'plain'] as const).map((which) => {
+              const [typed, setTyped] = which === 'thinking' ? [thinking, setThinking] : [plain, setPlain]
+              return <input key={which} className="d-input d-input--mono" inputMode="decimal" aria-label={`${k.name}, ${which === 'thinking' ? 'when it thinks' : 'when it does not'}`} placeholder={under(which, k.key)?.toString() ?? ''} value={typed[k.key]} onChange={(e) => setTyped({ ...typed, [k.key]: e.target.value })} />
+            })}
+          </div>
+        ))}
+      </form>
+      {bad && <Signal level="caution">A setting is outside what it can be: temperature 0 to 2, top-p and min-p 0 to 1, top-k a whole number to 1000, the presence penalty −2 to 2, the repeat penalty 0.5 to 2.</Signal>}
+    </Dialog>
+  )
+}
+
+/** How a model picks its words, thinking and not, and who says so. */
+function SamplingPart({ id }: { id: string }) {
+  const [s, setS] = useState<ModelSettings | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setS(null)
+    setError(null)
+    readModelSettings(id).then((r) => { if (alive) setS(r) }, (e: Error) => { if (alive) setError(e.message) })
+    return () => { alive = false }
+  }, [id])
+  if (error) return <Signal level="caution">The core did not say how this model is asked: {error}</Signal>
+  if (!s) return null
+  const maker = s.maker
+  const said = maker
+    ? <>{maker.how === 'card' ? `${maker.who} says so on its model card` : `${maker.who} put them in the model's generation_config.json`}{maker.read_on ? `, read on ${maker.read_on}` : ''}: <a href={maker.source} target="_blank" rel="noreferrer noopener">{maker.source.replace('https://', '')}</a>.</>
+    : <>Demido knows nothing its maker recommends{Object.keys(s.in_file).length ? '; the file carries settings of its own, which the runtime takes' : ", so the runtime's own settings apply"}.</>
+  return (
+    <div className="d-card"><div className="d-card__body app-stack">
+      <div className="app-row">
+        <span className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
+          <h3 className="d-card__title">How it picks its words</h3>
+          <span className="d-type-caption d-text-secondary">{said}</span>
+        </span>
+        <Button size="sm" onClick={() => setEditing(true)}>Change…</Button>
+      </div>
+      <Facts rows={[
+        ['When it thinks', <>{inWords(s.thinking.in_effect)} <span className="d-text-tertiary">({fromWords(s.thinking, maker?.who ?? null)})</span></>],
+        ['When it does not', <>{inWords(s.plain.in_effect)} <span className="d-text-tertiary">({fromWords(s.plain, maker?.who ?? null)})</span></>],
+      ]} />
+      {editing && <SettingsDialog s={s} onDone={(now) => { setEditing(false); if (now) setS(now) }} />}
+    </div></div>
+  )
+}
+
 export function LocalDetail({ id }: { id: string | null }) {
   const list = useLocal((s) => s.list)
   const readAt = useLocal((s) => s.readAt)
@@ -94,6 +199,7 @@ export function LocalDetail({ id }: { id: string | null }) {
           </div></div>
         )
       })()}
+      {m && <SamplingPart id={m.id} />}
       <div>
         <p className="d-list__label" style={{ paddingInline: 0 }}>How models are run here</p>
         <Facts rows={[

@@ -127,8 +127,10 @@ Windows, and tools other people write.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
    The models browser and downloader are built (DECISIONS H, research note 17): searching Hugging Face for
    GGUF models, whether each fits this computer, a quantization recommended, downloads checked and resumable,
-   a vision part downloaded with its model. Left in it: gated models (with the vault), deleting a model from
-   the window, settings for each model.
+   a vision part downloaded with its model. Settings for each model are built (DECISIONS K26 to K30, research
+   note 19): each model is asked the way its maker recommends, thinking and not, and the person can set their
+   own. Left in it: gated models (with the vault), deleting a model from the window, the context for each
+   model.
    The vault and three providers are built (DECISIONS U, research note 18): keys in the system keyring (a
    file only the user can read where there is none), never shown again and never seen by a model; Anthropic,
    Gemini and OpenRouter in sessions, chosen by the person, with what each answer cost and a limit for the
@@ -159,7 +161,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | A measurement that decides a security design |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
-| 6 | Settings for each model: the research, and applying what the makers recommend | It meets `docs/LATER.md` 1 |
+| 6 | ~~Settings for each model: the research, and applying what the makers recommend~~ done (DECISIONS K26 to K30, research note 19) | It meets `docs/LATER.md` 1 |
 | 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good, and the Hugging Face key for gated models (H8) | Secrets and money |
 | 6 | ~~Anthropic, Gemini and OpenRouter; usage shown; Claude Code and OpenCode.~~ Done (DECISIONS U), tested against stand-ins: the first real request waits for your key, and the first message to a program for your yes | Documented interfaces, one at a time; never touch a program's login |
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
@@ -188,8 +190,11 @@ research note 18).
 
 Also done on 2026-11-21: Claude Code and OpenCode (DECISIONS U15 to U25).
 
-Next, in this order unless the owner says otherwise: the sandbox on Windows; settings for each
-model (the research first).
+Also done on 2026-11-22: settings for each model, from what each maker recommends (DECISIONS K26 to K30).
+
+Next, in this order unless the owner says otherwise: the sandbox on Windows (it needs the owner's view
+first: note 05's first step guards only writes, and changes the folder's permissions on the person's own
+disk); then plan item 7.
 
 ## Set aside for later
 

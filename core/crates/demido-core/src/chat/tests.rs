@@ -457,3 +457,38 @@ async fn the_size_is_three_quarters_of_the_room_unless_a_smaller_one_is_chosen()
     w.answered(&session.id).await;
     w.end().await;
 }
+
+#[tokio::test]
+async fn an_answer_is_asked_with_the_models_own_settings_thinking_or_not() {
+    use crate::engine::sampling::Sampling;
+    let w = world("sampling");
+    // The file says it is Qwen3 1.7B, as Qwen's own GGUF does: Qwen's card says how to ask it.
+    let texts = [("general.architecture", "qwen3"), ("general.basename", "Qwen3"), ("general.size_label", "1.7B"), ("general.finetune", "Instruct")];
+    crate::engine::gguf::write_for_test(&w.home.join("models/small.gguf"), &texts, &[]);
+    // It can think: the stand-in thinks when it is given something to think.
+    *w.stand.thought.lock().unwrap() = "A short thought.".into();
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    let ask = |text: &'static str| {
+        let (w, id) = (&w, session.id.clone());
+        async move {
+            w.chat.say(&id, text).unwrap();
+            w.answered(&id).await;
+            w.stand.asked.lock().unwrap().last().cloned().unwrap()
+        }
+    };
+    let plain = ask("Hello.").await;
+    assert_eq!((plain["temperature"].as_f64(), plain["top_p"].as_f64(), plain["top_k"].as_u64(), plain["min_p"].as_f64()), (Some(0.7), Some(0.8), Some(20), Some(0.0)), "{plain}");
+    w.chat.change(&session.id, None, None, Some("on")).await.unwrap();
+    let thinking = ask("And now?").await;
+    assert_eq!((thinking["temperature"].as_f64(), thinking["top_p"].as_f64()), (Some(0.6), Some(0.95)), "never greedy when it thinks");
+    // The person's own setting goes over the maker's, and only that one.
+    w.engine.set_model_settings("small", Sampling { temperature: Some(0.2), ..Sampling::default() }, Sampling::default()).unwrap();
+    let mine = ask("Once more.").await;
+    assert_eq!((mine["temperature"].as_f64(), mine["top_p"].as_f64()), (Some(0.2), Some(0.95)));
+    let settings = w.engine.model_settings("small").unwrap();
+    assert_eq!((settings.thinking.from.as_str(), settings.plain.from.as_str(), settings.maker.map(|m| m.who)), ("yours", "maker", Some("Qwen".to_string())));
+    // A file that says nothing of itself is asked with nothing: the runtime's own settings apply.
+    assert_eq!(w.engine.model_settings("big").unwrap().plain.from, "runtime");
+    assert!(w.engine.sampling_for("big", false).is_empty());
+    w.end().await;
+}

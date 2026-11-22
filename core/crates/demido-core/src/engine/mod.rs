@@ -19,8 +19,10 @@
 //! loaded model to agents, a model with several files being downloaded by Demido. Only tried on Linux with
 //! an NVIDIA card.
 
+pub(crate) mod gguf;
 mod known;
 mod router;
+pub mod sampling;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -118,6 +120,10 @@ pub struct Engine {
     launcher: Arc<dyn Launcher>,
     /// What was learned about each model, kept on disk.
     known: known::Known,
+    /// The person's settings for each model (`sampling`).
+    yours: sampling::Kept,
+    /// What each model's file says of itself, read once for each state of the file.
+    headers: std::sync::Mutex<HashMap<String, (known::Identity, Option<gguf::Header>)>>,
     live: Mutex<Option<Live>>,
     /// How long a router with nothing loaded is kept. Shortened in tests.
     router_idles_for: Duration,
@@ -130,7 +136,97 @@ impl Engine {
     pub fn new(home: &Path, runtimes: Arc<Runtimes>, settings: Arc<Settings>, events: Arc<EventLog>, launcher: Arc<dyn Launcher>) -> Self {
         let work = home.join("engine");
         let known = known::Known::open(work.join("known.json"));
-        Self { models_dir: home.join("models"), work, runtimes, settings, events, launcher, known, live: Mutex::new(None), router_idles_for: ROUTER_IDLES_FOR, idle_for_tests: None }
+        let yours = sampling::Kept::open(work.join("model-settings.json"));
+        Self {
+            models_dir: home.join("models"),
+            work,
+            runtimes,
+            settings,
+            events,
+            launcher,
+            known,
+            yours,
+            headers: std::sync::Mutex::default(),
+            live: Mutex::new(None),
+            router_idles_for: ROUTER_IDLES_FOR,
+            idle_for_tests: None,
+        }
+    }
+
+    // ───────── settings for each model ─────────
+
+    /// A model on disk, by its name.
+    fn on_disk_named(&self, id: &str) -> Result<LocalModel> {
+        self.on_disk().into_iter().find(|m| m.id == id).ok_or_else(|| Error::NotFound(format!("There is no model called \"{id}\" in {}.", self.models_dir.display())))
+    }
+
+    /// What a model's file says of itself, read again only when the file changes.
+    fn header(&self, m: &LocalModel) -> Option<gguf::Header> {
+        let identity = self.identity(m);
+        if let Some((seen, header)) = self.headers.lock().unwrap_or_else(|e| e.into_inner()).get(&m.id)
+            && *seen == identity
+        {
+            return header.clone();
+        }
+        let header = sampling::first_file(&self.models_dir.join(&m.file)).and_then(|f| gguf::read(&f));
+        self.headers.lock().unwrap_or_else(|e| e.into_inner()).insert(m.id.clone(), (identity, header.clone()));
+        header
+    }
+
+    /// Which model a file is, and what its maker says: from the repository it was downloaded from, which
+    /// the downloader wrote down beside the models, or else from the file's own names.
+    fn maker_of(&self, m: &LocalModel, header: Option<gguf::Header>) -> Option<sampling::MakerSays> {
+        let sources: Value = std::fs::read(self.models_dir.join(".sources.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+        let source = &sources[&m.id];
+        // The model it was made from: as its repository's card names it, or the repository's own name
+        // without "-GGUF", or what the file names.
+        let repo = source["base_model"].as_str().map(str::to_string).or_else(|| source["repo"].as_str().map(|r| r.trim_end_matches("-GGUF").trim_end_matches("-gguf").to_string()));
+        let identity = sampling::Identity { repo: repo.clone(), header };
+        if let Some((maker, model)) = sampling::maker_for(&identity) {
+            return Some(sampling::says(maker, model));
+        }
+        // Not in Demido's table: the maker's own generation_config.json, kept when it was downloaded.
+        let config: Option<sampling::Sampling> = serde_json::from_value(source["maker_sampling"].clone()).ok();
+        let config = config.filter(|c| !c.is_empty())?;
+        let read_on =
+            source["downloaded_at"].as_i64().and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok()).map(|t| t.to_zoned_datetime(jiff::tz::TimeZone::system()).strftime("%-d %B %Y").to_string());
+        let base = repo.unwrap_or_default();
+        Some(sampling::MakerSays {
+            who: base.split('/').next().unwrap_or_default().to_string(),
+            source: format!("https://huggingface.co/{base}/blob/main/generation_config.json"),
+            read_on,
+            how: "generation_config".into(),
+            thinking: config,
+            plain: config,
+        })
+    }
+
+    /// A model's settings: what each way of answering is sent with, and why.
+    pub fn model_settings(&self, id: &str) -> Result<sampling::ModelSettings> {
+        let m = self.on_disk_named(id)?;
+        let header = self.header(&m);
+        let in_file = header.as_ref().map(|h| h.sampling).unwrap_or_default();
+        let maker = self.maker_of(&m, header);
+        Ok(sampling::decide(id, self.yours.of(id), maker, in_file))
+    }
+
+    /// Keeps the person's own settings for a model; empty for both ways of answering, it follows its maker
+    /// again.
+    pub fn set_model_settings(&self, id: &str, thinking: sampling::Sampling, plain: sampling::Sampling) -> Result<sampling::ModelSettings> {
+        self.on_disk_named(id)?;
+        self.yours.set(id, thinking, plain)?;
+        let _ = self.events.append("model.settings.changed", Some(id), json!({ "thinking": thinking, "plain": plain }));
+        self.model_settings(id)
+    }
+
+    /// What an answer of this model is sent with, thinking or not. Empty: nothing, and the file's own or the
+    /// runtime's settings apply.
+    pub fn sampling_for(&self, id: &str, thinks: bool) -> sampling::Sampling {
+        match self.model_settings(id) {
+            Ok(s) if thinks => s.thinking.sent,
+            Ok(s) => s.plain.sent,
+            Err(_) => sampling::Sampling::default(),
+        }
     }
 
     /// Ends a runtime that an earlier Demido left running (it was killed, or crashed): it would hold

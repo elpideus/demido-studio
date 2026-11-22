@@ -374,6 +374,35 @@ pub struct Unloaded {
     pub unloaded: bool,
 }
 
+/// How a model on this computer picks its words, thinking and not: what each is sent with and why (the
+/// person's own settings, its maker's, the file's or the runtime's), and each of those.
+#[utoipa::path(get, path = "/api/v1/models/{id}/settings", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), responses((status = 200, body = crate::engine::sampling::ModelSettings), (status = 404, body = Problem)))]
+async fn model_settings(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::engine::sampling::ModelSettings>> {
+    Ok(Json(app.engine.model_settings(&id)?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct SettingsChange {
+    /// For when it thinks first. A setting left out is its maker's (or the runtime's).
+    #[serde(default)]
+    pub thinking: crate::engine::sampling::Sampling,
+    /// For when it does not.
+    #[serde(default)]
+    pub plain: crate::engine::sampling::Sampling,
+}
+
+/// Sets the person's own settings for a model. Both empty: it follows its maker again.
+#[utoipa::path(put, path = "/api/v1/models/{id}/settings", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), request_body = SettingsChange, responses((status = 200, body = crate::engine::sampling::ModelSettings), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn model_settings_set(State(app): State<App>, Path(id): Path<String>, Json(body): Json<SettingsChange>) -> Result<Json<crate::engine::sampling::ModelSettings>> {
+    Ok(Json(app.engine.set_model_settings(&id, body.thinking, body.plain)?))
+}
+
+/// Forgets the person's own settings for a model: it follows its maker again.
+#[utoipa::path(delete, path = "/api/v1/models/{id}/settings", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), responses((status = 200, body = crate::engine::sampling::ModelSettings), (status = 404, body = Problem)))]
+async fn model_settings_reset(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::engine::sampling::ModelSettings>> {
+    Ok(Json(app.engine.set_model_settings(&id, Default::default(), Default::default())?))
+}
+
 /// Unloads a model: its process ends and its memory is free again.
 #[utoipa::path(post, path = "/api/v1/models/{id}/unload", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), responses((status = 200, body = Unloaded), (status = 422, body = Problem)))]
 async fn model_unload(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Unloaded>> {
@@ -958,7 +987,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -983,6 +1012,7 @@ pub fn router(app: App) -> Router {
         .route("/runtime/installed/{id}/check", post(runtime_check))
         .route("/models", get(models_list))
         .route("/models/{id}/load", post(model_load))
+        .route("/models/{id}/settings", get(model_settings).put(model_settings_set).delete(model_settings_reset))
         .route("/hub/models", get(hub_search))
         .route("/hub/models/{owner}/{name}", get(hub_model))
         .route("/hub/downloads", get(hub_downloads).post(hub_download))
