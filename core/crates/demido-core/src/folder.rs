@@ -281,7 +281,10 @@ pub struct Saved {
 /// The text is written beside the file and then moved into place, so that a file is never left half
 /// written; it keeps its permissions.
 pub fn save(folder: &Path, path: &str, text: &[u8], replaces: &str) -> Result<Saved> {
+    // A link (to a file inside the folder: `resolved` saw to that) is saved through, as an editor does,
+    // not replaced by a file of its own.
     let file = resolved(folder, path)?;
+    let file = file.canonicalize().unwrap_or(file);
     let meta = std::fs::metadata(&file).map_err(|_| Error::NotFound(format!("There is no file \"{path}\" in the session's folder.")))?;
     if meta.is_dir() {
         return Err(Error::Invalid(format!("\"{path}\" is a folder.")));
@@ -342,6 +345,8 @@ pub fn put(folder: &Path, path: &str, text: &[u8], replace: bool) -> Result<Entr
     }
     let base = folder.canonicalize().map_err(|e| Error::NotFound(format!("The session's folder cannot be opened: {e}")))?;
     let file = resolved(folder, path)?;
+    // A link that is there is written through, to its file inside the folder.
+    let file = file.canonicalize().unwrap_or(file);
     if file.is_dir() {
         return Err(Error::Invalid(format!("\"{path}\" is a folder.")));
     }
@@ -524,6 +529,20 @@ mod tests {
         assert!(matches!(rename(&dir, "missing.md", "x.md"), Err(Error::NotFound(_))));
         assert!(matches!(rename(&dir, "src", "src/inner"), Err(Error::Invalid(_))), "not into itself");
         assert_eq!(rename(&dir, "src", "code").unwrap().kind, "folder");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_file_in_the_folder_is_saved_through_not_replaced() {
+        let dir = folder();
+        std::os::unix::fs::symlink(dir.join("README.md"), dir.join("readme-link.md")).unwrap();
+        let opened = version_of(&std::fs::read(dir.join("README.md")).unwrap());
+        save(&dir, "readme-link.md", b"# Through the link\n", &opened).unwrap();
+        assert!(std::fs::symlink_metadata(dir.join("readme-link.md")).unwrap().file_type().is_symlink(), "still a link");
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Through the link\n");
+        put(&dir, "readme-link.md", b"# Put through\n", true).unwrap();
+        assert!(std::fs::symlink_metadata(dir.join("readme-link.md")).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Put through\n");
     }
 
     #[test]
