@@ -96,6 +96,10 @@ try:
         for way in ("yes or no", "the price"):
             got = []
             for want, price, page in CASES:
+                # TRIAL_PRODUCT=1: the page as read_page gives it since DECISIONS N16, with the shop's own product
+                # data (its true price) in front.
+                if os.environ.get("TRIAL_PRODUCT"):
+                    page = f"The shop's own product data, from the page's description for search engines:\nMerino crew neck, navy: {price:.2f} EUR, InStock\n\n{page}"
                 if way == "yes or no":
                     said = asked(model, YES_NO.format(page=page), {"type": "object", "properties": {"on_sale": {"enum": ["yes", "no"]}}, "required": ["on_sale"]})
                     told = None if said is None else said.get("on_sale") == "yes"

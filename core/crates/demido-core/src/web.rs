@@ -142,6 +142,9 @@ struct KeptPage {
     changed: Option<String>,
     /// Said under the text: "the site sent more than is read", "almost nothing without scripts".
     notes: Vec<String>,
+    /// The shop's own description of what the page sells, from its product data (`page::product_data`).
+    #[serde(default)]
+    product: Vec<String>,
 }
 
 /// A page as a model is given it.
@@ -514,7 +517,7 @@ impl Web {
             // Said as Demido's, not the file's: told "A PDF: its text only", a real model (Qwen3 4B) passed it
             // on as something the PDF said.
             let notes = vec!["Demido's note: this is a PDF, and only its text was read, without its pictures or its layout.".to_string()];
-            return Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes });
+            return Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes, product: Vec::new() });
         }
         if !is_html && !is_text {
             return Err(format!("this is not a page of text (it is {kind})"));
@@ -531,11 +534,13 @@ impl Web {
         if got.cut {
             notes.push(format!("The site sent more than {} MB; only the first {} MB were read.", MOST_BYTES / 1_000_000, MOST_BYTES / 1_000_000));
         }
+        let mut product = Vec::new();
         let (title, mut text) = if is_html {
             let scripts = raw.matches("<script").count();
             let for_page = address.clone();
             // Taking a page apart is work for a thread of its own.
-            let found = tokio::task::spawn_blocking(move || page::readable(&raw, &for_page)).await.map_err(|_| "the page could not be taken apart".to_string())?;
+            let (found, data) = tokio::task::spawn_blocking(move || (page::readable(&raw, &for_page), page::product_data(&raw))).await.map_err(|_| "the page could not be taken apart".to_string())?;
+            product = data;
             if found.text.chars().count() < 200 && scripts >= 3 {
                 notes.push("This page shows almost nothing until its scripts have run. Demido does not run a page's scripts yet.".into());
             }
@@ -546,7 +551,7 @@ impl Web {
         if let Some((at, _)) = text.char_indices().nth(MOST_TEXT) {
             text.truncate(at);
         }
-        Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes })
+        Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes, product })
     }
 }
 
@@ -558,6 +563,10 @@ fn told(page: &KeptPage, about: &str, kept: bool) -> Read {
         gave.push_str(&format!("Page: {}\n", page.title));
     }
     gave.push_str(&format!("Address: {}\n\n", page.address));
+    // Always given, whatever was asked: the price and the stock the shop itself publishes.
+    if !page.product.is_empty() {
+        gave.push_str(&format!("The shop's own product data, from the page's description for search engines:\n{}\n\n", page.product.join("\n")));
+    }
     gave.push_str(if given.text.is_empty() { "(The page has no text.)" } else { &given.text });
     if given.cut {
         let all = page.text.chars().count();

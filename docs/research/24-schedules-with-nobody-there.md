@@ -84,6 +84,11 @@ price and the code compares it with what the person set (under 70).
    model only where there is none. What a note in a review or a comment says then changes nothing.
 4. **Whatever decides, the person is shown why**: the line of the page with the price, and the page itself, so
    that a wrong notice is seen to be wrong.
+5. **Showing the model the shop's own data does not protect it.** `read_page` now gives a page's product data
+   in front of its text (DECISIONS N16). Run again with the true price there ("79.00 EUR, InStock"), the note
+   that said the price is now 49 still took in every model reading the price, and the yes-or-no way did no
+   better (`TRIAL_PRODUCT=1`). So the shop's data is read by code for a monitor, never handed to a model to
+   weigh against the page.
 
 ## What must be measured before it is built
 
