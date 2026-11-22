@@ -263,7 +263,7 @@ async fn a_pdf_is_read_for_its_text_and_a_broken_one_is_said_in_words() {
     let w = world().await;
     let read = w.web.read(&w.at("/timetable.pdf"), "", false, &GO_ON).await.unwrap();
     assert_eq!(read.title, "timetable.pdf");
-    assert!(read.gave.contains("Hello from a PDF") && read.gave.contains("A PDF: its text only"), "{}", read.gave);
+    assert!(read.gave.contains("Hello from a PDF") && read.gave.contains("Demido's note: this is a PDF, and only its text was read"), "{}", read.gave);
     let said = w.web.read(&w.at("/paper"), "", false, &GO_ON).await.unwrap_err();
     assert!(said.starts_with("the PDF could not be read"), "{said}");
 }

@@ -511,7 +511,9 @@ impl Web {
             if let Some((at, _)) = text.char_indices().nth(MOST_TEXT) {
                 text.truncate(at);
             }
-            let notes = vec!["A PDF: its text only, without its pictures or its layout.".to_string()];
+            // Said as Demido's, not the file's: told "A PDF: its text only", a real model (Qwen3 4B) passed it
+            // on as something the PDF said.
+            let notes = vec!["Demido's note: this is a PDF, and only its text was read, without its pictures or its layout.".to_string()];
             return Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes });
         }
         if !is_html && !is_text {
