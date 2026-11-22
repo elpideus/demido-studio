@@ -642,6 +642,87 @@ async fn session_file_save(State(app): State<App>, Path(id): Path<String>, Query
     Ok(([(header::ETAG, saved.version.clone())], Json(saved)).into_response())
 }
 
+/// An artifact with its versions, newest last.
+#[derive(Serialize, ToSchema)]
+pub struct ArtifactWithVersions {
+    pub artifact: crate::sessions::Artifact,
+    pub versions: Vec<crate::sessions::VersionFacts>,
+}
+
+/// The artifact, if it is this session's.
+fn artifact_of(app: &App, id: &str, artifact: &str) -> Result<crate::sessions::Artifact> {
+    app.sessions.artifact(artifact).ok().filter(|a| a.session_id == id).ok_or_else(|| Error::NotFound(format!("This session has no artifact \"{artifact}\".")))
+}
+
+/// The artifacts models gave in a session: files of its own, with every version kept. The first made first.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/artifacts", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Vec<crate::sessions::Artifact>), (status = 404, body = Problem)))]
+async fn session_artifacts(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Vec<crate::sessions::Artifact>>> {
+    app.sessions.get(&id)?;
+    Ok(Json(app.sessions.artifacts(&id)?))
+}
+
+/// What the person keeps as a file: an answer, or part of one.
+#[derive(Deserialize, ToSchema)]
+pub struct KeptAsFile {
+    /// With the ending that says what it is: plan.md, page.html. Without one, it is taken as Markdown.
+    pub name: String,
+    pub text: String,
+    /// The answer it came from.
+    #[serde(default)]
+    pub message_id: Option<String>,
+}
+
+/// What keeping it made.
+#[derive(Serialize, ToSchema)]
+pub struct KeptArtifact {
+    pub artifact: crate::sessions::Artifact,
+    /// The version that holds the text now.
+    pub n: i64,
+}
+
+/// Keeps text as a file of the session's own, as the person asks: an artifact, as if a model had given
+/// it. The same name again is a new version of it.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/artifacts", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = KeptAsFile, responses((status = 200, body = KeptArtifact), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn session_artifact_keep(State(app): State<App>, Path(id): Path<String>, Json(body): Json<KeptAsFile>) -> Result<Json<KeptArtifact>> {
+    let made = app.sessions.make_artifact(&id, &body.name, &body.text, body.message_id.as_deref())?;
+    app.events.append("session.artifact_kept", Some(&id), json!({ "artifact": made.artifact.id, "name": made.artifact.name, "n": made.n }))?;
+    Ok(Json(KeptArtifact { artifact: made.artifact, n: made.n }))
+}
+
+/// One artifact, and what each of its versions is.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/artifacts/{artifact}", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("artifact" = String, Path, description = "The artifact's id")), responses((status = 200, body = ArtifactWithVersions), (status = 404, body = Problem)))]
+async fn session_artifact(State(app): State<App>, Path((id, artifact)): Path<(String, String)>) -> Result<Json<ArtifactWithVersions>> {
+    let artifact = artifact_of(&app, &id, &artifact)?;
+    let versions = app.sessions.artifact_versions(&artifact.id)?;
+    Ok(Json(ArtifactWithVersions { artifact, versions }))
+}
+
+/// One version of an artifact, with its text.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/artifacts/{artifact}/versions/{n}", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("artifact" = String, Path, description = "The artifact's id"), ("n" = i64, Path, description = "The version: 1 for the first")), responses((status = 200, body = crate::sessions::Version), (status = 404, body = Problem)))]
+async fn session_artifact_version(State(app): State<App>, Path((id, artifact, n)): Path<(String, String, i64)>) -> Result<Json<crate::sessions::Version>> {
+    let artifact = artifact_of(&app, &id, &artifact)?;
+    Ok(Json(app.sessions.artifact_version(&artifact.id, Some(n))?))
+}
+
+/// One version of an artifact, as a file to download under its name. Like a file of the folder, it is
+/// never a page with Demido's address: plain text, `nosniff`, and a `sandbox` policy.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/artifacts/{artifact}/versions/{n}/file", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("artifact" = String, Path, description = "The artifact's id"), ("n" = i64, Path, description = "The version: 1 for the first")), responses((status = 200, description = "The file", content_type = "text/plain"), (status = 404, body = Problem)))]
+async fn session_artifact_file(State(app): State<App>, Path((id, artifact, n)): Path<(String, String, i64)>) -> Result<Response> {
+    let artifact = artifact_of(&app, &id, &artifact)?;
+    let version = app.sessions.artifact_version(&artifact.id, Some(n))?;
+    // The name as it was given, for browsers that read it (RFC 6266), and one of plain letters for those that do not.
+    let encoded: String = artifact.name.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+    let plain_name: String = artifact.name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' }).collect();
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{plain_name}\"; filename*=UTF-8''{encoded}"))
+        .header("x-content-type-options", "nosniff")
+        .header("content-security-policy", "sandbox; default-src 'none'")
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(axum::body::Body::from(version.text))
+        .map_err(|e| Error::Other(e.to_string()))
+}
+
 #[derive(Deserialize, ToSchema)]
 pub struct PermissionAnswer {
     /// `once`: yes, this once. `session`: yes, and do not ask again for this tool in this session. `no`.
@@ -1119,7 +1200,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1164,6 +1245,10 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
         .route("/sessions/{id}/files", get(session_files))
+        .route("/sessions/{id}/artifacts", get(session_artifacts).post(session_artifact_keep))
+        .route("/sessions/{id}/artifacts/{artifact}", get(session_artifact))
+        .route("/sessions/{id}/artifacts/{artifact}/versions/{n}", get(session_artifact_version))
+        .route("/sessions/{id}/artifacts/{artifact}/versions/{n}/file", get(session_artifact_file))
         // A saved text file may be up to 8 MB, more than the 2 MB a request may carry elsewhere.
         .route("/sessions/{id}/files/content", get(session_file).put(session_file_save).layer(axum::extract::DefaultBodyLimit::max(crate::folder::MOST_SAVED as usize)))
         .route("/vault", get(vault_get))
@@ -1345,6 +1430,12 @@ mod tests {
 
     /// The API over a data folder of the caller's choosing.
     fn app_at(home: &std::path::Path) -> (Router, Arc<Auth>, Arc<EventLog>) {
+        let (router, auth, events, _) = app_with_sessions(home);
+        (router, auth, events)
+    }
+
+    /// The same, with its sessions: for what only a model makes, such as an artifact.
+    fn app_with_sessions(home: &std::path::Path) -> (Router, Arc<Auth>, Arc<EventLog>, Arc<Sessions>) {
         let db = Arc::new(Db::memory().unwrap());
         let events = Arc::new(EventLog::new(db.clone()));
         let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
@@ -1370,7 +1461,8 @@ mod tests {
             started: Instant::now(),
             hosts: Arc::new(vec!["127.0.0.1:7341".into()]),
         };
-        (router(app), auth, events)
+        let sessions = app.sessions.clone();
+        (router(app), auth, events, sessions)
     }
 
     fn request(method: &str, path: &str) -> axum::http::request::Builder {
@@ -1498,6 +1590,48 @@ mod tests {
         // More than 2 MB is taken: the most for any other request.
         let big: &'static str = Box::leak("a".repeat(3_000_000).into_boxed_str());
         assert_eq!(send(&r, put("notes.md", Some("*"), big)).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_sessions_artifacts_are_listed_with_their_versions_and_downloaded_under_their_name() {
+        let home = crate::testing::TempDir::new("demido-api-artifacts");
+        std::fs::create_dir_all(home.join("models")).unwrap();
+        std::fs::write(home.join("models/tiny.gguf"), b"not really a model").unwrap();
+        let (r, _, _, sessions) = app_with_sessions(&home);
+        let key = |b: axum::http::request::Builder| b.header("authorization", format!("Bearer {KEY}"));
+        let (_, made) = send(&r, key(request("POST", "/api/v1/sessions")).header("content-type", "application/json").body(Body::from("{}")).unwrap()).await;
+        let (_, other) = send(&r, key(request("POST", "/api/v1/sessions")).header("content-type", "application/json").body(Body::from("{}")).unwrap()).await;
+        let (id, other) = (made["id"].as_str().unwrap().to_string(), other["id"].as_str().unwrap().to_string());
+        let first = sessions.make_artifact(&id, "Café menu.html", "<script>alert(1)</script><h1>Menu</h1>", None).unwrap();
+        sessions.make_artifact(&id, "Café menu.html", "<h1>Menu</h1><p>Coffee</p>", None).unwrap();
+        let a = first.artifact.id;
+
+        let (status, listed) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/artifacts"))).body(Body::empty()).unwrap()).await;
+        assert_eq!((status, listed[0]["name"].as_str(), listed[0]["versions"].as_i64(), listed[0]["shown_as"].as_str()), (StatusCode::OK, Some("Café menu.html"), Some(2), Some("html")));
+        let (_, one) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/artifacts/{a}"))).body(Body::empty()).unwrap()).await;
+        assert_eq!(one["versions"].as_array().map(Vec::len), Some(2));
+        let (_, v1) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/artifacts/{a}/versions/1"))).body(Body::empty()).unwrap()).await;
+        assert_eq!(v1["text"], json!("<script>alert(1)</script><h1>Menu</h1>"));
+
+        // Downloaded under its name, and never a page with Demido's address.
+        let res = r.clone().oneshot(key(request("GET", &format!("/api/v1/sessions/{id}/artifacts/{a}/versions/1/file"))).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let h = |name: &str| res.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
+        assert_eq!(h("content-disposition"), "attachment; filename=\"Caf_ menu.html\"; filename*=UTF-8''Caf%C3%A9%20menu.html");
+        assert_eq!((h("content-type").as_str(), h("x-content-type-options").as_str()), ("text/plain; charset=utf-8", "nosniff"));
+        assert!(h("content-security-policy").starts_with("sandbox"));
+
+        // The person keeps part of an answer as a file: the same as a model's, and a new version by its name.
+        let keep = |name: &str, text: &str| {
+            key(request("POST", &format!("/api/v1/sessions/{id}/artifacts"))).header("content-type", "application/json").body(Body::from(json!({ "name": name, "text": text }).to_string())).unwrap()
+        };
+        let (status, kept) = send(&r, keep("Café menu.html", "<h1>Menu</h1><p>Tea</p>")).await;
+        assert_eq!((status, kept["n"].as_i64(), kept["artifact"]["id"].as_str()), (StatusCode::OK, Some(3), Some(a.as_str())));
+        assert_eq!(send(&r, keep("../out.md", "x")).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+
+        // Only through its own session; a version that is not there is not found.
+        assert_eq!(send(&r, key(request("GET", &format!("/api/v1/sessions/{other}/artifacts/{a}"))).body(Body::empty()).unwrap()).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/artifacts/{a}/versions/4"))).body(Body::empty()).unwrap()).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

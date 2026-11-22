@@ -12,7 +12,7 @@ import { toast } from './store'
 export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number; cost_usd?: number; cost_exact?: boolean }
 /** One use of a tool. `waiting`: for the person's yes. `refused`: the request could not be used, or the person said no; nothing ran.
     `change`: the id of the change it made to a file, for undoing it. */
-export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null }
+export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null; artifact?: { id: string; name: string; n: number } | null }
 export type Level = 'cautious' | 'balanced' | 'smart' | 'autonomous'
 /** A use of a tool that is waiting for the person's yes. Every word of it is made by the core from the request, none by the model. */
 export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes' | 'runs' | 'network'; what: string; why: string; once_only?: boolean; asked_at: number }
@@ -26,7 +26,7 @@ export interface CoreTask { id: string; session_id: string; message_id: string; 
 export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; steps: CoreStep[]; created_at: number }
 /** `thinking`: off, on, or one of the model's own levels. */
 /** `account`: the account at its model's provider it goes through; null or missing, the provider's default. */
-export interface CoreSession { id: string; title: string; model: string; thinking: string; folder?: string | null; permission?: Level; account?: string | null; created_at: number; updated_at: number; messages: number }
+export interface CoreSession { id: string; title: string; model: string; thinking: string; folder?: string | null; permission?: Level; account?: string | null; created_at: number; updated_at: number; messages: number; artifacts?: number }
 /** An account of the older part of a session. The model is given it in place of the messages up to `upto_seq`. */
 export interface CoreSummary { id: string; session_id: string; upto_seq: number; content: string; why: 'asked' | 'auto'; tokens_before: number; created_at: number }
 /** How much of what the model can hold a session is using, in tokens. */
@@ -181,7 +181,7 @@ export function startSessions() {
   if (started) return
   started = true
   void readSessions()
-  for (const kind of ['session.created', 'session.deleted', 'session.changed']) onCoreEvent(kind, () => void readSessions())
+  for (const kind of ['session.created', 'session.deleted', 'session.changed', 'session.artifact_kept']) onCoreEvent(kind, () => void readSessions())
   onCoreEvent('message.delta', (e) => {
     const id = String(e.data.message)
     const so_far = get().writing[id] ?? { text: '', thought: '' }

@@ -95,10 +95,10 @@ impl Kind {
     }
 }
 
-/// What a file is shown as: by its name, and for a name that says nothing, by whether its start is text.
-pub fn kind_of(path: &Path) -> Kind {
+/// What a file is shown as, by its name alone. `None`: its name does not say.
+pub fn kind_by_name(path: &Path) -> Option<Kind> {
     let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-    match ext.as_str() {
+    Some(match ext.as_str() {
         "md" | "markdown" | "mdx" => Kind::Markdown,
         "html" | "htm" | "xhtml" => Kind::Html,
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "ico" => Kind::Image,
@@ -106,7 +106,15 @@ pub fn kind_of(path: &Path) -> Kind {
         "pdf" => Kind::Pdf,
         "mp4" | "m4v" | "webm" | "mov" | "ogv" => Kind::Video,
         "mp3" | "wav" | "ogg" | "oga" | "opus" | "flac" | "m4a" | "aac" => Kind::Audio,
-        _ => {
+        _ => return None,
+    })
+}
+
+/// What a file is shown as: by its name, and for a name that says nothing, by whether its start is text.
+pub fn kind_of(path: &Path) -> Kind {
+    match kind_by_name(path) {
+        Some(kind) => kind,
+        None => {
             // Text is valid UTF-8 without a zero byte, in its first 8 kB.
             let mut start = vec![0u8; 8192];
             let read = std::fs::File::open(path).and_then(|mut f| std::io::Read::read(&mut f, &mut start)).unwrap_or(0);

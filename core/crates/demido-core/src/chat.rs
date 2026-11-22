@@ -291,6 +291,16 @@ impl Chat {
         self.settings.value::<bool>("web.use").unwrap_or(true)
     }
 
+    /// Whether models may give the person artifacts in a session with or without a folder (DECISIONS F14).
+    /// By default only without one: asked to add a file to the folder, a real model gave an artifact instead.
+    pub(crate) fn artifacts(&self, has_folder: bool) -> bool {
+        match self.settings.value::<String>("tools.artifacts").as_deref() {
+            Ok("always") => true,
+            Ok("never") => false,
+            _ => !has_folder,
+        }
+    }
+
     /// The same, saving folders under `place` before a program runs in them.
     pub fn keeping_in(mut self, place: std::path::PathBuf) -> Self {
         self.kept_in = place;
@@ -561,7 +571,7 @@ impl Chat {
     /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are
     /// off. A session with a folder is shown the tools that reach into it too.
     pub fn tools_told(&self, session: &Session) -> Option<String> {
-        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| turn::told_about_tools(session.folder.is_some(), self.internet()))
+        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| turn::told_about_tools(session.folder.is_some(), self.internet(), self.artifacts(session.folder.is_some())))
     }
 
     fn asking(&self) -> std::sync::MutexGuard<'_, HashMap<String, Waiting>> {

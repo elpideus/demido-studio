@@ -141,6 +141,22 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE usage ADD COLUMN account TEXT;
      -- whose profile the program's session is in
      ALTER TABLE program_sessions ADD COLUMN account TEXT NOT NULL DEFAULT '';",
+    // 12: artifacts, the files a model makes in a session and gives the person to keep, with every version
+    "CREATE TABLE artifacts (
+        id         TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+        name       TEXT NOT NULL,           -- as the model named it, with its ending: plan.md, page.html
+        created_at INTEGER NOT NULL,
+        UNIQUE (session_id, name)
+     ) STRICT;
+     CREATE TABLE artifact_versions (
+        artifact_id TEXT NOT NULL REFERENCES artifacts (id) ON DELETE CASCADE,
+        n           INTEGER NOT NULL,       -- 1 for the first
+        text        TEXT NOT NULL,
+        made_at     INTEGER NOT NULL,
+        message_id  TEXT,                   -- the answer that made it
+        PRIMARY KEY (artifact_id, n)
+     ) STRICT;",
 ];
 
 pub struct Db {

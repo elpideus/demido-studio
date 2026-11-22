@@ -90,7 +90,7 @@ let watching = false
 export function watchFolders() {
   if (watching) return
   watching = true
-  for (const kind of ['tool.used', 'message.done', 'message.failed', 'message.stopped', 'change.undone', 'session.file_saved']) {
+  for (const kind of ['tool.used', 'message.done', 'message.failed', 'message.stopped', 'change.undone', 'session.file_saved', 'session.artifact_kept']) {
     onCoreEvent(kind, (e) => { if (e.subject) useFolderTicks.getState().bump(e.subject) })
   }
 }

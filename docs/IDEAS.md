@@ -168,6 +168,15 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 135 | **Ask the maker for a model already here.** A model put in the folder by hand has no source: Demido knows only what its file says of itself. A button could look its names up on Hugging Face, find the model it was made from, and read its maker's settings, the person seeing which model it was taken for before it is used. | Idea | Not built |
 | 127 | **Keys for a server, locked.** On a server without a desktop the keys are in a file only the user can read. Note 05 planned better there: a vault file locked with a passphrase typed after boot, or by systemd's own encrypted credentials. | Idea | Not built |
 
+## 2026-11-22, files and artifacts
+
+| # | Idea | Status |
+|---|---|---|
+| 136 | **A content policy for the window's own pages.** The core sends none with the interface itself. Nothing a model writes is shown as HTML (Markdown is drawn as text, pages and files run in frames of no address), so this would be a second wall, not the first: a policy of `script-src 'self'` and no outside connections would stop anything that got past the first from running or reaching out. It needs checking against pdf.js's worker and CodeMirror's styles. | Idea | Not built |
+| 137 | **`write_file` cannot write a long file.** The decision a tool is chosen in is held to 200 tokens, and `write_file` carries the whole of the file's text inside it, so a model cannot write more than about 150 words into a file with it: the request is cut off and refused. Found while measuring artifacts (research note 23), which now name the file in the decision and write its text after it. The same two steps would fix `write_file`; it is not changed yet, because the text must be written before the person is asked to allow the change. | Idea | Not built |
+| 138 | **Running a page a model gave.** Pages, in the folder or given as artifacts, are shown with nothing in them running (DECISIONS F2). Claude runs them, in a frame on an address of their own. Demido could let a page run its scripts, by the person's press, in a frame of no address with every outside connection shut by a policy. What a policy cannot shut is the frame sending itself to another address, with what it holds written into it; so a page that holds anything private should not run. | Proposed for the owner | Not built |
+| 139 | **A test that fails now and then.** `runtime::tests::a_runtime_is_downloaded_checked_unpacked_and_tried` failed once in three full runs on 2026-11-22, at the version the stand-in program prints, and passed alone; probably a time limit under load. Not looked into yet. | Idea | Not built |
+
 ## Pushback on the brief so far
 
 - **Changing a Claude Code session's account starts Claude Code over.** Its session lives in one account's

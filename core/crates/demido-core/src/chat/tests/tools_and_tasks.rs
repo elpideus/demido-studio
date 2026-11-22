@@ -109,7 +109,16 @@ async fn the_clock_is_read_for_the_model() {
     let answer = turn(&w, &session.id, "What time is it?").await;
     assert_eq!(
         answer.steps,
-        [Step { tool: "time".into(), args: json!({}), result: "14:05, Saturday, 21 November 2026".into(), state: "done".into(), took_ms: answer.steps[0].took_ms, change: None, output: None }]
+        [Step {
+            tool: "time".into(),
+            args: json!({}),
+            result: "14:05, Saturday, 21 November 2026".into(),
+            state: "done".into(),
+            took_ms: answer.steps[0].took_ms,
+            change: None,
+            output: None,
+            artifact: None
+        }]
     );
     w.end().await;
 }
@@ -448,5 +457,70 @@ async fn an_answer_wrapped_like_a_tools_result_is_unwrapped() {
     // Without a tool in the turn, an answer that is a JSON object is what was asked for, and stays.
     w.stand.replies.lock().unwrap().push_back(r#"{"result": "kept as written"}"#.into());
     assert_eq!(turn(&w, &session.id, "Give me that as JSON.").await.content, r#"{"result": "kept as written"}"#);
+    w.end().await;
+}
+
+#[tokio::test]
+async fn a_model_gives_an_artifact_and_a_new_version_of_it_and_is_told_not_to_write_it_out_again() {
+    let page = "<!doctype html>\n<h1>Sol</h1>\n<p>Open 7 to 13.</p>";
+    let changed = "<!doctype html>\n<h1>Sol</h1>\n<p>Open 8 to 14.</p>";
+    let give = r#"{"tool": "give_file", "args": {"file_name": "sol.html"}}"#;
+    // The decision names the file; its text is asked for after it, as ordinary text (here once in a fence,
+    // which is taken off).
+    let fenced = format!("```html\n{changed}\n```");
+    let w = with_tools("artifact", &[give, NONE, give, NONE], &[page, "A page for Sol, with its hours.", &fenced, "The hours are now 8 to 14."]);
+    w.settings.set("tools.artifacts", json!("nofolder")).unwrap();
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+
+    let answer = turn(&w, &session.id, "Make a one-page site for my bakery, Sol, open 7 to 13.").await;
+    assert_eq!((answer.state.as_str(), answer.content.as_str()), ("done", "A page for Sol, with its hours."));
+    let step = &answer.steps[0];
+    assert_eq!((step.tool.as_str(), step.state.as_str()), ("give_file", "done"));
+    let given = step.artifact.clone().expect("the step says which artifact");
+    assert_eq!((given.name.as_str(), given.n), ("sol.html", 1));
+    assert!(step.result.contains("Do not write its text out again"), "{}", step.result);
+    let wrote = asked(&w)[1].clone();
+    assert!(wrote.get("response_format").is_none(), "the text is written as ordinary text, not inside JSON");
+    assert!(contents(&wrote).last().unwrap().1.ends_with("Write the whole of sol.html now: only its text, as it goes in the file, with nothing before or after it."));
+    // It was offered, as a tool that needs nobody's yes.
+    assert!(asked(&w)[0]["response_format"]["schema"]["properties"]["tool"]["enum"].as_array().unwrap().contains(&json!("give_file")));
+
+    let again = turn(&w, &session.id, "Change the hours to 8 to 14.").await;
+    // Asked again, the model is shown the files it gave, by their names.
+    let decided = asked(&w).iter().filter(|r| r.get("response_format").is_some()).nth(2).cloned().unwrap();
+    assert!(contents(&decided).last().unwrap().1.contains("Files you gave the person in this session: sol.html. The same name again gives a new version."));
+    let second = again.steps[0].artifact.clone().unwrap();
+    assert_eq!((second.id.as_str(), second.n), (given.id.as_str(), 2), "the same name: a new version of the same artifact");
+    assert_eq!(w.sessions.artifact_version(&given.id, Some(1)).unwrap().text, page, "the first version is kept");
+    assert_eq!(w.sessions.artifact_version(&given.id, None).unwrap().text, changed);
+    assert_eq!(w.sessions.artifact_version(&given.id, None).unwrap().message_id.as_deref(), Some(again.id.as_str()), "made by that answer");
+    w.end().await;
+}
+
+#[tokio::test]
+async fn artifacts_are_not_offered_when_the_person_turned_them_off() {
+    let w = with_tools("no-artifacts", &[NONE], &["Hello."]);
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    turn(&w, &session.id, "Hello").await;
+    assert_eq!(asked(&w)[0]["response_format"]["schema"]["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
+    w.end().await;
+}
+
+#[tokio::test]
+async fn by_default_artifacts_are_offered_only_in_a_session_without_a_folder() {
+    let w = with_tools("artifact-default", &[NONE, NONE, NONE], &["One.", "Two.", "Three."]);
+    w.settings.set("tools.artifacts", json!("nofolder")).unwrap();
+    let offered = |w: &World, i: usize| asked(w).iter().filter(|r| r.get("response_format").is_some()).nth(i).unwrap()["response_format"]["schema"]["properties"]["tool"]["enum"].clone();
+    let without = w.chat.start(None, Some("small")).await.unwrap();
+    turn(&w, &without.id, "Hello").await;
+    assert!(offered(&w, 0).as_array().unwrap().contains(&json!("give_file")));
+    let folder = crate::testing::TempDir::new("demido-artifact-folder");
+    let with = w.chat.start(None, Some("small")).await.unwrap();
+    w.chat.set_folder(&with.id, Some(folder.to_str().unwrap())).unwrap();
+    turn(&w, &with.id, "Hello").await;
+    assert!(!offered(&w, 1).as_array().unwrap().contains(&json!("give_file")), "with a folder, models write files there");
+    w.settings.set("tools.artifacts", json!("always")).unwrap();
+    turn(&w, &with.id, "Hello").await;
+    assert!(offered(&w, 2).as_array().unwrap().contains(&json!("give_file")), "unless the person says always");
     w.end().await;
 }

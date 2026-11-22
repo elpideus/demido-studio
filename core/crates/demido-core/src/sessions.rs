@@ -15,6 +15,9 @@ use crate::db::Db;
 use crate::tools::Step;
 use crate::{Error, Result, now_ms};
 
+pub mod artifacts;
+pub use artifacts::{Artifact, Version, VersionFacts};
+
 #[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
 pub struct Session {
     pub id: String,
@@ -36,6 +39,8 @@ pub struct Session {
     pub updated_at: i64,
     /// How many messages it holds.
     pub messages: u32,
+    /// How many artifacts models gave in it.
+    pub artifacts: u32,
 }
 
 /// A change a tool made to a file in a session's folder. What the file held before is kept with it, so the
@@ -176,6 +181,7 @@ fn session_from(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         folder: r.get(7)?,
         permission: r.get(8)?,
         account: r.get(9)?,
+        artifacts: r.get(10)?,
     })
 }
 
@@ -227,8 +233,7 @@ fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
     })
 }
 
-const SESSION: &str =
-    "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission, s.account FROM sessions s";
+const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission, s.account, (SELECT count(*) FROM artifacts a WHERE a.session_id = s.id) FROM sessions s";
 const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at, steps FROM messages";
 const TASK: &str = "SELECT id, session_id, message_id, parent_id, position, title, state, result, steps, created_at, updated_at FROM tasks";
 
@@ -690,7 +695,8 @@ mod tests {
         s.add(&a.id, "user", "Do three things.", "done", None).unwrap();
         let answer = s.add(&a.id, "assistant", "", "answering", Some("small")).unwrap();
         assert!(answer.steps.is_empty());
-        let step = Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1, change: None, output: None };
+        let step =
+            Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1, change: None, output: None, artifact: None };
         s.set_steps(&answer.id, std::slice::from_ref(&step)).unwrap();
         assert_eq!(s.message(&answer.id).unwrap().steps, vec![step.clone()]);
 

@@ -24,7 +24,8 @@ struct World {
     engine: Arc<Engine>,
     events: Arc<EventLog>,
     stand: Arc<Stand>,
-    home: PathBuf,
+    /// Removed with the world, whether the test passed or not.
+    home: crate::testing::TempDir,
     settings: Arc<Settings>,
     /// The keys Demido keeps, in a file in `home`: none unless a test puts one there.
     vault: Arc<crate::vault::Vault>,
@@ -37,7 +38,7 @@ fn world(name: &str) -> World {
 /// A data folder with an installed runtime and two models, and everything a turn needs on top of it.
 /// `idle_after`: how soon an unused model counts as idle, for the test that needs it short.
 fn world_where(name: &str, idle_after: Option<Duration>) -> World {
-    let home = std::env::temp_dir().join(format!("demido-chat-{name}-{}", uuid::Uuid::new_v4()));
+    let home = crate::testing::TempDir::new(&format!("demido-chat-{name}"));
     let models = home.join("models");
     std::fs::create_dir_all(&models).unwrap();
     std::fs::write(models.join("small.gguf"), vec![0u8; 100]).unwrap();
@@ -50,6 +51,8 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
     let db = Arc::new(Db::memory().unwrap());
     let events = Arc::new(EventLog::new(db.clone()));
     let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
+    // These tests hold the list of tools to what they are about; artifacts have tests of their own.
+    settings.set("tools.artifacts", serde_json::json!("never")).unwrap();
     let kept_settings = settings.clone();
     let runtimes = Arc::new(Runtimes::new(&home, events.clone(), Source::default()).unwrap());
     let stand = Stand::new(models);
@@ -88,8 +91,8 @@ impl World {
     }
 
     async fn end(self) {
+        // The world's folder goes with it, once the runtime is stopped.
         self.engine.shutdown().await;
-        std::fs::remove_dir_all(&self.home).ok();
     }
 }
 

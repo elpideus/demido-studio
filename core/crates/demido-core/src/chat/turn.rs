@@ -44,6 +44,10 @@ const NOTHING_CAME: &str = "Above is why the tool gave nothing. Tell the person 
 const MOST_TOOLS_IN_A_ROW: usize = 6;
 /// What a task gave is written in no more than this many tokens.
 const A_TASK_GIVES_AT_MOST: u32 = 350;
+/// The most a model writes for a file it gives (`give_file`): a few pages. The decision itself is held to
+/// 200 tokens, which a page does not fit in; so the decision names the file, and its text is asked for
+/// after it, as ordinary text (research note 23).
+const A_FILE_AT_MOST: u32 = 4_000;
 /// In the list a model is shown, what an earlier task gave is cut to this many characters.
 const SHOWN_OF_A_RESULT: usize = 400;
 
@@ -98,9 +102,9 @@ impl Words {
 }
 
 /// The list of tools and the question a model is asked before each answer, for a person to read.
-pub(super) fn told_about_tools(has_folder: bool, internet: bool) -> String {
+pub(super) fn told_about_tools(has_folder: bool, internet: bool, artifacts: bool) -> String {
     let folder = if has_folder { "\n\n(the files in the folder, by their paths, as they are at that moment)" } else { "" };
-    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered(has_folder, true, internet)), Words::request("").ask)
+    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered(has_folder, true, internet, artifacts)), Words::request("").ask)
 }
 
 /// How the last message of a piece of work ends.
@@ -414,14 +418,25 @@ impl Chat {
             let tools_listed = tools::listed(offered);
             // With the tools, the model is shown what is in the folder, as it is now. Without that it does not
             // connect what the person asks about with a file that is there.
-            let listed = match session.folder.as_deref() {
+            let mut listed = match session.folder.as_deref() {
                 Some(folder) => format!("{tools_listed}\n\n{}", tools::clean(&tools::files::glance(std::path::Path::new(folder)))),
                 None => tools_listed.clone(),
             };
+            // And the files it gave in this session, by their names: asked for a change to one, a real model
+            // (Granite 3.3 2B) gave a second file under a new name instead of a new version (research note 23).
+            if offered.iter().any(|t| t.name == tools::GIVE) {
+                let given = self.sessions.artifacts(&session.id)?;
+                if !given.is_empty() {
+                    let names: Vec<String> = given.iter().map(|a| if a.versions > 1 { format!("{} (version {})", a.name, a.versions) } else { a.name.clone() }).collect();
+                    listed = format!("{listed}\n\nFiles you gave the person in this session: {}. The same name again gives a new version.", tools::clean(&names.join(", ")));
+                }
+            }
             let mut messages = before.to_vec();
             messages.extend(request_messages(request, steps, &End::Decide(&listed), words));
             let reply = self.quietly(session, messages.clone(), Some(tools::shape(offered)), 200, stop).await?;
-            let (said, asked) = match tools::read(&reply, offered) {
+            // A decision to give a file, cut off in the file's text, is taken for what it plainly is.
+            let first = tools::read(&reply, offered).or_else(|problem| tools::cut_off_give(&reply, offered).ok_or(problem));
+            let (said, asked) = match first {
                 Ok(asked) => (reply, Ok(asked)),
                 Err(problem) if stop.load(Ordering::Relaxed) => (reply, Err(problem)),
                 Err(problem) => {
@@ -432,7 +447,7 @@ impl Chat {
                     let meant = serde_json::from_str::<Value>(reply.trim()).ok().and_then(|v| v.get("tool").and_then(Value::as_str).map(str::to_string));
                     let shape = meant.as_deref().and_then(|name| offered.iter().find(|t| t.name == name)).map_or_else(|| tools::shape(offered), |tool| tools::shape_of(tool));
                     let again = self.quietly(session, messages, Some(shape), 300, stop).await?;
-                    let asked = tools::read(&again, offered);
+                    let asked = tools::read(&again, offered).or_else(|problem| tools::cut_off_give(&again, offered).ok_or(problem));
                     (again, asked)
                 }
             };
@@ -517,6 +532,7 @@ impl Chat {
                     let folder = session.folder.as_deref().map(std::path::Path::new);
                     let seen = tools::seen_in(steps);
                     let mut kept_output = None;
+                    let mut gave_artifact = None;
                     let outcome = if tool == tools::RUN {
                         // A program is run through the sandbox, for no longer than the person set.
                         let seconds = self.settings.value::<String>("tools.commandSeconds").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(120);
@@ -542,6 +558,32 @@ impl Chat {
                                 let from = args.get("from_line").and_then(Value::as_u64).unwrap_or(1) as usize;
                                 tools::Done { gave: tools::clean(&tools::output::lines_from(&whole, from, 80, 6_000)), changed: None }
                             }),
+                        }
+                    } else if tool == tools::GIVE {
+                        // A file of the session's own, kept with every version: nothing outside Demido changes.
+                        // The model named it; now it writes it, as ordinary text, with room for a few pages.
+                        let name = args.get("file_name").and_then(Value::as_str).unwrap_or_default();
+                        let mut messages = before.to_vec();
+                        messages.extend(request_messages(request, steps, &End::Answer, words));
+                        if let Some(last) = messages.last_mut() {
+                            let asked = last["content"].as_str().unwrap_or_default().to_string();
+                            last["content"] = json!(format!("{asked}\n\nWrite the whole of {name} now: only its text, as it goes in the file, with nothing before or after it."));
+                        }
+                        match self.quietly(session, messages, None, A_FILE_AT_MOST, stop).await {
+                            Err(why) => Err(why.to_string()),
+                            Ok(mut written) => {
+                                if let Some(end) = going_round(&written) {
+                                    written.truncate(end);
+                                }
+                                // A key Demido keeps is taken out of a file as out of anything a tool gives.
+                                match self.sessions.make_artifact(&session.id, name, tools::unfenced(&self.hide(&written)), Some(answer_id)) {
+                                    Ok(made) => {
+                                        gave_artifact = Some(tools::Given { id: made.artifact.id.clone(), name: made.artifact.name.clone(), n: made.n });
+                                        Ok(tools::Done { gave: tools::given(&made.artifact.name, made.n, made.same), changed: None })
+                                    }
+                                    Err(why) => Err(why.to_string()),
+                                }
+                            }
                         }
                     } else if tool == tools::SEARCH {
                         let on = |id: &str| self.settings.value::<bool>(id).unwrap_or(true);
@@ -573,6 +615,7 @@ impl Chat {
                     step.took_ms = started.elapsed().as_millis() as u64;
                     // However the program ended, it may have changed things. The folder as it was is kept, to put back.
                     step.output = kept_output;
+                    step.artifact = gave_artifact;
                     if let Some((id, place)) = &saved {
                         step.change = Some(self.sessions.add_folder_change(&session.id, answer_id, id, &place.to_string_lossy())?.id);
                         // What the program changed, made and removed, compared with the folder saved before it ran.
@@ -755,7 +798,7 @@ impl Chat {
                 break;
             }
             let has_folder = session.folder.is_some();
-            let Err(parts) = self.do_one(session, answer_id, before, request, task, &tools::offered(has_folder, true, self.internet()), stop).await? else {
+            let Err(parts) = self.do_one(session, answer_id, before, request, task, &tools::offered(has_folder, true, self.internet(), self.artifacts(has_folder)), stop).await? else {
                 continue;
             };
             // The model split this task. Its parts are done one by one; a part is not split again.
@@ -764,7 +807,7 @@ impl Chat {
                     break;
                 }
                 // `plan` is not offered, so this cannot ask to split.
-                let _ = self.do_one(session, answer_id, before, request, &part, &tools::offered(has_folder, false, self.internet()), stop).await?;
+                let _ = self.do_one(session, answer_id, before, request, &part, &tools::offered(has_folder, false, self.internet(), self.artifacts(has_folder)), stop).await?;
             }
             // What the whole task gave, from what its parts gave.
             let all = self.sessions.tasks_of(answer_id)?;
@@ -790,8 +833,19 @@ impl Chat {
         let always = self.settings.value::<String>("tools.plan").is_ok_and(|v| v == "always");
         let mut planned = if plan_first || always { self.split(session, &before, &request, if plan_first { 2 } else { 1 }, stop).await? } else { None };
         if planned.is_none() {
-            planned =
-                self.use_tools(session, answer_id, &before, &request, &Words::request(&request), &tools::offered(session.folder.is_some(), true, self.internet()), &mut steps, stop, &shown).await?;
+            planned = self
+                .use_tools(
+                    session,
+                    answer_id,
+                    &before,
+                    &request,
+                    &Words::request(&request),
+                    &tools::offered(session.folder.is_some(), true, self.internet(), self.artifacts(session.folder.is_some())),
+                    &mut steps,
+                    stop,
+                    &shown,
+                )
+                .await?;
         }
         let Some(titles) = planned else { return Ok(()) };
         let started = Instant::now();

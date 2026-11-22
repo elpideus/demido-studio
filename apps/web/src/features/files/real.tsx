@@ -5,14 +5,17 @@
    highlights it quietly; Markdown is shown as it reads, as its source, or side by side, as it is typed; a
    page (HTML) in a frame that runs nothing; pictures, PDFs, videos and sound as themselves. A save is made
    only over the version that was opened: when the model or another program wrote the file meanwhile, the
-   person is told and chooses. Artifacts are not built yet, and say so. */
+   person is told and chooses. Beside the folder: the files models gave in the session (artifacts), with
+   every version. */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Image, Music } from 'lucide-react'
+import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Gift, Image, Music } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useFilesFocus } from '@/data/artifacts'
 import { useReal } from '@/data/real-sessions'
 import { CoreProblem, draftKey, fileUrl, listFolder, MOST_TEXT, readText, saveText, useDrafts, useFolderTicks, watchFolders, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
 import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal } from '@/ui'
 import { Prose } from '@/ui/prose'
+import { ArtifactList, ArtifactView, useArtifacts } from './artifact'
 import { PdfPages } from './pdf'
 
 /** The editor, loaded the first time a text file is opened. */
@@ -233,33 +236,52 @@ function Viewer({ session, entry, folder }: { session: string; entry: FolderEntr
   )
 }
 
+type Open = { kind: 'file'; entry: FolderEntry } | { kind: 'artifact'; id: string; n?: number }
+
 export function RealFiles() {
   const list = useReal((s) => s.list)
-  const withFolder = (list ?? []).filter((s) => s.folder)
-  const [chosen, setChosen] = useState<string | null>(null)
-  const [open, setOpen] = useState<FolderEntry | null>(null)
-  const session = withFolder.find((s) => s.id === chosen) ?? withFolder[0]
-  useEffect(() => { setOpen(null) }, [session?.id])
+  const focus = useFilesFocus((s) => s.focus)
+  const clearFocus = useFilesFocus((s) => s.clear)
+  // The session chosen and what is open in it, changed together: another session opens nothing yet.
+  const [state, setState] = useState<{ session: string | null; open: Open | null }>({ session: null, open: null })
+  const shown = (list ?? []).filter((s) => s.folder || (s.artifacts ?? 0) > 0 || s.id === state.session)
+  const session = shown.find((s) => s.id === state.session) ?? shown[0]
+  const artifacts = useArtifacts(session?.id)
+  const open = session && (state.session === null || state.session === session.id) ? state.open : null
   useEffect(() => { watchFolders() }, [])
+  // An artifact opened from the conversation.
+  useEffect(() => {
+    if (!focus) return
+    setState({ session: focus.session, open: { kind: 'artifact', id: focus.artifact, n: focus.n } })
+    clearFocus()
+  }, [focus, clearFocus])
+  const openFile = (entry: FolderEntry) => setState({ session: session?.id ?? null, open: { kind: 'file', entry } })
   return (
     <div className="app-split">
       <aside className="app-side" aria-label="Files">
         <div className="app-side__head"><span className="d-type-headline">Files</span></div>
         {!list ? <p className="app-empty"><Glyph name="task-running" busy /> Reading the sessions…</p>
-          : !session ? <p className="app-empty">No session has a folder yet. Give one a folder in its header, and its files appear here.</p>
+          : !session ? <p className="app-empty">No session has a folder, or a file a model gave, yet. Give a session a folder in its header, and its files appear here.</p>
           : <>
-            <Select label="Session" value={session.id} onChange={setChosen} options={withFolder.map((s) => ({ value: s.id, label: s.title }))} />
+            <Select label="Session" value={session.id} onChange={(id) => setState({ session: id, open: null })} options={shown.map((s) => ({ value: s.id, label: s.title }))} />
             <div className="app-side__scroll">
-              <p className="d-list__label"><Icon icon={Folder} size="sm" /> {session.folder?.split(/[\\/]/).filter(Boolean).at(-1)}</p>
-              <Branch key={session.id} session={session.id} path="" depth={0} open={open?.path ?? null} onOpen={setOpen} />
+              {artifacts && artifacts.length > 0 && <>
+                <p className="d-list__label"><Icon icon={Gift} size="sm" /> Given to you</p>
+                <ArtifactList artifacts={artifacts} open={open?.kind === 'artifact' ? open.id : null} onOpen={(x) => setState({ session: session.id, open: { kind: 'artifact', id: x.id } })} />
+              </>}
+              {session.folder && <>
+                <p className="d-list__label"><Icon icon={Folder} size="sm" /> {session.folder.split(/[\\/]/).filter(Boolean).at(-1)}</p>
+                <Branch key={session.id} session={session.id} path="" depth={0} open={open?.kind === 'file' ? open.entry.path : null} onOpen={openFile} />
+              </>}
             </div>
-            <p className="app-side__foot">{session.folder}</p>
+            {session.folder && <p className="app-side__foot">{session.folder}</p>}
           </>}
       </aside>
-      {session && open ? <Viewer key={`${session.id}\u0000${open.path}`} session={session.id} entry={open} folder={session.folder ?? ''} />
+      {session && open?.kind === 'file' ? <Viewer key={`${session.id}\u0000${open.entry.path}`} session={session.id} entry={open.entry} folder={session.folder ?? ''} />
+        : session && open?.kind === 'artifact' ? <ArtifactView key={`${open.id}:${open.n ?? 'last'}`} session={session.id} id={open.id} n={open.n} />
         : <section className="chat" aria-label="File"><div className="files__preview app-stack">
-          <p className="app-empty">{session ? 'Pick a file on the left.' : 'The files of a session with a folder are shown here.'}</p>
-          <NotBuilt block>Artifacts (files a model makes and sends, with their earlier versions), and making, renaming or deleting a file here.</NotBuilt>
+          <p className="app-empty">{session ? 'Pick a file on the left.' : 'The files of a session with a folder, and the files models gave you, are shown here.'}</p>
+          <NotBuilt block>Making, renaming or deleting a file here; editing a file a model gave you; putting one into the session's folder.</NotBuilt>
         </div></section>}
     </div>
   )

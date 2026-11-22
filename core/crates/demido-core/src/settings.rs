@@ -211,6 +211,17 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             true,
         ),
         def(
+            "tools.artifacts",
+            "Let models give you files to keep",
+            "A model can write a document, a page or code as a file of its own, shown beside the conversation, with every version kept.",
+            Some(
+                "Default: in sessions without a folder. Such a file (an artifact) is kept in Demido, with the session: it is not put in the session's folder and changes nothing on your disk. The same name again makes a new version; the earlier ones stay, to look at and download. A page is shown without running anything in it. In a session with a folder, models write files there instead: measured, asked to add a file to the folder, a small model gave one of these instead. Whatever this says, you can keep any answer as a file yourself.",
+            ),
+            choices(&[("nofolder", "In sessions without a folder"), ("always", "Always"), ("never", "Never")]),
+            json!("nofolder"),
+            true,
+        ),
+        def(
             "tools.commandSeconds",
             "A command may run for",
             "How long a program a model started may run before Demido stops it.",

@@ -49,6 +49,9 @@ pub const READ_PAGE: &str = "read_page";
 /// The tool that reads on in what a command printed. Run by `chat`, which keeps the whole of it. Offered
 /// only after a command whose output was shortened, in the same request.
 pub const READ_OUTPUT: &str = "read_output";
+/// The tool that gives the person an artifact: a file of the session's own, kept with every version
+/// (`sessions::artifacts`). Run by `chat`. It touches nothing outside Demido.
+pub const GIVE: &str = "give_file";
 
 /// What an argument may be.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -143,8 +146,23 @@ const TOOLS: &[Tool] = &[
         args: &[maybe("from_line", Kind::Whole)],
         reach: Reach::Nothing,
     },
+    Tool {
+        name: GIVE,
+        does: "Gives the person a file you write for them to keep: a document, a letter, a page, code. It is shown beside the conversation, and they can download it. Name it here, with the ending for its kind (.md, .html, .py and so on); you write its text next. The same name again gives a new version of it. For something long they asked for; a short answer goes in your reply.",
+        args: &[arg("file_name", Kind::Text)],
+        reach: Reach::Nothing,
+    },
     Tool { name: PLAN, does: "For work that needs several steps: write the steps as a list first.", args: &[arg("steps", Kind::List)], reach: Reach::Nothing },
 ];
+
+/// `give_file` as a session with a folder is offered it. Measured (research note 23): asked to add a file
+/// to the folder, two of the four test models gave an artifact instead, until they were told where it goes.
+static GIVE_BESIDE_A_FOLDER: Tool = Tool {
+    name: GIVE,
+    does: "Gives the person a file you write for them to keep, shown beside the conversation, not put in the folder (write_file puts a file in the folder): a document, a letter, a page, code. They can download it. Name it here, with the ending for its kind (.md, .html, .py and so on); you write its text next. The same name again gives a new version of it. For something long they asked for; a short answer goes in your reply.",
+    args: &[arg("file_name", Kind::Text)],
+    reach: Reach::Nothing,
+};
 
 /// The most steps a plan may have. More than a small model keeps apart.
 pub const MOST_STEPS_IN_A_PLAN: usize = 8;
@@ -160,9 +178,9 @@ pub fn without_plan() -> Vec<&'static Tool> {
 }
 
 /// The tools a session is offered. Those that reach into a folder are there only when the session has one;
-/// those that read from the internet only when the person has that turned on; `plan` only where work may
-/// still be split.
-pub fn offered(has_folder: bool, may_plan: bool, internet: bool) -> Vec<&'static Tool> {
+/// those that read from the internet only when the person has that turned on, and artifacts likewise;
+/// `plan` only where work may still be split.
+pub fn offered(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool) -> Vec<&'static Tool> {
     TOOLS
         .iter()
         .filter(|t| match t.reach {
@@ -171,8 +189,10 @@ pub fn offered(has_folder: bool, may_plan: bool, internet: bool) -> Vec<&'static
             Reach::Reads | Reach::Changes | Reach::Runs => has_folder,
         })
         .filter(|t| may_plan || t.name != PLAN)
+        .filter(|t| artifacts || t.name != GIVE)
         // Only after a command whose output was shortened (`chat`): offered before that, a model would ask for it.
         .filter(|t| t.name != READ_OUTPUT)
+        .map(|t| if has_folder && t.name == GIVE { &GIVE_BESIDE_A_FOLDER } else { t })
         .collect()
 }
 
@@ -270,6 +290,68 @@ pub struct Step {
     /// What a program printed, kept whole: its id, for reading all of it.
     #[serde(default)]
     pub output: Option<String>,
+    /// The artifact this use gave the person, and which of its versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<Given>,
+}
+
+/// An artifact a step gave, as the window links to it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Given {
+    pub id: String,
+    pub name: String,
+    /// The version it made (or that already held the same text).
+    pub n: i64,
+}
+
+/// A decision to give a file that was cut off because the model went on to write the file's text into it:
+/// the tool and the file's name are plain, and the text is asked for next in any case. Measured: Qwen3 4B did
+/// this for every page it gave (research note 23). The models write `args` before `tool`, so a reply cut off
+/// in the text may never name the tool; `file_name` is `give_file`'s alone, and says it.
+pub fn cut_off_give(reply: &str, tools: &[&Tool]) -> Option<Asked> {
+    if !tools.iter().any(|t| t.name == GIVE) || first_object(reply).is_some() {
+        return None;
+    }
+    let keys: &[&str] = match reply.split_once("\"tool\"") {
+        Some((_, after)) => {
+            let after = after.trim_start().strip_prefix(':')?.trim_start();
+            if !after.starts_with(&format!("\"{GIVE}\"")) {
+                return None;
+            }
+            &["\"file_name\"", "\"filename\"", "\"name\""]
+        }
+        None => &["\"file_name\""],
+    };
+    for key in keys {
+        let Some((_, rest)) = reply.split_once(key) else { continue };
+        let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+        let name = &rest[..rest.find('"')?];
+        if name.trim().is_empty() || name.len() > 100 || name.contains(['\n', '\\']) || name.to_lowercase().starts_with(GIVE) {
+            return None;
+        }
+        return Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!(name.trim()))]) });
+    }
+    None
+}
+
+/// A file's text as a model wrote it, without the fence of a code block around the whole of it.
+pub fn unfenced(text: &str) -> &str {
+    let trimmed = text.trim();
+    if let Some(inner) = trimmed.strip_prefix("```").and_then(|rest| rest.strip_suffix("```"))
+        && let Some((_, body)) = inner.split_once('\n')
+    {
+        return body.trim_end_matches(['\n', '\r']);
+    }
+    trimmed
+}
+
+/// What the model is told after giving an artifact.
+pub fn given(name: &str, n: i64, same: bool) -> String {
+    if same {
+        return format!("{name} already held exactly this text (version {n}), so nothing changed.");
+    }
+    let which = if n == 1 { "its first version".to_string() } else { format!("version {n}; the earlier ones are kept") };
+    format!("The person now has {name}, {which}. They see it beside the conversation and can download it. Do not write its text out again in your answer: say in a sentence or two what it is.")
 }
 
 impl Step {
@@ -364,6 +446,11 @@ pub fn read(reply: &str, tools: &[&Tool]) -> std::result::Result<Asked, String> 
             None => return Err(format!("{} needs \"{}\"", tool.name, arg.name)),
         };
         args.insert(arg.name.to_string(), fitted(tool, arg, value)?);
+    }
+    // A file named after the tool that gives it: a real model (Qwen3 0.6B and 1.7B, research note 23) put the
+    // tool's name where the file's belongs.
+    if tool.name == GIVE && args.get("file_name").and_then(Value::as_str).is_some_and(|n| n.trim().to_lowercase().starts_with(GIVE)) {
+        return Err(format!("\"{GIVE}\" is the tool's name. Give the file a name of its own, with the ending for its kind"));
     }
     Ok(Asked::Tool { tool: tool.name.to_string(), args })
 }
@@ -539,14 +626,18 @@ mod tests {
         assert!(list.ends_with("- none(): No tool is needed. Answer from what you know."));
         assert!(!listed(&without_plan()).contains("plan("));
         // A session without a folder is not offered the tools that reach into one.
-        assert_eq!(shape(&offered(false, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "none"]));
-        assert_eq!(shape(&offered(false, true, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
+        assert_eq!(shape(&offered(false, false, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "none"]));
+        assert_eq!(shape(&offered(false, true, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
         assert_eq!(
-            shape(&offered(true, true, false))["properties"]["tool"]["enum"],
+            shape(&offered(true, true, false, false))["properties"]["tool"]["enum"],
             json!(["time", "calculate", "list_files", "read_file", "search_files", "add_to_file", "write_file", "edit_file", "run_command", "plan", "none"])
         );
-        // Reading from the internet needs no folder, only the person's setting.
-        assert_eq!(shape(&offered(false, false, true))["properties"]["tool"]["enum"], json!(["time", "calculate", "search_web", "read_page", "none"]));
+        // Reading from the internet needs no folder, only the person's setting; artifacts likewise.
+        assert_eq!(shape(&offered(false, false, true, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "search_web", "read_page", "none"]));
+        assert_eq!(shape(&offered(false, true, false, true))["properties"]["tool"]["enum"], json!(["time", "calculate", "give_file", "plan", "none"]));
+        assert_eq!(named(GIVE).unwrap().reach, Reach::Nothing, "an artifact touches nothing outside Demido: no yes is needed");
+        let beside = offered(true, false, false, true).into_iter().find(|t| t.name == GIVE).unwrap();
+        assert!(beside.does.contains("not put in the folder (write_file puts a file in the folder)"), "with a folder, it says where its file goes");
         assert!(list.contains("- search_web(query: text): Searches the internet") && list.contains("- read_page(url: text): The text of a web page"));
         assert_eq!(
             (named("write_file").unwrap().reach, named("read_file").unwrap().reach, named("time").unwrap().reach, named("read_page").unwrap().reach),
@@ -589,11 +680,38 @@ mod tests {
     }
 
     #[test]
+    fn a_decision_to_give_a_file_cut_off_in_its_text_is_taken_for_what_it_plainly_is() {
+        let offered = all();
+        let cut = r#"{"tool": "give_file", "args": {"file_name": "sol.html", "text": "<!doctype html>\n<html><head><title>Sol"#;
+        assert_eq!(cut_off_give(cut, &offered), Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!("sol.html"))]) }));
+        assert_eq!(cut_off_give(r#"{"tool": "give_file", "args": {"name": "letter.md", "text": "Dear"#, &offered).map(|_| ()), Some(()), "under the name it had before");
+        // Arguments first, as the models write them: cut off before the tool is named, `file_name` says it.
+        let first = r#"{"args": {"file_name": "bakery.html", "text": "<!DOCTYPE html>\n<html>"#;
+        assert_eq!(cut_off_give(first, &offered), Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!("bakery.html"))]) }));
+        assert_eq!(cut_off_give(r#"{"args": {"name": "x.md", "text": "Dear"#, &offered), None, "a name alone says no tool");
+        // Not when the reply is whole, not for another tool, not without a name, not when the tool is not offered.
+        assert_eq!(cut_off_give(r#"{"tool": "give_file", "args": {"file_name": "a.md"}}"#, &offered), None);
+        assert_eq!(cut_off_give(r#"{"tool": "write_file", "args": {"path": "a.md", "content": "Dear"#, &offered), None);
+        assert_eq!(cut_off_give(r#"{"tool": "give_file", "args": {"text": "Dear"#, &offered), None);
+        assert_eq!(cut_off_give(cut, &without_plan().into_iter().filter(|t| t.name != GIVE).collect::<Vec<_>>()), None);
+        // A file named after the tool is not a name.
+        assert!(read(r#"{"tool": "give_file", "args": {"file_name": "give_file.md"}}"#, &offered).unwrap_err().contains("is the tool's name"));
+        assert!(read(r#"{"tool": "give_file", "args": {"name": "plan.md"}}"#, &offered).is_ok(), "the one argument, under another name");
+    }
+
+    #[test]
+    fn a_files_text_is_taken_out_of_a_fence_around_the_whole_of_it() {
+        assert_eq!(unfenced("```html\n<h1>Sol</h1>\n```"), "<h1>Sol</h1>");
+        assert_eq!(unfenced("  # Plan\n\nDay one.\n"), "# Plan\n\nDay one.");
+        assert_eq!(unfenced("Text with ```code``` inside"), "Text with ```code``` inside");
+    }
+
+    #[test]
     fn what_cannot_be_used_is_said_in_words_the_model_can_act_on() {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, read_output, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, read_output, give_file, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));
