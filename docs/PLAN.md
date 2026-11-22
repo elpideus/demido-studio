@@ -220,6 +220,20 @@ model, from a short trial when a model is first used.
   which I may not enter for you, and it costs money (OpenRouter's free models cost nothing). When you add a
   key on the Providers screen (or `demido keys add anthropic`), one short question in a session is the trial;
   tell me what it said if anything looks wrong.
+- **The sandbox on Windows: which way.** Note 05's realistic first step is a token that may write only to
+  the folder, with the folder's permissions changed on your disk to let it; it guards writes only, not reads
+  and not the network, so Balanced would still ask before every command there. The strong ways need
+  administrator rights at setup (a user of Demido's own and firewall rules), or WSL2 (the Linux sandbox,
+  already built, inside it). My recommendation: WSL2 where it is installed, and asking before each command
+  where it is not, rather than a write-only token that changes your folders' permissions. Nothing is built
+  until you say.
+- **Agents: where to start (DECISIONS O13, O14; research notes 20 and 21).** Measured overnight: sending
+  mechanical work to the fastest model makes it worse on these models, and a fresh context for the same model
+  makes it better. I propose the first piece of agents be that: a copying task done by the session's own
+  model on a fresh context. Say yes, or what you would rather have first.
+- **WhatsApp, Telegram and Discord.** Linking them needs you there: WhatsApp and Telegram link a device by a
+  code or a picture shown on your phone, and Discord by a bot of your own. They are plan item 9, with their
+  research still owed; I did not use your phone or its PIN.
 - Signing the Windows and macOS builds. It costs money every year (DECISIONS R7).
 - A usage policy for the name and logo, to replace the holding notice (DECISIONS A13).
 - Whether to rerun the research sweep or let it be done directly (the earlier run stalled and has ended).
