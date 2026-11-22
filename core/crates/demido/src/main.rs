@@ -26,6 +26,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Reads a PDF on standard input and prints its text. How the server reads a PDF from the internet
+    /// apart from itself, so that a strange file ends this process and not the server.
+    #[command(name = "pdf-text", hide = true)]
+    PdfText,
     /// Run the server. Everything else talks to it.
     Serve {
         /// Address and port to listen on, for this run. Default: the "server.address" setting.
@@ -291,7 +295,11 @@ fn end_quietly_when_the_reader_leaves() {
 #[tokio::main]
 async fn main() -> ExitCode {
     end_quietly_when_the_reader_leaves();
-    match run(Cli::parse()).await {
+    let cli = Cli::parse();
+    if let Command::PdfText = cli.command {
+        return pdf_text();
+    }
+    match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("demido: {e:#}");
@@ -300,9 +308,31 @@ async fn main() -> ExitCode {
     }
 }
 
+/// `demido pdf-text`: a PDF on standard input, its text on standard output, a reason on standard error.
+fn pdf_text() -> ExitCode {
+    use std::io::{Read, Write};
+    let mut bytes = Vec::new();
+    if let Err(e) = std::io::stdin().take(25_000_000).read_to_end(&mut bytes) {
+        eprintln!("the PDF could not be read: {e}");
+        return ExitCode::FAILURE;
+    }
+    match demido_core::web::pdf::text_of(&bytes) {
+        Ok(text) => {
+            let _ = std::io::stdout().write_all(text.as_bytes());
+            ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("{why}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 async fn run(cli: Cli) -> Result<()> {
     let paths = Paths::resolve()?;
     match cli.command {
+        // Run before anything else, in `main`.
+        Command::PdfText => {}
         Command::Serve { listen, ui_dir } => {
             let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
             tracing_subscriber::fmt().with_env_filter(filter).with_target(false).init();

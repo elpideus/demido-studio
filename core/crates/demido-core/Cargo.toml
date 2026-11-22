@@ -12,6 +12,7 @@ base64.workspace = true
 directories.workspace = true
 dom_smoothie.workspace = true
 encoding_rs.workspace = true
+pdf-extract.workspace = true
 flate2.workspace = true
 jiff.workspace = true
 keyring-core.workspace = true

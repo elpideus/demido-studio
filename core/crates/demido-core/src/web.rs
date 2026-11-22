@@ -16,11 +16,14 @@
 //!   site whether it changed, a search for an hour, a `robots.txt` for a day;
 //! - stops reading at two megabytes, and after twenty-five seconds.
 //!
-//! Not built: pages that only show their text after running scripts (that needs the browser), PDFs,
+//! A PDF is read for its text, in a process of its own (`pdf`).
+//!
+//! Not built: pages that only show their text after running scripts (that needs the browser),
 //! and anything that needs a key (that needs the place where keys are kept).
 
 pub mod guard;
 pub mod page;
+pub mod pdf;
 pub mod robots;
 mod search;
 
@@ -40,6 +43,8 @@ pub use search::{Found, Hit, Which};
 pub const MOST_OF_A_PAGE: usize = 5_000;
 /// No more of a page than this is downloaded.
 const MOST_BYTES: usize = 2_000_000;
+/// A PDF may be larger: one cut short cannot be read at all (its table of where everything is comes last).
+const MOST_PDF_BYTES: usize = 20_000_000;
 /// No more of a page's text than this is kept.
 const MOST_TEXT: usize = 400_000;
 const PAGE_IS_FRESH: Duration = Duration::from_secs(15 * 60);
@@ -166,6 +171,8 @@ pub struct Web {
     pub(crate) sources: Sources,
     /// Addresses on this computer that count as the public internet. Only a test fills this, for its stand-in.
     stand_ins: Arc<Vec<String>>,
+    /// Where a PDF's text is taken out.
+    pdf: pdf::Reader,
     puts: AtomicUsize,
 }
 
@@ -218,6 +225,15 @@ impl Web {
         Self::with(kept_in, Sources::default(), Vec::new())
     }
 
+    /// The same, taking a PDF's text out in a process of its own, `<program> pdf-text`, when `program` is
+    /// Demido's own (in a test it is the test, and stays here).
+    pub fn reading_pdfs_apart(mut self, program: Option<PathBuf>) -> Self {
+        if let Some(program) = program.filter(|p| p.file_stem().is_some_and(|s| s == "demido")) {
+            self.pdf = pdf::Reader::Apart(program);
+        }
+        self
+    }
+
     /// With the search sources somewhere else, and with addresses on this computer that count as public: for
     /// a test and its stand-in.
     pub fn with(kept_in: Option<PathBuf>, sources: Sources, stand_ins: Vec<String>) -> Self {
@@ -260,6 +276,7 @@ impl Web {
             paused: Mutex::default(),
             sources,
             stand_ins,
+            pdf: pdf::Reader::Here,
             puts: AtomicUsize::new(0),
         };
         web.sweep();
@@ -381,8 +398,9 @@ impl Web {
             let (status, address, kind, etag, changed) =
                 (response.status().as_u16(), response.url().clone(), header("content-type").unwrap_or_default().to_ascii_lowercase(), header("etag"), header("last-modified"));
             let (mut body, mut cut) = (Vec::new(), false);
+            let most = if kind.starts_with("application/pdf") { MOST_PDF_BYTES } else { MOST_BYTES };
             while let Some(chunk) = response.chunk().await.map_err(|e| why(&e))? {
-                let room = MOST_BYTES - body.len();
+                let room = most - body.len();
                 if chunk.len() > room {
                     body.extend_from_slice(&chunk[..room]);
                     cut = true;
@@ -483,7 +501,18 @@ impl Web {
             || kind.ends_with("+json")
             || kind.ends_with("+xml");
         if kind == "application/pdf" || got.body.starts_with(b"%PDF-") {
-            return Err("this is a PDF. Reading PDFs is not built yet".into());
+            if got.cut {
+                return Err(format!("the PDF is larger than {} MB, the most read", MOST_PDF_BYTES / 1_000_000));
+            }
+            let text = pdf::read(got.body, &self.pdf).await?;
+            let address = got.address.to_string();
+            let title = got.address.path_segments().and_then(|mut s| s.next_back().map(str::to_string)).filter(|s| !s.is_empty()).unwrap_or_default();
+            let mut text = text;
+            if let Some((at, _)) = text.char_indices().nth(MOST_TEXT) {
+                text.truncate(at);
+            }
+            let notes = vec!["A PDF: its text only, without its pictures or its layout.".to_string()];
+            return Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes });
         }
         if !is_html && !is_text {
             return Err(format!("this is not a page of text (it is {kind})"));

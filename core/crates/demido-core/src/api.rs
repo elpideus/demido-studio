@@ -79,7 +79,7 @@ impl Core {
                 .keeping_in(paths.home().join("saved-folders"))
                 .keeping_outputs_in(paths.home().join("outputs"))
                 .with_sandbox(crate::sandbox::Sandbox::find())
-                .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))))),
+                .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))).reading_pdfs_apart(std::env::current_exe().ok()))),
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
         Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers })

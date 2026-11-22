@@ -21,6 +21,8 @@ directories = "6"
 dom_smoothie = "0.20"
 # Pages that are not written in UTF-8.
 encoding_rs = "0.8"
+# The text of a PDF that read_page fetched (web/pdf.rs). pdf-extract 0.12, MIT, on lopdf (MIT). Read 2026-11-22.
+pdf-extract = "0.12"
 flate2 = "1.1"
 # The SHA-512 npm lists for a package is written in base64. 0.23, MIT OR Apache-2.0; already in the build through other crates.
 base64 = "0.23"

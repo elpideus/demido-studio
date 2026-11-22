@@ -235,7 +235,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Let models read from the internet",
             "A model can search, and can read a page from its address.",
             Some(
-                "Default on. Demido says who it is to every site (DemidoStudio and this project's address), follows each site's rules for programs (robots.txt), reads at most 2 MB of a page, and keeps what it read for a while so that it asks sites as rarely as it can. A model is given only the parts of a page that match what was asked. A model may open an address you wrote, or one that a search or a page gave it. An address it wrote itself can carry text out of your computer, so Demido asks you first, every time (not at the Autonomous level). Not built: pages that only show their text after running scripts, PDFs, and your own keys for search services.",
+                "Default on. Demido says who it is to every site (DemidoStudio and this project's address), follows each site's rules for programs (robots.txt), reads at most 2 MB of a page, and keeps what it read for a while so that it asks sites as rarely as it can. A model is given only the parts of a page that match what was asked. A model may open an address you wrote, or one that a search or a page gave it. An address it wrote itself can carry text out of your computer, so Demido asks you first, every time (not at the Autonomous level). A PDF is read for its text (not its pictures), in a process of its own with limits on time and memory. Not built: pages that only show their text after running scripts, and your own keys for search services.",
             ),
             Kind::Switch,
             json!(true),
