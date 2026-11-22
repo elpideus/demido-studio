@@ -171,7 +171,17 @@ What this says:
 - A model that wrote a request for a tool where its answer should be now gets one more try. Before that,
   two of these answers were lost.
 
-Not tried: anything on macOS or Windows (there is no sandbox there yet, and so a program asks first); a
+Tried on macOS since (22 November 2026), on the checks' Mac (GitHub's `macos-15` runner, macOS 15.8.2),
+by `sandbox::tests::inside_the_sandbox_there_is_the_folder_the_system_and_nothing_else` with the sandbox
+required: `sandbox-exec` took Demido's profile; a command read and changed the folder; it could not read a
+file in the home, by its own path or through `/System/Volumes/Data`, nor list `/Users`, nor read a file
+beside the folder, nor write outside it; what it wrote to `/tmp` never reached the Mac's own `/tmp`; its own
+`TMPDIR` worked; `curl` could not connect; no variable of the shell came along; `cargo --version` ran.
+Read for it: Codex's Seatbelt policy and its builder (`codex-rs/sandboxing/src/seatbelt*.sbpl`,
+`seatbelt.rs`, Apache-2.0), for the services a program needs, parameters passed with `-D`, and two fcntl
+commands that change a file through a read-only descriptor.
+
+Not tried: anything on Windows (there is no sandbox there yet, and so a program asks first); a
 folder too large to save; a program that tries to get out on purpose. bubblewrap's own README says it is
 "not a complete, ready-made sandbox with a specific security policy": the policy is the list of what is
 let in, in `sandbox.rs`, and it is as good as that list. The harnesses I could check add a filter on what
@@ -182,7 +192,7 @@ a program may ask of the kernel (seccomp). Demido does not yet.
 In `docs/DECISIONS.md`, section T. In short: a session has one folder and its tools cannot leave it; the
 four permission levels are decided in code from what a tool does; a change keeps what it replaced; text
 from outside is cleaned; the request is said again after a result; a program runs shut in, with the folder
-saved first. Not built yet: the sandbox on macOS and Windows, anything that reaches the network, the
+saved first. Not built yet: the sandbox on Windows, anything that reaches the network, the
 second look that Smart is to give, and the rest of note 05's design (labels that follow text through a session, a reader with no tools, rules for what may
 leave the computer). Those matter when there is a way out of the computer; today there is none.
 

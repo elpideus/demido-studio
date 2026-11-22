@@ -121,7 +121,8 @@ Windows, and tools other people write.
    on four models: 5, 6, 7 and 7 of 8 everyday requests right; a page that gave orders changed nothing.
    Then the whole of what a program printed, kept, with a short view for the model and a way to read on;
    and what each change changed, as a diff (DECISIONS T18, T19; research note 16).
-   Next inside it: the sandbox on macOS and Windows; tools other people write, with their browser and
+   The sandbox on macOS is built too (DECISIONS T20): Seatbelt, tried on the checks' Mac.
+   Next inside it: the sandbox on Windows; tools other people write, with their browser and
    updater.
 6. Models browser. Providers (Anthropic API, Gemini, OpenRouter, Claude Code, OpenCode). Usage.
    The models browser and downloader are built (DECISIONS H, research note 17): searching Hugging Face for
@@ -154,7 +155,7 @@ list made for the split stays, because it says what is left and what to watch in
 
 | # | Remaining work | What to watch |
 |---|---|---|
-| 5 | The sandbox on macOS (Seatbelt) and on Windows; a filter on what a program may ask of the kernel | Security, and it cannot be tried here: only on the checks' machines |
+| 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows; a filter on what a program may ask of the kernel | Security, and it cannot be tried here: only on the checks' machines |
 | 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | A measurement that decides a security design |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
@@ -187,7 +188,7 @@ research note 18).
 
 Also done on 2026-11-21: Claude Code and OpenCode (DECISIONS U15 to U25).
 
-Next, in this order unless the owner says otherwise: the sandbox on macOS and Windows; settings for each
+Next, in this order unless the owner says otherwise: the sandbox on Windows; settings for each
 model (the research first).
 
 ## Set aside for later

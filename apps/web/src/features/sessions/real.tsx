@@ -70,7 +70,7 @@ function List() {
       </div>
       <div className="app-side__foot">
         <span>These conversations are real: kept by the core, answered by a model on this computer, or by one you chose elsewhere (Providers).</span>
-        <NotBuilt block>Pages that need scripts, PDFs, and the search services that need a key; the second look that Smart is to give; a sandbox on macOS and Windows; groups and search. The preview shows where these are going.</NotBuilt>
+        <NotBuilt block>Pages that need scripts, PDFs, and the search services that need a key; the second look that Smart is to give; a sandbox on Windows; groups and search. The preview shows where these are going.</NotBuilt>
       </div>
     </aside>
   )
