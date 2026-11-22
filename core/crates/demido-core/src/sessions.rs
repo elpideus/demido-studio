@@ -41,6 +41,9 @@ pub struct Session {
     pub messages: u32,
     /// How many artifacts models gave in it.
     pub artifacts: u32,
+    /// The schedule whose session it is, if it is one's (DECISIONS J1): its runs are said and answered here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule_id: Option<String>,
 }
 
 /// A change a tool made to a file in a session's folder. What the file held before is kept with it, so the
@@ -182,6 +185,7 @@ fn session_from(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         permission: r.get(8)?,
         account: r.get(9)?,
         artifacts: r.get(10)?,
+        schedule_id: r.get(11)?,
     })
 }
 
@@ -233,7 +237,7 @@ fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
     })
 }
 
-const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission, s.account, (SELECT count(*) FROM artifacts a WHERE a.session_id = s.id) FROM sessions s";
+const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission, s.account, (SELECT count(*) FROM artifacts a WHERE a.session_id = s.id), (SELECT id FROM schedules h WHERE h.session_id = s.id) FROM sessions s";
 const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at, steps FROM messages";
 const TASK: &str = "SELECT id, session_id, message_id, parent_id, position, title, state, result, steps, created_at, updated_at FROM tasks";
 

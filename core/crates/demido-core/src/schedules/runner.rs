@@ -92,7 +92,11 @@ impl Scheduler {
         if let Some(model) = &new.model {
             refuse_a_program(model)?;
         }
-        let title = if new.what.trim().is_empty() { new.watch.as_ref().map(Watch::said).unwrap_or_default() } else { new.what.trim().to_string() };
+        // A monitor's session is named for what it watches; a task's, for what it does.
+        let title = match &new.watch {
+            Some(watch) => watch.said(),
+            None => new.what.trim().to_string(),
+        };
         let session = self.chat.start(Some(&one_line(&title, 60)), new.model.as_deref()).await?;
         let made = (|| -> Result<Schedule> {
             refuse_a_program(&session.model)?;
@@ -144,10 +148,19 @@ impl Scheduler {
         let late = !by_hand && now - due > LATE_AFTER_MS;
         let run = self.schedules.start_run(&schedule.id, due, late, by_hand)?;
         self.events.append("schedule.started", Some(&schedule.id), json!({ "run": run.id, "session": schedule.session_id, "late": late, "by_hand": by_hand }))?;
+        // A model the run loads is unloaded when it ends (J7); one that was loaded already stays.
+        let model = self.sessions.get(&schedule.session_id).map(|s| s.model).ok();
+        let was_loaded = match &model {
+            Some(model) => self.chat.loaded(model).await,
+            None => true,
+        };
         let outcome = match &schedule.watch {
             Some(watch) => self.watch(&schedule, watch).await,
             None => self.task(&schedule).await,
         };
+        if let Some(model) = model.filter(|_| !was_loaded) {
+            self.chat.unload_after_a_run(&model).await;
+        }
         let after = self.schedules.end_run(&run.id, outcome.state, outcome.message.as_deref(), &outcome.note, outcome.watched.as_ref())?;
         let run = self.schedules.run(&run.id)?;
         // The window says what a run gave (J6); a monitor that spoke up and a run that failed most of all.
@@ -237,32 +250,47 @@ impl Scheduler {
             Ok(found) => found,
             Err(e) => return Outcome::failed(format!("The page could not be read: {e}.")),
         };
-        let Some(offer) = offers.into_iter().next() else {
-            return Outcome::failed(
-                "The page gives no product data of its own (the description shops publish for search engines), so its price was not read. Reading a price with a model where a page has none is not built: a model can be taken in by what the page says (research note 24).",
-            );
+        // The shop's own data where there is one; where there is none, the page's text read for its price by
+        // the schedule's model, and the person told so (J5).
+        let (price_now, currency, line, address, by_model) = match offers.into_iter().next() {
+            Some(offer) => (offer.price, offer.currency, offer.line, address, false),
+            None => match self.chat.price_on_page(&schedule.session_id, &watch.url, &schedule.said, &stop).await {
+                Ok((price, at)) => (price, before_currency(schedule), format!("{} (read from the page's text)", number(price)), at, true),
+                Err(e) => {
+                    return Outcome::failed(format!(
+                        "The page gives no product data of its own (the description shops publish for search engines), and its price could not be read from its text either: {e}."
+                    ));
+                }
+            },
         };
         let before = schedule.watched.clone().unwrap_or_default();
-        let first = before.first.or(Some(offer.price));
-        let holds = watch.price.holds(offer.price, first);
-        let watched = Watched { first, last: Some(offer.price), currency: offer.currency.clone(), holds, line: Some(offer.line.clone()) };
-        let price = format!("{}{}", number(offer.price), offer.currency.as_ref().map(|c| format!(" {c}")).unwrap_or_default());
+        let first = before.first.or(Some(price_now));
+        let holds = watch.price.holds(price_now, first);
+        let watched = Watched { first, last: Some(price_now), currency: currency.clone(), holds, line: Some(line.clone()) };
+        let price = format!("{}{}", number(price_now), currency.as_ref().map(|c| format!(" {c}")).unwrap_or_default());
         let against = match &watch.price {
             Price::Below { below } => format!("under the {} you set", number(*below)),
             Price::Above { above } => format!("over the {} you set", number(*above)),
             Price::Drops => format!("lower than the {} it was when this monitor first looked", first.map(number).unwrap_or_default()),
         };
         if holds && !before.holds {
-            let text = format!(
-                "The price is now {price}: {against}.\n\nThe shop's own product data at {address} says: \"{}\". Demido read this from the data the page publishes for search engines, not from its text, so a note in a review or a comment on the page cannot change it.",
-                offer.line
-            );
+            let source = if by_model {
+                format!(
+                    "The page at {address} gives no product data of its own, so the schedule's model read the price from the page's text. A page can tell a model a false price (research note 24): look at the page before you act on this."
+                )
+            } else {
+                format!(
+                    "The shop's own product data at {address} says: \"{line}\". Demido read this from the data the page publishes for search engines, not from its text, so a note in a review or a comment on the page cannot change it."
+                )
+            };
+            let text = format!("The price is now {price}: {against}.\n\n{source}");
             let said = match self.sessions.add(&schedule.session_id, "assistant", &text, "done", None) {
                 Ok(m) => m,
                 Err(e) => return Outcome { state: "failed", message: None, note: format!("It found the price, but could not write it down: {e}"), watched: Some(watched) },
             };
             let _ = self.events.append("message.added", Some(&schedule.session_id), json!({ "message": said.id, "answer": said.id, "by": "schedule" }));
-            return Outcome { state: "told", message: Some(said.id), note: format!("{price}, {against}: you were told."), watched: Some(watched) };
+            let how = if by_model { " (read from the page's text by the model)" } else { "" };
+            return Outcome { state: "told", message: Some(said.id), note: format!("{price}{how}, {against}: you were told."), watched: Some(watched) };
         }
         let note = match (holds, &watch.price) {
             (true, _) => format!("{price}: still {against}. You were told before."),
@@ -273,6 +301,11 @@ impl Scheduler {
         };
         Outcome { state: "quiet", message: None, note, watched: Some(watched) }
     }
+}
+
+/// The currency a monitor saw before, for a price read from a page's text, which says no currency.
+fn before_currency(schedule: &Schedule) -> Option<String> {
+    schedule.watched.as_ref().and_then(|w| w.currency.clone())
 }
 
 /// A program such as Claude Code or OpenCode never runs a schedule (U23).

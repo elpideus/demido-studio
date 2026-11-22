@@ -58,6 +58,8 @@ pub struct Schedule {
     pub limit_month_usd: Option<f64>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// The model its runs use: its session's.
+    pub model: String,
     /// Its last run.
     pub last_run: Option<Run>,
 }
@@ -143,7 +145,7 @@ pub struct Schedules {
     tz: TimeZone,
 }
 
-const COLUMNS: &str = "id, session_id, what, said, rule, watch, state, paused_why, next_at, last_run_at, failures, watched, limit_month_usd, created_at, updated_at";
+const COLUMNS: &str = "id, session_id, what, said, rule, watch, state, paused_why, next_at, last_run_at, failures, watched, limit_month_usd, created_at, updated_at, (SELECT model FROM sessions WHERE sessions.id = schedules.session_id)";
 const RUN_COLUMNS: &str = "id, schedule_id, due_at, started_at, ended_at, state, late, by_hand, message_id, note";
 
 impl Schedules {
@@ -185,6 +187,7 @@ impl Schedules {
             limit_month_usd: r.get(12)?,
             created_at: r.get(13)?,
             updated_at: r.get(14)?,
+            model: r.get::<_, Option<String>>(15)?.unwrap_or_default(),
             last_run: None,
         })
     }
@@ -414,7 +417,7 @@ mod tests {
         let (s, sessions) = store();
         let session = sessions.create(Some("Report"), "small").unwrap();
         let made = s.create(&session.id, &new(When::Daily { at: "07:00".into() })).unwrap();
-        assert_eq!((made.state.as_str(), made.when_said.as_str(), made.session_id.as_str()), ("on", "Every day at 07:00", session.id.as_str()));
+        assert_eq!((made.state.as_str(), made.when_said.as_str(), made.session_id.as_str(), made.model.as_str()), ("on", "Every day at 07:00", session.id.as_str(), "small"));
         let next = made.next_at.unwrap();
         assert!(next > now_ms() && next - now_ms() <= 25 * 3_600_000);
         assert_eq!(s.of_session(&session.id).unwrap().map(|x| x.id), Some(made.id.clone()));

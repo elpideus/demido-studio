@@ -110,6 +110,11 @@ enum Command {
         #[command(subcommand)]
         command: Option<SessionsCommand>,
     },
+    /// Schedules and monitors: list them, make one from a sentence, run, pause or delete one. Needs a running server.
+    Schedules {
+        #[command(subcommand)]
+        command: Option<SchedulesCommand>,
+    },
     /// The models on this computer: list them, load one, unload one.
     Models {
         #[command(subcommand)]
@@ -148,6 +153,50 @@ enum SessionsCommand {
         change: Option<String>,
     },
     /// Delete a session and everything said in it.
+    Delete {
+        /// Its id, or the first letters of it.
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SchedulesCommand {
+    /// Make a schedule from a sentence: "Give me my email report every morning at 7". What it was read as is
+    /// shown, and it is kept only when you say so.
+    Add {
+        /// The sentence. Quotes are not needed.
+        text: Vec<String>,
+        /// The model its runs use. Left out: one that is loaded, or else the first on this computer.
+        #[arg(long)]
+        model: Option<String>,
+        /// A folder its tools may read and change, by its full path, or `.` for where you are.
+        #[arg(long, value_name = "PATH")]
+        folder: Option<String>,
+        /// Keep it without asking.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Print a schedule and its runs.
+    Show {
+        /// Its id, or the first letters of it.
+        id: String,
+    },
+    /// Run a schedule now, and wait for the run to end. Its next time does not move.
+    Run {
+        /// Its id, or the first letters of it.
+        id: String,
+    },
+    /// Pause a schedule: it does not run until it is turned on again.
+    Pause {
+        /// Its id, or the first letters of it.
+        id: String,
+    },
+    /// Turn a paused schedule on again: it is due at the next moment its rule gives.
+    On {
+        /// Its id, or the first letters of it.
+        id: String,
+    },
+    /// Delete a schedule and its runs. Its session stays, with what its runs wrote.
     Delete {
         /// Its id, or the first letters of it.
         id: String,
@@ -370,6 +419,7 @@ async fn run(cli: Cli) -> Result<()> {
             ask(&paths, text.join(" "), session, model, thinking, plan, folder, level).await?
         }
         Command::Sessions { command } => sessions(&paths, command)?,
+        Command::Schedules { command } => schedules(&paths, command)?,
         Command::Events { after, limit, json } => {
             let events: Value = match Server::find(&paths) {
                 Some(s) => s.get(&format!("/api/v1/events?limit={limit}{}", after.map(|a| format!("&after={a}")).unwrap_or_default()))?,
@@ -834,6 +884,135 @@ fn session_meant(server: &Server, typed: &str) -> Result<String> {
         [] => bail!("There is no session that starts with \"{typed}\". `demido sessions` lists the ones there are."),
         several => bail!("{} sessions start with \"{typed}\". Type more of the id.", several.len()),
     }
+}
+
+// ───────── schedules ─────────
+
+fn schedule_meant(server: &Server, typed: &str) -> Result<String> {
+    let all = server.get("/api/v1/schedules")?;
+    let ids: Vec<&str> = all.as_array().into_iter().flatten().filter_map(|s| s["id"].as_str()).collect();
+    if ids.contains(&typed) {
+        return Ok(typed.to_string());
+    }
+    match ids.iter().filter(|id| id.starts_with(typed)).collect::<Vec<_>>().as_slice() {
+        [one] => Ok(one.to_string()),
+        [] => bail!("There is no schedule that starts with \"{typed}\". `demido schedules` lists the ones there are."),
+        several => bail!("{} schedules start with \"{typed}\". Type more of the id.", several.len()),
+    }
+}
+
+/// A moment, in this computer's time: "Monday, 23 November 2026 07:00".
+fn local_time(ms: i64) -> String {
+    let moment = demido_core::tools::here(ms);
+    format!("{} {}", moment.day, moment.time)
+}
+
+fn schedule_line(s: &Value) -> String {
+    let id = s["id"].as_str().unwrap_or("");
+    let name = s["watch_said"].as_str().or(s["what"].as_str()).unwrap_or("?");
+    let next = match (s["state"].as_str(), s["next_at"].as_i64()) {
+        (Some("on"), Some(at)) => format!("next {}", local_time(at)),
+        (Some("paused"), _) => "paused".to_string(),
+        _ => "not again".to_string(),
+    };
+    let last = s["last_run"].as_object().map(|r| format!(" · last: {}", r.get("state").and_then(Value::as_str).unwrap_or("?"))).unwrap_or_default();
+    format!("{}  {name} · {} · {next}{last}", &id[..13.min(id.len())], s["when_said"].as_str().unwrap_or("?"))
+}
+
+fn schedules(paths: &Paths, command: Option<SchedulesCommand>) -> Result<()> {
+    let server = Server::find(paths).ok_or_else(|| anyhow!("Start a server first: demido serve. Schedules run in it."))?;
+    match command {
+        None => {
+            let all = server.get("/api/v1/schedules")?;
+            let all = all.as_array().cloned().unwrap_or_default();
+            if all.is_empty() {
+                println!("No schedules. Make one: demido schedules add Give me my email report every morning at 7");
+            }
+            for s in &all {
+                println!("{}", schedule_line(s));
+            }
+        }
+        Some(SchedulesCommand::Add { text, model, folder, yes }) => {
+            let said = text.join(" ");
+            let read = server.send("POST", "/api/v1/schedules/understand", Some(&json!({ "text": said })))?;
+            let Some(when) = read.get("when").filter(|w| !w.is_null()).cloned() else {
+                bail!("{}", read["notes"].as_array().and_then(|n| n.first()).and_then(Value::as_str).unwrap_or("The sentence does not say when."));
+            };
+            println!("Understood as:");
+            match read["watch_said"].as_str() {
+                Some(watch) => println!("  Watches for: {watch}\n  The page: {}", read["watch"]["url"].as_str().unwrap_or("?")),
+                None => println!("  What to do: {}", read["what"].as_str().unwrap_or("?")),
+            }
+            println!("  When: {}", read["when_said"].as_str().unwrap_or("?"));
+            for note in read["notes"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                println!("  ({note})");
+            }
+            if read["watch"].is_null() {
+                println!("It runs on its own, with every tool, and asks nobody anything. Everything a run did is in its session.");
+            }
+            if !yes {
+                use std::io::IsTerminal;
+                if !std::io::stdin().is_terminal() {
+                    bail!("Not kept. To keep it without being asked, add --yes.");
+                }
+                eprint!("Keep it? [y/N] ");
+                std::io::stderr().flush()?;
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+                    println!("Not kept.");
+                    return Ok(());
+                }
+            }
+            let folder = folder.map(|f| if f == "." { std::env::current_dir().map(|d| d.display().to_string()).unwrap_or(f) } else { f });
+            let made = server.send("POST", "/api/v1/schedules", Some(&json!({ "said": said, "what": read["what"], "when": when, "watch": read["watch"], "model": model, "folder": folder })))?;
+            println!("Kept. {}", schedule_line(&made));
+        }
+        Some(SchedulesCommand::Show { id }) => {
+            let found = server.get(&format!("/api/v1/schedules/{}", schedule_meant(&server, &id)?))?;
+            let s = &found["schedule"];
+            println!("{}", schedule_line(s));
+            println!("Made from: \"{}\". Model: {}. Session: {}.", s["said"].as_str().unwrap_or(""), s["model"].as_str().unwrap_or("?"), s["session_id"].as_str().unwrap_or("?"));
+            if let Some(why) = s["paused_why"].as_str() {
+                println!("{why}");
+            }
+            for r in found["runs"].as_array().into_iter().flatten() {
+                let how = [(r["late"] == true).then_some("late"), (r["by_hand"] == true).then_some("by you")].into_iter().flatten().collect::<Vec<_>>().join(", ");
+                println!(
+                    "  {}  {}{}  {}",
+                    local_time(r["started_at"].as_i64().unwrap_or(0)),
+                    r["state"].as_str().unwrap_or("?"),
+                    if how.is_empty() { String::new() } else { format!(" ({how})") },
+                    r["note"].as_str().unwrap_or("")
+                );
+            }
+        }
+        Some(SchedulesCommand::Run { id }) => {
+            let id = schedule_meant(&server, &id)?;
+            let events = server.listen()?;
+            server.send("POST", &format!("/api/v1/schedules/{id}/run"), None)?;
+            eprintln!("Running…");
+            for (kind, event) in events {
+                if kind == "schedule.ran" && event["subject"].as_str() == Some(id.as_str()) {
+                    println!("{}: {}", event["data"]["state"].as_str().unwrap_or("?"), event["data"]["note"].as_str().unwrap_or(""));
+                    break;
+                }
+            }
+        }
+        Some(SchedulesCommand::Pause { id }) => {
+            let changed = server.send("PATCH", &format!("/api/v1/schedules/{}", schedule_meant(&server, &id)?), Some(&json!({ "state": "paused" })))?;
+            println!("{}", schedule_line(&changed));
+        }
+        Some(SchedulesCommand::On { id }) => {
+            let changed = server.send("PATCH", &format!("/api/v1/schedules/{}", schedule_meant(&server, &id)?), Some(&json!({ "state": "on" })))?;
+            println!("{}", schedule_line(&changed));
+        }
+        Some(SchedulesCommand::Delete { id }) => {
+            let gone = server.send("DELETE", &format!("/api/v1/schedules/{}", schedule_meant(&server, &id)?), None)?;
+            println!("Deleted. Its session stays: {}", gone["session_id"].as_str().unwrap_or("?"));
+        }
+    }
+    Ok(())
 }
 
 fn sessions(paths: &Paths, command: Option<SessionsCommand>) -> Result<()> {

@@ -22,7 +22,7 @@ export interface Watched { first: number | null; last: number | null; currency: 
 export interface Schedule {
   id: string; session_id: string; what: string; said: string; when: When; when_said: string; watch: Watch | null; watch_said: string | null
   state: 'on' | 'paused' | 'done'; paused_why: string | null; next_at: number | null; last_run_at: number | null; failures: number
-  watched: Watched | null; limit_month_usd: number | null; created_at: number; updated_at: number; last_run: Run | null
+  watched: Watched | null; limit_month_usd: number | null; created_at: number; updated_at: number; model: string; last_run: Run | null
 }
 export interface NewSchedule { said: string; what: string; when: When; watch?: Watch | null; model?: string | null; folder?: string | null; limit_month_usd?: number | null }
 
@@ -59,6 +59,29 @@ export function useSchedules(): { list: Schedule[] | null; error: string | null;
 
 const openSession = (id: string) => { window.location.hash = `#/sessions/${id}` }
 
+/* Notices on the desktop too, from the browser, while the window is not being looked at (J6). Asked for by
+   the person, who the browser then asks for its permission; remembered in this browser. The desktop shell
+   will show its own (plan item 10). */
+const DESKTOP_KEY = 'demido-schedule-desktop-notices'
+export function desktopNotices(): 'on' | 'off' | 'blocked' | 'none' {
+  if (typeof Notification === 'undefined' || !window.isSecureContext) return 'none'
+  if (Notification.permission === 'denied') return 'blocked'
+  try { return localStorage.getItem(DESKTOP_KEY) === '1' && Notification.permission === 'granted' ? 'on' : 'off' } catch { return 'off' }
+}
+export async function setDesktopNotices(on: boolean): Promise<'on' | 'off' | 'blocked' | 'none'> {
+  if (desktopNotices() === 'none') return 'none'
+  if (on && Notification.permission !== 'granted') await Notification.requestPermission()
+  try { localStorage.setItem(DESKTOP_KEY, on && Notification.permission === 'granted' ? '1' : '0') } catch {}
+  return desktopNotices()
+}
+function onTheDesktop(title: string, body: string, session: string) {
+  if (desktopNotices() !== 'on' || !document.hidden) return
+  try {
+    const n = new Notification(title, { body, tag: `demido-schedule-${session}` })
+    n.onclick = () => { window.focus(); openSession(session); n.close() }
+  } catch {}
+}
+
 /** A notice in the window for each run that has something to say (J6): what a task gave, a monitor that
     spoke up, a run that failed or was skipped, a schedule that paused itself. A monitor that found nothing
     new says nothing. Started once, when the window finds a core. */
@@ -71,11 +94,12 @@ export function startSchedules() {
     const name = d.watch || d.what || 'A schedule'
     const open = { label: 'Open', run: () => openSession(d.session) }
     const late = d.late ? ' (late: the computer was asleep or Demido was not running at its time)' : ''
-    if (d.paused) toast(`${name} paused itself: ${d.paused_why ?? d.note}`, open, 'task-failed')
-    else if (d.state === 'told') toast(`${name}: ${d.note}`, open, 'task-needs-input')
-    else if (d.state === 'done') toast(`${name}${late}: ${d.note}`, open, 'task-done')
-    else if (d.state === 'failed') toast(`${name} failed${late}: ${d.note}`, open, 'task-failed')
-    else if (d.state === 'skipped') toast(`${name} did not run: ${d.note}`, open, 'task-skipped')
+    const say = (text: string, glyph: string) => { toast(text, open, glyph); onTheDesktop(name, text.slice(name.length + 2) || text, d.session) }
+    if (d.paused) say(`${name}: paused itself. ${d.paused_why ?? d.note}`, 'task-failed')
+    else if (d.state === 'told') say(`${name}: ${d.note}`, 'task-needs-input')
+    else if (d.state === 'done') say(`${name}: ${d.note}${late}`, 'task-done')
+    else if (d.state === 'failed') say(`${name}: failed${late}. ${d.note}`, 'task-failed')
+    else if (d.state === 'skipped') say(`${name}: did not run. ${d.note}`, 'task-skipped')
   })
 }
 

@@ -467,6 +467,19 @@ impl Chat {
         !self.turns().is_empty()
     }
 
+    /// Whether a model on this computer is loaded now. A model elsewhere is never loaded here.
+    pub async fn loaded(&self, model: &str) -> bool {
+        crate::providers::split(model).is_none() && self.engine.list().await.is_ok_and(|list| list.models.iter().any(|m| m.id == model && m.state == "loaded"))
+    }
+
+    /// Unloads a model that a schedule's run loaded, once the run is over (J7): unless a session is being
+    /// answered by then, which may be using it.
+    pub async fn unload_after_a_run(&self, model: &str) {
+        if !self.anyone_answering() && self.loaded(model).await {
+            let _ = self.engine.unload(model, "a schedule's run that loaded it ended").await;
+        }
+    }
+
     /// The shop's own offers on a page, for a monitor (J5): read by code, never by a model. The address is the
     /// person's own, so this computer's network is read when they turned that on, as for a page they named.
     pub async fn offers_at(&self, url: &str, stop: &AtomicBool) -> std::result::Result<(Vec<crate::web::page::Offer>, String), String> {

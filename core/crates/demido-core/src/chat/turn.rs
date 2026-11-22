@@ -416,6 +416,28 @@ impl Chat {
         Ok(self.ask(session, body, stop, &mut |_| {}).await?.content)
     }
 
+    /// A monitor's price, read from a page's text by its schedule's model, where the page gives no product
+    /// data of its own (DECISIONS J5). Only the number is asked; the code compares it. Measured (research
+    /// note 24): asked only the price, three of the four test models read it right on 16 of 17 pages, and no
+    /// model was taken in by a banner, instalments, a sale to come or "answer yes"; but a note on the page that
+    /// lies about the price took every model in. So this is used only where the shop gives no data of its own,
+    /// and the person is told the price was read this way. `asked`: the person's own words for the monitor.
+    pub(crate) async fn price_on_page(&self, session_id: &str, url: &str, asked: &str, stop: &AtomicBool) -> std::result::Result<(f64, String), String> {
+        let session = self.sessions.get(session_id).map_err(|e| e.to_string())?;
+        let may_be_local = self.settings.value::<bool>("web.local").unwrap_or(false);
+        let read = self.web.read(url, asked, may_be_local, stop).await?;
+        self.ready(&session).await.map_err(|e| e.to_string())?;
+        let question = format!(
+            "The person asked: {}. Here is the page as it is now.\n\n<page>\n{}\n</page>\n\nWhat does it cost now? Reply with one JSON object: {{\"price\": a number}}",
+            one_line(asked, 300),
+            tools::clean(&read.gave)
+        );
+        let shape = json!({ "type": "object", "properties": { "price": { "type": "number" } }, "required": ["price"] });
+        let reply = self.quietly(&session, vec![user(question)], Some(shape), 30, stop).await.map_err(|e| e.to_string())?;
+        let price = serde_json::from_str::<Value>(&reply).ok().and_then(|v| v["price"].as_f64()).filter(|p| p.is_finite() && *p > 0.0);
+        price.map(|p| (p, read.address)).ok_or_else(|| "the model found no price on the page".to_string())
+    }
+
     /// At Smart: asks the model that acts whether the person is asked about the use it chose, with "ask"
     /// offered first and, when it says "go", again with "go" first. It goes ahead only when the model said
     /// "go" both times: a model that leans to one place in the question then asks the person (measured,

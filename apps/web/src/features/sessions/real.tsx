@@ -6,13 +6,15 @@
    here yet, and the note at the foot of the list says so. */
 import { useEffect, useRef, useState } from 'react'
 import { Prose } from '@/ui/prose'
-import { ArrowUp, Folder, ListChecks, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, type LucideIcon } from 'lucide-react'
+import { ArrowUp, CalendarClock, Folder, ListChecks, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, type LucideIcon } from 'lucide-react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
 import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
 import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal, StepRow, Tip } from '@/ui'
 import { asAFile, keepAsFile, openArtifact } from '@/data/artifacts'
+import { onCoreEvent } from '@/data/core'
+import { runSchedule, scheduleRuns, whenFromNow, type Schedule } from '@/data/schedules'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
 /** How long ago, short: "now", "5 min", "3 h", "2 d". */
@@ -62,7 +64,8 @@ function List() {
           {list?.map((s) => (
             <li key={s.id}>
               <button type="button" className="d-row" aria-current={s.id === current ? 'true' : undefined} onClick={() => navigate(`/sessions/${s.id}`)}>
-                <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{s.model} · {s.messages} {s.messages === 1 ? 'message' : 'messages'}</span></span>
+                {s.schedule_id && <span className="d-row__lead"><Icon icon={CalendarClock} size="sm" label="A schedule's session" /></span>}
+                <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{s.schedule_id ? 'Schedule · ' : ''}{s.model} · {s.messages} {s.messages === 1 ? 'message' : 'messages'}</span></span>
                 <span className="d-row__meta">{ago(s.updated_at)}</span>
               </button>
             </li>
@@ -354,6 +357,28 @@ function Composer({ id, answering, context, canShorten, tools, program }: { id: 
   )
 }
 
+/** At the top of a schedule's session: what the schedule does, when it runs next, and a run now. */
+function ScheduleStrip({ id }: { id: string }) {
+  const [s, setS] = useState<{ schedule: Schedule; running: boolean } | null>(null)
+  const [tick, setTick] = useState(0)
+  useEffect(() => { scheduleRuns(id).then((r) => setS({ schedule: r.schedule, running: r.running }), () => setS(null)) }, [id, tick])
+  useEffect(() => {
+    const offs = ['schedule.started', 'schedule.ran', 'schedule.changed'].map((k) => onCoreEvent(k, (e) => { if (e.subject === id) setTick((t) => t + 1) }))
+    return () => offs.forEach((off) => off())
+  }, [id])
+  if (!s) return null
+  const { schedule, running } = s
+  const next = running ? 'It is running now.' : schedule.state === 'on' && schedule.next_at ? `Next ${whenFromNow(schedule.next_at)}.` : schedule.state === 'paused' ? `Paused${schedule.paused_why ? `: ${schedule.paused_why}` : '.'}` : 'It does not run again.'
+  return (
+    <Signal level="note" actions={<>
+      <Button size="sm" disabled={running} onClick={() => void runSchedule(id).then(() => setTick((t) => t + 1))}>{running ? 'Running…' : 'Run now'}</Button>
+      <Button size="sm" variant="ghost" onClick={() => { window.location.hash = '#/schedules' }}>Schedules</Button>
+    </>}>
+      This is the session of a schedule: {schedule.watch ? `${(schedule.watch_said ?? '').charAt(0).toLowerCase()}${(schedule.watch_said ?? '').slice(1)}` : `"${schedule.what}"`},{schedule.when_said.charAt(0).toLowerCase() + schedule.when_said.slice(1)}. {next} Its runs are said and answered here, on their own.
+    </Signal>
+  )
+}
+
 function Chat() {
   const { id = '' } = useParams()
   const detail = useReal((s) => s.open[id])
@@ -421,13 +446,15 @@ function Chat() {
             <Icon icon={Folder} size="sm" /> {session.folder ? session.folder.split(/[\\/]/).filter(Boolean).at(-1) : 'No folder'}
           </Button>
         </Tip>
-        <Tip label={LEVELS[level].text}>
+        {session.schedule_id ? (
+          <Tip label="This is a schedule's session. A schedule runs on its own, with every tool, and asks you nothing: it has no permission level. What you say here yourself is answered the same way."><span className="d-badge d-badge--outline">Runs on its own</span></Tip>
+        ) : <Tip label={LEVELS[level].text}>
           <span className="app-row" style={{ gap: 'var(--d-space-4)' }}>
             <span className="sess__shield" data-level={level}><Icon icon={LEVELS[level].icon} size="sm" /></span>
             <Select label="How much the model may do without asking" value={level} onChange={(permission) => void changeSession(id, { permission })}
               options={(Object.keys(LEVELS) as Level[]).map((l) => ({ value: l, label: LEVELS[l].label }))} />
           </span>
-        </Tip>
+        </Tip>}
         {at && (program
           ? <Tip label={`${at} runs this session on this computer, with its own tools and its own loop, and sends what it needs to its models. Demido shows what it does and asks you what it asks. Before each turn the folder is saved, so all a turn changed can be undone.`}><span className="d-badge d-badge--outline">Runs in {at}</span></Tip>
           : <Tip label={`What is said in this session, and what its tools read, is sent to ${at}. Each answer costs money: Providers shows the month's count and limit.`}><span className="d-badge d-badge--outline">Sent to {at}</span></Tip>)}
@@ -448,6 +475,7 @@ function Chat() {
       </header>
       <div className="chat__thread" ref={thread}>
         <div className="chat__col">
+          {session.schedule_id && <ScheduleStrip id={session.schedule_id} />}
           {folding && (
             <form className="chat__folder" onSubmit={(e) => { e.preventDefault(); void changeSession(id, { folder: path.trim() }).then(() => setFolding(false)) }}>
               <label className="d-type-small" htmlFor="session-folder">The folder this session may work in, as a full path on the computer Demido runs on</label>

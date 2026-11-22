@@ -13,6 +13,10 @@ fn task(what: &str, when: When) -> New {
     New { said: format!("{what} every morning at 7"), what: what.into(), when, watch: None, model: Some("small".into()), folder: None, limit_month_usd: None }
 }
 
+fn last_question(w: &World) -> String {
+    w.stand.asked.lock().unwrap().last().unwrap()["messages"].as_array().unwrap().last().unwrap()["content"].as_str().unwrap().to_string()
+}
+
 fn ran(w: &World) -> Vec<Value> {
     w.events.after(0, 500).unwrap().into_iter().filter(|e| e.kind == "schedule.ran").map(|e| e.data).collect()
 }
@@ -26,6 +30,7 @@ async fn a_schedule_is_a_session_of_its_own_and_a_run_is_its_words_said_there_au
     let session = w.sessions.get(&made.session_id).unwrap();
     // A session of its own, with what to do as its name, at Autonomous: schedules have no level (J2).
     assert_eq!((session.title.as_str(), session.permission.as_str(), session.model.as_str()), ("Give me my email report", "autonomous", "small"));
+    assert_eq!(session.schedule_id.as_deref(), Some(made.id.as_str()), "its session says whose it is");
     assert_eq!(made.when_said, "Every day at 07:00");
     let next = made.next_at.unwrap();
 
@@ -37,6 +42,7 @@ async fn a_schedule_is_a_session_of_its_own_and_a_run_is_its_words_said_there_au
     assert_eq!(said, [("user".to_string(), "Give me my email report".to_string()), ("assistant".to_string(), "Here is your report: two new messages.".to_string())]);
     assert_eq!(run.message_id.as_deref(), Some(w.sessions.messages(&made.session_id).unwrap()[1].id.as_str()));
     assert_eq!(s.schedules().get(&made.id).unwrap().next_at, Some(next));
+    assert!(!w.chat.loaded("small").await, "the run loaded the model, and unloaded it when it ended (J7)");
     // The window is told what it gave (J6).
     let told = ran(&w);
     assert_eq!((told[0]["state"].as_str(), told[0]["note"].as_str(), told[0]["session"].as_str()), (Some("done"), Some("Here is your report: two new messages."), Some(made.session_id.as_str())));
@@ -69,7 +75,10 @@ async fn a_level_set_by_hand_in_a_schedules_session_does_not_hold_at_its_next_ru
     let s = scheduler(&w);
     let made = s.make(&task("Tidy the notes", When::Every { minutes: 60 })).await.unwrap();
     w.chat.set_permission(&made.session_id, "cautious").unwrap();
+    // A model that was loaded before the run stays loaded after it.
+    w.engine.load("small").await.unwrap();
     assert_eq!(s.run(&made.id, true).await.unwrap().state, "done");
+    assert!(w.chat.loaded("small").await);
     assert_eq!(w.sessions.get(&made.session_id).unwrap().permission, "autonomous");
     // Paused, it is not due; deleted, its session stays with what its runs wrote.
     let paused = s.schedules().change(&made.id, &Change { state: Some("paused".into()), ..Change::default() }).unwrap();
@@ -98,6 +107,7 @@ async fn a_monitor_reads_the_shops_own_price_by_code_and_speaks_up_once() {
     };
     // The shop's data says 79.00 EUR; a "review" on the page says 49. The price is the shop's, read by code.
     let under_80 = s.make(&monitor(80.0, "/shop")).await.unwrap();
+    assert_eq!(w.sessions.get(&under_80.session_id).unwrap().title, "The price at 127.0.0.1 is under 80", "a monitor's session is named for what it watches");
     let run = s.run(&under_80.id, true).await.unwrap();
     assert_eq!((run.state.as_str(), run.note.as_str()), ("told", "79 EUR, under the 80 you set: you were told."));
     let message = w.sessions.message(run.message_id.as_deref().unwrap()).unwrap();
@@ -116,19 +126,31 @@ async fn a_monitor_reads_the_shops_own_price_by_code_and_speaks_up_once() {
     assert_eq!((quiet.state.as_str(), quiet.note.as_str()), ("quiet", "79 EUR: not under 70."));
     assert!(w.sessions.messages(&under_70.session_id).unwrap().is_empty());
 
-    // A page with no product data of its own: the price is not guessed. Three of those in a row pause it.
-    let no_data = s.make(&monitor(80.0, "/article")).await.unwrap();
+    // No model was asked anything: where the shop gives its own data, a monitor reads and compares in code.
+    assert!(w.stand.asked.lock().unwrap().is_empty());
+
+    // A page with no product data of its own: the schedule's model reads only the price from the page's
+    // text, the code compares it, and the person is told it was read that way.
+    w.stand.decisions.lock().unwrap().push_back(r#"{"price": 64}"#.into());
+    let by_model = s.make(&monitor(80.0, "/article")).await.unwrap();
+    let run = s.run(&by_model.id, true).await.unwrap();
+    assert_eq!((run.state.as_str(), run.note.as_str()), ("told", "64 (read from the page's text by the model), under the 80 you set: you were told."));
+    let message = w.sessions.message(run.message_id.as_deref().unwrap()).unwrap();
+    assert!(message.content.contains("so the schedule's model read the price from the page's text") && message.content.contains("look at the page before you act on this"), "{}", message.content);
+    let asked = last_question(&w);
+    assert!(asked.starts_with("The person asked: Tell me when the sweater at ") && asked.contains("<page>") && asked.ends_with("Reply with one JSON object: {\"price\": a number}"), "{asked}");
+
+    // A page where the model finds no price either: nothing is guessed. Three of those in a row pause it.
+    let no_price = s.make(&monitor(80.0, "/article")).await.unwrap();
     for _ in 0..3 {
-        let failed = s.run(&no_data.id, false).await.unwrap();
+        let failed = s.run(&no_price.id, false).await.unwrap();
         assert_eq!(failed.state, "failed");
-        assert!(failed.note.starts_with("The page gives no product data of its own"), "{}", failed.note);
+        assert!(failed.note.starts_with("The page gives no product data of its own") && failed.note.contains("could not be read from its text either"), "{}", failed.note);
     }
-    let paused = s.schedules().get(&no_data.id).unwrap();
+    let paused = s.schedules().get(&no_price.id).unwrap();
     assert_eq!(paused.state, "paused");
     assert!(paused.paused_why.unwrap().starts_with("Paused after 3 runs in a row failed."));
     assert!(ran(&w).last().unwrap()["paused"].as_bool().unwrap());
-    // No model was asked anything: a monitor reads and compares in code.
-    assert!(w.stand.asked.lock().unwrap().is_empty());
     drop(net);
     w.end().await;
 }

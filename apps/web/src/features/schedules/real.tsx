@@ -3,8 +3,10 @@
    its own and asks nobody (J2). A monitor reads the shop's own price by code (J5). */
 import { useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
-import { changeSchedule, deleteSchedule, makeSchedule, runSchedule, scheduleRuns, understand, useSchedules, whenFromNow, type Run, type Schedule, type Understood, type When } from '@/data/schedules'
-import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Signal } from '@/ui'
+import { useLocal } from '@/data/local-models'
+import { chosenModels, useProviders } from '@/data/providers'
+import { changeSchedule, deleteSchedule, desktopNotices, makeSchedule, runSchedule, scheduleRuns, setDesktopNotices, understand, useSchedules, whenFromNow, type Run, type Schedule, type Understood, type When } from '@/data/schedules'
+import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip } from '@/ui'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const RUN_GLYPH: Record<Run['state'], [string, string]> = {
@@ -52,6 +54,24 @@ function WhenEditor({ value, onChange }: { value: When; onChange: (w: When) => v
   )
 }
 
+/** The models a schedule may use: those on this computer, and those chosen through an API. A program such as
+    Claude Code is not among them: its terms are for a person's own use, not for runs with nobody there (U23). */
+function useModelChoices(): { value: string; label: string }[] {
+  const local = useLocal((s) => s.list?.models) ?? []
+  const providers = useProviders((s) => s.providers)
+  const api = chosenModels(providers?.filter((p) => p.kind === 'api') ?? null)
+  return [...local.map((m) => ({ value: m.id, label: m.state === 'loaded' ? `${m.id}, loaded` : m.id })), ...api.map((m) => ({ value: m.id, label: `${m.name}, through ${m.provider}` }))]
+}
+const paid = (model: string) => model.includes('/')
+/** The most a paid model may cost a schedule in a month, as typed: a number of dollars, or nothing. */
+function LimitField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="d-field"><span className="d-field__label">The most it may cost in a month, in dollars (empty: no limit of its own)</span>
+      <input className="d-input schedules__number" type="number" min={0} step={0.5} inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} /></label>
+  )
+}
+const asLimit = (v: string) => (v.trim() === '' ? null : Math.max(0, Number(v)))
+
 function NewSchedule({ onClose, onMade }: { onClose: () => void; onMade: () => void }) {
   const [text, setText] = useState('')
   const [read, setRead] = useState<Understood | null>(null)
@@ -59,6 +79,13 @@ function NewSchedule({ onClose, onMade }: { onClose: () => void; onMade: () => v
   const [chosen, setChosen] = useState<When | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [making, setMaking] = useState(false)
+  const choices = useModelChoices()
+  const local = useLocal((s) => s.list?.models) ?? []
+  const [model, setModel] = useState('')
+  const [folder, setFolder] = useState('')
+  const [limit, setLimit] = useState('')
+  // A model that is loaded already, or else the first there is.
+  useEffect(() => { if (!model && choices.length) setModel(local.find((m) => m.state === 'loaded')?.id ?? choices[0].value) }, [choices.length]) // eslint-disable-line react-hooks/exhaustive-deps
   // Read again a moment after the typing stops: what the sentence says, before anything is kept.
   useEffect(() => {
     if (!text.trim()) { setRead(null); return }
@@ -71,7 +98,7 @@ function NewSchedule({ onClose, onMade }: { onClose: () => void; onMade: () => v
     if (!read || !chosen) return
     setMaking(true)
     try {
-      await makeSchedule({ said: text.trim(), what: what.trim(), when: chosen, watch: read.watch })
+      await makeSchedule({ said: text.trim(), what: what.trim(), when: chosen, watch: read.watch, model: model || null, folder: folder.trim() || null, limit_month_usd: paid(model) ? asLimit(limit) : null })
       onMade()
       onClose()
     } catch (e) {
@@ -93,6 +120,9 @@ function NewSchedule({ onClose, onMade }: { onClose: () => void; onMade: () => v
               ? <Facts rows={[['Watches for', read.watch_said ?? ''], ['The page', <span className="d-type-code" key="u">{read.watch?.url}</span>], ['How', 'The shop\'s own price, from the data its page publishes for search engines, read and compared by Demido, not by a model. It tells you once, when it becomes true.']]} />
               : <label className="d-field"><span className="d-field__label">What to do, in your words</span><input className="d-input" value={what} onChange={(e) => setWhat(e.target.value)} /></label>}
             <div className="d-field"><span className="d-field__label">When</span><WhenEditor value={chosen} onChange={setChosen} /></div>
+            {choices.length > 0 && <div className="d-field"><span className="d-field__label">{monitor ? 'The model, for a page that gives no price of its own' : 'The model its runs use'}</span><Select label="Model" value={model} onChange={setModel} options={choices} /></div>}
+            {paid(model) && <LimitField value={limit} onChange={setLimit} />}
+            {!monitor && <label className="d-field"><span className="d-field__label">A folder its tools may read and change, by its full path (empty: none)</span><input className="d-input d-input--mono" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/home/you/Reports" /></label>}
             {read.notes.map((n) => <Signal key={n} level="note">{n}</Signal>)}
           </div></div>
         )}
@@ -129,8 +159,32 @@ function Runs({ schedule }: { schedule: Schedule }) {
   )
 }
 
+/** What a schedule does and when, changed: and for a paid model, its limit. */
+function EditSchedule({ schedule, onClose, onChanged }: { schedule: Schedule; onClose: () => void; onChanged: () => void }) {
+  const [what, setWhat] = useState(schedule.what)
+  const [when, setWhen] = useState<When>(schedule.when)
+  const [limit, setLimit] = useState(schedule.limit_month_usd?.toString() ?? '')
+  const [problem, setProblem] = useState<string | null>(null)
+  const monitor = Boolean(schedule.watch)
+  const save = () => changeSchedule(schedule.id, { what: monitor ? undefined : what.trim(), when, limit_month_usd: paid(schedule.model) ? asLimit(limit) : undefined })
+    .then(() => { onChanged(); onClose() }, (e: Error) => setProblem(e.message))
+  return (
+    <Dialog open wide onOpenChange={(o) => !o && onClose()} title={monitor ? 'Change the monitor' : 'Change the schedule'} text={`Made from: "${schedule.said}"`}
+      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!monitor && !what.trim()} onClick={() => void save()}>Save</Button></>}>
+      <div className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }}>
+        {monitor ? <Facts rows={[['Watches for', schedule.watch_said ?? '']]} /> : <label className="d-field"><span className="d-field__label">What to do, in your words</span><input className="d-input" value={what} onChange={(e) => setWhat(e.target.value)} /></label>}
+        <div className="d-field"><span className="d-field__label">When</span><WhenEditor value={when} onChange={setWhen} /></div>
+        {paid(schedule.model) && <LimitField value={limit} onChange={setLimit} />}
+        <p className="d-type-caption d-text-tertiary">Its model is its session's: {schedule.model}. It can be changed in the session.</p>
+        {problem && <Signal level="caution">{problem}</Signal>}
+      </div>
+    </Dialog>
+  )
+}
+
 function ScheduleCard({ schedule: s, running, onChanged }: { schedule: Schedule; running: boolean; onChanged: () => void }) {
   const [deleting, setDeleting] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const act = (p: Promise<unknown>) => p.then(onChanged, (e: Error) => setProblem(e.message))
   const monitor = Boolean(s.watch)
@@ -151,6 +205,8 @@ function ScheduleCard({ schedule: s, running, onChanged }: { schedule: Schedule;
           ['Next run', running ? 'running now' : s.state === 'on' && s.next_at ? whenFromNow(s.next_at) : s.state === 'paused' ? 'paused' : 'not again'],
           ['Last run', last ? `${RUN_GLYPH[last.state][1]}, ${when(last.started_at)}${last.note ? `: ${last.note}` : ''}` : 'none yet'],
           ...(monitor && s.watched?.last != null ? [['Last price', `${s.watched.last}${s.watched.currency ? ` ${s.watched.currency}` : ''}`] as [string, string]] : []),
+          ['Model', s.model],
+          ...(s.limit_month_usd != null ? [['Its limit', `$${s.limit_month_usd} a month`] as [string, string]] : []),
         ]} />
         <Runs schedule={s} />
         {problem && <Signal level="caution">{problem}</Signal>}
@@ -159,9 +215,11 @@ function ScheduleCard({ schedule: s, running, onChanged }: { schedule: Schedule;
         <Button disabled={running} onClick={() => act(runSchedule(s.id))}>{running ? 'Running…' : 'Run now'}</Button>
         {s.state === 'on' ? <Button variant="ghost" onClick={() => act(changeSchedule(s.id, { state: 'paused' }))}>Pause</Button>
           : <Button variant="ghost" onClick={() => act(changeSchedule(s.id, { state: 'on' }))}>{s.state === 'paused' ? 'Turn on' : 'Again'}</Button>}
+        <Button variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
         <Button variant="ghost" onClick={() => { window.location.hash = `#/sessions/${s.session_id}` }}>Open its session</Button>
         <Button variant="ghost" disabled={running} onClick={() => setDeleting(true)}>Delete</Button>
       </footer>
+      {editing && <EditSchedule schedule={s} onClose={() => setEditing(false)} onChanged={onChanged} />}
       {deleting && (
         <Dialog open onOpenChange={(o) => !o && setDeleting(false)} title="Delete this schedule?" text="It stops running, and its runs are forgotten. Its session stays, with everything its runs wrote in it."
           actions={<><Button onClick={() => setDeleting(false)}>Cancel</Button><Button variant="danger" onClick={() => { setDeleting(false); void act(deleteSchedule(s.id)) }}>Delete</Button></>} />
@@ -173,10 +231,17 @@ function ScheduleCard({ schedule: s, running, onChanged }: { schedule: Schedule;
 export function RealSchedules() {
   const { list, error, running, again } = useSchedules()
   const [adding, setAdding] = useState(false)
+  const [desktop, setDesktop] = useState(desktopNotices())
   const on = list?.filter((s) => s.state === 'on').length ?? 0
+  const desktopTip = desktop === 'none' ? 'This browser cannot show notices on the desktop from this address.'
+    : desktop === 'blocked' ? "Notices are blocked for this page in the browser's own settings."
+    : 'A notice on the desktop for each run that has something to say, while this window is not in front. The window shows its own either way.'
   return (
     <Page title="Schedules" lead="Work Demido does on its own: tasks at a time you set, and monitors that tell you when a price is what you wait for. Each is a session of its own, which runs with every tool and asks you nothing. The model is loaded for a run, and unloaded when it has been idle."
-      actions={<Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />New schedule</Button>}>
+      actions={<>
+        <Tip label={desktopTip}><Button variant="ghost" pressed={desktop === 'on'} disabled={desktop === 'none' || desktop === 'blocked'} onClick={() => void setDesktopNotices(desktop !== 'on').then(setDesktop)}>{desktop === 'on' ? 'Desktop notices on' : 'Desktop notices'}</Button></Tip>
+        <Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />New schedule</Button>
+      </>}>
       {error && <Signal level="caution">{error}</Signal>}
       {list === null && !error && <p className="app-empty"><Glyph name="task-running" busy /> Reading…</p>}
       {list && list.length === 0 && <p className="app-empty">No schedules yet. Make one from a sentence: "Give me my email report every morning at 7".</p>}
