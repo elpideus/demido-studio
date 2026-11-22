@@ -58,7 +58,25 @@ pub fn inside(folder: &Path, named: &str) -> Result<PathBuf, String> {
             Component::RootDir | Component::Prefix(_) => return Err(outside()),
         }
     }
-    // A link inside the folder may lead out of it. What exists of the path is followed, and must still be inside.
+    // A link inside the folder may lead out of it. Every link on the way is followed, and must lead to
+    // something there, inside: a link to a file that is not there yet, outside the folder, would be written
+    // through, and the file made out there. A program run in the folder can make such a link.
+    let mut walked = folder.clone();
+    for part in path.strip_prefix(&folder).unwrap_or(Path::new("")).components() {
+        walked.push(part);
+        match fs::symlink_metadata(&walked) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let real = walked.canonicalize().map_err(|_| format!("\"{named}\" goes through a link that leads to nothing, and is not followed"))?;
+                if !real.starts_with(&folder) {
+                    return Err(outside());
+                }
+            }
+            Ok(_) => {}
+            // From here on, nothing of the path is there yet.
+            Err(_) => break,
+        }
+    }
+    // What exists of the path is followed, and must still be inside.
     let mut exists = path.clone();
     while !exists.exists() {
         if !exists.pop() {
@@ -386,6 +404,12 @@ mod tests {
         assert!(read(&dir, "looks-harmless.txt", None).unwrap_err().contains("outside"));
         assert!(write(&dir, "way-out/new.txt", "x", &[]).unwrap_err().contains("outside"));
         assert!(!outside.join("new.txt").exists());
+        // A link to a file that is not there yet, outside: a program run in the folder can make one. Writing
+        // through it would make the file out there.
+        std::os::unix::fs::symlink(outside.join("planted.txt"), dir.join("notes/planted.txt")).unwrap();
+        assert!(write(&dir, "notes/planted.txt", "x", &[]).is_err());
+        assert!(add(&dir, "notes/planted.txt", "x").is_err());
+        assert!(!outside.join("planted.txt").exists(), "nothing was written outside the folder");
         // A search does not follow it either.
         assert!(search(&dir, "the key").unwrap().contains("in none of"));
         fs::remove_dir_all(dir).ok();
