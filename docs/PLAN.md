@@ -208,6 +208,10 @@ model, from a short trial when a model is first used.
 
 ## Needs the owner before it can start
 
+- **Email's Google preset (plan item 9).** Research note 26: Gmail's IMAP and SMTP sign-in by OAuth uses a restricted
+  scope, which means Google's verification of Demido's project and possibly a paid security assessment every
+  year, over weeks. App passwords cost nothing and need no approval, but do not work for work or school
+  accounts. Proposed: start with app passwords, and decide later whether the verified sign-in is worth its cost.
 - **Schedules with nobody there (plan item 7).** A proposal, J1 to J10, is in research note 24: a schedule is a
   session of its own; with nobody there a run does only what needs nobody's yes, never more than Balanced;
   a step that needs a yes pauses the run until you answer; addresses are yours, given when it is made; a
