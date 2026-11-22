@@ -159,7 +159,7 @@ list made for the split stays, because it says what is left and what to watch in
 | # | Remaining work | What to watch |
 |---|---|---|
 | 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows; ~~a filter on what a program may ask of the kernel~~ done (T21) | Security, and it cannot be tried here: only on the checks' machines |
-| 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | A measurement that decides a security design |
+| 5 | ~~The trial that says whether a small model can give Smart's second look~~ done: none of the test models can (research note 22, T22); a rule in code instead is proposed (T23) | A measurement that decides a security design |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | ~~Settings for each model: the research, and applying what the makers recommend~~ done (DECISIONS K26 to K30, research note 19) | It meets `docs/LATER.md` 1 |
@@ -231,6 +231,10 @@ model, from a short trial when a model is first used.
   mechanical work to the fastest model makes it worse on these models, and a fresh context for the same model
   makes it better. I propose the first piece of agents be that: a copying task done by the session's own
   model on a fresh context. Say yes, or what you would rather have first.
+- **Smart: a rule in code? (DECISIONS T22, T23; research note 22.)** Measured overnight: no small model on
+  this computer gives a second look that can be trusted (the best let 5 of 14 dangerous commands through).
+  Smart stays the same as Balanced. I propose it differ by a rule in code instead: commands that only read
+  inside the folder, recognised by parsing them, run without asking. Say yes, or keep Smart as it is.
 - **WhatsApp, Telegram and Discord.** Linking them needs you there: WhatsApp and Telegram link a device by a
   code or a picture shown on your phone, and Discord by a bot of your own. They are plan item 9, with their
   research still owed; I did not use your phone or its PIN.
