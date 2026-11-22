@@ -1,6 +1,7 @@
 # 24. What may a schedule do when nobody is there?
 
-Written 2026-11-22, directly. A proposal for the owner, not a decision: nothing here is built. Plan item 7 says
+Written 2026-11-22, directly. A proposal for the owner, who decided its open choices the same day (the end of
+the proposals, and DECISIONS section J); J2 to J4 were changed by that. Nothing here is built. Plan item 7 says
 of schedules and monitors "Nobody is there to say no". Brief 4.27 sets two examples that must work, "Give me my
 email report every morning at 7" and "Monitor the price of this sweater and tell me when it goes on sale", with
 no model loaded all the time, and schedules sharing models with sessions (4.17).
@@ -46,15 +47,23 @@ neither refused nor done.
 | J9 | **Not more often than every 15 minutes, and a run missed while the computer slept runs once when it wakes**, said to be late; missed runs are never run several times to catch up. A page is read no more often than the site's rules and the cache allow (N10). | Point 4, and the sites' own limits |
 | J10 | **A schedule that fails three runs in a row pauses itself and says why.** Every run is in the log (K), and the window can pause, run now, or delete a schedule. | Nothing runs on and on unseen |
 
-## What this leaves for the owner
+## What the owner decided (2026-11-22)
 
-- **J2:** schedules capped at Balanced, with Autonomous not offered. Or offered, with the window's warning.
-- **J3:** pausing for a yes, against simply refusing the step (simpler, but the brief's examples would stop
-  at the first page they had not been given).
-- **J8:** whether paid providers may run schedules at all, and the limit's default.
-- **J9:** every 15 minutes as the floor.
-- **J6:** which channel tells you before messaging is built: the window only, or a desktop notice once the
-  desktop shell exists (plan item 10).
+The choices this note left are made; DECISIONS section J has the result.
+
+- **J2:** neither of the two ways proposed. A schedule always runs autonomously, with every tool, and has no
+  permission level: "Schedules are meant to run autonomously without users interacting with them." What still
+  holds in a run is what holds at every level (the folder, the sandbox, Undo, the public internet only) and
+  the cleaning of text from outside, which the owner relies on.
+- **J3:** moot, since nothing in a run waits for a yes. J4 keeps only the addresses written into a schedule,
+  so that a run knows where to look.
+- **J8:** paid providers may run schedules, and the person may give one a limit. Claude Code and OpenCode stay
+  out, for their terms (U23).
+- **J9:** every 15 minutes is the floor.
+- **J6:** the window, then a desktop notice once the desktop shell exists.
+
+The third measurement below (injection in a run) still matters, for a different reason: it no longer decides
+what a run may do, but it says how often a run does what a page or a mail told it to.
 
 ## J5, measured
 

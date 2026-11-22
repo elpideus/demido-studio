@@ -37,8 +37,9 @@ confirmed when it is built), **Proposed** (mine).
    verified (a "Testing" project's sign-in lasts days, not months, as I know it); to be confirmed before it is
    offered. It is the way for the technically minded, not the default.
 
-**Proposed:** the Google preset starts with app passwords and says plainly what they are and where they do not
-work; the owner decides whether Demido's own verified sign-in is worth its cost, before any of it is applied for.
+**Decided by the owner on 2026-11-22 (DECISIONS Y1):** the Google preset starts with app passwords and says
+plainly what they are and where they do not work. Demido's own verified sign-in is not applied for; whether it
+is worth its cost is the owner's to decide, if ever.
 Other providers (Fastmail, mailbox.org, Proton through its Bridge, any IMAP server) are plain IMAP and SMTP with a
 password or an app password, and need none of this.
 
@@ -59,8 +60,9 @@ All compatible with GPL-3.0-or-later; the licence check (`scripts/check-licences
   request said again. Measured already: a page that gives an order is obeyed by small models. In mail, the
   order comes addressed to the person, signed by anyone.
 - **Sending cannot be undone, so it always waits for the person's yes**, at every level, with the message shown
-  whole: who it goes to, what it says, what is attached. A schedule (note 24) never sends mail; it writes a draft
-  and tells the person.
+  whole: who it goes to, what it says, what is attached. ~~A schedule (note 24) never sends mail; it writes a
+  draft and tells the person.~~ Changed by the owner on 2026-11-22: a schedule runs with every tool and asks
+  nothing (DECISIONS J2), so a schedule may send; its notice says what it sent, and to whom.
 - **Reading is read-only at first**: no deleting, no moving, no marking as read, until those are asked for.
 - **The morning report** (4.27) is then a schedule that reads, writes a summary into its session, and tells the
   person: everything in it is J2's "needs nobody's yes".

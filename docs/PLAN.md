@@ -78,7 +78,7 @@ Done directly and narrowly, each before the feature that needs it. None of the f
    2026-11-22 (research note 20, DECISIONS O8 to O12): two of the four test models choose well with plain
    labels; whether a model may choose is to be tried for each model. And whether mechanical work should go
    to the fastest model (research note 21): not on these models; a fresh context for the same model helps
-   instead (O13, O14, for the owner).
+   instead (O13, decided: off by default; O14, on hold with the rest of agents).
 
 ### Step 3. Real feature work
 
@@ -158,20 +158,20 @@ list made for the split stays, because it says what is left and what to watch in
 
 | # | Remaining work | What to watch |
 |---|---|---|
-| 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows; ~~a filter on what a program may ask of the kernel~~ done (T21) | Security, and it cannot be tried here: only on the checks' machines |
-| 5 | ~~The trial that says whether a small model can give Smart's second look~~ done: none of the test models can (research note 22, T22); a rule in code instead is proposed (T23) | A measurement that decides a security design |
+| 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows, a user of Demido's own made at setup (the owner's choice, T26); ~~a filter on what a program may ask of the kernel~~ done (T21) | Security, and it cannot be tried here: only on the checks' machines |
+| 5 | ~~The trial that says whether a small model can give Smart's second look~~ done: none of the test models can (research note 22, T22). The owner chose: at Smart the model decides (T6); not built | How the model says so, measured first; the window says what it risks |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | ~~Settings for each model: the research, and applying what the makers recommend~~ done (DECISIONS K26 to K30, research note 19) | It meets `docs/LATER.md` 1 |
 | 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good. The Hugging Face key for gated models is built since (H8) | Secrets and money |
 | 6 | ~~Anthropic, Gemini and OpenRouter; usage shown; Claude Code and OpenCode.~~ Done (DECISIONS U), tested against stand-ins: the first real request waits for your key, and the first message to a program for your yes | Documented interfaces, one at a time; never touch a program's login |
-| 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
-| 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |
+| 7 | Agents with a model each, lending a loaded model, fitting several into memory. **On hold** (the owner, 2026-11-22; O13: no second model by default) | The hardest design left, and the product's main promise |
+| 7 | Schedules and monitors that run with nobody there: decided by the owner (DECISIONS J): always autonomous, every tool, no level | Nobody is there to say no, so all a run did must be easy to read |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
-| 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS Q1 to Q14, research note 23), and with them a long file written into the folder (T24) | Window work with a clear edge |
+| 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS Q1 to Q14, research note 23), and with them a long file written into the folder (T24). Left from the owner's answers of 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts (Q15) | Window work with a clear edge; Q15 runs a model's code in the window |
 | 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts (~~PDFs~~ done, N15) | Logged-in pages are the most private thing there is |
 | 9 | Voice: the libraries, the screen | Research and building, little risk |
-| 9 | Email and the messaging platforms: reading and sending in a person's name | Messages from outside are injected text; sending cannot be undone |
+| 9 | Email and the messaging platforms: reading and sending in a person's name. Gmail by app password first (DECISIONS Y1) | Messages from outside are injected text; sending cannot be undone |
 | 9 | Markets: charts, indicators, the Pine editor | Nothing here places an order |
 | 10 | The desktop shell and the installer | Packaging, checked on three systems by the checks |
 | 10 | The updater, signing releases, hardening server mode | A wrong update reaches everyone; an open server is an open computer |
@@ -197,9 +197,14 @@ Also done on 2026-11-22: a session's folder in the Files screen, the viewer for 
 
 Also done on 2026-11-22: a model can write a long file into the folder (T24); a link that leads to nothing is never written through (T25); the window's own pages carry a content policy (K34); a PDF from the internet is read for its text, in a process of its own (N15); a proposal for schedules with nobody there, with one measurement (research note 24, needs the owner).
 
-Next, in this order unless the owner says otherwise: the sandbox on Windows (it needs the owner's view
-first: note 05's first step guards only writes, and changes the folder's permissions on the person's own
-disk); then plan item 7.
+Also done on 2026-11-22: the owner's decisions on what was waiting for them: Smart (T6), the Windows sandbox
+(T26), agents (O13, O14: on hold), schedules (section J), highlighting (Q7), artifacts (Q14), pages that run
+(Q15), and email's Google preset (Y1).
+
+Next, in this order unless the owner says otherwise: the two window changes the owner's answers asked for,
+colours in highlighting (Q7) and a page a model gave running its scripts (Q15); then Smart as the model
+deciding (T6), measured first; then the sandbox on Windows (T26), researched and tried on the checks' Windows
+machine; then schedules (section J). Agents wait.
 
 ## Set aside for later
 
@@ -208,15 +213,9 @@ model, from a short trial when a model is first used.
 
 ## Needs the owner before it can start
 
-- **Email's Google preset (plan item 9).** Research note 26: Gmail's IMAP and SMTP sign-in by OAuth uses a restricted
-  scope, which means Google's verification of Demido's project and possibly a paid security assessment every
-  year, over weeks. App passwords cost nothing and need no approval, but do not work for work or school
-  accounts. Proposed: start with app passwords, and decide later whether the verified sign-in is worth its cost.
-- **Schedules with nobody there (plan item 7).** A proposal, J1 to J10, is in research note 24: a schedule is a
-  session of its own; with nobody there a run does only what needs nobody's yes, never more than Balanced;
-  a step that needs a yes pauses the run until you answer; addresses are yours, given when it is made; a
-  monitor tells you once, when what it watches for becomes true. Five choices there are yours (the note's last
-  part), and three things are to be measured before it is built.
+Answered on 2026-11-22 and taken off this list: email's Google preset (Y1), schedules (J), the sandbox on
+Windows (T26), agents (O13, O14), and Smart (T6).
+
 - **Before the first release:** did the previous Demido check `elpideus/demido-studio` for updates? That name
   now belongs to this repository, so an old installation that checks it would be offered this project's
   releases. I have not looked at the old code and will not. No release exists yet, so nothing is offered today.
@@ -233,21 +232,6 @@ model, from a short trial when a model is first used.
   which I may not enter for you, and it costs money (OpenRouter's free models cost nothing). When you add a
   key on the Providers screen (or `demido keys add anthropic`), one short question in a session is the trial;
   tell me what it said if anything looks wrong.
-- **The sandbox on Windows: which way.** Note 05's realistic first step is a token that may write only to
-  the folder, with the folder's permissions changed on your disk to let it; it guards writes only, not reads
-  and not the network, so Balanced would still ask before every command there. The strong ways need
-  administrator rights at setup (a user of Demido's own and firewall rules), or WSL2 (the Linux sandbox,
-  already built, inside it). My recommendation: WSL2 where it is installed, and asking before each command
-  where it is not, rather than a write-only token that changes your folders' permissions. Nothing is built
-  until you say.
-- **Agents: where to start (DECISIONS O13, O14; research notes 20 and 21).** Measured overnight: sending
-  mechanical work to the fastest model makes it worse on these models, and a fresh context for the same model
-  makes it better. I propose the first piece of agents be that: a copying task done by the session's own
-  model on a fresh context. Say yes, or what you would rather have first.
-- **Smart: a rule in code? (DECISIONS T22, T23; research note 22.)** Measured overnight: no small model on
-  this computer gives a second look that can be trusted (the best let 5 of 14 dangerous commands through).
-  Smart stays the same as Balanced. I propose it differ by a rule in code instead: commands that only read
-  inside the folder, recognised by parsing them, run without asking. Say yes, or keep Smart as it is.
 - **WhatsApp, Telegram and Discord.** Linking them needs you there: WhatsApp and Telegram link a device by a
   code or a picture shown on your phone, and Discord by a bot of your own. They are plan item 9, with their
   research still owed; I did not use your phone or its PIN.

@@ -51,3 +51,6 @@ In `docs/DECISIONS.md`, T22 and T23. In short: Smart stays the same as Balanced 
 no small model on this computer gives a second look that lets anything through without the person. What could
 make Smart differ instead is a rule in code, not a model: a short list of commands that only read inside the
 folder, recognised by parsing the command, not by asking a model (T23, for the owner).
+
+The owner decided otherwise on 2026-11-22 (T6): at Smart the acting model itself decides what is allowed, and
+T23 is not taken. This note stays as the measurement of what that risks.

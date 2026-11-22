@@ -65,4 +65,5 @@ Every model did better on a fresh context, by one or two tasks of ten.
    conversation before it. Whether that helps on real plans, and not only on these short tasks, would be
    tried first with `core/dev/tool-turn-trial.py`'s cases.
 
-These are proposals for the owner (plan item 7 is "the hardest design left"): DECISIONS O13 and O14.
+These are proposals for the owner (plan item 7 is "the hardest design left"): DECISIONS O13 and O14. Decided
+on 2026-11-22: O13 as proposed (off by default); O14 on hold, with the rest of agents.
