@@ -36,3 +36,7 @@ brand/explorations/lab/type/out/**/*.png
 brand/explorations/**/node_modules/
 brand/explorations/**/renders/
 brand/explorations/**/shots/
+
+# Python bytecode, from running the trials in core/dev
+__pycache__/
+*.pyc
