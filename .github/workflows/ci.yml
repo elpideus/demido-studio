@@ -8,6 +8,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # By hand, on any branch: for work that only the checks' Mac and Windows machines can try.
+  workflow_dispatch:
 
 permissions:
   contents: read
