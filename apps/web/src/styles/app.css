@@ -1593,6 +1593,35 @@
     text-align: end;
   }
 
+  /* code in an answer, highlighted as the editor highlights it: weight, lightness and slant, no hues (F7) */
+  .d-prose .tok-keyword, .d-prose .tok-bool, .d-prose .tok-definition, .d-prose .tok-heading, .d-prose .tok-strong {
+    font-weight: 650;
+  }
+  .d-prose .tok-number, .d-prose .tok-atom {
+    font-weight: 550;
+  }
+  .d-prose .tok-comment {
+    color: var(--d-color-text-tertiary);
+    font-style: italic;
+  }
+  .d-prose .tok-string, .d-prose .tok-string2, .d-prose .tok-link, .d-prose .tok-url {
+    color: var(--d-color-text-secondary);
+  }
+  .d-prose .tok-typeName, .d-prose .tok-className, .d-prose .tok-namespace, .d-prose .tok-emphasis {
+    font-style: italic;
+  }
+  .d-prose .tok-punctuation, .d-prose .tok-operator, .d-prose .tok-meta {
+    color: var(--d-color-text-tertiary);
+  }
+  .d-prose .tok-definition {
+    text-decoration: underline;
+    text-decoration-color: var(--d-color-border-strong);
+    text-underline-offset: 3px;
+  }
+  .d-prose .tok-invalid {
+    color: var(--d-color-danger-base);
+  }
+
   /* ───────── files ───────── */
   .files__panes {
     display: grid;
