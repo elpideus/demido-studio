@@ -796,7 +796,11 @@ impl Providers {
                 },
                 None => crate::programs::Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(self.missing(provider)) },
             },
-            _ => crate::programs::look(provider, self.program_path(provider), &self.program_env(provider, account), &self.missing(provider)).await,
+            // Nothing is made for a program Demido has no copy of.
+            _ => match self.program_path(provider) {
+                Some(path) => crate::programs::look(provider, Some(path), &self.program_env(provider, account), &self.missing(provider)).await,
+                None => crate::programs::Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(self.missing(provider)) },
+            },
         };
         self.found.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now(), found.clone()));
         found

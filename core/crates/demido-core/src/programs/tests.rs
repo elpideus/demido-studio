@@ -599,8 +599,11 @@ async fn only_demidos_own_copy_is_run_and_with_its_own_profile() {
     let events = Arc::new(crate::events::EventLog::new(db.clone()));
     let settings = Arc::new(crate::settings::Settings::load(db.clone(), events.clone()).unwrap());
     let p = crate::providers::Providers::new(db, Arc::new(crate::vault::Vault::in_file(&home)), settings, events).with_copies(c.clone());
-    // Not downloaded: nothing is run, whatever is installed on the computer (Claude Code is, here).
+    // Not downloaded: nothing is run, whatever is installed on the computer (Claude Code is, here), and no
+    // folder is made for it.
     assert!(p.program("claude-code").unwrap_err().to_string().contains("Download it on the Providers screen"));
+    assert!(p.look_at("opencode", None).await.path.is_none());
+    assert!(!home.join("programs/opencode").exists(), "nothing is made for a program not downloaded");
     c.download("claude-code").await.unwrap();
     assert_eq!(p.program("claude-code").unwrap(), PathBuf::from(c.kept("claude-code").unwrap().path));
     // With no account it is not run at all, and no profile is made for it.
