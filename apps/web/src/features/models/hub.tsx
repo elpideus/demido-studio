@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AudioLines, Boxes, Brain, Download as DownloadIcon, ExternalLink, Eye, Heart, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { hubModel, searchHub, startDownload, stopDownload, useDownloads, type HubDetail as Detail, type HubModel, type HubQuant, type Machine, type Search } from '@/data/hub'
-import { Button, Facts, Glyph, Icon, NotBuilt, Page, Segmented, Signal, cx } from '@/ui'
+import { hubModel, readToken, removeToken, saveToken, searchHub, startDownload, stopDownload, useDownloads, type HubDetail as Detail, type HubModel, type HubQuant, type Machine, type Search, type TokenFacts } from '@/data/hub'
+import { Button, Dialog, Facts, Glyph, Icon, NotBuilt, Page, Segmented, Signal, cx } from '@/ui'
 import { Prose } from '@/ui/prose'
 import { size } from './local'
 
@@ -101,7 +101,36 @@ function QuantRow({ q, chosen, onChoose }: { q: HubQuant; chosen: boolean; onCho
 }
 
 /** A model's page: what it is, its files, and downloading one of them. */
+/** Giving Demido a Hugging Face token, for gated models. */
+function TokenDialog({ onDone }: { onDone: (facts: TokenFacts | null) => void }) {
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    if (!value.trim() || saving) return
+    setSaving(true)
+    const facts = await saveToken(value.trim())
+    setSaving(false)
+    if (facts) onDone(facts)
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onDone(null)} title="Add your Hugging Face token"
+      text={<>For gated models: their makers ask you to accept their terms on Hugging Face first, and Hugging Face then lets your account download them. Demido sends the token only to Hugging Face, with the requests for a gated model's files, and never shows it again: only its last four characters.</>}
+      actions={<><Button onClick={() => onDone(null)}>Cancel</Button><Button variant="primary" disabled={!value.trim() || saving} onClick={() => void save()}>{saving ? 'Keeping it…' : 'Keep the token'}</Button></>}>
+      <form className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }} onSubmit={(e) => { e.preventDefault(); void save() }}>
+        <label className="d-field">
+          <span className="d-field__label">Token</span>
+          <input className="d-input d-input--mono" type="password" autoComplete="off" spellCheck={false} autoFocus placeholder="hf_…" value={value} onChange={(e) => setValue(e.target.value)} />
+          <span className="d-field__help">Make one at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer noopener">huggingface.co/settings/tokens</a>: one that may only read is enough.</span>
+        </label>
+      </form>
+    </Dialog>
+  )
+}
+
 export function HubDetail({ repo }: { repo: string | null }) {
+  const [token, setToken] = useState<TokenFacts | null | undefined>(undefined)
+  const [asking, setAsking] = useState(false)
+  useEffect(() => { readToken().then(setToken, () => setToken(null)) }, [])
   const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'card' | 'files'>('files')
@@ -145,7 +174,7 @@ export function HubDetail({ repo }: { repo: string | null }) {
             <a className="d-button d-button--ghost" href={detail.page} target="_blank" rel="noreferrer noopener"><Icon icon={ExternalLink} />On Hugging Face</a>
             {going ? (
               <Button onClick={() => void stopDownload(going.id)}>{going.state === 'waiting' ? 'Waiting · Stop' : `Stop · ${Math.floor((going.done * 100) / Math.max(1, going.total))}%`}</Button>
-            ) : q && !m.gated && !q.on_disk ? (
+            ) : q && (!m.gated || token) && !q.on_disk ? (
               <Button variant="primary" onClick={() => void startDownload(m.id, q.name)}><Icon icon={DownloadIcon} />Download {q.name} · {size(q.size)}</Button>
             ) : null}
           </div>
@@ -161,7 +190,10 @@ export function HubDetail({ repo }: { repo: string | null }) {
             {ended.state === 'stopped' && <>What was downloaded is kept: downloading it again goes on from there. <Button variant="ghost" size="sm" onClick={() => void stopDownload(ended.id, true)}>Remove what was downloaded</Button></>}
           </Signal>
         )}
-        {m.gated && <Signal level="caution">This model can only be downloaded after signing in to Hugging Face and accepting its maker's terms on its page. Demido cannot hold a Hugging Face key yet, so it cannot download it.</Signal>}
+        {m.gated && (token
+          ? <Signal level="note" actions={<Button size="sm" variant="ghost" onClick={async () => { if (await removeToken()) setToken(null) }}>Delete the token</Button>}>This model is gated: Demido downloads it with your Hugging Face token (…{token.ends_with}). Accept its maker's terms <a href={detail.page} target="_blank" rel="noreferrer noopener">on its page</a> first, with the same account, or Hugging Face says no.</Signal>
+          : <Signal level="caution" actions={<Button size="sm" onClick={() => setAsking(true)}>Add your token…</Button>}>This model is gated: its maker asks you to accept its terms <a href={detail.page} target="_blank" rel="noreferrer noopener">on its page</a> first. Then add your Hugging Face token, and Demido downloads it with that.</Signal>)}
+        {asking && <TokenDialog onDone={(facts) => { setAsking(false); if (facts) setToken(facts) }} />}
         <div className="models__stats">
           <span><Icon icon={DownloadIcon} size="sm" />{many(m.downloads)} downloads</span>
           <span><Icon icon={Heart} size="sm" />{many(m.likes)} likes</span>

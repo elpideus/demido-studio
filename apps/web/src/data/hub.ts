@@ -69,6 +69,37 @@ export async function stopDownload(id: string, discard = false) {
   await readDownloads()
 }
 
+/** What is known of the Hugging Face token kept for gated models: where, and its last four characters. */
+export interface TokenFacts { name: string; label: string; kept_in: 'keyring' | 'file'; ends_with: string; added_at: number }
+
+/** Whether a Hugging Face token is kept. Null: none. */
+export function readToken(): Promise<TokenFacts | null> {
+  return coreGet<TokenFacts | null>('/hub/token')
+}
+
+/** Keeps the person's Hugging Face token. The facts of it, or null with the reason shown. */
+export async function saveToken(value: string): Promise<TokenFacts | null> {
+  try {
+    const facts = await coreSend<TokenFacts>('PUT', '/hub/token', { value })
+    toast(`Kept: the Hugging Face token ending in …${facts.ends_with}, in ${facts.kept_in === 'keyring' ? 'the system keyring' : 'a file only your user can read'}.`, undefined, 'task-done')
+    return facts
+  } catch (e) {
+    toast(`The token was not kept. ${(e as Error).message}`, undefined, 'task-failed')
+    return null
+  }
+}
+
+export async function removeToken(): Promise<boolean> {
+  try {
+    await coreSend('DELETE', '/hub/token')
+    toast('The Hugging Face token is deleted.', undefined, 'task-done')
+    return true
+  } catch (e) {
+    toast(`Not deleted. ${(e as Error).message}`, undefined, 'task-failed')
+    return false
+  }
+}
+
 let started = false
 /** Called once, when a core is found. */
 export function startHub() {

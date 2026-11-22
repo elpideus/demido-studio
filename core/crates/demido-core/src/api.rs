@@ -70,7 +70,7 @@ impl Core {
         let runtimes = Arc::new(Runtimes::new(paths.home(), events.clone(), runtime_source())?);
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let vault = Arc::new(Vault::open(paths.home()));
-        let providers = Arc::new(Providers::new(db.clone(), vault, settings.clone(), events.clone()).with_programs(paths.home(), Arc::new(crate::programs::ProcessSpawner)));
+        let providers = Arc::new(Providers::new(db.clone(), vault.clone(), settings.clone(), events.clone()).with_programs(paths.home(), Arc::new(crate::programs::ProcessSpawner)));
         let sessions = Arc::new(Sessions::new(db));
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
@@ -81,7 +81,7 @@ impl Core {
                 .with_sandbox(crate::sandbox::Sandbox::find())
                 .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))))),
         );
-        let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()));
+        let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
         Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers })
     }
 }
@@ -626,6 +626,31 @@ async fn hub_download(State(app): State<App>, Json(body): Json<DownloadRequest>)
     Ok((StatusCode::ACCEPTED, Json(app.hub.start(&body.repo, &body.quant, machine).await?)))
 }
 
+/// Whether a Hugging Face token is kept, for gated models: where, and its last four characters. Never its value.
+#[utoipa::path(get, path = "/api/v1/hub/token", tag = "models", responses((status = 200, body = Option<crate::vault::KeyFacts>)))]
+async fn hub_token(State(app): State<App>) -> Json<Option<crate::vault::KeyFacts>> {
+    Json(app.providers.vault().facts(crate::hub::TOKEN))
+}
+
+/// Keeps the person's Hugging Face token, in place of one kept before. It is sent only to Hugging Face, with
+/// the requests for a gated model's files.
+#[utoipa::path(put, path = "/api/v1/hub/token", tag = "models", request_body = NewKey, responses((status = 200, body = crate::vault::KeyFacts), (status = 422, body = Problem)))]
+async fn hub_token_set(State(app): State<App>, Json(body): Json<NewKey>) -> Result<Json<crate::vault::KeyFacts>> {
+    let vault = app.providers.vault().clone();
+    let facts = tokio::task::spawn_blocking(move || vault.put(crate::hub::TOKEN, &body.value)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("hub.token.added", None, json!({ "kept_in": facts.kept_in, "ends_with": facts.ends_with }))?;
+    Ok(Json(facts))
+}
+
+/// Deletes the Hugging Face token. Models already downloaded stay.
+#[utoipa::path(delete, path = "/api/v1/hub/token", tag = "models", responses((status = 200, body = crate::vault::KeyFacts), (status = 404, body = Problem)))]
+async fn hub_token_remove(State(app): State<App>) -> Result<Json<crate::vault::KeyFacts>> {
+    let vault = app.providers.vault().clone();
+    let gone = tokio::task::spawn_blocking(move || vault.remove(crate::hub::TOKEN)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("hub.token.removed", None, json!({ "kept_in": gone.kept_in }))?;
+    Ok(Json(gone))
+}
+
 /// The downloads since the server started, the newest last.
 #[utoipa::path(get, path = "/api/v1/hub/downloads", tag = "models", responses((status = 200, body = Vec<crate::hub::Download>)))]
 async fn hub_downloads(State(app): State<App>) -> Json<Vec<crate::hub::Download>> {
@@ -1007,7 +1032,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1039,6 +1064,7 @@ pub fn router(app: App) -> Router {
         .route("/hub/models/{owner}/{name}", get(hub_model))
         .route("/hub/downloads", get(hub_downloads).post(hub_download))
         .route("/hub/downloads/{id}", axum::routing::delete(hub_stop))
+        .route("/hub/token", get(hub_token).put(hub_token_set).delete(hub_token_remove))
         .route("/models/{id}/unload", post(model_unload))
         .route("/sessions", get(sessions_list).post(session_new))
         .route("/sessions/{id}", get(session_get).patch(session_change).delete(session_delete))

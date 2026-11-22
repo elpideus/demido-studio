@@ -130,8 +130,8 @@ Windows, and tools other people write.
    GGUF models, whether each fits this computer, a quantization recommended, downloads checked and resumable,
    a vision part downloaded with its model. Settings for each model are built (DECISIONS K26 to K30, research
    note 19): each model is asked the way its maker recommends, thinking and not, and the person can set their
-   own. A model can be deleted from the window (K31), and have a context of its own (K32). Left in it: gated
-   models (with the vault).
+   own. A model can be deleted from the window (K31), have a context of its own (K32), and a gated
+   one is downloaded with the person's Hugging Face token (H8).
    The vault and three providers are built (DECISIONS U, research note 18): keys in the system keyring (a
    file only the user can read where there is none), never shown again and never seen by a model; Anthropic,
    Gemini and OpenRouter in sessions, chosen by the person, with what each answer cost and a limit for the
@@ -163,7 +163,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | ~~Settings for each model: the research, and applying what the makers recommend~~ done (DECISIONS K26 to K30, research note 19) | It meets `docs/LATER.md` 1 |
-| 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good, and the Hugging Face key for gated models (H8) | Secrets and money |
+| 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good. The Hugging Face key for gated models is built since (H8) | Secrets and money |
 | 6 | ~~Anthropic, Gemini and OpenRouter; usage shown; Claude Code and OpenCode.~~ Done (DECISIONS U), tested against stand-ins: the first real request waits for your key, and the first message to a program for your yes | Documented interfaces, one at a time; never touch a program's login |
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
 | 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |

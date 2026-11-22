@@ -15,8 +15,12 @@
 //! What is kept: searches for ten minutes, a model's page for an hour (the caching rule, DECISIONS P). When
 //! Hugging Face says it has been asked too much, it is left alone for as long as it says.
 //!
-//! Not built: models that need signing in to Hugging Face (gated ones: that needs the place where keys are
-//! kept), and other sources than Hugging Face.
+//! A gated model (one whose maker asks people to accept terms first) is downloaded with the person's own
+//! Hugging Face token, kept in the vault (DECISIONS H8). The token is sent only to Hugging Face, with the
+//! requests for a gated model's files; the files' own storage, which Hugging Face sends a download on to,
+//! is never given it (the client drops it at a redirect to another host).
+//!
+//! Not built: other sources than Hugging Face.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -455,7 +459,12 @@ pub struct Hub {
     stops: Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// Downloads go one after another: a second one waits.
     one_at_a_time: Arc<tokio::sync::Semaphore>,
+    /// Where the person's Hugging Face token is kept, for gated models.
+    vault: Option<Arc<crate::vault::Vault>>,
 }
+
+/// The name the Hugging Face token is kept under in the vault.
+pub const TOKEN: &str = "huggingface.main";
 
 impl Hub {
     pub fn new(models_dir: PathBuf, events: Arc<EventLog>) -> Self {
@@ -475,7 +484,28 @@ impl Hub {
             downloads: Mutex::default(),
             stops: Mutex::default(),
             one_at_a_time: Arc::new(tokio::sync::Semaphore::new(1)),
+            vault: None,
         }
+    }
+
+    /// The same, with the vault that keeps the person's Hugging Face token.
+    pub fn with_vault(mut self, vault: Arc<crate::vault::Vault>) -> Self {
+        self.vault = Some(vault);
+        self
+    }
+
+    /// The person's Hugging Face token, if one is kept.
+    fn token(&self) -> Option<String> {
+        self.vault.as_ref().and_then(|v| v.get(TOKEN).ok().flatten())
+    }
+
+    /// A client that sends the token with every request, for one gated model's files.
+    fn with_token(&self, token: &str) -> Result<reqwest::Client> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Error::Invalid("The Hugging Face token kept is not one that can be sent.".into()))?;
+        value.set_sensitive(true);
+        headers.insert(reqwest::header::AUTHORIZATION, value);
+        reqwest::Client::builder().user_agent(crate::web::name()).connect_timeout(Duration::from_secs(15)).default_headers(headers).build().map_err(|e| Error::Other(e.to_string()))
     }
 
     /// Asks Hugging Face for JSON, or gives what was kept. The second value is the `Link` header.
@@ -625,11 +655,27 @@ impl Hub {
     /// Starts downloading a quantization of a model. Gives the download back at once; it goes on by itself.
     pub async fn start(self: &Arc<Self>, repo: &str, quant: &str, machine: Machine) -> Result<Download> {
         let detail = self.detail(repo, machine).await?;
-        if detail.model.gated {
-            return Err(Error::Invalid(format!(
-                "{repo} can only be downloaded after signing in to Hugging Face and accepting its maker's terms on its page. Demido cannot hold a Hugging Face key yet, so it cannot download this one."
-            )));
-        }
+        // A gated model is downloaded with the person's token, and only once its maker's terms are accepted.
+        let token = if detail.model.gated {
+            match tokio::task::spawn_blocking({
+                let me = self.clone();
+                move || me.token()
+            })
+            .await
+            .ok()
+            .flatten()
+            {
+                Some(token) => Some(token),
+                None => {
+                    return Err(Error::Invalid(format!(
+                        "{repo} is gated: its maker asks people to accept its terms first. Accept them on its page ({}), then add your Hugging Face token under Models (a token that may read is enough), and download it again.",
+                        detail.page
+                    )));
+                }
+            }
+        } else {
+            None
+        };
         let chosen = detail
             .quants
             .iter()
@@ -685,12 +731,14 @@ impl Hub {
                 maker_sampling: None,
             },
         );
-        tokio::spawn(async move { hub.carry_out(&id, files, several, source, &stop).await });
+        let page = detail.page.clone();
+        tokio::spawn(async move { hub.carry_out(&id, files, several, source, &stop, token.as_deref(), &page).await });
         Ok(download)
     }
 
     /// Does a download: each file in turn, then the whole into its place.
-    async fn carry_out(&self, id: &str, files: Vec<HubFile>, several: bool, mut source: Source, stop: &AtomicBool) {
+    #[allow(clippy::too_many_arguments)]
+    async fn carry_out(&self, id: &str, files: Vec<HubFile>, several: bool, mut source: Source, stop: &AtomicBool, token: Option<&str>, page: &str) {
         let Ok(_turn) = self.one_at_a_time.clone().acquire_owned().await else { return };
         let Some(download) = self.update(id, |d| d.state = "downloading".into()) else { return };
         let incoming = self.models_dir.join(INCOMING).join(&download.local_id);
@@ -707,7 +755,12 @@ impl Hub {
                 };
                 let to = incoming.join(&remote.name);
                 if !to.exists() {
-                    crate::runtime::download_file(&self.http, &remote, &to, stop, |bytes| {
+                    // A gated model's files go with the person's token; any other's without.
+                    let http = match token {
+                        Some(token) => self.with_token(token)?,
+                        None => self.http.clone(),
+                    };
+                    let got = crate::runtime::download_file(&http, &remote, &to, stop, |bytes| {
                         let now = self.update(id, |d| d.done = before + bytes);
                         // Told twice a second at most: a download is millions of pieces.
                         if told_at.elapsed() >= Duration::from_millis(500)
@@ -717,7 +770,18 @@ impl Hub {
                             self.events.tell("model.download", Some(&now.local_id), json!(now));
                         }
                     })
-                    .await?;
+                    .await;
+                    // Hugging Face says no to a gated model's files until its terms are accepted with this account.
+                    if let Err(e) = got {
+                        let words = e.to_string();
+                        if token.is_some() && (words.contains("401") || words.contains("403")) {
+                            return Err(Error::Invalid(format!(
+                                "Hugging Face did not let your token download {}. Accept its maker's terms on its page with the same account ({page}); a token that may read is enough. Then download it again.",
+                                source.repo
+                            )));
+                        }
+                        return Err(e);
+                    }
                 }
                 before += file.size;
                 self.update(id, |d| d.done = before);

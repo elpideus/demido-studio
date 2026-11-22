@@ -144,7 +144,12 @@ struct Seen {
     too_much: bool,
     /// The stand-in sends the wrong bytes for the tiny model.
     wrong: bool,
+    /// The `Authorization` each file was asked with, by path.
+    authorized: HashMap<String, String>,
 }
+
+/// The token the stand-in takes for its gated model, as Hugging Face takes a token whose account accepted the terms.
+const GOOD_TOKEN: &str = "hf_test_token_that_accepted_the_terms";
 
 async fn site(State(seen): State<Arc<Mutex<Seen>>>, headers: HeaderMap, request: Request) -> Response {
     let path = request.uri().path().to_string();
@@ -153,6 +158,9 @@ async fn site(State(seen): State<Arc<Mutex<Seen>>>, headers: HeaderMap, request:
         *seen.asked.entry(path.clone()).or_default() += 1;
         if let Some(range) = headers.get(header::RANGE).and_then(|r| r.to_str().ok()) {
             seen.ranges.push(range.to_string());
+        }
+        if let Some(auth) = headers.get(header::AUTHORIZATION).and_then(|a| a.to_str().ok()) {
+            seen.authorized.insert(path.clone(), auth.to_string());
         }
         (seen.too_much, seen.wrong)
     };
@@ -194,6 +202,14 @@ async fn site(State(seen): State<Arc<Mutex<Seen>>>, headers: HeaderMap, request:
         "/test/tiny-GGUF/resolve/abc123/tiny-Q8_0.gguf" if wrong => file(&[b"X".as_slice(), &TINY[1..]].concat()),
         "/test/tiny-GGUF/resolve/abc123/tiny-Q8_0.gguf" | "/test/seeing-GGUF/resolve/abc123/seeing-Q4_K_M.gguf" => file(TINY),
         "/test/seeing-GGUF/resolve/abc123/mmproj-seeing-f16.gguf" => file(VISION),
+        // A gated model's file: only with a token whose account accepted the terms.
+        "/test/gated-GGUF/resolve/abc123/gated-Q4_K_M.gguf" => {
+            if headers.get(header::AUTHORIZATION).and_then(|a| a.to_str().ok()) == Some(format!("Bearer {GOOD_TOKEN}").as_str()) {
+                file(TINY)
+            } else {
+                (StatusCode::FORBIDDEN, "Access to this model is restricted. You must have access to it and be authenticated.").into_response()
+            }
+        }
         // The model the tiny one was made from, with its maker's settings.
         "/test/tiny/resolve/main/generation_config.json" => json(json!({ "do_sample": true, "temperature": 0.5, "top_k": 30, "top_p": 0.9, "eos_token_id": 2 })),
         _ => StatusCode::NOT_FOUND.into_response(),
@@ -205,11 +221,17 @@ struct World {
     seen: Arc<Mutex<Seen>>,
     models: PathBuf,
     events: Arc<EventLog>,
+    /// Where the stand-in answers.
+    base: String,
 }
 
 impl World {
     fn asked(&self, path: &str) -> usize {
         self.seen.lock().unwrap().asked.get(path).copied().unwrap_or(0)
+    }
+
+    fn hub_base(&self) -> String {
+        self.base.clone()
     }
 }
 
@@ -222,7 +244,7 @@ async fn world() -> World {
     let models = std::env::temp_dir().join(format!("demido-hub-{}", uuid::Uuid::new_v4())).join("models");
     std::fs::create_dir_all(&models).unwrap();
     let events = Arc::new(EventLog::new(Arc::new(Db::memory().unwrap())));
-    World { hub: Arc::new(Hub::at(format!("http://{door}"), models.clone(), events.clone())), seen, models, events }
+    World { hub: Arc::new(Hub::at(format!("http://{door}"), models.clone(), events.clone())), seen, models, events, base: format!("http://{door}") }
 }
 
 #[tokio::test]
@@ -326,7 +348,35 @@ async fn a_file_that_is_not_the_one_published_is_not_kept_and_a_gated_model_is_n
     assert!(!w.models.join("tiny-Q8_0.gguf").exists());
     assert!(w.events.after(0, 50).unwrap().iter().any(|e| e.kind == "model.download.failed"));
 
+    // A gated model, with no Hugging Face token kept: refused before anything is asked for.
     let said = w.hub.start("test/gated-GGUF", "Q4_K_M", MACHINE).await.unwrap_err().to_string();
-    assert!(said.contains("signing in to Hugging Face") && said.contains("cannot download this one"), "{said}");
+    assert!(said.contains("is gated") && said.contains("add your Hugging Face token"), "{said}");
     assert_eq!(w.asked("/test/gated-GGUF/resolve/abc123/gated-Q4_K_M.gguf"), 0);
+}
+
+#[tokio::test]
+async fn a_gated_model_is_downloaded_with_the_persons_token_and_the_token_goes_only_with_it() {
+    let w = world().await;
+    let home = w.models.parent().unwrap().to_path_buf();
+    let vault = Arc::new(crate::vault::Vault::in_file(&home));
+    let hub = Arc::new(Hub::at(w.hub_base(), w.models.clone(), w.events.clone()).with_vault(vault.clone()));
+    // A token whose account did not accept the terms: Hugging Face says no, and the person is told why.
+    vault.put(TOKEN, "hf_test_token_without_the_terms").unwrap();
+    let started = hub.start("test/gated-GGUF", "Q4_K_M", MACHINE).await.unwrap();
+    let ended = hub.wait_for(&started.id, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(ended.state, "failed");
+    assert!(ended.problem.as_deref().unwrap().contains("Accept its maker's terms"), "{:?}", ended.problem);
+    // The right one: it downloads, the file is asked for with the token, and nothing else is.
+    vault.put(TOKEN, GOOD_TOKEN).unwrap();
+    let started = hub.start("test/gated-GGUF", "Q4_K_M", MACHINE).await.unwrap();
+    let done = hub.wait_for(&started.id, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(done.state, "done", "{:?}", done.problem);
+    assert_eq!(std::fs::read(w.models.join("gated-Q4_K_M.gguf")).unwrap(), TINY);
+    let authorized = w.seen.lock().unwrap().authorized.clone();
+    assert_eq!(authorized.get("/test/gated-GGUF/resolve/abc123/gated-Q4_K_M.gguf").map(String::as_str), Some(format!("Bearer {GOOD_TOKEN}").as_str()));
+    assert!(authorized.keys().all(|p| p.starts_with("/test/gated-GGUF/resolve/")), "the token went with nothing but the gated model's files: {authorized:?}");
+    // Another model's files are asked for without it.
+    let started = hub.start("test/tiny-GGUF", "Q8_0", MACHINE).await.unwrap();
+    hub.wait_for(&started.id, Duration::from_secs(10)).await.unwrap();
+    assert!(!w.seen.lock().unwrap().authorized.contains_key("/test/tiny-GGUF/resolve/abc123/tiny-Q8_0.gguf"));
 }

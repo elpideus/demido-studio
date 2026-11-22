@@ -467,8 +467,41 @@ async fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
                     print_key(a);
                 }
             }
+            // The Hugging Face token, for gated models: not an account at a provider.
+            if let Some(token) = view["keys"].as_array().into_iter().flatten().find(|k| k["name"] == demido_core::hub::TOKEN) {
+                println!(
+                    "\nHugging Face (for gated models)\n  token                    …{}  kept in the {}",
+                    token["ends_with"].as_str().unwrap_or(""),
+                    if token["kept_in"] == "keyring" { "system keyring" } else { "file" }
+                );
+            }
             let names: Vec<&str> = demido_core::providers::ALL.iter().filter(|d| !d.program).map(|d| d.id).collect();
-            println!("\nProviders Demido keeps keys for: {}. Each may have several accounts.", names.join(", "));
+            println!("\nProviders Demido keeps keys for: {}. Each may have several accounts. And huggingface, a token for gated models.", names.join(", "));
+        }
+        KeysCommand::Add { provider, label } if provider == "huggingface" => {
+            let _ = label;
+            let value = read_hidden("The Hugging Face token: ")?;
+            if value.is_empty() {
+                bail!("Nothing was given, so nothing was kept.");
+            }
+            let facts = match (&server, &core) {
+                (Some(s), _) => s.send("PUT", "/api/v1/hub/token", Some(&json!({ "value": value })))?,
+                (None, Some(c)) => serde_json::to_value(c.providers.vault().put(demido_core::hub::TOKEN, &value)?)?,
+                _ => unreachable!(),
+            };
+            println!("Kept: the Hugging Face token ending in …{}, in the {}. Gated models download with it.", facts["ends_with"].as_str().unwrap_or(""), kept_in(&facts));
+        }
+        KeysCommand::Remove { provider, .. } if provider == "huggingface" => {
+            match (&server, &core) {
+                (Some(s), _) => {
+                    s.send("DELETE", "/api/v1/hub/token", None)?;
+                }
+                (None, Some(c)) => {
+                    c.providers.vault().remove(demido_core::hub::TOKEN)?;
+                }
+                _ => unreachable!(),
+            }
+            println!("The Hugging Face token is deleted.");
         }
         KeysCommand::Add { provider, label } => {
             let value = read_hidden(&format!("The {provider} key: "))?;
