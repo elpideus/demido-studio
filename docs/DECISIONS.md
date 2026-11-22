@@ -94,7 +94,7 @@ microphone, no speech model.
 | V3 | Speaking over Demido stops it at once. What it had not said yet is dropped from the conversation, so the model knows what you actually heard. The cut is marked "Stopped here". Setting: "Stop when I speak", on by default; off closes the microphone while Demido speaks. | Owner asked for it; simulated |
 | V4 | Before a task that takes time, Demido says so, then works, and the screen names the task. | From the brief; simulated |
 | V5 | A feature may take the whole window: `immersive` routes in the feature registry. The rail steps aside; the feature shows the way back. | Decided |
-| V6 | What the real thing needs, none of it chosen: a detector for speech, a small model that judges whether a sentence is finished, echo cancelling so Demido does not hear itself and stop, and a speech engine that can stop mid-word and report how far it got. Candidates and their licences are not checked. | Not researched (section D) |
+| V6 | What the real thing needs, none of it chosen: a detector for speech, a small model that judges whether a sentence is finished, echo cancelling so Demido does not hear itself and stop, and a speech engine that can stop mid-word and report how far it got. Candidates and their licences are in research note 25 (Silero VAD, Smart Turn v3, Whisper or Parakeet, Kokoro, through sherpa-onnx; echo cancelling from the browser's own capture), with a first build proposed and what to measure first. | Researched (note 25); not chosen |
 
 ## M. Markets (owner's direction, 2026-11-20)
 
