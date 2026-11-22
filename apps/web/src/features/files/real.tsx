@@ -12,7 +12,7 @@ import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Gift
 import type { LucideIcon } from 'lucide-react'
 import { useFilesFocus } from '@/data/artifacts'
 import { useReal } from '@/data/real-sessions'
-import { compareText, CoreProblem, draftKey, fileUrl, listFolder, MOST_TEXT, newFile, readText, renameFile, saveText, useDrafts, useFolderTicks, watchFolders, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
+import { compareText, CoreProblem, deleteFile, draftKey, fileUrl, listDeleted, listFolder, MOST_TEXT, newFile, putBack, readText, renameFile, saveText, useDrafts, useFolderTicks, watchFolders, type Deleted, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
 import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal } from '@/ui'
 import { Prose } from '@/ui/prose'
 import { ArtifactList, ArtifactView, useArtifacts } from './artifact'
@@ -63,6 +63,68 @@ function Rename({ session, entry, onRenamed }: { session: string; entry: FolderE
       <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>Rename</Button>
       {open && <NameIt title={`Rename ${entry.name}`} text="A new name, or a new place in the folder. A file that is there keeps its place." initial={entry.path} action="Rename"
         done={async (to) => { try { onRenamed(await renameFile(session, entry.path, to)); return null } catch (e) { return (e as Error).message } }} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+/** Deletes the open file, as the person asks: it is kept in Demido for 30 days, to be put back. */
+function Delete({ session, entry, onDeleted }: { session: string; entry: FolderEntry; onDeleted: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const go = async () => {
+    try {
+      await deleteFile(session, entry.path)
+      setOpen(false)
+      onDeleted()
+    } catch (e) {
+      setProblem((e as Error).message)
+    }
+  }
+  return (
+    <>
+      <Button size="sm" variant="ghost" onClick={() => { setProblem(null); setOpen(true) }}>Delete</Button>
+      {open && (
+        <Dialog open onOpenChange={(o) => !o && setOpen(false)} title={`Delete ${entry.name}?`}
+          text="It is taken out of the session's folder and kept in Demido for 30 days: Files can put it back where it was. An edit of it not saved is let go."
+          actions={<><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="danger" onClick={() => void go()}>Delete</Button></>}>
+          {problem && <Signal level="caution">{problem}</Signal>}
+        </Dialog>
+      )}
+    </>
+  )
+}
+
+/** The files deleted from the folder that are still kept, each to be put back. Read again when the folder changes. */
+function DeletedFiles({ session, onBack }: { session: string; onBack: (e: FolderEntry) => void }) {
+  const tick = useFolderTicks((s) => s.ticks[session] ?? 0)
+  const [kept, setKept] = useState<Deleted[]>([])
+  const [problem, setProblem] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    listDeleted(session).then((k) => { if (alive) setKept(k) }, () => {})
+    return () => { alive = false }
+  }, [session, tick])
+  if (!kept.length) return null
+  const back = async (d: Deleted) => {
+    try {
+      onBack(await putBack(session, d.id))
+      setProblem(null)
+    } catch (e) {
+      setProblem((e as Error).message)
+    }
+  }
+  return (
+    <>
+      <p className="d-list__label">Deleted, kept for 30 days</p>
+      <ul className="d-list">
+        {kept.map((d) => (
+          <li key={d.id} className="d-row d-row--compact files__deleted">
+            <span className="d-row__text"><span className="d-row__title d-text-secondary">{d.path}</span></span>
+            <Button size="sm" variant="ghost" onClick={() => void back(d)}>Put back</Button>
+          </li>
+        ))}
+      </ul>
+      {problem && <Signal level="caution">{problem}</Signal>}
     </>
   )
 }
@@ -128,7 +190,7 @@ function Different({ session, path, text }: { session: string; path: string; tex
 }
 
 /** A text file, in the editor: saved over the version it was opened at. */
-function TextFile({ session, entry, onRenamed }: { session: string; entry: FolderEntry; onRenamed: (e: FolderEntry) => void }) {
+function TextFile({ session, entry, onRenamed, onDeleted }: { session: string; entry: FolderEntry; onRenamed: (e: FolderEntry) => void; onDeleted: () => void }) {
   const kind = entry.shown_as ?? 'text'
   const key = draftKey(session, entry.path)
   const draft = useDrafts((s) => s.drafts[key])
@@ -237,6 +299,7 @@ function TextFile({ session, entry, onRenamed }: { session: string; entry: Folde
         <span className="app-spacer" />
         {previewable && <Segmented small label="View" value={view} onChange={setView} options={[{ value: 'preview', label: kind === 'html' ? 'As a page' : 'As it reads' }, { value: 'split', label: 'Side by side' }, { value: 'source', label: 'Source' }]} />}
         <Rename session={session} entry={entry} onRenamed={onRenamed} />
+        <Delete session={session} entry={entry} onDeleted={onDeleted} />
         {editable && (
           <>
             <span className="d-type-caption d-text-secondary" aria-live="polite">{saving ? 'Saving…' : draft ? 'Not saved' : ''}</span>
@@ -272,9 +335,9 @@ function TextFile({ session, entry, onRenamed }: { session: string; entry: Folde
 }
 
 /** A file, shown as what it is. */
-function Viewer({ session, entry, folder, onRenamed }: { session: string; entry: FolderEntry; folder: string; onRenamed: (e: FolderEntry) => void }) {
+function Viewer({ session, entry, folder, onRenamed, onDeleted }: { session: string; entry: FolderEntry; folder: string; onRenamed: (e: FolderEntry) => void; onDeleted: () => void }) {
   const kind = entry.shown_as ?? 'other'
-  if (kind === 'markdown' || kind === 'html' || kind === 'text') return <TextFile session={session} entry={entry} onRenamed={onRenamed} />
+  if (kind === 'markdown' || kind === 'html' || kind === 'text') return <TextFile session={session} entry={entry} onRenamed={onRenamed} onDeleted={onDeleted} />
   const url = fileUrl(session, entry.path)
   return (
     <section className="chat" style={{ gridTemplateRows: 'auto minmax(0, 1fr)' }} aria-label="File">
@@ -283,6 +346,7 @@ function Viewer({ session, entry, folder, onRenamed }: { session: string; entry:
         <span className="d-type-caption d-text-tertiary">{size(entry.size)}{entry.modified ? ` · changed ${new Date(entry.modified).toLocaleString()}` : ''}</span>
         <span className="app-spacer" />
         <Rename session={session} entry={entry} onRenamed={onRenamed} />
+        <Delete session={session} entry={entry} onDeleted={onDeleted} />
       </header>
       {kind === 'image' || kind === 'svg' ? <div className="files__preview files__media"><img src={url} alt={entry.name} /></div>
         : kind === 'pdf' ? <PdfPages url={url} name={entry.name} />
@@ -333,6 +397,7 @@ export function RealFiles() {
                   <Button size="sm" variant="ghost" onClick={() => setMaking(true)}>New file</Button>
                 </p>
                 <Branch key={session.id} session={session.id} path="" depth={0} open={open?.kind === 'file' ? open.entry.path : null} onOpen={openFile} />
+                <DeletedFiles session={session.id} onBack={openFile} />
               </>}
             </div>
             {session.folder && <p className="app-side__foot">{session.folder}</p>}
@@ -340,11 +405,11 @@ export function RealFiles() {
       </aside>
       {making && session && <NameIt title="A new file" text="An empty file in the session's folder, to write in here. A file that is there is left as it is." initial="notes.md" action="Make it"
         done={async (path) => { try { openFile(await newFile(session.id, path)); return null } catch (e) { return e instanceof CoreProblem && e.status === 409 ? `There is a file ${path} in the folder already.` : (e as Error).message } }} onClose={() => setMaking(false)} />}
-      {session && open?.kind === 'file' ? <Viewer key={`${session.id}\u0000${open.entry.path}`} session={session.id} entry={open.entry} folder={session.folder ?? ''} onRenamed={openFile} />
+      {session && open?.kind === 'file' ? <Viewer key={`${session.id}\u0000${open.entry.path}`} session={session.id} entry={open.entry} folder={session.folder ?? ''} onRenamed={openFile} onDeleted={() => setState({ session: session.id, open: null })} />
         : session && open?.kind === 'artifact' ? <ArtifactView key={`${open.id}:${open.n ?? 'last'}`} session={session.id} id={open.id} n={open.n} folder={session.folder ?? null} onPut={openFile} />
         : <section className="chat" aria-label="File"><div className="files__preview app-stack">
           <p className="app-empty">{session ? 'Pick a file on the left.' : 'The files of a session with a folder, and the files models gave you, are shown here.'}</p>
-          <NotBuilt block>Deleting a file here; editing a file a model gave you.</NotBuilt>
+          <NotBuilt block>Deleting a folder here; editing a file a model gave you.</NotBuilt>
         </div></section>}
     </div>
   )

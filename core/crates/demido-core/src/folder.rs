@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{Error, Result};
@@ -404,6 +404,101 @@ pub fn rename(folder: &Path, from: &str, to: &str) -> Result<Entry> {
     })
 }
 
+/// A file the person deleted in the window, kept for a while so that it can be put back.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Deleted {
+    pub id: String,
+    /// Where it was, from the session's folder.
+    pub path: String,
+    pub size: u64,
+    /// When it was deleted, in milliseconds since 1970.
+    pub at: i64,
+}
+
+/// How long a deleted file is kept: 30 days.
+pub const KEPT_DELETED_MS: i64 = 30 * 24 * 3600 * 1000;
+
+/// Moves a file, across disks too: the session's folder and Demido's own may be on different ones.
+fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(from, to)?;
+    std::fs::remove_file(from)
+}
+
+/// Deletes a file of the session's folder, as the person asks: it is moved into `kept_in` (Demido's own
+/// place for the session's deleted files) and kept there for 30 days, to be put back. Only a file; not a
+/// folder, and not a link (which would be put back as something else).
+pub fn delete(folder: &Path, path: &str, kept_in: &Path) -> Result<Deleted> {
+    let base = folder.canonicalize().map_err(|e| Error::NotFound(format!("The session's folder cannot be opened: {e}")))?;
+    let file = resolved(folder, path)?;
+    let meta = std::fs::symlink_metadata(&file).map_err(|_| Error::NotFound(format!("There is no file \"{path}\" in the session's folder.")))?;
+    if meta.is_dir() {
+        return Err(Error::Invalid(format!("\"{path}\" is a folder. Only files are deleted here.")));
+    }
+    if meta.file_type().is_symlink() {
+        return Err(Error::Invalid(format!("\"{path}\" is a link. Only files are deleted here.")));
+    }
+    let deleted = Deleted { id: uuid::Uuid::now_v7().to_string(), path: shown(&base, &file), size: meta.len(), at: crate::now_ms() };
+    let place = kept_in.join(&deleted.id);
+    std::fs::create_dir_all(&place)?;
+    std::fs::write(place.join("deleted.json"), serde_json::to_vec(&deleted).map_err(|e| Error::Other(e.to_string()))?)?;
+    if let Err(e) = move_file(&file, &place.join("file")) {
+        let _ = std::fs::remove_dir_all(&place);
+        return Err(e.into());
+    }
+    Ok(deleted)
+}
+
+/// The files deleted from a session's folder that are still kept, the most recent first. Those kept longer
+/// than 30 days are let go.
+pub fn deleted(kept_in: &Path) -> Result<Vec<Deleted>> {
+    let Ok(entries) = std::fs::read_dir(kept_in) else { return Ok(Vec::new()) };
+    let now = crate::now_ms();
+    let mut kept: Vec<Deleted> = Vec::new();
+    for entry in entries.filter_map(|e| e.ok()) {
+        let read = std::fs::read(entry.path().join("deleted.json")).ok().and_then(|b| serde_json::from_slice::<Deleted>(&b).ok());
+        match read {
+            Some(d) if now - d.at <= KEPT_DELETED_MS && entry.path().join("file").is_file() => kept.push(d),
+            _ => {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+    kept.sort_by_key(|d| std::cmp::Reverse(d.at));
+    Ok(kept)
+}
+
+/// Puts a deleted file back where it was. Never over a file that is there now.
+pub fn put_back(folder: &Path, kept_in: &Path, id: &str) -> Result<Entry> {
+    let gone = || Error::NotFound("That deleted file is no longer kept.".into());
+    if id.contains(['/', '\\']) || id.contains("..") {
+        return Err(gone());
+    }
+    let place = kept_in.join(id);
+    let deleted: Deleted = serde_json::from_slice(&std::fs::read(place.join("deleted.json")).map_err(|_| gone())?).map_err(|_| gone())?;
+    let base = folder.canonicalize().map_err(|e| Error::NotFound(format!("The session's folder cannot be opened: {e}")))?;
+    let file = resolved(folder, &deleted.path)?;
+    if std::fs::symlink_metadata(&file).is_ok() {
+        return Err(Error::Busy(format!("There is a file \"{}\" in the folder now. Rename it first, and put this one back.", deleted.path)));
+    }
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    move_file(&place.join("file"), &file)?;
+    let _ = std::fs::remove_dir_all(&place);
+    let meta = std::fs::metadata(&file)?;
+    Ok(Entry {
+        name: file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        path: shown(&base, &file),
+        kind: "file".into(),
+        shown_as: Some(kind_of(&file).word().to_string()),
+        size: meta.len(),
+        modified: modified_of(&meta),
+    })
+}
+
 /// What is different between a text file as it is now and the person's edit of it, as a unified diff:
 /// `-` for lines only the file has, `+` for lines only the edit has.
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -543,6 +638,32 @@ mod tests {
         put(&dir, "readme-link.md", b"# Put through\n", true).unwrap();
         assert!(std::fs::symlink_metadata(dir.join("readme-link.md")).unwrap().file_type().is_symlink());
         assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Put through\n");
+    }
+
+    #[test]
+    fn a_deleted_file_is_kept_and_put_back_where_it_was_never_over_another() {
+        let dir = folder();
+        let kept = crate::testing::TempDir::new("demido-deleted");
+        let gone = delete(&dir, "src/main.rs", &kept).unwrap();
+        assert_eq!((gone.path.as_str(), gone.size), ("src/main.rs", 13));
+        assert!(!dir.join("src/main.rs").exists());
+        assert_eq!(deleted(&kept).unwrap(), vec![gone.clone()]);
+        // Something new in its place: it is not put back over it.
+        std::fs::write(dir.join("src/main.rs"), "new").unwrap();
+        assert!(matches!(put_back(&dir, &kept, &gone.id), Err(Error::Busy(_))));
+        std::fs::remove_file(dir.join("src/main.rs")).unwrap();
+        let back = put_back(&dir, &kept, &gone.id).unwrap();
+        assert_eq!((back.path.as_str(), std::fs::read_to_string(dir.join("src/main.rs")).unwrap().as_str()), ("src/main.rs", "fn main() {}\n"));
+        assert!(deleted(&kept).unwrap().is_empty(), "put back: no longer kept");
+        // Only files, only inside; a file kept past 30 days is let go.
+        assert!(matches!(delete(&dir, "src", &kept), Err(Error::Invalid(_))));
+        assert!(delete(&dir, "../outside.md", &kept).is_err());
+        let old = delete(&dir, "Makefile", &kept).unwrap();
+        let stale = Deleted { at: crate::now_ms() - KEPT_DELETED_MS - 1, ..old.clone() };
+        std::fs::write(kept.join(&old.id).join("deleted.json"), serde_json::to_vec(&stale).unwrap()).unwrap();
+        assert!(deleted(&kept).unwrap().is_empty());
+        assert!(!kept.join(&old.id).exists(), "let go of");
+        assert!(put_back(&dir, &kept, "../../etc").is_err());
     }
 
     #[test]

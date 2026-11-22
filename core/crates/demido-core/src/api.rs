@@ -122,6 +122,8 @@ pub struct App {
     pub started: Instant,
     /// The names this server answers to, for example `127.0.0.1:7341`. Empty means any (not loopback).
     pub hosts: Arc<Vec<String>>,
+    /// Where the files a person deletes in the window are kept for 30 days, a folder for each session.
+    pub deleted_in: PathBuf,
 }
 
 // ───────── errors ─────────
@@ -656,6 +658,35 @@ async fn session_file_new(State(app): State<App>, Path(id): Path<String>, Json(b
     Ok(Json(made))
 }
 
+/// Deletes a file of the session's folder, as the person asks: it is kept for 30 days, to be put back.
+/// Only a file, not a folder or a link.
+#[utoipa::path(delete, path = "/api/v1/sessions/{id}/files", tag = "sessions", params(("id" = String, Path, description = "The session's id"), FolderQuery), responses((status = 200, body = crate::folder::Deleted), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn session_file_delete(State(app): State<App>, Path(id): Path<String>, Query(q): Query<FolderQuery>) -> Result<Json<crate::folder::Deleted>> {
+    let folder = folder_of(&app, &id)?;
+    let kept_in = app.deleted_in.join(&id);
+    let gone = tokio::task::spawn_blocking(move || crate::folder::delete(&folder, &q.path, &kept_in)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("session.file_saved", Some(&id), json!({ "path": gone.path, "deleted": true }))?;
+    Ok(Json(gone))
+}
+
+/// The files deleted from the session's folder that are still kept, the most recent first.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/files/deleted", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Vec<crate::folder::Deleted>), (status = 404, body = Problem)))]
+async fn session_files_deleted(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Vec<crate::folder::Deleted>>> {
+    app.sessions.get(&id)?;
+    let kept_in = app.deleted_in.join(&id);
+    Ok(Json(tokio::task::spawn_blocking(move || crate::folder::deleted(&kept_in)).await.map_err(|e| Error::Other(e.to_string()))??))
+}
+
+/// Puts a deleted file back where it was; never over a file that is there now (409).
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/files/deleted/{deleted}/put-back", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("deleted" = String, Path, description = "The deleted file's id")), responses((status = 200, body = crate::folder::Entry), (status = 404, body = Problem), (status = 409, body = Problem)))]
+async fn session_file_put_back(State(app): State<App>, Path((id, deleted)): Path<(String, String)>) -> Result<Json<crate::folder::Entry>> {
+    let folder = folder_of(&app, &id)?;
+    let kept_in = app.deleted_in.join(&id);
+    let back = tokio::task::spawn_blocking(move || crate::folder::put_back(&folder, &kept_in, &deleted)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("session.file_saved", Some(&id), json!({ "path": back.path, "put_back": true }))?;
+    Ok(Json(back))
+}
+
 /// A file or folder of the session's folder, and its new name.
 #[derive(Deserialize, ToSchema)]
 pub struct Renamed {
@@ -947,7 +978,10 @@ async fn session_answer_now(State(app): State<App>, Path(id): Path<String>) -> R
 /// Deletes a session and everything said in it. An answer being written in it is stopped.
 #[utoipa::path(delete, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Session), (status = 404, body = Problem)))]
 async fn session_delete(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Session>> {
-    Ok(Json(app.chat.delete(&id)?))
+    let gone = app.chat.delete(&id)?;
+    // The files deleted from its folder, kept to be put back, go with it.
+    let _ = std::fs::remove_dir_all(app.deleted_in.join(&gone.id));
+    Ok(Json(gone))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -1271,7 +1305,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1315,7 +1349,9 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/undo", post(session_undo))
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
-        .route("/sessions/{id}/files", get(session_files).post(session_file_new))
+        .route("/sessions/{id}/files", get(session_files).post(session_file_new).delete(session_file_delete))
+        .route("/sessions/{id}/files/deleted", get(session_files_deleted))
+        .route("/sessions/{id}/files/deleted/{deleted}/put-back", post(session_file_put_back))
         .route("/sessions/{id}/files/rename", post(session_file_rename))
         .route("/sessions/{id}/files/compare", post(session_file_compare).layer(axum::extract::DefaultBodyLimit::max(crate::folder::MOST_SAVED as usize)))
         .route("/sessions/{id}/artifacts", get(session_artifacts).post(session_artifact_keep))
@@ -1402,6 +1438,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         ui: ui.clone(),
         started: Instant::now(),
         hosts: Arc::new(hosts_for(&local)),
+        deleted_in: opts.paths.home().join("deleted"),
     };
 
     std::fs::write(opts.paths.running(), json!({ "address": local.to_string(), "pid": std::process::id(), "started_at": now_ms(), "version": VERSION }).to_string())?;
@@ -1534,6 +1571,7 @@ mod tests {
             ui: Ui::default(),
             started: Instant::now(),
             hosts: Arc::new(vec!["127.0.0.1:7341".into()]),
+            deleted_in: home.join("deleted"),
         };
         let sessions = app.sessions.clone();
         (router(app), auth, events, sessions)
@@ -1663,6 +1701,15 @@ mod tests {
         let (status, moved) = send(&r, json_post(&format!("/api/v1/sessions/{id}/files/rename"), json!({ "from": "drafts/plan.md", "to": "plan.md" }))).await;
         assert_eq!((status, moved["path"].as_str()), (StatusCode::OK, Some("plan.md")));
         assert_eq!(send(&r, json_post(&format!("/api/v1/sessions/{id}/files/rename"), json!({ "from": "plan.md", "to": "notes.md" }))).await.0, StatusCode::CONFLICT);
+        // Deleted: kept, listed, and put back where it was.
+        let (status, gone) = send(&r, key(request("DELETE", &format!("/api/v1/sessions/{id}/files?path=plan.md"))).body(Body::empty()).unwrap()).await;
+        assert_eq!((status, gone["path"].as_str()), (StatusCode::OK, Some("plan.md")), "{gone}");
+        assert!(!work.join("plan.md").exists());
+        let (_, kept) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/files/deleted"))).body(Body::empty()).unwrap()).await;
+        assert_eq!(kept[0]["id"], gone["id"]);
+        let (status, back) = send(&r, json_post(&format!("/api/v1/sessions/{id}/files/deleted/{}/put-back", gone["id"].as_str().unwrap()), json!({}))).await;
+        assert_eq!((status, back["path"].as_str()), (StatusCode::OK, Some("plan.md")));
+        assert!(work.join("plan.md").exists());
         // Before choosing, the person can see what is different between the file now and their edit.
         let compare = key(request("POST", &format!("/api/v1/sessions/{id}/files/compare?path=notes.md"))).header("content-type", "text/plain").body(Body::from("# Mine\n\nMore.\n")).unwrap();
         let (status, compared) = send(&r, compare).await;

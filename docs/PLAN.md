@@ -169,7 +169,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
 | 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS F1 to F14, research note 23), and with them a long file written into the folder (T24) | Window work with a clear edge |
-| 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts | Logged-in pages are the most private thing there is |
+| 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts (~~PDFs~~ done, N15) | Logged-in pages are the most private thing there is |
 | 9 | Voice: the libraries, the screen | Research and building, little risk |
 | 9 | Email and the messaging platforms: reading and sending in a person's name | Messages from outside are injected text; sending cannot be undone |
 | 9 | Markets: charts, indicators, the Pine editor | Nothing here places an order |
@@ -194,6 +194,8 @@ Also done on 2026-11-21: Claude Code and OpenCode (DECISIONS U15 to U25).
 Also done on 2026-11-22: settings for each model, from what each maker recommends (DECISIONS K26 to K30).
 
 Also done on 2026-11-22: a session's folder in the Files screen, the viewer for what is in it, the editor, and artifacts (DECISIONS F, research note 23).
+
+Also done on 2026-11-22: a model can write a long file into the folder (T24); a link that leads to nothing is never written through (T25); the window's own pages carry a content policy (K34); a PDF from the internet is read for its text, in a process of its own (N15); a proposal for schedules with nobody there, with one measurement (research note 24, needs the owner).
 
 Next, in this order unless the owner says otherwise: the sandbox on Windows (it needs the owner's view
 first: note 05's first step guards only writes, and changes the folder's permissions on the person's own

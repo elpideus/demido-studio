@@ -78,6 +78,27 @@ async function sent<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** A file deleted in the window, kept for 30 days to be put back. */
+export interface Deleted { id: string; path: string; size: number; at: number }
+
+/** Deletes a file of the session's folder: it is kept for 30 days, to be put back. An edit not saved goes. */
+export async function deleteFile(session: string, path: string): Promise<Deleted> {
+  const res = await fetch(`/api/v1/sessions/${encodeURIComponent(session)}/files?path=${encodeURIComponent(path)}`, { method: 'DELETE', headers: { accept: 'application/json' } })
+  if (!res.ok) throw await problem(res)
+  useDrafts.getState().put(draftKey(session, path), null)
+  return res.json() as Promise<Deleted>
+}
+
+/** The files deleted from the session's folder that are still kept, the most recent first. */
+export function listDeleted(session: string): Promise<Deleted[]> {
+  return coreGet<Deleted[]>(`/sessions/${encodeURIComponent(session)}/files/deleted`)
+}
+
+/** Puts a deleted file back where it was; never over a file that is there now (409). */
+export function putBack(session: string, id: string): Promise<FolderEntry> {
+  return sent(`/sessions/${encodeURIComponent(session)}/files/deleted/${encodeURIComponent(id)}/put-back`, {})
+}
+
 /** Makes an empty file in the session's folder; never over one that is there (409). */
 export function newFile(session: string, path: string): Promise<FolderEntry> {
   return sent(`/sessions/${encodeURIComponent(session)}/files`, { path })
