@@ -28,6 +28,9 @@ pub struct Session {
     pub folder: Option<String>,
     /// How much it may do without asking: `cautious`, `balanced`, `smart` or `autonomous`.
     pub permission: String,
+    /// The account at its model's provider it goes through. `null`: the provider's default.
+    #[serde(default)]
+    pub account: Option<String>,
     pub created_at: i64,
     /// When something was last said in it.
     pub updated_at: i64,
@@ -148,8 +151,32 @@ pub struct Sessions {
     db: Arc<Db>,
 }
 
+/// The session a program (Claude Code, OpenCode) keeps for one of Demido's.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProgramSession {
+    /// The program's own name for it.
+    pub external_id: String,
+    /// The last message of Demido's session the program was given.
+    pub seen_seq: i64,
+    /// What the program said its session had cost so far, in dollars.
+    pub cost_so_far: f64,
+    /// The account whose profile it is kept in: it can go on only with that account. Empty for OpenCode.
+    pub account: String,
+}
+
 fn session_from(r: &rusqlite::Row) -> rusqlite::Result<Session> {
-    Ok(Session { id: r.get(0)?, title: r.get(1)?, model: r.get(2)?, created_at: r.get(3)?, updated_at: r.get(4)?, messages: r.get(5)?, thinking: r.get(6)?, folder: r.get(7)?, permission: r.get(8)? })
+    Ok(Session {
+        id: r.get(0)?,
+        title: r.get(1)?,
+        model: r.get(2)?,
+        created_at: r.get(3)?,
+        updated_at: r.get(4)?,
+        messages: r.get(5)?,
+        thinking: r.get(6)?,
+        folder: r.get(7)?,
+        permission: r.get(8)?,
+        account: r.get(9)?,
+    })
 }
 
 fn message_from(r: &rusqlite::Row) -> rusqlite::Result<Message> {
@@ -200,7 +227,8 @@ fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
     })
 }
 
-const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission FROM sessions s";
+const SESSION: &str =
+    "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission, s.account FROM sessions s";
 const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at, steps FROM messages";
 const TASK: &str = "SELECT id, session_id, message_id, parent_id, position, title, state, result, steps, created_at, updated_at FROM tasks";
 
@@ -261,6 +289,13 @@ impl Sessions {
     pub fn set_folder(&self, id: &str, folder: Option<&str>) -> Result<Session> {
         self.get(id)?;
         self.db.with(|c| c.execute("UPDATE sessions SET folder = ?2 WHERE id = ?1", rusqlite::params![id, folder]))?;
+        self.get(id)
+    }
+
+    /// Sets the account a session goes through, or (`None`) its provider's default.
+    pub fn set_account(&self, id: &str, account: Option<&str>) -> Result<Session> {
+        self.get(id)?;
+        self.db.with(|c| c.execute("UPDATE sessions SET account = ?2 WHERE id = ?1", rusqlite::params![id, account]))?;
         self.get(id)
     }
 
@@ -423,28 +458,30 @@ impl Sessions {
         self.message(id)
     }
 
-    /// Writes down the tools an answer has used so far.
-    /// The session a program keeps for this one, and the last message of this one it was given.
-    pub fn program_session(&self, session_id: &str, provider: &str) -> Result<Option<(String, i64, f64)>> {
+    /// The session a program keeps for this one.
+    pub fn program_session(&self, session_id: &str, provider: &str) -> Result<Option<ProgramSession>> {
         self.db.with(|c| {
-            c.query_row("SELECT external_id, seen_seq, cost_so_far FROM program_sessions WHERE session_id = ?1 AND provider = ?2", [session_id, provider], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-                .map(Some)
-                .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e) })
+            c.query_row("SELECT external_id, seen_seq, cost_so_far, account FROM program_sessions WHERE session_id = ?1 AND provider = ?2", [session_id, provider], |r| {
+                Ok(ProgramSession { external_id: r.get(0)?, seen_seq: r.get(1)?, cost_so_far: r.get(2)?, account: r.get(3)? })
+            })
+            .map(Some)
+            .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e) })
         })
     }
 
-    /// Writes down the program's session for this one, how far it has seen it, and what it said it cost so far.
-    pub fn set_program_session(&self, session_id: &str, provider: &str, external_id: &str, seen_seq: i64, cost_so_far: f64) -> Result<()> {
+    /// Writes down the program's session for this one.
+    pub fn set_program_session(&self, session_id: &str, provider: &str, kept: &ProgramSession) -> Result<()> {
         self.db.with(|c| {
             c.execute(
-                "INSERT INTO program_sessions (session_id, provider, external_id, seen_seq, cost_so_far) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT (session_id, provider) DO UPDATE SET external_id = ?3, seen_seq = ?4, cost_so_far = ?5",
-                rusqlite::params![session_id, provider, external_id, seen_seq, cost_so_far],
+                "INSERT INTO program_sessions (session_id, provider, external_id, seen_seq, cost_so_far, account) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT (session_id, provider) DO UPDATE SET external_id = ?3, seen_seq = ?4, cost_so_far = ?5, account = ?6",
+                rusqlite::params![session_id, provider, kept.external_id, kept.seen_seq, kept.cost_so_far, kept.account],
             )
         })?;
         Ok(())
     }
 
+    /// Writes down the tools an answer has used so far.
     pub fn set_steps(&self, message_id: &str, steps: &[Step]) -> Result<()> {
         let steps = serde_json::to_string(steps)?;
         self.db.with(|c| c.execute("UPDATE messages SET steps = ?2 WHERE id = ?1", rusqlite::params![message_id, steps]))?;

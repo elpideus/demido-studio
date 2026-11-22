@@ -1,15 +1,17 @@
-/* Providers, for real: the keys the core keeps, the models chosen at each provider, and what they cost.
+/* Providers, for real: the person's accounts at each provider, the models chosen there, and what they cost.
 
-   A key is given once and never shown again, here or anywhere: only its last four characters. Nothing is
-   sent to a model that is not chosen here, and the core stops sending when the month's count reaches the
-   limit in Settings. Claude Code and OpenCode are programs on this computer with loops of their own: their
-   cards say whether they are here and how they are signed in (never the login itself), and what their plan
-   said of its limit. Their use is shown and is held by their own plans, not by the limit here. */
+   A provider can hold several accounts: several keys at an API, several Claude Code sign-ins, each named by
+   the person. One is the default; a session can name another. A key is given once and never shown again,
+   here or anywhere: only its last four characters. Nothing is sent to a model that is not chosen here, and
+   the core stops sending when the month's count reaches the limit in Settings. Claude Code and OpenCode are
+   programs on this computer with loops of their own: their cards say whether Demido has its copy and how each
+   account is signed in (never the login itself), and what its plan said of its limit. Their use is shown and
+   is held by their own plans, not by the limit here. */
 import { useEffect, useMemo, useState } from 'react'
-import { Ellipsis, ExternalLink, KeyRound, ListPlus, RefreshCw } from 'lucide-react'
+import { Ellipsis, ExternalLink, KeyRound, ListPlus, Plus, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
-import { choose, dollars, downloadCopy, holds, latestCopy, listModels, priceOf, readAccount, removeCopy, removeKey, saveKey, signIn, stopDownload, useProviders, type Account, type Latest, type PlanLimit, type ProviderView, type RemoteModel, type Spending } from '@/data/providers'
-import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal, Switch, Tip } from '@/ui'
+import { addAccount, changeAccount, choose, dollars, downloadCopy, holds, latestCopy, listModels, priceOf, readAccount, removeAccount, removeCopy, replaceKey, signIn, stopDownload, useProviders, type Account, type Latest, type PlanLimit, type ProviderAccount, type ProviderView, type RemoteModel, type Spending } from '@/data/providers'
+import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal, Switch, Tip, type MenuEntry } from '@/ui'
 
 function Meter({ label, used, limit, unit, note }: { label: string; used: number; limit: number | null; unit: string; note?: string }) {
   const pct = limit ? Math.min(100, (used / limit) * 100) : 0
@@ -52,25 +54,62 @@ function Month({ spending }: { spending: Spending }) {
   )
 }
 
-function KeyDialog({ p, where, onClose }: { p: ProviderView; where: string; onClose: () => void }) {
+/** What the account dialog does: adds one, gives one another key, or renames one. */
+type Editing = { mode: 'add' } | { mode: 'key'; account: ProviderAccount } | { mode: 'rename'; account: ProviderAccount }
+
+function AccountDialog({ p, editing, where, onClose }: { p: ProviderView; editing: Editing; where: string; onClose: () => void }) {
+  const program = p.kind === 'program'
+  const named = editing.mode === 'add' ? '' : editing.account.label
+  const [label, setLabel] = useState(editing.mode === 'rename' ? named : '')
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
+  const wantsKey = !program && editing.mode !== 'rename'
+  const wantsLabel = editing.mode !== 'key'
+  const ready = (!wantsKey || value.trim() !== '') && (editing.mode !== 'rename' || label.trim() !== '')
   const save = async () => {
-    if (!value.trim() || saving) return
+    if (!ready || saving) return
     setSaving(true)
-    if (await saveKey(p.id, value.trim())) onClose()
+    let done: boolean
+    if (editing.mode === 'add') {
+      const added = await addAccount(p.id, label, program ? undefined : value.trim())
+      // A Claude Code account is signed in at once, on Anthropic's page.
+      if (added && program) await signIn(p.id, added.id)
+      done = added !== null
+    } else if (editing.mode === 'key') {
+      done = await replaceKey(p.id, editing.account.id, value.trim())
+    } else {
+      done = await changeAccount(p.id, editing.account.id, { label: label.trim() })
+    }
     setSaving(false)
+    if (done) onClose()
   }
+  const title = editing.mode === 'rename' ? `Rename ${named}` : editing.mode === 'key' ? `Replace the key of ${named}` : program ? `Add a ${p.name} account` : p.accounts.length ? `Add another ${p.name} key` : `Add your ${p.name} key`
+  const text = editing.mode === 'rename'
+    ? 'A name of your own, to tell your accounts apart.'
+    : program
+      ? <>Each account signs in on Anthropic's own page and keeps its login in a profile of its own, with its own settings and history: apart from your other accounts, and from any Claude Code of your own. Demido never sees or keeps a login.</>
+      : <>Paste the key {p.name} gave you. {where} It is never shown again, here or anywhere: only its last four characters. It is sent only to {p.name}, in the way its API asks for it.</>
+  const action = editing.mode === 'rename' ? 'Rename' : program ? 'Add and sign in' : 'Keep the key'
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title={p.key ? `Replace the ${p.name} key` : `Add your ${p.name} key`}
-      text={<>Paste the key {p.name} gave you. {where} It is never shown again, here or anywhere: only its last four characters. It is sent only to {p.name}, in the way its API asks for it.</>}
-      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!value.trim() || saving} onClick={() => void save()}>{saving ? 'Keeping it…' : 'Keep the key'}</Button></>}>
-      <form className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }} onSubmit={(e) => { e.preventDefault(); void save() }}>
-        <label className="d-field">
-          <span className="d-field__label">API key</span>
-          <input className="d-input d-input--mono" type="password" autoComplete="off" spellCheck={false} autoFocus placeholder="Paste the key" value={value} onChange={(e) => setValue(e.target.value)} />
-          <span className="d-field__help">No key yet? Get one at <a href={p.keys_at} target="_blank" rel="noreferrer noopener">{p.keys_at.replace('https://', '')}</a>. Billed by {p.name}, not by Demido.</span>
-        </label>
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={title} text={text}
+      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!ready || saving} onClick={() => void save()}>{saving ? 'A moment…' : action}</Button></>}>
+      {/* Two fields and no button of its own: Enter is caught here, as a form would only for one field. */}
+      <form className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }} onSubmit={(e) => { e.preventDefault(); void save() }}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); void save() } }}>
+        {wantsLabel && (
+          <label className="d-field">
+            <span className="d-field__label">Name</span>
+            <input className="d-input" maxLength={40} autoFocus placeholder={editing.mode === 'rename' ? undefined : 'Work, Personal… (you can leave it empty)'} value={label} onChange={(e) => setLabel(e.target.value)} />
+            {editing.mode === 'add' && <span className="d-field__help">To tell this account from your others. Left empty, it is numbered: Account 1, Account 2.</span>}
+          </label>
+        )}
+        {wantsKey && (
+          <label className="d-field">
+            <span className="d-field__label">API key</span>
+            <input className="d-input d-input--mono" type="password" autoComplete="off" spellCheck={false} autoFocus={!wantsLabel} placeholder="Paste the key" value={value} onChange={(e) => setValue(e.target.value)} />
+            <span className="d-field__help">No key yet? Get one at <a href={p.keys_at} target="_blank" rel="noreferrer noopener">{p.keys_at.replace('https://', '')}</a>. Billed by {p.name}, not by Demido.</span>
+          </label>
+        )}
       </form>
     </Dialog>
   )
@@ -104,7 +143,7 @@ function ModelsDialog({ p, onClose }: { p: ProviderView; onClose: () => void }) 
   const most = 150
   return (
     <Dialog open wide onOpenChange={(o) => !o && onClose()} title={`Choose ${p.name} models`}
-      text={p.kind === 'program' ? `A session can use a model once it is chosen here, and only then. ${p.name} lists what it offers on this computer; it runs the model with its own tools.` : `A session can use a model once it is chosen here, and only then. ${p.name} lists what this key may use; prices are in dollars per million tokens.`}
+      text={p.kind === 'program' ? `A session can use a model once it is chosen here, and only then. ${p.name} lists what it offers on this computer; it runs the model with its own tools.` : `A session can use a model once it is chosen here, and only then. ${p.name} lists what the default account's key may use; prices are in dollars per million tokens.`}
       actions={<Button variant="primary" onClick={onClose}>Done</Button>}>
       <div className="app-stack" style={{ marginBlockStart: 'var(--d-space-12)' }}>
         <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
@@ -138,24 +177,24 @@ function ModelsDialog({ p, onClose }: { p: ProviderView; onClose: () => void }) 
   )
 }
 
-/** What a provider itself says about the key's account, asked when the card opens. */
-function AccountLines({ p }: { p: ProviderView }) {
+/** What a provider itself says about one account, asked when the card opens. `withNote`: say once what it does not say. */
+function AccountLines({ p, a, withNote }: { p: ProviderView; a: ProviderAccount; withNote: boolean }) {
   const [account, setAccount] = useState<Account | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const keyed = p.key?.added_at
+  const keyed = a.key?.added_at
   useEffect(() => {
     if (!keyed) return
     let alive = true
-    readAccount(p.id).then((a) => { if (alive) setAccount(a) }, (e: Error) => { if (alive) setError(e.message) })
+    readAccount(p.id, a.id).then((r) => { if (alive) setAccount(r) }, (e: Error) => { if (alive) setError(e.message) })
     return () => { alive = false }
-  }, [p.id, keyed])
+  }, [p.id, a.id, keyed])
   if (!keyed) return null
-  if (error) return <Signal level="caution">{p.name} did not say what the key has spent: {error}</Signal>
-  if (!account) return null
+  if (error) return <Signal level="caution">{p.name} did not say what this key has spent: {error}</Signal>
+  if (!account || (!account.lines.length && !withNote)) return null
   return (
     <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
       {account.lines.map((l) => <Meter key={l.label} label={`${l.label} (as ${p.name} says)`} used={l.used} limit={l.limit} unit={l.unit} note={l.reset ?? undefined} />)}
-      {account.note && <p className="d-type-caption d-text-secondary">{account.note}</p>}
+      {withNote && account.note && <p className="d-type-caption d-text-secondary">{account.note}</p>}
     </div>
   )
 }
@@ -167,9 +206,9 @@ function Plan({ plan }: { plan: PlanLimit }) {
   return (
     <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
       {plan.used !== null
-        ? <Meter label={`Your plan's limit, as Claude Code said at ${said}`} used={Math.round(plan.used * 100)} limit={100} unit="%" note={resets ? `resets ${resets}` : undefined} />
-        : <p className="d-type-caption d-text-secondary">Claude Code said at {said} that your plan's limit is {plan.status === 'rejected' ? 'reached' : plan.status === 'allowed_warning' ? 'nearly reached' : 'not reached'}{resets ? `; it resets ${resets}` : ''}.</p>}
-      {plan.status === 'rejected' && <Signal level="caution">Your plan's limit is reached: Claude Code answers again when it resets, or with usage credits if you turned those on with Anthropic.</Signal>}
+        ? <Meter label={`Its plan's limit, as Claude Code said at ${said}`} used={Math.round(plan.used * 100)} limit={100} unit="%" note={resets ? `resets ${resets}` : undefined} />
+        : <p className="d-type-caption d-text-secondary">Claude Code said at {said} that this plan's limit is {plan.status === 'rejected' ? 'reached' : plan.status === 'allowed_warning' ? 'nearly reached' : 'not reached'}{resets ? `; it resets ${resets}` : ''}.</p>}
+      {plan.status === 'rejected' && <Signal level="caution">This plan's limit is reached: Claude Code answers again when it resets, with usage credits if you turned those on with Anthropic, or with another of your accounts.</Signal>}
     </div>
   )
 }
@@ -204,130 +243,167 @@ function OwnCopy({ p }: { p: ProviderView }) {
   const newer = latest && latest.version !== p.copy.version ? latest : null
   return (
     <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
-      <p className="d-type-caption d-text-secondary">Demido's own copy, {p.copy.version}, {MB(p.copy.size)}, checked against the {p.copy.checked}. It runs with a profile of its own and does not update itself: Demido updates it.</p>
+      <p className="d-type-caption d-text-secondary">Demido's own copy, {p.copy.version}, {MB(p.copy.size)}, checked against the {p.copy.checked}. It runs with {p.takes_accounts ? 'a profile of its own for each account' : 'a profile of its own'} and does not update itself: Demido updates it.</p>
       <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
         {newer && <Button size="sm" onClick={() => void downloadCopy(p.id)}>Update to {newer.version}</Button>}
-        <Tip label="Its profile, with its settings and login, is kept: downloaded again, it finds them."><Button size="sm" variant="ghost" onClick={() => void removeCopy(p.id)}>Delete the copy</Button></Tip>
+        <Tip label={p.takes_accounts ? 'The accounts\' profiles, with their settings and logins, are kept: downloaded again, it finds them.' : 'Its profile, with its settings, is kept: downloaded again, it finds it.'}><Button size="sm" variant="ghost" onClick={() => void removeCopy(p.id)}>Delete the copy</Button></Tip>
       </div>
     </div>
   )
 }
 
-/** Claude Code's own sign-in, on Anthropic's page. Demido starts it and never sees the login. */
-function SignInPart({ p }: { p: ProviderView }) {
-  const s = p.signing
-  const needed = p.program?.signed_in === 'not signed in'
-  if (!s && !needed) return null
-  const command = p.sign_in_command && (
-    <span style={{ display: 'block', marginBlockStart: 'var(--d-space-6)' }}>If Anthropic's page shows a code to paste, sign in from a terminal instead: <code className="d-mono" style={{ userSelect: 'all' }}>{p.sign_in_command}</code></span>
+/** Claude Code's own sign-in for one account, on Anthropic's page. Demido starts it and never sees the login. */
+function SignInPart({ p, a }: { p: ProviderView; a: ProviderAccount }) {
+  const s = a.signing
+  const needed = a.signed_in === 'not signed in'
+  if ((!s || s.state === 'done') && !needed) return null
+  const command = a.sign_in_command && (
+    <span style={{ display: 'block', marginBlockStart: 'var(--d-space-6)' }}>If Anthropic's page shows a code to paste, sign in from a terminal instead: <code className="d-mono" style={{ userSelect: 'all' }}>{a.sign_in_command}</code></span>
   )
   if (s?.state === 'started')
     return (
       <Signal level="note">
-        Anthropic's sign-in page opened in your browser. Sign in there; Claude Code keeps the login in its own profile, and Demido never sees it.
+        Anthropic's sign-in page opened in your browser. Sign in there with the account for {a.label}; Claude Code keeps the login in this account's own profile, and Demido never sees it.
         {s.url && <span style={{ display: 'block', marginBlockStart: 'var(--d-space-6)' }}>No page opened? <a href={s.url} target="_blank" rel="noreferrer noopener">Open Anthropic's sign-in page</a>.</span>}
         {command}
       </Signal>
     )
   if (s?.state === 'failed')
-    return <Signal level="caution" actions={<Button size="sm" onClick={() => void signIn(p.id)}>Try again</Button>}>The sign-in did not finish. {s.said}{command}</Signal>
+    return <Signal level="caution" actions={<Button size="sm" onClick={() => void signIn(p.id, a.id)}>Try again</Button>}>The sign-in did not finish. {s.said}{command}</Signal>
+  return <div><Button size="sm" variant="primary" onClick={() => void signIn(p.id, a.id)}>Sign in to Claude</Button></div>
+}
+
+/** One account: the default's radio, its name, what it holds and cost, and what can be done with it. */
+function AccountRow({ p, a, first, onEdit }: { p: ProviderView; a: ProviderAccount; first: boolean; onEdit: (e: Editing) => void }) {
+  const [sure, setSure] = useState(false)
+  const program = p.kind === 'program'
+  const holdsWords = program
+    ? (!a.signed_in ? 'not looked at yet' : a.signed_in === 'not signed in' ? 'not signed in yet' : `signed in ${a.signed_in}`)
+    : a.key ? `key …${a.key.ends_with} · in ${a.key.kept_in === 'keyring' ? 'the system keyring' : 'a file only your user can read'}` : 'its key is missing: replace it'
+  const items: MenuEntry[] = [
+    { label: 'Rename…', onSelect: () => onEdit({ mode: 'rename', account: a }) },
+    program ? { label: 'Sign in again', hint: 'on Anthropic\'s page', onSelect: () => void signIn(p.id, a.id) } : { label: 'Replace the key…', onSelect: () => onEdit({ mode: 'key', account: a }) },
+    { kind: 'sep' },
+    { label: program ? 'Delete the account' : 'Delete the key', hint: program ? 'signs out, deletes its profile' : `from ${a.key?.kept_in === 'keyring' ? 'the keyring' : 'the file'}`, danger: true, onSelect: () => setSure(true) },
+  ]
+  const others = p.accounts.length > 1
   return (
-    <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
-      <div><Button size="sm" variant="primary" onClick={() => void signIn(p.id)}>Sign in to Claude</Button></div>
-      <p className="d-type-caption d-text-secondary">Opens Anthropic's own sign-in page. Use your Claude plan's account; Demido never sees or keeps the login.</p>
-    </div>
+    <li>
+      <label className="d-check">
+        <input className="d-radio" type="radio" name={`default-${p.id}`} checked={a.is_default} disabled={!others} onChange={() => void changeAccount(p.id, a.id, { default: true })} aria-label={`${a.label}: the default`} />
+        <span className="d-check__text">
+          <span>{a.label}{a.is_default && others && <span className="d-badge" style={{ marginInlineStart: 'var(--d-space-6)' }}>Default</span>}</span>
+          <small className="d-type-caption d-text-secondary">{holdsWords}</small>
+        </span>
+      </label>
+      <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
+        <span className="d-type-caption d-text-secondary">{program
+          ? (a.spent_usd > 0 ? `${dollars(a.spent_usd)} this month, as ${p.name} said it` : `${p.name} has said nothing of a cost this month.`)
+          : (a.spent_usd > 0 ? `Demido counted ${dollars(a.spent_usd)} for it this month.` : 'Demido has counted nothing for it this month.')}</span>
+        {program ? <SignInPart p={p} a={a} /> : <AccountLines p={p} a={a} withNote={first} />}
+        {a.plan && <Plan plan={a.plan} />}
+        {sure && (
+          <Signal level="warning" actions={<><Button size="sm" onClick={() => setSure(false)}>Keep it</Button><Button size="sm" variant="danger" onClick={() => { setSure(false); void removeAccount(p.id, a) }}>{program ? 'Delete the account' : 'Delete the key'}</Button></>}>
+            {program
+              ? <>{a.label} is signed out and its profile is deleted: its login, its settings and Claude Code's history of its sessions. Sessions that used it use the default account from then on.</>
+              : <>The key is deleted from where Demido keeps it. Sessions that used {a.label} use the default account from then on{others ? '' : `; with no key left, sessions with ${p.name} models stop until you add one`}. The key itself still works at {p.name}: revoke it there if it should not.</>}
+          </Signal>
+        )}
+      </div>
+      <Menu align="end" trigger={<Button variant="ghost" size="sm" iconOnly aria-label={`More for ${a.label}`}><Icon icon={Ellipsis} /></Button>} items={items} />
+    </li>
   )
 }
 
-/** A program on this computer: whether it is here, how it is signed in, its models. */
+/** The chosen models of a provider, each to let go. */
+function Chosen({ p }: { p: ProviderView }) {
+  if (!p.chosen.length) return null
+  return (
+    <ul className="prov__models">
+      {p.chosen.map((m) => (
+        <li key={m.id}>
+          <span className="app-stack" style={{ gap: 'var(--d-space-2)', minWidth: 0 }}>
+            <span>{m.name}{m.free && <span className="d-badge" style={{ marginInlineStart: 'var(--d-space-6)' }}>Free</span>}</span>
+            <span className="d-type-caption d-text-secondary">{p.kind === 'program' ? m.note ?? priceOf(m) : `${priceOf(m)} · ${thinks(m)}`}</span>
+          </span>
+          <Tip label="Sessions can no longer use it. Those that do keep their messages."><Button size="sm" variant="ghost" onClick={() => void choose(p.id, m.id, false)}>Let go</Button></Tip>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const accountsWords = (n: number, one: string, many: string) => (n === 0 ? `no ${one} yet` : n === 1 ? `1 ${one}` : `${n} ${many}`)
+
+/** A program on this computer: Demido's copy, its accounts and how each is signed in, its models. */
 function ProgramCard({ p }: { p: ProviderView }) {
   const [choosing, setChoosing] = useState(false)
+  const [editing, setEditing] = useState<Editing | null>(null)
   const found = p.program
   const here = Boolean(found?.path)
-  const sub = ['Demido\'s own copy', found?.version, found?.signed_in ? `signed in ${found.signed_in}` : null].filter(Boolean).join(' · ')
+  const sub = [p.copy ? 'Demido\'s own copy' : 'not downloaded yet', p.copy ? found?.version : null, p.takes_accounts ? accountsWords(p.accounts.length, 'account', 'accounts') : null].filter(Boolean).join(' · ')
+  // What is said about signing in is said by each account.
+  const problem = found?.path && found.problem && !/signed in|no account/.test(found.problem) ? found.problem : null
+  const ok = here && !problem && (!p.takes_accounts || p.accounts.some((a) => a.signed_in?.startsWith('with')))
   return (
     <article className="d-card">
       <header className="d-card__head">
-        <Glyph name={here && !found?.problem ? 'task-done' : 'task-pending'} size="1.25rem" style={{ marginTop: '0.125rem' }} label={here ? 'Found' : 'Not found'} />
+        <Glyph name={ok ? 'task-done' : 'task-pending'} size="1.25rem" style={{ marginTop: '0.125rem' }} label={ok ? 'Ready' : 'Not ready yet'} />
         <div className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
           <h3 className="d-card__title">{p.name}</h3>
           <span className="d-card__sub">{sub}{p.spent_usd > 0 ? ` · ${dollars(p.spent_usd)} this month, by its own count` : ''}</span>
         </div>
+        {p.takes_accounts && here && p.accounts.length > 0 && <Button size="sm" onClick={() => setEditing({ mode: 'add' })}><Icon icon={Plus} size="sm" />Add an account</Button>}
       </header>
       <div className="d-card__body app-stack">
         <p className="d-text-secondary">{p.note}</p>
         <OwnCopy p={p} />
-        {found?.path && found.problem && !found.problem.includes('not signed in') && <Signal level="caution">{found.problem}</Signal>}
-        {p.id === 'claude-code' && here && <SignInPart p={p} />}
-        {p.plan && <Plan plan={p.plan} />}
-        {p.chosen.length > 0 && (
-          <ul className="prov__models">
-            {p.chosen.map((m) => (
-              <li key={m.id}>
-                <span className="app-stack" style={{ gap: 'var(--d-space-2)', minWidth: 0 }}>
-                  <span>{m.name}{m.free && <span className="d-badge" style={{ marginInlineStart: 'var(--d-space-6)' }}>Free</span>}</span>
-                  <span className="d-type-caption d-text-secondary">{m.note ?? priceOf(m)}</span>
-                </span>
-                <Tip label="Sessions can no longer use it. Those that do keep their messages."><Button size="sm" variant="ghost" onClick={() => void choose(p.id, m.id, false)}>Let go</Button></Tip>
-              </li>
-            ))}
-          </ul>
+        {problem && <Signal level="caution">{problem}</Signal>}
+        {p.takes_accounts && here && p.accounts.length === 0 && (
+          <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
+            <div><Button size="sm" variant="primary" onClick={() => setEditing({ mode: 'add' })}>Sign in to Claude</Button></div>
+            <p className="d-type-caption d-text-secondary">Opens Anthropic's own sign-in page. Use your Claude plan's account; Demido never sees or keeps the login. You can add more accounts afterwards, each signed in on its own.</p>
+          </div>
         )}
+        {p.accounts.length > 0 && <ul className="prov__accounts">{p.accounts.map((a, i) => <AccountRow key={a.id} p={p} a={a} first={i === 0} onEdit={setEditing} />)}</ul>}
+        <Chosen p={p} />
         <div className="app-row" style={{ gap: 'var(--d-space-8)', flexWrap: 'wrap' }}>
           <Button size="sm" disabled={!here} onClick={() => setChoosing(true)}><Icon icon={ListPlus} size="sm" />Choose models…</Button>
         </div>
       </div>
       {choosing && <ModelsDialog p={p} onClose={() => setChoosing(false)} />}
+      {editing && <AccountDialog p={p} editing={editing} where="" onClose={() => setEditing(null)} />}
     </article>
   )
 }
 
 function ProviderCard({ p, where }: { p: ProviderView; where: string }) {
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState<Editing | null>(null)
   const [choosing, setChoosing] = useState(false)
-  const [sure, setSure] = useState(false)
-  const keyWords = p.key ? `key …${p.key.ends_with}, in ${p.key.kept_in === 'keyring' ? 'the system keyring' : 'a file only your user can read'}` : 'no key yet'
+  const has = p.accounts.length > 0
+  const keyWords = p.accounts.length === 1 && p.accounts[0].key ? `key …${p.accounts[0].key.ends_with}` : accountsWords(p.accounts.length, 'key', 'keys')
   return (
     <article className="d-card">
       <header className="d-card__head">
-        <Glyph name={p.key ? 'task-done' : 'task-pending'} size="1.25rem" style={{ marginTop: '0.125rem' }} label={p.key ? 'Has a key' : 'No key yet'} />
+        <Glyph name={has ? 'task-done' : 'task-pending'} size="1.25rem" style={{ marginTop: '0.125rem' }} label={has ? 'Has a key' : 'No key yet'} />
         <div className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
           <h3 className="d-card__title">{p.name}</h3>
-          <span className="d-card__sub">over the network · {keyWords}{p.spent_usd > 0 ? ` · ${dollars(p.spent_usd)} this month${p.spent_exact ? '' : ' (estimated)'}` : ''}</span>
+          <span className="d-card__sub">over the network · {keyWords}{p.spent_usd > 0 ? ` · ${dollars(p.spent_usd)} this month${p.accounts.length > 1 ? ' together' : ''}${p.spent_exact ? '' : ' (estimated)'}` : ''}</span>
         </div>
-        {p.key
-          ? <Menu align="end" trigger={<Button variant="ghost" size="sm" iconOnly aria-label={`More for ${p.name}`}><Icon icon={Ellipsis} /></Button>}
-              items={[{ label: 'Replace the key…', onSelect: () => setEditing(true) }, { kind: 'sep' }, { label: 'Delete the key', hint: `from ${p.key.kept_in === 'keyring' ? 'the keyring' : 'the file'}`, danger: true, onSelect: () => setSure(true) }]} />
-          : <Button size="sm" onClick={() => setEditing(true)}><Icon icon={KeyRound} size="sm" />Add your key</Button>}
+        <Button size="sm" onClick={() => setEditing({ mode: 'add' })}><Icon icon={has ? Plus : KeyRound} size="sm" />{has ? 'Add another key' : 'Add your key'}</Button>
       </header>
       <div className="d-card__body app-stack">
         <p className="d-text-secondary">{p.note}</p>
-        {sure && (
-          <Signal level="warning" actions={<><Button size="sm" onClick={() => setSure(false)}>Keep it</Button><Button size="sm" variant="danger" onClick={() => { setSure(false); void removeKey(p.id) }}>Delete the key</Button></>}>
-            The key is deleted from where Demido keeps it. Sessions with {p.name} models stop working until you add one again. The key itself still works at {p.name}: revoke it there if it should not.
-          </Signal>
-        )}
-        {p.key && <AccountLines p={p} />}
-        {p.chosen.length > 0 && (
-          <ul className="prov__models">
-            {p.chosen.map((m) => (
-              <li key={m.id}>
-                <span className="app-stack" style={{ gap: 'var(--d-space-2)', minWidth: 0 }}>
-                  <span>{m.name}{m.free && <span className="d-badge" style={{ marginInlineStart: 'var(--d-space-6)' }}>Free</span>}</span>
-                  <span className="d-type-caption d-text-secondary">{priceOf(m)} · {thinks(m)}</span>
-                </span>
-                <Tip label="Sessions can no longer use it. Those that do keep their messages."><Button size="sm" variant="ghost" onClick={() => void choose(p.id, m.id, false)}>Let go</Button></Tip>
-              </li>
-            ))}
-          </ul>
-        )}
+        {has && <ul className="prov__accounts">{p.accounts.map((a, i) => <AccountRow key={a.id} p={p} a={a} first={i === 0} onEdit={setEditing} />)}</ul>}
+        {p.accounts.length > 1 && <p className="d-type-caption d-text-secondary">A session uses the default unless you pick another account in its header. Each key is sent only for the sessions that use it, and what each cost is counted on its own; the month's limit holds them together.</p>}
+        <Chosen p={p} />
         <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
-          <Button size="sm" disabled={!p.key && p.id !== 'openrouter'} onClick={() => setChoosing(true)}><Icon icon={ListPlus} size="sm" />Choose models…</Button>
-          {!p.key && <a className="d-button d-button--ghost d-button--sm" href={p.keys_at} target="_blank" rel="noreferrer noopener"><Icon icon={ExternalLink} size="sm" />Get a key</a>}
+          <Button size="sm" disabled={!has && p.id !== 'openrouter'} onClick={() => setChoosing(true)}><Icon icon={ListPlus} size="sm" />Choose models…</Button>
+          {!has && <a className="d-button d-button--ghost d-button--sm" href={p.keys_at} target="_blank" rel="noreferrer noopener"><Icon icon={ExternalLink} size="sm" />Get a key</a>}
         </div>
-        {!p.key && p.chosen.length > 0 && <Signal level="note">These models are chosen, and there is no key: sessions with them cannot be answered until you add one.</Signal>}
+        {!has && p.chosen.length > 0 && <Signal level="note">These models are chosen, and there is no key: sessions with them cannot be answered until you add one.</Signal>}
       </div>
-      {editing && <KeyDialog p={p} where={where} onClose={() => setEditing(false)} />}
+      {editing && <AccountDialog p={p} editing={editing} where={where} onClose={() => setEditing(null)} />}
       {choosing && <ModelsDialog p={p} onClose={() => setChoosing(false)} />}
     </article>
   )
@@ -341,7 +417,7 @@ export function RealProviders() {
       {!providers && !error && <p className="app-empty"><Glyph name="task-running" busy /> Reading the providers…</p>}
       {spending && <Month spending={spending} />}
       {providers && vault && (
-        <Section title="Providers" hint={vault.where_words}>
+        <Section title="Providers" hint={`${vault.where_words} A provider can hold several accounts, each with its own key.`}>
           <div className="app-stack">
             {providers.filter((p) => p.kind !== 'program').map((p) => <ProviderCard key={p.id} p={p} where={vault.where_words} />)}
           </div>
@@ -354,7 +430,7 @@ export function RealProviders() {
           </div>
         </Section>
       )}
-      <NotBuilt block>Several keys for one provider, a provider's own spending figures for Anthropic and Google (an ordinary key cannot ask), pictures sent to a model, OpenCode's levels of thinking, and your Claude plan's limit before Claude Code has run once.</NotBuilt>
+      <NotBuilt block>A limit of its own for each account, a provider's own spending figures for Anthropic and Google (an ordinary key cannot ask), OpenCode signed in to an account, pictures sent to a model, OpenCode's levels of thinking, and a Claude plan's limit before Claude Code has run once with it.</NotBuilt>
     </Page>
   )
 }

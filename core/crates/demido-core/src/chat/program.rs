@@ -21,7 +21,7 @@ use crate::engine::{Answer, Piece};
 use crate::permissions::{Level, Said};
 use crate::programs::{self, Approval, Choice, Event};
 use crate::providers::{self, For};
-use crate::sessions::{Message, Session};
+use crate::sessions::{Message, ProgramSession, Session};
 use crate::tools::{Reach, Step};
 use crate::{Error, Result};
 
@@ -95,7 +95,7 @@ fn prompt_from(unseen: &[Message], request: &str) -> String {
     if earlier.is_empty() {
         return request.to_string();
     }
-    format!("Earlier in this conversation, which you did not see (another model answered it):\n\n{}\n\nThe person now says:\n\n{request}", earlier.join("\n\n"))
+    format!("Earlier in this conversation, which you did not see (another model, or another account, answered it):\n\n{}\n\nThe person now says:\n\n{request}", earlier.join("\n\n"))
 }
 
 impl Chat {
@@ -168,6 +168,8 @@ impl Chat {
         let (def, name) = providers::split(&session.model).filter(|(d, _)| d.program).ok_or_else(|| Error::Invalid(format!("{} is not run by a program.", session.model)))?;
         let providers = self.providers()?.clone();
         let program = providers.program(def.id)?;
+        // Claude Code runs in the profile of the session's account (or the default); OpenCode has one.
+        let account = if def.id == "claude-code" { Some(providers.account_for(def, session.account.as_deref())?.id) } else { None };
         // Where it works: the session's folder, or a folder of its own, so that it never works in Demido's.
         let cwd = match session.folder.as_deref() {
             Some(folder) => std::path::PathBuf::from(folder),
@@ -187,9 +189,10 @@ impl Chat {
                 saved = Some((id, place));
             }
         }
-        // What the program has not seen of the conversation, and the request.
-        let known = self.sessions.program_session(&session.id, def.id)?;
-        let seen = known.as_ref().map_or(0, |(_, seq, _)| *seq);
+        // What the program has not seen of the conversation, and the request. Its session is kept in one
+        // account's profile: with another account, it starts again and is given the whole conversation.
+        let known = self.sessions.program_session(&session.id, def.id)?.filter(|k| k.account == account.clone().unwrap_or_default());
+        let seen = known.as_ref().map_or(0, |k| k.seen_seq);
         let messages = self.sessions.messages(&session.id)?;
         let answer_seq = messages.iter().find(|m| m.id == answer_id).map_or(i64::MAX, |m| i64::from(m.seq));
         let request_at = messages.iter().rposition(|m| m.role == "user" && i64::from(m.seq) < answer_seq);
@@ -273,7 +276,7 @@ impl Chat {
                 };
                 shown(&list);
             }
-            Event::Limit { status, resets_at, used } => providers.note_plan(def.id, &status, resets_at, used),
+            Event::Limit { status, resets_at, used } => providers.note_plan(def.id, account.as_deref(), &status, resets_at, used),
             Event::Started { model, billing } => {
                 self.events.tell("program.started", Some(&session.id), json!({ "provider": def.id, "model": model, "billing": billing }));
             }
@@ -284,7 +287,7 @@ impl Chat {
         let (turn, external) = match def.id {
             "claude-code" => {
                 let (external, resume) = match &known {
-                    Some((id, _, _)) => (id.clone(), true),
+                    Some(k) => (k.external_id.clone(), true),
                     None => (uuid::Uuid::new_v4().to_string(), false),
                 };
                 let token = uuid::Uuid::new_v4().simple().to_string();
@@ -292,8 +295,8 @@ impl Chat {
                 self.live().insert(token.clone(), live.clone());
                 let effort = (session.thinking != "off").then_some(session.thinking.as_str());
                 let options = programs::ClaudeCodeOptions { model: name, effort, mode: claude_code_mode(level), session: &external, resume, approve_at: approve_at.as_deref(), append: INSTRUCTIONS };
-                // Demido's own copy runs with its own profile and no self-update; the one installed here as it is.
-                let env: Vec<(&str, String)> = programs::claude_code_env().into_iter().chain(providers.program_env(def.id)).collect();
+                // Demido's own copy runs with the account's own profile, and no self-update.
+                let env: Vec<(&str, String)> = programs::claude_code_env().into_iter().chain(providers.program_env(def.id, account.as_deref())).collect();
                 let started = providers.spawner().spawn(&program, &programs::claude_code_args(&options), &cwd, &env);
                 let turn = match started {
                     Ok(started) => programs::claude_code(started, &prompt, &running.stop, &mut on).await,
@@ -314,8 +317,8 @@ impl Chat {
                         if yes { Choice::Once } else { Choice::Reject }
                     })
                 };
-                let resume = known.as_ref().map(|(id, _, _)| id.as_str());
-                let env: Vec<(&str, String)> = programs::opencode_env(level).into_iter().chain(providers.program_env(def.id)).collect();
+                let resume = known.as_ref().map(|k| k.external_id.as_str());
+                let env: Vec<(&str, String)> = programs::opencode_env(level).into_iter().chain(providers.program_env(def.id, None)).collect();
                 let started = providers.spawner().spawn(&program, &["acp".to_string()], &cwd, &env);
                 let turn = match started {
                     Ok(started) => programs::opencode(started, &cwd, name, resume, Some(INSTRUCTIONS), &prompt, &running.stop, &mut on, approve).await,
@@ -333,7 +336,7 @@ impl Chat {
         }
         let turn = turn?;
         // What it said it cost. OpenCode says what its whole session has cost so far.
-        let before = known.as_ref().map_or(0.0, |(_, _, cost)| *cost);
+        let before = known.as_ref().map_or(0.0, |k| k.cost_so_far);
         let (cost, total) = match def.id {
             "opencode" => {
                 let total = turn.cost_usd.unwrap_or(before);
@@ -341,10 +344,11 @@ impl Chat {
             }
             _ => (turn.cost_usd.unwrap_or(0.0), before + turn.cost_usd.unwrap_or(0.0)),
         };
-        providers.record(def.id, name, For { session: Some(&session.id), message: Some(answer_id) }, turn.tokens, cost)?;
+        providers.record(def.id, name, For { session: Some(&session.id), message: Some(answer_id), account: account.as_deref() }, turn.tokens, cost)?;
         let external = turn.session.clone().unwrap_or(external);
         if !external.is_empty() {
-            self.sessions.set_program_session(&session.id, def.id, &external, answer_seq, total)?;
+            let kept = ProgramSession { external_id: external, seen_seq: answer_seq, cost_so_far: total, account: account.clone().unwrap_or_default() };
+            self.sessions.set_program_session(&session.id, def.id, &kept)?;
         }
         if let Some(why) = turn.error.clone() {
             return Err(Error::Other(why));
@@ -420,7 +424,7 @@ mod tests {
         let earlier = [said("user", "What is 2 + 2?"), said("assistant", "4."), said("assistant", "")];
         assert_eq!(
             prompt_from(&earlier, "And times 3?"),
-            "Earlier in this conversation, which you did not see (another model answered it):\n\nPerson: What is 2 + 2?\n\nModel: 4.\n\nThe person now says:\n\nAnd times 3?"
+            "Earlier in this conversation, which you did not see (another model, or another account, answered it):\n\nPerson: What is 2 + 2?\n\nModel: 4.\n\nThe person now says:\n\nAnd times 3?"
         );
     }
 

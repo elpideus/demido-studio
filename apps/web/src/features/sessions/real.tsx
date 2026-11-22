@@ -360,6 +360,9 @@ function Chat() {
   // A model that always thinks cannot be told not to: "off" asks for the least.
   const always = remote.find((r) => r.id === session.model)?.always_thinks ?? false
   const program = byProgram(session.model)
+  // The accounts at its model's provider: with more than one, the session picks which it goes through.
+  const accounts = (at && providers?.find((p) => p.id === session.model.split('/')[0])?.accounts) || []
+  const inUse = accounts.find((a) => a.id === session.account) ?? accounts.find((a) => a.is_default)
   const offLabel = program ? 'Its own default' : always ? 'Least thinking' : 'No thinking'
   // Demido's way of answering: what the core tells every model, after the date.
   const INSTRUCTIONS = detail.instructions.split('\n\n').slice(1).join('\n\n')
@@ -391,6 +394,11 @@ function Chat() {
         {at && (program
           ? <Tip label={`${at} runs this session on this computer, with its own tools and its own loop, and sends what it needs to its models. Demido shows what it does and asks you what it asks. Before each turn the folder is saved, so all a turn changed can be undone.`}><span className="d-badge d-badge--outline">Runs in {at}</span></Tip>
           : <Tip label={`What is said in this session, and what its tools read, is sent to ${at}. Each answer costs money: Providers shows the month's count and limit.`}><span className="d-badge d-badge--outline">Sent to {at}</span></Tip>)}
+        {accounts.length > 1 && inUse && (
+          <Tip label={program ? `${at} runs this session signed in as ${inUse.label}, on its plan. With another account it starts again in that account's own profile, and is given the conversation so far.` : `Each answer is paid with ${inUse.label}'s key at ${at}, and counted against it.`}>
+            <span><Select label="Account" value={inUse.id} onChange={(account) => void changeSession(id, { account })} options={accounts.map((a) => ({ value: a.id, label: `${a.label}${a.is_default ? ' (default)' : ''}` }))} /></span>
+          </Tip>
+        )}
         <Select label="Model for this session" value={session.model} onChange={(model) => void changeSession(id, { model })}
           options={[...new Set([session.model, ...models.map((m) => m.id), ...remote.map((m) => m.id)])].map((m) => {
             const there = remote.find((r) => r.id === m)

@@ -37,13 +37,13 @@ use crate::events::{Event, EventLog};
 use crate::kept::Kept;
 use crate::paths::Paths;
 use crate::permissions;
-use crate::providers::{Account, ProviderView, Providers, RemoteModel, Spending};
+use crate::providers::{Account, ProviderAccount, ProviderView, Providers, RemoteModel, Spending};
 use crate::runtime::{Available, Installed, Progress, Runtimes, Source, Status};
 use crate::sessions::{Change, Message, Session, Sessions, Summary, Task};
 use crate::settings::{Entry, Section, Settings};
 use crate::system::{Advice, SystemInfo};
 use crate::ui::Ui;
-use crate::vault::{KeyFacts, Vault, VaultView};
+use crate::vault::{Vault, VaultView};
 use crate::{Error, Result, VERSION, now_ms};
 
 /// The parts of the core that work without a server: what the command line uses directly.
@@ -485,10 +485,12 @@ pub struct SessionChange {
     pub folder: Option<String>,
     /// How much the session may do without asking: `cautious`, `balanced`, `smart` or `autonomous`.
     pub permission: Option<String>,
+    /// The account at the model's provider it goes through, by its id. An empty text: the provider's default.
+    pub account: Option<String>,
 }
 
 /// Changes what is given: the title, the model, whether the model thinks before it answers, the folder
-/// its tools may work in, how much it may do without asking.
+/// its tools may work in, how much it may do without asking, the account it goes through.
 #[utoipa::path(patch, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = SessionChange, responses((status = 200, body = Session), (status = 404, body = Problem)))]
 async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(body): Json<SessionChange>) -> Result<Json<Session>> {
     let mut session = app.chat.change(&id, body.title.as_deref(), body.model.as_deref(), body.thinking.as_deref()).await?;
@@ -497,6 +499,9 @@ async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(bod
     }
     if let Some(level) = body.permission.as_deref() {
         session = app.chat.set_permission(&id, level)?;
+    }
+    if let Some(account) = body.account.as_deref() {
+        session = app.chat.set_account(&id, Some(account).filter(|a| !a.is_empty()))?;
     }
     Ok(Json(session))
 }
@@ -659,10 +664,43 @@ async fn session_stop(State(app): State<App>, Path(id): Path<String>) -> Json<St
 
 // ───────── keys, providers and what they cost ─────────
 
-/// The keys Demido keeps: their names, where each is kept and its last four characters. Never a value.
+/// The keys Demido keeps: their names (`<provider>.<account>`), where each is kept and its last four
+/// characters. Never a value. A key is added with its account (`POST /providers/{id}/accounts`).
 #[utoipa::path(get, path = "/api/v1/vault", tag = "providers", responses((status = 200, body = VaultView)))]
 async fn vault_get(State(app): State<App>) -> Json<VaultView> {
     Json(app.providers.vault().view())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct NewAccount {
+    /// The person's own name for it: "Personal", "Work". None: "Account 1", "Account 2".
+    pub label: Option<String>,
+    /// For an API, its key, as the provider gave it: it is kept, and never given back. Claude Code takes
+    /// none: its account signs in afterwards (`…/sign-in`).
+    pub key: Option<String>,
+}
+
+/// Adds an account at a provider: a key for an API, or an account of Claude Code to sign in. The first one
+/// is the default. What comes back holds no key's value.
+#[utoipa::path(post, path = "/api/v1/providers/{id}/accounts", tag = "providers", params(("id" = String, Path, description = "anthropic, gemini, openrouter or claude-code")), request_body = NewAccount, responses((status = 201, body = ProviderAccount), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn account_add(State(app): State<App>, Path(id): Path<String>, Json(body): Json<NewAccount>) -> Result<Response> {
+    let providers = app.providers.clone();
+    let added = tokio::task::spawn_blocking(move || providers.add_account(&id, body.label.as_deref(), body.key.as_deref())).await.map_err(|e| Error::Other(e.to_string()))??;
+    Ok((StatusCode::CREATED, Json(added)).into_response())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct AccountChange {
+    /// Another name for it.
+    pub label: Option<String>,
+    /// True: sessions use this one unless they name another.
+    pub default: Option<bool>,
+}
+
+/// Renames an account, or makes it the default.
+#[utoipa::path(patch, path = "/api/v1/providers/{id}/accounts/{account}", tag = "providers", params(("id" = String, Path, description = "The provider"), ("account" = String, Path, description = "The account's id")), request_body = AccountChange, responses((status = 200, body = ProviderAccount), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn account_change(State(app): State<App>, Path((id, account)): Path<(String, String)>, Json(body): Json<AccountChange>) -> Result<Json<ProviderAccount>> {
+    Ok(Json(app.providers.change_account(&id, &account, body.label.as_deref(), body.default == Some(true))?))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -671,26 +709,21 @@ pub struct NewKey {
     pub value: String,
 }
 
-/// Keeps a key, in place of the one of that name if there was one. What comes back is what is known about
-/// it, without its value.
-#[utoipa::path(put, path = "/api/v1/vault/{name}", tag = "providers", params(("name" = String, Path, description = "anthropic, gemini or openrouter")), request_body = NewKey, responses((status = 200, body = KeyFacts), (status = 404, body = Problem), (status = 422, body = Problem)))]
-async fn vault_put(State(app): State<App>, Path(name): Path<String>, Json(body): Json<NewKey>) -> Result<Json<KeyFacts>> {
-    let vault = app.providers.vault().clone();
-    let facts = tokio::task::spawn_blocking(move || vault.put(&name, &body.value)).await.map_err(|e| Error::Other(e.to_string()))??;
-    app.events.append("vault.key.added", Some(&facts.name), json!({ "kept_in": facts.kept_in, "ends_with": facts.ends_with }))?;
-    Ok(Json(facts))
+/// Gives an account of an API another key, in place of the one it had.
+#[utoipa::path(put, path = "/api/v1/providers/{id}/accounts/{account}/key", tag = "providers", params(("id" = String, Path, description = "anthropic, gemini or openrouter"), ("account" = String, Path, description = "The account's id")), request_body = NewKey, responses((status = 200, body = ProviderAccount), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn account_key(State(app): State<App>, Path((id, account)): Path<(String, String)>, Json(body): Json<NewKey>) -> Result<Json<ProviderAccount>> {
+    let providers = app.providers.clone();
+    Ok(Json(tokio::task::spawn_blocking(move || providers.set_account_key(&id, &account, &body.value)).await.map_err(|e| Error::Other(e.to_string()))??))
 }
 
-/// Lets a key go: it is deleted from wherever it was kept.
-#[utoipa::path(delete, path = "/api/v1/vault/{name}", tag = "providers", params(("name" = String, Path, description = "anthropic, gemini or openrouter")), responses((status = 200, body = KeyFacts), (status = 404, body = Problem)))]
-async fn vault_remove(State(app): State<App>, Path(name): Path<String>) -> Result<Json<KeyFacts>> {
-    let vault = app.providers.vault().clone();
-    let gone = tokio::task::spawn_blocking(move || vault.remove(&name)).await.map_err(|e| Error::Other(e.to_string()))??;
-    app.events.append("vault.key.removed", Some(&gone.name), json!({ "kept_in": gone.kept_in }))?;
-    Ok(Json(gone))
+/// Deletes an account: its key, or for Claude Code its profile with its login and history (signed out
+/// first). Sessions that named it use the default from then on. What it cost stays counted.
+#[utoipa::path(delete, path = "/api/v1/providers/{id}/accounts/{account}", tag = "providers", params(("id" = String, Path, description = "The provider"), ("account" = String, Path, description = "The account's id")), responses((status = 200, body = ProviderAccount), (status = 404, body = Problem)))]
+async fn account_remove(State(app): State<App>, Path((id, account)): Path<(String, String)>) -> Result<Json<ProviderAccount>> {
+    Ok(Json(app.providers.remove_account(&id, &account).await?))
 }
 
-/// The providers: each one's key (never its value), the models chosen there, and what Demido counted this month.
+/// The providers: each one's accounts (never a key's value), the models chosen there, and what Demido counted this month.
 #[utoipa::path(get, path = "/api/v1/providers", tag = "providers", responses((status = 200, body = Vec<ProviderView>)))]
 async fn providers_list(State(app): State<App>) -> Result<Json<Vec<ProviderView>>> {
     Ok(Json(app.providers.view().await?))
@@ -722,11 +755,17 @@ async fn provider_choose(State(app): State<App>, Path(id): Path<String>, Json(bo
     Ok(Json(app.providers.choose(&id, &body.model, body.chosen).await?))
 }
 
-/// What the provider itself says about the key's account: what it spent, its limits. Only OpenRouter can
-/// be asked this with an ordinary key; for the others it says where to look.
-#[utoipa::path(get, path = "/api/v1/providers/{id}/account", tag = "providers", params(("id" = String, Path, description = "anthropic, gemini or openrouter")), responses((status = 200, body = Account), (status = 404, body = Problem), (status = 422, body = Problem)))]
-async fn provider_account(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Account>> {
-    Ok(Json(app.providers.account(&id).await?))
+#[derive(Deserialize)]
+struct AccountQuery {
+    account: Option<String>,
+}
+
+/// What the provider itself says about an account (the default, unless `account` names another): what it
+/// spent, its limits. Only OpenRouter can be asked this with an ordinary key; for the others it says where
+/// to look.
+#[utoipa::path(get, path = "/api/v1/providers/{id}/account", tag = "providers", params(("id" = String, Path, description = "anthropic, gemini or openrouter"), ("account" = Option<String>, Query, description = "The account's id; the default when left out")), responses((status = 200, body = Account), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn provider_account(State(app): State<App>, Path(id): Path<String>, Query(q): Query<AccountQuery>) -> Result<Json<Account>> {
+    Ok(Json(app.providers.account(&id, q.account.as_deref()).await?))
 }
 
 /// Downloads Demido's own copy of a program (`claude-code`, `opencode`) from its maker, checked, into Demido's
@@ -738,7 +777,7 @@ async fn program_download(State(app): State<App>, Path(id): Path<String>) -> Res
     Ok((StatusCode::ACCEPTED, Json(Stopped { stopped: false })).into_response())
 }
 
-/// Deletes Demido's copy of a program. Its profile (its settings and, for Claude Code, its login) stays.
+/// Deletes Demido's copy of a program. Its profiles (their settings and, for Claude Code, the logins) stay.
 #[utoipa::path(delete, path = "/api/v1/providers/{id}/program", tag = "providers", params(("id" = String, Path, description = "claude-code or opencode")), responses((status = 200, body = crate::programs::copies::Kept), (status = 404, body = Problem)))]
 async fn program_remove(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::programs::copies::Kept>> {
     Ok(Json(app.providers.remove_copy(&id)?))
@@ -756,12 +795,12 @@ async fn program_latest(State(app): State<App>, Path(id): Path<String>) -> Resul
     Ok(Json(app.providers.copies().latest(&id).await?))
 }
 
-/// Starts Claude Code's own sign-in for the copy in use: Anthropic's page opens in the browser, and Claude
-/// Code keeps the login in its profile. Demido never reads, asks for or passes on the login. Answers at
-/// once; how it goes is told (`program.signin`).
-#[utoipa::path(post, path = "/api/v1/providers/{id}/sign-in", tag = "providers", params(("id" = String, Path, description = "claude-code")), responses((status = 202, body = Stopped), (status = 422, body = Problem)))]
-async fn program_sign_in(State(app): State<App>, Path(id): Path<String>) -> Result<Response> {
-    app.providers.sign_in(&id)?;
+/// Starts Claude Code's own sign-in for one of its accounts: Anthropic's page opens in the browser, and
+/// Claude Code keeps the login in the account's profile. Demido never reads, asks for or passes on the
+/// login. Answers at once; how it goes is told (`program.signin`).
+#[utoipa::path(post, path = "/api/v1/providers/{id}/accounts/{account}/sign-in", tag = "providers", params(("id" = String, Path, description = "claude-code"), ("account" = String, Path, description = "The account's id")), responses((status = 202, body = Stopped), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn program_sign_in(State(app): State<App>, Path((id, account)): Path<(String, String)>) -> Result<Response> {
+    app.providers.sign_in(&id, &account)?;
     Ok((StatusCode::ACCEPTED, Json(Stopped { stopped: false })).into_response())
 }
 
@@ -919,7 +958,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, vault_put, vault_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -960,15 +999,17 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
         .route("/vault", get(vault_get))
-        .route("/vault/{name}", axum::routing::put(vault_put).delete(vault_remove))
         .route("/providers", get(providers_list))
+        .route("/providers/{id}/accounts", post(account_add))
+        .route("/providers/{id}/accounts/{account}", axum::routing::patch(account_change).delete(account_remove))
+        .route("/providers/{id}/accounts/{account}/key", axum::routing::put(account_key))
+        .route("/providers/{id}/accounts/{account}/sign-in", post(program_sign_in))
         .route("/providers/{id}/models", get(provider_models))
         .route("/providers/{id}/chosen", axum::routing::put(provider_choose))
         .route("/providers/{id}/account", get(provider_account))
         .route("/providers/{id}/program", post(program_download).delete(program_remove))
         .route("/providers/{id}/program/download", axum::routing::delete(program_stop))
         .route("/providers/{id}/program/latest", get(program_latest))
-        .route("/providers/{id}/sign-in", post(program_sign_in))
         .route("/usage", get(usage))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
@@ -1319,15 +1360,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_key_goes_in_through_the_api_and_never_comes_out() {
+    async fn keys_go_in_with_their_accounts_and_never_come_out() {
         let home = std::env::temp_dir().join(format!("demido-api-vault-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&home).unwrap();
         let (r, _, events) = app_at(&home);
         let key = |b: axum::http::request::Builder| b.header("authorization", format!("Bearer {KEY}")).header("content-type", "application/json");
-        let secret = "sk-or-v1-test-not-a-real-key-7f3a";
-        let (status, facts) = send(&r, key(request("PUT", "/api/v1/vault/openrouter")).body(Body::from(json!({ "value": secret }).to_string())).unwrap()).await;
-        assert_eq!((status, facts["ends_with"].as_str(), facts["kept_in"].as_str()), (StatusCode::OK, Some("7f3a"), Some("file")));
-        // Nowhere the API answers, and nowhere in the log, is the value.
+        let add = |label: &str, secret: &str| key(request("POST", "/api/v1/providers/openrouter/accounts")).body(Body::from(json!({ "label": label, "key": secret }).to_string())).unwrap();
+        let (status, work) = send(&r, add("Work", "sk-or-v1-test-not-a-real-key-7f3a")).await;
+        assert_eq!((status, work["key"]["ends_with"].as_str(), work["key"]["kept_in"].as_str(), work["is_default"].as_bool()), (StatusCode::CREATED, Some("7f3a"), Some("file"), Some(true)));
+        let (status, mine) = send(&r, add("Personal", "sk-or-v1-test-not-a-real-key-9b2c")).await;
+        assert_eq!((status, mine["is_default"].as_bool()), (StatusCode::CREATED, Some(false)));
+        // Two accounts cannot have one name.
+        assert_eq!(send(&r, add("work", "sk-or-v1-test-not-a-real-key-0000")).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+        // Nowhere the API answers, and nowhere in the log, is a value.
         for path in ["/api/v1/vault", "/api/v1/providers", "/api/v1/events?after=0"] {
             let (status, said) = send(&r, key(request("GET", path)).body(Body::empty()).unwrap()).await;
             assert_eq!(status, StatusCode::OK, "{path}");
@@ -1335,16 +1380,21 @@ mod tests {
         }
         let (_, providers) = send(&r, key(request("GET", "/api/v1/providers")).body(Body::empty()).unwrap()).await;
         let openrouter = providers.as_array().unwrap().iter().find(|p| p["id"] == "openrouter").unwrap();
-        assert_eq!((openrouter["key"]["ends_with"].as_str(), openrouter["spent_usd"].as_f64()), (Some("7f3a"), Some(0.0)));
-        // A key Demido does not know of is not kept.
-        let (status, _) = send(&r, key(request("PUT", "/api/v1/vault/bank")).body(Body::from(r#"{"value":"0123456789abcdef"}"#)).unwrap()).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        let (status, _) = send(&r, key(request("DELETE", "/api/v1/vault/openrouter")).body(Body::empty()).unwrap()).await;
-        assert_eq!(status, StatusCode::OK);
+        let labels: Vec<&str> = openrouter["accounts"].as_array().unwrap().iter().map(|a| a["label"].as_str().unwrap()).collect();
+        assert_eq!((labels, openrouter["spent_usd"].as_f64()), (vec!["Work", "Personal"], Some(0.0)));
+        // The second becomes the default; the first is deleted, key and all.
+        let mine_at = format!("/api/v1/providers/openrouter/accounts/{}", mine["id"].as_str().unwrap());
+        let (status, changed) = send(&r, key(request("PATCH", &mine_at)).body(Body::from(r#"{"default":true}"#)).unwrap()).await;
+        assert_eq!((status, changed["is_default"].as_bool()), (StatusCode::OK, Some(true)));
+        let work_at = format!("/api/v1/providers/openrouter/accounts/{}", work["id"].as_str().unwrap());
+        assert_eq!(send(&r, key(request("DELETE", &work_at)).body(Body::empty()).unwrap()).await.0, StatusCode::OK);
         let (_, vault) = send(&r, key(request("GET", "/api/v1/vault")).body(Body::empty()).unwrap()).await;
-        assert_eq!(vault["keys"], json!([]));
+        assert_eq!(vault["keys"].as_array().unwrap().iter().map(|k| k["ends_with"].as_str().unwrap()).collect::<Vec<_>>(), vec!["9b2c"]);
+        // A provider Demido does not know of has no accounts.
+        let (status, _) = send(&r, key(request("POST", "/api/v1/providers/bank/accounts")).body(Body::from(r#"{"key":"0123456789abcdef"}"#)).unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
         let kinds: Vec<String> = events.after(0, 50).unwrap().into_iter().map(|e| e.kind).collect();
-        assert!(kinds.contains(&"vault.key.added".to_string()) && kinds.contains(&"vault.key.removed".to_string()), "{kinds:?}");
+        assert!(kinds.contains(&"provider.account.added".to_string()) && kinds.contains(&"provider.account.removed".to_string()), "{kinds:?}");
         // A model elsewhere that was not chosen cannot be given to a session.
         let (status, said) = send(&r, key(request("POST", "/api/v1/sessions")).body(Body::from(r#"{"model":"anthropic/claude-opus-5-5"}"#)).unwrap()).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{said}");

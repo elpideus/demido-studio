@@ -162,10 +162,17 @@ Status: **Done** (built), **Proposed** (built as a proposal or waiting for a yes
 | 129 | **A program's own tools, shown better.** A step shows a Claude Code tool by its name and its arguments. Its edits come with the old and new text: shown as a diff each, the way Demido's own changes are, they would read better than the whole turn's diff at the end. | Idea | Not built |
 | 130 | **Any agent that speaks ACP.** Demido's OpenCode client speaks the Agent Client Protocol. Gemini CLI, Goose and others speak it too: each could be a program here with a few lines, subject to its own terms (Gemini CLI's login may not be used by another program; its API key may). | Idea | Not built |
 | 131 | **Check the signature on Claude Code's manifest.** Anthropic publishes `manifest.json.sig` beside the list of checksums. Demido checks the file against the checksum, as Anthropic's installers do; checking the manifest's own signature against Anthropic's key would also hold if the download service itself were changed. It needs an OpenPGP library. | Idea | Not built |
+| 132 | **Check that Claude Code runs in the account's own folder.** `claude auth status` names the configuration folder it uses (`configDirectory`, from 2.1.268). Demido could compare it with the account's profile before every turn, and refuse to run when they differ: one more proof that the person's own Claude Code is never touched. | Idea | Not built |
+| 133 | **A limit for each account.** The month's limit holds every account together. A person with a work key and a personal one may want each held on its own: "Spend at most" per account, beside the one for all. | Idea | Not built |
 | 127 | **Keys for a server, locked.** On a server without a desktop the keys are in a file only the user can read. Note 05 planned better there: a vault file locked with a passphrase typed after boot, or by systemd's own encrypted credentials. | Idea | Not built |
 
 ## Pushback on the brief so far
 
+- **Changing a Claude Code session's account starts Claude Code over.** Its session lives in one account's
+  profile, so with another account Demido starts a new one and gives it the conversation as text: Claude
+  Code's own memory of the work (what its tools read, what it decided) stays with the first account. For a
+  long piece of work, a new session with the other account is the cleaner way; the session's header says so.
+  The person's accounts are also held by one monthly limit together; a limit for each is IDEAS 133.
 - **OpenCode asks nobody unless it is told to.** Its default is to allow every tool but reading `.env`
   files. The first real try through Demido, at Cautious, read a file with no question at all. Demido now
   gives OpenCode rules for each level when it starts it, so Cautious asks for everything and Balanced asks

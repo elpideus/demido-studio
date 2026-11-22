@@ -259,9 +259,9 @@ fn lists_keep_what_can_be_talked_to_with_its_price() {
 async fn a_chosen_model_answers_and_what_it_cost_is_counted() {
     let (base, seen) = stand_ins().await;
     let (p, _) = providers(&base);
-    p.vault().put("anthropic", ANTHROPIC_KEY).unwrap();
+    p.add_account("anthropic", None, Some(ANTHROPIC_KEY)).unwrap();
     // Not chosen yet: nothing is sent.
-    assert!(p.ready("anthropic/claude-opus-5-5").unwrap_err().to_string().contains("not chosen"));
+    assert!(p.ready("anthropic/claude-opus-5-5", None).unwrap_err().to_string().contains("not chosen"));
     let list = p.models("anthropic", false).await.unwrap();
     assert_eq!(list.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["anthropic/claude-opus-5-5", "anthropic/claude-haiku-4-5-20251001"]);
     assert_eq!((list[0].thinking.len(), list[0].always_thinks, list[0].context_length), (5, true, Some(1_000_000)));
@@ -283,7 +283,7 @@ async fn a_chosen_model_answers_and_what_it_cost_is_counted() {
                 Piece::Thought(t) => pieces.1.push_str(t),
                 Piece::Started(_) => {}
             },
-            For { session: Some("s1"), message: Some("m1") },
+            For { session: Some("s1"), message: Some("m1"), account: None },
         )
         .await
         .unwrap();
@@ -310,11 +310,11 @@ async fn a_chosen_model_answers_and_what_it_cost_is_counted() {
 async fn openrouter_says_what_it_cost_and_its_free_models_cost_nothing() {
     let (base, seen) = stand_ins().await;
     let (p, settings) = providers(&base);
-    p.vault().put("openrouter", OPENROUTER_KEY).unwrap();
+    p.add_account("openrouter", None, Some(OPENROUTER_KEY)).unwrap();
     p.choose("openrouter", "google/gemini-3.5-flash", true).await.unwrap();
     p.choose("openrouter", "meta-llama/llama-3.3-70b-instruct:free", true).await.unwrap();
     let body = chat_body(json!([{ "role": "user", "content": "Where is Rome?" }]));
-    let answer = p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For { session: None, message: Some("m2") }).await.unwrap();
+    let answer = p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For { session: None, message: Some("m2"), account: None }).await.unwrap();
     assert_eq!((answer.content.as_str(), answer.thought.as_str()), ("Rome is in Italy.", "Thinking briefly."));
     // Its own figure, and the tokens: 500 of 2,000 from the cache, and 150 written with the thinking.
     assert_eq!(p.cost_of("m2").unwrap(), Some((0.0123, true)));
@@ -330,13 +330,13 @@ async fn openrouter_says_what_it_cost_and_its_free_models_cost_nothing() {
     let stopped = p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For::default()).await.unwrap_err().to_string();
     assert!(stopped.contains("the limit is $1.00") && stopped.contains("Spend at most"), "{stopped}");
     let asked_before = seen.lock().unwrap().asked.len();
-    let free = p.answer("openrouter/meta-llama/llama-3.3-70b-instruct:free", body, &AtomicBool::new(false), &mut |_| {}, For { session: None, message: Some("m3") }).await.unwrap();
+    let free = p.answer("openrouter/meta-llama/llama-3.3-70b-instruct:free", body, &AtomicBool::new(false), &mut |_| {}, For { session: None, message: Some("m3"), account: None }).await.unwrap();
     assert_eq!(free.content, "Rome is in Italy.");
     assert_eq!(seen.lock().unwrap().asked.len(), asked_before + 1);
     assert_eq!(p.cost_of("m3").unwrap(), Some((0.0, true)));
 
     // What OpenRouter says about the key.
-    let account = p.account("openrouter").await.unwrap();
+    let account = p.account("openrouter", None).await.unwrap();
     assert_eq!(
         account.lines.iter().map(|l| (l.label.as_str(), l.used, l.limit)).collect::<Vec<_>>(),
         [("Spent with this key this month", 2.5, None), ("The key's own limit", 2.5, Some(20.0)), ("Requests to free models today", 12.0, Some(1000.0))]
@@ -347,7 +347,7 @@ async fn openrouter_says_what_it_cost_and_its_free_models_cost_nothing() {
 async fn a_way_of_thinking_the_provider_refuses_is_dropped_and_remembered() {
     let (base, seen) = stand_ins().await;
     let (p, _) = providers(&base);
-    p.vault().put("anthropic", ANTHROPIC_KEY).unwrap();
+    p.add_account("anthropic", None, Some(ANTHROPIC_KEY)).unwrap();
     p.choose("anthropic", "claude-haiku-4-5-20251001", true).await.unwrap();
     // Haiku 4.5 is asked with a budget for thinking, and the stand-in says no, as for a model that cannot.
     seen.lock().unwrap().refuse_thinking_once = true;
@@ -369,7 +369,7 @@ async fn a_way_of_thinking_the_provider_refuses_is_dropped_and_remembered() {
 async fn a_key_the_provider_does_not_take_is_said_plainly() {
     let (base, seen) = stand_ins().await;
     let (p, _) = providers(&base);
-    p.vault().put("gemini", GEMINI_KEY).unwrap();
+    let gemini = p.add_account("gemini", None, Some(GEMINI_KEY)).unwrap();
     let list = p.models("gemini", false).await.unwrap();
     assert_eq!(list.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gemini/gemini-3.5-flash-lite", "gemini/gemini-2.5-flash"]);
     p.choose("gemini", "gemini-2.5-flash", true).await.unwrap();
@@ -377,7 +377,7 @@ async fn a_key_the_provider_does_not_take_is_said_plainly() {
     let said = p.answer("gemini/gemini-2.5-flash", chat_body(json!([{ "role": "user", "content": "Hi" }])), &AtomicBool::new(false), &mut |_| {}, For::default()).await.unwrap_err().to_string();
     assert!(said.contains("Gemini (Google AI) did not accept the key"), "{said}");
     // Without a key, the provider is not asked at all.
-    p.vault().remove("gemini").unwrap();
+    p.remove_account("gemini", &gemini.id).await.unwrap();
     let asked = seen.lock().unwrap().asked.len();
     assert!(
         p.answer("gemini/gemini-2.5-flash", chat_body(json!([])), &AtomicBool::new(false), &mut |_| {}, For::default())
@@ -387,6 +387,92 @@ async fn a_key_the_provider_does_not_take_is_said_plainly() {
             .contains("There is no Gemini (Google AI) key yet")
     );
     assert_eq!(seen.lock().unwrap().asked.len(), asked);
+}
+
+#[tokio::test]
+async fn several_keys_at_one_provider_are_accounts_each_counted_on_its_own() {
+    let (base, seen) = stand_ins().await;
+    let (p, _) = providers(&base);
+    const SECOND: &str = "sk-or-v1-second-test-key-not-real-0000";
+    let work = p.add_account("openrouter", Some(" Work "), Some(OPENROUTER_KEY)).unwrap();
+    let mine = p.add_account("openrouter", Some("Personal"), Some(SECOND)).unwrap();
+    assert_eq!((work.label.as_str(), work.is_default, mine.is_default), ("Work", true, false));
+    assert_eq!(mine.key.as_ref().map(|k| k.ends_with.as_str()), Some("0000"));
+    // Names are the person's, one each; none given is numbered.
+    assert!(matches!(p.add_account("openrouter", Some("WORK"), Some(SECOND)), Err(Error::Invalid(_))));
+    assert!(matches!(p.add_account("openrouter", Some(&"x".repeat(41)), Some(SECOND)), Err(Error::Invalid(_))));
+    assert!(matches!(p.add_account("openrouter", None, None), Err(Error::Invalid(_))), "an account at an API is its key");
+    assert!(matches!(p.add_account("opencode", None, None), Err(Error::Invalid(_))), "OpenCode has no accounts");
+    let third = p.add_account("openrouter", None, Some(SECOND)).unwrap();
+    assert_eq!(third.label, "Account 1");
+    p.remove_account("openrouter", &third.id).await.unwrap();
+
+    p.choose("openrouter", "google/gemini-3.5-flash", true).await.unwrap();
+    let body = chat_body(json!([{ "role": "user", "content": "Where is Rome?" }]));
+    let bearer = || seen.lock().unwrap().asked.last().cloned().unwrap().1.get("authorization").cloned().unwrap_or_default();
+    // A session that names no account goes through the default; one that names another, through that one.
+    p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For { session: Some("s"), message: Some("a1"), account: None }).await.unwrap();
+    assert_eq!(bearer(), format!("Bearer {OPENROUTER_KEY}"));
+    p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For { session: Some("s"), message: Some("a2"), account: Some(&mine.id) }).await.unwrap();
+    assert_eq!(bearer(), format!("Bearer {SECOND}"));
+    // An account of another provider, or one that is gone, is not used: the default is.
+    p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For { session: None, message: None, account: Some("nothere") }).await.unwrap();
+    assert_eq!(bearer(), format!("Bearer {OPENROUTER_KEY}"));
+    // Each one's cost is its own; the month's limit holds them all.
+    let view = p.view().await.unwrap();
+    let openrouter = view.iter().find(|v| v.id == "openrouter").unwrap();
+    let spent: Vec<(&str, f64)> = openrouter.accounts.iter().map(|a| (a.label.as_str(), a.spent_usd)).collect();
+    assert_eq!(spent, [("Work", 0.0246), ("Personal", 0.0123)]);
+    assert!((openrouter.spent_usd - 0.0369).abs() < 1e-12);
+
+    // The other becomes the default; renamed, it keeps its key.
+    let changed = p.change_account("openrouter", &mine.id, Some("Home"), true).unwrap();
+    assert_eq!((changed.label.as_str(), changed.is_default), ("Home", true));
+    assert!(matches!(p.change_account("openrouter", &mine.id, Some("work"), false), Err(Error::Invalid(_))));
+    p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For::default()).await.unwrap();
+    assert_eq!(bearer(), format!("Bearer {SECOND}"));
+    // Its key replaced: the new one is sent.
+    p.set_account_key("openrouter", &mine.id, "sk-or-v1-third-test-key-not-real-1111").unwrap();
+    p.answer("openrouter/google/gemini-3.5-flash", body.clone(), &AtomicBool::new(false), &mut |_| {}, For::default()).await.unwrap();
+    assert_eq!(bearer(), "Bearer sk-or-v1-third-test-key-not-real-1111");
+
+    // Deleted: its key goes from the vault, a session that named it goes back to the default, and the
+    // oldest one left is the default when the default went.
+    p.db.with(|c| c.execute("INSERT INTO sessions (id, title, model, created_at, updated_at, account) VALUES ('s', 't', 'openrouter/google/gemini-3.5-flash', 0, 0, ?1)", [&mine.id])).unwrap();
+    p.remove_account("openrouter", &mine.id).await.unwrap();
+    assert!(p.vault().facts(&format!("openrouter.{}", mine.id)).is_none());
+    let named: Option<String> = p.db.with(|c| c.query_row("SELECT account FROM sessions WHERE id = 's'", [], |r| r.get(0))).unwrap();
+    assert_eq!(named, None);
+    let left = p.accounts(Some("openrouter")).unwrap();
+    assert_eq!(left.iter().map(|a| (a.label.as_str(), a.is_default)).collect::<Vec<_>>(), [("Work", true)]);
+    // What it cost stays counted.
+    assert!((p.spending().unwrap().spent_usd - 0.0615).abs() < 1e-12);
+}
+
+#[tokio::test]
+async fn a_key_and_a_profile_kept_before_accounts_become_first_accounts() {
+    let home = std::env::temp_dir().join(format!("demido-providers-adopt-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(home.join("programs/claude-code/profile")).unwrap();
+    std::fs::write(home.join("programs/claude-code/profile/.credentials.json"), "{}").unwrap();
+    std::fs::create_dir_all(home.join("programs/opencode/profile/data")).unwrap();
+    // A key as the vault kept it then: under the provider's own name.
+    let facts = json!({ "keys": [{ "name": "gemini", "label": "Gemini API key", "kept_in": "file", "ends_with": "y-42", "added_at": 1 }] });
+    std::fs::write(home.join("vault.json"), facts.to_string()).unwrap();
+    std::fs::write(home.join("vault-keys.json"), json!({ "gemini": GEMINI_KEY }).to_string()).unwrap();
+    let db = Arc::new(Db::memory().unwrap());
+    let events = Arc::new(EventLog::new(db.clone()));
+    let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
+    let vault = Arc::new(Vault::in_file(&home));
+    let p = Providers::new(db, vault.clone(), settings, events).with_programs(&home, Arc::new(crate::programs::ProcessSpawner));
+    let gemini = p.accounts(Some("gemini")).unwrap();
+    assert_eq!(gemini.iter().map(|a| (a.label.as_str(), a.is_default)).collect::<Vec<_>>(), [("Account 1", true)]);
+    assert_eq!(vault.get(&format!("gemini.{}", gemini[0].id)).unwrap().as_deref(), Some(GEMINI_KEY));
+    assert!(vault.facts("gemini").is_none(), "the old name is gone");
+    let claude = p.accounts(Some("claude-code")).unwrap();
+    assert_eq!(claude.len(), 1);
+    assert!(home.join("programs/claude-code/profiles").join(&claude[0].id).join(".credentials.json").exists());
+    assert!(home.join("programs/opencode/profiles/default/data").is_dir() && !home.join("programs/opencode/profile").exists());
+    std::fs::remove_dir_all(&home).ok();
 }
 
 #[test]
@@ -420,7 +506,7 @@ async fn a_session_with_a_model_elsewhere_is_answered_and_says_what_it_cost() {
     let sessions = Arc::new(Sessions::new(db));
     let chat = Arc::new(Chat::new(sessions.clone(), engine, events, settings).with_providers(p.clone()));
 
-    p.vault().put("anthropic", ANTHROPIC_KEY).unwrap();
+    p.add_account("anthropic", None, Some(ANTHROPIC_KEY)).unwrap();
     assert!(chat.start(None, Some("anthropic/claude-opus-5-5")).await.unwrap_err().to_string().contains("not chosen"));
     p.choose("anthropic", "claude-opus-5-5", true).await.unwrap();
     let session = chat.start(None, Some("anthropic/claude-opus-5-5")).await.unwrap();

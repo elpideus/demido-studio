@@ -185,10 +185,25 @@ impl Copies {
         self.dir(provider).join("kept.json")
     }
 
-    /// The folder a copy keeps what it keeps in: its profile. It stays when the copy is removed, so that a
-    /// copy downloaded again finds its settings and its login.
-    pub fn profile(&self, provider: &str) -> PathBuf {
+    /// The folder a copy keeps what it keeps in for one account: its profile, with its own settings,
+    /// history and, for Claude Code, its own login. One for each account (DECISIONS U33). Profiles stay when
+    /// the copy is removed, so that a copy downloaded again finds them.
+    pub fn profile(&self, provider: &str, account: &str) -> PathBuf {
+        self.dir(provider).join("profiles").join(account)
+    }
+
+    /// Where a copy kept its one profile before there could be several accounts. Adopted by `Providers`.
+    pub(crate) fn old_profile(&self, provider: &str) -> PathBuf {
         self.dir(provider).join("profile")
+    }
+
+    /// Deletes an account's profile: its settings, its history and its login.
+    pub fn remove_profile(&self, provider: &str, account: &str) -> Result<()> {
+        let place = self.profile(provider, account);
+        if place.exists() {
+            std::fs::remove_dir_all(place)?;
+        }
+        Ok(())
     }
 
     /// The copy Demido keeps of a program, if it keeps one and its file is there.
@@ -202,9 +217,10 @@ impl Copies {
         self.running.lock().unwrap_or_else(|e| e.into_inner()).get(provider).map(|(_, d)| d.clone())
     }
 
-    /// What a copy is run with, so that it keeps to its own folder and does not update itself.
-    pub fn env(&self, provider: &str) -> Vec<(&'static str, String)> {
-        let profile = self.profile(provider);
+    /// What a copy is run with for one account, so that it keeps to that account's folder and does not
+    /// update itself.
+    pub fn env(&self, provider: &str, account: &str) -> Vec<(&'static str, String)> {
+        let profile = self.profile(provider, account);
         match provider {
             "claude-code" => {
                 let _ = std::fs::create_dir_all(&profile);
@@ -378,7 +394,7 @@ impl Copies {
         }
     }
 
-    /// Deletes Demido's copy of a program. Its profile stays (its settings and its login), and says so.
+    /// Deletes Demido's copy of a program. Its profiles (their settings and logins) stay.
     pub fn remove(&self, provider: &str) -> Result<Kept> {
         let Some(kept) = self.kept(provider) else {
             return Err(Error::NotFound(format!("Demido keeps no copy of {}.", named(provider))));

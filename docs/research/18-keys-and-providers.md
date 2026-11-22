@@ -145,6 +145,16 @@ run) and OpenCode's (`opencode.ai/v2/install`, read and not run); Claude Code's 
 | `CLAUDE_CONFIG_DIR` gives Claude Code a folder of its own for settings, history and its login: on Linux and Windows the login is kept in `.credentials.json` under it, on macOS in a Keychain entry keyed to it | Read (authentication) |
 | Run with an empty home folder and its own profile, Demido's Claude Code copy wrote nothing in the home: `.claude.json`, its backups, `projects`, `sessions` and its plugin store went into the profile. It said it was not signed in, though the owner's own Claude Code is: the profiles are apart. Demido's OpenCode copy, run the same way, put its database, logs and caches in its own folders, and listed its 12 free models | Tried |
 
+## Several accounts
+
+Read today (22 November 2026): Claude Code's CLI reference (code.claude.com/docs/en/cli-reference).
+
+| Fact | How sure |
+|---|---|
+| `claude auth login` signs in to an Anthropic account (`--console` for API billing instead of a plan); `claude auth logout` logs out of it; `claude auth status` gives JSON, exits 0 when logged in and 1 when not, and names the configuration folder it uses (`configDirectory`, from 2.1.268) | Read |
+| With `CLAUDE_CONFIG_DIR` set to a folder of each account's own, each runs signed in on its own: a sign-in in one is not seen in another | Read (U28's source); Tried with a stand-in program, not with two real Claude accounts |
+| An OpenRouter key's own figures (`/key`) are the key's: two keys give two sets | Read (OpenRouter's API reference); Tried against the stand-in only |
+
 ## What was tried with the providers, and what was not
 
 - **Tried:** the keyring on this computer, with a throwaway entry. The whole flow in the app against

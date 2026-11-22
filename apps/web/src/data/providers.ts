@@ -1,8 +1,9 @@
-/* Models elsewhere, for real: the keys the core keeps for them, the models chosen there, and what they cost.
+/* Models elsewhere, for real: the person's accounts at each provider (keys, Claude Code's sign-ins), the
+   models chosen there, and what they cost.
 
    A key goes to the core once and never comes back: what this page can know of one is its name, where it is
-   kept and its last four characters. Read once when a core is found, and again when the core says a key, a
-   choice or a cost changed. */
+   kept and its last four characters. Read once when a core is found, and again when the core says an account,
+   a choice or a cost changed. */
 import { create } from 'zustand'
 import { coreGet, coreSend, onCoreEvent } from './core'
 import { toast } from './store'
@@ -27,11 +28,17 @@ export interface Downloading { version: string; done: number; total: number | nu
 export interface Latest { provider: string; version: string; size: number | null }
 /** Claude Code's own sign-in, under way: `url` is Anthropic's page, for when no browser opened. */
 export interface SignIn { state: 'started' | 'done' | 'failed'; url: string | null; said: string | null }
+/** One of the person's accounts at a provider: a key for an API, a sign-in of its own for Claude Code. `label` is the person's own name for it. */
+export interface ProviderAccount {
+  id: string; provider: string; label: string; is_default: boolean; key: KeyFacts | null
+  signed_in: string | null; signing: SignIn | null; sign_in_command: string | null; plan: PlanLimit | null
+  spent_usd: number; created_at: number
+}
 /** `kind`: `api` (Demido asks the model itself) or `program` (a program runs its own loop: always Demido's own copy). */
 export interface ProviderView {
-  id: string; name: string; kind: 'api' | 'program'; program: Found | null; plan: PlanLimit | null
-  copy: Kept | null; downloading: Downloading | null; signing: SignIn | null; sign_in_command: string | null
-  keys_at: string; note: string; key: KeyFacts | null; chosen: RemoteModel[]; spent_usd: number; spent_exact: boolean
+  id: string; name: string; kind: 'api' | 'program'; program: Found | null
+  copy: Kept | null; downloading: Downloading | null
+  keys_at: string; note: string; accounts: ProviderAccount[]; takes_accounts: boolean; chosen: RemoteModel[]; spent_usd: number; spent_exact: boolean
 }
 /** `counted`: whether it counts toward the month's limit. A program's use does not: its plan holds it. */
 export interface Spent { provider: string; model: string; requests: number; input: number; output: number; cost_usd: number; exact: boolean; counted: boolean }
@@ -73,11 +80,40 @@ export function readProviders(): Promise<void> {
   return reading
 }
 
-/** Gives the core a key to keep. Returns false, with the reason shown, when it was not kept. */
-export async function saveKey(name: string, value: string): Promise<boolean> {
+const where = (k: KeyFacts) => (k.kept_in === 'keyring' ? 'the system keyring' : 'a file only your user can read')
+const at = (provider: string, account?: string) => `/providers/${encodeURIComponent(provider)}/accounts${account ? `/${encodeURIComponent(account)}` : ''}`
+
+/** Adds an account: an API's with its key, Claude Code's to be signed in. `label` empty: the core numbers it.
+    The new account, or null with the reason shown. */
+export async function addAccount(provider: string, label: string, key?: string): Promise<ProviderAccount | null> {
   try {
-    const facts = await coreSend<KeyFacts>('PUT', `/vault/${encodeURIComponent(name)}`, { value })
-    toast(`Kept: the key ending in …${facts.ends_with}, in ${facts.kept_in === 'keyring' ? 'the system keyring' : 'a file only your user can read'}.`, undefined, 'task-done')
+    const added = await coreSend<ProviderAccount>('POST', at(provider), { label: label.trim() || null, key: key ?? null })
+    if (added.key) toast(`Kept: ${added.label}, the key ending in …${added.key.ends_with}, in ${where(added.key)}.`, undefined, 'task-done')
+    await readProviders()
+    return added
+  } catch (e) {
+    toast(`${key ? 'The key was not kept' : 'The account was not added'}. ${(e as Error).message}`, undefined, 'task-failed')
+    return null
+  }
+}
+
+/** Renames an account, or makes it the default. False, with the reason shown, when it was not changed. */
+export async function changeAccount(provider: string, account: string, change: { label?: string; default?: boolean }): Promise<boolean> {
+  try {
+    await coreSend('PATCH', at(provider, account), change)
+    await readProviders()
+    return true
+  } catch (e) {
+    toast(`Not changed. ${(e as Error).message}`, undefined, 'task-failed')
+    return false
+  }
+}
+
+/** Gives an account another key. False, with the reason shown, when it was not kept. */
+export async function replaceKey(provider: string, account: string, value: string): Promise<boolean> {
+  try {
+    const changed = await coreSend<ProviderAccount>('PUT', `${at(provider, account)}/key`, { value })
+    if (changed.key) toast(`Kept: ${changed.label} has the key ending in …${changed.key.ends_with} now, in ${where(changed.key)}.`, undefined, 'task-done')
     await readProviders()
     return true
   } catch (e) {
@@ -86,14 +122,19 @@ export async function saveKey(name: string, value: string): Promise<boolean> {
   }
 }
 
-export async function removeKey(name: string) {
+export async function removeAccount(provider: string, account: ProviderAccount) {
   try {
-    await coreSend('DELETE', `/vault/${encodeURIComponent(name)}`)
-    toast('The key is deleted.', undefined, 'task-done')
+    await coreSend('DELETE', at(provider, account.id))
+    toast(account.key ? `${account.label} is deleted, with its key.` : `${account.label} is deleted, with its profile and login.`, undefined, 'task-done')
   } catch (e) {
-    toast(`The key was not deleted. ${(e as Error).message}`, undefined, 'task-failed')
+    toast(`Not deleted. ${(e as Error).message}`, undefined, 'task-failed')
   }
   await readProviders()
+}
+
+/** The account sessions use unless they name another. */
+export function defaultAccount(p: ProviderView | undefined): ProviderAccount | undefined {
+  return p?.accounts.find((a) => a.is_default) ?? p?.accounts[0]
 }
 
 /** The models a provider has, as it says. `fresh`: ask it now, not from what the core kept. Throws with the core's words. */
@@ -131,7 +172,7 @@ export async function stopDownload(provider: string) {
 export async function removeCopy(provider: string) {
   try {
     await coreSend('DELETE', `/providers/${provider}/program`)
-    toast('Demido\'s copy is deleted. Its profile (its settings and login) is kept.', undefined, 'task-done')
+    toast('Demido\'s copy is deleted. Its profiles (their settings and logins) are kept.', undefined, 'task-done')
   } catch (e) {
     toast(`Not deleted. ${(e as Error).message}`, undefined, 'task-failed')
   }
@@ -142,18 +183,19 @@ export function latestCopy(provider: string): Promise<Latest> {
   return coreGet<Latest>(`/providers/${provider}/program/latest`)
 }
 
-/** Starts the program's own sign-in, on its maker's page. */
-export async function signIn(provider: string) {
+/** Starts the program's own sign-in for one account, on its maker's page. */
+export async function signIn(provider: string, account: string) {
   try {
-    await coreSend('POST', `/providers/${provider}/sign-in`)
+    await coreSend('POST', `${at(provider, account)}/sign-in`)
   } catch (e) {
     toast(`The sign-in did not start. ${(e as Error).message}`, undefined, 'task-failed')
   }
   await readProviders()
 }
 
-export function readAccount(provider: string): Promise<Account> {
-  return coreGet<Account>(`/providers/${encodeURIComponent(provider)}/account`)
+/** What the provider itself says about an account. */
+export function readAccount(provider: string, account: string): Promise<Account> {
+  return coreGet<Account>(`/providers/${encodeURIComponent(provider)}/account?account=${encodeURIComponent(account)}`)
 }
 
 /** The models chosen at every provider: the ones a session may use. */
@@ -189,7 +231,7 @@ export function startProviders() {
   if (started) return
   started = true
   void readProviders()
-  for (const kind of ['vault.key.added', 'vault.key.removed', 'provider.model.chosen', 'provider.model.dropped', 'provider.used', 'provider.plan']) onCoreEvent(kind, () => void readProviders())
+  for (const kind of ['provider.account.added', 'provider.account.changed', 'provider.account.key', 'provider.account.removed', 'provider.model.chosen', 'provider.model.dropped', 'provider.used', 'provider.plan']) onCoreEvent(kind, () => void readProviders())
   onCoreEvent('setting.changed', (e) => { if (e.subject === 'providers.monthlyLimit') void readProviders() })
   for (const kind of ['program.downloaded', 'program.removed', 'program.signin']) onCoreEvent(kind, () => void readProviders())
   onCoreEvent('program.download.failed', (e) => { toast(`The download stopped. ${String(e.data.problem ?? '')}`, undefined, 'task-failed'); void readProviders() })

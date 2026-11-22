@@ -219,16 +219,27 @@ enum RuntimeCommand {
 
 #[derive(Subcommand)]
 enum KeysCommand {
-    /// The keys Demido keeps: names, where each is kept, last four characters. The same as `demido keys`.
+    /// The keys Demido keeps, by provider and account: where each is kept, its last four characters. The
+    /// same as `demido keys`.
     List,
-    /// Keep a key, in place of one of that name. It is asked for without being shown, or read from a pipe:
-    /// demido keys add anthropic < key.txt
+    /// Add an account at a provider, with its key. The key is asked for without being shown, or read from a
+    /// pipe: demido keys add openrouter Work < key.txt
     Add {
         /// anthropic, gemini or openrouter.
-        name: String,
+        provider: String,
+        /// Your own name for the account: Work, Personal. Left out: Account 1, Account 2.
+        label: Option<String>,
     },
-    /// Delete a key from wherever it is kept.
-    Remove { name: String },
+    /// Give an account another key, in place of the one it has.
+    Replace {
+        provider: String,
+        /// The account's name, as `demido keys` shows it.
+        account: String,
+    },
+    /// Make an account the one sessions use unless they name another.
+    Default { provider: String, account: String },
+    /// Delete an account and its key, from wherever it is kept.
+    Remove { provider: String, account: String },
 }
 
 #[derive(Subcommand)]
@@ -296,7 +307,7 @@ async fn run(cli: Cli) -> Result<()> {
             if json { println!("{}", serde_json::to_string_pretty(&info)?) } else { print_system(&info) }
         }
         Command::Settings { command } => settings(&paths, command)?,
-        Command::Keys { command } => keys(&paths, command.unwrap_or(KeysCommand::List))?,
+        Command::Keys { command } => keys(&paths, command.unwrap_or(KeysCommand::List)).await?,
         Command::Usage { json } => usage(&paths, json)?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
@@ -380,20 +391,43 @@ fn read_hidden(prompt: &str) -> Result<String> {
     Ok(line.trim().to_string())
 }
 
-fn print_key(k: &Value) {
+/// One account and its key, on a line.
+fn print_key(a: &Value) {
+    let k = &a["key"];
+    let name = format!("{}{}", a["label"].as_str().unwrap_or("?"), if a["is_default"] == true { " (default)" } else { "" });
     println!(
-        "  {:<12} …{}  kept in the {}  added {} ago",
-        k["name"].as_str().unwrap_or("?"),
+        "  {name:<24} …{}  kept in the {}  added {} ago  ${:.2} this month",
         k["ends_with"].as_str().unwrap_or(""),
         if k["kept_in"] == "keyring" { "system keyring" } else { "file" },
-        ago(((demido_core::now_ms() - k["added_at"].as_i64().unwrap_or(0)) / 1000).max(0) as u64)
+        ago(((demido_core::now_ms() - k["added_at"].as_i64().unwrap_or(0)) / 1000).max(0) as u64),
+        a["spent_usd"].as_f64().unwrap_or(0.0)
     );
 }
 
-fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
+/// The accounts at the providers with keys (not Claude Code's sign-ins), as the API gives them.
+fn key_accounts(server: &Option<Server>, core: &Option<Core>) -> Result<Vec<Value>> {
+    let all = match (server, core) {
+        (Some(s), _) => s.get("/api/v1/providers")?.as_array().into_iter().flatten().filter(|p| p["kind"] == "api").flat_map(|p| p["accounts"].as_array().cloned().unwrap_or_default()).collect(),
+        (None, Some(c)) => serde_json::to_value(c.providers.accounts(None)?)?.as_array().cloned().unwrap_or_default(),
+        _ => unreachable!(),
+    };
+    Ok(all.into_iter().filter(|a| !a["key"].is_null()).collect())
+}
+
+/// An account at a provider, by its name or its id.
+fn account_named<'a>(accounts: &'a [Value], provider: &str, named: &str) -> Result<&'a Value> {
+    let here: Vec<&Value> = accounts.iter().filter(|a| a["provider"] == provider).collect();
+    here.iter().find(|a| a["id"] == named || a["label"].as_str().is_some_and(|l| l.eq_ignore_ascii_case(named))).copied().ok_or_else(|| {
+        let names: Vec<&str> = here.iter().filter_map(|a| a["label"].as_str()).collect();
+        if names.is_empty() { anyhow!("{provider} has no account in Demido.") } else { anyhow!("{provider} has no account called \"{named}\". It has: {}.", names.join(", ")) }
+    })
+}
+
+async fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
     let server = Server::find(paths);
     // With a server running, go through it: it keeps what it read of the keys in memory.
     let core = if server.is_none() { Some(Core::open(paths)?) } else { None };
+    let kept_in = |facts: &Value| if facts["kept_in"] == "keyring" { "system keyring" } else { "file only your user can read" };
     match command {
         KeysCommand::List => {
             let view = match (&server, &core) {
@@ -402,49 +436,85 @@ fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
                 _ => unreachable!(),
             };
             println!("{}", view["where_words"].as_str().unwrap_or_default());
-            let kept = view["keys"].as_array().cloned().unwrap_or_default();
-            if kept.is_empty() {
-                println!("\nNo key is kept yet. Add one with: demido keys add <name>");
-            } else {
-                println!();
-                kept.iter().for_each(print_key);
+            let accounts = key_accounts(&server, &core)?;
+            if accounts.is_empty() {
+                println!("\nNo key is kept yet. Add one with: demido keys add <provider> [name]");
             }
-            let names: Vec<&str> = view["known"].as_array().into_iter().flatten().filter_map(|k| k["name"].as_str()).collect();
-            println!("\nKeys Demido can keep: {}.", names.join(", "));
+            for def in demido_core::providers::ALL.iter().filter(|d| !d.program) {
+                let here: Vec<&Value> = accounts.iter().filter(|a| a["provider"] == def.id).collect();
+                if here.is_empty() {
+                    continue;
+                }
+                println!("\n{} ({})", def.name, def.id);
+                for a in here {
+                    print_key(a);
+                }
+            }
+            let names: Vec<&str> = demido_core::providers::ALL.iter().filter(|d| !d.program).map(|d| d.id).collect();
+            println!("\nProviders Demido keeps keys for: {}. Each may have several accounts.", names.join(", "));
         }
-        KeysCommand::Add { name } => {
-            let value = read_hidden(&format!("The {name} key: "))?;
+        KeysCommand::Add { provider, label } => {
+            let value = read_hidden(&format!("The {provider} key: "))?;
             if value.is_empty() {
                 bail!("Nothing was given, so nothing was kept.");
             }
-            let facts = match (&server, &core) {
-                (Some(s), _) => s.send("PUT", &format!("/api/v1/vault/{name}"), Some(&json!({ "value": value })))?,
-                (None, Some(c)) => {
-                    let facts = c.providers.vault().put(&name, &value)?;
-                    c.events.append("vault.key.added", Some(&facts.name), json!({ "kept_in": facts.kept_in, "ends_with": facts.ends_with }))?;
-                    serde_json::to_value(facts)?
-                }
+            let added = match (&server, &core) {
+                (Some(s), _) => s.send("POST", &format!("/api/v1/providers/{provider}/accounts"), Some(&json!({ "label": label, "key": value })))?,
+                (None, Some(c)) => serde_json::to_value(c.providers.add_account(&provider, label.as_deref(), Some(&value))?)?,
                 _ => unreachable!(),
             };
             println!(
-                "Kept: the {} ending in …{}, in the {}.",
-                facts["label"].as_str().unwrap_or(&name),
-                facts["ends_with"].as_str().unwrap_or(""),
-                if facts["kept_in"] == "keyring" { "system keyring" } else { "file only your user can read" }
+                "Kept: {} at {provider}{}, the key ending in …{}, in the {}.",
+                added["label"].as_str().unwrap_or("the account"),
+                if added["is_default"] == true { " (the default)" } else { "" },
+                added["key"]["ends_with"].as_str().unwrap_or(""),
+                kept_in(&added["key"])
             );
         }
-        KeysCommand::Remove { name } => {
+        KeysCommand::Replace { provider, account } => {
+            let accounts = key_accounts(&server, &core)?;
+            let found = account_named(&accounts, &provider, &account)?;
+            let (id, label) = (found["id"].as_str().unwrap_or_default().to_string(), found["label"].as_str().unwrap_or_default().to_string());
+            let value = read_hidden(&format!("The new key for {label}: "))?;
+            if value.is_empty() {
+                bail!("Nothing was given, so the key is as it was.");
+            }
+            let changed = match (&server, &core) {
+                (Some(s), _) => s.send("PUT", &format!("/api/v1/providers/{provider}/accounts/{id}/key"), Some(&json!({ "value": value })))?,
+                (None, Some(c)) => serde_json::to_value(c.providers.set_account_key(&provider, &id, &value)?)?,
+                _ => unreachable!(),
+            };
+            println!("{label} at {provider} has the key ending in …{} now, in the {}.", changed["key"]["ends_with"].as_str().unwrap_or(""), kept_in(&changed["key"]));
+        }
+        KeysCommand::Default { provider, account } => {
+            let accounts = key_accounts(&server, &core)?;
+            let found = account_named(&accounts, &provider, &account)?;
+            let id = found["id"].as_str().unwrap_or_default().to_string();
             match (&server, &core) {
                 (Some(s), _) => {
-                    s.send("DELETE", &format!("/api/v1/vault/{name}"), None)?;
+                    s.send("PATCH", &format!("/api/v1/providers/{provider}/accounts/{id}"), Some(&json!({ "default": true })))?;
                 }
                 (None, Some(c)) => {
-                    let gone = c.providers.vault().remove(&name)?;
-                    c.events.append("vault.key.removed", Some(&gone.name), json!({ "kept_in": gone.kept_in }))?;
+                    c.providers.change_account(&provider, &id, None, true)?;
                 }
                 _ => unreachable!(),
             }
-            println!("The {name} key is deleted.");
+            println!("Sessions with {provider}'s models use {} now, unless they name another account.", found["label"].as_str().unwrap_or_default());
+        }
+        KeysCommand::Remove { provider, account } => {
+            let accounts = key_accounts(&server, &core)?;
+            let found = account_named(&accounts, &provider, &account)?;
+            let id = found["id"].as_str().unwrap_or_default().to_string();
+            match (&server, &core) {
+                (Some(s), _) => {
+                    s.send("DELETE", &format!("/api/v1/providers/{provider}/accounts/{id}"), None)?;
+                }
+                (None, Some(c)) => {
+                    c.providers.remove_account(&provider, &id).await?;
+                }
+                _ => unreachable!(),
+            }
+            println!("{} at {provider} is deleted, with its key.", found["label"].as_str().unwrap_or_default());
         }
     }
     Ok(())

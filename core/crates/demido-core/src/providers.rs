@@ -21,8 +21,12 @@
 //! their own loop (`programs`, `chat/program.rs`). Their models are listed and chosen the same way; they
 //! have no key in Demido, and what they cost is shown and held by their own plans, not by the limit.
 //!
-//! Not built yet: several keys for one provider, and a provider's own spending figures for Anthropic and
-//! Google (they have no way to ask with an ordinary key).
+//! The person may have **several accounts at one provider** (DECISIONS U32–U35): several keys at an API, several
+//! Claude Code sign-ins, each with a name of the person's own. One is the default; a session may name another.
+//! What each request cost is counted against the account it was paid from.
+//!
+//! Not built yet: a provider's own spending figures for Anthropic and Google (they have no way to ask with an
+//! ordinary key), a limit of its own for each account, and OpenCode signed in to anything.
 
 mod anthropic;
 mod openai;
@@ -89,7 +93,7 @@ pub const ALL: [Def; 5] = [
         program: true,
         base: "",
         keys_at: "https://code.claude.com/docs/en/setup",
-        note: "Runs Claude Code, Anthropic's own program, with its own tools and its own loop: Demido is the window onto it. Demido keeps its own copy, downloaded from Anthropic when you ask and run with a profile of its own, so nothing is installed on your system and none of your own settings come with it. You sign in once, with your Claude plan, on Anthropic's page. It uses your plan's limits (its five-hour and weekly ones); Demido shows what it reports and does not count it against the limit you set here. Demido never sees or keeps the login. Not made or endorsed by Anthropic.",
+        note: "Runs Claude Code, Anthropic's own program, with its own tools and its own loop: Demido is the window onto it. Demido keeps its own copy, downloaded from Anthropic when you ask and run with a profile of its own, so nothing is installed on your system and none of your own settings come with it. Each of your Claude accounts signs in once, on Anthropic's page, and keeps its login in a profile of its own. It uses your plan's limits (its five-hour and weekly ones); Demido shows what it reports and does not count it against the limit you set here. Demido never sees or keeps the login. Not made or endorsed by Anthropic.",
     },
     Def {
         id: "opencode",
@@ -216,27 +220,106 @@ pub struct ProviderView {
     pub name: String,
     /// `api` (Demido asks the model itself) or `program` (a program on this computer runs its own loop).
     pub kind: String,
-    /// For a program: whether it is here, its version, how it is signed in.
+    /// For a program: whether it is here, its version, how its default account is signed in.
     pub program: Option<crate::programs::Found>,
-    /// For a program: its plan's limit, as it last said it while running.
-    pub plan: Option<PlanLimit>,
     /// For a program: Demido's own copy, when it keeps one.
     pub copy: Option<crate::programs::copies::Kept>,
     /// For a program: the download of Demido's copy under way.
     pub downloading: Option<crate::programs::copies::Downloading>,
-    /// For Claude Code: a sign-in under way, and the command that signs in from a terminal.
-    pub signing: Option<SignIn>,
-    pub sign_in_command: Option<String>,
     pub keys_at: String,
     pub note: String,
-    /// The key, when one is kept. Never its value.
-    pub key: Option<KeyFacts>,
+    /// The person's accounts here, the oldest first: keys for an API, sign-ins for Claude Code.
+    pub accounts: Vec<ProviderAccount>,
+    /// Whether accounts can be added here. OpenCode has one profile, and none.
+    pub takes_accounts: bool,
     /// The models the person chose here.
     pub chosen: Vec<RemoteModel>,
     /// What Demido counted this month for this provider, in dollars.
     pub spent_usd: f64,
     /// Whether all of that is the provider's own figure.
     pub spent_exact: bool,
+}
+
+/// One of the person's accounts at a provider: a key for an API, a sign-in of its own for Claude Code, in a
+/// profile of its own (DECISIONS U32–U34).
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct ProviderAccount {
+    /// Demido's name for it, which does not change: it names the account's key in the vault
+    /// (`<provider>.<id>`) and its Claude Code profile.
+    pub id: String,
+    pub provider: String,
+    /// The person's own name for it: "Personal", "Work".
+    pub label: String,
+    /// Sessions use this one unless they name another.
+    pub is_default: bool,
+    /// Its key, when it has one. Never its value.
+    pub key: Option<KeyFacts>,
+    /// For Claude Code: how this account is signed in, as Claude Code says.
+    pub signed_in: Option<String>,
+    /// For Claude Code: a sign-in under way.
+    pub signing: Option<SignIn>,
+    /// For Claude Code: the command that signs this account in from a terminal.
+    pub sign_in_command: Option<String>,
+    /// For Claude Code: its plan's limit, as it last said it while running.
+    pub plan: Option<PlanLimit>,
+    /// What Demido counted this month for it, in dollars.
+    pub spent_usd: f64,
+    pub created_at: i64,
+}
+
+/// An account as it is written down.
+#[derive(Clone, Debug)]
+pub(crate) struct AccountRow {
+    pub id: String,
+    pub provider: String,
+    pub label: String,
+    pub is_default: bool,
+    pub created_at: i64,
+}
+
+/// The profile OpenCode runs in: it has one, and no accounts.
+const OPENCODE_PROFILE: &str = "default";
+
+/// The longest name an account may have.
+const LABEL_AT_MOST: usize = 40;
+
+/// The name an account's key is kept under in the vault.
+fn key_name(provider: &str, account: &str) -> String {
+    format!("{provider}.{account}")
+}
+
+/// A provider Demido knows, by its id.
+fn known(provider: &str) -> Result<&'static Def> {
+    ALL.iter()
+        .find(|d| d.id == provider)
+        .ok_or_else(|| Error::NotFound(format!("Demido knows no provider called \"{provider}\". It knows: {}.", ALL.iter().map(|d| d.id).collect::<Vec<_>>().join(", "))))
+}
+
+/// Why there is no account to use, for a person.
+fn no_account(def: &Def) -> String {
+    if def.program {
+        format!("{} has no account in Demido yet. Sign in on the Providers screen: Anthropic's own page opens, and Demido never sees the login.", def.name)
+    } else {
+        format!("There is no {} key yet. Add yours on the Providers screen (you get one at {}).", def.name, def.keys_at)
+    }
+}
+
+/// The person's name for an account, checked: one line, at most 40 characters, not the name of another of
+/// the provider's accounts (`not`: the one being renamed). Nothing given: "Account 1", "Account 2".
+fn label_for(all: &[AccountRow], given: Option<&str>, not: Option<&str>) -> Result<String> {
+    let given = given.map(|l| l.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")).filter(|l| !l.is_empty());
+    let taken = |label: &str| all.iter().any(|a| Some(a.id.as_str()) != not && a.label.to_lowercase() == label.to_lowercase());
+    let label = match given {
+        Some(label) => label,
+        None => (1..).map(|n| format!("Account {n}")).find(|l| !taken(l)).expect("there is always a number not taken"),
+    };
+    if label.chars().count() > LABEL_AT_MOST {
+        return Err(Error::Invalid(format!("An account's name is at most {LABEL_AT_MOST} characters.")));
+    }
+    if taken(&label) {
+        return Err(Error::Invalid(format!("There is an account called \"{label}\" here already: give this one another name.")));
+    }
+    Ok(label)
 }
 
 /// A sign-in to Claude Code under way: Claude Code's own (`claude auth login`), on Anthropic's page.
@@ -315,11 +398,13 @@ pub struct AccountLine {
     pub reset: Option<String>,
 }
 
-/// What a request is for, so its cost is counted against the right session and answer.
+/// What a request is for, so its cost is counted against the right session, answer and account.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct For<'a> {
     pub session: Option<&'a str>,
     pub message: Option<&'a str>,
+    /// The account the session names. `None`: the provider's default.
+    pub account: Option<&'a str>,
 }
 
 /// How much thinking the chat asked for, read from the request it built.
@@ -418,11 +503,11 @@ pub struct Providers {
     listing_in: std::path::PathBuf,
     /// What each program said about itself, and when.
     found: Mutex<HashMap<String, (Instant, crate::programs::Found)>>,
-    /// Each program's plan limit, as it last said it.
+    /// Each account's plan limit, as its program last said it (`<provider>.<account>`).
     plans: Mutex<HashMap<String, PlanLimit>>,
     /// Demido's own copies of the programs.
     copies: Arc<crate::programs::copies::Copies>,
-    /// Sign-ins under way, by provider.
+    /// Sign-ins under way, by account (`<provider>.<account>`).
     signing: Mutex<HashMap<String, SignIn>>,
 }
 
@@ -484,7 +569,53 @@ impl Providers {
         self.listing_in = home.join("programs").join("listing");
         self.copies = Arc::new(crate::programs::copies::Copies::new(home, self.events.clone()));
         self.spawner = spawner;
+        self.adopt_old();
         self
+    }
+
+    /// What was kept before there could be several accounts becomes each provider's first account: a key
+    /// kept under the provider's own name, and the one profile Claude Code and OpenCode had (`profile`).
+    fn adopt_old(&self) {
+        for def in ALL.iter().filter(|d| !d.program) {
+            if self.vault.facts(def.id).is_none() {
+                continue;
+            }
+            let moved = (|| -> Result<()> {
+                let value = self.vault.get(def.id)?.unwrap_or_default();
+                self.add_account(def.id, None, Some(&value))?;
+                self.vault.remove(def.id)?;
+                Ok(())
+            })();
+            match moved {
+                Ok(()) => tracing::info!("The {} key kept before accounts is now an account of its own.", def.name),
+                Err(e) => tracing::warn!("The {} key kept before accounts could not be made an account: {e}", def.name),
+            }
+        }
+        for def in ALL.iter().filter(|d| d.program) {
+            let old = self.copies.old_profile(def.id);
+            if !old.is_dir() {
+                continue;
+            }
+            let into = if def.id == "claude-code" {
+                match self.add_account(def.id, None, None) {
+                    Ok(account) => account.id,
+                    Err(e) => {
+                        tracing::warn!("Claude Code's profile kept before accounts could not be made an account: {e}");
+                        continue;
+                    }
+                }
+            } else {
+                OPENCODE_PROFILE.to_string()
+            };
+            let new = self.copies.profile(def.id, &into);
+            if new.exists() {
+                continue;
+            }
+            let moved = new.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::rename(&old, &new));
+            if let Err(e) = moved {
+                tracing::warn!("{}'s profile could not be moved to {}: {e}", def.name, new.display());
+            }
+        }
     }
 
     /// The same, with these copies. For tests.
@@ -498,9 +629,11 @@ impl Providers {
         &self.copies
     }
 
-    /// What Demido's copy of a program is run with: its own profile, and no self-update.
-    pub fn program_env(&self, provider: &str) -> Vec<(&'static str, String)> {
-        self.copies.env(provider)
+    /// What Demido's copy of a program is run with: the account's own profile (OpenCode has one), and no
+    /// self-update. Claude Code is always run with an account: without one, it would make a profile called
+    /// `default` that belongs to none.
+    pub fn program_env(&self, provider: &str, account: Option<&str>) -> Vec<(&'static str, String)> {
+        self.copies.env(provider, account.unwrap_or(OPENCODE_PROFILE))
     }
 
     /// Downloads Demido's copy of a program, in the background. Told as it goes.
@@ -524,39 +657,42 @@ impl Providers {
         self.found.lock().unwrap_or_else(|e| e.into_inner()).retain(|key, _| !key.starts_with(&format!("{provider}:")));
     }
 
-    /// Deletes Demido's copy of a program. Its profile, with its settings and login, stays.
+    /// Deletes Demido's copy of a program. Its profiles, with their settings and logins, stay.
     pub fn remove_copy(&self, provider: &str) -> Result<crate::programs::copies::Kept> {
         let gone = self.copies.remove(provider)?;
         self.forget_look(provider);
         Ok(gone)
     }
 
-    /// The command that signs Demido's copy of Claude Code in from a terminal: for when Anthropic's page
-    /// shows a code to paste, which Demido does not carry.
-    fn sign_in_command(&self) -> Option<String> {
+    /// The command that signs an account of Claude Code in from a terminal: for when Anthropic's page shows a
+    /// code to paste, which Demido does not carry.
+    fn sign_in_command(&self, account: &str) -> Option<String> {
         let kept = self.copies.kept("claude-code")?;
-        let profile = self.copies.profile("claude-code").display().to_string();
+        let profile = self.copies.profile("claude-code", account).display().to_string();
         Some(if cfg!(windows) { format!("$env:CLAUDE_CONFIG_DIR=\"{profile}\"; & \"{}\" auth login", kept.path) } else { format!("CLAUDE_CONFIG_DIR='{profile}' '{}' auth login", kept.path) })
     }
 
-    /// Starts Claude Code's own sign-in for the copy in use: it opens Anthropic's page in the browser, and
-    /// Claude Code keeps the login in its profile. Demido never reads it, asks for it or passes it on; it
-    /// only shows the page's address, for when no browser opened.
-    pub fn sign_in(self: &Arc<Self>, provider: &str) -> Result<()> {
+    /// Starts Claude Code's own sign-in for one of its accounts: it opens Anthropic's page in the browser, and
+    /// Claude Code keeps the login in the account's profile. Demido never reads it, asks for it or passes it
+    /// on; it only shows the page's address, for when no browser opened.
+    pub fn sign_in(self: &Arc<Self>, provider: &str, account: &str) -> Result<()> {
         if provider != "claude-code" {
             return Err(Error::Invalid("Only Claude Code is signed in from here. OpenCode's free models need no account.".into()));
         }
+        let def = known(provider)?;
+        self.account_row(def, account)?;
         let program = self.program(provider)?;
-        let env = self.program_env(provider);
+        let env = self.program_env(provider, Some(account));
+        let signing_key = key_name(provider, account);
         let mut command = tokio::process::Command::new(&program);
         command.args(["auth", "login"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
         for (name, value) in &env {
             command.env(name, value);
         }
         let mut child = command.spawn().map_err(|e| Error::Invalid(format!("Claude Code's sign-in could not be started: {e}")))?;
-        self.signing.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.into(), SignIn { state: "started".into(), url: None, said: None });
-        self.events.tell("program.signin", Some(provider), json!({ "state": "started" }));
-        let me = self.clone();
+        self.signing.lock().unwrap_or_else(|e| e.into_inner()).insert(signing_key.clone(), SignIn { state: "started".into(), url: None, said: None });
+        self.events.tell("program.signin", Some(provider), json!({ "account": account, "state": "started" }));
+        let (me, account) = (self.clone(), account.to_string());
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
             let mut said = String::new();
@@ -573,11 +709,11 @@ impl Providers {
                     let line = crate::programs::plain(&line);
                     if let Some(url) = line.split_whitespace().find(|w| w.starts_with("https://")) {
                         let mut signing = me.signing.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(s) = signing.get_mut("claude-code")
+                        if let Some(s) = signing.get_mut(&signing_key)
                             && s.url.is_none()
                         {
                             s.url = Some(url.to_string());
-                            me.events.tell("program.signin", Some("claude-code"), json!({ "state": "started", "url": url }));
+                            me.events.tell("program.signin", Some("claude-code"), json!({ "account": account, "state": "started", "url": url }));
                         }
                     }
                     said.push_str(&line);
@@ -589,7 +725,7 @@ impl Providers {
             let ok = matches!(ended, Ok(Ok(status)) if status.success());
             let tail: String = said.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" ");
             me.signing.lock().unwrap_or_else(|e| e.into_inner()).insert(
-                "claude-code".into(),
+                signing_key,
                 SignIn {
                     state: if ok { "done" } else { "failed" }.into(),
                     url: None,
@@ -597,9 +733,25 @@ impl Providers {
                 },
             );
             me.forget_look("claude-code");
-            me.events.tell("program.signin", Some("claude-code"), json!({ "state": if ok { "done" } else { "failed" } }));
+            me.events.tell("program.signin", Some("claude-code"), json!({ "account": account, "state": if ok { "done" } else { "failed" } }));
         });
         Ok(())
+    }
+
+    /// Signs an account of Claude Code out, as Claude Code does it (`claude auth logout`), before its profile
+    /// is deleted: on macOS the login is in the Keychain, not in the profile. What it says is not kept.
+    async fn sign_out(&self, account: &str) {
+        let Ok(program) = self.program("claude-code") else { return };
+        let mut command = tokio::process::Command::new(&program);
+        command.args(["auth", "logout"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
+        for (name, value) in self.program_env("claude-code", Some(account)) {
+            command.env(name, value);
+        }
+        if let Ok(Ok(status)) = tokio::time::timeout(Duration::from_secs(20), command.status()).await
+            && !status.success()
+        {
+            tracing::info!("Claude Code's sign-out ended with {status}; the profile is deleted all the same.");
+        }
     }
 
     pub fn spawner(&self) -> &Arc<dyn crate::programs::Spawner> {
@@ -623,23 +775,38 @@ impl Providers {
         self.program_path(provider).ok_or_else(|| Error::Invalid(self.missing(provider)))
     }
 
-    /// What a program says about itself, looked at again after a minute.
-    pub async fn look_at(&self, provider: &str) -> crate::programs::Found {
-        let key = format!("{provider}:");
+    /// What a program says about itself, with an account's profile, looked at again after a minute. Claude
+    /// Code with no account is not run: there is no profile to run it in, and it is never run in the
+    /// person's own.
+    pub async fn look_at(&self, provider: &str, account: Option<&str>) -> crate::programs::Found {
+        let key = format!("{provider}:{}", account.unwrap_or_default());
         let kept = self.found.lock().unwrap_or_else(|e| e.into_inner()).get(&key).filter(|(at, _)| at.elapsed() < PROGRAM_LOOKED_AT_FOR).map(|(_, f)| f.clone());
         if let Some(found) = kept {
             return found;
         }
-        let found = crate::programs::look(provider, self.program_path(provider), &self.program_env(provider), &self.missing(provider)).await;
+        let found = match (provider, account) {
+            // No profile is made for it, and none of the person's own is read.
+            ("claude-code", None) => match self.copies.kept(provider) {
+                Some(kept) => crate::programs::Found {
+                    provider: provider.into(),
+                    path: Some(kept.path),
+                    version: Some(kept.version),
+                    signed_in: None,
+                    problem: Some("Claude Code has no account in Demido yet. Sign in with the button here: it opens Anthropic's own page. Demido never sees or keeps the login.".into()),
+                },
+                None => crate::programs::Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(self.missing(provider)) },
+            },
+            _ => crate::programs::look(provider, self.program_path(provider), &self.program_env(provider, account), &self.missing(provider)).await,
+        };
         self.found.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now(), found.clone()));
         found
     }
 
-    /// A program's plan limit, as it said it while it ran.
-    pub fn note_plan(&self, provider: &str, status: &str, resets_at: Option<i64>, used: Option<f64>) {
+    /// An account's plan limit, as its program said it while it ran.
+    pub fn note_plan(&self, provider: &str, account: Option<&str>, status: &str, resets_at: Option<i64>, used: Option<f64>) {
         let limit = PlanLimit { status: status.into(), resets_at: resets_at.map(|s| if s < 100_000_000_000 { s * 1000 } else { s }), used, said_at: now_ms() };
-        self.plans.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.to_string(), limit);
-        self.events.tell("provider.plan", Some(provider), json!({ "status": status, "resets_at": resets_at, "used": used }));
+        self.plans.lock().unwrap_or_else(|e| e.into_inner()).insert(key_name(provider, account.unwrap_or(OPENCODE_PROFILE)), limit);
+        self.events.tell("provider.plan", Some(provider), json!({ "account": account, "status": status, "resets_at": resets_at, "used": used }));
     }
 
     /// Writes down what a request to a program cost, as the program said. It is shown, and does not count
@@ -647,11 +814,11 @@ impl Providers {
     pub fn record(&self, provider: &str, model: &str, asking: For<'_>, tokens: prices::Tokens, cost: f64) -> Result<()> {
         self.db.with(|c| {
             c.execute(
-                "INSERT INTO usage (at, provider, model, session_id, message_id, input, cached, cache_written, output, cost_usd, exact) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
-                rusqlite::params![now_ms(), provider, model, asking.session, asking.message, tokens.input as i64, tokens.cached as i64, tokens.cache_written as i64, tokens.output as i64, cost],
+                "INSERT INTO usage (at, provider, model, session_id, message_id, input, cached, cache_written, output, cost_usd, exact, account) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11)",
+                rusqlite::params![now_ms(), provider, model, asking.session, asking.message, tokens.input as i64, tokens.cached as i64, tokens.cache_written as i64, tokens.output as i64, cost, asking.account],
             )
         })?;
-        self.events.tell("provider.used", Some(provider), json!({ "provider": provider, "cost_usd": cost, "exact": false, "session": asking.session }));
+        self.events.tell("provider.used", Some(provider), json!({ "provider": provider, "account": asking.account, "cost_usd": cost, "exact": false, "session": asking.session }));
         Ok(())
     }
 
@@ -678,8 +845,172 @@ impl Providers {
         if chosen == "none" { None } else { Some(chosen.parse().unwrap_or(10.0)) }
     }
 
-    fn key(&self, def: &Def) -> Result<String> {
-        self.vault.get(def.id)?.ok_or_else(|| Error::Invalid(format!("There is no {} key yet. Add yours on the Providers screen (you get one at {}).", def.name, def.keys_at)))
+    fn key(&self, def: &Def, account: &AccountRow) -> Result<String> {
+        self.vault
+            .get(&key_name(def.id, &account.id))?
+            .ok_or_else(|| Error::Invalid(format!("The {} account \"{}\" has no key any more. Add it again on the Providers screen.", def.name, account.label)))
+    }
+
+    // ───────── accounts ─────────
+
+    /// The accounts at a provider, the oldest first; at all providers when `provider` is `None`.
+    pub(crate) fn account_rows(&self, provider: Option<&str>) -> Result<Vec<AccountRow>> {
+        self.db.with(|c| {
+            c.prepare("SELECT id, provider, label, is_default, created_at FROM accounts WHERE ?1 IS NULL OR provider = ?1 ORDER BY created_at, rowid")?
+                .query_map([provider], |r| Ok(AccountRow { id: r.get(0)?, provider: r.get(1)?, label: r.get(2)?, is_default: r.get::<_, i64>(3)? == 1, created_at: r.get(4)? }))?
+                .collect()
+        })
+    }
+
+    fn account_row(&self, def: &Def, account: &str) -> Result<AccountRow> {
+        self.account_rows(Some(def.id))?.into_iter().find(|a| a.id == account).ok_or_else(|| Error::NotFound(format!("{} has no account \"{account}\" in Demido.", def.name)))
+    }
+
+    /// The account a request goes through: the one named, when it is one of this provider's, or else the
+    /// provider's default.
+    pub(crate) fn account_for(&self, def: &Def, named: Option<&str>) -> Result<AccountRow> {
+        let all = self.account_rows(Some(def.id))?;
+        if let Some(found) = named.and_then(|n| all.iter().find(|a| a.id == n)) {
+            return Ok(found.clone());
+        }
+        all.iter().find(|a| a.is_default).or(all.first()).cloned().ok_or_else(|| Error::Invalid(no_account(def)))
+    }
+
+    /// An account as the person sees it, without what its program says (`view` adds that).
+    fn account_view(&self, row: &AccountRow, spent_usd: f64) -> ProviderAccount {
+        let claude_code = row.provider == "claude-code";
+        ProviderAccount {
+            id: row.id.clone(),
+            provider: row.provider.clone(),
+            label: row.label.clone(),
+            is_default: row.is_default,
+            key: if claude_code { None } else { self.vault.facts(&key_name(&row.provider, &row.id)) },
+            signed_in: None,
+            signing: self.signing.lock().unwrap_or_else(|e| e.into_inner()).get(&key_name(&row.provider, &row.id)).cloned(),
+            sign_in_command: claude_code.then(|| self.sign_in_command(&row.id)).flatten(),
+            plan: self.plans.lock().unwrap_or_else(|e| e.into_inner()).get(&key_name(&row.provider, &row.id)).cloned(),
+            spent_usd,
+            created_at: row.created_at,
+        }
+    }
+
+    /// Adds an account at a provider: an API's with its key; Claude Code's to be signed in afterwards, on
+    /// Anthropic's page, in a profile of its own. The first one is the default. `label` is the person's own
+    /// name for it. The key goes to the keyring, which can take a moment: not for an async thread.
+    pub fn add_account(&self, provider: &str, label: Option<&str>, key: Option<&str>) -> Result<ProviderAccount> {
+        let def = known(provider)?;
+        if def.program && def.id != "claude-code" {
+            return Err(Error::Invalid("OpenCode has one profile in Demido and no accounts: its free models need none. Signing it in to other providers is not built yet.".into()));
+        }
+        let key = key.map(str::trim).filter(|k| !k.is_empty());
+        match (def.program, key) {
+            (false, None) => return Err(Error::Invalid(format!("An account at {} is its key: paste it (you get one at {}).", def.name, def.keys_at))),
+            (true, Some(_)) => return Err(Error::Invalid("Claude Code is not given a key here: each account signs in on Anthropic's own page.".into())),
+            _ => {}
+        }
+        let all = self.account_rows(Some(def.id))?;
+        let label = label_for(&all, label, None)?;
+        let id = loop {
+            let id: String = uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect();
+            if !all.iter().any(|a| a.id == id) {
+                break id;
+            }
+        };
+        if let Some(key) = key {
+            self.vault.put(&key_name(def.id, &id), key)?;
+        }
+        let row = AccountRow { id, provider: def.id.into(), label, is_default: all.is_empty(), created_at: now_ms() };
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO accounts (id, provider, label, is_default, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![row.id, row.provider, row.label, row.is_default as i64, row.created_at],
+            )
+        })?;
+        self.events.append("provider.account.added", Some(def.id), json!({ "account": row.id, "label": row.label, "default": row.is_default }))?;
+        Ok(self.account_view(&row, 0.0))
+    }
+
+    /// Renames an account, or makes it the one sessions use unless they name another.
+    pub fn change_account(&self, provider: &str, account: &str, label: Option<&str>, default: bool) -> Result<ProviderAccount> {
+        let def = known(provider)?;
+        let all = self.account_rows(Some(def.id))?;
+        let Some(mut row) = all.iter().find(|a| a.id == account).cloned() else {
+            return Err(Error::NotFound(format!("{} has no account \"{account}\" in Demido.", def.name)));
+        };
+        if let Some(label) = label {
+            if label.trim().is_empty() {
+                return Err(Error::Invalid("An account needs a name.".into()));
+            }
+            row.label = label_for(&all, Some(label), Some(account))?;
+            self.db.with(|c| c.execute("UPDATE accounts SET label = ?2 WHERE id = ?1", rusqlite::params![account, row.label]))?;
+        }
+        if default {
+            self.db.with(|c| c.execute("UPDATE accounts SET is_default = (id = ?2) WHERE provider = ?1", [def.id, account]))?;
+            row.is_default = true;
+        }
+        self.events.append("provider.account.changed", Some(def.id), json!({ "account": account, "label": row.label, "default": row.is_default }))?;
+        Ok(self.account_view(&row, self.spent_by_account()?.get(account).copied().unwrap_or(0.0)))
+    }
+
+    /// Gives an account of an API another key, in place of the one it had. Not for an async thread either.
+    pub fn set_account_key(&self, provider: &str, account: &str, key: &str) -> Result<ProviderAccount> {
+        let def = known(provider)?;
+        if def.program {
+            return Err(Error::Invalid(format!("{} is not given a key here.", def.name)));
+        }
+        let row = self.account_row(def, account)?;
+        self.vault.put(&key_name(def.id, account), key)?;
+        self.events.append("provider.account.key", Some(def.id), json!({ "account": account }))?;
+        Ok(self.account_view(&row, self.spent_by_account()?.get(account).copied().unwrap_or(0.0)))
+    }
+
+    /// Deletes an account: its key, or Claude Code's profile for it with its login and history (signed out
+    /// first). Sessions that named it use the default from then on, and the oldest account left becomes the
+    /// default if this one was. What it cost stays counted.
+    pub async fn remove_account(self: &Arc<Self>, provider: &str, account: &str) -> Result<ProviderAccount> {
+        let def = known(provider)?;
+        let row = self.account_row(def, account)?;
+        let gone = self.account_view(&row, self.spent_by_account()?.get(account).copied().unwrap_or(0.0));
+        if def.id == "claude-code" {
+            self.sign_out(account).await;
+            self.copies.remove_profile(def.id, account)?;
+        } else {
+            let (me, name) = (self.clone(), key_name(def.id, account));
+            match tokio::task::spawn_blocking(move || me.vault.remove(&name)).await.map_err(|e| Error::Other(e.to_string()))? {
+                Ok(_) | Err(Error::NotFound(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        self.db.with(|c| {
+            c.execute("DELETE FROM accounts WHERE id = ?1", [account])?;
+            c.execute("UPDATE sessions SET account = NULL WHERE account = ?1", [account])?;
+            c.execute(
+                "UPDATE accounts SET is_default = 1 WHERE id = (SELECT id FROM accounts WHERE provider = ?1 ORDER BY created_at, rowid LIMIT 1)
+                 AND NOT EXISTS (SELECT 1 FROM accounts WHERE provider = ?1 AND is_default = 1)",
+                [def.id],
+            )
+        })?;
+        self.signing.lock().unwrap_or_else(|e| e.into_inner()).remove(&key_name(def.id, account));
+        self.plans.lock().unwrap_or_else(|e| e.into_inner()).remove(&key_name(def.id, account));
+        self.forget_look(def.id);
+        self.events.append("provider.account.removed", Some(def.id), json!({ "account": account, "label": row.label }))?;
+        Ok(gone)
+    }
+
+    /// The accounts at a provider (at all when `None`), the oldest first, without what a program says about
+    /// them. For the command line, which does not run programs to list keys.
+    pub fn accounts(&self, provider: Option<&str>) -> Result<Vec<ProviderAccount>> {
+        let spent = self.spent_by_account()?;
+        Ok(self.account_rows(provider)?.iter().map(|r| self.account_view(r, spent.get(&r.id).copied().unwrap_or(0.0))).collect())
+    }
+
+    /// What Demido counted this month for each account, in dollars.
+    fn spent_by_account(&self) -> Result<HashMap<String, f64>> {
+        let (since, _) = this_month();
+        let rows: Vec<(String, f64)> = self
+            .db
+            .with(|c| c.prepare("SELECT account, sum(cost_usd) FROM usage WHERE at >= ?1 AND account IS NOT NULL GROUP BY account")?.query_map([since], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())?;
+        Ok(rows.into_iter().map(|(account, spent)| (account, spent + 0.0)).collect())
     }
 
     // ───────── the models ─────────
@@ -698,14 +1029,17 @@ impl Providers {
                 // Demido's own, read and deleted. Nothing is sent to a model.
                 let program = self.program("opencode")?;
                 std::fs::create_dir_all(&self.listing_in)?;
-                let started = self.spawner.spawn(&program, &["acp".to_string()], &self.listing_in, &self.program_env("opencode"))?;
+                let started = self.spawner.spawn(&program, &["acp".to_string()], &self.listing_in, &self.program_env("opencode", None))?;
                 let list: Vec<RemoteModel> = crate::programs::opencode_models(started, &self.listing_in).await?.iter().map(|(value, name)| opencode_model(value, name)).collect();
                 self.listed.lock().unwrap_or_else(|e| e.into_inner()).insert(provider.to_string(), (Instant::now(), list.clone()));
                 list
             }
             None => {
-                // OpenRouter lists its models to anyone; the others want the key.
-                let key = if def.id == "openrouter" { self.vault.get(def.id)?.unwrap_or_default() } else { self.key(def)? };
+                // OpenRouter lists its models to anyone; the others want a key: the default account's.
+                let key = match (def.id, self.account_for(def, None)) {
+                    ("openrouter", Err(_)) => String::new(),
+                    (_, account) => self.key(def, &account?)?,
+                };
                 let list = match def.id {
                     "anthropic" => anthropic::list(&self.http, self.base(def.id), &key).await?,
                     _ => openai::list(def.id, &self.http, self.base(def.id), &key).await?,
@@ -820,15 +1154,23 @@ impl Providers {
         })
     }
 
-    /// The providers, each with its key (never its value), its chosen models and what it cost this month.
+    /// The providers, each with its accounts (never a key's value), its chosen models and what it cost this
+    /// month.
     pub async fn view(&self) -> Result<Vec<ProviderView>> {
         let spending = self.spending()?;
         let chosen = self.chosen()?;
+        let rows = self.account_rows(None)?;
+        let spent = self.spent_by_account()?;
+        let mut accounts: Vec<ProviderAccount> = rows.iter().map(|r| self.account_view(r, spent.get(&r.id).copied().unwrap_or(0.0))).collect();
+        for a in accounts.iter_mut().filter(|a| a.provider == "claude-code") {
+            a.signed_in = self.look_at("claude-code", Some(&a.id)).await.signed_in;
+        }
+        // What each program says about itself: Claude Code with its default account.
         let mut programs = HashMap::new();
         for d in ALL.iter().filter(|d| d.program) {
-            programs.insert(d.id, self.look_at(d.id).await);
+            let default = rows.iter().find(|r| r.provider == d.id && r.is_default).map(|r| r.id.clone());
+            programs.insert(d.id, self.look_at(d.id, default.as_deref()).await);
         }
-        let plans = self.plans.lock().unwrap_or_else(|e| e.into_inner()).clone();
         Ok(ALL
             .iter()
             .map(|d| {
@@ -838,14 +1180,12 @@ impl Providers {
                     name: d.name.into(),
                     kind: if d.program { "program" } else { "api" }.into(),
                     program: programs.get(d.id).cloned(),
-                    plan: plans.get(d.id).cloned(),
                     copy: if d.program { self.copies.kept(d.id) } else { None },
                     downloading: if d.program { self.copies.downloading(d.id) } else { None },
-                    signing: self.signing.lock().unwrap_or_else(|e| e.into_inner()).get(d.id).cloned(),
-                    sign_in_command: (d.id == "claude-code").then(|| self.sign_in_command()).flatten(),
                     keys_at: d.keys_at.into(),
                     note: d.note.into(),
-                    key: self.vault.facts(d.id),
+                    accounts: accounts.iter().filter(|a| a.provider == d.id).cloned().collect(),
+                    takes_accounts: !d.program || d.id == "claude-code",
                     chosen: chosen.iter().filter(|m| m.provider == d.id).cloned().collect(),
                     spent_usd: mine.iter().map(|s| s.cost_usd).sum::<f64>() + 0.0,
                     spent_exact: mine.iter().all(|s| s.exact),
@@ -854,14 +1194,18 @@ impl Providers {
             .collect())
     }
 
-    /// What a provider itself says about the key's account. Only OpenRouter can be asked this with an
-    /// ordinary key; for the others it says where to look.
-    pub async fn account(&self, provider: &str) -> Result<Account> {
-        let Some(def) = ALL.iter().find(|d| d.id == provider) else {
-            return Err(Error::NotFound(format!("Demido knows no provider called \"{provider}\".")));
-        };
+    /// What a provider itself says about an account (the default when none is named). Only OpenRouter can be
+    /// asked this with an ordinary key; for the others it says where to look.
+    pub async fn account(&self, provider: &str, account: Option<&str>) -> Result<Account> {
+        let def = known(provider)?;
         match def.id {
-            "openrouter" => openai::account(&self.http, self.base(def.id), &self.key(def)?).await,
+            "openrouter" => {
+                let row = match account {
+                    Some(named) => self.account_row(def, named)?,
+                    None => self.account_for(def, None)?,
+                };
+                openai::account(&self.http, self.base(def.id), &self.key(def, &row)?).await
+            }
             "claude-code" => Ok(Account {
                 provider: provider.into(),
                 lines: vec![],
@@ -889,8 +1233,10 @@ impl Providers {
 
     // ───────── asking ─────────
 
-    /// Whether a model elsewhere may be asked now: chosen, its key kept, and the month's limit not reached.
-    pub fn ready(&self, model: &str) -> Result<RemoteModel> {
+    /// Whether a model elsewhere may be asked now: chosen, an account to ask it through (the one named, or
+    /// the default) with its key kept, and the month's limit not reached. With the account it goes through;
+    /// OpenCode has none.
+    pub(crate) fn ready(&self, model: &str, account: Option<&str>) -> Result<(RemoteModel, Option<AccountRow>)> {
         let Some((def, _)) = split(model) else {
             return Err(Error::NotFound(format!("\"{model}\" is not a model of a provider.")));
         };
@@ -900,13 +1246,15 @@ impl Providers {
         // A program has no key in Demido (its login is its own) and is held by its own plan, not by the limit.
         if def.program {
             self.program(def.id)?;
-            return Ok(facts);
+            let account = if def.id == "claude-code" { Some(self.account_for(def, account)?) } else { None };
+            return Ok((facts, account));
         }
-        if self.vault.facts(def.id).is_none() {
-            return Err(Error::Invalid(format!("There is no {} key yet. Add yours on the Providers screen (you get one at {}).", def.name, def.keys_at)));
+        let account = self.account_for(def, account)?;
+        if self.vault.facts(&key_name(def.id, &account.id)).is_none() {
+            return Err(Error::Invalid(format!("The {} account \"{}\" has no key any more. Add it again on the Providers screen.", def.name, account.label)));
         }
         self.within_limit(&facts, 0)?;
-        Ok(facts)
+        Ok((facts, Some(account)))
     }
 
     /// Says no when what was counted this month, and what this request costs at least, is past the limit.
@@ -931,9 +1279,10 @@ impl Providers {
     /// Asks a model elsewhere, and passes its answer on piece by piece. `body` is the request as the
     /// runtime on this computer takes it: it is turned into the provider's own.
     pub async fn answer(&self, model: &str, body: Value, stop: &AtomicBool, heard: &mut (dyn FnMut(Piece) + Send), asking: For<'_>) -> Result<Answer> {
-        let facts = self.ready(model)?;
+        let (facts, account) = self.ready(model, asking.account)?;
+        let account = account.expect("an API's request always has an account");
         let (def, name) = split(model).expect("ready checked it");
-        let key = self.key(def)?;
+        let key = self.key(def, &account)?;
         // What is sent, with every kept key taken out: a key goes only to its own provider, in its header.
         let mut body = body;
         if let Some(messages) = body["messages"].as_array_mut() {
@@ -993,11 +1342,11 @@ impl Providers {
         let t = said.tokens;
         self.db.with(|c| {
             c.execute(
-                "INSERT INTO usage (at, provider, model, session_id, message_id, input, cached, cache_written, output, cost_usd, exact) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                rusqlite::params![now_ms(), def.id, name, asking.session, asking.message, t.input as i64, t.cached as i64, t.cache_written as i64, t.output as i64, cost, exact as i64],
+                "INSERT INTO usage (at, provider, model, session_id, message_id, input, cached, cache_written, output, cost_usd, exact, account) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                rusqlite::params![now_ms(), def.id, name, asking.session, asking.message, t.input as i64, t.cached as i64, t.cache_written as i64, t.output as i64, cost, exact as i64, account.id],
             )
         })?;
-        self.events.tell("provider.used", Some(model), json!({ "provider": def.id, "cost_usd": cost, "exact": exact, "session": asking.session }));
+        self.events.tell("provider.used", Some(model), json!({ "provider": def.id, "account": account.id, "cost_usd": cost, "exact": exact, "session": asking.session }));
         if said.ended.as_deref() == Some("refusal") && said.content.trim().is_empty() {
             return Err(Error::Invalid(format!("{} declined to answer this: its own safety rules stopped it.", facts.name)));
         }

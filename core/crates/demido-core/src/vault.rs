@@ -16,8 +16,11 @@
 //!
 //! What is written down about the keys, without their values, is `vault.json`.
 //!
-//! Not built yet: a vault file locked with a passphrase or by systemd, for servers (note 05 §4.6); several
-//! keys for one provider; keys for search services and for Hugging Face.
+//! A key is named for its provider and the person's account there, `<provider>.<account>`: a provider may
+//! hold several (DECISIONS U32).
+//!
+//! Not built yet: a vault file locked with a passphrase or by systemd, for servers (note 05 §4.6); keys for
+//! search services and for Hugging Face.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -157,8 +160,14 @@ fn write_private(path: &Path, text: &str) -> Result<()> {
     Ok(written?)
 }
 
+/// What a key is for. A key is named `<provider>.<account>`: which provider, and which of the person's
+/// accounts there (DECISIONS U32).
 fn label_of(name: &str) -> Option<&'static str> {
-    KNOWN.iter().find(|(n, _)| *n == name).map(|(_, label)| *label)
+    let (provider, account) = name.split_once('.')?;
+    if account.is_empty() || !account.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return None;
+    }
+    KNOWN.iter().find(|(n, _)| *n == provider).map(|(_, label)| *label)
 }
 
 /// The last four characters of a value.
@@ -234,7 +243,10 @@ impl Vault {
     /// Keeps a key, in place of the one of that name if there was one. Returns what is known about it now.
     pub fn put(&self, name: &str, value: &str) -> Result<KeyFacts> {
         let Some(label) = label_of(name) else {
-            return Err(Error::NotFound(format!("Demido keeps no key called \"{name}\". It keeps: {}.", KNOWN.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", "))));
+            return Err(Error::NotFound(format!(
+                "Demido keeps no key called \"{name}\". A key is named after its provider and account, as <provider>.<account>, for one of: {}.",
+                KNOWN.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+            )));
         };
         let value = value.trim();
         if value.chars().count() < SHORTEST_LOOKED_FOR {
@@ -382,8 +394,8 @@ mod tests {
     fn a_key_goes_in_and_only_its_last_four_characters_come_out() {
         let dir = home();
         let vault = Vault::in_file(&dir);
-        let facts = vault.put("anthropic", "  sk-ant-test-0123456789abcdWXYZ \n").unwrap();
-        assert_eq!((facts.name.as_str(), facts.kept_in.as_str(), facts.ends_with.as_str()), ("anthropic", "file", "WXYZ"));
+        let facts = vault.put("anthropic.a1", "  sk-ant-test-0123456789abcdWXYZ \n").unwrap();
+        assert_eq!((facts.name.as_str(), facts.kept_in.as_str(), facts.ends_with.as_str()), ("anthropic.a1", "file", "WXYZ"));
         // What the person and the API see holds no value.
         let shown = serde_json::to_string(&vault.view()).unwrap();
         assert!(!shown.contains("0123456789") && shown.contains("WXYZ"), "{shown}");
@@ -398,16 +410,19 @@ mod tests {
             }
         }
         // Another Demido on the same folder (the command line) reads the same key.
-        assert_eq!(Vault::in_file(&dir).get("anthropic").unwrap().as_deref(), Some("sk-ant-test-0123456789abcdWXYZ"));
-        assert_eq!(vault.get("gemini").unwrap(), None);
+        assert_eq!(Vault::in_file(&dir).get("anthropic.a1").unwrap().as_deref(), Some("sk-ant-test-0123456789abcdWXYZ"));
+        assert_eq!(vault.get("gemini.a1").unwrap(), None);
     }
 
     #[test]
     fn only_known_keys_are_kept_and_only_what_looks_like_a_key() {
         let vault = Vault::in_file(&home());
-        assert!(matches!(vault.put("my-bank", "0123456789abcdef"), Err(Error::NotFound(_))));
-        assert!(matches!(vault.put("gemini", "short"), Err(Error::Invalid(_))));
-        assert!(matches!(vault.put("gemini", "two words here, not a key"), Err(Error::Invalid(_))));
+        assert!(matches!(vault.put("my-bank.a1", "0123456789abcdef"), Err(Error::NotFound(_))));
+        // A key is named for its provider and its account.
+        assert!(matches!(vault.put("gemini", "0123456789abcdef"), Err(Error::NotFound(_))));
+        assert!(matches!(vault.put("gemini.a b", "0123456789abcdef"), Err(Error::NotFound(_))));
+        assert!(matches!(vault.put("gemini.a1", "short"), Err(Error::Invalid(_))));
+        assert!(matches!(vault.put("gemini.a1", "two words here, not a key"), Err(Error::Invalid(_))));
         assert!(vault.view().keys.is_empty());
     }
 
@@ -415,21 +430,24 @@ mod tests {
     fn a_key_replaced_or_removed_is_gone() {
         let dir = home();
         let vault = Vault::in_file(&dir);
-        vault.put("openrouter", "sk-or-v1-first-key-aaaa").unwrap();
-        vault.put("openrouter", "sk-or-v1-second-key-bbbb").unwrap();
-        assert_eq!(vault.view().keys.len(), 1);
-        assert_eq!(vault.get("openrouter").unwrap().as_deref(), Some("sk-or-v1-second-key-bbbb"));
-        let gone = vault.remove("openrouter").unwrap();
+        vault.put("openrouter.a1", "sk-or-v1-first-key-aaaa").unwrap();
+        vault.put("openrouter.a1", "sk-or-v1-second-key-bbbb").unwrap();
+        // Another account's key is another key.
+        vault.put("openrouter.b2", "sk-or-v1-other-key-cccc").unwrap();
+        assert_eq!(vault.view().keys.len(), 2);
+        assert_eq!(vault.get("openrouter.a1").unwrap().as_deref(), Some("sk-or-v1-second-key-bbbb"));
+        let gone = vault.remove("openrouter.a1").unwrap();
         assert_eq!(gone.ends_with, "bbbb");
-        assert_eq!(vault.get("openrouter").unwrap(), None);
+        assert_eq!(vault.get("openrouter.a1").unwrap(), None);
+        assert_eq!(vault.get("openrouter.b2").unwrap().as_deref(), Some("sk-or-v1-other-key-cccc"));
         assert!(!std::fs::read_to_string(dir.join("vault-keys.json")).unwrap().contains("second-key"));
-        assert!(matches!(vault.remove("openrouter"), Err(Error::NotFound(_))));
+        assert!(matches!(vault.remove("openrouter.a1"), Err(Error::NotFound(_))));
     }
 
     #[test]
     fn a_kept_value_is_taken_out_of_text_and_found_in_it() {
         let vault = Vault::in_file(&home());
-        vault.put("gemini", "AIzaSyTEST-not-a-real-key-42").unwrap();
+        vault.put("gemini.a1", "AIzaSyTEST-not-a-real-key-42").unwrap();
         let printed = "export GEMINI_API_KEY=AIzaSyTEST-not-a-real-key-42\nok";
         assert_eq!(vault.hide_in(printed), format!("export GEMINI_API_KEY={HIDDEN}\nok"));
         assert!(vault.holds_one("https://example.com/?k=AIzaSyTEST-not-a-real-key-42"));

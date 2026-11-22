@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# The Providers screen with the real Claude Code and OpenCode found on this computer, in a scratch data
-# folder on port 7399. Keys stay in a file (never the system keyring); OpenCode's own data folders point at
-# the scratch folder, so the person's OpenCode history is not touched. Nothing is sent to a model unless a
-# message is written in a session, and that is the person's call: Claude Code then uses their plan.
+# The Providers screen with Demido's own copies of Claude Code and OpenCode, in a scratch data folder on port
+# 7399: download them there from the screen, and they go with the folder. Each Claude Code account signs in
+# in a profile of its own inside it. Keys stay in a file (never the system keyring); OpenCode's data folders
+# point at the scratch folder too. Nothing is sent to a model unless a message is written in a session, and
+# that is the person's call: Claude Code then uses their plan.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 D="$REPO/core/target/debug/demido"

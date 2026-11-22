@@ -212,9 +212,13 @@ impl Chat {
         self.providers.as_ref().is_some_and(|p| p.vault().holds_one(text))
     }
 
-    /// Makes a session's model ready: loads one on this computer, checks one elsewhere.
-    async fn ready(&self, model: &str) -> Result<()> {
-        if crate::providers::split(model).is_some() { self.providers()?.ready(model).map(|_| ()) } else { self.engine.load(model).await.map(|_| ()) }
+    /// Makes a session's model ready: loads one on this computer, checks one elsewhere and its account.
+    async fn ready(&self, session: &Session) -> Result<()> {
+        if crate::providers::split(&session.model).is_some() {
+            self.providers()?.ready(&session.model, session.account.as_deref()).map(|_| ())
+        } else {
+            self.engine.load(&session.model).await.map(|_| ())
+        }
     }
 
     /// Asks a session's model, wherever it runs. A provider's cost is counted against the answer being written.
@@ -223,7 +227,7 @@ impl Chat {
             return self.engine.answer(&session.model, body, stop, heard).await;
         }
         let answer = self.turns().get(&session.id).and_then(|r| r.answer.clone());
-        let asking = crate::providers::For { session: Some(&session.id), message: answer.as_deref() };
+        let asking = crate::providers::For { session: Some(&session.id), message: answer.as_deref(), account: session.account.as_deref() };
         self.providers()?.answer(&session.model, body, stop, heard, asking).await
     }
 
@@ -413,7 +417,7 @@ impl Chat {
         }
         // The material first, fenced. What to do with it, last.
         let asked = format!("<conversation>\n{}\n</conversation>\n\n{ACCOUNT_INSTRUCTIONS}", transcript.trim_end());
-        self.ready(&session.model).await?;
+        self.ready(session).await?;
         let body = json!({
             "model": session.model,
             "messages": [{ "role": "system", "content": ACCOUNT_ROLE }, { "role": "user", "content": asked }],
@@ -692,8 +696,29 @@ impl Chat {
                 _ => {}
             }
         }
-        let changed = self.sessions.change(session_id, title, model, thinking)?;
-        self.events.append("session.changed", Some(session_id), json!({ "title": changed.title, "model": changed.model, "thinking": changed.thinking }))?;
+        let mut changed = self.sessions.change(session_id, title, model, thinking)?;
+        // An account belongs to one provider: a model of another goes through that one's default.
+        let provider_of = |model: &str| crate::providers::split(model).map(|(d, _)| d.id);
+        if changed.account.is_some() && provider_of(&changed.model) != provider_of(&before.model) {
+            changed = self.sessions.set_account(session_id, None)?;
+        }
+        self.events.append("session.changed", Some(session_id), json!({ "title": changed.title, "model": changed.model, "thinking": changed.thinking, "account": changed.account }))?;
+        Ok(changed)
+    }
+
+    /// Sets the account a session goes through: one of its model's provider's, or (`None`) the default.
+    pub fn set_account(&self, session_id: &str, account: Option<&str>) -> Result<Session> {
+        let session = self.sessions.get(session_id)?;
+        if let Some(account) = account {
+            let Some((def, _)) = crate::providers::split(&session.model) else {
+                return Err(Error::Invalid("This session's model is on this computer: it has no account.".into()));
+            };
+            if !self.providers()?.account_rows(Some(def.id))?.iter().any(|a| a.id == account) {
+                return Err(Error::NotFound(format!("{} has no account \"{account}\" in Demido.", def.name)));
+            }
+        }
+        let changed = self.sessions.set_account(session_id, account)?;
+        self.events.append("session.changed", Some(session_id), json!({ "title": changed.title, "model": changed.model, "thinking": changed.thinking, "account": changed.account }))?;
         Ok(changed)
     }
 
@@ -788,7 +813,7 @@ impl Chat {
         };
         let outcome: Result<Answer> = async {
             // The model is loaded if it is not: its loading is told by the engine's own news. One elsewhere is checked.
-            self.ready(&session.model).await?;
+            self.ready(&session).await?;
             // A program on this computer runs its own loop: it is given the message, and watched.
             if crate::providers::split(&session.model).is_some_and(|(d, _)| d.program) {
                 let mut heard = |piece: Piece| {

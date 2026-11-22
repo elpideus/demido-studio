@@ -14,6 +14,7 @@ use super::*;
 struct Side {
     args: Vec<String>,
     cwd: PathBuf,
+    env: Vec<(String, String)>,
     from_demido: BufReader<DuplexStream>,
     to_demido: DuplexStream,
 }
@@ -37,7 +38,8 @@ impl Spawner for StandSpawner {
         let (demido_in, program_in) = tokio::io::duplex(1 << 20);
         let (program_out, demido_out) = tokio::io::duplex(1 << 20);
         self.1.lock().unwrap().extend(env.iter().map(|(name, _)| name.to_string()));
-        let _ = self.0.send(Side { args: args.to_vec(), cwd: cwd.to_path_buf(), from_demido: BufReader::new(program_in), to_demido: program_out });
+        let env = env.iter().map(|(n, v)| (n.to_string(), v.clone())).collect();
+        let _ = self.0.send(Side { args: args.to_vec(), cwd: cwd.to_path_buf(), env, from_demido: BufReader::new(program_in), to_demido: program_out });
         Ok(Started { stdin: Box::new(demido_in), stdout: Box::new(BufReader::new(demido_out)), stderr: Arc::default(), interrupt: Box::new(|| {}), child: None })
     }
 }
@@ -282,6 +284,8 @@ fn world(spawner: Arc<StandSpawner>) -> World {
     }
     let vault = Arc::new(crate::vault::Vault::in_file(&home));
     let providers = Arc::new(crate::providers::Providers::new(db.clone(), vault, settings.clone(), events.clone()).with_programs(&home, spawner));
+    // Claude Code runs in an account's profile: one is there, as if signed in.
+    providers.add_account("claude-code", Some("Personal"), None).unwrap();
     let runtimes = Arc::new(Runtimes::new(&home, events.clone(), Source::default()).unwrap());
     let engine = Arc::new(Engine::new(&home, runtimes, settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
     let sessions = Arc::new(crate::sessions::Sessions::new(db));
@@ -419,7 +423,7 @@ async fn a_session_on_opencode_uses_its_free_model_and_says_what_it_does_with_wh
     assert_eq!((answer.state.as_str(), answer.content.as_str(), answer.thought.as_deref()), ("done", "There is one file.", Some("Plan it.")));
     assert_eq!(answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str(), s.result.as_str())).collect::<Vec<_>>(), [("shell", "done", "notes.md")]);
     assert_eq!(answer.steps[0].args, json!({ "command": "ls" }), "what the tool was used on, from OpenCode's later update");
-    assert_eq!(w.sessions.program_session(&session.id, "opencode").unwrap().map(|(id, _, _)| id).as_deref(), Some("ses_1"));
+    assert_eq!(w.sessions.program_session(&session.id, "opencode").unwrap().map(|k| k.external_id).as_deref(), Some("ses_1"));
     std::fs::remove_dir_all(&w.home).ok();
 }
 
@@ -543,24 +547,27 @@ async fn demidos_copies_come_from_their_makers_checked_and_stay_in_its_folder() 
     let before = asked.lock().unwrap().iter().filter(|p| p.ends_with("/claude") || p.ends_with("/claude.exe")).count();
     c.download("claude-code").await.unwrap();
     assert_eq!(asked.lock().unwrap().iter().filter(|p| p.ends_with("/claude") || p.ends_with("/claude.exe")).count(), before);
-    // It runs with a profile of its own, beside it, and does not update itself.
-    let env = c.env("claude-code");
-    assert!(env.contains(&("CLAUDE_CONFIG_DIR", home.join("programs/claude-code/profile").display().to_string())));
+    // It runs with a profile of the account's own, beside it, and does not update itself.
+    let env = c.env("claude-code", "a1");
+    assert!(env.contains(&("CLAUDE_CONFIG_DIR", home.join("programs/claude-code/profiles/a1").display().to_string())));
     assert!(env.contains(&("DISABLE_AUTOUPDATER", "1".to_string())));
 
     let kept = c.download("opencode").await.unwrap();
     assert_eq!((kept.version.as_str(), kept.checked.as_str()), ("2.3.2", "SHA-512 from npm"));
     assert_eq!(std::fs::read(&kept.path).unwrap(), b"#!/bin/sh\necho 'stand-in opencode'\n");
     assert!(!Path::new(&kept.path).with_file_name("opencode.tgz").exists(), "the package goes once unpacked");
-    let env = c.env("opencode");
-    assert!(env.iter().any(|(n, v)| *n == "XDG_DATA_HOME" && v.starts_with(home.join("programs/opencode/profile").to_str().unwrap())));
+    let env = c.env("opencode", "default");
+    assert!(env.iter().any(|(n, v)| *n == "XDG_DATA_HOME" && v.starts_with(home.join("programs/opencode/profiles/default").to_str().unwrap())));
     assert!(env.contains(&("OPENCODE_DISABLE_AUTOUPDATE", "1".to_string())));
 
-    // Removed: the program goes, its profile (its settings and login) stays.
-    std::fs::write(home.join("programs/claude-code/profile/settings.json"), "{}").unwrap();
+    // Removed: the program goes, its profiles (their settings and logins) stay.
+    std::fs::write(home.join("programs/claude-code/profiles/a1/settings.json"), "{}").unwrap();
     c.remove("claude-code").unwrap();
     assert_eq!(c.kept("claude-code"), None);
-    assert!(home.join("programs/claude-code/profile/settings.json").exists());
+    assert!(home.join("programs/claude-code/profiles/a1/settings.json").exists());
+    // An account's profile goes when the account does.
+    c.remove_profile("claude-code", "a1").unwrap();
+    assert!(!home.join("programs/claude-code/profiles/a1").exists());
     std::fs::remove_dir_all(&home).ok();
 }
 
@@ -595,7 +602,10 @@ async fn only_demidos_own_copy_is_run_and_with_its_own_profile() {
     assert!(p.program("claude-code").unwrap_err().to_string().contains("Download it on the Providers screen"));
     c.download("claude-code").await.unwrap();
     assert_eq!(p.program("claude-code").unwrap(), PathBuf::from(c.kept("claude-code").unwrap().path));
-    assert!(p.program_env("claude-code").iter().any(|(n, _)| *n == "CLAUDE_CONFIG_DIR"));
+    // With no account it is not run at all, and no profile is made for it.
+    assert!(p.look_at("claude-code", None).await.problem.unwrap().contains("no account"));
+    assert!(!home.join("programs/claude-code/profiles").exists(), "no profile without an account");
+    assert!(p.program_env("claude-code", Some("a1")).iter().any(|(n, _)| *n == "CLAUDE_CONFIG_DIR"));
     std::fs::remove_dir_all(&home).ok();
 }
 
@@ -614,5 +624,48 @@ async fn a_session_on_claude_code_runs_demidos_copy_with_its_own_profile() {
     side.line().await;
     side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "Hello.", "total_cost_usd": 0.0, "session_id": "cc-9", "usage": {} })).await;
     assert_eq!(w.answered(&session.id).await.content, "Hello.");
+    std::fs::remove_dir_all(&w.home).ok();
+}
+
+#[tokio::test]
+async fn each_claude_code_account_has_its_own_profile_and_a_session_can_change_account() {
+    let (spawner, mut sides, _) = stand();
+    let w = world(spawner);
+    let personal = w.providers.accounts(Some("claude-code")).unwrap().remove(0);
+    let work = w.providers.add_account("claude-code", Some("Work"), None).unwrap();
+    assert!(matches!(w.providers.add_account("claude-code", Some("Team"), Some("sk-ant-not-for-claude-code")), Err(crate::Error::Invalid(_))));
+    w.providers.choose("claude-code", "haiku", true).await.unwrap();
+    let session = w.chat.start(None, Some("claude-code/haiku")).await.unwrap();
+    let profile = |side: &Side| side.env.iter().find(|(n, _)| n == "CLAUDE_CONFIG_DIR").map(|(_, v)| v.clone()).unwrap();
+
+    // Named by no account: the default's profile.
+    w.chat.say(&session.id, "What is 2 + 2?").unwrap();
+    let mut side = sides.recv().await.unwrap();
+    assert_eq!(profile(&side), w.home.join("programs/claude-code/profiles").join(&personal.id).display().to_string());
+    side.line().await;
+    side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "4.", "total_cost_usd": 0.01, "session_id": "cc-p", "usage": {} })).await;
+    assert_eq!(w.answered(&session.id).await.content, "4.");
+
+    // Another account: Claude Code starts again in that account's profile, and is given the conversation.
+    assert_eq!(w.chat.set_account(&session.id, Some(&work.id)).unwrap().account.as_deref(), Some(work.id.as_str()));
+    assert!(w.chat.set_account(&session.id, Some("nothere")).is_err());
+    w.chat.say(&session.id, "And times 3?").unwrap();
+    let mut side = sides.recv().await.unwrap();
+    assert_eq!(profile(&side), w.home.join("programs/claude-code/profiles").join(&work.id).display().to_string());
+    assert!(!side.args.iter().any(|a| a == "--resume"), "the other account's session is not in this profile: {:?}", side.args);
+    let said = side.line().await["message"]["content"].as_str().unwrap().to_string();
+    assert!(said.contains("Person: What is 2 + 2?") && said.contains("Model: 4.") && said.ends_with("And times 3?"), "{said}");
+    side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "12.", "total_cost_usd": 0.02, "session_id": "cc-w", "usage": {} })).await;
+    assert_eq!(w.answered(&session.id).await.content, "12.");
+    // What each turn cost is counted against its account.
+    let view = w.providers.view().await.unwrap();
+    let spent: Vec<(String, f64)> = view.iter().find(|v| v.id == "claude-code").unwrap().accounts.iter().map(|a| (a.label.clone(), a.spent_usd)).collect();
+    assert_eq!(spent, [("Personal".to_string(), 0.01), ("Work".to_string(), 0.02)]);
+
+    // The account deleted, its profile goes and the session goes back to the default.
+    std::fs::write(w.home.join("programs/claude-code/profiles").join(&work.id).join("settings.json"), "{}").unwrap();
+    w.providers.remove_account("claude-code", &work.id).await.unwrap();
+    assert!(!w.home.join("programs/claude-code/profiles").join(&work.id).exists());
+    assert_eq!(w.sessions.get(&session.id).unwrap().account, None);
     std::fs::remove_dir_all(&w.home).ok();
 }

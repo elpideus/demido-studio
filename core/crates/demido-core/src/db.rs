@@ -127,6 +127,20 @@ const MIGRATIONS: &[&str] = &[
         cost_so_far REAL NOT NULL DEFAULT 0, -- what the program said its session had cost so far, in dollars
         PRIMARY KEY (session_id, provider)
      ) STRICT;",
+    // 11: several accounts at one provider (keys, or Claude Code's sign-ins); the one a session uses; and whose
+    // account each request was paid from
+    "CREATE TABLE accounts (
+        id         TEXT PRIMARY KEY,
+        provider   TEXT NOT NULL,
+        label      TEXT NOT NULL,           -- the person's own name for it: Personal, Work
+        is_default INTEGER NOT NULL,        -- 1 for the one a session uses unless it names another
+        created_at INTEGER NOT NULL
+     ) STRICT;
+     -- null: its provider's default
+     ALTER TABLE sessions ADD COLUMN account TEXT;
+     ALTER TABLE usage ADD COLUMN account TEXT;
+     -- whose profile the program's session is in
+     ALTER TABLE program_sessions ADD COLUMN account TEXT NOT NULL DEFAULT '';",
 ];
 
 pub struct Db {
@@ -149,7 +163,8 @@ impl Db {
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;")?;
         let done: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(done as usize) {
-            conn.execute_batch(&format!("BEGIN; {sql}; PRAGMA user_version = {}; COMMIT;", i + 1))?;
+            // On a line of its own: a migration that ends in a comment must not swallow the COMMIT.
+            conn.execute_batch(&format!("BEGIN; {sql}\n; PRAGMA user_version = {}; COMMIT;", i + 1))?;
         }
         Ok(Self { conn: Mutex::new(conn) })
     }

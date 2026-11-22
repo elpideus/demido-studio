@@ -109,7 +109,7 @@ async fn a_key_demido_keeps_never_reaches_the_model_through_a_tool() {
         &["The file sets a key."],
     )
     .await;
-    w.vault.put("anthropic", KEY).unwrap();
+    w.vault.put("anthropic.a1", KEY).unwrap();
     std::fs::write(folder.join(".env"), format!("ANTHROPIC_API_KEY={KEY}\nDEBUG=1\n")).unwrap();
     w.settings.set("web.use", json!(true)).unwrap();
     let answer = turn(&w, &session.id, "What does .env set?").await;
