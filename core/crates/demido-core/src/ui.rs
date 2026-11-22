@@ -52,17 +52,46 @@ impl Ui {
             return StatusCode::NOT_FOUND.into_response();
         }
         let keep = if wanted.starts_with("assets") { "public, max-age=31536000, immutable" } else { "no-cache" };
-        // Size and time of last change: enough to tell one build of a file from the next.
+        let kind = kind(&file);
+        let page = kind.starts_with("text/html");
+        // Size and time of last change: enough to tell one build of a file from the next. A page's mark also
+        // carries its policy: a browser told "not changed" keeps the headers it had, the old policy with them.
         let changed = about.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis());
-        let mark = format!("\"{:x}-{:x}\"", about.len(), changed);
-        if has.is_some_and(|theirs| theirs.split(',').any(|m| m.trim().trim_start_matches("W/") == mark)) {
-            return (StatusCode::NOT_MODIFIED, [(header::ETAG, mark), (header::CACHE_CONTROL, keep.to_string())]).into_response();
-        }
-        match tokio::fs::read(&file).await {
-            Ok(bytes) => ([(header::CONTENT_TYPE, kind(&file).to_string()), (header::CACHE_CONTROL, keep.to_string()), (header::ETAG, mark)], bytes).into_response(),
-            Err(_) => StatusCode::NOT_FOUND.into_response(),
-        }
+        let mark = if page { format!("\"{:x}-{:x}-{:x}\"", about.len(), changed, policy_mark()) } else { format!("\"{:x}-{:x}\"", about.len(), changed) };
+        let walls = |res: &mut Response| {
+            let headers = res.headers_mut();
+            headers.insert(header::X_CONTENT_TYPE_OPTIONS, header::HeaderValue::from_static("nosniff"));
+            if page {
+                headers.insert(header::CONTENT_SECURITY_POLICY, header::HeaderValue::from_static(POLICY));
+                // A link followed from an answer does not tell the site where it was clicked.
+                headers.insert(header::REFERRER_POLICY, header::HeaderValue::from_static("no-referrer"));
+            }
+        };
+        let mut res = if has.is_some_and(|theirs| theirs.split(',').any(|m| m.trim().trim_start_matches("W/") == mark)) {
+            (StatusCode::NOT_MODIFIED, [(header::ETAG, mark), (header::CACHE_CONTROL, keep.to_string())]).into_response()
+        } else {
+            match tokio::fs::read(&file).await {
+                Ok(bytes) => ([(header::CONTENT_TYPE, kind.to_string()), (header::CACHE_CONTROL, keep.to_string()), (header::ETAG, mark)], bytes).into_response(),
+                Err(_) => return StatusCode::NOT_FOUND.into_response(),
+            }
+        };
+        walls(&mut res);
+        res
     }
+}
+
+/// What the window's own pages may load and run (IDEAS 136): Demido's own files, and nothing from anywhere
+/// else. Nothing a model writes is shown as a page with this address (Markdown is drawn as text, pages and
+/// files are in frames of no address that run nothing), so this is a second wall: what got past the first
+/// could neither run a script nor send anything out. A page shown in a frame of its own (`srcdoc`) is under
+/// this policy too, so a picture it names on the internet is not fetched either. Styles may be written in
+/// the page, as React and the editor write them; scripts may not. Small fonts come inside the styles
+/// (`data:`), as the build puts them there.
+const POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+/// A short mark of the policy (FNV-1a), for the page's own mark.
+fn policy_mark() -> u32 {
+    POLICY.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193))
 }
 
 const MISSING: &str = "Demido's core is running, but the web UI is not here.\n\nA release keeps the UI in a folder named `ui` beside this program. That folder was not found.\nFrom the repository, build it and point the server at it:\n\n    pnpm app:build\n    demido serve --ui-dir apps/web/dist\n\nThe API is at /api/v1 and its description at /api/v1/openapi.json.\n";
@@ -104,8 +133,14 @@ mod tests {
         assert_eq!((page.status(), head(&page, header::CACHE_CONTROL).as_str()), (StatusCode::OK, "no-cache"));
         let mark = head(&page, header::ETAG);
         assert!(mark.starts_with('"'));
+        // The page runs no script but Demido's own files, and loads nothing from elsewhere.
+        let policy = head(&page, header::CONTENT_SECURITY_POLICY);
+        assert!(policy.contains("script-src 'self';") && policy.contains("connect-src 'self';") && policy.contains("frame-ancestors 'none'"), "{policy}");
+        assert_eq!((head(&page, header::REFERRER_POLICY).as_str(), head(&page, header::X_CONTENT_TYPE_OPTIONS).as_str()), ("no-referrer", "nosniff"));
         let again = ui.serve("/", Some(&mark)).await;
         assert_eq!(again.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(head(&again, header::CONTENT_SECURITY_POLICY), POLICY, "a page told \"not changed\" is told its policy again");
+        assert!(mark.contains(&format!("{:x}", policy_mark())), "a new policy is a new mark");
         assert_eq!(axum::body::to_bytes(again.into_body(), 1024).await.unwrap().len(), 0);
         assert_eq!(ui.serve("/", Some(&format!("W/{mark}"))).await.status(), StatusCode::NOT_MODIFIED, "a weak mark is the same mark");
         assert_eq!(ui.serve("/", Some("\"some-other-build\"")).await.status(), StatusCode::OK);

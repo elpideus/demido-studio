@@ -6,15 +6,8 @@
     <meta name="color-scheme" content="dark light" />
     <title>Demido Studio</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <script>
-      /* Apply saved appearance before first paint: theme, text size, accent. */
-      try {
-        var s = JSON.parse(localStorage.getItem('demido-preview-settings') || '{}')
-        var el = document.documentElement
-        if (s['appearance.theme'] === 'dark' || s['appearance.theme'] === 'light') el.dataset.theme = s['appearance.theme']
-        if (s['appearance.textSize']) el.style.fontSize = s['appearance.textSize'] + '%'
-      } catch (e) {}
-    </script>
+    <!-- Saved appearance, before first paint. A file of its own: the window runs no script written in the page. -->
+    <script src="/appearance.js"></script>
   </head>
   <body>
     <div id="root"></div>
