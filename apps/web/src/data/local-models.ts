@@ -7,7 +7,8 @@ import { create } from 'zustand'
 import { coreGet, coreSend, onCoreEvent } from './core'
 import { toast } from './store'
 
-export interface LocalModel { id: string; file: string; size: number; state: 'unloaded' | 'loading' | 'loaded'; context_length: number | null; needs_mb: number | null; idle_for_s: number | null; unloads_in_s: number | null; loads_in_ms: number | null; tokens_per_second: number | null; thinking: string[] | null; takes: string[] | null }
+/** `context`: what it is loaded with room for; `own_context`: whether that is its own, or the one for every model. */
+export interface LocalModel { id: string; file: string; size: number; state: 'unloaded' | 'loading' | 'loaded'; context_length: number | null; needs_mb: number | null; context: number; own_context: boolean; idle_for_s: number | null; unloads_in_s: number | null; loads_in_ms: number | null; tokens_per_second: number | null; thinking: string[] | null; takes: string[] | null }
 export interface EngineStatus { running: boolean; runtime: string | null; context: number; margin_mb: number; idle_unload_min: number | null }
 export interface ModelList { folder: string; models: LocalModel[]; engine: EngineStatus }
 
@@ -76,6 +77,17 @@ export async function unloadLocal(id: string) {
     toast(`${id} was not unloaded. ${(e as Error).message}`, undefined, 'model-error')
   }
   waitFor(id, null)
+  await readLocal()
+}
+
+/** Gives a model its own context, or (`null`) the one for every model again. */
+export async function setContext(id: string, context: number | null) {
+  try {
+    await coreSend('PUT', `/models/${encodeURIComponent(id)}/context`, { context })
+    toast(context ? `${id} is loaded with room for ${context.toLocaleString()} tokens from now on.` : `${id} has the context every model has again.`, undefined, 'task-done')
+  } catch (e) {
+    toast(`Not changed. ${(e as Error).message}`, undefined, 'task-failed')
+  }
   await readLocal()
 }
 

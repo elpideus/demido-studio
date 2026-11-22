@@ -56,6 +56,15 @@ which Demido knows for every answer (the session's thinking switch).
 So: for a model downloaded through Demido, the repository's `base_model` says which model it is, exactly.
 For a file Demido was given, its own names are the best there is.
 
+## A context for each model
+
+| Fact | How sure |
+|---|---|
+| In router mode, llama.cpp takes each model's settings from a presets file (`--models-preset`, INI): `[*]` for every model, a section named after a model for that one; a command-line option wins over both | Read (server README, "Model presets") |
+| A model's own `c` in its section is what it is loaded with: Qwen3 0.6B got a context of 4096 while `[*]` said 8192 | Tried (installed b12359, `/props` after loading) |
+| A change to the presets file while the router runs is not taken: loaded again, the model still had 4096 after its section said 2048 | Tried |
+| Through Demido: Qwen3 0.6B needed 1,814 MiB at 8192 and 1,361 MiB at its own 4096 | Tried |
+
 ## What was decided
 
-In `docs/DECISIONS.md`, K26 to K30.
+In `docs/DECISIONS.md`, K26 to K32.

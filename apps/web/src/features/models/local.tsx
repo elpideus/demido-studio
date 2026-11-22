@@ -1,7 +1,7 @@
 /* "On this computer", for real: the models in Demido's folder, and loading and unloading them through the core. */
 import { useEffect, useState } from 'react'
-import { deleteLocal, loadLocal, readModelSettings, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
-import { Button, Dialog, Facts, Glyph, NotBuilt, Page, Signal } from '@/ui'
+import { deleteLocal, loadLocal, readModelSettings, setContext, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
+import { Button, Dialog, Facts, Glyph, Page, Select, Signal } from '@/ui'
 
 const MB = 1024 * 1024
 export const size = (bytes: number) => (bytes >= 1024 * MB ? `${(bytes / 1024 / MB).toFixed(1)} GB` : `${Math.round(bytes / MB)} MB`)
@@ -196,12 +196,18 @@ export function LocalDetail({ id }: { id: string | null }) {
             <Facts rows={[
               ['File', m.file],
               ['On disk', size(m.size)],
-              ['On the graphics card', m.needs_mb !== null ? `${gb(m.needs_mb)} at a context of ${e.context.toLocaleString()} tokens, as the runtime measured it` : 'Measured the first time the runtime looks at it'],
+              ['On the graphics card', m.needs_mb !== null ? `${gb(m.needs_mb)} at a context of ${m.context.toLocaleString()} tokens, as the runtime measured it` : 'Measured the first time the runtime looks at it'],
               ['Loads in', m.loads_in_ms !== null ? `${(m.loads_in_ms / 1000).toFixed(1)} s, the last time` : 'Known once it has been loaded'],
               ['Writes', m.tokens_per_second !== null ? `about ${Math.round(m.tokens_per_second)} tokens a second on this computer, from its real answers` : 'Known once it has answered something'],
               ['Thinking', m.thinking === null ? 'Known once it has been loaded' : !m.thinking.length ? 'It does not think before it answers' : m.thinking.length === 1 && m.thinking[0] === 'on' ? 'Can think first: on or off, set in each session' : `Can think first, at these levels: ${m.thinking.join(', ')}`],
               ['Takes in', m.takes === null ? 'Known once it has been loaded' : ['text', ...m.takes].join(', ')],
-              ['Can hold in mind', m.context_length !== null ? `up to ${m.context_length.toLocaleString()} tokens; Demido loads it with ${e.context.toLocaleString()}` : 'Known once the runtime has looked at it'],
+              ['Can hold in mind', m.context_length !== null ? `up to ${m.context_length.toLocaleString()} tokens, as it says itself` : 'Known once the runtime has looked at it'],
+              ['Loaded with room for', <span className="app-row" style={{ gap: 'var(--d-space-8)', flexWrap: 'wrap' }}>
+                <Select label={`What ${m.id} is loaded with room for`} value={m.own_context ? String(m.context) : 'default'} onChange={(v) => void setContext(m.id, v === 'default' ? null : Number(v))}
+                  options={[{ value: 'default', label: `${e.context.toLocaleString()} tokens, as every model (Settings)` },
+                    ...[2048, 4096, 8192, 16384, 32768, 65536, 131072].filter((c) => m.context_length === null || c <= m.context_length).filter((c) => c !== e.context || m.own_context).map((c) => ({ value: String(c), label: `${c.toLocaleString()} tokens, its own` }))]} />
+                <span className="d-type-caption d-text-tertiary">More holds a longer conversation and needs more memory. Changing it starts the runtime again, unless an answer is being written.</span>
+              </span>],
             ]} />
           </div></div>
         )
@@ -217,7 +223,6 @@ export function LocalDetail({ id }: { id: string | null }) {
           ['Folder', list.folder],
         ]} />
       </div>
-      <NotBuilt block>Choosing the context for each model by itself.</NotBuilt>
     </Page>
   )
 }

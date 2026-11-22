@@ -61,6 +61,11 @@ pub struct LocalModel {
     pub context_length: Option<u64>,
     /// Memory it needs on the graphics card at the context Demido sets, in MiB, as the runtime measured it.
     pub needs_mb: Option<u64>,
+    /// What it is loaded with room for, in tokens: its own context, where the person set one, or the one for
+    /// every model.
+    pub context: u64,
+    /// Whether that is its own.
+    pub own_context: bool,
     /// Seconds since it was last used. Only while loaded.
     pub idle_for_s: Option<u64>,
     /// Seconds until it is unloaded for being idle. `null` when idle unload is off, or it is not loaded.
@@ -253,6 +258,50 @@ impl Engine {
         self.settings.value::<String>("models.context").ok().and_then(|v| v.parse().ok()).unwrap_or(8192)
     }
 
+    /// What a model is loaded with room for: its own context, where the person set one, or the one for every model.
+    pub fn context_of(&self, id: &str) -> u64 {
+        self.yours.of(id).context.unwrap_or_else(|| self.context())
+    }
+
+    /// The runtime's presets: the context for every model, and each model's own (`--models-preset`). The
+    /// runtime reads them when it starts, not after (tried: research note 19), so a change starts it again.
+    fn write_presets(&self) -> Result<PathBuf> {
+        std::fs::create_dir_all(&self.work)?;
+        let mut ini = format!("version = 1\n\n[*]\nc = {}\n", self.context());
+        for (model, context) in self.yours.contexts() {
+            // A name that would break the file's sections is left at the context for every model.
+            if model.contains([']', '[', '\n', '\r', ';', '=']) {
+                continue;
+            }
+            ini.push_str(&format!("\n[{model}]\nc = {context}\n"));
+        }
+        let path = self.work.join("presets.ini");
+        std::fs::write(&path, ini)?;
+        Ok(path)
+    }
+
+    /// Gives a model its own context, or (`None`) the one for every model again. The runtime is started again
+    /// for it when nothing is being answered (loaded models are then unloaded, and load again when used);
+    /// while an answer is being written, the change waits for the runtime's next start.
+    pub async fn set_context(&self, id: &str, context: Option<u64>) -> Result<LocalModel> {
+        let m = self.on_disk_named(id)?;
+        if let Some(c) = context {
+            let most = self.known.about(&m.id, self.identity(&m)).and_then(|f| f.context_length).unwrap_or(1 << 20);
+            if !(512..=most).contains(&c) {
+                return Err(Error::Invalid(format!("{id} can be loaded with room for 512 to {most} tokens; {c} is not in that.")));
+            }
+        }
+        self.yours.set_context(id, context)?;
+        let mut live = self.live.lock().await;
+        let restarted = matches!(&*live, Some(l) if l.answering.values().all(|n| *n == 0));
+        if restarted && let Some(stopping) = self.gone(&mut live, false) {
+            let _ = stopping.await;
+        }
+        drop(live);
+        self.events.append("model.context.changed", Some(id), json!({ "context": context, "in_effect": self.context_of(id), "runtime_restarted": restarted }))?;
+        self.list().await?.models.into_iter().find(|x| x.id == id).ok_or_else(|| Error::NotFound(id.to_string()))
+    }
+
     fn margin_mb(&self) -> u64 {
         (self.settings.value::<f64>("models.reserve").unwrap_or(0.9) * 1024.0).round() as u64
     }
@@ -308,6 +357,8 @@ impl Engine {
                     state: "unloaded".into(),
                     context_length: None,
                     needs_mb: None,
+                    context: 0,
+                    own_context: false,
                     idle_for_s: None,
                     unloads_in_s: None,
                     loads_in_ms: None,
@@ -342,8 +393,12 @@ impl Engine {
                 }
             }
         }
-        let (context, runtime) = (self.context(), self.runtime_id());
+        let runtime = self.runtime_id();
         for m in &mut models {
+            // What it is loaded with room for: its own, or the one for every model.
+            let context = self.context_of(&m.id);
+            m.context = context;
+            m.own_context = self.yours.of(&m.id).context.is_some();
             let file = self.identity(m);
             // What the runtime just said is written down.
             if m.context_length.is_some() || m.needs_mb.is_some() {
@@ -380,7 +435,8 @@ impl Engine {
         std::fs::create_dir_all(&self.models_dir)?;
         let root = self.runtimes.folder().join(&runtime.id);
         let (context, margin) = (self.context(), self.margin_mb());
-        let router = router::Router::start(&*self.launcher, &self.work, &root, &runtime, &self.models_dir, context, margin).await?;
+        let presets = self.write_presets()?;
+        let router = router::Router::start(&*self.launcher, &self.work, &root, &runtime, &self.models_dir, &presets, margin).await?;
         self.events.append("engine.started", Some(&runtime.id), json!({ "runtime": format!("{} ({})", runtime.name, runtime.build), "context": context, "margin_mb": margin }))?;
         let news = tokio::spawn(router::pass_on_news(router.address(), router.key(), self.events.clone()));
         *live = Some(Live { router, used: HashMap::new(), answering: HashMap::new(), empty_since: Some(Instant::now()), news });
@@ -416,7 +472,7 @@ impl Engine {
             {
                 return Err(Error::Invalid(format!(
                     "\"{id}\" needs {needs} MiB on the graphics card at a context of {}. The card has {total} MiB, and {} MiB are kept free. It cannot fit. A smaller context, a smaller version of the model, or less memory kept free would make room.",
-                    self.context(),
+                    self.context_of(id),
                     self.margin_mb()
                 )));
             }
@@ -518,7 +574,7 @@ impl Engine {
         {
             let _ = std::fs::write(&sources_path, serde_json::to_vec_pretty(&sources)?);
         }
-        let _ = self.yours.set(id, sampling::Sampling::default(), sampling::Sampling::default());
+        let _ = self.yours.forget(id);
         self.headers.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
         self.events.append("model.deleted", Some(id), json!({ "file": m.file, "size": m.size }))?;
         Ok(m)

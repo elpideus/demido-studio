@@ -106,6 +106,28 @@ async fn a_model_is_deleted_from_the_folder_loaded_or_not_with_what_was_kept_abo
 }
 
 #[tokio::test]
+async fn a_model_can_have_a_context_of_its_own_and_the_runtime_starts_again_for_it() {
+    let w = world("context", false);
+    w.engine.load("small").await.unwrap();
+    assert_eq!(w.stand.launches.load(Ordering::Relaxed), 1);
+    let m = w.engine.set_context("small", Some(4096)).await.unwrap();
+    assert_eq!((m.context, m.own_context), (4096, true));
+    // Nothing was being answered: the runtime was stopped, to start again with it when a model is next used.
+    assert!(!w.engine.list().await.unwrap().engine.running);
+    w.engine.load("small").await.unwrap();
+    assert_eq!(w.stand.launches.load(Ordering::Relaxed), 2);
+    assert_eq!(std::fs::read_to_string(w.home.join("engine/presets.ini")).unwrap(), "version = 1\n\n[*]\nc = 8192\n\n[small]\nc = 4096\n");
+    let others: Vec<(String, u64, bool)> = w.engine.list().await.unwrap().models.into_iter().map(|m| (m.id, m.context, m.own_context)).collect();
+    assert_eq!(others, [("Big".to_string(), 8192, false), ("small".to_string(), 4096, true), ("vision".to_string(), 8192, false)]);
+    // Too small, or beyond what the model can hold, is refused; `None` is the context for every model again.
+    assert!(matches!(w.engine.set_context("small", Some(100)).await, Err(Error::Invalid(_))));
+    assert!(matches!(w.engine.set_context("small", Some(10_000_000)).await, Err(Error::Invalid(_))));
+    assert_eq!(w.engine.set_context("small", None).await.unwrap().context, 8192);
+    w.engine.shutdown().await;
+    std::fs::remove_dir_all(&w.home).ok();
+}
+
+#[tokio::test]
 async fn a_model_is_loaded_and_unloaded_and_the_runtime_is_started_once() {
     let w = world("load", false);
     let loaded = w.engine.load("small").await.unwrap();
@@ -115,9 +137,13 @@ async fn a_model_is_loaded_and_unloaded_and_the_runtime_is_started_once() {
     // The runtime was started the way K22 says: nothing loads by itself, no second web UI, this computer only,
     // the context pinned and a margin set.
     let args = w.stand.args.lock().unwrap().join(" ");
-    for wanted in ["--no-models-autoload", "--no-webui", "--host 127.0.0.1", "-c 8192", "--models-memory-margin 922", "--models-max 0", "--api-key-file"] {
+    for wanted in ["--no-models-autoload", "--no-webui", "--host 127.0.0.1", "--models-preset", "--models-memory-margin 922", "--models-max 0", "--api-key-file"] {
         assert!(args.contains(wanted), "{wanted} is missing from: {args}");
     }
+    // The context is pinned in the presets, for every model: not on the command line, which would win over a
+    // model's own.
+    assert!(!args.contains(" -c "), "{args}");
+    assert_eq!(std::fs::read_to_string(w.home.join("engine/presets.ini")).unwrap(), "version = 1\n\n[*]\nc = 8192\n");
 
     w.engine.load("Big").await.unwrap();
     w.engine.load("small").await.unwrap();

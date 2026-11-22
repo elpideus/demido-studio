@@ -100,8 +100,7 @@ Windows, and tools other people write.
    installed on the owner's computer (CUDA 13.5, 170 MB; it starts and sees the card). Loading, unloading
    and unloading when idle are built too (DECISIONS K22, K23): the runtime's own router does the fitting
    into memory, tried on the real card before it was relied on. The indicator in the corner shows the
-   real graphics memory. Left in this item: a context chosen per model (it belongs with the research
-   on model tuning).
+   real graphics memory. A context for each model is built too (DECISIONS K32).
 4. Chat loop with the small-model techniques: constrained tool calls, repair, task list, compaction.
    Built on 2026-11-21 (DECISIONS L): plain chat, the thinking switch with "Answer now", compaction, turns
    with tools (the clock, the calculator, a plan), the task list that Demido walks, stopping a model that
@@ -129,8 +128,8 @@ Windows, and tools other people write.
    GGUF models, whether each fits this computer, a quantization recommended, downloads checked and resumable,
    a vision part downloaded with its model. Settings for each model are built (DECISIONS K26 to K30, research
    note 19): each model is asked the way its maker recommends, thinking and not, and the person can set their
-   own. A model can be deleted from the window (K31). Left in it: gated models (with the vault), the context
-   for each model.
+   own. A model can be deleted from the window (K31), and have a context of its own (K32). Left in it: gated
+   models (with the vault).
    The vault and three providers are built (DECISIONS U, research note 18): keys in the system keyring (a
    file only the user can read where there is none), never shown again and never seen by a model; Anthropic,
    Gemini and OpenRouter in sessions, chosen by the person, with what each answer cost and a limit for the
@@ -174,7 +173,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 9 | Markets: charts, indicators, the Pine editor | Nothing here places an order |
 | 10 | The desktop shell and the installer | Packaging, checked on three systems by the checks |
 | 10 | The updater, signing releases, hardening server mode | A wrong update reaches everyone; an open server is an open computer |
-| – | The system accent on Windows and macOS; the per-model context size | Small and bounded |
+| – | The system accent on Windows and macOS; ~~the per-model context size~~ done (K32) | Small and bounded |
 
 Done from this list on 2026-11-21: reading from the internet, and the facts for it (DECISIONS N). What it
 left for later is in the rows it touches: search with a key waits for the vault, pages that need scripts

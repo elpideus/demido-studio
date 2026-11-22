@@ -173,8 +173,17 @@ pub struct Yours {
     pub thinking: Sampling,
     #[serde(default)]
     pub plain: Sampling,
+    /// What it is loaded with room for, in tokens, in place of the context set for every model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
     #[serde(default)]
     pub changed_at: i64,
+}
+
+impl Yours {
+    fn is_empty(&self) -> bool {
+        self.thinking.is_empty() && self.plain.is_empty() && self.context.is_none()
+    }
 }
 
 /// What an answer is sent with for one way of answering, and why.
@@ -238,16 +247,37 @@ impl Kept {
         self.all().remove(model).unwrap_or_default()
     }
 
-    /// Keeps the person's settings for a model; both empty forgets them.
+    /// Every model's own context, where the person set one.
+    pub fn contexts(&self) -> Vec<(String, u64)> {
+        let mut all: Vec<(String, u64)> = self.all().into_iter().filter_map(|(m, y)| y.context.map(|c| (m, c))).collect();
+        all.sort();
+        all
+    }
+
+    /// Keeps the person's ways of picking words for a model; both empty forgets them. Its context stays.
     pub fn set(&self, model: &str, thinking: Sampling, plain: Sampling) -> Result<Yours> {
         thinking.checked()?;
         plain.checked()?;
+        self.change(model, |y| (y.thinking, y.plain) = (thinking, plain))
+    }
+
+    /// Keeps the person's context for a model, or (`None`) forgets it.
+    pub fn set_context(&self, model: &str, context: Option<u64>) -> Result<Yours> {
+        self.change(model, |y| y.context = context)
+    }
+
+    /// Forgets everything the person set for a model.
+    pub fn forget(&self, model: &str) -> Result<Yours> {
+        self.change(model, |y| *y = Yours::default())
+    }
+
+    fn change(&self, model: &str, f: impl FnOnce(&mut Yours)) -> Result<Yours> {
         let _one = self.writing.lock().unwrap_or_else(|e| e.into_inner());
         let mut all = self.all();
-        let yours = Yours { thinking, plain, changed_at: now_ms() };
-        if thinking.is_empty() && plain.is_empty() {
-            all.remove(model);
-        } else {
+        let mut yours = all.remove(model).unwrap_or_default();
+        f(&mut yours);
+        yours.changed_at = now_ms();
+        if !yours.is_empty() {
             all.insert(model.to_string(), yours.clone());
         }
         if let Some(dir) = self.path.parent() {

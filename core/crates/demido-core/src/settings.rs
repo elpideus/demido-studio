@@ -160,7 +160,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Context size",
             "How much a model can hold in mind at once, in tokens. Larger needs more memory.",
             Some(
-                "Default 8192. Demido sets this for every model: left alone, a model takes all the memory it can find (a 610 MB model took 5.3 GB when tried). Not built yet: choosing it for each model by itself. Takes effect the next time the model runtime starts.",
+                "Default 8192. Demido sets this for every model: left alone, a model takes all the memory it can find (a 610 MB model took 5.3 GB when tried). A model can have its own instead, on its page under Models. Takes effect the next time the model runtime starts.",
             ),
             choices(&[("4096", "4k"), ("8192", "8k"), ("16384", "16k"), ("32768", "32k")]),
             json!("8192"),

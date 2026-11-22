@@ -321,7 +321,8 @@ impl Chat {
         let remote = crate::providers::split(model).and(self.providers.as_ref()).and_then(|p| p.chosen_one(model).ok().flatten());
         let limit = match remote {
             Some(m) => m.context_length.unwrap_or(REMOTE_MOST_IN_VIEW).min(REMOTE_MOST_IN_VIEW),
-            None => self.settings.value::<String>("models.context").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8192),
+            // A model on this computer: what it is loaded with room for, its own or the one for every model.
+            None => self.engine.context_of(model),
         };
         // Three quarters, so there is always room for the answer. A size chosen by hand never goes above that.
         let most = limit * 3 / 4;

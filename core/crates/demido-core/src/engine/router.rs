@@ -175,7 +175,7 @@ pub(super) struct Router {
 
 impl Router {
     /// Starts the router and waits until it answers.
-    pub async fn start(launcher: &dyn Launcher, work: &Path, root: &Path, runtime: &Installed, models_dir: &Path, context: u64, margin_mb: u64) -> Result<Self> {
+    pub async fn start(launcher: &dyn Launcher, work: &Path, root: &Path, runtime: &Installed, models_dir: &Path, presets: &Path, margin_mb: u64) -> Result<Self> {
         let Some(server) = runtime.server.clone() else {
             return Err(Error::Other(format!("{} holds no serving program.", runtime.name)));
         };
@@ -194,8 +194,9 @@ impl Router {
             "--no-models-autoload", "--no-webui",
             // The limit is memory, not a count.
             "--models-max", "0", "--models-memory-margin", &margin_mb.to_string(),
-            // Always pinned: left alone, a model takes the largest context that fits.
-            "-c", &context.to_string(),
+            // The context, always pinned (left alone, a model takes the largest that fits): for every model,
+            // and each model's own, in the presets. Not on this line, which would win over a model's own.
+            "--models-preset", &text(presets),
             "--log-file", &text(&log),
         ].iter().map(|s| s.to_string()).collect();
         let mut running = launcher.launch(&Launch { root: root.to_path_buf(), server, lib_dirs: runtime.lib_dirs.clone(), args, port })?;

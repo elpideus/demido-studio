@@ -162,6 +162,13 @@ enum ModelsCommand {
         /// Its name, as `demido models` shows it.
         id: String,
     },
+    /// Give a model its own context, in tokens, or `default` for the one every model has.
+    Context {
+        /// Its name, as `demido models` shows it.
+        id: String,
+        /// Tokens, or `default`.
+        context: String,
+    },
     /// Delete a model from the models folder: its file, or its folder. It cannot be undone.
     Delete {
         /// Its name, as `demido models` shows it.
@@ -1145,6 +1152,9 @@ fn print_models(list: &Value) {
     let widest = models.iter().filter_map(|m| m["id"].as_str()).map(|id| id.chars().count()).max().unwrap_or(0);
     for m in &models {
         let mut says = vec![m["state"].as_str().unwrap_or("?").to_string()];
+        if m["own_context"] == true {
+            says.push(format!("its own context of {} tokens", m["context"].as_u64().unwrap_or(0)));
+        }
         if let Some(needs) = m["needs_mb"].as_u64() {
             says.push(format!("needs {needs} MiB on the graphics card"));
         }
@@ -1216,6 +1226,14 @@ async fn models(paths: &Paths, command: Option<ModelsCommand>) -> Result<()> {
         (None, Some(s)) => print_models(&s.get("/api/v1/models")?),
         // Without a server nothing is loaded, and the folder can be read directly.
         (None, None) => print_models(&serde_json::to_value(Core::open(paths)?.engine.list().await?)?),
+        (Some(ModelsCommand::Context { id, context }), server) => {
+            let wanted: Option<u64> = if context == "default" { None } else { Some(context.parse().map_err(|_| anyhow!("A context is a number of tokens, or `default`."))?) };
+            let m = match server {
+                Some(s) => s.send("PUT", &format!("/api/v1/models/{id}/context"), Some(&json!({ "context": wanted })))?,
+                None => serde_json::to_value(Core::open(paths)?.engine.set_context(&id, wanted).await?)?,
+            };
+            println!("{id} is loaded with room for {} tokens{}.", m["context"].as_u64().unwrap_or(0), if m["own_context"] == true { ", its own" } else { ", the context every model has" });
+        }
         (Some(ModelsCommand::Delete { id }), server) => {
             let gone = match server {
                 Some(s) => s.send("DELETE", &format!("/api/v1/models/{id}"), None)?,
