@@ -71,12 +71,12 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 06, 08) has been fact-checked; each is checked when its feature starts.
 
 1. ~~The small-model techniques: before the chat loop.~~ Done on 2026-11-21: research note 13, with a
-   measurement on the two test models. Still owed from this line: settings per model (temperature and the
-   rest, brief 4.2), before the models work.
+   measurement on the two test models. ~~Settings per model~~ done on 2026-11-22 (research note 19).
 2. Search engines and the named third-party projects (licences, look-alike repos): before search and fetch.
 3. Voice, email and messaging libraries; a local Pine Script engine; price feeds: before each of those.
-4. How well small models choose among models, and in what words to tell them about the others (DECISIONS
-   O2, O8): before agents get to pick their own model.
+4. ~~How well small models choose among models, and in what words to tell them about the others~~ Done on
+   2026-11-22 (research note 20, DECISIONS O8 to O12): two of the four test models choose well with plain
+   labels; whether a model may choose is to be tried for each model.
 
 ### Step 3. Real feature work
 
