@@ -166,8 +166,8 @@ list made for the split stays, because it says what is left and what to watch in
 | 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good. The Hugging Face key for gated models is built since (H8) | Secrets and money |
 | 6 | ~~Anthropic, Gemini and OpenRouter; usage shown; Claude Code and OpenCode.~~ Done (DECISIONS U), tested against stand-ins: the first real request waits for your key, and the first message to a program for your yes | Documented interfaces, one at a time; never touch a program's login |
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory. **On hold** (the owner, 2026-11-22; O13: no second model by default) | The hardest design left, and the product's main promise |
-| 7 | Schedules and monitors that run with nobody there: decided by the owner (DECISIONS J): always autonomous, every tool, no level | Nobody is there to say no, so all a run did must be easy to read |
-| 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
+| 7 | ~~Schedules and monitors that run with nobody there~~ built (DECISIONS J1 to J11): always autonomous, every tool, no level; monitors on the shop's own price. Left: a price read by a model where a page has no product data, the limit and the model chosen in the window, the desktop notice | Nobody is there to say no, so all a run did must be easy to read |
+| 7 | ~~The schedules screen~~ built; messages between sessions shown | Window work on a decided design |
 | 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS Q1 to Q14, research note 23), and with them a long file written into the folder (T24). ~~Left from the owner's answers of 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts (Q15)~~ done; one way out of a running page stays open, WebRTC (Q15, IDEAS 142) | Window work with a clear edge; Q15 runs a model's code in the window |
 | 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts (~~PDFs~~ done, N15) | Logged-in pages are the most private thing there is |
 | 9 | Voice: the libraries, the screen | Research and building, little risk |
@@ -207,8 +207,11 @@ of no address, with what it can still send out measured (Q15).
 Also done on 2026-11-22: Smart as the model deciding (T6), asked both ways round, measured on four models
 (research note 27).
 
-Next, in this order unless the owner says otherwise: the sandbox on Windows (T26), researched and tried on the checks' Windows
-machine; then schedules (section J). Agents wait.
+Also done on 2026-11-22: schedules and monitors (DECISIONS J1 to J11): made from a sentence read by code, each a
+session of its own, run by the server at their time, on their own; monitors read the shop's own price.
+
+Next, in this order unless the owner says otherwise: the sandbox on Windows (T26), researched and tried on the
+checks' Windows machine. Agents wait.
 
 ## Set aside for later
 

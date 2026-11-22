@@ -10,6 +10,7 @@ use crate::runtime::{Runtimes, Source};
 use crate::settings::Settings;
 
 mod folders_and_permissions;
+mod schedules;
 mod the_internet;
 mod tools_and_tasks;
 
@@ -29,6 +30,8 @@ struct World {
     settings: Arc<Settings>,
     /// The keys Demido keeps, in a file in `home`: none unless a test puts one there.
     vault: Arc<crate::vault::Vault>,
+    /// The database everything here keeps its records in.
+    db: Arc<Db>,
 }
 
 fn world(name: &str) -> World {
@@ -63,7 +66,7 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
     });
     let vault = Arc::new(crate::vault::Vault::in_file(&home));
     let providers = Arc::new(crate::providers::Providers::new(db.clone(), vault.clone(), kept_settings.clone(), events.clone()));
-    let sessions = Arc::new(Sessions::new(db));
+    let sessions = Arc::new(Sessions::new(db.clone()));
     // The tests in this file are about plain chat: one request to the model for each turn. Tools have their own.
     kept_settings.set("tools.use", json!(false)).unwrap();
     // Nor do they reach the internet: the tests that do have a stand-in site (`the_internet`).
@@ -75,7 +78,7 @@ fn world_where(name: &str, idle_after: Option<Duration>) -> World {
             .keeping_outputs_in(home.join("outputs"))
             .with_providers(providers),
     );
-    World { chat, sessions, engine, events, stand, home, settings: kept_settings, vault }
+    World { chat, sessions, engine, events, stand, home, settings: kept_settings, vault, db }
 }
 
 impl World {

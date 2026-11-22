@@ -43,6 +43,7 @@ pub mod programs;
 pub mod providers;
 pub mod runtime;
 pub mod sandbox;
+pub mod schedules;
 pub mod sessions;
 pub mod settings;
 pub mod spawn;

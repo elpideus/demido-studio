@@ -68,17 +68,72 @@ pub fn readable(html: &str, address: &str) -> Text {
 /// Read by code, not by a model, so that a note in a review or a comment on the page cannot change the price
 /// a model is told (research note 24: a note that lied about the price took in every test model).
 pub fn product_data(html: &str) -> Vec<String> {
+    products(html)
+        .into_iter()
+        .filter_map(|p| {
+            let prices: Vec<String> = p
+                .offers
+                .iter()
+                .map(|o| format!("{}{}{}", o.price, o.currency.as_ref().map(|c| format!(" {c}")).unwrap_or_default(), o.stock.as_ref().map(|s| format!(", {s}")).unwrap_or_default()))
+                .collect();
+            (!prices.is_empty()).then(|| format!("{}: {}", p.name, prices.join("; ")))
+        })
+        .take(3)
+        .collect()
+}
+
+/// One of the shop's own offers for what a page sells, with its price as a number: what a monitor compares
+/// (DECISIONS J5). From the same product data as `product_data`, read by code.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Offer {
+    /// The product's name, as the shop gives it.
+    pub name: String,
+    pub price: f64,
+    pub currency: Option<String>,
+    /// `InStock`, `OutOfStock` and the like.
+    pub stock: Option<String>,
+    /// The shop's own line for it: "Merino sweater: 64.00 EUR, InStock".
+    pub line: String,
+}
+
+/// The offers on a page whose price is a number (a range, "60 to 80", is not one), in the order they stand.
+pub fn offers(html: &str) -> Vec<Offer> {
+    products(html)
+        .into_iter()
+        .flat_map(|p| {
+            let name = p.name.clone();
+            p.offers.into_iter().filter_map(move |o| {
+                let price = o.price.replace(',', ".").parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0)?;
+                let line = format!("{name}: {}{}{}", o.price, o.currency.as_ref().map(|c| format!(" {c}")).unwrap_or_default(), o.stock.as_ref().map(|s| format!(", {s}")).unwrap_or_default());
+                Some(Offer { name: name.clone(), price, currency: o.currency, stock: o.stock, line })
+            })
+        })
+        .take(6)
+        .collect()
+}
+
+/// A product as its data gives it: a name and up to three offers, each with its price as written.
+struct Product {
+    name: String,
+    offers: Vec<RawOffer>,
+}
+struct RawOffer {
+    price: String,
+    currency: Option<String>,
+    stock: Option<String>,
+}
+
+fn products(html: &str) -> Vec<Product> {
     let doc = Document::from(html);
     let mut found = Vec::new();
     for script in doc.select(r#"script[type="application/ld+json"]"#).iter() {
         let Ok(data) = serde_json::from_str::<serde_json::Value>(&script.text()) else { continue };
         products_in(&data, &mut found);
     }
-    found.truncate(3);
     found
 }
 
-fn products_in(data: &serde_json::Value, found: &mut Vec<String>) {
+fn products_in(data: &serde_json::Value, found: &mut Vec<Product>) {
     use serde_json::Value;
     match data {
         Value::Array(items) => items.iter().for_each(|i| products_in(i, found)),
@@ -106,18 +161,17 @@ fn products_in(data: &serde_json::Value, found: &mut Vec<String>) {
                 Some(Value::Number(n)) => Some(n.to_string()),
                 _ => None,
             };
-            let mut prices = Vec::new();
+            let mut raw = Vec::new();
             for offer in offers.iter().take(3) {
                 let price = text(offer.get("price")).or_else(|| text(offer.get("priceSpecification").and_then(|p| p.get("price"))));
                 let low_high = text(offer.get("lowPrice")).zip(text(offer.get("highPrice"))).map(|(l, h)| format!("{l} to {h}"));
                 let Some(price) = price.or(low_high) else { continue };
-                let currency = text(offer.get("priceCurrency")).map(|c| format!(" {c}")).unwrap_or_default();
                 // "https://schema.org/InStock" says "InStock".
-                let stock = offer.get("availability").and_then(Value::as_str).and_then(|a| a.rsplit('/').next()).map(|a| format!(", {}", short(a, 30))).unwrap_or_default();
-                prices.push(format!("{price}{currency}{stock}"));
+                let stock = offer.get("availability").and_then(Value::as_str).and_then(|a| a.rsplit('/').next()).map(|a| short(a, 30));
+                raw.push(RawOffer { price, currency: text(offer.get("priceCurrency")), stock });
             }
-            if !prices.is_empty() {
-                found.push(format!("{name}: {}", prices.join("; ")));
+            if !raw.is_empty() {
+                found.push(Product { name, offers: raw });
             }
         }
         _ => {}

@@ -58,6 +58,8 @@ pub struct Core {
     pub hub: Arc<crate::hub::Hub>,
     /// Models elsewhere, and the vault that keeps their keys.
     pub providers: Arc<Providers>,
+    /// Schedules and monitors, and what runs them (DECISIONS section J).
+    pub scheduler: Arc<crate::schedules::Scheduler>,
 }
 
 impl Core {
@@ -71,7 +73,8 @@ impl Core {
         let engine = Arc::new(Engine::new(paths.home(), runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
         let vault = Arc::new(Vault::open(paths.home()));
         let providers = Arc::new(Providers::new(db.clone(), vault.clone(), settings.clone(), events.clone()).with_programs(paths.home(), Arc::new(crate::programs::ProcessSpawner)));
-        let sessions = Arc::new(Sessions::new(db));
+        let sessions = Arc::new(Sessions::new(db.clone()));
+        let schedules = Arc::new(crate::schedules::Schedules::new(db));
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
                 .with_providers(providers.clone())
@@ -82,7 +85,8 @@ impl Core {
                 .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))).reading_pdfs_apart(std::env::current_exe().ok()))),
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers })
+        let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler })
     }
 }
 
@@ -112,6 +116,7 @@ pub struct App {
     pub chat: Arc<Chat>,
     pub hub: Arc<crate::hub::Hub>,
     pub providers: Arc<Providers>,
+    pub scheduler: Arc<crate::schedules::Scheduler>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -1294,6 +1299,88 @@ async fn program_approve_stream() -> StatusCode {
     StatusCode::METHOD_NOT_ALLOWED
 }
 
+// ───────── schedules ─────────
+
+/// A sentence, to be read as a schedule.
+#[derive(Deserialize, ToSchema)]
+pub struct Sentence {
+    /// "Give me my email report every morning at 7".
+    pub text: String,
+}
+
+/// What a sentence is read as, before anything is kept ("Understood as …"): what to do, when, and for a
+/// monitor what it watches for. Read by code, not by a model. Nothing is made.
+#[utoipa::path(post, path = "/api/v1/schedules/understand", tag = "schedules", request_body = Sentence, responses((status = 200, body = crate::schedules::Understood)))]
+async fn schedule_understand(State(app): State<App>, Json(body): Json<Sentence>) -> Json<crate::schedules::Understood> {
+    Json(crate::schedules::when::understand(&body.text, now_ms(), app.scheduler.schedules().tz()))
+}
+
+/// Every schedule, the next due first.
+#[utoipa::path(get, path = "/api/v1/schedules", tag = "schedules", responses((status = 200, body = Vec<crate::schedules::Schedule>)))]
+async fn schedules_list(State(app): State<App>) -> Result<Json<Vec<crate::schedules::Schedule>>> {
+    Ok(Json(app.scheduler.schedules().list()?))
+}
+
+/// Makes a schedule, and the session of its own its runs are in. It always runs autonomously, with every
+/// tool (DECISIONS J2). Not more often than every 15 minutes, and never by a program such as Claude Code.
+#[utoipa::path(post, path = "/api/v1/schedules", tag = "schedules", request_body = crate::schedules::New, responses((status = 200, body = crate::schedules::Schedule), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn schedule_new(State(app): State<App>, Json(body): Json<crate::schedules::New>) -> Result<Json<crate::schedules::Schedule>> {
+    Ok(Json(app.scheduler.make(&body).await?))
+}
+
+/// A schedule, with its runs, the last first.
+#[derive(Serialize, ToSchema)]
+pub struct ScheduleWithRuns {
+    pub schedule: crate::schedules::Schedule,
+    pub runs: Vec<crate::schedules::Run>,
+    /// It is running now.
+    pub running: bool,
+}
+
+#[utoipa::path(get, path = "/api/v1/schedules/{id}", tag = "schedules", params(("id" = String, Path, description = "The schedule's id")), responses((status = 200, body = ScheduleWithRuns), (status = 404, body = Problem)))]
+async fn schedule_get(State(app): State<App>, Path(id): Path<String>) -> Result<Json<ScheduleWithRuns>> {
+    let schedule = app.scheduler.schedules().get(&id)?;
+    let runs = app.scheduler.schedules().runs(&id, 50)?;
+    Ok(Json(ScheduleWithRuns { running: app.scheduler.is_running(&id), schedule, runs }))
+}
+
+/// Changes what a schedule does, when, its limit, or pauses it and turns it on again. Turned on, or given a
+/// new time, it is due at the next moment its rule gives.
+#[utoipa::path(patch, path = "/api/v1/schedules/{id}", tag = "schedules", params(("id" = String, Path, description = "The schedule's id")), request_body = crate::schedules::Change, responses((status = 200, body = crate::schedules::Schedule), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn schedule_change(State(app): State<App>, Path(id): Path<String>, Json(body): Json<crate::schedules::Change>) -> Result<Json<crate::schedules::Schedule>> {
+    let changed = app.scheduler.schedules().change(&id, &body)?;
+    app.events.append("schedule.changed", Some(&id), json!({ "state": changed.state, "when": changed.when_said, "what": changed.what }))?;
+    Ok(Json(changed))
+}
+
+/// Deletes a schedule and its runs. Its session stays, with everything its runs wrote in it.
+#[utoipa::path(delete, path = "/api/v1/schedules/{id}", tag = "schedules", params(("id" = String, Path, description = "The schedule's id")), responses((status = 200, body = crate::schedules::Schedule), (status = 404, body = Problem), (status = 409, body = Problem)))]
+async fn schedule_delete(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::schedules::Schedule>> {
+    if app.scheduler.is_running(&id) {
+        return Err(Error::Busy("This schedule is running. Wait for the run to end, or stop its answer in its session.".into()));
+    }
+    let gone = app.scheduler.schedules().delete(&id)?;
+    app.events.append("schedule.deleted", Some(&id), json!({ "what": gone.what, "session": gone.session_id }))?;
+    Ok(Json(gone))
+}
+
+/// Runs a schedule now, as the person asked: its next time does not move. Returns at once; the run's end
+/// is in the log (`schedule.ran`) and in the schedule's session.
+#[utoipa::path(post, path = "/api/v1/schedules/{id}/run", tag = "schedules", params(("id" = String, Path, description = "The schedule's id")), responses((status = 202, body = crate::schedules::Schedule), (status = 404, body = Problem), (status = 409, body = Problem)))]
+async fn schedule_run(State(app): State<App>, Path(id): Path<String>) -> Result<(StatusCode, Json<crate::schedules::Schedule>)> {
+    let schedule = app.scheduler.schedules().get(&id)?;
+    if app.scheduler.is_running(&id) {
+        return Err(Error::Busy("This schedule is running already.".into()));
+    }
+    let scheduler = app.scheduler.clone();
+    tokio::spawn(async move {
+        if let Err(e) = scheduler.run(&id, true).await {
+            tracing::warn!("A run of the schedule {id} could not be made: {e}");
+        }
+    });
+    Ok((StatusCode::ACCEPTED, Json(schedule)))
+}
+
 async fn ui_file(State(app): State<App>, req: Request) -> Response {
     if req.uri().path().starts_with("/api/") {
         return problem(StatusCode::NOT_FOUND, "not_found", format!("There is nothing at {}. The API is described at /api/v1/openapi.json.", req.uri().path()));
@@ -1305,8 +1392,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -1373,6 +1460,10 @@ pub fn router(app: App) -> Router {
         .route("/providers/{id}/program", post(program_download).delete(program_remove))
         .route("/providers/{id}/program/download", axum::routing::delete(program_stop))
         .route("/providers/{id}/program/latest", get(program_latest))
+        .route("/schedules", get(schedules_list).post(schedule_new))
+        .route("/schedules/understand", post(schedule_understand))
+        .route("/schedules/{id}", get(schedule_get).patch(schedule_change).delete(schedule_delete))
+        .route("/schedules/{id}/run", post(schedule_run))
         .route("/usage", get(usage))
         .route("/settings", get(settings_list))
         .route("/settings/{id}", get(setting_get).put(setting_set).delete(setting_reset))
@@ -1433,6 +1524,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         chat: core.chat.clone(),
         hub: core.hub.clone(),
         providers: core.providers.clone(),
+        scheduler: core.scheduler.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -1462,6 +1554,21 @@ pub async fn serve(opts: Options) -> Result<()> {
     core.engine.end_leftover();
     // An answer that was being written when Demido last stopped was never finished. Say so in its place.
     core.sessions.close_unfinished()?;
+    // So with a run of a schedule: it failed, and its schedule is due again by its rule.
+    core.scheduler.schedules().close_unfinished()?;
+    // Every few seconds: run the schedules that are due, one at a time (DECISIONS J). One missed while
+    // Demido was not running is due now, and runs once, late.
+    let schedules_kept = {
+        let scheduler = core.scheduler.clone();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(crate::schedules::runner::LOOK_EVERY);
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                every.tick().await;
+                scheduler.look(now_ms()).await;
+            }
+        })
+    };
     // Every few seconds: unload what nobody uses, stop a runtime with nothing loaded, notice one that died.
     let caretaker = {
         let engine = core.engine.clone();
@@ -1478,6 +1585,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         stop_signal().await;
         tracing::info!("Stopping.");
         caretaker.abort();
+        schedules_kept.abort();
         runtimes.stop(); // a download under way keeps what it has, and says so in the log
         engine.shutdown().await; // loaded models are unloaded and the model runtime ends
         events.tell(STOPPING, None, json!({})); // ends every open event stream
@@ -1552,10 +1660,13 @@ mod tests {
         let events = Arc::new(EventLog::new(db.clone()));
         let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
         let providers = Arc::new(Providers::new(db.clone(), Arc::new(Vault::in_file(home)), settings.clone(), events.clone()));
-        let sessions = Arc::new(Sessions::new(db));
+        let sessions = Arc::new(Sessions::new(db.clone()));
         let auth = Arc::new(Auth::with_key(KEY.into()));
         let runtimes = Arc::new(Runtimes::new(home, events.clone(), Source::default()).unwrap());
         let engine = Arc::new(Engine::new(home, runtimes.clone(), settings.clone(), events.clone(), Arc::new(ProcessLauncher)));
+        let chat = Arc::new(Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone()).with_providers(providers.clone()));
+        let schedules = Arc::new(crate::schedules::Schedules::new(db));
+        let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
         let app = App {
             settings: settings.clone(),
             events: events.clone(),
@@ -1563,9 +1674,10 @@ mod tests {
             runtimes,
             engine: engine.clone(),
             sessions: sessions.clone(),
-            chat: Arc::new(Chat::new(sessions, engine, events.clone(), settings.clone()).with_providers(providers.clone())),
+            chat,
             hub: Arc::new(crate::hub::Hub::new(home.join("models"), events.clone())),
             providers,
+            scheduler,
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -1856,6 +1968,29 @@ mod tests {
         assert_eq!(body["error"]["code"], "no_key");
         let (status, _) = send(&r, request("GET", "/api/v1/settings").header("authorization", format!("Bearer {KEY}")).body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_sentence_is_read_as_a_schedule_before_anything_is_made() {
+        let (r, _) = app();
+        let key = format!("Bearer {KEY}");
+        let post = |path: &str, body: Value| request("POST", path).header("authorization", &key).header("content-type", "application/json").body(Body::from(body.to_string())).unwrap();
+        let (status, read) = send(&r, post("/api/v1/schedules/understand", json!({ "text": "Give me my email report every morning at 7" }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            (read["what"].as_str(), read["when"]["kind"].as_str(), read["when"]["at"].as_str(), read["when_said"].as_str()),
+            (Some("Give me my email report"), Some("daily"), Some("07:00"), Some("Every day at 07:00"))
+        );
+        let (_, list) = send(&r, request("GET", "/api/v1/schedules").header("authorization", &key).body(Body::empty()).unwrap()).await;
+        assert_eq!(list, json!([]), "reading it made nothing");
+        // Too often is refused, before any session is made.
+        let (status, body) = send(&r, post("/api/v1/schedules", json!({ "said": "x", "what": "Check", "when": { "kind": "every", "minutes": 5 } }))).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(body["error"]["message"].as_str().unwrap().contains("at most every 15 minutes"));
+        let (status, _) = send(&r, request("GET", "/api/v1/schedules/nope").header("authorization", &key).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = send(&r, post("/api/v1/schedules/nope/run", json!({}))).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

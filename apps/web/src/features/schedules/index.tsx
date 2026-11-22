@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { CalendarClock, Plus } from 'lucide-react'
 import type { Feature } from '@/app/registry'
+import { useCore } from '@/data/core'
+import { RealSchedules } from './real'
 import { addSchedule, modelById, runSchedule, setScheduleEnabled, toast, useStore } from '@/data/store'
 import type { Schedule } from '@/data/types'
 import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Signal, Switch } from '@/ui'
@@ -101,4 +103,10 @@ function SchedulesPage() {
   )
 }
 
-export const feature: Feature = { id: 'schedules', title: 'Schedules', icon: CalendarClock, group: 'work', order: 1, path: 'schedules', Page: SchedulesPage }
+/** With a core behind the pages, the real schedules; without one, the preview's. */
+function Schedules() {
+  const core = useCore()
+  return core.state === 'ready' ? <RealSchedules /> : <SchedulesPage />
+}
+
+export const feature: Feature = { id: 'schedules', title: 'Schedules', icon: CalendarClock, group: 'work', order: 1, path: 'schedules', Page: Schedules }

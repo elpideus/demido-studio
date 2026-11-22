@@ -1,7 +1,8 @@
 # 24. What may a schedule do when nobody is there?
 
 Written 2026-11-22, directly. A proposal for the owner, who decided its open choices the same day (the end of
-the proposals, and DECISIONS section J); J2 to J4 were changed by that. Nothing here is built. Plan item 7 says
+the proposals, and DECISIONS section J); J2 to J4 were changed by that. Built the same day (DECISIONS J1 to J11,
+`schedules`), with what is left said in each row there. Plan item 7 says
 of schedules and monitors "Nobody is there to say no". Brief 4.27 sets two examples that must work, "Give me my
 email report every morning at 7" and "Monitor the price of this sweater and tell me when it goes on sale", with
 no model loaded all the time, and schedules sharing models with sessions (4.17).

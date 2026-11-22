@@ -461,6 +461,19 @@ impl Chat {
         self.turns().contains_key(session_id)
     }
 
+    /// Whether any session is being answered right now: a schedule's run waits for that to end rather than
+    /// taking the model from it (DECISIONS J7).
+    pub fn anyone_answering(&self) -> bool {
+        !self.turns().is_empty()
+    }
+
+    /// The shop's own offers on a page, for a monitor (J5): read by code, never by a model. The address is the
+    /// person's own, so this computer's network is read when they turned that on, as for a page they named.
+    pub async fn offers_at(&self, url: &str, stop: &AtomicBool) -> std::result::Result<(Vec<crate::web::page::Offer>, String), String> {
+        let may_be_local = self.settings.value::<bool>("web.local").unwrap_or(false);
+        self.web.offers(url, may_be_local, stop).await
+    }
+
     /// Starts a session. With no model named, it takes one that is loaded; with none loaded, the first on disk.
     /// A model elsewhere is taken only when it is named, and only once it is chosen.
     pub async fn start(&self, title: Option<&str>, model: Option<&str>) -> Result<Session> {

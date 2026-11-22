@@ -145,6 +145,9 @@ struct KeptPage {
     /// The shop's own description of what the page sells, from its product data (`page::product_data`).
     #[serde(default)]
     product: Vec<String>,
+    /// The same, with each price as a number: what a monitor compares (`page::offers`).
+    #[serde(default)]
+    offers: Vec<page::Offer>,
 }
 
 /// A page as a model is given it.
@@ -517,7 +520,7 @@ impl Web {
             // Said as Demido's, not the file's: told "A PDF: its text only", a real model (Qwen3 4B) passed it
             // on as something the PDF said.
             let notes = vec!["Demido's note: this is a PDF, and only its text was read, without its pictures or its layout.".to_string()];
-            return Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes, product: Vec::new() });
+            return Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes, product: Vec::new(), offers: Vec::new() });
         }
         if !is_html && !is_text {
             return Err(format!("this is not a page of text (it is {kind})"));
@@ -534,13 +537,15 @@ impl Web {
         if got.cut {
             notes.push(format!("The site sent more than {} MB; only the first {} MB were read.", MOST_BYTES / 1_000_000, MOST_BYTES / 1_000_000));
         }
-        let mut product = Vec::new();
+        let (mut product, mut offers) = (Vec::new(), Vec::new());
         let (title, mut text) = if is_html {
             let scripts = raw.matches("<script").count();
             let for_page = address.clone();
             // Taking a page apart is work for a thread of its own.
-            let (found, data) = tokio::task::spawn_blocking(move || (page::readable(&raw, &for_page), page::product_data(&raw))).await.map_err(|_| "the page could not be taken apart".to_string())?;
-            product = data;
+            let (found, data, priced) = tokio::task::spawn_blocking(move || (page::readable(&raw, &for_page), page::product_data(&raw), page::offers(&raw)))
+                .await
+                .map_err(|_| "the page could not be taken apart".to_string())?;
+            (product, offers) = (data, priced);
             if found.text.chars().count() < 200 && scripts >= 3 {
                 notes.push("This page shows almost nothing until its scripts have run. Demido does not run a page's scripts yet.".into());
             }
@@ -551,7 +556,15 @@ impl Web {
         if let Some((at, _)) = text.char_indices().nth(MOST_TEXT) {
             text.truncate(at);
         }
-        Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes, product })
+        Ok(KeptPage { address, title, text, etag: got.etag, changed: got.changed, notes, product, offers })
+    }
+
+    /// The shop's own offers on the page at an address, with their prices as numbers, for a monitor (J5):
+    /// read by code from the product data the page publishes, never by a model. The page is read as
+    /// `read` reads it: the public internet only, the site's rules, the cache. Also where it really was.
+    pub async fn offers(&self, written: &str, may_be_local: bool, stop: &AtomicBool) -> Result<(Vec<page::Offer>, String), String> {
+        let (page, _) = self.page(written, may_be_local, stop).await?;
+        Ok((page.offers, page.address))
     }
 }
 

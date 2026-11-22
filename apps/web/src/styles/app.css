@@ -1655,6 +1655,20 @@
     text-underline-offset: 3px;
   }
 
+  /* ───────── schedules ───────── */
+  .schedules__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--d-space-8);
+  }
+  .schedules__number {
+    width: 6ch;
+  }
+  .schedules__time {
+    width: auto;
+  }
+
   /* ───────── files ───────── */
   .files__panes {
     display: grid;

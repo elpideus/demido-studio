@@ -157,6 +157,38 @@ const MIGRATIONS: &[&str] = &[
         message_id  TEXT,                   -- the answer that made it
         PRIMARY KEY (artifact_id, n)
      ) STRICT;",
+    // 13: schedules and monitors, each a session of its own, and every run of them (DECISIONS section J)
+    "CREATE TABLE schedules (
+        id              TEXT PRIMARY KEY,
+        session_id      TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+        what            TEXT NOT NULL,      -- what to do, in the person's words
+        said            TEXT NOT NULL,      -- the sentence it was made from
+        rule            TEXT NOT NULL,      -- JSON: when it runs (schedules::When)
+        watch           TEXT,               -- JSON: what a monitor watches for, or NULL
+        state           TEXT NOT NULL,      -- on, paused or done
+        paused_why      TEXT,
+        next_at         INTEGER,            -- milliseconds since 1970; NULL: not due again
+        last_run_at     INTEGER,
+        failures        INTEGER NOT NULL DEFAULT 0,   -- runs in a row that failed
+        watched         TEXT,               -- JSON: a monitor's last reading
+        limit_month_usd REAL,               -- the most a paid provider may cost it in a month
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+     ) STRICT;
+     CREATE INDEX schedules_next ON schedules (state, next_at);
+     CREATE TABLE schedule_runs (
+        id          TEXT PRIMARY KEY,
+        schedule_id TEXT NOT NULL REFERENCES schedules (id) ON DELETE CASCADE,
+        due_at      INTEGER NOT NULL,
+        started_at  INTEGER NOT NULL,
+        ended_at    INTEGER,
+        state       TEXT NOT NULL,          -- running, done, failed, told, quiet or skipped
+        late        INTEGER NOT NULL,       -- 1: it ran after its time (the computer slept)
+        by_hand     INTEGER NOT NULL,       -- 1: the person started it
+        message_id  TEXT,                   -- the answer it wrote
+        note        TEXT NOT NULL
+     ) STRICT;
+     CREATE INDEX schedule_runs_of ON schedule_runs (schedule_id, started_at);",
 ];
 
 pub struct Db {
