@@ -14,7 +14,7 @@ rust-version = "1.95"
 [workspace.dependencies]
 demido-core = { path = "crates/demido-core" }
 anyhow = "1"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 clap = { version = "4.6", features = ["derive"] }
 directories = "6"
 # A web page turned into its readable text. Read from crates.io on 2026-11-21: 0.20.0, MIT (docs/research/15-search-and-fetch.md).
@@ -43,6 +43,18 @@ windows-native-keyring-store = { version = "1.1", default-features = false }
 seccompiler = "0.5"
 # Sending a file of a session's folder as it is read (folder.rs). tokio-util 0.7, MIT; already in the build.
 tokio-util = { version = "0.7", features = ["io"] }
+# Voice (research notes 25 and 28; DECISIONS V7). sherpa-onnx 2.0.1, Apache-2.0, from k2-fsa: the speech detector,
+# Parakeet and Pocket TTS. Its build downloads sherpa-onnx's own prebuilt static library from its GitHub release,
+# with onnxruntime (MIT) inside it. ort 2.0.0-rc.15, MIT OR Apache-2.0, runs Smart Turn on that same onnxruntime:
+# with `disable-linking` it links none of its own. rustfft 6.4.1, MIT OR Apache-2.0: Whisper's features for
+# Smart Turn. Read from crates.io on 2026-11-22. Only the `demido` program links them, for `demido voice-engine`.
+sherpa-onnx = "=2.0.1"
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std"] }
+ort-sys = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "api-17", "disable-linking"] }
+rustfft = "6.4"
+# Pocket TTS comes in a .tar.bz2 (its vocabulary is only in sherpa-onnx's package). bzip2 0.6.1, MIT OR
+# Apache-2.0, on libbz2-rs-sys (bzip2-1.0.6 licence: BSD-style, like zlib's). Read from crates.io on 2026-11-22.
+bzip2 = "0.6"
 libc = "0.2"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
 nvml-wrapper = "0.13"

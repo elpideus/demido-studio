@@ -467,6 +467,14 @@ impl Sessions {
         self.message(id)
     }
 
+    /// An answer spoken aloud and cut short by the person (DECISIONS V3): what they did not hear is taken out,
+    /// so the model knows what they heard, and the place is marked.
+    pub fn cut_spoken(&self, id: &str, heard: &str) -> Result<Message> {
+        let content = format!("{}\n\n[Stopped here: the person spoke over the rest, which they did not hear.]", heard.trim_end());
+        self.db.with(|c| c.execute("UPDATE messages SET content = ?2, state = 'stopped' WHERE id = ?1", rusqlite::params![id, content]))?;
+        self.message(id)
+    }
+
     /// The session a program keeps for this one.
     pub fn program_session(&self, session_id: &str, provider: &str) -> Result<Option<ProgramSession>> {
         self.db.with(|c| {

@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Route, Routes, useNavigate } from 'react-router'
-import { AudioLines, Mic, Play } from 'lucide-react'
+import { AudioLines, Download, Mic, Play } from 'lucide-react'
 import type { Feature } from '@/app/registry'
+import { onCoreEvent, useCore } from '@/data/core'
 import { toast, useSetting, setSetting } from '@/data/store'
-import { Button, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
+import { downloadVoice, voiceStatus, type VoiceStatus } from '@/data/voice'
+import { Button, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
+import { LiveVoiceMode } from './live'
 import { VoiceMode } from './talk'
 
 const VOICES = [
@@ -12,13 +15,93 @@ const VOICES = [
   { id: 'theo', name: 'Theo', desc: 'Lower and slower.', by: 'Open licence · may be used commercially' },
   { id: 'mila', name: 'Mila', desc: 'Bright and quick.', by: 'Non-commercial licence · personal use only' },
 ]
-/* The Voice feature has two screens: this page, and voice mode, which takes the whole window. */
+/* The Voice feature has two screens: this page, and voice mode, which takes the whole window. With a core
+   behind the pages both are real; without one, the preview's. */
 function VoicePage() {
+  const core = useCore()
+  const real = core.state === 'ready'
   return (
     <Routes>
-      <Route path="talk" element={<VoiceMode />} />
-      <Route path="*" element={<VoiceHome />} />
+      <Route path="talk" element={real ? <LiveVoiceMode /> : <VoiceMode />} />
+      <Route path="*" element={real ? <RealVoiceHome /> : <VoiceHome />} />
     </Routes>
+  )
+}
+
+const mb = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`
+
+/** Voice, for real (DECISIONS V7): its files downloaded on demand, four donated voices, and voice mode. */
+function RealVoiceHome() {
+  const navigate = useNavigate()
+  const [status, setStatus] = useState<VoiceStatus | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const voice = useSetting<string>('voice.real', '2181')
+  const read = () => voiceStatus().then(setStatus, (e: Error) => setProblem(e.message))
+  useEffect(() => { void read() }, [])
+  // While a download runs, how far it has got; and when it ends, what there is.
+  useEffect(() => {
+    if (!status?.downloading) return
+    const t = window.setInterval(() => void read(), 1000)
+    return () => window.clearInterval(t)
+  }, [status?.downloading])
+  useEffect(() => {
+    const offs = ['voice.downloaded', 'voice.download_failed'].map((k) => onCoreEvent(k, (e) => {
+      void read()
+      if (k === 'voice.download_failed') setProblem(String(e.data.problem))
+    }))
+    return () => offs.forEach((o) => o())
+  }, [])
+  const start = (whisper: boolean) => { setProblem(null); downloadVoice(whisper).then(setStatus, (e: Error) => setProblem(e.message)) }
+  const d = status?.downloading
+  return (
+    <Page narrow title="Voice" lead="Talk with Demido. Speech is turned into text on this computer, and Demido's voice is made here too: nothing you say is sent away.">
+      <Section title="Voice mode" hint="A conversation, hands free.">
+        <div className="d-card"><div className="d-card__body app-stack">
+          {!status && !problem && <p className="app-empty"><Glyph name="task-running" busy /> Reading…</p>}
+          {status?.problem && <Signal level="caution">{status.problem}</Signal>}
+          {status && !status.ready && !d && !status.problem && (
+            <>
+              <p>Voice mode needs its parts on this computer first: a speech detector, a model that hears when your sentence is finished, one that turns speech into text, and one that speaks. {mb(status.missing_bytes)}, from their makers, each checked.</p>
+              <div className="app-row"><Button variant="primary" onClick={() => start(false)}><Icon icon={Download} />Download ({mb(status.missing_bytes)})</Button></div>
+            </>
+          )}
+          {d && <p><Glyph name="task-running" busy /> Downloading {d.file || '…'}: {mb(d.done)} of {mb(d.total)}</p>}
+          {status?.ready && (
+            <div className="app-row"><Button variant="primary" onClick={() => navigate('/voice/talk')}><Icon icon={AudioLines} />Open voice mode</Button></div>
+          )}
+          <ol className="d-prose" style={{ margin: 0 }}>
+            <li>Demido answers when your sentence is finished. If you stop to think, it waits; "Answer now" ends the wait.</li>
+            <li>Speak while it talks and it stops at once. What you did not hear is taken out of the conversation.</li>
+            <li>It speaks English. It understands 25 European languages.</li>
+          </ol>
+          {problem && <Signal level="caution">{problem}</Signal>}
+        </div></div>
+      </Section>
+
+      <Section title="Demido's voice" hint="Voices donated by volunteers for this use (CC0), through Kyutai.">
+        <div className="d-settings">
+          {(status?.voices ?? []).map((v, i) => (
+            <label key={v.id} className="d-setting" style={{ cursor: 'default' }}>
+              <div className="d-setting__text">
+                <span className="d-setting__label"><input className="d-radio" type="radio" name="voice" checked={voice === v.id} onChange={() => setSetting('voice.real', v.id)} />Voice {i + 1} <span className="d-text-tertiary">({v.id})</span></span>
+                <span className="d-setting__desc">{v.present ? 'Downloaded.' : 'Downloaded with the rest.'}</span>
+              </div>
+              <div className="d-setting__control">{v.present && <Button variant="ghost" size="sm" onClick={(e) => { e.preventDefault(); void new Audio(`/api/v1/voice/voices/${v.id}`).play() }}><Icon icon={Play} size="sm" />Hear the speaker</Button>}</div>
+            </label>
+          ))}
+        </div>
+        <p className="d-type-caption d-text-secondary">"Hear the speaker" plays the volunteer's own recording, which Demido's voice is made from. A voice is never made from a recording of anyone who did not agree to it.</p>
+      </Section>
+
+      {status?.ready && (
+        <Section title="When Demido does not catch you" hint="A second listener, for speech the first one hears nothing in.">
+          <div className="d-card"><div className="d-card__body app-stack">
+            <p>Parakeet writes down what you say. Now and then it hears nothing where there was speech; Whisper turbo then listens again, a second or so slower. {status.whisper ? 'It is downloaded.' : `It is ${mb(status.whisper_bytes)} more.`}</p>
+            {!status.whisper && !d && <div className="app-row"><Button onClick={() => start(true)}><Icon icon={Download} />Download Whisper turbo</Button></div>}
+          </div></div>
+        </Section>
+      )}
+    </Page>
   )
 }
 

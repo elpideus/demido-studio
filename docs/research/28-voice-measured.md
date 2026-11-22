@@ -1,6 +1,6 @@
 # 28. Voice, measured on this computer
 
-Written 2026-11-22, directly. Research note 25 named what voice mode can be built from and left three things to
+Written 2026-11-22, directly. Built the same day, as proposed (DECISIONS V7, V8). Research note 25 named what voice mode can be built from and left three things to
 measure first: the delay from the end of the person's sentence to the first sound of the answer, Smart Turn on
 sentences stopped in the middle, and echo cancelling in the desktop webview. This note is the first two. The
 third needs the desktop shell (plan item 10) and is not here.

@@ -60,6 +60,8 @@ pub struct Core {
     pub providers: Arc<Providers>,
     /// Schedules and monitors, and what runs them (DECISIONS section J).
     pub scheduler: Arc<crate::schedules::Scheduler>,
+    /// Voice mode's files and conversations (DECISIONS V7).
+    pub voice: Arc<crate::voice::Voice>,
 }
 
 impl Core {
@@ -86,7 +88,8 @@ impl Core {
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
         let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler })
+        let voice = Arc::new(crate::voice::Voice::new(paths.home().join("voice"), std::env::current_exe().ok(), events.clone()));
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice })
     }
 }
 
@@ -117,6 +120,7 @@ pub struct App {
     pub hub: Arc<crate::hub::Hub>,
     pub providers: Arc<Providers>,
     pub scheduler: Arc<crate::schedules::Scheduler>,
+    pub voice: Arc<crate::voice::Voice>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -1299,6 +1303,53 @@ async fn program_approve_stream() -> StatusCode {
     StatusCode::METHOD_NOT_ALLOWED
 }
 
+// ───────── voice ─────────
+
+/// What voice mode has and lacks: its files (downloaded on demand from their makers, about 790 MB), its voices,
+/// and a download under way.
+#[utoipa::path(get, path = "/api/v1/voice", tag = "voice", responses((status = 200, body = crate::voice::Status)))]
+async fn voice_status(State(app): State<App>) -> Json<crate::voice::Status> {
+    Json(app.voice.status())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct VoiceDownload {
+    /// Whisper turbo too (about 1 GB), for when Parakeet hears nothing.
+    #[serde(default)]
+    pub whisper: bool,
+}
+
+/// Downloads what voice mode lacks, from its makers, each file checked against the sum they publish. Returns at
+/// once; `/voice` shows how far it has got, and the log says when it is done (`voice.downloaded`).
+#[utoipa::path(post, path = "/api/v1/voice/download", tag = "voice", request_body = VoiceDownload, responses((status = 202, body = crate::voice::Status), (status = 409, body = Problem)))]
+async fn voice_download(State(app): State<App>, Json(body): Json<VoiceDownload>) -> Result<(StatusCode, Json<crate::voice::Status>)> {
+    if app.voice.status().downloading.is_some() {
+        return Err(Error::Busy("Voice's files are being downloaded already.".into()));
+    }
+    let voice = app.voice.clone();
+    tokio::spawn(async move {
+        if let Err(e) = voice.download(body.whisper).await {
+            tracing::warn!("Voice's files could not be downloaded: {e}");
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    Ok((StatusCode::ACCEPTED, Json(app.voice.status())))
+}
+
+/// A voice's own recording, to hear it before choosing it: donated to Kyutai for this use, CC0.
+#[utoipa::path(get, path = "/api/v1/voice/voices/{id}", tag = "voice", params(("id" = String, Path, description = "The voice's id")), responses((status = 200, description = "The recording, as WAV"), (status = 404, body = Problem)))]
+async fn voice_sample(State(app): State<App>, Path(id): Path<String>) -> Result<Response> {
+    let path = app.voice.voice_path(&id).filter(|p| p.is_file()).ok_or_else(|| Error::NotFound(format!("The voice {id} is not downloaded.")))?;
+    let bytes = tokio::fs::read(path).await?;
+    Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "max-age=86400")], bytes).into_response())
+}
+
+/// A spoken conversation, over a WebSocket (`voice::talk` says what goes each way).
+async fn voice_talk(State(app): State<App>, Query(opened): Query<crate::voice::talk::Opened>, upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
+    let (voice, chat, sessions, events) = (app.voice.clone(), app.chat.clone(), app.sessions.clone(), app.events.clone());
+    upgrade.on_upgrade(move |socket| crate::voice::talk::run(socket, voice, chat, sessions, events, opened))
+}
+
 // ───────── schedules ─────────
 
 /// A sentence, to be read as a schedule.
@@ -1392,8 +1443,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -1460,6 +1511,10 @@ pub fn router(app: App) -> Router {
         .route("/providers/{id}/program", post(program_download).delete(program_remove))
         .route("/providers/{id}/program/download", axum::routing::delete(program_stop))
         .route("/providers/{id}/program/latest", get(program_latest))
+        .route("/voice", get(voice_status))
+        .route("/voice/download", post(voice_download))
+        .route("/voice/voices/{id}", get(voice_sample))
+        .route("/voice/talk", get(voice_talk))
         .route("/schedules", get(schedules_list).post(schedule_new))
         .route("/schedules/understand", post(schedule_understand))
         .route("/schedules/{id}", get(schedule_get).patch(schedule_change).delete(schedule_delete))
@@ -1525,6 +1580,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         hub: core.hub.clone(),
         providers: core.providers.clone(),
         scheduler: core.scheduler.clone(),
+        voice: core.voice.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -1678,6 +1734,7 @@ mod tests {
             hub: Arc::new(crate::hub::Hub::new(home.join("models"), events.clone())),
             providers,
             scheduler,
+            voice: Arc::new(crate::voice::Voice::new(home.join("voice"), None, events.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),

@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 axum.workspace = true
 base64.workspace = true
+bzip2.workspace = true
 directories.workspace = true
 dom_smoothie.workspace = true
 encoding_rs.workspace = true

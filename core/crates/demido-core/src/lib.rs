@@ -51,6 +51,7 @@ pub mod system;
 pub mod tools;
 pub mod ui;
 pub mod vault;
+pub mod voice;
 pub mod web;
 
 #[cfg(test)]

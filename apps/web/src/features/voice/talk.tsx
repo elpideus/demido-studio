@@ -14,23 +14,23 @@ import { FIXED_SILENCE_MS, VoiceSim, type Snapshot } from './sim'
 const VOICE_NAME: Record<string, string> = { ava: 'Ava', theo: 'Theo', mila: 'Mila' }
 
 /* The symbol, from brand/logo/demido-symbol.svg (256 grid). Drawn here as parts, because the parts move. */
-const STEMS = [
+export const STEMS = [
   'M40.05 49.01C75.24 36.95 111.89 49.45 123.17 78.01C131.93 100.18 122.92 125.74 102.56 143.2',
   'M92.64 148.87C101.5 143.33 111.89 140.14 123.01 140.14C155.43 140.14 181.72 167.29 181.72 200.77C181.72 215.36 176.73 228.75 168.42 239.21',
 ]
-const EYES = [
+export const EYES = [
   'M94.77 86.99C88.93 77.75 74.1 76.64 61.64 84.52C49.18 92.4 43.82 106.27 49.66 115.51C55.5 124.75 70.34 125.85 82.79 117.97C95.25 110.1 100.61 96.22 94.77 86.99',
   'M150.55 178.79C144.71 169.56 129.88 168.45 117.42 176.33C104.97 184.2 99.6 198.08 105.45 207.32C111.29 216.55 126.12 217.66 138.58 209.78C151.03 201.91 156.4 188.03 150.55 178.79',
 ]
 /* The rings that leave the symbol while Demido speaks. Each follows the loudness a little later than the
    one before, so a word travels outward. */
-const HALOS = [
+export const HALOS = [
   { base: 1.09, spread: 0.1, alpha: 0.5, lag: 90 },
   { base: 1.22, spread: 0.2, alpha: 0.3, lag: 180 },
   { base: 1.36, spread: 0.28, alpha: 0.15, lag: 300 },
 ]
 /* Your voice line: tallest in the middle, every bar with its own small wobble. */
-const BARS = Array.from({ length: 44 }, (_, i) => ({
+export const BARS = Array.from({ length: 44 }, (_, i) => ({
   shape: 0.32 + 0.68 * Math.exp(-(((i - 21.5) / 10.5) ** 2)),
   period: 90 + ((i * 37) % 70),
   phase: i * 1.7,

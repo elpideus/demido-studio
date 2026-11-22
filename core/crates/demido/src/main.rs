@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
+mod voice;
+
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use demido_core::api::{self, Core};
@@ -30,6 +32,19 @@ enum Command {
     /// apart from itself, so that a strange file ends this process and not the server.
     #[command(name = "pdf-text", hide = true)]
     PdfText,
+    /// The speech parts of voice mode, which the server starts (DECISIONS V7): frames on standard input and output.
+    #[command(name = "voice-engine", hide = true)]
+    VoiceEngine {
+        /// The folder the voice files were downloaded into.
+        #[arg(long)]
+        dir: PathBuf,
+        /// The voice to speak with: a WAV recording.
+        #[arg(long)]
+        voice: PathBuf,
+        /// Processor threads for each part.
+        #[arg(long, default_value_t = 4)]
+        threads: i32,
+    },
     /// Run the server. Everything else talks to it.
     Serve {
         /// Address and port to listen on, for this run. Default: the "server.address" setting.
@@ -348,6 +363,15 @@ async fn main() -> ExitCode {
     if let Command::PdfText = cli.command {
         return pdf_text();
     }
+    if let Command::VoiceEngine { dir, voice, threads } = cli.command {
+        return match voice::run(voice::Paths { dir, voice, threads }) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("demido voice-engine: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -381,7 +405,7 @@ async fn run(cli: Cli) -> Result<()> {
     let paths = Paths::resolve()?;
     match cli.command {
         // Run before anything else, in `main`.
-        Command::PdfText => {}
+        Command::PdfText | Command::VoiceEngine { .. } => {}
         Command::Serve { listen, ui_dir } => {
             let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
             tracing_subscriber::fmt().with_env_filter(filter).with_target(false).init();

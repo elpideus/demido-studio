@@ -26,6 +26,10 @@ const FINE = new Set([
   'CDLA-Permissive-2.0', // a permissive licence for data (the list of trusted certificate authorities)
   'OFL-1.1', // fonts: may be bundled with any software
   'BlueOak-1.0.0', 'Python-2.0', 'CC-BY-4.0', // permissive; CC-BY for data and documentation only
+  // bzip2's own licence (libbz2-rs-sys, read 2026-11-22): BSD-style, like zlib's. Its four conditions (keep the
+  // notice, do not misrepresent the origin, mark altered versions, no endorsement by name) are the additional
+  // terms GPL-3.0's section 7 allows: (b), (c), (c) and (d).
+  'bzip2-1.0.6',
 ])
 /** Exceptions that only add permissions. */
 const FINE_WITH = new Set(['LLVM-exception'])
