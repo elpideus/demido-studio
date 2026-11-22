@@ -390,6 +390,24 @@ impl Chat {
         Ok(self.ask(session, body, stop, &mut |_| {}).await?.content)
     }
 
+    /// A file's text, written by the model as ordinary text after the decision named the file: with the
+    /// conversation and the request, and `asked` after them. A text that goes round is cut where it starts
+    /// to, and a fence around the whole of it is taken off.
+    #[allow(clippy::too_many_arguments)]
+    async fn write_text(&self, session: &Session, before: &[Value], request: &str, steps: &[Step], words: &Words, asked: &str, stop: &AtomicBool) -> Result<String> {
+        let mut messages = before.to_vec();
+        messages.extend(request_messages(request, steps, &End::Answer, words));
+        if let Some(last) = messages.last_mut() {
+            let said = last["content"].as_str().unwrap_or_default().to_string();
+            last["content"] = json!(format!("{said}\n\n{asked}"));
+        }
+        let mut written = self.quietly(session, messages, None, A_FILE_AT_MOST, stop).await?;
+        if let Some(end) = going_round(&written) {
+            written.truncate(end);
+        }
+        Ok(tools::unfenced(&written).to_string())
+    }
+
     /// Asks which tool is needed, uses it, and asks again, until the model needs none. `Some` when it asked
     /// for a plan: the steps it listed. `changed` is called whenever `steps` has something new to show.
     #[allow(clippy::too_many_arguments)]
@@ -434,20 +452,24 @@ impl Chat {
             let mut messages = before.to_vec();
             messages.extend(request_messages(request, steps, &End::Decide(&listed), words));
             let reply = self.quietly(session, messages.clone(), Some(tools::shape(offered)), 200, stop).await?;
-            // A decision to give a file, cut off in the file's text, is taken for what it plainly is.
-            let first = tools::read(&reply, offered).or_else(|problem| tools::cut_off_give(&reply, offered).ok_or(problem));
+            // A decision cut off in a file's text is taken for what it plainly is.
+            let first = tools::read(&reply, offered).or_else(|problem| tools::cut_off(&reply, offered).ok_or(problem));
             let (said, asked) = match first {
                 Ok(asked) => (reply, Ok(asked)),
                 Err(problem) if stop.load(Ordering::Relaxed) => (reply, Err(problem)),
                 Err(problem) => {
                     // One more try, told what is wrong in plain words. A check cannot do more than that.
                     messages.push(assistant(if reply.trim().is_empty() { "(nothing)" } else { reply.trim() }));
-                    messages.push(user(format!("That cannot be used: {problem}. Reply again with one JSON object.")));
-                    // When it named a tool that is there, the second try is held to that tool's own arguments.
+                    // When it named a tool that is there, the second try is held to that tool's own arguments; so too
+                    // when it was cut off in a file's text, which is then asked for after the decision.
                     let meant = serde_json::from_str::<Value>(reply.trim()).ok().and_then(|v| v.get("tool").and_then(Value::as_str).map(str::to_string));
-                    let shape = meant.as_deref().and_then(|name| offered.iter().find(|t| t.name == name)).map_or_else(|| tools::shape(offered), |tool| tools::shape_of(tool));
+                    let meant = meant.as_deref().and_then(|name| offered.iter().copied().find(|t| t.name == name)).or_else(|| tools::cut_off_tool(&reply, offered));
+                    let writes = meant.is_some_and(|t| t.name == tools::GIVE || t.args.iter().any(|a| a.later));
+                    let only_the_file = if writes { " Name the file only: you write its text next." } else { "" };
+                    messages.push(user(format!("That cannot be used: {problem}. Reply again with one JSON object.{only_the_file}")));
+                    let shape = meant.map_or_else(|| tools::shape(offered), tools::shape_of);
                     let again = self.quietly(session, messages, Some(shape), 300, stop).await?;
-                    let asked = tools::read(&again, offered).or_else(|problem| tools::cut_off_give(&again, offered).ok_or(problem));
+                    let asked = tools::read(&again, offered).or_else(|problem| tools::cut_off(&again, offered).ok_or(problem));
                     (again, asked)
                 }
             };
@@ -459,7 +481,29 @@ impl Chat {
                     return Ok(if titles.len() > 1 { Some(titles) } else { None });
                 }
                 Ok(Asked::Tool { tool, args }) => {
-                    let (tool, args) = self.search_as_meant(session, steps, tool, args)?;
+                    let (tool, mut args) = self.search_as_meant(session, steps, tool, args)?;
+                    // A file's text the decision left out, or was cut off in, is written now, as ordinary text,
+                    // before anything is checked or asked: the person who is asked sees all of it.
+                    if let Some(long) = tools::named(&tool).and_then(|t| t.args.iter().find(|a| a.later))
+                        && !args.contains_key(long.name)
+                    {
+                        let path = args.get("path").and_then(Value::as_str).unwrap_or_default().to_string();
+                        let asked = if tool == "add_to_file" {
+                            format!("Write what goes at the end of {path} now: only that text, with nothing before or after it.")
+                        } else {
+                            format!("Write the whole of {path} now: only its text, as it goes in the file, with nothing before or after it.")
+                        };
+                        match self.write_text(session, before, request, steps, words, &asked, stop).await {
+                            Ok(text) if !text.trim().is_empty() => {
+                                args.insert(long.name.to_string(), json!(text));
+                            }
+                            _ => {
+                                steps.push(Step { tool, args: Value::Object(args), result: "no text was written for it".into(), state: "refused".into(), ..Step::default() });
+                                changed(steps);
+                                break;
+                            }
+                        }
+                    }
                     let args = Value::Object(args);
                     // A key Demido keeps is never sent anywhere by a tool, whatever the model was told. It can
                     // only have come from something it read, so nothing more is asked of it.
@@ -563,20 +607,12 @@ impl Chat {
                         // A file of the session's own, kept with every version: nothing outside Demido changes.
                         // The model named it; now it writes it, as ordinary text, with room for a few pages.
                         let name = args.get("file_name").and_then(Value::as_str).unwrap_or_default();
-                        let mut messages = before.to_vec();
-                        messages.extend(request_messages(request, steps, &End::Answer, words));
-                        if let Some(last) = messages.last_mut() {
-                            let asked = last["content"].as_str().unwrap_or_default().to_string();
-                            last["content"] = json!(format!("{asked}\n\nWrite the whole of {name} now: only its text, as it goes in the file, with nothing before or after it."));
-                        }
-                        match self.quietly(session, messages, None, A_FILE_AT_MOST, stop).await {
+                        let asked = format!("Write the whole of {name} now: only its text, as it goes in the file, with nothing before or after it.");
+                        match self.write_text(session, before, request, steps, words, &asked, stop).await {
                             Err(why) => Err(why.to_string()),
-                            Ok(mut written) => {
-                                if let Some(end) = going_round(&written) {
-                                    written.truncate(end);
-                                }
+                            Ok(written) => {
                                 // A key Demido keeps is taken out of a file as out of anything a tool gives.
-                                match self.sessions.make_artifact(&session.id, name, tools::unfenced(&self.hide(&written)), Some(answer_id)) {
+                                match self.sessions.make_artifact(&session.id, name, &self.hide(&written), Some(answer_id)) {
                                     Ok(made) => {
                                         gave_artifact = Some(tools::Given { id: made.artifact.id.clone(), name: made.artifact.name.clone(), n: made.n });
                                         Ok(tools::Done { gave: tools::given(&made.artifact.name, made.n, made.same), changed: None })

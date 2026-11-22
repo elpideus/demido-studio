@@ -18,7 +18,8 @@ Small numbers: direction, not a benchmark. Takes a few minutes and uses the grap
 import json, os, secrets, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-D = os.path.join(REPO, "core/target/debug/demido")
+# DEMIDO_BIN: another build of the core, to compare with (an earlier one, for example).
+D = os.environ.get("DEMIDO_BIN") or os.path.join(REPO, "core/target/debug/demido")
 REAL = os.environ.get("DEMIDO_REAL_HOME") or os.path.expanduser("~/.local/share/demido")
 BASE = "http://127.0.0.1:7399/api/v1"
 MODELS = sys.argv[1:] or ["Qwen3-0.6B-Q8_0", "Qwen3-1.7B-Q8_0", "granite-3.3-2b-instruct-Q4_K_M", "Qwen3-4B-Q4_K_M"]
@@ -36,6 +37,15 @@ KEEP = [
     ("hello", "Say hello in French."),
 ]
 FOLDER = ("folder", "Add a file called notes.md to the folder with three ideas for a blog post.")
+# TRIAL_ONLY=folder: files written into the session's folder, long and short (write_file and add_to_file),
+# with artifacts off. What lands on disk is read back.
+IN_FOLDER = [
+    ("ideas", "Add a file called notes.md to the folder with three ideas for a blog post.", "notes.md"),
+    ("readme", "Write a README.md for this folder: about 200 words on a small to-do app written in Python.", "README.md"),
+    ("script", "Write a Python script called rename.py in the folder that renames every .txt file in it to .md.", "rename.py"),
+    ("append", "Add a line saying Buy milk at the end of todo.txt.", "todo.txt"),
+    ("long", "Write a README.md for this folder of about 400 words: a small to-do app written in Python, how to install it and how to use it.", "README.md"),
+]
 CHANGE = "Change the hours to 8 to 14."
 
 
@@ -78,6 +88,7 @@ def described(answer):
         "version": [(s.get("artifact") or {}).get("n") for s in gave if s["state"] == "done"],
         "said": len(answer.get("content") or ""),
         "refused": [(s["result"][:120], json.dumps(s.get("args"))[:240]) for s in steps if s["state"] == "refused"],
+        "paths": [((s.get("args") or {}).get("path"), s["state"], s["result"][:80]) for s in steps if s["tool"] in ("write_file", "add_to_file")],
         "state": answer.get("state"),
     }
 
@@ -99,6 +110,25 @@ def main():
         time.sleep(1)
         key = open(os.path.join(scratch, "key")).read().strip()
         ask("PUT", "/settings/web.use", {"value": False}, key)
+        if os.environ.get("TRIAL_ONLY") == "folder":
+            ask("PUT", "/settings/tools.artifacts", {"value": "never"}, key)
+            for model in MODELS:
+                only = [c for c in os.environ.get("TRIAL_CASES", "").split(",") if c]
+                for name, text, file in [c for c in IN_FOLDER if not only or c[0] in only]:
+                    work = tempfile.mkdtemp(prefix="demido-folder-write-", dir=scratch)
+                    open(os.path.join(work, "todo.txt"), "w").write("Buy stamps.\nCall Mira about Friday.\n")
+                    started = time.time()
+                    try:
+                        _, answers = one(key, model, text, work)
+                        got = [described(a) for a in answers]
+                    except RuntimeError as e:
+                        got = [{"tools": [], "gave": [], "version": [], "said": 0, "state": f"error: {e}"}]
+                    path = os.path.join(work, file)
+                    on_disk = open(path).read() if os.path.exists(path) else None
+                    row = {"model": model, "case": name, "turns": got, "file": file, "bytes": None if on_disk is None else len(on_disk.encode()), "words": None if on_disk is None else len(on_disk.split()), "seconds": round(time.time() - started, 1)}
+                    rows.append(row)
+                    print(json.dumps(row), flush=True)
+            return
         for model in MODELS:
             work = tempfile.mkdtemp(prefix="demido-artifact-folder-", dir=scratch)
             # TRIAL_ONLY=give: only the requests that should give a file, with artifacts on.

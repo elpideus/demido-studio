@@ -168,7 +168,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
 | 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
-| 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS F1 to F14, research note 23). Left from it: `write_file` cannot write a long file (IDEAS 137) | Window work with a clear edge |
+| 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS F1 to F14, research note 23), and with them a long file written into the folder (T24) | Window work with a clear edge |
 | 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts | Logged-in pages are the most private thing there is |
 | 9 | Voice: the libraries, the screen | Research and building, little risk |
 | 9 | Email and the messaging platforms: reading and sending in a person's name | Messages from outside are injected text; sending cannot be undone |

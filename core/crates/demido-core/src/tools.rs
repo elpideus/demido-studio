@@ -68,13 +68,21 @@ pub struct Arg {
     pub kind: Kind,
     /// May be left out.
     pub optional: bool,
+    /// A file's text: it may be left out of the decision, and is then asked for after it, as ordinary
+    /// text. The decision is held to 200 tokens, which a page does not fit in (research note 23). The model
+    /// is shown it as any other argument; a decision that holds it whole is used as it is.
+    pub later: bool,
 }
 
 const fn arg(name: &'static str, kind: Kind) -> Arg {
-    Arg { name, kind, optional: false }
+    Arg { name, kind, optional: false, later: false }
 }
 const fn maybe(name: &'static str, kind: Kind) -> Arg {
-    Arg { name, kind, optional: true }
+    Arg { name, kind, optional: true, later: false }
+}
+/// A file's text, which may come after the decision (`Arg::later`).
+const fn later(name: &'static str) -> Arg {
+    Arg { name, kind: Kind::Text, optional: false, later: true }
 }
 
 /// How far a tool reaches. Whether a use of it needs the person's yes follows from this.
@@ -114,13 +122,8 @@ const TOOLS: &[Tool] = &[
     Tool { name: "list_files", does: "Every file in the folder, with its size.", args: &[], reach: Reach::Reads },
     Tool { name: "read_file", does: "The text of a file. You cannot see inside a file without it.", args: &[arg("path", Kind::Text), maybe("from_line", Kind::Whole)], reach: Reach::Reads },
     Tool { name: "search_files", does: "The lines that contain a text, in every file in the folder.", args: &[arg("text", Kind::Text)], reach: Reach::Reads },
-    Tool { name: "add_to_file", does: "Adds text at the end of a file. What is there stays.", args: &[arg("path", Kind::Text), arg("text", Kind::Text)], reach: Reach::Changes },
-    Tool {
-        name: "write_file",
-        does: "Creates a new file. On a file that is there, it replaces everything in it.",
-        args: &[arg("path", Kind::Text), arg("content", Kind::Text)],
-        reach: Reach::Changes,
-    },
+    Tool { name: "add_to_file", does: "Adds text at the end of a file. What is there stays.", args: &[arg("path", Kind::Text), later("text")], reach: Reach::Changes },
+    Tool { name: "write_file", does: "Creates a new file. On a file that is there, it replaces everything in it.", args: &[arg("path", Kind::Text), later("content")], reach: Reach::Changes },
     Tool {
         name: "edit_file",
         does: "Changes one part of a file: the exact text to find, and what to put in its place.",
@@ -254,7 +257,8 @@ pub fn shape(tools: &[&Tool]) -> Value {
 /// `edit_file`) is shown exactly the ones this tool has.
 pub fn shape_of(tool: &Tool) -> Value {
     let mut properties = Map::new();
-    for a in tool.args {
+    // A file's text is not part of a second try: it is asked for after the decision (`Arg::later`).
+    for a in tool.args.iter().filter(|a| !a.later) {
         properties.insert(
             a.name.to_string(),
             match a.kind {
@@ -264,7 +268,7 @@ pub fn shape_of(tool: &Tool) -> Value {
             },
         );
     }
-    let needed: Vec<&str> = tool.args.iter().filter(|a| !a.optional).map(|a| a.name).collect();
+    let needed: Vec<&str> = tool.args.iter().filter(|a| !a.optional && !a.later).map(|a| a.name).collect();
     json!({
         "type": "object",
         "properties": { "tool": { "const": tool.name }, "args": { "type": "object", "properties": properties, "required": needed, "additionalProperties": false } },
@@ -304,34 +308,79 @@ pub struct Given {
     pub n: i64,
 }
 
-/// A decision to give a file that was cut off because the model went on to write the file's text into it:
-/// the tool and the file's name are plain, and the text is asked for next in any case. Measured: Qwen3 4B did
-/// this for every page it gave (research note 23). The models write `args` before `tool`, so a reply cut off
-/// in the text may never name the tool; `file_name` is `give_file`'s alone, and says it.
-pub fn cut_off_give(reply: &str, tools: &[&Tool]) -> Option<Asked> {
-    if !tools.iter().any(|t| t.name == GIVE) || first_object(reply).is_some() {
+/// The tools whose text a model may start writing into the decision, which is then cut off: the argument
+/// that says which file, and the one that holds the text (`None` for `give_file`, whose text is never an
+/// argument). Measured (research note 23): Qwen3 4B did this for every page it gave, and for notes it was
+/// asked to write into the folder.
+const LONG: &[(&str, &str, Option<&str>)] = &[(GIVE, "file_name", None), ("write_file", "path", Some("content")), ("add_to_file", "path", Some("text"))];
+
+/// The text a key is given, in a reply that may be cut off after it: a short one, on one line.
+fn string_after(reply: &str, key: &str) -> Option<String> {
+    let (_, rest) = reply.split_once(&format!("\"{key}\""))?;
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+    let value = &rest[..rest.find('"')?];
+    (!value.trim().is_empty() && value.len() <= 200 && !value.contains(['\n', '\\'])).then(|| value.trim().to_string())
+}
+
+/// A decision cut off because the model went on to write a file's text into it: the tool and the file are
+/// plain, and the text is asked for next in any case (`Arg::later`). The models write `args` before `tool`,
+/// so a reply cut off in the text may never name the tool; then the arguments say it: `file_name` is
+/// `give_file`'s alone, `path` with `content` is `write_file`'s, `path` with `text` is `add_to_file`'s.
+pub fn cut_off(reply: &str, tools: &[&Tool]) -> Option<Asked> {
+    if first_object(reply).is_some() {
         return None;
     }
-    let keys: &[&str] = match reply.split_once("\"tool\"") {
-        Some((_, after)) => {
-            let after = after.trim_start().strip_prefix(':')?.trim_start();
-            if !after.starts_with(&format!("\"{GIVE}\"")) {
-                return None;
-            }
-            &["\"file_name\"", "\"filename\"", "\"name\""]
+    let named = reply.split_once("\"tool\"").and_then(|(_, after)| {
+        let after = after.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+        Some(after[..after.find('"')?].trim().to_lowercase())
+    });
+    let has = |key: &str| reply.contains(&format!("\"{key}\""));
+    for (tool, which, text) in LONG {
+        if !tools.iter().any(|t| t.name == *tool) {
+            continue;
         }
-        None => &["\"file_name\""],
-    };
-    for key in keys {
-        let Some((_, rest)) = reply.split_once(key) else { continue };
-        let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
-        let name = &rest[..rest.find('"')?];
-        if name.trim().is_empty() || name.len() > 100 || name.contains(['\n', '\\']) || name.to_lowercase().starts_with(GIVE) {
+        let meant = match (&named, text) {
+            (Some(named), _) => named == tool,
+            (None, None) => has(which),
+            (None, Some(text)) => has(which) && has(text),
+        };
+        if !meant {
+            continue;
+        }
+        let mut name = string_after(reply, which);
+        if name.is_none() && *tool == GIVE && named.is_some() {
+            name = string_after(reply, "filename").or_else(|| string_after(reply, "name"));
+        }
+        let name = name?;
+        if *tool == GIVE && name.to_lowercase().starts_with(GIVE) {
             return None;
         }
-        return Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!(name.trim()))]) });
+        return Some(Asked::Tool { tool: tool.to_string(), args: Map::from_iter([(which.to_string(), json!(name))]) });
     }
     None
+}
+
+/// The tool a cut-off reply was plainly meant for, when its arguments were not all there yet: named, or
+/// told by an argument that is its alone (`file_name`: `give_file`; `content`: `write_file`; `path` with
+/// `text`: `add_to_file`). Measured: Qwen3 4B began `{"content": "## To-Do App…` before it named the file
+/// or the tool (research note 23), and the second try is then held to that tool, without the text.
+pub fn cut_off_tool<'a>(reply: &str, tools: &[&'a Tool]) -> Option<&'a Tool> {
+    if first_object(reply).is_some() {
+        return None;
+    }
+    let has = |key: &str| reply.contains(&format!("\"{key}\""));
+    let named = reply.split_once("\"tool\"").and_then(|(_, after)| {
+        let after = after.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+        Some(after[..after.find('"')?].trim().to_lowercase())
+    });
+    let name = match named {
+        Some(named) => named,
+        None if has("file_name") => GIVE.to_string(),
+        None if has("content") => "write_file".to_string(),
+        None if has("path") && has("text") => "add_to_file".to_string(),
+        None => return None,
+    };
+    tools.iter().copied().find(|t| t.name == name)
 }
 
 /// A file's text as a model wrote it, without the fence of a code block around the whole of it.
@@ -440,6 +489,9 @@ pub fn read(reply: &str, tools: &[&Tool]) -> std::result::Result<Asked, String> 
             // Left out, or written as nothing: the same thing for an argument that may be left out.
             Some(Value::Null) | None if arg.optional => continue,
             Some(Value::String(empty)) if arg.optional && empty.trim().is_empty() => continue,
+            // A file's text, left out: it is asked for next (`Arg::later`). Written as nothing, it is nothing:
+            // an empty file is a file too.
+            Some(Value::Null) | None if arg.later => continue,
             Some(v) => v,
             // The one argument a tool must have, under another name.
             None if needed == 1 && given.len() == 1 && !tool.args.iter().any(|a| given.contains_key(a.name)) => given.values().next().expect("one"),
@@ -468,6 +520,11 @@ fn fitted(tool: &Tool, arg: &Arg, value: &Value) -> std::result::Result<Value, S
         (Kind::Text, Value::String(s)) if s.trim().strip_prefix(arg.name).is_some_and(|rest| rest.trim_start().starts_with([':', '='])) => {
             let value = s.trim()[arg.name.len()..].trim_start().trim_start_matches([':', '=']).trim().trim_matches(['\'', '"', '`']).trim();
             if value.is_empty() { Err(format!("\"{}\" of {} must be text, and not empty", arg.name, tool.name)) } else { Ok(json!(value)) }
+        }
+        // A file's path or name with the JSON's own quotes or comma caught in it: `README.md',`, as Qwen3 4B
+        // wrote one (research note 23). No one means a file whose name ends so.
+        (Kind::Text, Value::String(s)) if matches!(arg.name, "path" | "file_name") && !s.trim().trim_matches(['\'', '"', '`', ',', ';']).trim().is_empty() => {
+            Ok(json!(s.trim().trim_matches(['\'', '"', '`', ',', ';']).trim()))
         }
         (Kind::Text, Value::String(s)) if !s.trim().is_empty() => Ok(json!(s.trim())),
         (Kind::Text, Value::Number(n)) => Ok(json!(n.to_string())),
@@ -683,17 +740,33 @@ mod tests {
     fn a_decision_to_give_a_file_cut_off_in_its_text_is_taken_for_what_it_plainly_is() {
         let offered = all();
         let cut = r#"{"tool": "give_file", "args": {"file_name": "sol.html", "text": "<!doctype html>\n<html><head><title>Sol"#;
-        assert_eq!(cut_off_give(cut, &offered), Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!("sol.html"))]) }));
-        assert_eq!(cut_off_give(r#"{"tool": "give_file", "args": {"name": "letter.md", "text": "Dear"#, &offered).map(|_| ()), Some(()), "under the name it had before");
+        assert_eq!(cut_off(cut, &offered), Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!("sol.html"))]) }));
+        assert_eq!(cut_off(r#"{"tool": "give_file", "args": {"name": "letter.md", "text": "Dear"#, &offered).map(|_| ()), Some(()), "under the name it had before");
         // Arguments first, as the models write them: cut off before the tool is named, `file_name` says it.
         let first = r#"{"args": {"file_name": "bakery.html", "text": "<!DOCTYPE html>\n<html>"#;
-        assert_eq!(cut_off_give(first, &offered), Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!("bakery.html"))]) }));
-        assert_eq!(cut_off_give(r#"{"args": {"name": "x.md", "text": "Dear"#, &offered), None, "a name alone says no tool");
+        assert_eq!(cut_off(first, &offered), Some(Asked::Tool { tool: GIVE.into(), args: Map::from_iter([("file_name".to_string(), json!("bakery.html"))]) }));
+        assert_eq!(cut_off(r#"{"args": {"name": "x.md", "text": "Dear"#, &offered), None, "a name alone says no tool");
+        // A file in the folder: `path` with `content` is write_file's, `path` with `text` add_to_file's.
+        let path = |tool: &str| Some(Asked::Tool { tool: tool.into(), args: Map::from_iter([("path".to_string(), json!("notes.md"))]) });
+        assert_eq!(cut_off(r#"{"args": {"path": "notes.md", "content": "1. The Future of"#, &offered), path("write_file"));
+        assert_eq!(cut_off(r#"{"tool": "write_file", "args": {"path": "notes.md", "content": "Dear"#, &offered), path("write_file"));
+        assert_eq!(cut_off(r#"{"args": {"path": "notes.md", "text": "One more"#, &offered), path("add_to_file"));
+        assert_eq!(cut_off(r#"{"args": {"path": "notes.md", "find": "a", "replace": "b long"#, &offered), None, "edit_file holds no file's text");
+        assert_eq!(cut_off(r#"{"args": {"path": "notes.md", "content": "x"#, &[named("read_file").unwrap()]), None, "only a tool that is offered");
         // Not when the reply is whole, not for another tool, not without a name, not when the tool is not offered.
-        assert_eq!(cut_off_give(r#"{"tool": "give_file", "args": {"file_name": "a.md"}}"#, &offered), None);
-        assert_eq!(cut_off_give(r#"{"tool": "write_file", "args": {"path": "a.md", "content": "Dear"#, &offered), None);
-        assert_eq!(cut_off_give(r#"{"tool": "give_file", "args": {"text": "Dear"#, &offered), None);
-        assert_eq!(cut_off_give(cut, &without_plan().into_iter().filter(|t| t.name != GIVE).collect::<Vec<_>>()), None);
+        assert_eq!(cut_off(r#"{"tool": "give_file", "args": {"file_name": "a.md"}}"#, &offered), None);
+        assert_eq!(cut_off(r#"{"tool": "give_file", "args": {"text": "Dear"#, &offered), None);
+        assert_eq!(cut_off(cut, &without_plan().into_iter().filter(|t| t.name != GIVE).collect::<Vec<_>>()), None);
+        // Cut off before the file was named: the tool is still plain, and its second try names the file.
+        assert_eq!(cut_off_tool(r###"{"content": "## To-Do App\n\nThis is a small"###, &offered).map(|t| t.name), Some("write_file"));
+        assert_eq!(cut_off_tool(r#"{"tool": "add_to_file", "args": {"text": "Buy"#, &offered).map(|t| t.name), Some("add_to_file"));
+        assert_eq!(cut_off_tool(r#"{"args": {"query": "weather in"#, &offered).map(|t| t.name), None);
+        let second = shape_of(named("write_file").unwrap());
+        assert_eq!((&second["properties"]["args"]["required"], second["properties"]["args"]["properties"].get("content")), (&json!(["path"]), None), "the second try names the file only");
+        // A file's text may be left out of the decision: it is asked for next.
+        assert_eq!(read(r#"{"tool": "write_file", "args": {"path": "notes.md"}}"#, &offered).ok(), path("write_file"));
+        assert!(read(r#"{"tool": "write_file", "args": {"content": "x"}}"#, &offered).is_err(), "but not which file");
+        assert!(listed(&offered).contains("- write_file(path: text, content: text): Creates a new file."), "shown as before");
         // A file named after the tool is not a name.
         assert!(read(r#"{"tool": "give_file", "args": {"file_name": "give_file.md"}}"#, &offered).unwrap_err().contains("is the tool's name"));
         assert!(read(r#"{"tool": "give_file", "args": {"name": "plan.md"}}"#, &offered).is_ok(), "the one argument, under another name");
@@ -747,7 +820,12 @@ mod tests {
         assert_eq!(asked(r#"{"tool": "read_file", "args": {}}"#), Err("read_file needs \"path\"".into()));
         // What goes into a file keeps its spaces and line breaks, and may be nothing at all.
         assert_eq!(asked(r#"{"tool": "edit_file", "args": {"path": "a.txt", "find": "  two\n", "replace": ""}}"#), Ok(tool("edit_file", json!({ "path": "a.txt", "find": "  two\n", "replace": "" }))));
-        assert_eq!(asked(r#"{"tool": "write_file", "args": {"path": "a.txt"}}"#), Err("write_file needs \"content\"".into()));
+        // The JSON's own quotes or comma caught in a path are not part of it.
+        assert_eq!(asked(r#"{"tool": "write_file", "args": {"path": "README.md',"}}"#), Ok(tool("write_file", json!({ "path": "README.md" }))));
+        assert_eq!(asked(r#"{"tool": "read_file", "args": {"path": "\"notes/a.md\""}}"#), Ok(tool("read_file", json!({ "path": "notes/a.md" }))));
+        // A file's text left out is asked for next; written as nothing, it is an empty file.
+        assert_eq!(asked(r#"{"tool": "write_file", "args": {"path": "a.txt"}}"#), Ok(tool("write_file", json!({ "path": "a.txt" }))));
+        assert_eq!(asked(r#"{"tool": "write_file", "args": {"path": "a.txt", "content": ""}}"#), Ok(tool("write_file", json!({ "path": "a.txt", "content": "" }))));
     }
 
     const CLOCK: Clock = |_| Moment { day: "Saturday, 21 November 2026".into(), time: "14:05".into(), date: (2026, 11, 21) };

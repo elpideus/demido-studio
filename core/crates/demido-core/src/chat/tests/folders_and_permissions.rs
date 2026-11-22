@@ -96,6 +96,39 @@ async fn a_session_with_a_folder_reads_and_changes_files_in_it_and_a_change_can_
 }
 
 #[tokio::test]
+async fn a_long_file_is_named_in_the_decision_and_written_after_it() {
+    // Cut off in the file's text, arguments first, as Qwen3 4B writes them (research note 23).
+    let cut = r#"{"args": {"path": "notes/ideas.md", "content": "1. A post about stamps\n2. A post ab"#;
+    let ideas = "1. A post about stamps\n2. A post about Fridays\n3. A post about calling Mira\n";
+    let (w, session, folder) = with_folder("long-file", &[cut, NONE], &[&format!("```markdown\n{ideas}```"), "Three ideas are in notes/ideas.md."]).await;
+    let answer = turn(&w, &session.id, "Add a file called notes/ideas.md to the folder with three ideas for a blog post.").await;
+    assert_eq!((answer.steps[0].tool.as_str(), answer.steps[0].state.as_str()), ("write_file", "done"), "{:?}", answer.steps);
+    assert_eq!(std::fs::read_to_string(folder.join("notes/ideas.md")).unwrap(), ideas.trim_end());
+    let wrote = asked(&w)[1].clone();
+    assert!(wrote.get("response_format").is_none(), "the text is written as ordinary text");
+    assert!(last_said(&wrote).ends_with("Write the whole of notes/ideas.md now: only its text, as it goes in the file, with nothing before or after it."));
+    assert_eq!(answer.steps[0].args["content"], json!(ideas.trim_end()), "the step holds the text, as the person would have been shown it");
+    w.end().await;
+}
+
+#[tokio::test]
+async fn a_decision_cut_off_before_it_named_the_file_is_asked_again_for_the_file_only() {
+    // The text first, and cut off before the file or the tool is named, as Qwen3 4B wrote it (research note 23).
+    let cut = r###"{"content": "## To-Do App\n\nThis is a small to-do app written in Python. It allows users "###;
+    let readme = "## To-Do App\n\nA small to-do app written in Python.\n";
+    let (w, session, folder) = with_folder("cut-before-name", &[cut, r#"{"tool": "write_file", "args": {"path": "README.md"}}"#, NONE], &[readme, "The README is written."]).await;
+    let answer = turn(&w, &session.id, "Write a README.md for this folder of about 400 words.").await;
+    assert_eq!((answer.steps[0].tool.as_str(), answer.steps[0].state.as_str()), ("write_file", "done"), "{:?}", answer.steps);
+    assert_eq!(std::fs::read_to_string(folder.join("README.md")).unwrap(), readme.trim_end());
+    // The second try was held to write_file, naming the file only.
+    let again = asked(&w)[1].clone();
+    assert!(last_said(&again).ends_with("Reply again with one JSON object. Name the file only: you write its text next."), "{}", last_said(&again));
+    let args = &again["response_format"]["schema"]["properties"]["args"];
+    assert_eq!((&args["required"], args["properties"].get("content")), (&json!(["path"]), None));
+    w.end().await;
+}
+
+#[tokio::test]
 async fn a_key_demido_keeps_never_reaches_the_model_through_a_tool() {
     const KEY: &str = "sk-ant-test-not-real-key-9q8w";
     let (w, session, folder) = with_folder(

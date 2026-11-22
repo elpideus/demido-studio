@@ -114,3 +114,23 @@ The four requests that should give nothing gave nothing, in every run, on and of
 
 What this does not show: models between 4B and 12B, which the owner's card would run, and anything about the
 quality of the files beyond their names (they were not graded).
+
+## The same limit for files in the folder
+
+`write_file` carries a file's whole text inside the decision, which is held to 200 tokens. Four requests in a
+session with a folder (three ideas for a blog post, a README of about 200 words, a renaming script, a line
+added to `todo.txt`), with artifacts off, on the build before and after the change (DECISIONS T24): the same
+tools and files for every model both times. Qwen3 4B wrote all four (the README 139 words before, which fit,
+and 179 after; its script took one more try after); the smaller models answered the longer ones in the reply,
+as they always have. A file's text is written with each maker's settings, so its length varies. Then a README of about 400 words, Qwen3 4B, three times each:
+
+| Build | Written | What happened |
+|---|---|---|
+| Before | 0 of 3 | cut off and refused every time. The reply began `{"content": "## To-Do App…`: the text first, before the file or the tool was named, so there was nothing plain to mend |
+| After, first try | 3 of 3, but to a file named `README.md',` | the second try, held to `write_file` without the text, named the file with the JSON's own quote and comma caught in it |
+| After | **3 of 3**, 211 to 239 words, as `README.md` | |
+
+14. **A second try names the file only.** When a cut-off reply plainly began a file's text (`content` is
+    `write_file`'s), the second try is held to that tool without the text, and told so; the text is asked for
+    next.
+15. **The quotes and comma of the JSON are not part of a path.**
