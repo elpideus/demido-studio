@@ -76,7 +76,9 @@ Done directly and narrowly, each before the feature that needs it. None of the f
 3. Voice, email and messaging libraries; a local Pine Script engine; price feeds: before each of those.
 4. ~~How well small models choose among models, and in what words to tell them about the others~~ Done on
    2026-11-22 (research note 20, DECISIONS O8 to O12): two of the four test models choose well with plain
-   labels; whether a model may choose is to be tried for each model.
+   labels; whether a model may choose is to be tried for each model. And whether mechanical work should go
+   to the fastest model (research note 21): not on these models; a fresh context for the same model helps
+   instead (O13, O14, for the owner).
 
 ### Step 3. Real feature work
 
