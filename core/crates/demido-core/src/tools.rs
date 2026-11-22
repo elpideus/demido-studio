@@ -297,6 +297,10 @@ pub struct Step {
     /// The artifact this use gave the person, and which of its versions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<Given>,
+    /// At Smart, what the model said about asking the person before this use (DECISIONS T6): `go`, and it
+    /// went ahead unasked, or `ask`. Left out where the level decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_chose: Option<String>,
 }
 
 /// An artifact a step gave, as the window links to it.

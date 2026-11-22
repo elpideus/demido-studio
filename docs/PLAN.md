@@ -159,7 +159,7 @@ list made for the split stays, because it says what is left and what to watch in
 | # | Remaining work | What to watch |
 |---|---|---|
 | 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows, a user of Demido's own made at setup (the owner's choice, T26); ~~a filter on what a program may ask of the kernel~~ done (T21) | Security, and it cannot be tried here: only on the checks' machines |
-| 5 | ~~The trial that says whether a small model can give Smart's second look~~ done: none of the test models can (research note 22, T22). The owner chose: at Smart the model decides (T6); not built | How the model says so, measured first; the window says what it risks |
+| 5 | ~~The trial that says whether a small model can give Smart's second look~~ done: none of the test models can (research note 22, T22). The owner chose: at Smart the model decides (T6); ~~not built~~ built, measured how it is asked (research note 27) | How the model says so, measured first; the window says what it risks |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | ~~Settings for each model: the research, and applying what the makers recommend~~ done (DECISIONS K26 to K30, research note 19) | It meets `docs/LATER.md` 1 |
@@ -204,7 +204,10 @@ Also done on 2026-11-22: the owner's decisions on what was waiting for them: Sma
 Also done on 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts in a frame
 of no address, with what it can still send out measured (Q15).
 
-Next, in this order unless the owner says otherwise: Smart as the model deciding (T6), measured first; then the sandbox on Windows (T26), researched and tried on the checks' Windows
+Also done on 2026-11-22: Smart as the model deciding (T6), asked both ways round, measured on four models
+(research note 27).
+
+Next, in this order unless the owner says otherwise: the sandbox on Windows (T26), researched and tried on the checks' Windows
 machine; then schedules (section J). Agents wait.
 
 ## Set aside for later

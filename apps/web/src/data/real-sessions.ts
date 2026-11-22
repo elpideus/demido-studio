@@ -12,7 +12,7 @@ import { toast } from './store'
 export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number; cost_usd?: number; cost_exact?: boolean }
 /** One use of a tool. `waiting`: for the person's yes. `refused`: the request could not be used, or the person said no; nothing ran.
     `change`: the id of the change it made to a file, for undoing it. */
-export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null; artifact?: { id: string; name: string; n: number } | null }
+export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null; artifact?: { id: string; name: string; n: number } | null; model_chose?: 'go' | 'ask' | null }
 export type Level = 'cautious' | 'balanced' | 'smart' | 'autonomous'
 /** A use of a tool that is waiting for the person's yes. Every word of it is made by the core from the request, none by the model. */
 export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes' | 'runs' | 'network'; what: string; why: string; once_only?: boolean; asked_at: number }

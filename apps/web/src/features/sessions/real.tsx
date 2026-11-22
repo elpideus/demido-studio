@@ -71,7 +71,7 @@ function List() {
       </div>
       <div className="app-side__foot">
         <span>These conversations are real: kept by the core, answered by a model on this computer, or by one you chose elsewhere (Providers).</span>
-        <NotBuilt block>Pages that need scripts, and the search services that need a key; the second look that Smart is to give; a sandbox on Windows; groups and search. The preview shows where these are going.</NotBuilt>
+        <NotBuilt block>Pages that need scripts, and the search services that need a key; a sandbox on Windows; groups and search. The preview shows where these are going.</NotBuilt>
       </div>
     </aside>
   )
@@ -97,7 +97,7 @@ const TOOL_SAID: Record<string, [string, string]> = {
 const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
   cautious: { label: 'Cautious', icon: ShieldCheck, text: 'Asks you before every use of a tool that reaches the folder or the internet, reading included.' },
   balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking: a change cannot leave the folder, and can be undone. Searches the internet and reads pages it was given without asking. Asks before every program, before opening an address the model wrote itself, and, once the session has read from the internet, before a change to a file.' },
-  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The same as Balanced today. The second look by a model, which is to decide when a program need not ask, is not built.' },
+  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The model decides when to ask you, wherever Balanced would ask: before a program, before an address it wrote itself, and before a change once the session read the internet. It goes ahead only when it says so twice, asked both ways round. Small models do what the last thing they read tells them, so a page or a file can talk one into going ahead. The folder, the sandbox and Undo hold as at Balanced, and where there is no sandbox a program still asks you.' },
   autonomous: { label: 'Autonomous', icon: ShieldOff, text: 'Never asks. A model that obeys something it read can then send what it has read to any address.' },
 }
 const flat = (text: string, most: number) => { const one = text.replace(/\s+/g, ' ').trim(); return one.length > most ? `${one.slice(0, most)}…` : one }
@@ -147,6 +147,7 @@ function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: s
         }} />
         {step.artifact && step.state === 'done' && <Tip label={`Opens ${step.artifact.name} in Files, at version ${step.artifact.n}, with its other versions.`}><Button variant="ghost" size="sm" onClick={() => { if (step.artifact) openArtifact(session, step.artifact.id, step.artifact.n) }}>Open</Button></Tip>}
         {step.output && <Tip label="Everything the command printed, as a terminal would show it. The model was given a short view of it."><a className="d-button d-button--ghost d-button--sm" href={`/api/v1/sessions/${session}/outputs/${step.output}`} target="_blank" rel="noopener">All it printed</a></Tip>}
+        {step.model_chose === 'go' && <Tip label="This session is set to Smart: the model was asked whether to ask you first, both ways round, and said to go ahead both times."><span className="d-type-caption d-text-tertiary">The model chose not to ask</span></Tip>}
         {change && (change.undone_at
           ? <span className="d-type-caption d-text-tertiary">Undone</span>
           : <Tip label={change.whole_folder ? 'Puts the whole folder back as it was before this command ran. What it made is removed, what it changed or removed is as it was.' : change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}

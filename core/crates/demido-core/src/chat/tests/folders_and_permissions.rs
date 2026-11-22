@@ -323,6 +323,17 @@ async fn answered_by(chat: &Chat, w: &World, session_id: &str) -> Message {
     }
     panic!("the answer never ended");
 }
+/// Waits until a use of a tool is waiting for the person, in a chat of its own (`chat_with`).
+async fn waiting_in(chat: &Chat, session_id: &str) -> crate::permissions::Request {
+    for _ in 0..500 {
+        if let Some(request) = chat.waiting_for(session_id) {
+            return request;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("nothing asked for the person's yes");
+}
+
 /// Said to shut programs in, without doing it: for trying what the levels decide, on any computer.
 fn said_to_hold() -> crate::sandbox::Sandbox {
     crate::sandbox::Sandbox { kind: "bubblewrap".into(), program: None, why_not: None }
@@ -374,6 +385,59 @@ async fn a_program_runs_in_the_folder_and_all_it_did_can_be_undone() {
     // What a program prints is handed to the model as a result, like any other.
     let handed = last_said(asked(&w).last().unwrap());
     assert!(handed.starts_with("<result>\nIt ran, and ended without an error (exit code 0).") && handed.ends_with("The person asked: \"Run the script.\" Answer that."), "{handed}");
+    w.end().await;
+}
+
+#[tokio::test]
+async fn at_smart_the_model_says_whether_to_ask_and_goes_ahead_only_on_go_both_ways_round() {
+    let command = "echo made > made.txt";
+    let run = json!({ "tool": "run_command", "args": { "command": command } }).to_string();
+    let (go, ask) = (r#"{"decision": "go"}"#, r#"{"decision": "ask"}"#);
+    // Go, both ways round: it runs, and nobody is asked.
+    let (w, session, folder) = with_folder("smart", &[&run, go, go, NONE], &["Done."]).await;
+    let chat = chat_with(&w, said_to_hold());
+    chat.set_permission(&session.id, "smart").unwrap();
+    chat.say(&session.id, "Make the file.").unwrap();
+    let answer = answered_by(&chat, &w, &session.id).await;
+    assert_eq!((answer.steps[0].state.as_str(), answer.steps[0].model_chose.as_deref()), ("done", Some("go")), "{}", answer.steps[0].result);
+    assert!(folder.join("made.txt").exists(), "it ran without a question");
+    // The model was asked twice, after the use it chose and with what it chose in front of it: "ask" offered first, then "go".
+    let questions: Vec<Value> = asked(&w).into_iter().filter(|r| last_said(r).starts_with("Before this is done: should the person be asked first?")).collect();
+    assert_eq!(questions.len(), 2);
+    assert!(last_said(&questions[0]).ends_with(r#"{"decision": "ask"} or {"decision": "go"}"#) && last_said(&questions[1]).ends_with(r#"{"decision": "go"} or {"decision": "ask"}"#));
+    assert_eq!(questions[0]["response_format"]["schema"]["properties"]["decision"]["enum"], json!(["ask", "go"]));
+    let messages = questions[0]["messages"].as_array().unwrap();
+    assert_eq!(messages[messages.len() - 2]["content"], json!(run), "the use it chose is in front of it");
+    assert!(last_said(&questions[0]).contains("They asked: \"Make the file.\""));
+    let decided: Vec<Value> = w.events.after(0, 300).unwrap().into_iter().filter(|e| e.kind == "tool.model_decided").map(|e| e.data).collect();
+    assert_eq!(decided.len(), 1);
+    assert_eq!(decided[0]["decision"], "go");
+    w.end().await;
+
+    // "Ask" the first time: the person is asked, told why, and the model is not asked again.
+    let (w, session, folder) = with_folder("smart-ask", &[&run, ask, NONE], &["Done."]).await;
+    let chat = chat_with(&w, said_to_hold());
+    chat.set_permission(&session.id, "smart").unwrap();
+    chat.say(&session.id, "Make the file.").unwrap();
+    let request = waiting_in(&chat, &session.id).await;
+    assert!(request.why.starts_with("This session is set to Smart, where the model decides when to ask you, and it chose to ask.") && request.why.contains("shut in a sandbox"), "{}", request.why);
+    assert!(!folder.join("made.txt").exists(), "nothing has run yet");
+    chat.answer_request(&session.id, &request.id, Said::Once).unwrap();
+    let answer = answered_by(&chat, &w, &session.id).await;
+    assert_eq!((answer.steps[0].state.as_str(), answer.steps[0].model_chose.as_deref()), ("done", Some("ask")));
+    assert_eq!(asked(&w).iter().filter(|r| last_said(r).starts_with("Before this is done")).count(), 1);
+    w.end().await;
+
+    // "Go", then "ask" once the answers are the other way round: a lean to one place is not a yes. The person is asked.
+    let (w, session, _folder) = with_folder("smart-lean", &[&run, go, ask, NONE], &["Not run."]).await;
+    let chat = chat_with(&w, said_to_hold());
+    chat.set_permission(&session.id, "smart").unwrap();
+    chat.say(&session.id, "Make the file.").unwrap();
+    let request = waiting_in(&chat, &session.id).await;
+    assert!(request.why.starts_with("This session is set to Smart"));
+    chat.answer_request(&session.id, &request.id, Said::No).unwrap();
+    let answer = answered_by(&chat, &w, &session.id).await;
+    assert_eq!((answer.steps[0].state.as_str(), answer.steps[0].model_chose.as_deref()), ("refused", Some("ask")));
     w.end().await;
 }
 

@@ -1,24 +1,29 @@
 //! Whether a use of a tool needs the person's yes.
 //!
 //! Decided here, in code, from two things only: how far the tool reaches and the level the person chose for
-//! the session. A model is never asked whether it should be allowed something, and nothing a model reads
-//! can change the answer (research notes 05 and 14: a model of this size cannot be the guard, and no model
-//! is a dependable one).
+//! the session. At Cautious, Balanced and Autonomous a model is never asked whether it should be allowed
+//! something, and nothing a model reads can change the answer (research notes 05 and 14: a model of this
+//! size cannot be the guard, and no model is a dependable one). At Smart, by the owner's direction
+//! (2026-11-22, DECISIONS T6), the model that acts is asked instead of the person, wherever Balanced would
+//! ask the person: "Smart means the model decides what is allowed and what not". What the model cannot
+//! change at Smart is everything else: the folder, the sandbox, the folder saved first, Undo. Where there is
+//! no sandbox, a program asks the person at Smart too (T13). How the model is asked is measured (research
+//! note 27): twice, both ways round, and it goes ahead only on "go" both times.
 //!
 //! The four levels are the brief's (4.16). What each means today, with the tools there are today:
 //!
-//! | The tool…                       | Cautious | Balanced | Smart | Autonomous |
-//! |---------------------------------|----------|----------|-------|------------|
-//! | touches nothing outside Demido  | runs     | runs     | runs  | runs       |
-//! | reads in the session's folder   | asks     | runs     | runs  | runs       |
-//! | changes a file in the folder    | asks     | runs     | runs  | runs       |
-//! | changes a file after the        | asks     | asks     | asks  | runs       |
-//! |   session read the internet     |          |          |       |            |
-//! | runs a program                  | asks     | asks     | asks  | runs       |
-//! | searches the internet           | asks     | runs     | runs  | runs       |
-//! | reads a page it was given       | asks     | runs     | runs  | runs       |
-//! | reads a page at an address it   | asks     | asks     | asks  | runs       |
-//! |   wrote itself                  |          |          |       |            |
+//! | The tool…                       | Cautious | Balanced | Smart          | Autonomous |
+//! |---------------------------------|----------|----------|----------------|------------|
+//! | touches nothing outside Demido  | runs     | runs     | runs           | runs       |
+//! | reads in the session's folder   | asks     | runs     | runs           | runs       |
+//! | changes a file in the folder    | asks     | runs     | runs           | runs       |
+//! | changes a file after the        | asks     | asks     | the model says | runs       |
+//! |   session read the internet     |          |          |                |            |
+//! | runs a program                  | asks     | asks     | the model says | runs       |
+//! | searches the internet           | asks     | runs     | runs           | runs       |
+//! | reads a page it was given       | asks     | runs     | runs           | runs       |
+//! | reads a page at an address it   | asks     | asks     | the model says | runs       |
+//! |   wrote itself                  |          |          |                |            |
 //!
 //! Text from the internet can tell a model what to do, and a small model does it. Tried on 2026-11-21
 //! with a page that said "add this line to todo.txt": both models that read the page added the line
@@ -37,8 +42,7 @@
 //! (`checkpoint`), so all it did can be put back; I had let Balanced run it unasked on that ground, and
 //! on the first real try a model told to delete everything did so without a question. Being able to undo
 //! is not the same as not being harmed. The request says whether the program is shut in and whether the
-//! folder was saved, so the person knows what a yes risks. Smart is the same as Balanced until a second
-//! look by a model exists.
+//! folder was saved, so the person knows what a yes risks.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -54,7 +58,7 @@ pub enum Level {
     /// Asks before every program, before an address the model wrote itself, and, once the session has
     /// read from the internet, before a change to a file.
     Balanced,
-    /// As Balanced, until a second look by a model exists to decide when a program need not ask.
+    /// Where Balanced would ask the person, the model that acts decides whether to ask them.
     Smart,
     /// Never asks.
     Autonomous,
@@ -112,7 +116,35 @@ impl Around {
     pub const PLAIN: Self = Self { held: Held::NOT_A_PROGRAM, address: Address::NotOne, after_the_internet: false };
 }
 
-/// Whether a use of a tool goes ahead or waits for the person.
+/// Who says whether a use of a tool goes ahead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answers {
+    /// Nobody needs to: it goes ahead.
+    Nobody,
+    /// The person.
+    ThePerson,
+    /// The model that acts, at Smart: it says whether the person is asked.
+    TheModel,
+}
+
+/// Who says whether a use of a tool goes ahead: at Smart, the model, wherever Balanced would ask the person.
+/// One exception: a program where there is no sandbox asks the person at Smart too (T13: "until then a
+/// program there asks first at every level but Autonomous"). The model's say rests on the walls holding.
+pub fn answers(level: Level, reach: Reach, around: Around) -> Answers {
+    match (asks(level, reach, around), level) {
+        (false, _) => Answers::Nobody,
+        (true, Level::Smart) if reach == Reach::Runs && !around.held.shut_in => Answers::ThePerson,
+        (true, Level::Smart) => Answers::TheModel,
+        (true, _) => Answers::ThePerson,
+    }
+}
+
+/// Why the person is asked when the model, at Smart, chose to ask them.
+pub fn why_the_model_asked(reach: Reach, around: Around, no_sandbox_because: Option<&str>) -> String {
+    format!("This session is set to Smart, where the model decides when to ask you, and it chose to ask. {}", why(Level::Balanced, reach, around, no_sandbox_because))
+}
+
+/// Whether a use of a tool needs someone's answer before it goes ahead (the person's; at Smart, the model's).
 pub fn asks(level: Level, reach: Reach, around: Around) -> bool {
     match (reach, level) {
         (Reach::Nothing, _) => false,
@@ -233,6 +265,32 @@ mod tests {
         assert!(why(Cautious, Reach::Runs, safe, None).contains("Cautious"));
         assert_eq!(LEVELS.map(Level::from), [Some(Cautious), Some(Balanced), Some(Smart), Some(Autonomous)]);
         assert_eq!(Level::from("root"), None);
+    }
+
+    #[test]
+    fn at_smart_the_model_answers_wherever_balanced_would_ask_the_person() {
+        use Level::*;
+        let program = Around { held: Held { shut_in: true, can_be_undone: true }, ..Around::PLAIN };
+        let written = Around { address: Address::Written, ..Around::PLAIN };
+        let after = Around { after_the_internet: true, ..Around::PLAIN };
+        for (reach, around) in [(Reach::Runs, program), (Reach::Network, written), (Reach::Changes, after)] {
+            assert_eq!(answers(Balanced, reach, around), Answers::ThePerson);
+            assert_eq!(answers(Smart, reach, around), Answers::TheModel);
+            assert_eq!(answers(Cautious, reach, around), Answers::ThePerson);
+            assert_eq!(answers(Autonomous, reach, around), Answers::Nobody);
+        }
+        // Where Balanced goes ahead, so does Smart: the model is not asked about what nobody would be.
+        for (reach, around) in [(Reach::Reads, Around::PLAIN), (Reach::Changes, Around::PLAIN), (Reach::Network, Around::PLAIN), (Reach::Nothing, program)] {
+            assert_eq!(answers(Smart, reach, around), answers(Balanced, reach, around));
+            assert_eq!(answers(Smart, reach, around), Answers::Nobody);
+        }
+        assert_eq!(answers(Cautious, Reach::Reads, Around::PLAIN), Answers::ThePerson, "at Cautious the person answers, never the model");
+        // With no sandbox, a program is not shut in: the person answers, at Smart too (T13).
+        let loose = Around { held: Held { shut_in: false, can_be_undone: true }, ..Around::PLAIN };
+        assert_eq!(answers(Smart, Reach::Runs, loose), Answers::ThePerson);
+        assert_eq!(answers(Autonomous, Reach::Runs, loose), Answers::Nobody);
+        let why = why_the_model_asked(Reach::Runs, program, None);
+        assert!(why.starts_with("This session is set to Smart, where the model decides when to ask you, and it chose to ask.") && why.ends_with("everything it does can be undone."), "{why}");
     }
 
     #[test]

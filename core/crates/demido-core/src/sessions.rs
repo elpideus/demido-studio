@@ -695,8 +695,17 @@ mod tests {
         s.add(&a.id, "user", "Do three things.", "done", None).unwrap();
         let answer = s.add(&a.id, "assistant", "", "answering", Some("small")).unwrap();
         assert!(answer.steps.is_empty());
-        let step =
-            Step { tool: "calculate".into(), args: serde_json::json!({ "expression": "1+1" }), result: "2".into(), state: "done".into(), took_ms: 1, change: None, output: None, artifact: None };
+        let step = Step {
+            tool: "calculate".into(),
+            args: serde_json::json!({ "expression": "1+1" }),
+            result: "2".into(),
+            state: "done".into(),
+            took_ms: 1,
+            change: None,
+            output: None,
+            artifact: None,
+            model_chose: None,
+        };
         s.set_steps(&answer.id, std::slice::from_ref(&step)).unwrap();
         assert_eq!(s.message(&answer.id).unwrap().steps, vec![step.clone()]);
 

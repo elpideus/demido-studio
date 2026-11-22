@@ -117,7 +117,8 @@ async fn the_clock_is_read_for_the_model() {
             took_ms: answer.steps[0].took_ms,
             change: None,
             output: None,
-            artifact: None
+            artifact: None,
+            model_chose: None
         }]
     );
     w.end().await;
