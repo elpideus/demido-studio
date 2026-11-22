@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn the_macos_profile_names_no_path_in_its_text_and_shuts_the_homes() {
-        let tools = [PathBuf::from("/Users/ada/.cargo/bin")];
+        let tools = [std::path::PathBuf::from("/Users/ada/.cargo/bin")];
         let w = seatbelt::walls(Path::new("/Users/ada/work \"q\""), Path::new("/private/var/folders/x/T/demido-sandbox-1"), Some(Path::new("/Users/ada")), &tools);
         // Paths go in as parameters: a quote in a folder's name cannot change a rule.
         assert!(!w.profile.contains("/Users/ada") && !w.profile.contains("work \\\"q") && !w.profile.contains("demido-sandbox-1"), "{}", w.profile);
@@ -606,6 +606,19 @@ mod tests {
         .await;
         assert!(!hidden.output.contains("the key") && !hidden.output.contains("not yours"), "{}", hidden.output);
         assert!(!home.join("planted").exists() && !PathBuf::from(format!("{}.new", beside.display())).exists(), "nothing outside the folder was written");
+        // On macOS the same files are also reached through the data volume's own name, and the homes can
+        // not be listed.
+        #[cfg(target_os = "macos")]
+        {
+            let script = format!("cat /System/Volumes/Data{} 2>&1; ls /Users 2>&1; echo listed=$?", private.display());
+            let other = run(&*Box::leak(script.into_boxed_str())).await;
+            assert!(!other.output.contains("the key") && !other.output.contains("listed=0"), "{}", other.output);
+        }
+        // The person's own programs still run: a build or a test is what a model runs most.
+        if let Some(cargo) = std::env::var_os("PATH").iter().flat_map(std::env::split_paths).map(|d| d.join("cargo")).find(|p| p.is_file()) {
+            let built = run(&*Box::leak(format!("{} --version", cargo.display()).into_boxed_str())).await;
+            assert_eq!(built.code, Some(0), "cargo did not run inside: {}", built.output);
+        }
 
         // The system cannot be changed, there is no network, and no variable of the person's shell came along.
         // (Set before the run in this process, the way a key would be set in a shell.)
