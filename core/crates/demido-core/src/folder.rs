@@ -305,23 +305,64 @@ pub fn save(folder: &Path, path: &str, text: &[u8], replaces: &str) -> Result<Sa
             return Err(Error::Changed(format!("\"{path}\" changed after it was opened (the model or another program wrote it), so it was not saved. Open it again to see what changed.")));
         }
     }
+    write_whole(&file, text, Some(meta.permissions()))?;
+    let meta = std::fs::metadata(&file)?;
+    Ok(Saved { path: path.trim().trim_start_matches('/').to_string(), size: meta.len(), modified: modified_of(&meta), version: version_of(text) })
+}
+
+/// Writes `text` beside `file` and then moves it into place, so that a file is never left half written.
+/// It keeps the permissions of the file it replaces.
+fn write_whole(file: &Path, text: &[u8], keep: Option<std::fs::Permissions>) -> std::io::Result<()> {
     let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let beside = file.with_file_name(format!(".{name}.demido-{}", uuid::Uuid::new_v4().simple()));
     let written = (|| -> std::io::Result<()> {
         use std::io::Write;
         let mut out = std::fs::File::create(&beside)?;
         out.write_all(text)?;
-        out.set_permissions(meta.permissions())?;
+        if let Some(keep) = keep {
+            out.set_permissions(keep)?;
+        }
         out.sync_all()?;
         drop(out);
-        std::fs::rename(&beside, &file)
+        std::fs::rename(&beside, file)
     })();
-    if let Err(e) = written {
+    if written.is_err() {
         let _ = std::fs::remove_file(&beside);
-        return Err(e.into());
     }
+    written
+}
+
+/// Puts text into the session's folder as a file, as the person asks: a file a model gave (an artifact),
+/// kept on disk. A file that is there is replaced only when `replace` says so; the folders on the way are
+/// made. Only inside the session's folder.
+pub fn put(folder: &Path, path: &str, text: &[u8], replace: bool) -> Result<Entry> {
+    let path = path.trim().trim_start_matches('/');
+    if path.is_empty() {
+        return Err(Error::Invalid("Name the file it goes in.".into()));
+    }
+    let base = folder.canonicalize().map_err(|e| Error::NotFound(format!("The session's folder cannot be opened: {e}")))?;
+    let file = resolved(folder, path)?;
+    if file.is_dir() {
+        return Err(Error::Invalid(format!("\"{path}\" is a folder.")));
+    }
+    let there = file.exists();
+    if there && !replace {
+        return Err(Error::Busy(format!("There is a file \"{path}\" in the folder already.")));
+    }
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let keep = if there { Some(std::fs::metadata(&file)?.permissions()) } else { None };
+    write_whole(&file, text, keep)?;
     let meta = std::fs::metadata(&file)?;
-    Ok(Saved { path: path.trim().trim_start_matches('/').to_string(), size: meta.len(), modified: modified_of(&meta), version: version_of(text) })
+    Ok(Entry {
+        name: file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        path: shown(&base, &file),
+        kind: "file".into(),
+        shown_as: Some(kind_of(&file).word().to_string()),
+        size: meta.len(),
+        modified: modified_of(&meta),
+    })
 }
 
 /// What is different between a text file as it is now and the person's edit of it, as a unified diff:
@@ -418,6 +459,21 @@ mod tests {
         assert_eq!(range(Some("bytes=90-500"), 100), Ok(Some((90, 10))));
         assert_eq!(range(Some("bytes=100-"), 100), Err(NotInFile));
         assert_eq!(range(Some("bytes=0-1,5-6"), 100), Ok(None), "several ranges: the whole file");
+    }
+
+    #[test]
+    fn a_file_is_put_in_the_folder_and_one_that_is_there_replaced_only_when_asked() {
+        let dir = folder();
+        let put_in = put(&dir, "pages/sol.html", b"<h1>Sol</h1>", false).unwrap();
+        assert_eq!((put_in.path.as_str(), put_in.shown_as.as_deref(), put_in.size), ("pages/sol.html", Some("html"), 12));
+        assert_eq!(std::fs::read_to_string(dir.join("pages/sol.html")).unwrap(), "<h1>Sol</h1>");
+        assert!(matches!(put(&dir, "README.md", b"# Mine", false), Err(Error::Busy(_))), "a file that is there is not replaced unasked");
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Hello\n");
+        put(&dir, "README.md", b"# Mine", true).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Mine");
+        assert!(put(&dir, "../outside.md", b"x", false).is_err());
+        assert!(put(&dir, "src", b"x", true).is_err(), "not over a folder");
+        assert!(put(&dir, "  ", b"x", false).is_err());
     }
 
     #[test]

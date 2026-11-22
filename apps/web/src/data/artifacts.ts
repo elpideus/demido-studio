@@ -2,6 +2,7 @@
    (DECISIONS F10 to F14). They are the session's own, not files in its folder. */
 import { create } from 'zustand'
 import { coreGet, coreSend } from './core'
+import { CoreProblem, type FolderEntry } from './session-files'
 
 export type ArtifactShownAs = 'markdown' | 'html' | 'svg' | 'text'
 export interface Artifact { id: string; session_id: string; name: string; shown_as: ArtifactShownAs; versions: number; size: number; created_at: number; updated_at: number }
@@ -28,6 +29,21 @@ export function readVersion(session: string, artifact: string, n: number): Promi
 /** Where a version is downloaded from, under the artifact's name. */
 export function versionFileUrl(session: string, artifact: string, n: number): string {
   return `/api/v1${at(session, artifact)}/versions/${n}/file`
+}
+
+/** Puts a version into the session's folder, at `path` (its own name when left out). A file that is there is
+    replaced only with `replace`; without it the core answers 409, as a `CoreProblem`. */
+export async function putIntoFolder(session: string, artifact: string, n: number, path: string, replace: boolean): Promise<FolderEntry> {
+  const res = await fetch(`/api/v1${at(session, artifact)}/versions/${n}/into-folder`, {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/json' },
+    body: JSON.stringify({ path, replace }),
+  })
+  if (!res.ok) {
+    const said = await res.json().catch(() => null) as { error?: { message?: string; code?: string } } | null
+    throw new CoreProblem(said?.error?.message ?? `The core answered ${res.status}.`, said?.error?.code ?? null, res.status)
+  }
+  return res.json() as Promise<FolderEntry>
 }
 
 /** Keeps text as a file of the session's own, as the person asks. The same name again is a new version. */

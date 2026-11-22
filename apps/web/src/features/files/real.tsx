@@ -299,10 +299,10 @@ export function RealFiles() {
           </>}
       </aside>
       {session && open?.kind === 'file' ? <Viewer key={`${session.id}\u0000${open.entry.path}`} session={session.id} entry={open.entry} folder={session.folder ?? ''} />
-        : session && open?.kind === 'artifact' ? <ArtifactView key={`${open.id}:${open.n ?? 'last'}`} session={session.id} id={open.id} n={open.n} />
+        : session && open?.kind === 'artifact' ? <ArtifactView key={`${open.id}:${open.n ?? 'last'}`} session={session.id} id={open.id} n={open.n} folder={session.folder ?? null} onPut={openFile} />
         : <section className="chat" aria-label="File"><div className="files__preview app-stack">
           <p className="app-empty">{session ? 'Pick a file on the left.' : 'The files of a session with a folder, and the files models gave you, are shown here.'}</p>
-          <NotBuilt block>Making, renaming or deleting a file here; editing a file a model gave you; putting one into the session's folder.</NotBuilt>
+          <NotBuilt block>Making, renaming or deleting a file here; editing a file a model gave you.</NotBuilt>
         </div></section>}
     </div>
   )

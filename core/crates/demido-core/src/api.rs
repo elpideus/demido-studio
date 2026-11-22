@@ -713,6 +713,30 @@ async fn session_artifact_version(State(app): State<App>, Path((id, artifact, n)
     Ok(Json(app.sessions.artifact_version(&artifact.id, Some(n))?))
 }
 
+/// Where a version of an artifact goes in the session's folder.
+#[derive(Deserialize, ToSchema)]
+pub struct IntoFolder {
+    /// From the session's folder, with `/`. Left out: the artifact's own name.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Replace a file that is there. Without it, a file that is there is left as it is, and the answer is 409.
+    #[serde(default)]
+    pub replace: bool,
+}
+
+/// Puts a version of an artifact into the session's folder, as the person asks: the file a model gave,
+/// kept on disk. Only inside the folder; a file that is there is replaced only when the person says so.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/artifacts/{artifact}/versions/{n}/into-folder", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("artifact" = String, Path, description = "The artifact's id"), ("n" = i64, Path, description = "The version")), request_body = IntoFolder, responses((status = 200, body = crate::folder::Entry), (status = 404, body = Problem), (status = 409, body = Problem), (status = 422, body = Problem)))]
+async fn session_artifact_into_folder(State(app): State<App>, Path((id, artifact, n)): Path<(String, String, i64)>, Json(body): Json<IntoFolder>) -> Result<Json<crate::folder::Entry>> {
+    let artifact = artifact_of(&app, &id, &artifact)?;
+    let version = app.sessions.artifact_version(&artifact.id, Some(n))?;
+    let folder = folder_of(&app, &id)?;
+    let path = body.path.filter(|p| !p.trim().is_empty()).unwrap_or_else(|| artifact.name.clone());
+    let put = tokio::task::spawn_blocking(move || crate::folder::put(&folder, &path, version.text.as_bytes(), body.replace)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("session.file_saved", Some(&id), json!({ "path": put.path, "size": put.size, "artifact": artifact.id, "version": n }))?;
+    Ok(Json(put))
+}
+
 /// One version of an artifact, as a file to download under its name. Like a file of the folder, it is
 /// never a page with Demido's address: plain text, `nosniff`, and a `sandbox` policy.
 #[utoipa::path(get, path = "/api/v1/sessions/{id}/artifacts/{artifact}/versions/{n}/file", tag = "sessions", params(("id" = String, Path, description = "The session's id"), ("artifact" = String, Path, description = "The artifact's id"), ("n" = i64, Path, description = "The version: 1 for the first")), responses((status = 200, description = "The file", content_type = "text/plain"), (status = 404, body = Problem)))]
@@ -1209,7 +1233,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1259,6 +1283,7 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/artifacts/{artifact}", get(session_artifact))
         .route("/sessions/{id}/artifacts/{artifact}/versions/{n}", get(session_artifact_version))
         .route("/sessions/{id}/artifacts/{artifact}/versions/{n}/file", get(session_artifact_file))
+        .route("/sessions/{id}/artifacts/{artifact}/versions/{n}/into-folder", post(session_artifact_into_folder))
         // A saved text file may be up to 8 MB, more than the 2 MB a request may carry elsewhere.
         .route("/sessions/{id}/files/content", get(session_file).put(session_file_save).layer(axum::extract::DefaultBodyLimit::max(crate::folder::MOST_SAVED as usize)))
         .route("/vault", get(vault_get))
@@ -1642,6 +1667,22 @@ mod tests {
         let (status, kept) = send(&r, keep("Café menu.html", "<h1>Menu</h1><p>Tea</p>")).await;
         assert_eq!((status, kept["n"].as_i64(), kept["artifact"]["id"].as_str()), (StatusCode::OK, Some(3), Some(a.as_str())));
         assert_eq!(send(&r, keep("../out.md", "x")).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+
+        // Put into the session's folder: not without a folder; a file that is there only when the person says so.
+        let into = |body: Value| {
+            key(request("POST", &format!("/api/v1/sessions/{id}/artifacts/{a}/versions/2/into-folder"))).header("content-type", "application/json").body(Body::from(body.to_string())).unwrap()
+        };
+        assert_eq!(send(&r, into(json!({}))).await.0, StatusCode::NOT_FOUND, "the session has no folder yet");
+        let work = home.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let change = json!({ "folder": work.display().to_string() }).to_string();
+        send(&r, key(request("PATCH", &format!("/api/v1/sessions/{id}"))).header("content-type", "application/json").body(Body::from(change)).unwrap()).await;
+        let (status, put) = send(&r, into(json!({}))).await;
+        assert_eq!((status, put["path"].as_str(), put["shown_as"].as_str()), (StatusCode::OK, Some("Café menu.html"), Some("html")), "{put}");
+        assert_eq!(std::fs::read_to_string(work.join("Café menu.html")).unwrap(), "<h1>Menu</h1><p>Coffee</p>");
+        assert_eq!(send(&r, into(json!({}))).await.0, StatusCode::CONFLICT, "there now: not replaced unasked");
+        assert_eq!(send(&r, into(json!({ "replace": true }))).await.0, StatusCode::OK);
+        assert_eq!(send(&r, into(json!({ "path": "../out.html" }))).await.0, StatusCode::UNPROCESSABLE_ENTITY);
 
         // Only through its own session; a version that is not there is not found.
         assert_eq!(send(&r, key(request("GET", &format!("/api/v1/sessions/{other}/artifacts/{a}"))).body(Body::empty()).unwrap()).await.0, StatusCode::NOT_FOUND);

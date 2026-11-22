@@ -4,9 +4,9 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { FileCode, FileText, Image } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { listArtifacts, readArtifact, readVersion, versionFileUrl, type Artifact, type ArtifactShownAs, type Version, type VersionFacts } from '@/data/artifacts'
-import { useFolderTicks } from '@/data/session-files'
-import { Glyph, Icon, Segmented, Select, Signal } from '@/ui'
+import { listArtifacts, putIntoFolder, readArtifact, readVersion, versionFileUrl, type Artifact, type ArtifactShownAs, type Version, type VersionFacts } from '@/data/artifacts'
+import { CoreProblem, useFolderTicks, type FolderEntry } from '@/data/session-files'
+import { Button, Dialog, Glyph, Icon, Segmented, Select, Signal } from '@/ui'
 import { Prose } from '@/ui/prose'
 
 const Code = lazy(() => import('./code'))
@@ -52,8 +52,47 @@ function Drawing({ text, name }: { text: string; name: string }) {
   return <div className="files__media"><img src={url} alt={name} /></div>
 }
 
-/** One artifact, at the version asked for; with none asked, its last, and the next one when the model gives it. */
-export function ArtifactView({ session, id, n: asked }: { session: string; id: string; n?: number }) {
+/** Puts a version into the session's folder, as a file of its own on disk. A file that is there is replaced
+    only when the person says so. */
+function IntoFolder({ session, artifact, n, onPut }: { session: string; artifact: Artifact; n: number; onPut: (e: FolderEntry) => void }) {
+  const [open, setOpen] = useState(false)
+  const [path, setPath] = useState(artifact.name)
+  const [there, setThere] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const put = async (replace: boolean) => {
+    if (!path.trim()) return
+    try {
+      const entry = await putIntoFolder(session, artifact.id, n, path.trim(), replace)
+      setOpen(false)
+      onPut(entry)
+    } catch (e) {
+      if (e instanceof CoreProblem && e.status === 409) setThere(true)
+      else setProblem((e as Error).message)
+    }
+  }
+  return (
+    <>
+      <Button size="sm" onClick={() => { setPath(artifact.name); setThere(false); setProblem(null); setOpen(true) }}>Put in the folder</Button>
+      {open && (
+        <Dialog open onOpenChange={(o) => !o && setOpen(false)} title="Put it in the session's folder"
+          text={`Version ${n} of ${artifact.name}, as a file of its own in the folder. The file the model gave stays here too.`}
+          actions={<><Button onClick={() => setOpen(false)}>Cancel</Button>{there
+            ? <Button variant="danger" onClick={() => void put(true)}>Replace the file</Button>
+            : <Button variant="primary" disabled={!path.trim()} onClick={() => void put(false)}>Put it there</Button>}</>}>
+          <form className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }} onSubmit={(e) => { e.preventDefault(); void put(false) }}>
+            <label className="d-field"><span className="d-field__label">Where, in the folder</span><input className="d-input d-input--mono" autoFocus value={path} onChange={(e) => { setPath(e.target.value); setThere(false) }} /></label>
+            {there && <Signal level="caution">There is a file {path.trim()} in the folder already. Replacing it loses what it holds now; or give another name.</Signal>}
+            {problem && <Signal level="caution">{problem}</Signal>}
+          </form>
+        </Dialog>
+      )}
+    </>
+  )
+}
+
+/** One artifact, at the version asked for; with none asked, its last, and the next one when the model gives it.
+    In a session with a folder, it can be put there (`onPut` opens the file it became). */
+export function ArtifactView({ session, id, n: asked, folder, onPut }: { session: string; id: string; n?: number; folder: string | null; onPut: (e: FolderEntry) => void }) {
   const tick = useFolderTicks((s) => s.ticks[session] ?? 0)
   const [facts, setFacts] = useState<{ artifact: Artifact; versions: VersionFacts[] } | null>(null)
   // `null`: the last version, whichever that is.
@@ -93,6 +132,7 @@ export function ArtifactView({ session, id, n: asked }: { session: string; id: s
             options={[...facts.versions].reverse().map((v) => ({ value: String(v.n), label: v.n === last ? `Version ${v.n}, the latest` : `Version ${v.n}` }))} />
         )}
         {previewable && <Segmented small label="View" value={view} onChange={setView} options={[{ value: 'preview', label: a.shown_as === 'html' ? 'As a page' : a.shown_as === 'svg' ? 'As a picture' : 'As it reads' }, { value: 'split', label: 'Side by side' }, { value: 'source', label: 'Source' }]} />}
+        {folder && <IntoFolder session={session} artifact={a} n={version.n} onPut={onPut} />}
         <a className="d-button d-button--sm" href={versionFileUrl(session, id, version.n)} download={a.name}>Download</a>
       </header>
       <div className="files__panes" data-view={panes === 'source' ? 'edit' : panes === 'preview' ? 'preview' : 'split'}>
