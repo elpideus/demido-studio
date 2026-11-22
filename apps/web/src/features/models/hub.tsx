@@ -224,7 +224,7 @@ export function HubDetail({ repo }: { repo: string | null }) {
           </div>
         )}
         {tab === 'card' && (detail.card ? <div className="models__card"><Prose text={detail.card} /></div> : <p className="d-text-secondary">This repository has no model card.</p>)}
-        <NotBuilt block>Models that need a Hugging Face sign-in. Other sources than Hugging Face. A context chosen for each model by itself.</NotBuilt>
+        <NotBuilt block>Other sources than Hugging Face.</NotBuilt>
       </div>
     </div>
   )
