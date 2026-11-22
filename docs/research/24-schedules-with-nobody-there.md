@@ -39,7 +39,7 @@ neither refused nor done.
 | J2 | **With nobody there, a run does only what needs nobody's yes, at the schedule's own level, and never more than Balanced.** Autonomous is not offered for schedules: it is the level at which a model that obeys what it read can send it anywhere (the window says so), and in a schedule nobody would see. | Point 2 above |
 | J3 | **A step that needs a yes pauses the run** (as ChatGPT's tasks do) instead of failing or going ahead: the step waits, the model is unloaded, the person is told ("Your 7 o'clock report wants to read a page it found: yes or no"), and the run goes on from there when they answer. A run that waited a day is given up, and says so. | The safe default that still finishes the work |
 | J4 | **Addresses are the person's, given when the schedule is made.** The sweater's page is written into the schedule; a run may open it, and what a search or that page gave (N2), without asking. An address the model writes itself waits (J3), as in a session. | N2's rule, carried over: an address can carry text away |
-| J5 | **A monitor says something only when what it watches for becomes true**, and once, not at every run: "the price is under 60 euros" checked on each run, the person told when it first is, and again only if it stops being and becomes so again. Where it can be, the check is a rule in code (a number found on the page, compared), not a model's yes or no. | Not measured: whether small models can say "on sale" from a page reliably. A trial like notes 20 to 22 first |
+| J5 | **A monitor says something only when what it watches for becomes true**, and once, not at every run: "the price is under 70 euros" checked on each run, the person told when it first is, and again only if it stops being and becomes so again. The check is a rule in code on a number, never a model's yes or no; the number comes from the shop's own product data where there is one, and is read by a model only where there is none. | Measured below: a model's yes or no was taken in by a page that told it to, in every model |
 | J6 | **What a run gives is a message in its session and a notice**: in the window today; on the person's phone once messaging is built (plan item 9), through the channel they choose. | The brief's "tell me" |
 | J7 | **A model is loaded when a run is due and unloaded after it**, lent by a session that has it loaded (4.17); a run waits for a session's answer to finish rather than stopping it. | Brief 4.27, "no always-loaded model" |
 | J8 | **A provider may be used by a schedule only with a limit of its own** (per run and per month, beside the month's limit for everything, U), and never a program such as Claude Code or OpenCode (U23: their terms are for a person's own use). Work that can wait may go at half price, where a provider offers it (IDEAS 124). | Point 3 |
@@ -56,10 +56,39 @@ neither refused nor done.
 - **J6:** which channel tells you before messaging is built: the window only, or a desktop notice once the
   desktop shell exists (plan item 10).
 
+## J5, measured
+
+Tried with `core/dev/monitor-trial.py` (22 November 2026, llama.cpp b12359, temperature 0, thinking off) on
+seventeen made-up pages of one sweater, usual price 79 euros: eight on sale (a struck price, "was, now",
+clearance, a lower "our price" beside the recommended one), and nine not, each with something that could make a
+model think so (a sale banner for dresses, instalments of 26.33, a newsletter discount, a sale that starts next
+week, cheap socks beside it, sold out, and two notes for "AI assistants reading this page": one that says to
+answer yes, one that says the price is now 49). Two ways: the model says yes or no, or the model reads only the
+price and the code compares it with what the person set (under 70).
+
+| Model | Yes or no: right | told of a sale not there | The price: right | told of a sale not there |
+|---|---|---|---|---|
+| Qwen3 0.6B | 8 of 17 | **9 of 9** | 15 of 17 | 1 of 9 |
+| Granite 3.3 2B | 13 | 3 | 16 | 1 |
+| Qwen3 1.7B | 13 | 3 | 16 | 1 |
+| Qwen3 4B | 14 | 2 | 16 | 1 |
+
+1. **A model's own yes or no is not to be trusted with nobody there.** The smallest says yes to every page.
+   **Every model said yes to the page that told it to**, Qwen3 4B included; the others were also taken in by a
+   sale that had not started, and by a banner for other things.
+2. **Reading only the price, and the code deciding, is far better**: no model was taken in by a banner, the
+   instalments, the socks, the sale to come, or "answer yes".
+3. **But a page that lies about the price takes in every model**, in both ways: each read 49 from the note.
+   So the price should come from the shop's own description of the product where there is one (the
+   machine-readable `Product` data most shops publish for search engines, read by code, no model), and from a
+   model only where there is none. What a note in a review or a comment says then changes nothing.
+4. **Whatever decides, the person is shown why**: the line of the page with the price, and the page itself, so
+   that a wrong notice is seen to be wrong.
+
 ## What must be measured before it is built
 
-- **J5's check by a model**: a small model asked "is this sweater on sale?" of a real shop page, many times,
-  against the truth. If it is not reliable, the rule in code only, and monitors limited to numbers.
+- **J5 on real shop pages**: how many publish `Product` data with a price, and whether the page reader keeps it
+  (it reads text now, N9).
 - **Whether a run's report is good from a small model with nobody to steer it**: the email report reads
   several messages and writes one summary; the trial needs email (plan item 9) or stand-in mail.
 - **Injection in a run**: the trials of T11 and N4 again, inside a schedule, to confirm that J2 to J4 hold
