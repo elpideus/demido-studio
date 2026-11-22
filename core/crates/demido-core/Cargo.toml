@@ -41,6 +41,7 @@ apple-native-keyring-store.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store.workspace = true
+windows-sys.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -38,6 +38,9 @@ use serde::Serialize;
 use tokio::io::AsyncReadExt;
 use utoipa::ToSchema;
 
+#[cfg(windows)]
+mod job;
+
 /// What a program's output is cut to before it is kept: far more than a person scrolls, less than fills a disk.
 const MOST_KEPT: usize = 2_000_000;
 /// What a model is shown of it (`tools::output`): what went wrong, the ending, the beginning.
@@ -185,9 +188,22 @@ impl Sandbox {
             return Ok((command, Some(scratch)));
         }
         // No sandbox: the plain shell, in the folder, with the person's own environment. Asked for first.
-        let mut command = if cfg!(windows) { std::process::Command::new("cmd") } else { std::process::Command::new("/bin/sh") };
-        command.args([if cfg!(windows) { "/C" } else { "-c" }, script]).current_dir(&folder);
-        Ok((command, None))
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // `cmd` reads its line its own way, not as programs usually do: the script is given to it as it
+            // is (`/S` takes off only the outer quotes), and the person's AutoRun commands are not run (`/D`).
+            // Started waiting, so that it is in its job (`run`) before it can start anything.
+            let mut command = std::process::Command::new("cmd");
+            command.args(["/D", "/S", "/C"]).raw_arg(format!("\"{script}\"")).current_dir(&folder).creation_flags(job::STARTED_WAITING);
+            Ok((command, None))
+        }
+        #[cfg(not(windows))]
+        {
+            let mut command = std::process::Command::new("/bin/sh");
+            command.args(["-c", script]).current_dir(&folder);
+            Ok((command, None))
+        }
     }
 
     /// Runs a shell script in the folder and waits for it, for no longer than `at_most`. Setting `stop`
@@ -203,6 +219,9 @@ impl Sandbox {
         #[cfg(unix)]
         command.process_group(0);
         let mut child = command.spawn().map_err(|e| format!("the command could not be started: {e}"))?;
+        // On Windows everything it starts goes into a job of its own, so that ending it ends all of that.
+        #[cfg(windows)]
+        let held = job::Job::holding(child.raw_handle().map(|h| h as _), child.id().unwrap_or(0));
         let (mut out, mut err) = (child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
         // Both streams are read as they come, so that a program that prints a lot does not wait on a full
         // pipe. What was read is kept where it can be taken even if a stream never closes.
@@ -239,6 +258,10 @@ impl Sandbox {
                         #[cfg(unix)]
                         if let Some(pid) = child.id() {
                             let _ = std::process::Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+                        }
+                        #[cfg(windows)]
+                        if let Some(job) = &held {
+                            job.end();
                         }
                         let _ = child.kill().await;
                         break None;
@@ -496,7 +519,6 @@ mod tests {
         dir
     }
 
-    #[cfg(unix)]
     static NOT_STOPPED: AtomicBool = AtomicBool::new(false);
 
     #[test]
@@ -540,6 +562,24 @@ mod tests {
             // A flood of output does not hang it, and is not all kept.
             let flood = sandbox.run(&dir, "yes abcdefghij | head -c 3000000", Duration::from_secs(20), &NOT_STOPPED).await.unwrap();
             assert!(flood.code == Some(0) && flood.output.len() < MOST_KEPT + 200 && flood.output.contains("more bytes, which were not kept"), "{}", flood.output.len());
+        }
+        // On Windows, with no sandbox: `cmd`, given the script as it is written, quotes and all.
+        #[cfg(windows)]
+        {
+            let ran = sandbox.run(&dir, "type hello.txt & echo to-stderr 1>&2 & echo \"quoted words\" & echo made> made.txt & exit /b 3", Duration::from_secs(20), &NOT_STOPPED).await.unwrap();
+            assert_eq!((ran.code, ran.stopped.clone()), (Some(3), None), "{}", ran.output);
+            assert!(ran.output.contains("hello") && ran.output.contains("to-stderr") && ran.output.contains("\"quoted words\""), "{}", ran.output);
+            assert_eq!(std::fs::read_to_string(dir.join("made.txt")).unwrap().trim_end(), "made");
+            // One that runs too long is ended, with what it printed until then.
+            let slow = sandbox.run(&dir, "echo started & ping -n 30 127.0.0.1 > nul & echo never", Duration::from_millis(400), &NOT_STOPPED).await.unwrap();
+            assert!(slow.code.is_none() && slow.stopped.is_some() && slow.took_ms < 5_000, "{slow:?}");
+            assert!(slow.output.contains("started") && !slow.output.contains("never"), "{}", slow.output);
+            // What it started is ended with it: a file that something it started would write later never appears.
+            std::fs::write(dir.join("late.cmd"), "@ping -n 3 127.0.0.1 > nul\r\n@echo late> late.txt\r\n").unwrap();
+            let orphan = sandbox.run(&dir, "start /b late.cmd & echo begun & ping -n 30 127.0.0.1 > nul", Duration::from_millis(500), &NOT_STOPPED).await.unwrap();
+            assert!(orphan.stopped.is_some() && orphan.output.contains("begun") && orphan.took_ms < 5_000, "{orphan:?}");
+            tokio::time::sleep(Duration::from_millis(4_000)).await;
+            assert!(!dir.join("late.txt").exists(), "what the command started was still running after it was stopped");
         }
         let _ = sandbox;
         std::fs::remove_dir_all(dir).ok();

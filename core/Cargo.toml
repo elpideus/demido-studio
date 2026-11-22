@@ -34,6 +34,9 @@ keyring-core = "1.1"
 zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-crypto-rust"] }
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 windows-native-keyring-store = { version = "1.1", default-features = false }
+# Windows' own calls, for a job that holds everything a command starts (sandbox.rs). 0.61.2, MIT OR
+# Apache-2.0; already in the build through tokio and others.
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
 nvml-wrapper = "0.13"
 # rustls with the system's own list of trusted certificates. No OpenSSL.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream", "json", "system-proxy", "gzip", "brotli"] }
