@@ -627,6 +627,15 @@ async fn session_file(State(app): State<App>, Path(id): Path<String>, Query(q): 
     response.body(body).map_err(|e| Error::Other(e.to_string()))
 }
 
+/// What is different between a text file of the session's folder, as it is now, and the person's edit of it
+/// (the body): a unified diff, `-` for lines only the file has, `+` for lines only the edit has. For when the
+/// file changed under an edit, before the person chooses which to keep.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/files/compare", tag = "sessions", params(("id" = String, Path, description = "The session's id"), FolderQuery), request_body(content = String, content_type = "text/plain", description = "The person's edit"), responses((status = 200, body = crate::folder::Compared), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn session_file_compare(State(app): State<App>, Path(id): Path<String>, Query(q): Query<FolderQuery>, mine: axum::body::Bytes) -> Result<Json<crate::folder::Compared>> {
+    let folder = folder_of(&app, &id)?;
+    Ok(Json(tokio::task::spawn_blocking(move || crate::folder::compare(&folder, &q.path, &mine)).await.map_err(|e| Error::Other(e.to_string()))??))
+}
+
 /// Saves a text file of the session's folder, as the person edited it in the window. `If-Match` says which
 /// version it replaces: the `ETag` it was sent with, or `*` for whatever is there. When the file has
 /// changed since (the model or another program wrote it), nothing is written and the answer is 412. Only a
@@ -1200,7 +1209,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1245,6 +1254,7 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
         .route("/sessions/{id}/files", get(session_files))
+        .route("/sessions/{id}/files/compare", post(session_file_compare).layer(axum::extract::DefaultBodyLimit::max(crate::folder::MOST_SAVED as usize)))
         .route("/sessions/{id}/artifacts", get(session_artifacts).post(session_artifact_keep))
         .route("/sessions/{id}/artifacts/{artifact}", get(session_artifact))
         .route("/sessions/{id}/artifacts/{artifact}/versions/{n}", get(session_artifact_version))
@@ -1581,6 +1591,10 @@ mod tests {
         // The person says to keep theirs.
         assert_eq!(send(&r, put("notes.md", Some("*"), "# Mine\n")).await.0, StatusCode::OK);
         assert_eq!(std::fs::read_to_string(work.join("notes.md")).unwrap(), "# Mine\n");
+        // Before choosing, the person can see what is different between the file now and their edit.
+        let compare = key(request("POST", &format!("/api/v1/sessions/{id}/files/compare?path=notes.md"))).header("content-type", "text/plain").body(Body::from("# Mine\n\nMore.\n")).unwrap();
+        let (status, compared) = send(&r, compare).await;
+        assert_eq!((status, compared["stat"].as_str()), (StatusCode::OK, Some("+2 −0")), "{compared}");
         // A save that names no version is refused: it could overwrite what it never saw.
         assert_eq!(send(&r, put("notes.md", None, "# Blind\n")).await.0, StatusCode::UNPROCESSABLE_ENTITY);
         // Only text, only inside.

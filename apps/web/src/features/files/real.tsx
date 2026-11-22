@@ -12,7 +12,7 @@ import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Gift
 import type { LucideIcon } from 'lucide-react'
 import { useFilesFocus } from '@/data/artifacts'
 import { useReal } from '@/data/real-sessions'
-import { CoreProblem, draftKey, fileUrl, listFolder, MOST_TEXT, readText, saveText, useDrafts, useFolderTicks, watchFolders, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
+import { compareText, CoreProblem, draftKey, fileUrl, listFolder, MOST_TEXT, readText, saveText, useDrafts, useFolderTicks, watchFolders, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
 import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal } from '@/ui'
 import { Prose } from '@/ui/prose'
 import { ArtifactList, ArtifactView, useArtifacts } from './artifact'
@@ -71,6 +71,26 @@ function Branch({ session, path, depth, open, onOpen }: { session: string; path:
       })}
       {listing.more > 0 && <li className="app-empty">{listing.more.toLocaleString()} more not listed.</li>}
     </ul>
+  )
+}
+
+/** What is different between the file as it is now and the person's edit, fetched when it is opened. */
+function Different({ session, path, text }: { session: string; path: string; text: string }) {
+  const [shown, setShown] = useState<{ diff: string; stat: string } | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const load = () => { compareText(session, path, text).then(setShown, (e: Error) => setFailed(e.message)) }
+  const kind = (line: string) =>
+    line.startsWith('+++') || line.startsWith('---') ? 'file' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : undefined
+  return (
+    <details className="d-disclosure chat__diff" onToggle={(e) => { if (e.currentTarget.open) load() }}>
+      <summary>What is different {shown && <span className="d-text-tertiary">{shown.stat}</span>}</summary>
+      <div className="d-disclosure__body">
+        <p className="d-type-caption d-text-tertiary">Lines with − are in the file now; lines with + are only in your edit.</p>
+        {failed ? <p className="d-type-caption d-text-secondary">{failed}</p>
+          : shown === null ? <p className="d-type-caption d-text-tertiary">Comparing…</p>
+          : <pre className="d-code chat__diff-text"><code>{shown.diff.replace(/\n$/, '').split('\n').map((line, i) => <span key={i} data-line={kind(line)}>{line}{'\n'}</span>)}</code></pre>}
+      </div>
+    </details>
   )
 }
 
@@ -198,6 +218,7 @@ function TextFile({ session, entry }: { session: string; entry: FolderEntry }) {
               <Button size="sm" variant="ghost" onClick={dropMine}>Drop mine and open it again</Button>
             </>}>
               {entry.name} was written by the model or another program after you began editing it here, so your edit is not saved.
+              {draft && <Different key={`${draft.version}:${opened?.version}`} session={session} path={entry.path} text={draft.text} />}
             </Signal>
           ) : <Signal level="error">The file was not saved: {refused?.message}</Signal>}
         </div>

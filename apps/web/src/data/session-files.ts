@@ -60,6 +60,18 @@ export async function saveText(session: string, path: string, text: string, repl
   return res.json() as Promise<Saved>
 }
 
+/** What is different between a text file as it is now and `text`, the person's edit of it: a unified diff,
+    `-` for lines only the file has, `+` for lines only the edit has. */
+export async function compareText(session: string, path: string, text: string): Promise<{ diff: string; stat: string }> {
+  const res = await fetch(`/api/v1/sessions/${encodeURIComponent(session)}/files/compare?path=${encodeURIComponent(path)}`, {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'text/plain; charset=utf-8' },
+    body: text,
+  })
+  if (!res.ok) throw await problem(res)
+  return res.json() as Promise<{ diff: string; stat: string }>
+}
+
 /** An edit not saved yet: the text, and the version of the file it was made to. */
 export interface Draft { text: string; version: string }
 

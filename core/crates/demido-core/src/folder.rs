@@ -324,6 +324,27 @@ pub fn save(folder: &Path, path: &str, text: &[u8], replaces: &str) -> Result<Sa
     Ok(Saved { path: path.trim().trim_start_matches('/').to_string(), size: meta.len(), modified: modified_of(&meta), version: version_of(text) })
 }
 
+/// What is different between a text file as it is now and the person's edit of it, as a unified diff:
+/// `-` for lines only the file has, `+` for lines only the edit has.
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct Compared {
+    pub diff: String,
+    /// In a few characters: `+3 −1`.
+    pub stat: String,
+}
+
+/// Compares a text file of the session's folder with `mine`, the person's edit of it.
+pub fn compare(folder: &Path, path: &str, mine: &[u8]) -> Result<Compared> {
+    let file = resolved(folder, path)?;
+    if !file.is_file() || !kind_of(&file).is_text() {
+        return Err(Error::Invalid(format!("\"{path}\" is not a text file in the session's folder.")));
+    }
+    let now = std::fs::read(&file)?;
+    let shown = crate::tools::diff::of_file(path.trim().trim_start_matches('/'), Some(&now), Some(mine));
+    let stat = shown.stat();
+    Ok(Compared { diff: shown.text, stat })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +418,16 @@ mod tests {
         assert_eq!(range(Some("bytes=90-500"), 100), Ok(Some((90, 10))));
         assert_eq!(range(Some("bytes=100-"), 100), Err(NotInFile));
         assert_eq!(range(Some("bytes=0-1,5-6"), 100), Ok(None), "several ranges: the whole file");
+    }
+
+    #[test]
+    fn an_edit_is_compared_with_the_file_as_it_is_now() {
+        let dir = folder();
+        let compared = compare(&dir, "README.md", b"# Hello\n\nMine.\n").unwrap();
+        assert_eq!(compared.stat, "+2 −0");
+        assert!(compared.diff.contains("+Mine.") && compared.diff.contains("--- a/README.md"), "{}", compared.diff);
+        assert!(compare(&dir, "photo.png", b"x").is_err());
+        assert!(compare(&dir, "../elsewhere.md", b"x").is_err());
     }
 
     #[test]
