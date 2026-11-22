@@ -549,7 +549,8 @@ async fn demidos_copies_come_from_their_makers_checked_and_stay_in_its_folder() 
     assert_eq!(asked.lock().unwrap().iter().filter(|p| p.ends_with("/claude") || p.ends_with("/claude.exe")).count(), before);
     // It runs with a profile of the account's own, beside it, and does not update itself.
     let env = c.env("claude-code", "a1");
-    assert!(env.contains(&("CLAUDE_CONFIG_DIR", home.join("programs/claude-code/profiles/a1").display().to_string())));
+    // Paths are compared as paths: on Windows a path written with `/` is the same path as one with `\`.
+    assert!(env.iter().any(|(n, v)| *n == "CLAUDE_CONFIG_DIR" && Path::new(v) == home.join("programs/claude-code/profiles/a1")), "{env:?}");
     assert!(env.contains(&("DISABLE_AUTOUPDATER", "1".to_string())));
 
     let kept = c.download("opencode").await.unwrap();
@@ -557,7 +558,7 @@ async fn demidos_copies_come_from_their_makers_checked_and_stay_in_its_folder() 
     assert_eq!(std::fs::read(&kept.path).unwrap(), b"#!/bin/sh\necho 'stand-in opencode'\n");
     assert!(!Path::new(&kept.path).with_file_name("opencode.tgz").exists(), "the package goes once unpacked");
     let env = c.env("opencode", "default");
-    assert!(env.iter().any(|(n, v)| *n == "XDG_DATA_HOME" && v.starts_with(home.join("programs/opencode/profiles/default").to_str().unwrap())));
+    assert!(env.iter().any(|(n, v)| *n == "XDG_DATA_HOME" && Path::new(v).starts_with(home.join("programs/opencode/profiles/default"))), "{env:?}");
     assert!(env.contains(&("OPENCODE_DISABLE_AUTOUPDATE", "1".to_string())));
 
     // Removed: the program goes, its profiles (their settings and logins) stay.
@@ -636,12 +637,12 @@ async fn each_claude_code_account_has_its_own_profile_and_a_session_can_change_a
     assert!(matches!(w.providers.add_account("claude-code", Some("Team"), Some("sk-ant-not-for-claude-code")), Err(crate::Error::Invalid(_))));
     w.providers.choose("claude-code", "haiku", true).await.unwrap();
     let session = w.chat.start(None, Some("claude-code/haiku")).await.unwrap();
-    let profile = |side: &Side| side.env.iter().find(|(n, _)| n == "CLAUDE_CONFIG_DIR").map(|(_, v)| v.clone()).unwrap();
+    let profile = |side: &Side| side.env.iter().find(|(n, _)| n == "CLAUDE_CONFIG_DIR").map(|(_, v)| PathBuf::from(v)).unwrap();
 
     // Named by no account: the default's profile.
     w.chat.say(&session.id, "What is 2 + 2?").unwrap();
     let mut side = sides.recv().await.unwrap();
-    assert_eq!(profile(&side), w.home.join("programs/claude-code/profiles").join(&personal.id).display().to_string());
+    assert_eq!(profile(&side), w.home.join("programs/claude-code/profiles").join(&personal.id));
     side.line().await;
     side.say(json!({ "type": "result", "subtype": "success", "is_error": false, "result": "4.", "total_cost_usd": 0.01, "session_id": "cc-p", "usage": {} })).await;
     assert_eq!(w.answered(&session.id).await.content, "4.");
@@ -651,7 +652,7 @@ async fn each_claude_code_account_has_its_own_profile_and_a_session_can_change_a
     assert!(w.chat.set_account(&session.id, Some("nothere")).is_err());
     w.chat.say(&session.id, "And times 3?").unwrap();
     let mut side = sides.recv().await.unwrap();
-    assert_eq!(profile(&side), w.home.join("programs/claude-code/profiles").join(&work.id).display().to_string());
+    assert_eq!(profile(&side), w.home.join("programs/claude-code/profiles").join(&work.id));
     assert!(!side.args.iter().any(|a| a == "--resume"), "the other account's session is not in this profile: {:?}", side.args);
     let said = side.line().await["message"]["content"].as_str().unwrap().to_string();
     assert!(said.contains("Person: What is 2 + 2?") && said.contains("Model: 4.") && said.ends_with("And times 3?"), "{said}");
