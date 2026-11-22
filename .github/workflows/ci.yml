@@ -91,6 +91,13 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --version
           echo "DEMIDO_EXPECT_SANDBOX=1" >> "$GITHUB_ENV"
+      - name: A sandbox, so that the sandbox is tested (macOS)
+        if: runner.os == 'macOS'
+        # Seatbelt is part of macOS: there is nothing to install. Its absence is a failure here.
+        run: |
+          ls -l /usr/bin/sandbox-exec
+          sw_vers
+          echo "DEMIDO_EXPECT_SANDBOX=1" >> "$GITHUB_ENV"
       - name: Tests
         run: cargo test --manifest-path core/Cargo.toml --locked
       - name: It runs and reads this computer

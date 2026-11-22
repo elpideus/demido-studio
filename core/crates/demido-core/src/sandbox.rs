@@ -16,12 +16,19 @@
 //! could check use). It is not carried inside Demido: it is found on the computer, and if it is not there,
 //! or the system does not let it work, there is no sandbox, Demido says so, and the levels ask instead.
 //!
-//! Not built: the same on macOS (Seatbelt) and Windows. There a command runs unsandboxed, and so every
-//! level but Autonomous asks first. Not built either: a filter on what the program may ask of the kernel
-//! (seccomp), which the harnesses above add on top.
+//! On macOS it is the system's own Seatbelt, through `/usr/bin/sandbox-exec` with a profile written here
+//! (`seatbelt`), as every harness checked in note 05 does it. There the walls are rules rather than an
+//! empty world: everything on the computer can be read except where people keep their things (the homes,
+//! other disks, the shared and per-user temporary folders), the folder and a temporary folder of the
+//! command's own can be changed, and nothing else; no network at all. Apple marks `sandbox-exec` as
+//! deprecated and still ships it; if a later macOS drops it, there is no sandbox, and the levels ask.
+//!
+//! Not built: the same on Windows. There a command runs unsandboxed, and so every level but Autonomous
+//! asks first. Not built either: a filter on what the program may ask of the kernel (seccomp), which the
+//! harnesses above add on top on Linux.
 
 use std::path::Path;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,7 +113,7 @@ impl Sandbox {
             let found = Self { kind: "bubblewrap".into(), program: Some(program.to_string_lossy().into_owned()), why_not: None };
             // Installed is not the same as working: some systems do not let ordinary programs make the walls.
             let folder = std::env::temp_dir();
-            let tried = found.command(&folder, "exit 0").and_then(|mut c| c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output().map_err(|e| e.to_string()));
+            let tried = found.command(&folder, "exit 0").and_then(|(mut c, _)| c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output().map_err(|e| e.to_string()));
             match tried {
                 Ok(out) if out.status.success() => found,
                 Ok(out) => Self::none(format!(
@@ -116,32 +123,80 @@ impl Sandbox {
                 Err(e) => Self::none(format!("bubblewrap is installed, and could not be started: {e}.")),
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         {
-            Self::none("A sandbox is built for Linux only so far. On this system a command runs without one, so Demido asks before each.")
+            if !Path::new(SANDBOX_EXEC).is_file() {
+                return Self::none("This Mac has no /usr/bin/sandbox-exec, which macOS has long had: Demido cannot make walls here.");
+            }
+            let found = Self { kind: "seatbelt".into(), program: Some(SANDBOX_EXEC.into()), why_not: None };
+            // Its rules are read when it starts: a rule this macOS does not know is a failure here, not later.
+            let folder = std::env::temp_dir();
+            let tried = found.command(&folder, "exit 0").and_then(|(mut c, _scratch)| c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output().map_err(|e| e.to_string()));
+            match tried {
+                Ok(out) if out.status.success() => found,
+                Ok(out) => Self::none(format!(
+                    "sandbox-exec did not take Demido's rules on this version of macOS: {}.",
+                    String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("it said nothing")
+                )),
+                Err(e) => Self::none(format!("sandbox-exec could not be started: {e}.")),
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            Self::none("A sandbox is built for Linux and macOS so far. On this system a command runs without one, so Demido asks before each.")
         }
     }
 
-    /// The command line that runs a shell script in `folder`, inside the sandbox when there is one.
-    fn command(&self, folder: &Path, script: &str) -> Result<std::process::Command, String> {
+    /// The command line that runs a shell script in `folder`, inside the sandbox when there is one, with the
+    /// temporary folder made for it (on macOS), which goes when it is dropped.
+    fn command(&self, folder: &Path, script: &str) -> Result<(std::process::Command, Option<Scratch>), String> {
         let folder = folder.canonicalize().map_err(|e| format!("the session's folder cannot be opened: {e}"))?;
         #[cfg(target_os = "linux")]
         if let Some(program) = &self.program {
             let mut command = std::process::Command::new(program);
             command.args(walls(&folder)).args(["--", "/bin/sh", "-c", script]);
-            return Ok(command);
+            return Ok((command, None));
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(program) = &self.program {
+            // A temporary folder of its own, as /tmp is one on Linux: the shared ones are not inside.
+            let scratch = Scratch::new()?;
+            let home = std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute());
+            let tools = tools_at_home(home.as_deref());
+            let walls = seatbelt::walls(&folder, &scratch.0, home.as_deref(), &tools);
+            let mut command = std::process::Command::new(program);
+            command.arg("-p").arg(&walls.profile);
+            for (name, value) in &walls.params {
+                let mut define = std::ffi::OsString::from(format!("-D{name}="));
+                define.push(value);
+                command.arg(define);
+            }
+            command.args(["--", "/bin/sh", "-c", script]).current_dir(&folder).env_clear();
+            let path_inside: Vec<PathBuf> = std::env::var_os("PATH").iter().flat_map(std::env::split_paths).filter(|dir| seatbelt::readable(dir, home.as_deref(), &tools)).collect();
+            command.env("PATH", std::env::join_paths(path_inside).unwrap_or_else(|_| "/usr/bin:/bin".into())).env("TERM", "dumb").env("TMPDIR", &scratch.0);
+            if let Some(home) = &home {
+                command.env("HOME", home);
+            }
+            for kept in ["LANG", "LC_ALL", "USER", "LOGNAME"] {
+                if let Some(value) = std::env::var_os(kept) {
+                    command.env(kept, value);
+                }
+            }
+            return Ok((command, Some(scratch)));
         }
         // No sandbox: the plain shell, in the folder, with the person's own environment. Asked for first.
         let mut command = if cfg!(windows) { std::process::Command::new("cmd") } else { std::process::Command::new("/bin/sh") };
         command.args([if cfg!(windows) { "/C" } else { "-c" }, script]).current_dir(&folder);
-        Ok(command)
+        Ok((command, None))
     }
 
     /// Runs a shell script in the folder and waits for it, for no longer than `at_most`. Setting `stop`
     /// ends it early. What it printed is kept up to a size; the rest is dropped, and said to be.
     pub async fn run(&self, folder: &Path, script: &str, at_most: Duration, stop: &AtomicBool) -> Result<Ran, String> {
         let started = Instant::now();
-        let mut command = tokio::process::Command::from(self.command(folder, script)?);
+        // The temporary folder made for it, if any, goes when this ends, however it ends.
+        let (command, _scratch) = self.command(folder, script)?;
+        let mut command = tokio::process::Command::from(command);
         command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
         // A group of its own, so that ending it ends everything it started. Without this, and without a
         // sandbox, a stopped script would leave what it started running.
@@ -202,6 +257,43 @@ impl Sandbox {
     }
 }
 
+/// A temporary folder made for one command, deleted with everything in it when this is dropped.
+pub(crate) struct Scratch(#[allow(dead_code)] std::path::PathBuf);
+
+impl Scratch {
+    #[cfg(target_os = "macos")]
+    fn new() -> Result<Self, String> {
+        let place = std::env::temp_dir().join(format!("demido-sandbox-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&place).map_err(|e| format!("a temporary folder for it could not be made: {e}"))?;
+        // Its real path: Seatbelt's rules are about real paths, and /var is /private/var on macOS.
+        let real = place.canonicalize().map_err(|e| format!("its temporary folder could not be found again: {e}"))?;
+        Ok(Self(real))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Where Seatbelt is. Only this one: one found on the `PATH` could be anything.
+#[cfg(target_os = "macos")]
+const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+
+/// The folders of a person's home that are there to read (`TOOLS_AT_HOME`, and what of their `PATH` is in
+/// their home), as their real paths, the ones that exist.
+#[cfg(target_os = "macos")]
+fn tools_at_home(home: Option<&Path>) -> Vec<PathBuf> {
+    let Some(home) = home else { return vec![] };
+    let mut shown: Vec<PathBuf> = TOOLS_AT_HOME.iter().chain(TOOLS_AT_HOME_MACOS.iter()).map(|t| home.join(t)).collect();
+    shown.extend(std::env::var_os("PATH").iter().flat_map(std::env::split_paths).filter(|p| p.starts_with(home) && p != home));
+    let mut real: Vec<PathBuf> = shown.iter().filter_map(|d| d.canonicalize().ok()).filter(|d| d.is_dir()).collect();
+    real.sort();
+    real.dedup();
+    real
+}
+
 /// The full path of a program, if it is on the `PATH`.
 #[cfg(target_os = "linux")]
 fn on_path(program: &str) -> Option<PathBuf> {
@@ -215,9 +307,122 @@ const NOT_INSIDE: [&str; 13] = ["home", "root", "mnt", "media", "srv", "tmp", "p
 
 /// Folders in a person's home that hold programs they installed for themselves, and nothing private that I
 /// know of. `.cargo` is not here as a whole: it holds the key to crates.io. Its parts that a build reads are.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 const TOOLS_AT_HOME: [&str; 14] =
     [".cargo/bin", ".cargo/registry", ".cargo/git", ".rustup", ".nvm", ".pyenv", ".bun", ".deno", ".volta", "go", ".local/bin", ".local/lib", ".local/share/pnpm", ".sdkman"];
+
+/// The same, where macOS keeps them: pnpm's home.
+#[cfg(target_os = "macos")]
+const TOOLS_AT_HOME_MACOS: [&str; 1] = ["Library/pnpm"];
+
+/// The walls on macOS: a Seatbelt profile, and the paths it names, given to `sandbox-exec` as parameters
+/// so that no path is ever written into the profile's own text.
+///
+/// Written for Demido. Codex's Seatbelt policy (openai/codex, Apache-2.0) was read first, for which of
+/// macOS's services and controls a program needs and which are best shut; none of its text is copied.
+/// Plain text, so that it is tested on every system; used on macOS.
+#[cfg(any(test, target_os = "macos"))]
+mod seatbelt {
+    use std::path::{Path, PathBuf};
+
+    /// Where people keep their things, and what is shared with other programs: not inside, to read or to
+    /// change. The same places are also reached through `/System/Volumes/Data`, and are shut there too.
+    pub(super) const NOT_INSIDE: [&str; 9] =
+        ["/Users", "/Volumes", "/private/var/folders", "/private/var/tmp", "/private/tmp", "/private/var/root", "/private/var/log", "/Library/Keychains", "/Network"];
+
+    /// The data volume's name for the places above.
+    const DATA: &str = "/System/Volumes/Data";
+
+    pub(super) struct Walls {
+        pub profile: String,
+        pub params: Vec<(String, PathBuf)>,
+    }
+
+    /// Whether a program in `dir` can be read inside, so that it belongs on the `PATH` there.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(super) fn readable(dir: &Path, home: Option<&Path>, tools: &[PathBuf]) -> bool {
+        let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+        if tools.iter().any(|t| dir.starts_with(t)) {
+            return true;
+        }
+        let shut = NOT_INSIDE.iter().any(|p| dir.starts_with(p) || dir.starts_with(format!("{DATA}{p}")));
+        !shut && !home.is_some_and(|h| dir.starts_with(h))
+    }
+
+    /// The profile for a command in `folder` (its real path), with `scratch` as its temporary folder and
+    /// `tools` the folders of the home it may read.
+    pub(super) fn walls(folder: &Path, scratch: &Path, home: Option<&Path>, tools: &[PathBuf]) -> Walls {
+        let mut params: Vec<(String, PathBuf)> = vec![("FOLDER".into(), folder.to_path_buf()), ("SCRATCH".into(), scratch.to_path_buf())];
+        if let Some(home) = home {
+            params.push(("HOME".into(), home.to_path_buf()));
+        }
+        for (i, tool) in tools.iter().enumerate() {
+            params.push((format!("TOOL_{i}"), tool.clone()));
+        }
+        // The folders on the way to what may be read, so that a program can find its way there: their
+        // names and dates only, never what is in them.
+        let mut ancestors: Vec<PathBuf> =
+            [folder, scratch].into_iter().chain(tools.iter().map(PathBuf::as_path)).flat_map(|p| p.ancestors().skip(1).map(Path::to_path_buf)).filter(|a| a.as_os_str() != "/").collect();
+        ancestors.sort();
+        ancestors.dedup();
+        for (i, ancestor) in ancestors.iter().enumerate() {
+            params.push((format!("ON_THE_WAY_{i}"), ancestor.clone()));
+        }
+        let quoted = |name: &str| format!("(subpath (param \"{name}\"))");
+        let tools_read: String = (0..tools.len()).map(|i| format!(" {}", quoted(&format!("TOOL_{i}")))).collect();
+        let on_the_way: String = (0..ancestors.len()).map(|i| format!(" (literal (param \"ON_THE_WAY_{i}\"))")).collect();
+        let mut shut: Vec<String> = NOT_INSIDE.iter().flat_map(|p| [format!("(require-not (subpath \"{p}\"))"), format!("(require-not (subpath \"{DATA}{p}\"))")]).collect();
+        if home.is_some() {
+            shut.push("(require-not (subpath (param \"HOME\")))".into());
+        }
+        let shut = shut.join(" ");
+        let profile = format!(
+            r#"(version 1)
+; Demido's walls for a program a model runs. Nothing is allowed that is not allowed here.
+(deny default)
+
+; It may start programs, which keep these walls, and signal and look at what it started.
+(allow process-exec process-fork)
+(allow signal (target same-sandbox))
+(allow process-info* (target same-sandbox))
+
+; What the system says about itself (its version, its processors), and who the user is.
+(allow sysctl-read)
+(allow mach-lookup
+  (global-name "com.apple.system.opendirectoryd.libinfo")
+  (global-name "com.apple.system.opendirectoryd.membership")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.logd")
+  (global-name "com.apple.diagnosticd"))
+(allow ipc-posix-sem)
+(allow ipc-posix-shm-read* (ipc-posix-name "apple.shm.notification_center"))
+
+; To read, and to load programs from: the whole computer but where people keep their things.
+(allow file-read* file-test-existence file-map-executable
+  (require-all (subpath "/") {shut}))
+; Of those, what it needs: the folder, its own temporary folder, the person's own programs.
+(allow file-read* file-test-existence file-map-executable {folder} {scratch}{tools_read})
+(allow file-read-metadata file-test-existence{on_the_way})
+
+; To change: the folder and its own temporary folder, and nothing else.
+(allow file-write* {folder} {scratch})
+(allow file-write-data file-ioctl
+  (literal "/dev/null") (literal "/dev/zero") (literal "/dev/dtracehelper") (subpath "/dev/fd"))
+
+; The folder itself stays where it is: what is in it may change, not the folder.
+(deny file-write-unlink (literal (param "FOLDER")))
+; These change a file through a descriptor opened only to read it.
+(deny system-fcntl (fcntl-command 80 110))
+; No network of any kind.
+(deny network*)
+"#,
+            folder = quoted("FOLDER"),
+            scratch = quoted("SCRATCH"),
+        );
+        Walls { profile, params }
+    }
+}
 
 /// The arguments that tell bubblewrap what is inside.
 #[cfg(target_os = "linux")]
@@ -340,8 +545,32 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[test]
+    fn the_macos_profile_names_no_path_in_its_text_and_shuts_the_homes() {
+        let tools = [PathBuf::from("/Users/ada/.cargo/bin")];
+        let w = seatbelt::walls(Path::new("/Users/ada/work \"q\""), Path::new("/private/var/folders/x/T/demido-sandbox-1"), Some(Path::new("/Users/ada")), &tools);
+        // Paths go in as parameters: a quote in a folder's name cannot change a rule.
+        assert!(!w.profile.contains("/Users/ada") && !w.profile.contains("work \\\"q") && !w.profile.contains("demido-sandbox-1"), "{}", w.profile);
+        let named: Vec<(&str, &str)> = w.params.iter().map(|(k, v)| (k.as_str(), v.to_str().unwrap())).collect();
+        assert!(named.contains(&("FOLDER", "/Users/ada/work \"q\"")) && named.contains(&("TOOL_0", "/Users/ada/.cargo/bin")) && named.contains(&("HOME", "/Users/ada")));
+        // The way to the folder is there by name, not the rest of the home.
+        assert!(named.contains(&("ON_THE_WAY_0", "/Users")) || named.iter().any(|(k, v)| k.starts_with("ON_THE_WAY") && *v == "/Users"));
+        assert!(!named.iter().any(|(k, v)| k.starts_with("ON_THE_WAY") && *v == "/"));
+        // Closed by default; the homes, other disks and shared temporary folders shut, by both their names.
+        assert!(w.profile.contains("(deny default)") && w.profile.contains("(deny network*)"));
+        for shut in ["/Users", "/Volumes", "/private/tmp", "/private/var/folders", "/System/Volumes/Data/Users"] {
+            assert!(w.profile.contains(&format!("(require-not (subpath \"{shut}\"))")), "{shut}");
+        }
+        // Brackets balance: sandbox-exec reads it as one expression after another.
+        let (open, close) = (w.profile.matches('(').count(), w.profile.matches(')').count());
+        assert_eq!(open, close);
+        assert!(seatbelt::readable(Path::new("/opt/homebrew/bin"), Some(Path::new("/Users/ada")), &tools));
+        assert!(!seatbelt::readable(Path::new("/Users/ada/bin"), Some(Path::new("/Users/ada")), &tools));
+        assert!(seatbelt::readable(Path::new("/Users/ada/.cargo/bin"), Some(Path::new("/Users/ada")), &tools));
+    }
+
     /// The walls themselves. Only where there is a sandbox: on a computer without one this test says so and passes.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
     async fn inside_the_sandbox_there_is_the_folder_the_system_and_nothing_else() {
         let sandbox = Sandbox::find();
@@ -381,11 +610,26 @@ mod tests {
         // The system cannot be changed, there is no network, and no variable of the person's shell came along.
         // (Set before the run in this process, the way a key would be set in a shell.)
         unsafe { std::env::set_var("DEMIDO_TEST_SECRET", "a-key") };
-        let closed = run("touch /usr/planted 2>&1; touch /etc/planted 2>&1; echo outside-links=$(grep -c -v -e 'lo:' -e '|' /proc/net/dev); echo secret=[$DEMIDO_TEST_SECRET]").await;
+        let closed = run("touch /usr/planted 2>&1; touch /etc/planted 2>&1; echo secret=[$DEMIDO_TEST_SECRET]").await;
         assert!(!std::path::Path::new("/usr/planted").exists() && !std::path::Path::new("/etc/planted").exists());
         assert!(closed.output.contains("secret=[]"), "{}", closed.output);
-        // The only way out of the network inside is the one that leads back to itself.
-        assert!(closed.output.contains("outside-links=0"), "{}", closed.output);
+        // What is written to /tmp inside never reaches the computer's own /tmp.
+        let planted = format!("demido-sandbox-planted-{}", uuid::Uuid::new_v4());
+        let tmp = run(&*Box::leak(format!("echo x > /tmp/{planted} 2>&1; echo inside > \"$TMPDIR/own\" && cat \"$TMPDIR/own\"").into_boxed_str())).await;
+        assert!(!Path::new("/tmp").join(&planted).exists(), "{}", tmp.output);
+        assert!(tmp.output.contains("inside"), "a temporary folder of its own works: {}", tmp.output);
+        // The only way out of the network inside is the one that leads back to itself (Linux); on macOS no
+        // connection can be made at all.
+        #[cfg(target_os = "linux")]
+        {
+            let net = run("echo outside-links=$(grep -c -v -e 'lo:' -e '|' /proc/net/dev)").await;
+            assert!(net.output.contains("outside-links=0"), "{}", net.output);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let net = run("/usr/bin/curl -s -m 5 -o /dev/null http://1.1.1.1/; echo net=$?").await;
+            assert!(net.output.contains("net=") && !net.output.contains("net=0"), "{}", net.output);
+        }
 
         std::fs::remove_file(&private).ok();
         std::fs::remove_file(&beside).ok();
