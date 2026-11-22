@@ -122,14 +122,13 @@ async fn stand_ins() -> (String, Shared) {
 }
 
 /// Providers over a fresh database and a vault in a fresh folder, pointed at the stand-ins.
-fn providers(base: &str) -> (Arc<Providers>, Arc<Settings>) {
+fn providers(base: &str) -> (Arc<Providers>, Arc<Settings>, crate::testing::TempDir) {
     let db = Arc::new(Db::memory().unwrap());
     let events = Arc::new(EventLog::new(db.clone()));
     let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
-    let home = std::env::temp_dir().join(format!("demido-providers-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&home).unwrap();
+    let home = crate::testing::TempDir::new("demido-providers");
     let vault = Arc::new(Vault::in_file(&home));
-    (Arc::new(Providers::new(db, vault, settings.clone(), events).at(base)), settings)
+    (Arc::new(Providers::new(db, vault, settings.clone(), events).at(base)), settings, home)
 }
 
 fn chat_body(messages: Value) -> Value {
@@ -258,7 +257,7 @@ fn lists_keep_what_can_be_talked_to_with_its_price() {
 #[tokio::test]
 async fn a_chosen_model_answers_and_what_it_cost_is_counted() {
     let (base, seen) = stand_ins().await;
-    let (p, _) = providers(&base);
+    let (p, _, _home) = providers(&base);
     p.add_account("anthropic", None, Some(ANTHROPIC_KEY)).unwrap();
     // Not chosen yet: nothing is sent.
     assert!(p.ready("anthropic/claude-opus-5-5", None).unwrap_err().to_string().contains("not chosen"));
@@ -309,7 +308,7 @@ async fn a_chosen_model_answers_and_what_it_cost_is_counted() {
 #[tokio::test]
 async fn openrouter_says_what_it_cost_and_its_free_models_cost_nothing() {
     let (base, seen) = stand_ins().await;
-    let (p, settings) = providers(&base);
+    let (p, settings, _home) = providers(&base);
     p.add_account("openrouter", None, Some(OPENROUTER_KEY)).unwrap();
     p.choose("openrouter", "google/gemini-3.5-flash", true).await.unwrap();
     p.choose("openrouter", "meta-llama/llama-3.3-70b-instruct:free", true).await.unwrap();
@@ -346,7 +345,7 @@ async fn openrouter_says_what_it_cost_and_its_free_models_cost_nothing() {
 #[tokio::test]
 async fn a_way_of_thinking_the_provider_refuses_is_dropped_and_remembered() {
     let (base, seen) = stand_ins().await;
-    let (p, _) = providers(&base);
+    let (p, _, _home) = providers(&base);
     p.add_account("anthropic", None, Some(ANTHROPIC_KEY)).unwrap();
     p.choose("anthropic", "claude-haiku-4-5-20251001", true).await.unwrap();
     // Haiku 4.5 is asked with a budget for thinking, and the stand-in says no, as for a model that cannot.
@@ -368,7 +367,7 @@ async fn a_way_of_thinking_the_provider_refuses_is_dropped_and_remembered() {
 #[tokio::test]
 async fn a_key_the_provider_does_not_take_is_said_plainly() {
     let (base, seen) = stand_ins().await;
-    let (p, _) = providers(&base);
+    let (p, _, _home) = providers(&base);
     let gemini = p.add_account("gemini", None, Some(GEMINI_KEY)).unwrap();
     let list = p.models("gemini", false).await.unwrap();
     assert_eq!(list.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gemini/gemini-3.5-flash-lite", "gemini/gemini-2.5-flash"]);
@@ -392,7 +391,7 @@ async fn a_key_the_provider_does_not_take_is_said_plainly() {
 #[tokio::test]
 async fn several_keys_at_one_provider_are_accounts_each_counted_on_its_own() {
     let (base, seen) = stand_ins().await;
-    let (p, _) = providers(&base);
+    let (p, _, _home) = providers(&base);
     const SECOND: &str = "sk-or-v1-second-test-key-not-real-0000";
     let work = p.add_account("openrouter", Some(" Work "), Some(OPENROUTER_KEY)).unwrap();
     let mine = p.add_account("openrouter", Some("Personal"), Some(SECOND)).unwrap();
@@ -451,7 +450,7 @@ async fn several_keys_at_one_provider_are_accounts_each_counted_on_its_own() {
 
 #[tokio::test]
 async fn a_key_and_a_profile_kept_before_accounts_become_first_accounts() {
-    let home = std::env::temp_dir().join(format!("demido-providers-adopt-{}", uuid::Uuid::new_v4()));
+    let home = crate::testing::TempDir::new("demido-providers-adopt");
     std::fs::create_dir_all(home.join("programs/claude-code/profile")).unwrap();
     std::fs::write(home.join("programs/claude-code/profile/.credentials.json"), "{}").unwrap();
     std::fs::create_dir_all(home.join("programs/opencode/profile/data")).unwrap();
@@ -472,7 +471,6 @@ async fn a_key_and_a_profile_kept_before_accounts_become_first_accounts() {
     assert_eq!(claude.len(), 1);
     assert!(home.join("programs/claude-code/profiles").join(&claude[0].id).join(".credentials.json").exists());
     assert!(home.join("programs/opencode/profiles/default/data").is_dir() && !home.join("programs/opencode/profile").exists());
-    std::fs::remove_dir_all(&home).ok();
 }
 
 #[test]
@@ -492,8 +490,7 @@ async fn a_session_with_a_model_elsewhere_is_answered_and_says_what_it_cost() {
     use crate::sessions::Sessions;
 
     let (base, seen) = stand_ins().await;
-    let home = std::env::temp_dir().join(format!("demido-providers-chat-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&home).unwrap();
+    let home = crate::testing::TempDir::new("demido-providers-chat");
     let db = Arc::new(Db::memory().unwrap());
     let events = Arc::new(EventLog::new(db.clone()));
     let settings = Arc::new(Settings::load(db.clone(), events.clone()).unwrap());
@@ -535,5 +532,4 @@ async fn a_session_with_a_model_elsewhere_is_answered_and_says_what_it_cost() {
     let sent = seen.lock().unwrap().asked.last().cloned().unwrap().2;
     assert!(sent["system"].as_str().unwrap().starts_with("Today's date: "), "{sent}");
     assert_eq!(sent["messages"], json!([{ "role": "user", "content": "Capital of France?" }]));
-    std::fs::remove_dir_all(home).ok();
 }

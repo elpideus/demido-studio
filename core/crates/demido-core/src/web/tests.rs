@@ -138,7 +138,7 @@ pub(crate) struct World {
     pub web: Web,
     pub base: String,
     seen: Shared,
-    pub kept_in: std::path::PathBuf,
+    pub kept_in: crate::testing::TempDir,
 }
 
 /// Only the last rung: the two sources that have an interface for programs.
@@ -168,11 +168,11 @@ pub(crate) async fn world() -> World {
     let door = listener.local_addr().unwrap();
     let app = Router::new().fallback(site).with_state(seen.clone());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let kept_in = std::env::temp_dir().join(format!("demido-web-{}", uuid::Uuid::new_v4()));
+    let kept_in = crate::testing::TempDir::new("demido-web");
     let base = format!("http://{door}");
     // The stand-in, and only it, counts as the public internet.
     let web = Web::with(
-        Some(kept_in.clone()),
+        Some(kept_in.to_path_buf()),
         Sources { wikipedia: base.clone(), mwmbl: base.clone(), exa: format!("{base}/mcp"), duckduckgo: base.clone(), duckduckgo_lite: base.clone() },
         vec![door.to_string()],
     );
@@ -208,7 +208,6 @@ async fn a_page_is_read_as_text_under_demidos_own_name_and_kept() {
     assert!(later.kept && later.gave.contains("four hundred and twelve"));
     assert_eq!((w.asked("/article"), w.asked("/robots.txt")), (2, 1), "one short question to the site; its rules are kept for a day");
     assert_eq!(w.seen.lock().unwrap().last.get("if-none-match").map(String::as_str), Some("\"v1\""));
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -217,7 +216,6 @@ async fn what_a_site_asks_programs_not_to_read_is_not_read() {
     let said = w.web.read(&w.at("/private/diary"), "", false, &GO_ON).await.unwrap_err();
     assert!(said.contains("robots.txt"), "{said}");
     assert_eq!(w.asked("/private/diary"), 0, "the page itself was never asked for");
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -229,7 +227,6 @@ async fn a_redirect_is_followed_on_the_internet_and_never_into_this_computer() {
         let said = w.web.read(&w.at(inside), "", false, &GO_ON).await.unwrap_err();
         assert!(said.contains("a redirect was not followed") && said.contains(guard::NOT_PUBLIC), "{inside}: {said}");
     }
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -258,7 +255,6 @@ async fn this_computer_and_its_network_are_not_read_unless_the_person_wrote_the_
     let read = web.read(&w.at("/article"), "", true, &GO_ON).await.unwrap();
     assert!(read.gave.contains("four hundred and twelve"));
     assert_eq!((w.asked("/article"), w.asked("/robots.txt")), (1, 0));
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -273,7 +269,6 @@ async fn what_is_not_a_page_of_text_is_said_in_words() {
     assert!(w.web.read(&w.at("/latin"), "", false, &GO_ON).await.unwrap().gave.contains("café"), "a page says how it is written, and is read that way");
     let app = w.web.read(&w.at("/app"), "", false, &GO_ON).await.unwrap();
     assert!(app.gave.contains("almost nothing until its scripts have run"), "{}", app.gave);
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -288,7 +283,6 @@ async fn reading_stops_when_the_person_stops_the_answer() {
     let started = Instant::now();
     assert_eq!(w.web.read(&w.at("/slow"), "", false, &stop).await.unwrap_err(), "it was stopped");
     assert!(started.elapsed() < Duration::from_secs(5));
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -338,7 +332,6 @@ async fn a_search_climbs_a_ladder_and_the_first_source_that_answers_ends_it() {
     // While Exa is left alone it is not asked, and the form's page is not loaded a second time.
     w.web.search("grey heron nest", "", &Which::default(), &GO_ON).await.unwrap();
     assert_eq!((w.asked("POST /mcp"), w.asked("/html/"), w.asked("POST /html/")), (2, 1, 2));
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -362,7 +355,6 @@ async fn a_source_that_asks_for_a_person_is_left_alone_and_the_search_goes_on() 
     assert_eq!(found.engine, "DuckDuckGo Lite", "{found:?}");
     assert_eq!(found.notes, ["DuckDuckGo answered with results for something else."]);
     assert_eq!(found.hits.iter().map(|h| h.address.clone()).collect::<Vec<_>>(), [w.at("/article"), "https://birds.example/herons".to_string()]);
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -385,7 +377,6 @@ async fn nothing_found_is_believed_only_when_no_later_source_finds_anything() {
     }
     let said = w.web.search("grey heron", "", &Which { wikipedia: false, mwmbl: false, ..Which::default() }, &GO_ON).await.unwrap_err();
     assert!(said.starts_with("No search service would answer. Exa says its free searches are used up") && said.contains("DuckDuckGo asked for proof"), "{said}");
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -402,7 +393,6 @@ async fn the_persons_own_searxng_server_is_asked_first() {
     // An address that is none is said to be none, and the search goes on.
     let found = w.web.search("heron", "", &Which { searxng: Some("not an address at all".into()), ..Which::default() }, &GO_ON).await.unwrap();
     assert_eq!((found.engine.as_str(), found.notes.as_slice()), ("Exa", ["Your SearXNG its address in the settings is not a web address.".to_string()].as_slice()));
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -440,7 +430,6 @@ async fn a_search_asks_both_sources_merges_them_and_is_kept() {
         let said = w.web.search(query, "", &which, &GO_ON).await.unwrap_err();
         assert!(said.contains(why), "{said}");
     }
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
@@ -464,25 +453,22 @@ async fn a_source_that_says_it_is_asked_too_much_is_left_alone_and_the_other_sti
     // With only that source turned on, the search says why it found nothing.
     let said = w.web.search("grey heron", "", &Which { wikipedia: false, ..the_two() }, &GO_ON).await.unwrap_err();
     assert!(said.contains("asked too much"), "{said}");
-    std::fs::remove_dir_all(&w.kept_in).ok();
 }
 
 #[tokio::test]
 async fn what_is_kept_does_not_grow_without_end() {
-    let dir = std::env::temp_dir().join(format!("demido-web-sweep-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::testing::TempDir::new("demido-web-sweep");
     // Nine files of 30 MB: more than is kept. Sparse, so the test writes nothing to speak of.
     for i in 0..9u64 {
         let file = std::fs::File::create(dir.join(format!("page-{i}.json"))).unwrap();
         file.set_len(30_000_000).unwrap();
         file.set_modified(SystemTime::now() - Duration::from_secs(1000 - i * 100)).unwrap();
     }
-    let _web = Web::new(Some(dir.clone()));
+    let _web = Web::new(Some(dir.to_path_buf()));
     let left: Vec<String> = {
         let mut names: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         names.sort();
         names
     };
     assert_eq!(left, ["page-4.json", "page-5.json", "page-6.json", "page-7.json", "page-8.json"], "the oldest went, down to three quarters of the limit");
-    std::fs::remove_dir_all(dir).ok();
 }

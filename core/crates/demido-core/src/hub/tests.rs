@@ -223,6 +223,8 @@ struct World {
     events: Arc<EventLog>,
     /// Where the stand-in answers.
     base: String,
+    /// The folder the models are kept in, removed with the world.
+    _home: crate::testing::TempDir,
 }
 
 impl World {
@@ -241,10 +243,11 @@ async fn world() -> World {
     let door = listener.local_addr().unwrap();
     let app = Router::new().fallback(site).with_state(seen.clone());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let models = std::env::temp_dir().join(format!("demido-hub-{}", uuid::Uuid::new_v4())).join("models");
+    let home = crate::testing::TempDir::new("demido-hub");
+    let models = home.join("models");
     std::fs::create_dir_all(&models).unwrap();
     let events = Arc::new(EventLog::new(Arc::new(Db::memory().unwrap())));
-    World { hub: Arc::new(Hub::at(format!("http://{door}"), models.clone(), events.clone())), seen, models, events, base: format!("http://{door}") }
+    World { hub: Arc::new(Hub::at(format!("http://{door}"), models.clone(), events.clone())), seen, models, events, base: format!("http://{door}"), _home: home }
 }
 
 #[tokio::test]

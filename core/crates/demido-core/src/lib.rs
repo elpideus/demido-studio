@@ -51,6 +51,9 @@ pub mod ui;
 pub mod vault;
 pub mod web;
 
+#[cfg(test)]
+pub(crate) mod testing;
+
 pub use error::{Error, Result};
 
 /// The version of this build, as shown everywhere a version is shown.

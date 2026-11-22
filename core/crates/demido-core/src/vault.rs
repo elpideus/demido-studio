@@ -385,10 +385,8 @@ impl Vault {
 mod tests {
     use super::*;
 
-    fn home() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("demido-vault-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn home() -> crate::testing::TempDir {
+        crate::testing::TempDir::new("demido-vault")
     }
 
     #[test]
@@ -417,7 +415,8 @@ mod tests {
 
     #[test]
     fn only_known_keys_are_kept_and_only_what_looks_like_a_key() {
-        let vault = Vault::in_file(&home());
+        let home = home();
+        let vault = Vault::in_file(&home);
         assert!(matches!(vault.put("my-bank.a1", "0123456789abcdef"), Err(Error::NotFound(_))));
         // A key is named for its provider and its account.
         assert!(matches!(vault.put("gemini", "0123456789abcdef"), Err(Error::NotFound(_))));
@@ -447,7 +446,8 @@ mod tests {
 
     #[test]
     fn a_kept_value_is_taken_out_of_text_and_found_in_it() {
-        let vault = Vault::in_file(&home());
+        let home = home();
+        let vault = Vault::in_file(&home);
         vault.put("gemini.a1", "AIzaSyTEST-not-a-real-key-42").unwrap();
         let printed = "export GEMINI_API_KEY=AIzaSyTEST-not-a-real-key-42\nok";
         assert_eq!(vault.hide_in(printed), format!("export GEMINI_API_KEY={HIDDEN}\nok"));

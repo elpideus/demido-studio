@@ -20,7 +20,7 @@ async fn online(name: &str, decisions: &[&str], replies: &[&str]) -> (World, sit
     w.settings.set("web.duckduckgo", json!(false)).unwrap();
     w.stand.decisions.lock().unwrap().extend(decisions.iter().map(|d| d.to_string()));
     w.stand.replies.lock().unwrap().extend(replies.iter().map(|r| r.to_string()));
-    let web = crate::web::Web::with(Some(net.kept_in.clone()), net.web.sources.clone(), vec![net.base.trim_start_matches("http://").to_string()]);
+    let web = crate::web::Web::with(Some(net.kept_in.to_path_buf()), net.web.sources.clone(), vec![net.base.trim_start_matches("http://").to_string()]);
     w.chat = Arc::new(
         Chat::new(w.sessions.clone(), w.engine.clone(), w.events.clone(), w.settings.clone())
             .with_clock(CLOCK)
@@ -48,7 +48,7 @@ async fn waiting(w: &World, session_id: &str) -> crate::permissions::Request {
     panic!("nothing asked for the person's yes");
 }
 async fn close(w: World, net: site::World) {
-    std::fs::remove_dir_all(&net.kept_in).ok();
+    drop(net);
     w.end().await;
 }
 
