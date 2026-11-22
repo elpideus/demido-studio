@@ -206,6 +206,11 @@ model, from a short trial when a model is first used.
 
 ## Needs the owner before it can start
 
+- **Schedules with nobody there (plan item 7).** A proposal, J1 to J10, is in research note 24: a schedule is a
+  session of its own; with nobody there a run does only what needs nobody's yes, never more than Balanced;
+  a step that needs a yes pauses the run until you answer; addresses are yours, given when it is made; a
+  monitor tells you once, when what it watches for becomes true. Five choices there are yours (the note's last
+  part), and three things are to be measured before it is built.
 - **Before the first release:** did the previous Demido check `elpideus/demido-studio` for updates? That name
   now belongs to this repository, so an old installation that checks it would be offered this project's
   releases. I have not looked at the old code and will not. No release exists yet, so nothing is offered today.
