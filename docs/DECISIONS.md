@@ -468,7 +468,7 @@ the inference runtime (note 03) and the core's parts (note 11) were researched d
 adding capabilities through embeddings (the small-model techniques are in note 13;
 "vector reasoning" was withdrawn by the owner), search engines and the named third-party projects (licences, AGPL
 handling, look-alike repos), voice / email / messaging / markets, core architecture (storage, scheduler,
-resource manager). The frontend stack was researched directly since (section C2). Settings per model have one since (note 19). The remaining ones are
+resource manager). The frontend stack was researched directly since (section C2). Settings per model have one since (note 19); voice since (note 25); email's sign-in and libraries since (note 26); schedules with nobody there since (note 24). The remaining ones are
 needed before any feature work.
 
 Added by the owner's direction on 2026-11-20, to cover in the voice and markets research: end-of-sentence
