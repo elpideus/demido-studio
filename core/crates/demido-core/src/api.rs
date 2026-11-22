@@ -636,6 +636,44 @@ async fn session_file_compare(State(app): State<App>, Path(id): Path<String>, Qu
     Ok(Json(tokio::task::spawn_blocking(move || crate::folder::compare(&folder, &q.path, &mine)).await.map_err(|e| Error::Other(e.to_string()))??))
 }
 
+/// A new file for the session's folder, as the person asks.
+#[derive(Deserialize, ToSchema)]
+pub struct NewFile {
+    /// From the session's folder, with `/`.
+    pub path: String,
+    /// What it holds to begin with: nothing, when left out.
+    #[serde(default)]
+    pub text: String,
+}
+
+/// Makes a file in the session's folder, as the person asks. Never over one that is there (409); the
+/// folders on the way are made.
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/files", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = NewFile, responses((status = 200, body = crate::folder::Entry), (status = 404, body = Problem), (status = 409, body = Problem), (status = 422, body = Problem)))]
+async fn session_file_new(State(app): State<App>, Path(id): Path<String>, Json(body): Json<NewFile>) -> Result<Json<crate::folder::Entry>> {
+    let folder = folder_of(&app, &id)?;
+    let made = tokio::task::spawn_blocking(move || crate::folder::put(&folder, &body.path, body.text.as_bytes(), false)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("session.file_saved", Some(&id), json!({ "path": made.path, "size": made.size, "made": true }))?;
+    Ok(Json(made))
+}
+
+/// A file or folder of the session's folder, and its new name.
+#[derive(Deserialize, ToSchema)]
+pub struct Renamed {
+    pub from: String,
+    pub to: String,
+}
+
+/// Renames a file or a folder of the session's folder, as the person asks: both inside it, and never over
+/// one that is there (409).
+#[utoipa::path(post, path = "/api/v1/sessions/{id}/files/rename", tag = "sessions", params(("id" = String, Path, description = "The session's id")), request_body = Renamed, responses((status = 200, body = crate::folder::Entry), (status = 404, body = Problem), (status = 409, body = Problem), (status = 422, body = Problem)))]
+async fn session_file_rename(State(app): State<App>, Path(id): Path<String>, Json(body): Json<Renamed>) -> Result<Json<crate::folder::Entry>> {
+    let folder = folder_of(&app, &id)?;
+    let from = body.from.clone();
+    let moved = tokio::task::spawn_blocking(move || crate::folder::rename(&folder, &body.from, &body.to)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("session.file_saved", Some(&id), json!({ "path": moved.path, "renamed_from": from }))?;
+    Ok(Json(moved))
+}
+
 /// Saves a text file of the session's folder, as the person edited it in the window. `If-Match` says which
 /// version it replaces: the `ETag` it was sent with, or `*` for whatever is there. When the file has
 /// changed since (the model or another program wrote it), nothing is written and the answer is 412. Only a
@@ -1233,7 +1271,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1277,7 +1315,8 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/undo", post(session_undo))
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
-        .route("/sessions/{id}/files", get(session_files))
+        .route("/sessions/{id}/files", get(session_files).post(session_file_new))
+        .route("/sessions/{id}/files/rename", post(session_file_rename))
         .route("/sessions/{id}/files/compare", post(session_file_compare).layer(axum::extract::DefaultBodyLimit::max(crate::folder::MOST_SAVED as usize)))
         .route("/sessions/{id}/artifacts", get(session_artifacts).post(session_artifact_keep))
         .route("/sessions/{id}/artifacts/{artifact}", get(session_artifact))
@@ -1616,6 +1655,14 @@ mod tests {
         // The person says to keep theirs.
         assert_eq!(send(&r, put("notes.md", Some("*"), "# Mine\n")).await.0, StatusCode::OK);
         assert_eq!(std::fs::read_to_string(work.join("notes.md")).unwrap(), "# Mine\n");
+        // The person makes a file, and renames it; never over one that is there.
+        let json_post = |path: &str, body: Value| key(request("POST", path)).header("content-type", "application/json").body(Body::from(body.to_string())).unwrap();
+        let (status, made) = send(&r, json_post(&format!("/api/v1/sessions/{id}/files"), json!({ "path": "drafts/plan.md" }))).await;
+        assert_eq!((status, made["path"].as_str()), (StatusCode::OK, Some("drafts/plan.md")), "{made}");
+        assert_eq!(send(&r, json_post(&format!("/api/v1/sessions/{id}/files"), json!({ "path": "drafts/plan.md" }))).await.0, StatusCode::CONFLICT);
+        let (status, moved) = send(&r, json_post(&format!("/api/v1/sessions/{id}/files/rename"), json!({ "from": "drafts/plan.md", "to": "plan.md" }))).await;
+        assert_eq!((status, moved["path"].as_str()), (StatusCode::OK, Some("plan.md")));
+        assert_eq!(send(&r, json_post(&format!("/api/v1/sessions/{id}/files/rename"), json!({ "from": "plan.md", "to": "notes.md" }))).await.0, StatusCode::CONFLICT);
         // Before choosing, the person can see what is different between the file now and their edit.
         let compare = key(request("POST", &format!("/api/v1/sessions/{id}/files/compare?path=notes.md"))).header("content-type", "text/plain").body(Body::from("# Mine\n\nMore.\n")).unwrap();
         let (status, compared) = send(&r, compare).await;

@@ -123,7 +123,7 @@ export function ArtifactView({ session, id, n: asked, folder, onPut }: { session
   const size = (bytes: number) => (bytes < 1000 ? `${bytes} bytes` : bytes < 1_000_000 ? `${(bytes / 1000).toFixed(1)} kB` : `${(bytes / 1_000_000).toFixed(1)} MB`)
   return (
     <section className="chat" style={{ gridTemplateRows: 'auto minmax(0, 1fr)' }} aria-label={`${a.name}, a file the model gave you`}>
-      <header className="chat__head">
+      <header className="chat__head chat__head--tools">
         <span className="chat__title">{a.name}</span>
         <span className="d-type-caption d-text-tertiary">{made ? `${size(made.size)} · made ${when(made.made_at)}` : ''}</span>
         <span className="app-spacer" />

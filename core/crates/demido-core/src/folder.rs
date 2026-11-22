@@ -365,6 +365,40 @@ pub fn put(folder: &Path, path: &str, text: &[u8], replace: bool) -> Result<Entr
     })
 }
 
+/// Renames a file or a folder of the session's folder, as the person asks: both names inside it, and the new
+/// one not taken. The folders on the way to the new name are made.
+pub fn rename(folder: &Path, from: &str, to: &str) -> Result<Entry> {
+    let base = folder.canonicalize().map_err(|e| Error::NotFound(format!("The session's folder cannot be opened: {e}")))?;
+    let (from, to) = (from.trim().trim_start_matches('/'), to.trim().trim_start_matches('/'));
+    if from.is_empty() || to.is_empty() {
+        return Err(Error::Invalid("Name what is renamed, and its new name.".into()));
+    }
+    let old = resolved(folder, from)?;
+    if !old.exists() || old == base {
+        return Err(Error::NotFound(format!("There is no \"{from}\" in the session's folder.")));
+    }
+    let new = resolved(folder, to)?;
+    if new.exists() {
+        return Err(Error::Busy(format!("There is a \"{to}\" in the folder already.")));
+    }
+    if new.starts_with(&old) {
+        return Err(Error::Invalid(format!("\"{from}\" cannot go inside itself.")));
+    }
+    if let Some(parent) = new.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&old, &new)?;
+    let meta = std::fs::metadata(&new)?;
+    Ok(Entry {
+        name: new.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        path: shown(&base, &new),
+        kind: if meta.is_dir() { "folder" } else { "file" }.into(),
+        shown_as: (!meta.is_dir()).then(|| kind_of(&new).word().to_string()),
+        size: if meta.is_dir() { 0 } else { meta.len() },
+        modified: modified_of(&meta),
+    })
+}
+
 /// What is different between a text file as it is now and the person's edit of it, as a unified diff:
 /// `-` for lines only the file has, `+` for lines only the edit has.
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -474,6 +508,22 @@ mod tests {
         assert!(put(&dir, "../outside.md", b"x", false).is_err());
         assert!(put(&dir, "src", b"x", true).is_err(), "not over a folder");
         assert!(put(&dir, "  ", b"x", false).is_err());
+    }
+
+    #[test]
+    fn a_file_is_made_and_renamed_inside_the_folder_and_nothing_is_overwritten() {
+        let dir = folder();
+        // A new file: `put` without replacing.
+        assert_eq!(put(&dir, "notes/new.md", b"", false).unwrap().path, "notes/new.md");
+        let moved = rename(&dir, "notes/new.md", "drafts/idea.md").unwrap();
+        assert_eq!((moved.path.as_str(), moved.kind.as_str()), ("drafts/idea.md", "file"));
+        assert!(dir.join("drafts/idea.md").is_file() && !dir.join("notes/new.md").exists());
+        assert!(matches!(rename(&dir, "drafts/idea.md", "README.md"), Err(Error::Busy(_))), "not over a file that is there");
+        assert!(rename(&dir, "README.md", "../README.md").is_err());
+        assert!(rename(&dir, "../elsewhere", "here.md").is_err());
+        assert!(matches!(rename(&dir, "missing.md", "x.md"), Err(Error::NotFound(_))));
+        assert!(matches!(rename(&dir, "src", "src/inner"), Err(Error::Invalid(_))), "not into itself");
+        assert_eq!(rename(&dir, "src", "code").unwrap().kind, "folder");
     }
 
     #[test]

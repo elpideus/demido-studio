@@ -12,8 +12,8 @@ import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Gift
 import type { LucideIcon } from 'lucide-react'
 import { useFilesFocus } from '@/data/artifacts'
 import { useReal } from '@/data/real-sessions'
-import { compareText, CoreProblem, draftKey, fileUrl, listFolder, MOST_TEXT, readText, saveText, useDrafts, useFolderTicks, watchFolders, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
-import { Button, Glyph, Icon, NotBuilt, Segmented, Select, Signal } from '@/ui'
+import { compareText, CoreProblem, draftKey, fileUrl, listFolder, MOST_TEXT, newFile, readText, renameFile, saveText, useDrafts, useFolderTicks, watchFolders, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
+import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal } from '@/ui'
 import { Prose } from '@/ui/prose'
 import { ArtifactList, ArtifactView, useArtifacts } from './artifact'
 import { PdfPages } from './pdf'
@@ -33,6 +33,39 @@ const ICON: Record<ShownAs, LucideIcon> = { markdown: FileText, html: FileCode, 
 
 /** Text that reads as prose, whose long lines are wrapped. Code is not. */
 const PROSE = /\.(txt|text|log)$/i
+
+/** A name asked for in a dialog: for a new file, or a new name. `done` gives the core's words when it says no. */
+function NameIt({ title, text, initial, action, done, onClose }: { title: string; text: string; initial: string; action: string; done: (name: string) => Promise<string | null>; onClose: () => void }) {
+  const [name, setName] = useState(initial)
+  const [problem, setProblem] = useState<string | null>(null)
+  const go = async () => {
+    if (!name.trim()) return
+    const said = await done(name.trim())
+    if (said) setProblem(said)
+    else onClose()
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={title} text={text}
+      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!name.trim()} onClick={() => void go()}>{action}</Button></>}>
+      <form className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }} onSubmit={(e) => { e.preventDefault(); void go() }}>
+        <label className="d-field"><span className="d-field__label">Where, in the folder</span><input className="d-input d-input--mono" autoFocus value={name} onChange={(e) => { setName(e.target.value); setProblem(null) }} /></label>
+        {problem && <Signal level="caution">{problem}</Signal>}
+      </form>
+    </Dialog>
+  )
+}
+
+/** Renames the open file, as the person asks; never over one that is there. */
+function Rename({ session, entry, onRenamed }: { session: string; entry: FolderEntry; onRenamed: (e: FolderEntry) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>Rename</Button>
+      {open && <NameIt title={`Rename ${entry.name}`} text="A new name, or a new place in the folder. A file that is there keeps its place." initial={entry.path} action="Rename"
+        done={async (to) => { try { onRenamed(await renameFile(session, entry.path, to)); return null } catch (e) { return (e as Error).message } }} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
 
 /** One folder of the tree: listed when it is first opened. */
 function Branch({ session, path, depth, open, onOpen }: { session: string; path: string; depth: number; open: string | null; onOpen: (e: FolderEntry) => void }) {
@@ -95,7 +128,7 @@ function Different({ session, path, text }: { session: string; path: string; tex
 }
 
 /** A text file, in the editor: saved over the version it was opened at. */
-function TextFile({ session, entry }: { session: string; entry: FolderEntry }) {
+function TextFile({ session, entry, onRenamed }: { session: string; entry: FolderEntry; onRenamed: (e: FolderEntry) => void }) {
   const kind = entry.shown_as ?? 'text'
   const key = draftKey(session, entry.path)
   const draft = useDrafts((s) => s.drafts[key])
@@ -195,7 +228,7 @@ function TextFile({ session, entry }: { session: string; entry: FolderEntry }) {
   const conflict = Boolean(refused?.changed || stale)
   return (
     <section className="chat" style={{ gridTemplateRows: refused || stale ? 'auto auto minmax(0, 1fr)' : 'auto minmax(0, 1fr)' }} aria-label="File">
-      <header className="chat__head">
+      <header className="chat__head chat__head--tools">
         <span className="chat__title">{entry.name}</span>
         <span className="d-type-caption d-text-tertiary">
           {size(bytes)}{modified ? ` · changed ${new Date(modified).toLocaleString()}` : ''}
@@ -203,6 +236,7 @@ function TextFile({ session, entry }: { session: string; entry: FolderEntry }) {
         </span>
         <span className="app-spacer" />
         {previewable && <Segmented small label="View" value={view} onChange={setView} options={[{ value: 'preview', label: kind === 'html' ? 'As a page' : 'As it reads' }, { value: 'split', label: 'Side by side' }, { value: 'source', label: 'Source' }]} />}
+        <Rename session={session} entry={entry} onRenamed={onRenamed} />
         {editable && (
           <>
             <span className="d-type-caption d-text-secondary" aria-live="polite">{saving ? 'Saving…' : draft ? 'Not saved' : ''}</span>
@@ -238,15 +272,17 @@ function TextFile({ session, entry }: { session: string; entry: FolderEntry }) {
 }
 
 /** A file, shown as what it is. */
-function Viewer({ session, entry, folder }: { session: string; entry: FolderEntry; folder: string }) {
+function Viewer({ session, entry, folder, onRenamed }: { session: string; entry: FolderEntry; folder: string; onRenamed: (e: FolderEntry) => void }) {
   const kind = entry.shown_as ?? 'other'
-  if (kind === 'markdown' || kind === 'html' || kind === 'text') return <TextFile session={session} entry={entry} />
+  if (kind === 'markdown' || kind === 'html' || kind === 'text') return <TextFile session={session} entry={entry} onRenamed={onRenamed} />
   const url = fileUrl(session, entry.path)
   return (
     <section className="chat" style={{ gridTemplateRows: 'auto minmax(0, 1fr)' }} aria-label="File">
-      <header className="chat__head">
+      <header className="chat__head chat__head--tools">
         <span className="chat__title">{entry.name}</span>
         <span className="d-type-caption d-text-tertiary">{size(entry.size)}{entry.modified ? ` · changed ${new Date(entry.modified).toLocaleString()}` : ''}</span>
+        <span className="app-spacer" />
+        <Rename session={session} entry={entry} onRenamed={onRenamed} />
       </header>
       {kind === 'image' || kind === 'svg' ? <div className="files__preview files__media"><img src={url} alt={entry.name} /></div>
         : kind === 'pdf' ? <PdfPages url={url} name={entry.name} />
@@ -277,6 +313,7 @@ export function RealFiles() {
     clearFocus()
   }, [focus, clearFocus])
   const openFile = (entry: FolderEntry) => setState({ session: session?.id ?? null, open: { kind: 'file', entry } })
+  const [making, setMaking] = useState(false)
   return (
     <div className="app-split">
       <aside className="app-side" aria-label="Files">
@@ -291,18 +328,23 @@ export function RealFiles() {
                 <ArtifactList artifacts={artifacts} open={open?.kind === 'artifact' ? open.id : null} onOpen={(x) => setState({ session: session.id, open: { kind: 'artifact', id: x.id } })} />
               </>}
               {session.folder && <>
-                <p className="d-list__label"><Icon icon={Folder} size="sm" /> {session.folder.split(/[\\/]/).filter(Boolean).at(-1)}</p>
+                <p className="d-list__label files__folder-label">
+                  <span><Icon icon={Folder} size="sm" /> {session.folder.split(/[\\/]/).filter(Boolean).at(-1)}</span>
+                  <Button size="sm" variant="ghost" onClick={() => setMaking(true)}>New file</Button>
+                </p>
                 <Branch key={session.id} session={session.id} path="" depth={0} open={open?.kind === 'file' ? open.entry.path : null} onOpen={openFile} />
               </>}
             </div>
             {session.folder && <p className="app-side__foot">{session.folder}</p>}
           </>}
       </aside>
-      {session && open?.kind === 'file' ? <Viewer key={`${session.id}\u0000${open.entry.path}`} session={session.id} entry={open.entry} folder={session.folder ?? ''} />
+      {making && session && <NameIt title="A new file" text="An empty file in the session's folder, to write in here. A file that is there is left as it is." initial="notes.md" action="Make it"
+        done={async (path) => { try { openFile(await newFile(session.id, path)); return null } catch (e) { return e instanceof CoreProblem && e.status === 409 ? `There is a file ${path} in the folder already.` : (e as Error).message } }} onClose={() => setMaking(false)} />}
+      {session && open?.kind === 'file' ? <Viewer key={`${session.id}\u0000${open.entry.path}`} session={session.id} entry={open.entry} folder={session.folder ?? ''} onRenamed={openFile} />
         : session && open?.kind === 'artifact' ? <ArtifactView key={`${open.id}:${open.n ?? 'last'}`} session={session.id} id={open.id} n={open.n} folder={session.folder ?? null} onPut={openFile} />
         : <section className="chat" aria-label="File"><div className="files__preview app-stack">
           <p className="app-empty">{session ? 'Pick a file on the left.' : 'The files of a session with a folder, and the files models gave you, are shown here.'}</p>
-          <NotBuilt block>Making, renaming or deleting a file here; editing a file a model gave you.</NotBuilt>
+          <NotBuilt block>Deleting a file here; editing a file a model gave you.</NotBuilt>
         </div></section>}
     </div>
   )

@@ -72,6 +72,30 @@ export async function compareText(session: string, path: string, text: string): 
   return res.json() as Promise<{ diff: string; stat: string }>
 }
 
+async function sent<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`/api/v1${path}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) throw await problem(res)
+  return res.json() as Promise<T>
+}
+
+/** Makes an empty file in the session's folder; never over one that is there (409). */
+export function newFile(session: string, path: string): Promise<FolderEntry> {
+  return sent(`/sessions/${encodeURIComponent(session)}/files`, { path })
+}
+
+/** Renames a file or folder of the session's folder; never over one that is there (409). An edit not
+    saved goes with the file to its new name. */
+export async function renameFile(session: string, from: string, to: string): Promise<FolderEntry> {
+  const moved = await sent<FolderEntry>(`/sessions/${encodeURIComponent(session)}/files/rename`, { from, to })
+  const { drafts, put } = useDrafts.getState()
+  const draft = drafts[draftKey(session, from)]
+  if (draft) {
+    put(draftKey(session, moved.path), draft)
+    put(draftKey(session, from), null)
+  }
+  return moved
+}
+
 /** An edit not saved yet: the text, and the version of the file it was made to. */
 export interface Draft { text: string; version: string }
 
