@@ -174,6 +174,10 @@ pub struct Found {
     pub signed_in: Option<String>,
     /// Why it cannot be used, when it cannot.
     pub problem: Option<String>,
+    /// For Claude Code: whether it said it keeps to the profile Demido gave it (`configDirectory` in its
+    /// `auth status`). `false`: it does not, and Demido does not run it. `null`: it did not say (before 2.1.268).
+    #[serde(default)]
+    pub contained: Option<bool>,
 }
 
 /// What a program printed for a terminal, without the codes that colour it (OpenCode colours its version).
@@ -203,7 +207,7 @@ pub(crate) fn plain(text: &str) -> String {
 /// what it is run with (Demido's own copy is run with its own profile).
 pub async fn look(provider: &str, path: Option<PathBuf>, env: &[(&str, String)], missing: &str) -> Found {
     let Some(path) = path else {
-        return Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(missing.to_string()) };
+        return Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(missing.to_string()), contained: None };
     };
     let env: Vec<(String, String)> = env.iter().map(|(n, v)| (n.to_string(), v.clone())).collect();
     let run = |args: &'static [&'static str]| {
@@ -221,10 +225,14 @@ pub async fn look(provider: &str, path: Option<PathBuf>, env: &[(&str, String)],
         }
     };
     let version = run(&["--version"]).await.filter(|(ok, _)| *ok).map(|(_, said)| said.lines().next().unwrap_or_default().to_string());
-    // How Claude Code is signed in, in its own words (`authMethod`). Nothing else of what it says is kept.
+    // How Claude Code is signed in, in its own words (`authMethod`), and the folder it says it keeps to
+    // (`configDirectory`). Nothing else of what it says is kept.
+    let mut contained = None;
     let signed_in = if provider == "claude-code" {
         run(&["auth", "status"]).await.map(|(_, said)| {
-            let method = serde_json::from_str::<Value>(&said).ok().and_then(|v| v["authMethod"].as_str().map(str::to_string)).unwrap_or_else(|| "none".into());
+            let told = serde_json::from_str::<Value>(&said).ok();
+            contained = told.as_ref().and_then(|v| v["configDirectory"].as_str()).map(|dir| keeps_to(dir, &env));
+            let method = told.and_then(|v| v["authMethod"].as_str().map(str::to_string)).unwrap_or_else(|| "none".into());
             match method.as_str() {
                 "claude.ai" | "oauth_token" => "with a Claude account (your plan's limits)".to_string(),
                 "api_key" | "api_key_helper" => "with an API key (billed per token)".to_string(),
@@ -235,14 +243,24 @@ pub async fn look(provider: &str, path: Option<PathBuf>, env: &[(&str, String)],
     } else {
         None
     };
-    let problem = if version.is_none() {
+    let problem = if contained == Some(false) {
+        Some("Claude Code says it does not keep to the profile Demido gave it, so Demido does not run it: it would reach your own Claude Code's settings and login. A newer or older copy may behave; Demido's own copy should, as downloaded.".into())
+    } else if version.is_none() {
         Some(format!("{} is there but did not say its version: it may not start.", path.display()))
     } else if signed_in.as_deref() == Some("not signed in") {
         Some("Claude Code is not signed in. Sign in with the button here: it opens Anthropic's own page. Demido never sees or keeps the login.".into())
     } else {
         None
     };
-    Found { provider: provider.into(), path: Some(path.display().to_string()), version, signed_in, problem }
+    Found { provider: provider.into(), path: Some(path.display().to_string()), version, signed_in, problem, contained }
+}
+
+/// Whether the folder a program says it uses is the profile it was given (`CLAUDE_CONFIG_DIR`), compared as
+/// the same place on disk.
+fn keeps_to(said: &str, env: &[(String, String)]) -> bool {
+    let Some((_, given)) = env.iter().find(|(n, _)| n == "CLAUDE_CONFIG_DIR") else { return false };
+    let real = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p));
+    real(said.trim()) == real(given)
 }
 
 #[cfg(test)]

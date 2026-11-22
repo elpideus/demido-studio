@@ -793,13 +793,14 @@ impl Providers {
                     version: Some(kept.version),
                     signed_in: None,
                     problem: Some("Claude Code has no account in Demido yet. Sign in with the button here: it opens Anthropic's own page. Demido never sees or keeps the login.".into()),
+                    contained: None,
                 },
-                None => crate::programs::Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(self.missing(provider)) },
+                None => crate::programs::Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(self.missing(provider)), contained: None },
             },
             // Nothing is made for a program Demido has no copy of.
             _ => match self.program_path(provider) {
                 Some(path) => crate::programs::look(provider, Some(path), &self.program_env(provider, account), &self.missing(provider)).await,
-                None => crate::programs::Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(self.missing(provider)) },
+                None => crate::programs::Found { provider: provider.into(), path: None, version: None, signed_in: None, problem: Some(self.missing(provider)), contained: None },
             },
         };
         self.found.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now(), found.clone()));

@@ -673,3 +673,30 @@ async fn each_claude_code_account_has_its_own_profile_and_a_session_can_change_a
     assert_eq!(w.sessions.get(&session.id).unwrap().account, None);
     std::fs::remove_dir_all(&w.home).ok();
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_claude_code_that_does_not_keep_to_its_profile_is_not_run() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("demido-contained-{}", uuid::Uuid::new_v4()));
+    let profile = dir.join("profiles").join("a1");
+    std::fs::create_dir_all(&profile).unwrap();
+    // A stand-in that says, as Claude Code's `auth status` does, the folder it keeps to.
+    let program = dir.join("claude");
+    std::fs::write(
+        &program,
+        "#!/bin/sh\ncase \"$1 $2\" in\n  \"--version \"*) echo '2.1.330 (Claude Code)' ;;\n  \"auth status\") echo \"{\\\"authMethod\\\":\\\"claude.ai\\\",\\\"configDirectory\\\":\\\"$DEMIDO_TEST_WHERE\\\"}\" ;;\nesac\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let given = profile.display().to_string();
+    // It keeps to the profile it was given: it can be used.
+    let kept = look("claude-code", Some(program.clone()), &[("CLAUDE_CONFIG_DIR", given.clone()), ("DEMIDO_TEST_WHERE", given.clone())], "missing").await;
+    assert_eq!((kept.contained, kept.problem.clone(), kept.signed_in.as_deref()), (Some(true), None, Some("with a Claude account (your plan's limits)")), "{kept:?}");
+    // It says it uses another folder (the person's own, say): it is not run, and the person is told why.
+    let other = dir.join("home").join(".claude").display().to_string();
+    let strayed = look("claude-code", Some(program), &[("CLAUDE_CONFIG_DIR", given), ("DEMIDO_TEST_WHERE", other)], "missing").await;
+    assert_eq!(strayed.contained, Some(false));
+    assert!(strayed.problem.unwrap().contains("does not keep to the profile Demido gave it"));
+    std::fs::remove_dir_all(&dir).ok();
+}

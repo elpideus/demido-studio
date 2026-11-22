@@ -153,6 +153,7 @@ Read today (22 November 2026): Claude Code's CLI reference (code.claude.com/docs
 |---|---|
 | `claude auth login` signs in to an Anthropic account (`--console` for API billing instead of a plan); `claude auth logout` logs out of it; `claude auth status` gives JSON, exits 0 when logged in and 1 when not, and names the configuration folder it uses (`configDirectory`, from 2.1.268) | Read |
 | With `CLAUDE_CONFIG_DIR` set to a folder of each account's own, each runs signed in on its own: a sign-in in one is not seen in another | Read (U28's source); Tried with a stand-in program, not with two real Claude accounts |
+| Claude Code 2.1.330's `auth status`, run with an empty home and `CLAUDE_CONFIG_DIR` set to a fresh folder, named that folder as its `configDirectory`, said it was not signed in, and wrote nothing in the home | Tried |
 | An OpenRouter key's own figures (`/key`) are the key's: two keys give two sets | Read (OpenRouter's API reference); Tried against the stand-in only |
 
 ## What was tried with the providers, and what was not

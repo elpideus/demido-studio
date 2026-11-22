@@ -170,6 +170,13 @@ impl Chat {
         let program = providers.program(def.id)?;
         // Claude Code runs in the profile of the session's account (or the default); OpenCode has one.
         let account = if def.id == "claude-code" { Some(providers.account_for(def, session.account.as_deref())?.id) } else { None };
+        // Never one that says it does not keep to that profile: it would reach the person's own login.
+        if def.id == "claude-code" {
+            let found = providers.look_at(def.id, account.as_deref()).await;
+            if found.contained == Some(false) {
+                return Err(Error::Invalid(found.problem.unwrap_or_default()));
+            }
+        }
         // Where it works: the session's folder, or a folder of its own, so that it never works in Demido's.
         let cwd = match session.folder.as_deref() {
             Some(folder) => std::path::PathBuf::from(folder),
