@@ -18,8 +18,9 @@ export interface RemoteModel {
   /** What to know first: what a free model does with what is sent to it. */
   note?: string | null
 }
-/** A program on this computer (Claude Code, OpenCode): where it is, its version, how it is signed in (never the login itself). */
-export interface Found { provider: string; path: string | null; version: string | null; signed_in: string | null; problem: string | null }
+/** A program on this computer (Claude Code, OpenCode): where it is, its version, how it is signed in (never the login itself).
+    `contained`: for Claude Code, whether it said it keeps to the profile Demido gave it; false, and it is not run. */
+export interface Found { provider: string; path: string | null; version: string | null; signed_in: string | null; problem: string | null; contained?: boolean | null }
 /** A program's plan limit, as it last said it while it ran. `used` from 0 to 1. */
 export interface PlanLimit { status: 'allowed' | 'allowed_warning' | 'rejected' | string; resets_at: number | null; used: number | null; said_at: number }
 /** Demido's own copy of a program, kept unchanged in its folder. */
