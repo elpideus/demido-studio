@@ -1,5 +1,5 @@
 //! A session's folder, as the person sees it in the window (brief 4.24): what is in it, and each file, to
-//! look at (DECISIONS F1 to F4).
+//! look at and, for text, to save (DECISIONS F1 to F6).
 //!
 //! Only inside the session's folder: every path is checked the way the tools check theirs
 //! (`tools::files::inside`), so `..`, an absolute path elsewhere or a link that leads out is refused before
@@ -21,6 +21,9 @@ use crate::{Error, Result};
 /// A folder is listed up to this many entries.
 const MOST_LISTED: usize = 2_000;
 
+/// The largest text file that has a version and can be saved from the window: 8 MB.
+pub const MOST_SAVED: u64 = 8_000_000;
+
 /// What the window shows a file as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -36,6 +39,11 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// Markdown, a page or other text: what can be edited.
+    pub fn is_text(self) -> bool {
+        matches!(self, Kind::Markdown | Kind::Html | Kind::Text)
+    }
+
     pub fn word(self) -> &'static str {
         match self {
             Kind::Markdown => "markdown",
@@ -148,6 +156,11 @@ fn resolved(folder: &Path, path: &str) -> Result<PathBuf> {
     crate::tools::files::inside(folder, path).map_err(|why| Error::Invalid(format!("{why}.")))
 }
 
+/// When a file last changed, in milliseconds since 1970.
+fn modified_of(meta: &std::fs::Metadata) -> Option<i64> {
+    meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64)
+}
+
 /// A path as the window is given it: from the folder, with `/`.
 fn shown(folder: &Path, path: &Path) -> String {
     let within = path.strip_prefix(folder).unwrap_or(path);
@@ -171,7 +184,7 @@ pub fn list(folder: &Path, path: &str) -> Result<Listing> {
                 return None;
             }
             let meta = std::fs::metadata(&real).ok()?;
-            let modified = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64);
+            let modified = modified_of(&meta);
             Some(Entry {
                 name: e.file_name().to_string_lossy().into_owned(),
                 path: shown(&base, &p),
@@ -194,6 +207,7 @@ pub struct Opened {
     pub size: u64,
     pub kind: Kind,
     pub content_type: &'static str,
+    pub modified: Option<std::time::SystemTime>,
 }
 
 /// Opens a file of the session's folder to be looked at.
@@ -205,7 +219,7 @@ pub fn open(folder: &Path, path: &str) -> Result<Opened> {
     }
     let kind = kind_of(&file);
     let ext = file.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-    Ok(Opened { size: meta.len(), content_type: kind.content_type(&ext), kind, path: file })
+    Ok(Opened { size: meta.len(), content_type: kind.content_type(&ext), kind, modified: meta.modified().ok(), path: file })
 }
 
 /// A `Range` that asks for bytes the file does not have, or that cannot be read.
@@ -232,12 +246,82 @@ pub fn range(header: Option<&str>, size: u64) -> std::result::Result<Option<(u64
     Ok(Some((start, end - start + 1)))
 }
 
+/// A mark for what a file holds, which changes whenever it does: the start of its SHA-256, as an HTTP
+/// entity tag. Not the time it changed: two saves in one second, on a disk that keeps whole seconds, would
+/// have the same time and the same size.
+pub fn version_of(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(bytes);
+    format!("\"{}\"", hash[..16].iter().map(|b| format!("{b:02x}")).collect::<String>())
+}
+
+/// A text file, once saved.
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct Saved {
+    pub path: String,
+    pub size: u64,
+    /// When it last changed, in milliseconds since 1970.
+    pub modified: Option<i64>,
+    /// What it holds now, as `ETag` gives it: the next save says it replaces this.
+    pub version: String,
+}
+
+/// Writes `text` over a text file of the session's folder, if it still holds what the person opened.
+///
+/// `replaces` is the `If-Match` of the request: the version the person opened, or `*` for whatever is
+/// there. When the file has changed since (the model or another program wrote it), nothing is written.
+/// The text is written beside the file and then moved into place, so that a file is never left half
+/// written; it keeps its permissions.
+pub fn save(folder: &Path, path: &str, text: &[u8], replaces: &str) -> Result<Saved> {
+    let file = resolved(folder, path)?;
+    let meta = std::fs::metadata(&file).map_err(|_| Error::NotFound(format!("There is no file \"{path}\" in the session's folder.")))?;
+    if meta.is_dir() {
+        return Err(Error::Invalid(format!("\"{path}\" is a folder.")));
+    }
+    if !kind_of(&file).is_text() {
+        return Err(Error::Invalid(format!("\"{path}\" is not a text file. Only text is edited here.")));
+    }
+    if text.len() as u64 > MOST_SAVED {
+        return Err(Error::Invalid(format!("That is more than {} MB, the most saved from here.", MOST_SAVED / 1_000_000)));
+    }
+    if std::str::from_utf8(text).is_err() {
+        return Err(Error::Invalid("That text is not UTF-8, so it was not saved.".into()));
+    }
+    let any = replaces.split(',').any(|v| v.trim() == "*");
+    if !any {
+        if meta.len() > MOST_SAVED {
+            return Err(Error::Invalid(format!("\"{path}\" is larger than {} MB, so it is not edited here.", MOST_SAVED / 1_000_000)));
+        }
+        let now = version_of(&std::fs::read(&file)?);
+        if !replaces.split(',').any(|v| v.trim() == now) {
+            return Err(Error::Changed(format!("\"{path}\" changed after it was opened (the model or another program wrote it), so it was not saved. Open it again to see what changed.")));
+        }
+    }
+    let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let beside = file.with_file_name(format!(".{name}.demido-{}", uuid::Uuid::new_v4().simple()));
+    let written = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut out = std::fs::File::create(&beside)?;
+        out.write_all(text)?;
+        out.set_permissions(meta.permissions())?;
+        out.sync_all()?;
+        drop(out);
+        std::fs::rename(&beside, &file)
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&beside);
+        return Err(e.into());
+    }
+    let meta = std::fs::metadata(&file)?;
+    Ok(Saved { path: path.trim().trim_start_matches('/').to_string(), size: meta.len(), modified: modified_of(&meta), version: version_of(text) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn folder() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("demido-folder-{}", uuid::Uuid::new_v4()));
+    fn folder() -> crate::testing::TempDir {
+        let dir = crate::testing::TempDir::new("demido-folder");
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("README.md"), "# Hello\n").unwrap();
         std::fs::write(dir.join("page.html"), "<script>alert(1)</script>").unwrap();
@@ -265,7 +349,6 @@ mod tests {
             ]
         );
         assert_eq!(list(&dir, "src").unwrap().entries[0].path, "src/main.rs");
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -285,7 +368,6 @@ mod tests {
             assert!(open(&dir, "way-out").is_err());
         }
         std::fs::remove_file(beside).ok();
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -296,7 +378,6 @@ mod tests {
         assert_eq!(open(&dir, "photo.png").unwrap().content_type, "image/png");
         assert_eq!(open(&dir, "blob.bin").unwrap().content_type, "application/octet-stream");
         assert!(open(&dir, "src").is_err());
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -308,5 +389,42 @@ mod tests {
         assert_eq!(range(Some("bytes=90-500"), 100), Ok(Some((90, 10))));
         assert_eq!(range(Some("bytes=100-"), 100), Err(NotInFile));
         assert_eq!(range(Some("bytes=0-1,5-6"), 100), Ok(None), "several ranges: the whole file");
+    }
+
+    #[test]
+    fn a_text_file_is_saved_only_over_what_was_opened_and_never_half_written() {
+        let dir = folder();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.join("README.md"), std::fs::Permissions::from_mode(0o640)).unwrap();
+        }
+        let opened = version_of(&std::fs::read(dir.join("README.md")).unwrap());
+        let saved = save(&dir, "README.md", b"# Changed\n", &opened).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Changed\n");
+        assert_eq!((saved.size, saved.version.as_str()), (10, version_of(b"# Changed\n").as_str()));
+        assert_ne!(saved.version, opened, "a new version");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(dir.join("README.md")).unwrap().permissions().mode() & 0o777, 0o640, "it keeps its permissions");
+        }
+
+        // Saved over the version first opened: the file changed since, and nothing is written.
+        assert!(matches!(save(&dir, "README.md", b"# Mine\n", &opened), Err(Error::Changed(_))));
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Changed\n");
+        // Over whatever is there, when the person says so.
+        save(&dir, "README.md", b"# Mine\n", "*").unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Mine\n");
+        // Nothing is left beside it.
+        assert!(!std::fs::read_dir(&*dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".demido-")));
+
+        // Only text, only inside, only UTF-8, only a file that is there.
+        assert!(matches!(save(&dir, "photo.png", b"x", "*"), Err(Error::Invalid(_))));
+        assert!(save(&dir, "../outside.md", b"x", "*").is_err());
+        assert!(matches!(save(&dir, "README.md", &[0xff, 0xfe, 0x00], "*"), Err(Error::Invalid(_))));
+        assert!(matches!(save(&dir, "src", b"x", "*"), Err(Error::Invalid(_))));
+        assert!(save(&dir, "new.md", b"x", "*").is_err(), "a new file is not made here");
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# Mine\n");
     }
 }

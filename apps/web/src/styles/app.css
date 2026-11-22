@@ -1624,6 +1624,26 @@
   .files__edit:focus-visible {
     outline-offset: calc(-1 * var(--d-stroke-focus));
   }
+  /* the editor fills its pane; it scrolls itself */
+  .files__code {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
+  }
+  .files__code > .cm-editor {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .files__code:focus-within {
+    outline: var(--d-stroke-focus) solid var(--d-color-focus);
+    outline-offset: calc(-1 * var(--d-stroke-focus));
+  }
+  .files__notice {
+    padding: var(--d-space-12) var(--d-space-24) 0;
+  }
+  .files__unsaved {
+    color: var(--d-color-text-secondary);
+  }
   .files__preview {
     min-height: 0;
     padding: var(--d-space-20) var(--d-space-24);

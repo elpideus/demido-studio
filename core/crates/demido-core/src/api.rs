@@ -147,6 +147,7 @@ impl IntoResponse for Error {
         let (status, code) = match &self {
             Error::UnknownSetting(_) => (StatusCode::NOT_FOUND, "unknown_setting"),
             Error::Invalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
+            Error::Changed(_) => (StatusCode::PRECONDITION_FAILED, "changed"),
             Error::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             Error::Busy(_) => (StatusCode::CONFLICT, "busy"),
             Error::Stopped(_) => (StatusCode::CONFLICT, "stopped"),
@@ -578,20 +579,30 @@ async fn session_files(State(app): State<App>, Path(id): Path<String>, Query(q):
 
 /// A file of the session's folder, to look at. What a browser would run as a page (HTML and the like) is
 /// sent as plain text, and every file with `nosniff` and a `sandbox` policy: it is never a page with
-/// Demido's address. A `Range` is answered, so that a video can be moved through.
+/// Demido's address. A `Range` is answered, so that a video can be moved through. A text file of up to
+/// 8 MB comes with its version (`ETag`), which saving it again names.
 #[utoipa::path(get, path = "/api/v1/sessions/{id}/files/content", tag = "sessions", params(("id" = String, Path, description = "The session's id"), FolderQuery), responses((status = 200, description = "The file"), (status = 206, description = "Part of the file"), (status = 404, body = Problem), (status = 416, description = "A range not in the file")))]
 async fn session_file(State(app): State<App>, Path(id): Path<String>, Query(q): Query<FolderQuery>, headers: HeaderMap) -> Result<Response> {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
     let folder = folder_of(&app, &id)?;
     let opened = tokio::task::spawn_blocking(move || crate::folder::open(&folder, &q.path)).await.map_err(|e| Error::Other(e.to_string()))??;
-    let wanted = crate::folder::range(headers.get(header::RANGE).and_then(|v| v.to_str().ok()), opened.size);
+    // A text file that can be saved is read whole, so that its version is of exactly what is sent.
+    let whole = if opened.kind.is_text() && opened.size <= crate::folder::MOST_SAVED { Some(tokio::fs::read(&opened.path).await?) } else { None };
+    let size = whole.as_ref().map_or(opened.size, |b| b.len() as u64);
+    let wanted = crate::folder::range(headers.get(header::RANGE).and_then(|v| v.to_str().ok()), size);
     let Ok(wanted) = wanted else {
-        return Ok((StatusCode::RANGE_NOT_SATISFIABLE, [(header::CONTENT_RANGE, format!("bytes */{}", opened.size))]).into_response());
+        return Ok((StatusCode::RANGE_NOT_SATISFIABLE, [(header::CONTENT_RANGE, format!("bytes */{size}"))]).into_response());
     };
-    let (start, length) = wanted.unwrap_or((0, opened.size));
-    let mut file = tokio::fs::File::open(&opened.path).await?;
-    file.seek(std::io::SeekFrom::Start(start)).await?;
-    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file.take(length)));
+    let (start, length) = wanted.unwrap_or((0, size));
+    let version = whole.as_deref().map(crate::folder::version_of);
+    let body = match whole {
+        Some(bytes) => axum::body::Body::from(bytes[start as usize..(start + length) as usize].to_vec()),
+        None => {
+            let mut file = tokio::fs::File::open(&opened.path).await?;
+            file.seek(std::io::SeekFrom::Start(start)).await?;
+            axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file.take(length)))
+        }
+    };
     // Opened by itself, it is a document of no address, which can run nothing and reach nothing. The window
     // draws PDFs itself (pdf.js), so none needs the browser's own viewer.
     let policy = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'";
@@ -604,9 +615,31 @@ async fn session_file(State(app): State<App>, Path(id): Path<String>, Query(q): 
         .header("content-security-policy", policy)
         .header(header::CACHE_CONTROL, "no-store");
     if let Some((start, length)) = wanted {
-        response = response.header(header::CONTENT_RANGE, format!("bytes {start}-{}/{}", start + length - 1, opened.size));
+        response = response.header(header::CONTENT_RANGE, format!("bytes {start}-{}/{size}", start + length - 1));
+    }
+    if let Some(version) = version {
+        response = response.header(header::ETAG, version);
+    }
+    let printer = jiff::fmt::rfc2822::DateTimePrinter::new();
+    if let Some(when) = opened.modified.and_then(|m| jiff::Timestamp::try_from(m).ok()).and_then(|t| printer.timestamp_to_rfc9110_string(&t).ok()) {
+        response = response.header(header::LAST_MODIFIED, when);
     }
     response.body(body).map_err(|e| Error::Other(e.to_string()))
+}
+
+/// Saves a text file of the session's folder, as the person edited it in the window. `If-Match` says which
+/// version it replaces: the `ETag` it was sent with, or `*` for whatever is there. When the file has
+/// changed since (the model or another program wrote it), nothing is written and the answer is 412. Only a
+/// text file that is there, inside the folder; a new file is not made here.
+#[utoipa::path(put, path = "/api/v1/sessions/{id}/files/content", tag = "sessions", params(("id" = String, Path, description = "The session's id"), FolderQuery, ("If-Match" = String, Header, description = "The version this replaces, or `*`")), request_body(content = String, content_type = "text/plain", description = "The file's new text, in UTF-8"), responses((status = 200, body = crate::folder::Saved), (status = 404, body = Problem), (status = 412, body = Problem), (status = 413, description = "More than 8 MB"), (status = 422, body = Problem)))]
+async fn session_file_save(State(app): State<App>, Path(id): Path<String>, Query(q): Query<FolderQuery>, headers: HeaderMap, text: axum::body::Bytes) -> Result<Response> {
+    let Some(replaces) = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).map(str::to_string) else {
+        return Err(Error::Invalid("Say which version of the file this replaces, with If-Match: the ETag it was sent with, or * for whatever is there.".into()));
+    };
+    let folder = folder_of(&app, &id)?;
+    let saved = tokio::task::spawn_blocking(move || crate::folder::save(&folder, &q.path, &text, &replaces)).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("session.file_saved", Some(&id), json!({ "path": saved.path, "size": saved.size }))?;
+    Ok(([(header::ETAG, saved.version.clone())], Json(saved)).into_response())
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -1086,7 +1119,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, session_file_save, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1131,7 +1164,8 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
         .route("/sessions/{id}/files", get(session_files))
-        .route("/sessions/{id}/files/content", get(session_file))
+        // A saved text file may be up to 8 MB, more than the 2 MB a request may carry elsewhere.
+        .route("/sessions/{id}/files/content", get(session_file).put(session_file_save).layer(axum::extract::DefaultBodyLimit::max(crate::folder::MOST_SAVED as usize)))
         .route("/vault", get(vault_get))
         .route("/providers", get(providers_list))
         .route("/providers/{id}/accounts", post(account_add))
@@ -1406,6 +1440,64 @@ mod tests {
         let (status, _) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/files/content?path=../secret.txt"))).body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         std::fs::remove_dir_all(home).ok();
+    }
+
+    #[tokio::test]
+    async fn a_text_file_is_saved_from_the_window_only_over_the_version_it_opened() {
+        let home = crate::testing::TempDir::new("demido-api-save");
+        let work = home.join("work");
+        std::fs::create_dir_all(home.join("models")).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::write(home.join("models/tiny.gguf"), b"not really a model").unwrap();
+        std::fs::write(work.join("notes.md"), "# Notes\n").unwrap();
+        std::fs::write(work.join("photo.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        let (r, _, _) = app_at(&home);
+        let key = |b: axum::http::request::Builder| b.header("authorization", format!("Bearer {KEY}"));
+        let (_, made) = send(&r, key(request("POST", "/api/v1/sessions")).header("content-type", "application/json").body(Body::from("{}")).unwrap()).await;
+        let id = made["id"].as_str().unwrap().to_string();
+        let change = json!({ "folder": work.display().to_string() }).to_string();
+        send(&r, key(request("PATCH", &format!("/api/v1/sessions/{id}"))).header("content-type", "application/json").body(Body::from(change)).unwrap()).await;
+        let at = |path: &str| format!("/api/v1/sessions/{id}/files/content?path={path}");
+        let put = |path: &str, version: Option<&str>, text: &'static str| {
+            let b = key(request("PUT", &at(path))).header("content-type", "text/plain; charset=utf-8");
+            let b = match version {
+                Some(v) => b.header("if-match", v),
+                None => b,
+            };
+            b.body(Body::from(text)).unwrap()
+        };
+
+        // Opened: it comes with its version.
+        let res = r.clone().oneshot(key(request("GET", &at("notes.md"))).body(Body::empty()).unwrap()).await.unwrap();
+        let opened = res.headers().get("etag").unwrap().to_str().unwrap().to_string();
+        assert_eq!(opened, crate::folder::version_of(b"# Notes\n"));
+        assert!(res.headers().get("last-modified").unwrap().to_str().unwrap().ends_with(" GMT"));
+        // A picture has none: it is not edited here.
+        let res = r.clone().oneshot(key(request("GET", &at("photo.png"))).body(Body::empty()).unwrap()).await.unwrap();
+        assert!(res.headers().get("etag").is_none());
+
+        // Saved over the version opened.
+        let (status, saved) = send(&r, put("notes.md", Some(&opened), "# Notes\n\nMore.\n")).await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        assert_eq!(std::fs::read_to_string(work.join("notes.md")).unwrap(), "# Notes\n\nMore.\n");
+        assert_ne!(saved["version"], json!(opened));
+        // The model writes it meanwhile; a save over the old version is refused, and nothing is lost.
+        std::fs::write(work.join("notes.md"), "# The model's notes\n").unwrap();
+        let (status, said) = send(&r, put("notes.md", saved["version"].as_str(), "# Mine\n")).await;
+        assert_eq!((status, said["error"]["code"].as_str()), (StatusCode::PRECONDITION_FAILED, Some("changed")));
+        assert_eq!(std::fs::read_to_string(work.join("notes.md")).unwrap(), "# The model's notes\n");
+        // The person says to keep theirs.
+        assert_eq!(send(&r, put("notes.md", Some("*"), "# Mine\n")).await.0, StatusCode::OK);
+        assert_eq!(std::fs::read_to_string(work.join("notes.md")).unwrap(), "# Mine\n");
+        // A save that names no version is refused: it could overwrite what it never saw.
+        assert_eq!(send(&r, put("notes.md", None, "# Blind\n")).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+        // Only text, only inside.
+        assert_eq!(send(&r, put("photo.png", Some("*"), "x")).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(send(&r, put("../models/tiny.gguf", Some("*"), "x")).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(std::fs::read(home.join("models/tiny.gguf")).unwrap(), b"not really a model");
+        // More than 2 MB is taken: the most for any other request.
+        let big: &'static str = Box::leak("a".repeat(3_000_000).into_boxed_str());
+        assert_eq!(send(&r, put("notes.md", Some("*"), big)).await.0, StatusCode::OK);
     }
 
     #[tokio::test]

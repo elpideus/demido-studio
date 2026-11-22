@@ -25,6 +25,9 @@ pub enum Error {
     /// The caller asked for something that cannot be done as asked. The text says what to change.
     #[error("{0}")]
     Invalid(String),
+    /// What was to be changed is no longer what the change was made to: a file written since it was opened.
+    #[error("{0}")]
+    Changed(String),
     #[error("{0}")]
     Other(String),
 }
