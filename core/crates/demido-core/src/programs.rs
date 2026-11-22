@@ -218,7 +218,8 @@ pub async fn look(provider: &str, path: Option<PathBuf>, env: &[(&str, String)],
             for (name, value) in &env {
                 command.env(name, value);
             }
-            match tokio::time::timeout(std::time::Duration::from_secs(15), command.output()).await {
+            // Just downloaded: its file may still be busy for a moment (`spawn`).
+            match tokio::time::timeout(std::time::Duration::from_secs(15), crate::spawn::output_when_free(&mut command)).await {
                 Ok(Ok(out)) => Some((out.status.success(), plain(String::from_utf8_lossy(&out.stdout).trim()))),
                 _ => None,
             }

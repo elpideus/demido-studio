@@ -45,6 +45,7 @@ pub mod runtime;
 pub mod sandbox;
 pub mod sessions;
 pub mod settings;
+pub mod spawn;
 pub mod system;
 pub mod tools;
 pub mod ui;

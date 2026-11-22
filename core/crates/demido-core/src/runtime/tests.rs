@@ -227,7 +227,7 @@ async fn a_runtime_is_downloaded_checked_unpacked_and_tried() {
     assert_eq!(done.id, "llama.cpp-b777-cuda-13.5");
     assert!(done.checked, "both files matched their published checksums");
     assert_eq!(done.server.as_deref(), Some("build/bin/llama-server"));
-    assert_eq!(done.version.as_deref(), Some("version: 777 (stand-in)"));
+    assert_eq!(done.version.as_deref(), Some("version: 777 (stand-in)"), "{:?}", done.problem);
     assert_eq!(done.problem, None);
     assert_eq!(done.devices, ["CUDA0: Stand-in card (1024 MiB)"]);
     assert_eq!(done.caution, None);

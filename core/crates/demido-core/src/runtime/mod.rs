@@ -588,7 +588,9 @@ struct Tried {
 /// Runs the program with one argument and waits for it to end. `Ok` is whether it ended well, and all it said.
 fn run_briefly(root: &Path, server: &str, lib_dirs: &[String], argument: &str, seconds: u64) -> std::result::Result<(bool, String), String> {
     use std::process::Stdio;
-    let mut child = command(root, server, lib_dirs).arg(argument).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("It could not be started: {e}"))?;
+    // Just unpacked: its file may still be busy for a moment (`spawn`).
+    let mut child = crate::spawn::when_free(command(root, server, lib_dirs).arg(argument).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()))
+        .map_err(|e| format!("It could not be started: {e}"))?;
     let until = Instant::now() + Duration::from_secs(seconds);
     loop {
         match child.try_wait() {
