@@ -1,4 +1,4 @@
-/* Code in an answer, highlighted the way the editor highlights it (quietly: DECISIONS F7), in the language
+/* Code in an answer, highlighted the way the editor highlights it (quietly: DECISIONS Q7), in the language
    its block names. Loaded the first time an answer has a block of code in a language; the languages are
    CodeMirror's, each loaded when a block in it is first seen. The result is pieces of text with class names
    (`tok-keyword`, `tok-comment`), drawn by React as spans: never as HTML. */

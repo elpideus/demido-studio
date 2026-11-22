@@ -1593,7 +1593,7 @@
     text-align: end;
   }
 
-  /* code in an answer, highlighted as the editor highlights it: weight, lightness and slant, no hues (F7) */
+  /* code in an answer, highlighted as the editor highlights it: weight, lightness and slant, no hues (Q7) */
   .d-prose .tok-keyword, .d-prose .tok-bool, .d-prose .tok-definition, .d-prose .tok-heading, .d-prose .tok-strong {
     font-weight: 650;
   }

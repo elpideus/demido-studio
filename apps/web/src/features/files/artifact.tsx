@@ -1,6 +1,6 @@
-/* An artifact: a file a model gave in the session, with every version (DECISIONS F10 to F14). Shown as what
+/* An artifact: a file a model gave in the session, with every version (DECISIONS Q10 to Q14). Shown as what
    it is, at any of its versions, and downloaded under its name. A page in it runs nothing, as a page in the
-   folder does not (F2); a drawing (SVG) is shown as a picture, in which it runs nothing either. */
+   folder does not (Q2); a drawing (SVG) is shown as a picture, in which it runs nothing either. */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { FileCode, FileText, Image } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'

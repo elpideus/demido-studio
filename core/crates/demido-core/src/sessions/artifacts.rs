@@ -1,5 +1,5 @@
-//! Artifacts: files a model makes in a session and gives the person to keep (brief 4.24; DECISIONS F10 to
-//! F14).
+//! Artifacts: files a model makes in a session and gives the person to keep (brief 4.24; DECISIONS Q10 to
+//! Q14).
 //!
 //! An artifact is the session's own, not a file in its folder: a session may have no folder, and what a
 //! model gives the person is not a change to their files. It is kept in Demido's storage, every version of

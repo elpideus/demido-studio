@@ -1,5 +1,5 @@
 //! A session's folder, as the person sees it in the window (brief 4.24): what is in it, and each file, to
-//! look at and, for text, to save (DECISIONS F1 to F6).
+//! look at and, for text, to save (DECISIONS Q1 to Q6).
 //!
 //! Only inside the session's folder: every path is checked the way the tools check theirs
 //! (`tools::files::inside`), so `..`, an absolute path elsewhere or a link that leads out is refused before

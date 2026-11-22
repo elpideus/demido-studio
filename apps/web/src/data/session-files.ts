@@ -2,7 +2,7 @@
 
    Nothing outside the session's folder is listed or sent; the core checks every path. A file is sent as what
    it is, except a page (HTML and the like), which comes as text so that it never runs with Demido's address.
-   A text file comes with its version, and is saved only over that version (DECISIONS F6). */
+   A text file comes with its version, and is saved only over that version (DECISIONS Q6). */
 import { create } from 'zustand'
 import { coreGet, onCoreEvent } from './core'
 

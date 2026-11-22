@@ -291,7 +291,7 @@ impl Chat {
         self.settings.value::<bool>("web.use").unwrap_or(true)
     }
 
-    /// Whether models may give the person artifacts in a session with or without a folder (DECISIONS F14).
+    /// Whether models may give the person artifacts in a session with or without a folder (DECISIONS Q14).
     /// By default only without one: asked to add a file to the folder, a real model gave an artifact instead.
     pub(crate) fn artifacts(&self, has_folder: bool) -> bool {
         match self.settings.value::<String>("tools.artifacts").as_deref() {

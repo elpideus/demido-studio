@@ -1,7 +1,7 @@
 /* A file's text, in an editor: CodeMirror 6 (MIT). Its language is found from its name and loaded only when
    a file of it is opened; a name it does not know is plain text.
 
-   Highlighting is quiet on purpose (DECISIONS F7): structure is told by weight, lightness and slant, not by
+   Highlighting is quiet on purpose (DECISIONS Q7): structure is told by weight, lightness and slant, not by
    hues, which Demido keeps for signals. Only what is wrong (an error in the text) has a colour, danger's. */
 import { useEffect, useRef, type RefObject } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'

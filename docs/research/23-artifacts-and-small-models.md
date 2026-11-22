@@ -4,7 +4,7 @@ Written 2026-11-22, directly. Brief 4.24 asks for artifacts: files a model makes
 which it can update, whose earlier versions the person can see, and which can be downloaded; "Claude Desktop
 has this feature". Anthropic's help page (read on 22 November 2026) says Claude makes one when what it shares
 is "significant and self-contained, typically over 15 lines", likely to be edited, reused or referred back to.
-Demido's are built (DECISIONS F10 to F14); this is whether the test models use them.
+Demido's are built (DECISIONS Q10 to Q14); this is whether the test models use them.
 
 How sure each line is: **Tried** (on the owner's computer with `core/dev/artifact-trial.py`, 22 November 2026,
 llama.cpp b12359, decisions at temperature 0 and the rest with each maker's settings, thinking off,
@@ -110,7 +110,7 @@ The four requests that should give nothing gave nothing, in every run, on and of
     puts them there; the smallest model still gave an artifact when asked for a file in the folder, even when
     the tool said where its file goes. In sessions without a folder, nothing was lost by offering it.
 13. **The person does not wait for the model.** Two of the four models seldom or never choose the tool; any
-    answer can be kept as a file by a press (DECISIONS F12).
+    answer can be kept as a file by a press (DECISIONS Q12).
 
 What this does not show: models between 4B and 12B, which the owner's card would run, and anything about the
 quality of the files beyond their names (they were not graded).

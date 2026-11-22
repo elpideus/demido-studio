@@ -1,5 +1,5 @@
 /* Artifacts, for real: the files models gave in a session, with every version, through the core
-   (DECISIONS F10 to F14). They are the session's own, not files in its folder. */
+   (DECISIONS Q10 to Q14). They are the session's own, not files in its folder. */
 import { create } from 'zustand'
 import { coreGet, coreSend } from './core'
 import { CoreProblem, type FolderEntry } from './session-files'

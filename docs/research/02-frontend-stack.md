@@ -27,7 +27,7 @@ Versions and licences were read from the npm registry on 2026-11-20 (`pnpm view 
 | vue | 3.5.46 | MIT | Considered |
 | motion | 14.14.0 | MIT | Considered for gesture-driven motion; not installed until used |
 | lightweight-charts | 5.3.0 | Apache-2.0 | Candidate for Markets charts |
-| @codemirror/view | 6.43.15 | MIT | The editor and its highlighting (DECISIONS F5), adopted 2026-11-22 |
+| @codemirror/view | 6.43.15 | MIT | The editor and its highlighting (DECISIONS Q5), adopted 2026-11-22 |
 | mermaid | 12.3.0 | MIT | Candidate for diagrams |
 | shiki | 4.6.0 | MIT | Candidate for code highlighting |
 | streamdown | 2.8.0 | Apache-2.0 | Candidate for streaming markdown |
