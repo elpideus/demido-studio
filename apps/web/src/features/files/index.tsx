@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 import { File, FileCode, FileText, Folder, Image } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
+import { useCore } from '@/data/core'
 import { showArtifact, toast, useStore } from '@/data/store'
+import { RealFiles } from './real'
 import { Button, Icon, NotBuilt, Segmented, Select } from '@/ui'
 
 interface Entry { name: string; kind: 'md' | 'html' | 'code' | 'image' | 'pdf'; size: string; content?: string; artifact?: string }
@@ -101,4 +103,10 @@ function FilesPage() {
   )
 }
 
-export const feature: Feature = { id: 'files', title: 'Files', icon: Folder, group: 'work', order: 2, path: 'files', Page: FilesPage }
+/** With a core behind the pages, a session's real folder; without one, the preview's. */
+function Files() {
+  const core = useCore()
+  return core.state === 'ready' ? <RealFiles /> : <FilesPage />
+}
+
+export const feature: Feature = { id: 'files', title: 'Files', icon: Folder, group: 'work', order: 2, path: 'files', Page: Files }

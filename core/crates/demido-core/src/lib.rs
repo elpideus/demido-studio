@@ -34,6 +34,7 @@ pub mod desktop;
 pub mod engine;
 pub mod error;
 pub mod events;
+pub mod folder;
 pub mod hub;
 pub mod kept;
 pub mod paths;

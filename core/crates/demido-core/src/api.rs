@@ -555,6 +555,60 @@ async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(bod
     Ok(Json(session))
 }
 
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct FolderQuery {
+    /// A path inside the session's folder, with `/`. Left out: the folder itself.
+    #[serde(default)]
+    pub path: String,
+}
+
+/// The session's folder, the one the model works in.
+fn folder_of(app: &App, id: &str) -> Result<std::path::PathBuf> {
+    let session = app.sessions.get(id)?;
+    session.folder.map(std::path::PathBuf::from).ok_or_else(|| Error::NotFound("This session has no folder.".into()))
+}
+
+/// What is in a folder of the session's folder: folders first, then files, with what each is shown as.
+/// Nothing outside the session's folder is listed.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/files", tag = "sessions", params(("id" = String, Path, description = "The session's id"), FolderQuery), responses((status = 200, body = crate::folder::Listing), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn session_files(State(app): State<App>, Path(id): Path<String>, Query(q): Query<FolderQuery>) -> Result<Json<crate::folder::Listing>> {
+    let folder = folder_of(&app, &id)?;
+    Ok(Json(tokio::task::spawn_blocking(move || crate::folder::list(&folder, &q.path)).await.map_err(|e| Error::Other(e.to_string()))??))
+}
+
+/// A file of the session's folder, to look at. What a browser would run as a page (HTML and the like) is
+/// sent as plain text, and every file with `nosniff` and a `sandbox` policy: it is never a page with
+/// Demido's address. A `Range` is answered, so that a video can be moved through.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/files/content", tag = "sessions", params(("id" = String, Path, description = "The session's id"), FolderQuery), responses((status = 200, description = "The file"), (status = 206, description = "Part of the file"), (status = 404, body = Problem), (status = 416, description = "A range not in the file")))]
+async fn session_file(State(app): State<App>, Path(id): Path<String>, Query(q): Query<FolderQuery>, headers: HeaderMap) -> Result<Response> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let folder = folder_of(&app, &id)?;
+    let opened = tokio::task::spawn_blocking(move || crate::folder::open(&folder, &q.path)).await.map_err(|e| Error::Other(e.to_string()))??;
+    let wanted = crate::folder::range(headers.get(header::RANGE).and_then(|v| v.to_str().ok()), opened.size);
+    let Ok(wanted) = wanted else {
+        return Ok((StatusCode::RANGE_NOT_SATISFIABLE, [(header::CONTENT_RANGE, format!("bytes */{}", opened.size))]).into_response());
+    };
+    let (start, length) = wanted.unwrap_or((0, opened.size));
+    let mut file = tokio::fs::File::open(&opened.path).await?;
+    file.seek(std::io::SeekFrom::Start(start)).await?;
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file.take(length)));
+    // Opened by itself, it is a document of no address, which can run nothing and reach nothing. The window
+    // draws PDFs itself (pdf.js), so none needs the browser's own viewer.
+    let policy = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'";
+    let mut response = Response::builder()
+        .status(if wanted.is_some() { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK })
+        .header(header::CONTENT_TYPE, opened.content_type)
+        .header(header::CONTENT_LENGTH, length)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header("x-content-type-options", "nosniff")
+        .header("content-security-policy", policy)
+        .header(header::CACHE_CONTROL, "no-store");
+    if let Some((start, length)) = wanted {
+        response = response.header(header::CONTENT_RANGE, format!("bytes {start}-{}/{}", start + length - 1, opened.size));
+    }
+    response.body(body).map_err(|e| Error::Other(e.to_string()))
+}
+
 #[derive(Deserialize, ToSchema)]
 pub struct PermissionAnswer {
     /// `once`: yes, this once. `session`: yes, and do not ask again for this tool in this session. `no`.
@@ -1032,7 +1086,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1076,6 +1130,8 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}/changes/{change}/undo", post(session_undo))
         .route("/sessions/{id}/changes/{change}/diff", get(session_diff))
         .route("/sessions/{id}/outputs/{output}", get(session_output))
+        .route("/sessions/{id}/files", get(session_files))
+        .route("/sessions/{id}/files/content", get(session_file))
         .route("/vault", get(vault_get))
         .route("/providers", get(providers_list))
         .route("/providers/{id}/accounts", post(account_add))
@@ -1312,6 +1368,44 @@ mod tests {
         let told = text.split("\n\n").find(|block| block.contains("event: test.told")).expect("the told event arrived");
         assert!(!told.contains("id:"), "{told}");
         assert!(!text.contains("test.after"), "nothing is sent after the stop");
+    }
+
+    #[tokio::test]
+    async fn a_sessions_folder_is_listed_and_its_files_sent_never_as_a_page() {
+        let home = std::env::temp_dir().join(format!("demido-api-folder-{}", uuid::Uuid::new_v4()));
+        let work = home.join("work");
+        std::fs::create_dir_all(home.join("models")).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::write(home.join("models/tiny.gguf"), b"not really a model").unwrap();
+        std::fs::write(work.join("page.html"), "<script>alert(1)</script>").unwrap();
+        std::fs::write(work.join("clip.mp4"), (0u8..100).collect::<Vec<u8>>()).unwrap();
+        std::fs::write(home.join("secret.txt"), "not in the folder").unwrap();
+        let (r, _, _) = app_at(&home);
+        let key = |b: axum::http::request::Builder| b.header("authorization", format!("Bearer {KEY}")).header("content-type", "application/json");
+        let (_, made) = send(&r, key(request("POST", "/api/v1/sessions")).body(Body::from("{}")).unwrap()).await;
+        let id = made["id"].as_str().unwrap().to_string();
+        // No folder yet: nothing to list.
+        assert_eq!(send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/files"))).body(Body::empty()).unwrap()).await.0, StatusCode::NOT_FOUND);
+        let change = json!({ "folder": work.display().to_string() }).to_string();
+        send(&r, key(request("PATCH", &format!("/api/v1/sessions/{id}"))).body(Body::from(change)).unwrap()).await;
+        let (status, listed) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/files"))).body(Body::empty()).unwrap()).await;
+        assert_eq!((status, listed["entries"].as_array().map(Vec::len)), (StatusCode::OK, Some(2)), "{listed}");
+        // A page comes as text, and with the walls that keep it from being one.
+        let res = r.clone().oneshot(key(request("GET", &format!("/api/v1/sessions/{id}/files/content?path=page.html"))).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let h = |name: &str| res.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
+        assert_eq!((h("content-type").as_str(), h("x-content-type-options").as_str()), ("text/plain; charset=utf-8", "nosniff"));
+        assert!(h("content-security-policy").starts_with("sandbox"), "{}", h("content-security-policy"));
+        // Part of a video, as a browser asks for it to move through it.
+        let res = r.clone().oneshot(key(request("GET", &format!("/api/v1/sessions/{id}/files/content?path=clip.mp4"))).header("range", "bytes=10-19").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(res.headers().get("content-range").unwrap(), "bytes 10-19/100");
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(bytes.as_ref(), (10u8..20).collect::<Vec<u8>>().as_slice());
+        // Nothing outside the folder.
+        let (status, _) = send(&r, key(request("GET", &format!("/api/v1/sessions/{id}/files/content?path=../secret.txt"))).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        std::fs::remove_dir_all(home).ok();
     }
 
     #[tokio::test]

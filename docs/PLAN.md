@@ -168,7 +168,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory | The hardest design left, and the product's main promise |
 | 7 | Schedules and monitors that run with nobody there: what they may do | Nobody is there to say no |
 | 7 | The schedules screen; messages between sessions shown | Window work on a decided design |
-| 8 | Files, the viewer, the editor, artifacts | Window work with a clear edge |
+| 8 | ~~The session's folder and the viewer~~ done (DECISIONS F1 to F4); the editor, highlighting, artifacts | Window work with a clear edge |
 | 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts | Logged-in pages are the most private thing there is |
 | 9 | Voice: the libraries, the screen | Research and building, little risk |
 | 9 | Email and the messaging platforms: reading and sending in a person's name | Messages from outside are injected text; sending cannot be undone |
@@ -192,6 +192,8 @@ research note 18).
 Also done on 2026-11-21: Claude Code and OpenCode (DECISIONS U15 to U25).
 
 Also done on 2026-11-22: settings for each model, from what each maker recommends (DECISIONS K26 to K30).
+
+Also done on 2026-11-22: a session's folder in the Files screen, and the viewer for what is in it (DECISIONS F).
 
 Next, in this order unless the owner says otherwise: the sandbox on Windows (it needs the owner's view
 first: note 05's first step guards only writes, and changes the folder's permissions on the person's own
