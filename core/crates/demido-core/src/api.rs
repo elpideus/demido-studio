@@ -374,6 +374,13 @@ pub struct Unloaded {
     pub unloaded: bool,
 }
 
+/// Deletes a model from the models folder: its file, or its folder of parts. A loaded model is unloaded
+/// first; one writing an answer is not deleted. Cannot be undone.
+#[utoipa::path(delete, path = "/api/v1/models/{id}", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), responses((status = 200, body = LocalModel), (status = 404, body = Problem), (status = 409, body = Problem)))]
+async fn model_delete(State(app): State<App>, Path(id): Path<String>) -> Result<Json<LocalModel>> {
+    Ok(Json(app.engine.delete(&id).await?))
+}
+
 /// How a model on this computer picks its words, thinking and not: what each is sent with and why (the
 /// person's own settings, its maker's, the file's or the runtime's), and each of those.
 #[utoipa::path(get, path = "/api/v1/models/{id}/settings", tag = "models", params(("id" = String, Path, description = "The model's name, as the list shows it")), responses((status = 200, body = crate::engine::sampling::ModelSettings), (status = 404, body = Problem)))]
@@ -987,7 +994,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, hub_search, hub_model, hub_download, hub_downloads, hub_stop, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1011,6 +1018,7 @@ pub fn router(app: App) -> Router {
         .route("/runtime/installed/{id}", axum::routing::delete(runtime_remove))
         .route("/runtime/installed/{id}/check", post(runtime_check))
         .route("/models", get(models_list))
+        .route("/models/{id}", axum::routing::delete(model_delete))
         .route("/models/{id}/load", post(model_load))
         .route("/models/{id}/settings", get(model_settings).put(model_settings_set).delete(model_settings_reset))
         .route("/hub/models", get(hub_search))

@@ -79,13 +79,26 @@ export async function unloadLocal(id: string) {
   await readLocal()
 }
 
+/** Deletes a model from the models folder; a loaded one is unloaded first. True when it is gone. */
+export async function deleteLocal(id: string): Promise<boolean> {
+  try {
+    const gone = await coreSend<LocalModel>('DELETE', `/models/${encodeURIComponent(id)}`)
+    toast(`${gone.file} is deleted.`, undefined, 'task-done')
+    await readLocal()
+    return true
+  } catch (e) {
+    toast(`${id} was not deleted. ${(e as Error).message}`, undefined, 'task-failed')
+    return false
+  }
+}
+
 let started = false
 /** Called once, when a core is found: reads the list and keeps it right from the core's news. */
 export function startLocal() {
   if (started) return
   started = true
   void readLocal()
-  for (const kind of ['model.loaded', 'model.unloaded', 'engine.started', 'engine.stopped', 'model.measured']) onCoreEvent(kind, () => void readLocal())
+  for (const kind of ['model.loaded', 'model.unloaded', 'model.deleted', 'model.downloaded', 'engine.started', 'engine.stopped', 'model.measured']) onCoreEvent(kind, () => void readLocal())
   onCoreEvent('model.loading', (e) => {
     const value = Number(e.data.progress)
     if (e.subject && Number.isFinite(value)) set({ progress: { ...get().progress, [e.subject]: value } })

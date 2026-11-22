@@ -80,6 +80,32 @@ async fn looking_at_the_models_starts_nothing() {
 }
 
 #[tokio::test]
+async fn a_model_is_deleted_from_the_folder_loaded_or_not_with_what_was_kept_about_it() {
+    let w = world("delete", false);
+    let models = w.home.join("models");
+    std::fs::write(models.join(".sources.json"), r#"{"small": {"repo": "test/small-GGUF"}, "Big": {"repo": "test/big-GGUF"}}"#).unwrap();
+    w.engine.set_model_settings("small", crate::engine::sampling::Sampling { temperature: Some(0.3), ..Default::default() }, Default::default()).unwrap();
+    // Loaded: it is unloaded, then deleted.
+    w.engine.load("small").await.unwrap();
+    let gone = w.engine.delete("small").await.unwrap();
+    assert_eq!((gone.id.as_str(), gone.size), ("small", 100));
+    assert!(!models.join("small.gguf").exists());
+    let ids: Vec<String> = w.engine.list().await.unwrap().models.into_iter().map(|m| m.id).collect();
+    assert_eq!(ids, ["Big", "vision"]);
+    let sources: Value = serde_json::from_slice(&std::fs::read(models.join(".sources.json")).unwrap()).unwrap();
+    assert!(sources.get("small").is_none() && sources.get("Big").is_some(), "{sources}");
+    assert!(kinds(&w.events).contains(&"model.deleted".to_string()));
+    // A model of several files goes as a folder; one that is not there is said to be not there.
+    w.engine.delete("vision").await.unwrap();
+    assert!(!models.join("vision").exists());
+    assert!(matches!(w.engine.delete("nothing-here").await, Err(Error::NotFound(_))));
+    // What was not a model stays.
+    assert!(models.join("notes.txt").exists());
+    w.engine.shutdown().await;
+    std::fs::remove_dir_all(&w.home).ok();
+}
+
+#[tokio::test]
 async fn a_model_is_loaded_and_unloaded_and_the_runtime_is_started_once() {
     let w = world("load", false);
     let loaded = w.engine.load("small").await.unwrap();

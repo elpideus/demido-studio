@@ -1,6 +1,6 @@
 /* "On this computer", for real: the models in Demido's folder, and loading and unloading them through the core. */
 import { useEffect, useState } from 'react'
-import { loadLocal, readModelSettings, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
+import { deleteLocal, loadLocal, readModelSettings, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
 import { Button, Dialog, Facts, Glyph, NotBuilt, Page, Signal } from '@/ui'
 
 const MB = 1024 * 1024
@@ -162,6 +162,7 @@ export function LocalDetail({ id }: { id: string | null }) {
   const waiting = useLocal((s) => s.waiting)
   const progress = useLocal((s) => s.progress)
   const now = useNow(5000)
+  const [sure, setSure] = useState<string | null>(null)
   if (error && !list) return <Page narrow title="On this computer"><Signal level="caution">The core could not list the models: {error}</Signal></Page>
   if (!list) return <Page narrow title="On this computer"><p className="d-text-secondary"><Glyph name="task-running" /> Looking in the models folder…</p></Page>
   const e = list.engine
@@ -185,7 +186,13 @@ export function LocalDetail({ id }: { id: string | null }) {
               {m.state === 'loaded'
                 ? <Button disabled={busy} onClick={() => unloadLocal(m.id)}>Unload</Button>
                 : <Button variant="primary" disabled={busy || !e.runtime} onClick={() => loadLocal(m.id)}>{busy ? 'Loading…' : 'Load'}</Button>}
+              <Button variant="ghost" disabled={busy} onClick={() => setSure(m.id)}>Delete…</Button>
             </div>
+            {sure === m.id && (
+              <Signal level="warning" actions={<><Button size="sm" onClick={() => setSure(null)}>Keep it</Button><Button size="sm" variant="danger" onClick={() => { setSure(null); void deleteLocal(m.id) }}>Delete {size(m.size)}</Button></>}>
+                {m.file} is deleted from the models folder{m.state === 'loaded' ? ', after it is unloaded' : ''}. It cannot be undone; a model from Hugging Face can be downloaded again. Sessions that use it keep their messages, and need another model to go on.
+              </Signal>
+            )}
             <Facts rows={[
               ['File', m.file],
               ['On disk', size(m.size)],
@@ -210,7 +217,7 @@ export function LocalDetail({ id }: { id: string | null }) {
           ['Folder', list.folder],
         ]} />
       </div>
-      <NotBuilt block>Choosing the context for each model by itself. Deleting a model from here: for now, remove its file or folder from the models folder.</NotBuilt>
+      <NotBuilt block>Choosing the context for each model by itself.</NotBuilt>
     </Page>
   )
 }

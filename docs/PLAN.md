@@ -129,8 +129,8 @@ Windows, and tools other people write.
    GGUF models, whether each fits this computer, a quantization recommended, downloads checked and resumable,
    a vision part downloaded with its model. Settings for each model are built (DECISIONS K26 to K30, research
    note 19): each model is asked the way its maker recommends, thinking and not, and the person can set their
-   own. Left in it: gated models (with the vault), deleting a model from the window, the context for each
-   model.
+   own. A model can be deleted from the window (K31). Left in it: gated models (with the vault), the context
+   for each model.
    The vault and three providers are built (DECISIONS U, research note 18): keys in the system keyring (a
    file only the user can read where there is none), never shown again and never seen by a model; Anthropic,
    Gemini and OpenRouter in sessions, chosen by the person, with what each answer cost and a limit for the

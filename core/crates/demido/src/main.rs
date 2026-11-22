@@ -162,6 +162,11 @@ enum ModelsCommand {
         /// Its name, as `demido models` shows it.
         id: String,
     },
+    /// Delete a model from the models folder: its file, or its folder. It cannot be undone.
+    Delete {
+        /// Its name, as `demido models` shows it.
+        id: String,
+    },
     /// How a model picks its words, thinking and not: what each answer is sent with, and who says so.
     Settings {
         /// Its name, as `demido models` shows it.
@@ -1211,6 +1216,14 @@ async fn models(paths: &Paths, command: Option<ModelsCommand>) -> Result<()> {
         (None, Some(s)) => print_models(&s.get("/api/v1/models")?),
         // Without a server nothing is loaded, and the folder can be read directly.
         (None, None) => print_models(&serde_json::to_value(Core::open(paths)?.engine.list().await?)?),
+        (Some(ModelsCommand::Delete { id }), server) => {
+            let gone = match server {
+                Some(s) => s.send("DELETE", &format!("/api/v1/models/{id}"), None)?,
+                None => serde_json::to_value(Core::open(paths)?.engine.delete(&id).await?)?,
+            };
+            let mb = gone["size"].as_u64().unwrap_or(0) / 1_000_000;
+            println!("{} is deleted ({mb} MB freed).", gone["file"].as_str().unwrap_or(&id));
+        }
         // A model's settings are kept in the data folder: read directly when no server runs.
         (Some(ModelsCommand::Settings { id }), server) => {
             let view = match server {

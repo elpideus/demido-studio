@@ -475,6 +475,55 @@ impl Engine {
         Ok(())
     }
 
+    /// Deletes a model from the models folder: its file, or its folder with all its parts. A loaded model is
+    /// unloaded first; one that is writing an answer is not deleted. What Demido wrote down about it beside
+    /// the models (where it came from) and the person's settings for it go too. Cannot be undone; a model
+    /// downloaded through Demido can be downloaded again.
+    pub async fn delete(&self, id: &str) -> Result<LocalModel> {
+        let m = self.on_disk_named(id)?;
+        {
+            let live = self.live.lock().await;
+            if let Some(l) = &*live
+                && l.answering.get(id).copied().unwrap_or(0) > 0
+            {
+                return Err(Error::Busy(format!("{id} is writing an answer. Stop it first, then delete it.")));
+            }
+        }
+        // Unloaded first, and waited for: a file a program has open cannot be deleted on Windows.
+        if self.unload(id, "it is being deleted").await.is_ok() {
+            for _ in 0..100 {
+                let gone = match &*self.live.lock().await {
+                    Some(l) => l.router.models(false).await.map(|all| all.iter().all(|x| x.id != id || x.state == "unloaded")).unwrap_or(true),
+                    None => true,
+                };
+                if gone {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+        let path = self.models_dir.join(&m.file);
+        // Only ever something directly in the models folder: what `on_disk` found there.
+        if path.parent() != Some(self.models_dir.as_path()) {
+            return Err(Error::Invalid(format!("{} is not in the models folder.", path.display())));
+        }
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?
+        } else {
+            std::fs::remove_file(&path)?
+        }
+        let sources_path = self.models_dir.join(".sources.json");
+        if let Some(mut sources) = std::fs::read(&sources_path).ok().and_then(|b| serde_json::from_slice::<serde_json::Map<String, Value>>(&b).ok())
+            && sources.remove(id).is_some()
+        {
+            let _ = std::fs::write(&sources_path, serde_json::to_vec_pretty(&sources)?);
+        }
+        let _ = self.yours.set(id, sampling::Sampling::default(), sampling::Sampling::default());
+        self.headers.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.events.append("model.deleted", Some(id), json!({ "file": m.file, "size": m.size }))?;
+        Ok(m)
+    }
+
     /// Asks a loaded model and passes its answer on piece by piece as it is written.
     ///
     /// `body` is the request as the runtime takes it (`model`, `messages` and the rest). The model must be

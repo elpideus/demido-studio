@@ -202,6 +202,7 @@ licences were read from crates.io and the GitHub API, not from memory.
 | K27 | **What the makers recommend is a table in Demido, model by model, read on a stated day** (`engine/sampling.rs`, 22 November 2026), like the price table: Qwen3 (seven sizes), Qwen3.5 (two sets: 0.8B and 2B, and 4B, 9B and 27B), Qwen3.6 35B-A3B, Qwen3.8 27B, Gemma 4 (five sizes). By model, not by family, because one family's sizes do not agree (Qwen3.5 2B and 4B). Only models whose own card was read are in it. A model is found by the repository it was downloaded from (its card's `base_model`), or else by the names its file gives itself (`general.basename` and `general.size_label`); a file made for something else (a base model, a later edition, code, pictures, an altered copy) is not taken for the model it came from. | Built, with tests |
 | K28 | **For a model downloaded through Demido and not in the table, its maker's own `generation_config.json`** is read once, at download, and kept beside where it came from (`.sources.json`). It holds one set, used for both ways of answering. | Built, with a test |
 | K29 | **The person can set their own, for each model and each way of answering**, on the model's page ("How it picks its words") or through the API; any setting left empty stays its maker's. Kept in Demido's own folder (`engine/model-settings.json`), not beside the models: that folder may be shared. With neither the person's nor a maker's, Demido sends nothing, and the file's own settings apply (llama.cpp takes `general.sampling.*` for itself), or else the runtime's. The page always says which, and where the maker's came from. | Built. `demido models settings <id>` shows them |
+| K31 | **A model can be deleted from the window** (and `demido models delete`, `DELETE /models/{id}`): its file, or its folder of parts. A loaded model is unloaded first, and waited for; one that is writing an answer is not deleted. What Demido wrote down beside it (where it came from) and the person's settings for it go too. The window says it cannot be undone and that a model from Hugging Face can be downloaded again. Only something directly in the models folder is ever deleted. | Built, with a test; tried in the window on a scratch folder of its own |
 | K30 | **Not built yet:** asking the maker for a model already downloaded without its source (the four test models were put in the folder by hand, and three are in the table); a measurement of what the makers' settings change in Demido's own trials (they were set because the makers say so, not because Demido measured a gain); settings for a model when it plays a character (brief 4.23); the context chosen for each model. | Not built |
 | K12 | **A release's version comes from its tag.** The release build stamps the program with it (`DEMIDO_VERSION`), and the build stops if the program then says anything else. Other builds say what `Cargo.toml` says. So nobody has to remember to raise a number before tagging. | Built |
 
@@ -420,10 +421,10 @@ are decisions about how to build it, not things that are built.
 
 The research run stalled when the session's usage limit was reached and ended with that session. Since then,
 the inference runtime (note 03) and the core's parts (note 11) were researched directly. Still without a report:
-settings per model, adding capabilities through embeddings (the small-model techniques are in note 13;
+adding capabilities through embeddings (the small-model techniques are in note 13;
 "vector reasoning" was withdrawn by the owner), search engines and the named third-party projects (licences, AGPL
 handling, look-alike repos), voice / email / messaging / markets, core architecture (storage, scheduler,
-resource manager). The frontend stack was researched directly since (section C2). The remaining five are
+resource manager). The frontend stack was researched directly since (section C2). Settings per model have one since (note 19). The remaining ones are
 needed before any feature work.
 
 Added by the owner's direction on 2026-11-20, to cover in the voice and markets research: end-of-sentence
