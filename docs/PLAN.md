@@ -170,7 +170,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 7 | ~~The schedules screen~~ built; messages between sessions shown | Window work on a decided design |
 | 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS Q1 to Q14, research note 23), and with them a long file written into the folder (T24). ~~Left from the owner's answers of 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts (Q15)~~ done; one way out of a running page stays open, WebRTC (Q15, IDEAS 142) | Window work with a clear edge; Q15 runs a model's code in the window |
 | 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts (~~PDFs~~ done, N15) | Logged-in pages are the most private thing there is |
-| 9 | Voice: the libraries, the screen | Research and building, little risk |
+| 9 | Voice: the libraries, the screen. ~~What to build it from~~ measured (research note 28): Parakeet, Smart Turn, Pocket TTS; a first build proposed (DECISIONS V7) | Research and building, little risk; the first sound comes about a second after a sentence |
 | 9 | Email and the messaging platforms: reading and sending in a person's name. Gmail by app password first (DECISIONS Y1) | Messages from outside are injected text; sending cannot be undone |
 | 9 | Markets: charts, indicators, the Pine editor | Nothing here places an order |
 | 10 | The desktop shell and the installer | Packaging, checked on three systems by the checks |
@@ -223,6 +223,12 @@ Plans the owner wants tried further down the road are in `docs/LATER.md`. So far
 model, from a short trial when a model is first used.
 
 ## Needs the owner before it can start
+
+- **Voice: the first build (plan item 9; DECISIONS V7, research note 28).** Measured: the speech parts run on the
+  processor beside the model, and the first sound of an answer comes about 1.0 to 1.35 s after your sentence ends.
+  Kokoro is out (sherpa-onnx 2 dropped espeak-ng, and Kokoro then skips words); Pocket TTS speaks, in English only.
+  For you: English only first; which of Kyutai's 228 donated voices; whether you may give a recording of your own
+  voice for Demido to speak with (never anyone else's); whether speech to text may ever go to a provider.
 
 Answered on 2026-11-22 and taken off this list: email's Google preset (Y1), schedules (J), the sandbox on
 Windows (T26), agents (O13, O14), and Smart (T6).
