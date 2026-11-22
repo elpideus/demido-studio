@@ -23,9 +23,12 @@
 //! command's own can be changed, and nothing else; no network at all. Apple marks `sandbox-exec` as
 //! deprecated and still ships it; if a later macOS drops it, there is no sandbox, and the levels ask.
 //!
+//! On Linux there is also a filter on what a program may ask of the kernel (seccomp, `kernel_filter`): the
+//! parts of it that programs a model runs have no need of, and that have been the way out of sandboxes, say
+//! no. Nor can it make namespaces of its own inside (`--disable-userns`).
+//!
 //! Not built: the same on Windows. There a command runs unsandboxed, and so every level but Autonomous
-//! asks first. Not built either: a filter on what the program may ask of the kernel (seccomp), which the
-//! harnesses above add on top on Linux.
+//! asks first.
 
 use std::path::Path;
 #[cfg(unix)]
@@ -157,8 +160,31 @@ impl Sandbox {
         #[cfg(target_os = "linux")]
         if let Some(program) = &self.program {
             let mut command = std::process::Command::new(program);
-            command.args(walls(&folder)).args(["--", "/bin/sh", "-c", script]);
-            return Ok((command, None));
+            command.args(walls(&folder));
+            // The filter goes to bubblewrap on a pipe, as its descriptor 3, and is put in place just before
+            // the program starts. Where none can be made (a processor it is not written for), there is none.
+            let mut kept = Scratch::none();
+            if let Ok(filter) = kernel_filter() {
+                let read = filter_pipe(&filter).map_err(|e| format!("the kernel filter could not be handed over: {e}"))?;
+                let fd = std::os::fd::AsRawFd::as_raw_fd(&read);
+                // SAFETY: only async-signal-safe calls between fork and exec: dup2 and fcntl.
+                unsafe {
+                    std::os::unix::process::CommandExt::pre_exec(&mut command, move || {
+                        if fd == 3 {
+                            if libc::fcntl(3, libc::F_SETFD, 0) == -1 {
+                                return Err(std::io::Error::last_os_error());
+                            }
+                        } else if libc::dup2(fd, 3) == -1 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        Ok(())
+                    });
+                }
+                command.args(["--seccomp", "3"]);
+                kept.1 = Some(read);
+            }
+            command.args(["--", "/bin/sh", "-c", script]);
+            return Ok((command, Some(kept)));
         }
         #[cfg(target_os = "macos")]
         if let Some(program) = &self.program {
@@ -166,7 +192,7 @@ impl Sandbox {
             let scratch = Scratch::new()?;
             let home = std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute());
             let tools = tools_at_home(home.as_deref());
-            let walls = seatbelt::walls(&folder, &scratch.0, home.as_deref(), &tools);
+            let walls = seatbelt::walls(&folder, scratch.folder(), home.as_deref(), &tools);
             let mut command = std::process::Command::new(program);
             command.arg("-p").arg(&walls.profile);
             for (name, value) in &walls.params {
@@ -176,7 +202,7 @@ impl Sandbox {
             }
             command.args(["--", "/bin/sh", "-c", script]).current_dir(&folder).env_clear();
             let path_inside: Vec<PathBuf> = std::env::var_os("PATH").iter().flat_map(std::env::split_paths).filter(|dir| seatbelt::readable(dir, home.as_deref(), &tools)).collect();
-            command.env("PATH", std::env::join_paths(path_inside).unwrap_or_else(|_| "/usr/bin:/bin".into())).env("TERM", "dumb").env("TMPDIR", &scratch.0);
+            command.env("PATH", std::env::join_paths(path_inside).unwrap_or_else(|_| "/usr/bin:/bin".into())).env("TERM", "dumb").env("TMPDIR", scratch.folder());
             if let Some(home) = &home {
                 command.env("HOME", home);
             }
@@ -280,8 +306,9 @@ impl Sandbox {
     }
 }
 
-/// A temporary folder made for one command, deleted with everything in it when this is dropped.
-pub(crate) struct Scratch(#[allow(dead_code)] std::path::PathBuf);
+/// What one command needs kept until it has started and ended: a temporary folder of its own (macOS),
+/// deleted with everything in it when this is dropped, and the pipe its kernel filter comes on (Linux).
+pub(crate) struct Scratch(#[allow(dead_code)] Option<std::path::PathBuf>, #[cfg(target_os = "linux")] Option<std::os::fd::OwnedFd>);
 
 impl Scratch {
     #[cfg(target_os = "macos")]
@@ -290,13 +317,26 @@ impl Scratch {
         std::fs::create_dir_all(&place).map_err(|e| format!("a temporary folder for it could not be made: {e}"))?;
         // Its real path: Seatbelt's rules are about real paths, and /var is /private/var on macOS.
         let real = place.canonicalize().map_err(|e| format!("its temporary folder could not be found again: {e}"))?;
-        Ok(Self(real))
+        Ok(Self(Some(real)))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn none() -> Self {
+        Self(None, None)
+    }
+
+    /// The temporary folder made for the command.
+    #[cfg(target_os = "macos")]
+    fn folder(&self) -> &std::path::Path {
+        self.0.as_deref().expect("made with a folder")
     }
 }
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        if let Some(place) = &self.0 {
+            let _ = std::fs::remove_dir_all(place);
+        }
     }
 }
 
@@ -315,6 +355,78 @@ fn tools_at_home(home: Option<&Path>) -> Vec<PathBuf> {
     real.sort();
     real.dedup();
     real
+}
+
+/// What a program in the sandbox may not ask of the kernel: parts of it that programs a model runs have no
+/// need of, and that have often been the way out of sandboxes. Asked anyway, the kernel says no (EPERM).
+/// io_uring; following and reading other processes (ptrace: no debugger runs inside); the kernel's keyring,
+/// which can hold the person's own secrets; BPF, performance counters and userfaultfd; mounting; loading
+/// kernel code; reopening files by handle; and sockets to virtual machines (vsock).
+#[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]
+const NOT_ASKED: [i64; 26] = [
+    libc::SYS_io_uring_setup,
+    libc::SYS_io_uring_enter,
+    libc::SYS_io_uring_register,
+    libc::SYS_ptrace,
+    libc::SYS_process_vm_readv,
+    libc::SYS_process_vm_writev,
+    libc::SYS_keyctl,
+    libc::SYS_add_key,
+    libc::SYS_request_key,
+    libc::SYS_bpf,
+    libc::SYS_perf_event_open,
+    libc::SYS_userfaultfd,
+    libc::SYS_mount,
+    libc::SYS_umount2,
+    libc::SYS_pivot_root,
+    libc::SYS_fsopen,
+    libc::SYS_fsmount,
+    libc::SYS_fsconfig,
+    libc::SYS_fspick,
+    libc::SYS_move_mount,
+    libc::SYS_open_tree,
+    libc::SYS_kexec_load,
+    libc::SYS_init_module,
+    libc::SYS_finit_module,
+    libc::SYS_delete_module,
+    libc::SYS_open_by_handle_at,
+];
+
+/// The kernel filter, as the compiled program bubblewrap's `--seccomp` takes.
+#[cfg(target_os = "linux")]
+fn kernel_filter() -> Result<Vec<u8>, String> {
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        Err("no kernel filter is written for this processor".into())
+    }
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    {
+        use seccompiler::{BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule, TargetArch};
+        let arch = if cfg!(target_arch = "x86_64") { TargetArch::x86_64 } else { TargetArch::aarch64 };
+        let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> = NOT_ASKED.iter().map(|n| (*n, vec![])).collect();
+        let vsock = SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Eq, libc::AF_VSOCK as u64).and_then(|c| SeccompRule::new(vec![c])).map_err(|e| e.to_string())?;
+        rules.insert(libc::SYS_socket, vec![vsock]);
+        let filter = SeccompFilter::new(rules, SeccompAction::Allow, SeccompAction::Errno(libc::EPERM as u32), arch).map_err(|e| e.to_string())?;
+        let program: BpfProgram = filter.try_into().map_err(|e: seccompiler::BackendError| e.to_string())?;
+        Ok(program.iter().flat_map(|f| f.code.to_ne_bytes().into_iter().chain([f.jt, f.jf]).chain(f.k.to_ne_bytes())).collect())
+    }
+}
+
+/// A pipe holding the filter, for the program to read: its reading end, the writing end already closed.
+#[cfg(target_os = "linux")]
+fn filter_pipe(filter: &[u8]) -> std::io::Result<std::os::fd::OwnedFd> {
+    use std::io::Write;
+    use std::os::fd::FromRawFd;
+    let mut fds = [0i32; 2];
+    // SAFETY: pipe2 fills two descriptors, each owned once below.
+    if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: both were just made by pipe2 and are owned by nothing else.
+    let (read, write) = unsafe { (std::os::fd::OwnedFd::from_raw_fd(fds[0]), std::os::fd::OwnedFd::from_raw_fd(fds[1])) };
+    // A few hundred bytes: far less than a pipe holds, so this never waits.
+    std::fs::File::from(write).write_all(filter)?;
+    Ok(read)
 }
 
 /// The full path of a program, if it is on the `PATH`.
@@ -454,8 +566,9 @@ fn walls(folder: &Path) -> Vec<std::ffi::OsString> {
     let mut args: Vec<OsString> = Vec::new();
     let mut add = |parts: &[&std::ffi::OsStr]| args.extend(parts.iter().map(|p| p.to_os_string()));
     let s = std::ffi::OsStr::new;
-    // Its own view of processes, users, and the network (none); gone when Demido is gone.
-    add(&[s("--unshare-all"), s("--die-with-parent"), s("--new-session"), s("--clearenv")]);
+    // Its own view of processes, users, and the network (none); gone when Demido is gone. It cannot make
+    // namespaces of its own inside: they are much of the kernel a program is not otherwise given.
+    add(&[s("--unshare-all"), s("--unshare-user"), s("--disable-userns"), s("--die-with-parent"), s("--new-session"), s("--clearenv")]);
     add(&[s("--proc"), s("/proc"), s("--dev"), s("/dev"), s("--tmpfs"), s("/tmp"), s("--tmpfs"), s("/run"), s("--tmpfs"), s("/var"), s("--dir"), s("/var/tmp")]);
     // The system, to read: every folder at the top of the computer but the ones people keep their things in.
     let mut top: Vec<_> = std::fs::read_dir("/").into_iter().flatten().filter_map(|e| e.ok()).collect();
@@ -666,6 +779,14 @@ mod tests {
         let closed = run("touch /usr/planted 2>&1; touch /etc/planted 2>&1; echo secret=[$DEMIDO_TEST_SECRET]").await;
         assert!(!std::path::Path::new("/usr/planted").exists() && !std::path::Path::new("/etc/planted").exists());
         assert!(closed.output.contains("secret=[]"), "{}", closed.output);
+        // On Linux, what a program may not ask of the kernel is refused, and it cannot make namespaces of
+        // its own. (io_uring_setup is syscall 425 on both processors the filter is written for.)
+        #[cfg(target_os = "linux")]
+        if Path::new("/usr/bin/python3").exists() {
+            let asked = run("/usr/bin/python3 -c \"import ctypes; c = ctypes.CDLL(None, use_errno=True); print('uring', c.syscall(425, 1, 0), ctypes.get_errno()); print('ptrace', c.ptrace(0, 0, 0, 0), ctypes.get_errno())\"; unshare -U true 2>&1; echo userns=$?").await;
+            assert!(asked.output.contains("uring -1 1") && asked.output.contains("ptrace -1 1"), "{}", asked.output);
+            assert!(!asked.output.contains("userns=0"), "{}", asked.output);
+        }
         // What is written to /tmp inside never reaches the computer's own /tmp.
         let planted = format!("demido-sandbox-planted-{}", uuid::Uuid::new_v4());
         let tmp = run(&*Box::leak(format!("echo x > /tmp/{planted} 2>&1; echo inside > \"$TMPDIR/own\" && cat \"$TMPDIR/own\"").into_boxed_str())).await;

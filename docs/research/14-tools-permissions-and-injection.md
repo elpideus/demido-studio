@@ -181,11 +181,16 @@ Read for it: Codex's Seatbelt policy and its builder (`codex-rs/sandboxing/src/s
 `seatbelt.rs`, Apache-2.0), for the services a program needs, parameters passed with `-D`, and two fcntl
 commands that change a file through a read-only descriptor.
 
+Tried since on Linux (22 November 2026): a filter on what a program may ask of the kernel (DECISIONS T21),
+given to bubblewrap 0.13.1 as a compiled program on a pipe. Inside, `io_uring_setup` and `ptrace` were
+refused with EPERM (outside, `io_uring_setup` answered EFAULT: it is there), `unshare -U` could not make a
+namespace (`--disable-userns`), and `cargo` and `python3` ran as before.
+
 Not tried: anything on Windows (there is no sandbox there yet, and so a program asks first); a
 folder too large to save; a program that tries to get out on purpose. bubblewrap's own README says it is
 "not a complete, ready-made sandbox with a specific security policy": the policy is the list of what is
 let in, in `sandbox.rs`, and it is as good as that list. The harnesses I could check add a filter on what
-a program may ask of the kernel (seccomp). Demido does not yet.
+a program may ask of the kernel (seccomp). Demido does too since (T21).
 
 ## What was decided
 

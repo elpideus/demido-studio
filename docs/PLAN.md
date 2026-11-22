@@ -158,7 +158,7 @@ list made for the split stays, because it says what is left and what to watch in
 
 | # | Remaining work | What to watch |
 |---|---|---|
-| 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows; a filter on what a program may ask of the kernel | Security, and it cannot be tried here: only on the checks' machines |
+| 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows; ~~a filter on what a program may ask of the kernel~~ done (T21) | Security, and it cannot be tried here: only on the checks' machines |
 | 5 | The second look that Smart is to give, and the trial that says whether a small model can give it | A measurement that decides a security design |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |

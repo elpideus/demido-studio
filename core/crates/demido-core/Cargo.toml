@@ -35,6 +35,8 @@ zip.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store.workspace = true
+seccompiler.workspace = true
+libc.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true
