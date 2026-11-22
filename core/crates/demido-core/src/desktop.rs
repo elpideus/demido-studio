@@ -8,7 +8,12 @@
 //! with nearly every Linux desktop. A D-Bus library would add some thirty packages to answer one question,
 //! so it waits until a second thing needs D-Bus (DECISIONS K14).
 //!
-//! Windows and macOS: not built. The answer says so (`supported: false`) instead of pretending there is no accent.
+//! On macOS the system itself is asked for its accent colour (`NSColor.controlAccentColor`, in sRGB),
+//! through `osascript`'s JavaScript, which every Mac has: the colour itself, not a name looked up in a table.
+//!
+//! On Windows it is the accent the person chose, as Windows keeps it (`AccentColor` under
+//! `HKCU\Software\Microsoft\Windows\DWM`, a number in the order alpha, blue, green, red), read with `reg`,
+//! which every Windows has.
 
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -17,9 +22,10 @@ use utoipa::ToSchema;
 pub struct Appearance {
     /// The system's accent colour as `#rrggbb`. `null` when the system has none or will not say.
     pub accent: Option<String>,
-    /// Where the answer came from: `portal`. `null` when there is no answer.
+    /// Where the answer came from: `portal` (Linux), `appkit` (macOS), `registry` (Windows). `null` when
+    /// there is no answer.
     pub source: Option<String>,
-    /// False where reading the system accent is not built yet (Windows, macOS).
+    /// False where reading the system accent is not built (a system other than these three).
     pub supported: bool,
 }
 
@@ -30,10 +36,64 @@ pub fn read() -> Appearance {
         let accent = by_portal();
         Appearance { source: accent.as_ref().map(|_| "portal".to_string()), accent, supported: true }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        let accent = by_appkit();
+        Appearance { source: accent.as_ref().map(|_| "appkit".to_string()), accent, supported: true }
+    }
+    #[cfg(windows)]
+    {
+        let accent = by_registry();
+        Appearance { source: accent.as_ref().map(|_| "registry".to_string()), accent, supported: true }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         Appearance { accent: None, source: None, supported: false }
     }
+}
+
+/// What a program printed, if it ended well within a few seconds.
+#[cfg(any(target_os = "macos", windows))]
+fn said(program: &str, args: &[&str]) -> Option<String> {
+    let mut child = std::process::Command::new(program).args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().ok()?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) | Err(_) => return None,
+            Ok(None) if started.elapsed() > std::time::Duration::from_secs(5) => {
+                let _ = child.kill();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(30)),
+        }
+    }
+    let mut out = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take()?, &mut out).ok()?;
+    Some(out)
+}
+
+/// The accent macOS draws controls with, in sRGB, as three numbers from 0 to 1.
+#[cfg(target_os = "macos")]
+fn by_appkit() -> Option<String> {
+    let script = "ObjC.import('AppKit'); var c = $.NSColor.controlAccentColor.colorUsingColorSpace($.NSColorSpace.sRGBColorSpace); [c.redComponent, c.greenComponent, c.blueComponent].join(' ')";
+    said("/usr/bin/osascript", &["-l", "JavaScript", "-e", script]).as_deref().and_then(rgb).and_then(hex)
+}
+
+/// The accent the person chose on Windows.
+#[cfg(windows)]
+fn by_registry() -> Option<String> {
+    said("reg", &["query", r"HKCU\Software\Microsoft\Windows\DWM", "/v", "AccentColor"]).as_deref().and_then(from_registry)
+}
+
+/// `AccentColor    REG_DWORD    0xff9c5a00`: alpha, blue, green, red, as one number. As `#rrggbb`.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn from_registry(text: &str) -> Option<String> {
+    let line = text.lines().find(|l| l.contains("AccentColor") && l.contains("REG_DWORD"))?;
+    let number = line.split_whitespace().last()?.trim_start_matches("0x").trim_start_matches("0X");
+    let v = u32::from_str_radix(number, 16).ok()?;
+    let (r, g, b) = (v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff);
+    Some(format!("#{r:02x}{g:02x}{b:02x}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -56,7 +116,7 @@ fn by_portal() -> Option<String> {
 /// Finds the three numbers in the portal's answer, however the tool wrote them:
 /// `v (ddd) 0.901961 0.647059 0.85098` (busctl) or `(<(0.9019, 0.6470, 0.8509)>,)` (gdbus).
 /// Anything else (two numbers, four, words) is not an answer.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", test)), allow(dead_code))]
 fn rgb(text: &str) -> Option<[f64; 3]> {
     let numbers: Vec<f64> = text
         .split(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | 'e' | 'E' | '+')))
@@ -68,7 +128,7 @@ fn rgb(text: &str) -> Option<[f64; 3]> {
 }
 
 /// The portal gives each part from 0 to 1. A part outside that range is its way of saying "no accent is set".
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", test)), allow(dead_code))]
 fn hex(rgb: [f64; 3]) -> Option<String> {
     if rgb.iter().any(|c| !(0.0..=1.0).contains(c)) {
         return None;
@@ -88,6 +148,25 @@ mod tests {
         assert_eq!(rgb("(<(0.90196079015731812, 0.64705884456634521, 0.85098040103912354)>,)\n").and_then(hex).as_deref(), Some("#e6a5d9"));
         assert_eq!(rgb("v (ddd) 0 0 0").and_then(hex).as_deref(), Some("#000000"));
         assert_eq!(rgb("v (ddd) 1 1 1").and_then(hex).as_deref(), Some("#ffffff"));
+    }
+
+    #[test]
+    fn macos_and_windows_answers_are_read() {
+        // osascript prints AppKit's components with a space between them: the same reader as the portal's.
+        assert_eq!(rgb("0 0.47843137383461 1\n").and_then(hex).as_deref(), Some("#007aff"));
+        // Windows keeps alpha, blue, green, red.
+        assert_eq!(from_registry("\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\DWM\r\n    AccentColor    REG_DWORD    0xff9c5a00\r\n").as_deref(), Some("#005a9c"));
+        assert_eq!(from_registry("ERROR: The system was unable to find the specified registry key or value."), None);
+    }
+
+    /// Where the checks run on macOS and Windows, the real system is asked: it answers, or says it has none.
+    #[cfg(any(target_os = "macos", windows))]
+    #[test]
+    fn the_system_is_asked_for_its_accent() {
+        let seen = read();
+        assert!(seen.supported);
+        assert!(seen.accent.as_deref().is_none_or(|a| a.len() == 7 && a.starts_with('#')), "{seen:?}");
+        eprintln!("this system's accent: {seen:?}");
     }
 
     #[test]

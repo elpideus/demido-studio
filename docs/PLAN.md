@@ -175,7 +175,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 9 | Markets: charts, indicators, the Pine editor | Nothing here places an order |
 | 10 | The desktop shell and the installer | Packaging, checked on three systems by the checks |
 | 10 | The updater, signing releases, hardening server mode | A wrong update reaches everyone; an open server is an open computer |
-| – | The system accent on Windows and macOS; ~~the per-model context size~~ done (K32) | Small and bounded |
+| – | ~~The system accent on Windows and macOS~~ done (K33); ~~the per-model context size~~ done (K32) | Small and bounded |
 
 Done from this list on 2026-11-21: reading from the internet, and the facts for it (DECISIONS N). What it
 left for later is in the rows it touches: search with a key waits for the vault, pages that need scripts
