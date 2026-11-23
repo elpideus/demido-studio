@@ -47,14 +47,22 @@ export interface Spending { since: number; until: number; limit_usd: number | nu
 export interface AccountLine { label: string; used: number; limit: number | null; unit: string; reset: string | null }
 export interface Account { provider: string; lines: AccountLine[]; note: string | null }
 
+/** A search service the person can give a key for (Brave, Exa, Tavily): asked first, before the free ones.
+    `price_usd`: one search at its list price. `searches`, `spent_usd`: what was counted for its key this month. */
+export interface SearchService {
+  id: string; name: string; price_usd: number; free: string; keys_at: string; setting: string; on: boolean
+  key: KeyFacts | null; searches: number; spent_usd: number
+}
+
 interface State {
   providers: ProviderView[] | null
   vault: VaultView | null
   spending: Spending | null
+  search: SearchService[] | null
   error: string | null
 }
 
-export const useProviders = create<State>(() => ({ providers: null, vault: null, spending: null, error: null }))
+export const useProviders = create<State>(() => ({ providers: null, vault: null, spending: null, search: null, error: null }))
 const set = useProviders.setState
 
 let reading: Promise<void> | null = null
@@ -71,8 +79,8 @@ export function readProviders(): Promise<void> {
     do {
       again = false
       try {
-        const [providers, vault, spending] = await Promise.all([coreGet<ProviderView[]>('/providers'), coreGet<VaultView>('/vault'), coreGet<Spending>('/usage')])
-        set({ providers, vault, spending, error: null })
+        const [providers, vault, spending, search] = await Promise.all([coreGet<ProviderView[]>('/providers'), coreGet<VaultView>('/vault'), coreGet<Spending>('/usage'), coreGet<SearchService[]>('/search/keys')])
+        set({ providers, vault, spending, search, error: null })
       } catch (e) {
         set({ error: (e as Error).message })
       }
@@ -108,6 +116,30 @@ export async function changeAccount(provider: string, account: string, change: {
     toast(`Not changed. ${(e as Error).message}`, undefined, 'task-failed')
     return false
   }
+}
+
+/** Keeps the person's key for a search service, in place of one kept before. False, with the reason shown, when it was not kept. */
+export async function setSearchKey(service: SearchService, value: string): Promise<boolean> {
+  try {
+    const changed = await coreSend<SearchService>('PUT', `/search/keys/${encodeURIComponent(service.id)}`, { value })
+    if (changed.key) toast(`Kept: the ${service.name} key ending in …${changed.key.ends_with}, in ${where(changed.key)}. A search asks ${service.name} first now.`, undefined, 'task-done')
+    await readProviders()
+    return true
+  } catch (e) {
+    toast(`The key was not kept. ${(e as Error).message}`, undefined, 'task-failed')
+    return false
+  }
+}
+
+/** Deletes the key for a search service: searches go on with the free services. */
+export async function removeSearchKey(service: SearchService) {
+  try {
+    await coreSend('DELETE', `/search/keys/${encodeURIComponent(service.id)}`)
+    toast(`The ${service.name} key is deleted. Searches go on with the free services. It still works at ${service.name} until you revoke it there.`, undefined, 'task-done')
+  } catch (e) {
+    toast(`Not deleted. ${(e as Error).message}`, undefined, 'task-failed')
+  }
+  await readProviders()
 }
 
 /** Gives an account another key. False, with the reason shown, when it was not kept. */

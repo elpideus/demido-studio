@@ -339,9 +339,10 @@ enum KeysCommand {
     /// same as `demido keys`.
     List,
     /// Add an account at a provider, with its key. The key is asked for without being shown, or read from a
-    /// pipe: demido keys add openrouter Work < key.txt
+    /// pipe: demido keys add openrouter Work < key.txt. Also huggingface (a token for gated models) and brave,
+    /// exa or tavily (a key for a search service, asked before the free ones).
     Add {
-        /// anthropic, gemini or openrouter.
+        /// anthropic, gemini or openrouter; huggingface; brave, exa or tavily.
         provider: String,
         /// Your own name for the account: Work, Personal. Left out: Account 1, Account 2.
         label: Option<String>,
@@ -354,8 +355,13 @@ enum KeysCommand {
     },
     /// Make an account the one sessions use unless they name another.
     Default { provider: String, account: String },
-    /// Delete an account and its key, from wherever it is kept.
-    Remove { provider: String, account: String },
+    /// Delete an account and its key, from wherever it is kept. For huggingface, brave, exa and tavily, no
+    /// account is named.
+    Remove {
+        provider: String,
+        #[arg(default_value = "")]
+        account: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -641,8 +647,56 @@ async fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
                     if token["kept_in"] == "keyring" { "system keyring" } else { "file" }
                 );
             }
+            // Keys for search services: one each, not accounts.
+            for service in demido_core::web::Keyed::ALL {
+                if let Some(key) = view["keys"].as_array().into_iter().flatten().find(|k| k["name"] == service.vault_name()) {
+                    println!(
+                        "\n{} (search)\n  key                      …{}  kept in the {}",
+                        service.name(),
+                        key["ends_with"].as_str().unwrap_or(""),
+                        if key["kept_in"] == "keyring" { "system keyring" } else { "file" }
+                    );
+                }
+            }
             let names: Vec<&str> = demido_core::providers::ALL.iter().filter(|d| !d.program).map(|d| d.id).collect();
-            println!("\nProviders Demido keeps keys for: {}. Each may have several accounts. And huggingface, a token for gated models.", names.join(", "));
+            println!(
+                "\nProviders Demido keeps keys for: {}. Each may have several accounts. And huggingface, a token for gated models; and brave, exa and tavily, keys for search services.",
+                names.join(", ")
+            );
+        }
+        KeysCommand::Add { provider, label } if demido_core::web::Keyed::from_id(&provider).is_some() => {
+            let _ = label;
+            let service = demido_core::web::Keyed::from_id(&provider).expect("just checked");
+            let value = read_hidden(&format!("The {} key: ", service.name()))?;
+            if value.is_empty() {
+                bail!("Nothing was given, so nothing was kept.");
+            }
+            let facts = match (&server, &core) {
+                (Some(s), _) => s.send("PUT", &format!("/api/v1/search/keys/{provider}"), Some(&json!({ "value": value })))?["key"].clone(),
+                (None, Some(c)) => serde_json::to_value(c.providers.vault().put(service.vault_name(), value.trim())?)?,
+                _ => unreachable!(),
+            };
+            println!(
+                "Kept: the {} key ending in …{}, in the {}. A search asks {} first now; each costs ${:.3} at its list price, counted with your spending.",
+                service.name(),
+                facts["ends_with"].as_str().unwrap_or(""),
+                kept_in(&facts),
+                service.name(),
+                service.price()
+            );
+        }
+        KeysCommand::Remove { provider, .. } if demido_core::web::Keyed::from_id(&provider).is_some() => {
+            let service = demido_core::web::Keyed::from_id(&provider).expect("just checked");
+            match (&server, &core) {
+                (Some(s), _) => {
+                    s.send("DELETE", &format!("/api/v1/search/keys/{provider}"), None)?;
+                }
+                (None, Some(c)) => {
+                    c.providers.vault().remove(service.vault_name())?;
+                }
+                _ => unreachable!(),
+            }
+            println!("The {} key is deleted. Searches go on with the free services.", service.name());
         }
         KeysCommand::Add { provider, label } if provider == "huggingface" => {
             let _ = label;

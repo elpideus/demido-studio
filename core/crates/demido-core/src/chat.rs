@@ -287,6 +287,11 @@ impl Chat {
         self
     }
 
+    /// The client that reads from the internet.
+    pub fn web(&self) -> &Arc<crate::web::Web> {
+        &self.web
+    }
+
     /// Whether models may read from the internet at all: the person's setting.
     pub(crate) fn internet(&self) -> bool {
         self.settings.value::<bool>("web.use").unwrap_or(true)

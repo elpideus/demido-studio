@@ -1,4 +1,4 @@
-//! Searching the internet without an account: sources tried in turn until one answers.
+//! Searching the internet: sources tried in turn until one answers.
 //!
 //! The shape is the previous Demido's, which the owner asked for (DECISIONS N13): search services refuse
 //! programs now and then, and which one refuses changes from day to day, so a search climbs a ladder.
@@ -8,6 +8,10 @@
 //!
 //! The rungs, in order:
 //!
+//! 0. **The services the person gave a key for** (DECISIONS N17, research note 30): Brave Search, Exa and
+//!    Tavily, in that order. A key is the person saying "use this one, I pay for it", so they come first.
+//!    Each answers with passages of the pages it found. What each search cost is said with what was found,
+//!    for the core to count with the providers' spending (U7).
 //! 1. **The person's own SearXNG server**, when its address is set.
 //! 2. **Exa**, through the service it offers assistants: no account, a free limit. It searches the whole
 //!    web and answers with passages of the pages it found, which is what a small model needs.
@@ -20,6 +24,9 @@
 //! Every rung is asked under Demido's own name. Not here, though the previous Demido had them: reading
 //! Brave's and Bing's result pages (their own `robots.txt` says not to), a browser's name in place of
 //! Demido's, and the built-in browser as the last rung (there is no built-in browser yet).
+//!
+//! A search is kept for an hour (N10), except what Brave and Exa answered: their terms forbid keeping their
+//! results beyond a passing copy (research note 30, N18).
 //!
 //! The words of a search are the one thing here that a model writes and that leaves the computer, so they
 //! are kept short, and they go to the rungs that are turned on and nowhere else.
@@ -64,6 +71,132 @@ const DUCKDUCKGO_LITE: &str = "DuckDuckGo Lite";
 const WIKIPEDIA: &str = "Wikipedia";
 const MWMBL: &str = "Mwmbl";
 const WIKIPEDIA_AND_MWMBL: &str = "Wikipedia and Mwmbl";
+/// A service asked with the person's key: one request a second at most, whatever its own limit.
+const BETWEEN_TWO_KEYED: Duration = Duration::from_secs(1);
+/// How many pages a keyed service is asked for, and how much of each it gives.
+const MOST_FROM_A_KEYED: usize = 5;
+
+/// A search service the person pays for with a key of their own (research note 30, DECISIONS N17).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Keyed {
+    Brave,
+    Exa,
+    Tavily,
+}
+
+impl Keyed {
+    /// In the order they are asked.
+    pub const ALL: [Keyed; 3] = [Keyed::Brave, Keyed::Exa, Keyed::Tavily];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Keyed::Brave => "brave",
+            Keyed::Exa => "exa",
+            Keyed::Tavily => "tavily",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Keyed> {
+        Keyed::ALL.into_iter().find(|k| k.id() == id)
+    }
+
+    /// Its name for a person.
+    pub fn name(self) -> &'static str {
+        match self {
+            Keyed::Brave => "Brave Search",
+            Keyed::Exa => "Exa",
+            Keyed::Tavily => "Tavily",
+        }
+    }
+
+    /// The rung's name, said with what it found.
+    fn rung_name(self) -> &'static str {
+        match self {
+            Keyed::Brave => "Brave Search (your key)",
+            Keyed::Exa => "Exa (your key)",
+            Keyed::Tavily => "Tavily (your key)",
+        }
+    }
+
+    /// Where its key is kept in the vault.
+    pub fn vault_name(self) -> &'static str {
+        match self {
+            Keyed::Brave => "brave.main",
+            Keyed::Exa => "exa.main",
+            Keyed::Tavily => "tavily.main",
+        }
+    }
+
+    /// The setting that turns it on or off, without removing its key.
+    pub fn setting(self) -> &'static str {
+        match self {
+            Keyed::Brave => "web.brave",
+            Keyed::Exa => "web.exaKey",
+            Keyed::Tavily => "web.tavily",
+        }
+    }
+
+    /// What one search costs at its list price, in dollars, as read on 2026-11-23 (research note 30). Free
+    /// credits are not taken off: the count is above the bill, never below (U7).
+    pub fn price(self) -> f64 {
+        match self {
+            // $5 per 1,000 requests, LLM Context and web search alike.
+            Keyed::Brave => 0.005,
+            // "lite": $4 per 1,000 requests up to 10 results.
+            Keyed::Exa => 0.004,
+            // A basic search is one credit; $0.008 a credit paid as you go, the dearest.
+            Keyed::Tavily => 0.008,
+        }
+    }
+
+    /// What it gives free, in its own words, as read on 2026-11-23.
+    pub fn free(self) -> &'static str {
+        match self {
+            Keyed::Brave => "$5 of credits every month (1,000 searches)",
+            Keyed::Exa => "$10 of credits every month (2,500 searches)",
+            Keyed::Tavily => "1,000 credits every month (1,000 searches)",
+        }
+    }
+
+    /// Where its keys are made.
+    pub fn keys_at(self) -> &'static str {
+        match self {
+            Keyed::Brave => "https://api-dashboard.search.brave.com",
+            Keyed::Exa => "https://dashboard.exa.ai/api-keys",
+            Keyed::Tavily => "https://app.tavily.com",
+        }
+    }
+
+    /// Whether its terms let its results be kept for later (research note 30). Brave's forbid storing or
+    /// caching them "other than transient storage"; Exa's forbid copying anything obtained from it but a
+    /// browser's own cache. Tavily's say nothing of it.
+    fn may_keep(self) -> bool {
+        matches!(self, Keyed::Tavily)
+    }
+}
+
+/// A key a search is to be asked with. Its value is never shown: not in a log, not in an error.
+#[derive(Clone, PartialEq)]
+pub struct WithKey {
+    pub service: Keyed,
+    pub key: String,
+}
+
+impl std::fmt::Debug for WithKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WithKey({}, [a key Demido keeps])", self.service.id())
+    }
+}
+
+/// What a search with a key cost.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Paid {
+    pub service: Keyed,
+    pub usd: f64,
+    /// The service's own figure (Exa says what each request cost); otherwise its list price.
+    pub exact: bool,
+}
 
 /// One page that a search found.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -96,6 +229,9 @@ pub struct Found {
     /// Nothing was asked of anyone: the search was kept from before.
     #[serde(skip)]
     pub kept: bool,
+    /// What it cost, when a service with the person's key answered.
+    #[serde(skip)]
+    pub paid: Option<Paid>,
 }
 
 impl Found {
@@ -133,16 +269,20 @@ pub struct Which {
     pub mwmbl: bool,
     /// The Wikipedia to ask: `en`, `it`, `de`…
     pub language: String,
+    /// The services the person gave a key for, that are turned on and within the month's limit: asked first,
+    /// in this order.
+    pub keyed: Vec<WithKey>,
 }
 
 impl Default for Which {
     fn default() -> Self {
-        Self { searxng: None, exa: true, duckduckgo: true, wikipedia: true, mwmbl: true, language: "en".into() }
+        Self { searxng: None, exa: true, duckduckgo: true, wikipedia: true, mwmbl: true, language: "en".into(), keyed: Vec::new() }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Rung {
+    Keyed(Keyed),
     Searxng,
     Exa,
     DuckDuckGo,
@@ -153,6 +293,7 @@ enum Rung {
 impl Rung {
     fn name(self) -> &'static str {
         match self {
+            Rung::Keyed(service) => service.rung_name(),
             Rung::Searxng => SEARXNG,
             Rung::Exa => EXA,
             Rung::DuckDuckGo => DUCKDUCKGO,
@@ -160,10 +301,25 @@ impl Rung {
             Rung::WikipediaAndMwmbl => WIKIPEDIA_AND_MWMBL,
         }
     }
+
+    /// Whether what it answered may be kept for later.
+    fn may_keep(self) -> bool {
+        match self {
+            Rung::Keyed(service) => service.may_keep(),
+            // The same service as with a key, under the same terms (research note 30).
+            Rung::Exa => false,
+            _ => true,
+        }
+    }
+
+    /// Whether it answers with passages of the pages, so that the first page need not be read as well.
+    fn gives_passages(self) -> bool {
+        matches!(self, Rung::Keyed(_) | Rung::Exa)
+    }
 }
 
-/// What a rung gave: its results, and what went wrong on the way without stopping it.
-type Gave = Result<(Vec<Hit>, Vec<String>), String>;
+/// What a rung gave: its results, what went wrong on the way without stopping it, and what it cost.
+type Gave = Result<(Vec<Hit>, Vec<String>, Option<Paid>), String>;
 
 fn short(text: &str, at_most: usize) -> String {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -289,6 +445,65 @@ fn exa_hits(text: &str, is_local: &dyn Fn(&Url) -> bool) -> Vec<Hit> {
         .collect()
 }
 
+/// What Brave's LLM Context answered: for each page, the passages of it that match (`grounding.generic`), and
+/// the page's date from `sources` (its second place is `YYYY-MM-DD`).
+fn brave_hits(answer: &Value, is_local: &dyn Fn(&Url) -> bool) -> Vec<Hit> {
+    let pages = answer.pointer("/grounding/generic").and_then(Value::as_array).cloned().unwrap_or_default();
+    pages
+        .iter()
+        .filter_map(|page| {
+            let url = page.get("url").and_then(Value::as_str).unwrap_or_default();
+            let title = page.get("title").and_then(Value::as_str).unwrap_or_default();
+            let passages: Vec<&str> = page.get("snippets").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+            let date = answer.get("sources").and_then(|s| s.get(url)).and_then(|s| s.get("age")).and_then(|a| a.get(1)).and_then(Value::as_str).map(str::to_string).filter(|d| d.len() == 10);
+            hit(title, url, &passages.join(" … "), MOST_ABOUT_FROM_EXA, Keyed::Brave.rung_name(), date, is_local)
+        })
+        .collect()
+}
+
+/// What Exa's own interface answered (`/search`, with highlights): each page with the passages that match,
+/// and what the request cost, as Exa counts it.
+fn exa_api_hits(answer: &Value, is_local: &dyn Fn(&Url) -> bool) -> (Vec<Hit>, Option<f64>) {
+    let results = answer.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
+    let hits = results
+        .iter()
+        .filter_map(|r| {
+            let text = |name: &str| r.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
+            let passages: Vec<&str> = r.get("highlights").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+            let date = Some(text("publishedDate").chars().take(10).collect::<String>()).filter(|d| d.len() == 10);
+            hit(&text("title"), &text("url"), &passages.join(" … "), MOST_ABOUT_FROM_EXA, Keyed::Exa.rung_name(), date, is_local)
+        })
+        .collect();
+    (hits, answer.pointer("/costDollars/total").and_then(Value::as_f64))
+}
+
+/// What Tavily answered: each page with a passage of it, and how many credits the request took.
+fn tavily_hits(answer: &Value, is_local: &dyn Fn(&Url) -> bool) -> (Vec<Hit>, Option<f64>) {
+    let results = answer.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
+    let hits = results
+        .iter()
+        .filter_map(|r| {
+            let text = |name: &str| r.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
+            // "Tue, 11 Mar 2025 17:00:00 GMT", when it found one.
+            let date = jiff::fmt::rfc2822::parse(&text("published_date")).ok().map(|z| z.strftime("%Y-%m-%d").to_string());
+            hit(&text("title"), &text("url"), &text("content"), MOST_ABOUT_FROM_EXA, Keyed::Tavily.rung_name(), date, is_local)
+        })
+        .collect();
+    (hits, answer.pointer("/usage/credits").and_then(Value::as_f64))
+}
+
+/// Why a service refused a search with the person's key, and whether to leave it alone for a while.
+fn keyed_refusal(service: Keyed, status: u16) -> (String, bool) {
+    let name = service.rung_name();
+    match status {
+        401 | 403 => (format!("{name} refused the key ({status}). Check it on the Providers screen. Demido leaves {} alone for a quarter of an hour.", service.name()), true),
+        // Brave: 429 once the credits or the rate are spent. Exa: 402 without credits. Tavily: 432 for the plan's
+        // limit, 433 for the pay-as-you-go limit.
+        402 | 429 | 432 | 433 => (format!("{name} says the key's credits or limit are used up for now ({status}). Demido leaves {} alone for a quarter of an hour.", service.name()), true),
+        other => (format!("{name} answered {other}"), false),
+    }
+}
+
 /// The real address behind a link of DuckDuckGo's: it sometimes leads through DuckDuckGo, with the address
 /// inside. `None` for a link that is DuckDuckGo's own (an advertisement goes through it too).
 fn duckduckgo_target(href: &str) -> Option<String> {
@@ -381,6 +596,92 @@ impl Web {
 
     // ----- the rungs --------------------------------------------------------------------------------------
 
+    /// A service the person gave a key for. What is sent is the search, the person's key in the service's own
+    /// header, and how much to give back; nothing else.
+    async fn ask_keyed(&self, with: &WithKey, query: &str, language: &str, stop: &AtomicBool) -> Gave {
+        let service = with.service;
+        let name = service.rung_name();
+        if let Some(said) = self.left_alone(name) {
+            return Err(said);
+        }
+        let base = match service {
+            Keyed::Brave => &self.sources.brave,
+            Keyed::Exa => &self.sources.exa_api,
+            Keyed::Tavily => &self.sources.tavily,
+        };
+        let wrong = || format!("{}'s address is wrong", service.name());
+        let through = if self.sources.keyed_open { Through::Open } else { Through::Strict };
+        let got = match service {
+            Keyed::Brave => {
+                let mut url = Url::parse(&format!("{}/res/v1/llm/context", base.trim_end_matches('/'))).map_err(|_| wrong())?;
+                let language: String = language.chars().filter(|c| c.is_ascii_alphabetic()).take(3).collect();
+                url.query_pairs_mut().extend_pairs([
+                    ("q", query),
+                    ("search_lang", if language.is_empty() { "en" } else { &language }),
+                    ("count", "10"),
+                    ("maximum_number_of_urls", &MOST_FROM_A_KEYED.to_string()),
+                    // The least it gives: a small model has few tokens to spare.
+                    ("maximum_number_of_tokens", "2048"),
+                    ("maximum_number_of_tokens_per_url", "512"),
+                ]);
+                self.send(Ask { url: &url, through, if_changed: None, gap: BETWEEN_TWO_KEYED, sent: None, accept: "application/json", key: Some(("x-subscription-token", with.key.clone())) }, stop)
+                    .await?
+            }
+            Keyed::Exa => {
+                let url = Url::parse(&format!("{}/search", base.trim_end_matches('/'))).map_err(|_| wrong())?;
+                let body = json!({ "query": query, "type": "lite", "numResults": MOST_FROM_A_KEYED, "contents": { "highlights": true } });
+                self.send(
+                    Ask {
+                        url: &url,
+                        through,
+                        if_changed: None,
+                        gap: BETWEEN_TWO_KEYED,
+                        sent: Some(Sent::Json(body.to_string())),
+                        accept: "application/json",
+                        key: Some(("x-api-key", with.key.clone())),
+                    },
+                    stop,
+                )
+                .await?
+            }
+            Keyed::Tavily => {
+                let url = Url::parse(&format!("{}/search", base.trim_end_matches('/'))).map_err(|_| wrong())?;
+                let body = json!({ "query": query, "search_depth": "basic", "max_results": MOST_FROM_A_KEYED, "include_usage": true, "include_published_date": true });
+                self.send(
+                    Ask {
+                        url: &url,
+                        through,
+                        if_changed: None,
+                        gap: BETWEEN_TWO_KEYED,
+                        sent: Some(Sent::Json(body.to_string())),
+                        accept: "application/json",
+                        key: Some(("authorization", format!("Bearer {}", with.key))),
+                    },
+                    stop,
+                )
+                .await?
+            }
+        };
+        if got.status != 200 {
+            let (said, alone) = keyed_refusal(service, got.status);
+            return Err(if alone { self.leave_alone(name, said) } else { said });
+        }
+        let answer: Value = serde_json::from_slice(&got.body).map_err(|_| "its answer could not be read".to_string())?;
+        let is_local = |url: &Url| self.is_local(url);
+        let (hits, paid) = match service {
+            Keyed::Brave => (brave_hits(&answer, &is_local), Paid { service, usd: service.price(), exact: false }),
+            Keyed::Exa => {
+                let (hits, cost) = exa_api_hits(&answer, &is_local);
+                (hits, cost.map_or(Paid { service, usd: service.price(), exact: false }, |usd| Paid { service, usd, exact: true }))
+            }
+            Keyed::Tavily => {
+                let (hits, credits) = tavily_hits(&answer, &is_local);
+                (hits, Paid { service, usd: credits.unwrap_or(1.0) * service.price(), exact: false })
+            }
+        };
+        Ok((hits, Vec::new(), Some(paid)))
+    }
+
     /// The person's own SearXNG server: its JSON when the server allows that, its page for people when not.
     async fn ask_searxng(&self, base: &str, query: &str, stop: &AtomicBool) -> Result<Vec<Hit>, String> {
         let wrong = || "its address in the settings is not a web address".to_string();
@@ -388,14 +689,14 @@ impl Web {
         let mut url = Url::parse(&format!("{}/search", base.as_str().trim_end_matches('/'))).map_err(|_| wrong())?;
         url.query_pairs_mut().append_pair("q", query).append_pair("format", "json");
         // The person named this server themselves, so it may be on this computer or their network.
-        let got = self.send(Ask { url: &url, through: Through::Open, if_changed: None, gap: BETWEEN_TWO_OF_THEIR_OWN, sent: None, accept: "application/json" }, stop).await?;
+        let got = self.send(Ask { url: &url, through: Through::Open, if_changed: None, gap: BETWEEN_TWO_OF_THEIR_OWN, sent: None, accept: "application/json", key: None }, stop).await?;
         if got.status == 200
             && let Ok(answer) = serde_json::from_slice::<Value>(&got.body)
         {
             return Ok(searxng_hits(&answer, &|url| self.is_local(url)));
         }
         url.query_pairs_mut().clear().append_pair("q", query);
-        let got = self.send(Ask { url: &url, through: Through::Open, if_changed: None, gap: BETWEEN_TWO_OF_THEIR_OWN, sent: None, accept: ACCEPT_A_PAGE }, stop).await?;
+        let got = self.send(Ask { url: &url, through: Through::Open, if_changed: None, gap: BETWEEN_TWO_OF_THEIR_OWN, sent: None, accept: ACCEPT_A_PAGE, key: None }, stop).await?;
         if got.status != 200 {
             return Err(format!("answered {}", got.status));
         }
@@ -415,7 +716,18 @@ impl Web {
         let call =
             json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "web_search_exa", "arguments": { "query": query, "numResults": MOST_FROM_EXA, "objective": query } } });
         let got = self
-            .send(Ask { url: &url, through: Through::StrictV4, if_changed: None, gap: BETWEEN_TWO_EXA, sent: Some(Sent::Json(call.to_string())), accept: "application/json, text/event-stream" }, stop)
+            .send(
+                Ask {
+                    url: &url,
+                    through: Through::StrictV4,
+                    if_changed: None,
+                    gap: BETWEEN_TWO_EXA,
+                    sent: Some(Sent::Json(call.to_string())),
+                    accept: "application/json, text/event-stream",
+                    key: None,
+                },
+                stop,
+            )
             .await?;
         match got.status {
             200 => Ok(exa_hits(&mcp_text(&String::from_utf8_lossy(&got.body))?, &|url| self.is_local(url))),
@@ -455,7 +767,9 @@ impl Web {
             }
         };
         let fields = if lite { vec![("q".to_string(), query.to_string())] } else { vec![("q".to_string(), query.to_string()), ("b".to_string(), String::new())] };
-        let got = self.send(Ask { url: &form, through: Through::Strict, if_changed: None, gap: BETWEEN_TWO_DUCKDUCKGO, sent: Some(Sent::Form { fields, from }), accept: ACCEPT_A_PAGE }, stop).await?;
+        let got = self
+            .send(Ask { url: &form, through: Through::Strict, if_changed: None, gap: BETWEEN_TWO_DUCKDUCKGO, sent: Some(Sent::Form { fields, from }), accept: ACCEPT_A_PAGE, key: None }, stop)
+            .await?;
         let html = String::from_utf8_lossy(&got.body).into_owned();
         // Sent the form, a 202 is DuckDuckGo having had enough of a caller: the page holds no results.
         if got.status == 202 || puzzle(&html) {
@@ -543,12 +857,16 @@ impl Web {
                 None => {}
             }
         }
-        if answered { Ok((merged(lists), notes)) } else { Err(notes.join(" ")) }
+        if answered { Ok((merged(lists), notes, None)) } else { Err(notes.join(" ")) }
     }
 
     async fn ask(&self, rung: Rung, query: &str, which: &Which, stop: &AtomicBool) -> Gave {
-        let alone = |hits: Vec<Hit>| (hits, Vec::new());
+        let alone = |hits: Vec<Hit>| (hits, Vec::new(), None);
         match rung {
+            Rung::Keyed(service) => match which.keyed.iter().find(|k| k.service == service) {
+                Some(with) => self.ask_keyed(with, query, &which.language, stop).await,
+                None => Err("has no key".into()),
+            },
             Rung::Searxng => self.ask_searxng(which.searxng.as_deref().unwrap_or_default(), query, stop).await.map(alone),
             Rung::Exa => self.ask_exa(query, stop).await.map(alone),
             Rung::DuckDuckGo => self.ask_duckduckgo(false, query, stop).await.map(alone),
@@ -569,35 +887,49 @@ impl Web {
             return Err(format!("a search is a few words, {MOST_OF_A_QUERY} characters at most. This one has {}", query.chars().count()));
         }
         let searxng = which.searxng.as_deref().map(str::trim).filter(|address| !address.is_empty());
-        let rungs: Vec<Rung> = [
-            searxng.map(|_| Rung::Searxng),
-            which.exa.then_some(Rung::Exa),
-            which.duckduckgo.then_some(Rung::DuckDuckGo),
-            which.duckduckgo.then_some(Rung::DuckDuckGoLite),
-            (which.wikipedia || which.mwmbl).then_some(Rung::WikipediaAndMwmbl),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        let mut keyed: Vec<Keyed> = Vec::new();
+        for with in &which.keyed {
+            if !keyed.contains(&with.service) && !with.key.trim().is_empty() {
+                keyed.push(with.service);
+            }
+        }
+        let rungs: Vec<Rung> = keyed
+            .iter()
+            .map(|k| Some(Rung::Keyed(*k)))
+            .chain([
+                searxng.map(|_| Rung::Searxng),
+                which.exa.then_some(Rung::Exa),
+                which.duckduckgo.then_some(Rung::DuckDuckGo),
+                which.duckduckgo.then_some(Rung::DuckDuckGoLite),
+                (which.wikipedia || which.mwmbl).then_some(Rung::WikipediaAndMwmbl),
+            ])
+            .flatten()
+            .collect();
         if rungs.is_empty() {
             return Err("every search source is turned off in the settings".into());
         }
-        let key = format!("{}|{}|{}|{}|{}|{}|{}", query.to_lowercase(), searxng.unwrap_or_default(), which.exa, which.duckduckgo, which.wikipedia, which.mwmbl, which.language);
+        // The services with a key are part of what was asked (by name: a key's value is never written down).
+        let with_keys = keyed.iter().map(|k| k.id()).collect::<Vec<_>>().join(",");
+        let key = format!("{}|{}|{}|{}|{}|{}|{}|{with_keys}", query.to_lowercase(), searxng.unwrap_or_default(), which.exa, which.duckduckgo, which.wikipedia, which.mwmbl, which.language);
         if let Some((age, mut found)) = self.kept::<Found>("search", &key)
             && age < SEARCH_IS_FRESH
         {
             found.kept = true;
             return Ok(found);
         }
-        let (mut notes, mut found_nothing, mut answer) = (Vec::new(), None, None);
+        let (mut notes, mut found_nothing, mut answer, mut paid) = (Vec::new(), None, None, None);
         for rung in rungs {
             if stop.load(Ordering::Relaxed) {
                 return Err("it was stopped".into());
             }
             let name = rung.name();
             match self.ask(rung, &query, which, stop).await {
-                Ok((hits, on_the_way)) => {
+                Ok((hits, on_the_way, cost)) => {
                     notes.extend(on_the_way);
+                    // A request with a key costs whether or not it found anything.
+                    if cost.is_some() {
+                        paid = cost;
+                    }
                     if hits.is_empty() {
                         // Believed only if no later rung has anything.
                         found_nothing.get_or_insert(name);
@@ -619,22 +951,33 @@ impl Web {
         }
         let Some((rung, hits)) = answer else {
             return match found_nothing {
-                Some(name) => Ok(Found { query, engine: name.into(), hits: Vec::new(), first: None, notes, kept: false }),
+                Some(name) => Ok(Found { query, engine: name.into(), hits: Vec::new(), first: None, notes, kept: false, paid }),
                 None => Err(format!("No search service would answer. {}", notes.join(" "))),
             };
         };
-        let mut found = Found { query, engine: rung.name().into(), hits: once_each(hits, if rung == Rung::Exa { MOST_FROM_EXA } else { MOST_RESULTS }), first: None, notes, kept: false };
-        // Exa answered with passages of the pages already. From the others there is a line about each page,
-        // so the first page is read too, as far as it matches. When it cannot be read, the list is still there.
-        if rung != Rung::Exa
+        let most = if rung == Rung::Exa {
+            MOST_FROM_EXA
+        } else if rung.gives_passages() {
+            MOST_FROM_A_KEYED
+        } else {
+            MOST_RESULTS
+        };
+        let mut found = Found { query, engine: rung.name().into(), hits: once_each(hits, most), first: None, notes, kept: false, paid };
+        // Exa and the services with a key answered with passages of the pages already. From the others there is
+        // a line about each page, so the first page is read too, as far as it matches. When it cannot be read,
+        // the list is still there.
+        if !rung.gives_passages()
             && let Some(hit) = found.hits.first()
             && let Ok((page, _)) = self.page(&hit.address, false, stop).await
         {
             let given = page::passages(&page.text, &format!("{} {about}", found.query), MOST_OF_THE_FIRST);
             found.first = (!given.text.trim().is_empty()).then_some(given.text);
         }
-        // Kept without the story of who refused: that is news for one search, not for an hour.
-        self.keep("search", &key, &Found { notes: Vec::new(), ..found.clone() });
+        // Kept without the story of who refused: that is news for one search, not for an hour. Not kept at
+        // all when the service's terms forbid it (research note 30).
+        if rung.may_keep() {
+            self.keep("search", &key, &Found { notes: Vec::new(), paid: None, ..found.clone() });
+        }
         Ok(found)
     }
 }
@@ -781,6 +1124,7 @@ pub(super) mod tests {
             first: Some("It lives for about 5 years.".into()),
             notes: vec!["Your SearXNG could not be reached.".into()],
             kept: false,
+            paid: None,
         };
         assert_eq!(
             found.told(),

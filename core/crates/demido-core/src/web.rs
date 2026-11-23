@@ -18,8 +18,10 @@
 //!
 //! A PDF is read for its text, in a process of its own (`pdf`).
 //!
-//! Not built: pages that only show their text after running scripts (that needs the browser),
-//! and anything that needs a key (that needs the place where keys are kept).
+//! A search may also go to a service the person gave a key for (`search`, DECISIONS N17): the one request here
+//! that carries a secret, the person's own key, in that service's own header and to that service alone.
+//!
+//! Not built: pages that only show their text after running scripts (that needs the browser).
 
 pub mod guard;
 pub mod page;
@@ -37,7 +39,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-pub use search::{Found, Hit, Which};
+pub use search::{Found, Hit, Keyed, Paid, Which, WithKey};
 
 /// How many characters of a page a model is given. About 1,300 tokens: a small model has few to spare.
 pub const MOST_OF_A_PAGE: usize = 5_000;
@@ -71,17 +73,38 @@ pub struct Sources {
     /// DuckDuckGo's page for browsers without scripts, and its lighter one.
     pub duckduckgo: String,
     pub duckduckgo_lite: String,
+    /// The services asked with the person's key (DECISIONS N17).
+    pub brave: String,
+    pub exa_api: String,
+    pub tavily: String,
+    /// The keyed services are stand-ins on this computer: a development build's trial (`DEMIDO_DEV_PROVIDERS`).
+    pub keyed_open: bool,
 }
 
 impl Default for Sources {
     fn default() -> Self {
-        Self {
+        #[allow(unused_mut)]
+        let mut sources = Self {
             wikipedia: "https://{lang}.wikipedia.org".into(),
             mwmbl: "https://api.mwmbl.org".into(),
             exa: "https://mcp.exa.ai/mcp".into(),
             duckduckgo: "https://html.duckduckgo.com".into(),
             duckduckgo_lite: "https://lite.duckduckgo.com".into(),
+            brave: "https://api.search.brave.com".into(),
+            exa_api: "https://api.exa.ai".into(),
+            tavily: "https://api.tavily.com".into(),
+            keyed_open: false,
+        };
+        // A development build can send the searches with a key to the providers' stand-in on this computer
+        // (`core/dev/providers-stand-in.py`), to try them without a key or money. A release build has no such
+        // switch: where a key is sent is not something to leave open.
+        #[cfg(debug_assertions)]
+        if let Ok(base) = std::env::var("DEMIDO_DEV_PROVIDERS") {
+            let base = base.trim_end_matches('/');
+            tracing::warn!("Development build: search services with a key are stand-ins at {base}, not the real ones.");
+            (sources.brave, sources.exa_api, sources.tavily, sources.keyed_open) = (format!("{base}/brave"), format!("{base}/exa"), format!("{base}/tavily"), true);
         }
+        sources
     }
 }
 
@@ -116,6 +139,8 @@ struct Ask<'a> {
     gap: Duration,
     sent: Option<Sent>,
     accept: &'static str,
+    /// The person's key for a search service, and the header it goes in. Sent to that service only.
+    key: Option<(&'static str, String)>,
 }
 
 const ACCEPT_A_PAGE: &str = "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5";
@@ -289,6 +314,11 @@ impl Web {
         web
     }
 
+    /// Forgets that a service with a key refused, so that a new key is tried at once.
+    pub fn fresh_key(&self, service: Keyed) {
+        self.paused.lock().expect("not poisoned").retain(|name, _| !name.starts_with(service.name()));
+    }
+
     /// Whether an address is refused for being on this computer or its network.
     fn is_local(&self, url: &Url) -> bool {
         guard::is_local(url) && !self.stand_ins.contains(&authority(url))
@@ -360,7 +390,7 @@ impl Web {
 
     /// One `GET`. `if_changed`: what the site said last time, so that it can answer "unchanged".
     async fn get(&self, url: &Url, open: bool, if_changed: Option<(&Option<String>, &Option<String>)>, gap: Duration, stop: &AtomicBool) -> Result<Got, String> {
-        self.send(Ask { url, through: if open { Through::Open } else { Through::Strict }, if_changed, gap, sent: None, accept: ACCEPT_A_PAGE }, stop).await
+        self.send(Ask { url, through: if open { Through::Open } else { Through::Strict }, if_changed, gap, sent: None, accept: ACCEPT_A_PAGE, key: None }, stop).await
     }
 
     /// One request, of whatever kind, and what came back.
@@ -385,6 +415,11 @@ impl Web {
             }
         }
         .header("accept", ask.accept);
+        if let Some((name, value)) = ask.key {
+            let mut value = reqwest::header::HeaderValue::from_str(&value).map_err(|_| "the key has characters a request cannot carry".to_string())?;
+            value.set_sensitive(true);
+            request = request.header(name, value);
+        }
         if let Some((etag, changed)) = ask.if_changed {
             if let Some(etag) = etag {
                 request = request.header("if-none-match", etag);

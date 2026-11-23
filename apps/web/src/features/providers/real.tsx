@@ -10,7 +10,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Ellipsis, ExternalLink, KeyRound, ListPlus, Plus, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
-import { addAccount, changeAccount, choose, dollars, downloadCopy, holds, latestCopy, listModels, priceOf, readAccount, removeAccount, removeCopy, replaceKey, signIn, stopDownload, useProviders, type Account, type Latest, type PlanLimit, type ProviderAccount, type ProviderView, type RemoteModel, type Spending } from '@/data/providers'
+import { addAccount, changeAccount, choose, dollars, downloadCopy, holds, latestCopy, listModels, priceOf, readAccount, removeAccount, removeCopy, removeSearchKey, replaceKey, setSearchKey, signIn, stopDownload, useProviders, type Account, type Latest, type PlanLimit, type ProviderAccount, type ProviderView, type RemoteModel, type SearchService, type Spending } from '@/data/providers'
+import { setSetting } from '@/data/store'
 import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal, Switch, Tip, type MenuEntry } from '@/ui'
 
 function Meter({ label, used, limit, unit, note }: { label: string; used: number; limit: number | null; unit: string; note?: string }) {
@@ -409,8 +410,62 @@ function ProviderCard({ p, where }: { p: ProviderView; where: string }) {
   )
 }
 
+/** A search service the person can give a key for: asked first, before the free ones, and counted with the spending. */
+function SearchCard({ s, where }: { s: SearchService; where: string }) {
+  const [adding, setAdding] = useState(false)
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const save = async () => {
+    if (!value.trim() || saving) return
+    setSaving(true)
+    const done = await setSearchKey(s, value.trim())
+    setSaving(false)
+    if (done) { setAdding(false); setValue('') }
+  }
+  const perThousand = dollars(s.price_usd * 1000)
+  return (
+    <article className="d-card">
+      <header className="d-card__head">
+        <Glyph name={s.key ? (s.on ? 'task-done' : 'task-skipped') : 'task-pending'} size="1.25rem" style={{ marginTop: '0.125rem' }} label={s.key ? (s.on ? 'Has a key, in use' : 'Has a key, turned off') : 'No key yet'} />
+        <div className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
+          <h3 className="d-card__title">{s.name}</h3>
+          <span className="d-card__sub">{perThousand} per 1,000 searches · free: {s.free}{s.key ? ` · key …${s.key.ends_with}` : ''}{s.searches > 0 ? ` · ${s.searches} ${s.searches === 1 ? 'search' : 'searches'}, ${dollars(s.spent_usd)} this month` : ''}</span>
+        </div>
+        {s.key
+          ? <Switch checked={s.on} onChange={(v) => setSetting(s.setting, v)} label={`Use ${s.name}`} />
+          : <Button size="sm" onClick={() => setAdding(true)}><Icon icon={KeyRound} size="sm" />Add your key</Button>}
+      </header>
+      {s.key && (
+        <div className="d-card__body app-row" style={{ gap: 'var(--d-space-8)' }}>
+          <Button size="sm" variant="ghost" onClick={() => setAdding(true)}>Replace the key</Button>
+          <Button size="sm" variant="ghost" onClick={() => setRemoving(true)}>Delete the key</Button>
+        </div>
+      )}
+      {adding && (
+        <Dialog open onOpenChange={(o) => !o && setAdding(false)} title={s.key ? `Replace the ${s.name} key` : `Add your ${s.name} key`}
+          text={<>Paste the key {s.name} gave you. {where} It is never shown again: only its last four characters. It is sent only to {s.name}, with the words of a search.</>}
+          actions={<><Button onClick={() => setAdding(false)}>Cancel</Button><Button variant="primary" disabled={!value.trim() || saving} onClick={() => void save()}>{saving ? 'A moment…' : 'Keep the key'}</Button></>}>
+          <form className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }} onSubmit={(e) => { e.preventDefault(); void save() }}>
+            <label className="d-field">
+              <span className="d-field__label">API key</span>
+              <input className="d-input d-input--mono" type="password" autoComplete="off" spellCheck={false} autoFocus placeholder="Paste the key" value={value} onChange={(e) => setValue(e.target.value)} />
+              <span className="d-field__help">No key yet? Get one at <a href={s.keys_at} target="_blank" rel="noreferrer noopener">{s.keys_at.replace('https://', '')}</a>. Billed by {s.name}, not by Demido.</span>
+            </label>
+          </form>
+        </Dialog>
+      )}
+      {removing && (
+        <Dialog open onOpenChange={(o) => !o && setRemoving(false)} title={`Delete the ${s.name} key?`}
+          text={<>Searches go on with the free services. The key still works at {s.name} until you revoke it there.</>}
+          actions={<><Button onClick={() => setRemoving(false)}>Cancel</Button><Button variant="danger" onClick={() => { setRemoving(false); void removeSearchKey(s) }}>Delete the key</Button></>} />
+      )}
+    </article>
+  )
+}
+
 export function RealProviders() {
-  const { providers, vault, spending, error } = useProviders()
+  const { providers, vault, spending, search, error } = useProviders()
   return (
     <Page title="Providers" lead="Where models can run besides this computer. A model elsewhere is sent what is said in a session that uses it, and costs money; a model here is free and nothing leaves the computer. Demido sends nothing to a model you did not choose here.">
       {error && <Signal level="caution">The core did not say. {error}</Signal>}
@@ -420,6 +475,13 @@ export function RealProviders() {
         <Section title="Providers" hint={`${vault.where_words} A provider can hold several accounts, each with its own key.`}>
           <div className="app-stack">
             {providers.filter((p) => p.kind !== 'program').map((p) => <ProviderCard key={p.id} p={p} where={vault.where_words} />)}
+          </div>
+        </Section>
+      )}
+      {search && vault && (
+        <Section title="Search with your own key" hint="A search goes first to the services you gave a key for, in this order, then to the free ones (Settings › The internet). Each search is counted with the spending above, at the service's list price, and stops at the month's limit; their free credits are not taken off, so the count is above the bill. The words of a search go to the service; nothing else does. Brave's and Exa's terms forbid keeping their results, so a search there is asked again rather than kept.">
+          <div className="app-stack">
+            {search.map((s) => <SearchCard key={s.id} s={s} where={vault.where_words} />)}
           </div>
         </Section>
       )}

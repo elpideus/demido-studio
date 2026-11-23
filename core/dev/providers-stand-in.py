@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Stand-ins for Anthropic, Gemini and OpenRouter, on this computer: to try Demido's providers without a key
-or money.
+"""Stand-ins for Anthropic, Gemini and OpenRouter, and for the search services Brave, Exa and Tavily, on this
+computer: to try Demido's providers and searches with a key without a key or money.
 
     python3 core/dev/providers-stand-in.py 8455 &
     DEMIDO_DEV_PROVIDERS=http://127.0.0.1:8455 DEMIDO_VAULT=file DEMIDO_HOME=/tmp/demido-trial \\
@@ -10,7 +10,9 @@ Only a development build listens to DEMIDO_DEV_PROVIDERS. DEMIDO_VAULT=file keep
 the system keyring. Any key works here, and a key that starts with "bad" is refused, as a real provider
 refuses one it does not know. Each answer says what it was asked, so a trial shows what Demido sent.
 
-The shapes are the ones the providers' own documentation shows (docs/research/18-keys-and-providers.md).
+The shapes are the ones the providers' own documentation shows (docs/research/18-keys-and-providers.md, and
+docs/research/30-search-with-a-key.md for the search services). Their results point at pages that do not
+exist (example.org): a trial shows what was asked and what was counted, not real pages.
 Nothing here reaches the internet.
 """
 import json
@@ -57,6 +59,14 @@ def reply_for(body):
     wants_json = "response_format" in body or "output_config" in body and "format" in body.get("output_config", {})
     last = json.dumps(body.get("messages", [])[-1:])
     if wants_json or "Reply with one JSON object" in last:
+        # "search the web for <words>" in the person's message, before any result came back: a search, so that
+        # a trial can see a search with a key go through a session. Once a result is in, no tool.
+        said = json.dumps(body.get("messages", []))
+        marker = "search the web for "
+        if marker in said.lower() and "Results for" not in said and "No search service" not in said:
+            at = said.lower().index(marker) + len(marker)
+            words = said[at:].split("\\n")[0].split('"')[0].strip(" .?!")[:80]
+            return json.dumps({"tool": "search_web", "args": {"query": words}})
         return '{"tool": "none", "args": {}}'
     return f"(Stand-in) You asked: “{asked_about(body)}”. This answer comes from core/dev/providers-stand-in.py, not from a real model."
 
@@ -100,8 +110,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(401, {"error": {"code": 401, "message": "No auth credentials found"}})
         return True
 
+    def search_results(self, query):
+        return [
+            {"title": f"Stand-in result about {query}", "url": "https://example.org/stand-in-1", "passage": f"A stand-in passage that mentions {query}. Nothing here is real."},
+            {"title": "A second stand-in page", "url": "https://example.org/stand-in-2", "passage": "Another passage, from a page that does not exist."},
+        ]
+
     def do_GET(self):
         provider = self.path.strip("/").split("/")[0]
+        if self.path.startswith("/brave/res/v1/llm/context"):
+            if not self.headers.get("x-subscription-token") or self.headers.get("x-subscription-token").startswith("bad"):
+                return self.send_json(401, {"type": "ErrorResponse", "error": {"code": "SUBSCRIPTION_TOKEN_INVALID", "status": 401}})
+            from urllib.parse import parse_qs, urlparse
+            query = parse_qs(urlparse(self.path).query).get("q", [""])[0]
+            hits = self.search_results(query)
+            return self.send_json(200, {"grounding": {"generic": [{"url": h["url"], "title": h["title"], "snippets": [h["passage"]]} for h in hits], "map": []},
+                                        "sources": {h["url"]: {"title": h["title"], "hostname": "example.org", "age": ["Monday, November 16, 2026", "2026-11-16", "7 days ago", "2026-11-16T08:00:00Z"]} for h in hits}})
         if provider != "openrouter" and self.refuse_bad_key(provider):
             return
         if self.path.startswith("/anthropic/v1/models"):
@@ -122,6 +146,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")
         if self.refuse_bad_key(provider):
             return
+        if self.path == "/exa/search":
+            hits = self.search_results(body.get("query", ""))
+            return self.send_json(200, {"requestId": "stand-in", "results": [{"title": h["title"], "url": h["url"], "publishedDate": "2026-11-18T00:00:00.000Z", "highlights": [h["passage"]]} for h in hits],
+                                        "costDollars": {"total": 0.004}, "searchTime": 100})
+        if self.path == "/tavily/search":
+            hits = self.search_results(body.get("query", ""))
+            return self.send_json(200, {"query": body.get("query", ""), "answer": None, "images": [], "response_time": 0.5, "usage": {"credits": 1}, "request_id": "stand-in",
+                                        "results": [{"title": h["title"], "url": h["url"], "content": h["passage"], "score": 0.8, "published_date": "Tue, 17 Nov 2026 17:00:00 GMT"} for h in hits]})
         text = reply_for(body)
         words = [w + " " for w in text.split(" ")]
         if self.path == "/anthropic/v1/messages":

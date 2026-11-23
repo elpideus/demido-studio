@@ -38,6 +38,8 @@ struct Seen {
     nothing: bool,
     /// The SearXNG stand-in has its JSON turned off.
     no_json: bool,
+    /// The keyed services' stand-ins answer with this instead of results.
+    keyed_says: Option<u16>,
     /// What the last form or call that was posted held, and the headers it came with.
     posted: String,
     posted_with: HashMap<String, String>,
@@ -50,7 +52,7 @@ async fn site(State(seen): State<Shared>, headers: HeaderMap, request: Request) 
     let asked_for = request.uri().query().unwrap_or_default().to_string();
     let posting = request.method() == axum::http::Method::POST;
     let posted = String::from_utf8_lossy(&axum::body::to_bytes(request.into_body(), 100_000).await.unwrap_or_default()).into_owned();
-    let (too_much, exa_used_up, wants_a_person, decoy, nothing, no_json) = {
+    let (too_much, exa_used_up, wants_a_person, decoy, nothing, no_json, keyed_says) = {
         let mut seen = seen.lock().unwrap();
         // A form's page being loaded and the form being sent are counted apart.
         *seen.asked.entry(if posting { format!("POST {path}") } else { path.clone() }).or_default() += 1;
@@ -59,7 +61,7 @@ async fn site(State(seen): State<Shared>, headers: HeaderMap, request: Request) 
             seen.posted = posted;
             seen.posted_with = seen.last.clone();
         }
-        (seen.too_much, seen.exa_used_up, seen.wants_a_person, seen.decoy, seen.nothing, seen.no_json)
+        (seen.too_much, seen.exa_used_up, seen.wants_a_person, seen.decoy, seen.nothing, seen.no_json, seen.keyed_says)
     };
     let puzzle = || {
         (
@@ -99,6 +101,30 @@ async fn site(State(seen): State<Shared>, headers: HeaderMap, request: Request) 
             tokio::time::sleep(Duration::from_secs(20)).await;
             html("<html><body>late</body></html>")
         }
+        // The services asked with the person's key, answering as their documentation shows (research note 30).
+        "/brave/res/v1/llm/context" | "/exa/search" | "/tavily/search" if keyed_says.is_some() => StatusCode::from_u16(keyed_says.unwrap()).unwrap().into_response(),
+        "/brave/res/v1/llm/context" if headers.get("x-subscription-token").is_some_and(|k| k == "brave-key-1234") => (
+            [(header::CONTENT_TYPE, "application/json")],
+            format!(
+                r#"{{"grounding":{{"generic":[{{"url":"{here}/article","title":"Heron counts rise on the lagoon","snippets":["Volunteers counted four hundred and twelve grey herons on the northern lagoon this spring.","The count is made on one morning in April."]}},{{"url":"http://10.0.0.1/","title":"Inside","snippets":["Not public."]}}],"map":[]}},"sources":{{"{here}/article":{{"title":"Heron counts rise on the lagoon","hostname":"127.0.0.1","age":["Monday, November 16, 2026","2026-11-16","7 days ago","2026-11-16T08:00:00Z"]}}}}}}"#
+            ),
+        )
+            .into_response(),
+        "/exa/search" if posting && headers.get("x-api-key").is_some_and(|k| k == "exa-key-5678") => (
+            [(header::CONTENT_TYPE, "application/json")],
+            format!(
+                r#"{{"requestId":"r1","results":[{{"title":"Grey heron","url":"{here}/article","publishedDate":"2026-11-18T19:39:24.000Z","author":null,"highlights":["The grey heron is a large bird, standing up to 100 cm tall."]}}],"costDollars":{{"total":0.004}},"searchTime":120}}"#
+            ),
+        )
+            .into_response(),
+        "/tavily/search" if posting && headers.get("authorization").is_some_and(|k| k == "Bearer tvly-9012") => (
+            [(header::CONTENT_TYPE, "application/json")],
+            format!(
+                r#"{{"query":"grey heron","answer":null,"images":[],"results":[{{"title":"Grey heron facts","url":"{here}/article","content":"Herons nest in reed beds that foxes cannot reach.","score":0.81,"published_date":"Tue, 17 Nov 2026 17:00:00 GMT"}}],"response_time":1.2,"usage":{{"credits":1}},"request_id":"t1"}}"#
+            ),
+        )
+            .into_response(),
+        "/brave/res/v1/llm/context" | "/exa/search" | "/tavily/search" => StatusCode::UNAUTHORIZED.into_response(),
         // Exa's service for assistants: a call of its search tool, answered as a stream of events.
         "/mcp" if exa_used_up => StatusCode::TOO_MANY_REQUESTS.into_response(),
         "/mcp" if posting => ([(header::CONTENT_TYPE, "text/event-stream")], search::tests::EXA_ANSWER.replace("{here}", &format!("{here}/article"))).into_response(),
@@ -179,7 +205,17 @@ pub(crate) async fn world() -> World {
     // The stand-in, and only it, counts as the public internet.
     let web = Web::with(
         Some(kept_in.to_path_buf()),
-        Sources { wikipedia: base.clone(), mwmbl: base.clone(), exa: format!("{base}/mcp"), duckduckgo: base.clone(), duckduckgo_lite: base.clone() },
+        Sources {
+            wikipedia: base.clone(),
+            mwmbl: base.clone(),
+            exa: format!("{base}/mcp"),
+            duckduckgo: base.clone(),
+            duckduckgo_lite: base.clone(),
+            brave: format!("{base}/brave"),
+            exa_api: format!("{base}/exa"),
+            tavily: format!("{base}/tavily"),
+            keyed_open: false,
+        },
         vec![door.to_string()],
     );
     World { web, base, seen, kept_in }
@@ -494,4 +530,84 @@ async fn what_is_kept_does_not_grow_without_end() {
         names
     };
     assert_eq!(left, ["page-4.json", "page-5.json", "page-6.json", "page-7.json", "page-8.json"], "the oldest went, down to three quarters of the limit");
+}
+
+fn keyed(service: Keyed, key: &str) -> WithKey {
+    WithKey { service, key: key.into() }
+}
+
+#[tokio::test]
+async fn a_service_with_the_persons_key_is_asked_first_and_says_what_it_cost() {
+    let w = world().await;
+    let which = Which { keyed: vec![keyed(Keyed::Brave, "brave-key-1234"), keyed(Keyed::Tavily, "tvly-9012")], ..Which::default() };
+    let found = w.web.search("grey heron count", "", &which, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "Brave Search (your key)", "{found:?}");
+    assert_eq!(found.hits.len(), 1, "an address on a private network is not a result: {found:?}");
+    assert_eq!(
+        (found.hits[0].date.as_deref(), found.hits[0].about.as_str()),
+        (Some("2026-11-16"), "Volunteers counted four hundred and twelve grey herons on the northern lagoon this spring. … The count is made on one morning in April.")
+    );
+    assert_eq!(found.paid, Some(Paid { service: Keyed::Brave, usd: 0.005, exact: false }));
+    assert!(found.first.is_none() && w.asked("/article") == 0, "Brave gave passages: the first page is not read as well");
+    // The key went in Brave's own header, to Brave alone; what was asked is the search and how much to give.
+    let last = w.seen.lock().unwrap().last.clone();
+    assert_eq!(last["x-subscription-token"], "brave-key-1234");
+    assert!(last["user-agent"].starts_with("DemidoStudio/") && !last.contains_key("authorization") && !last.contains_key("cookie"));
+    assert_eq!((w.asked("/brave/res/v1/llm/context"), w.asked("POST /tavily/search"), w.asked("POST /mcp")), (1, 0, 0));
+
+    // Brave's terms forbid keeping its results: the same search asks again.
+    let again = w.web.search("grey heron count", "", &which, &GO_ON).await.unwrap();
+    assert!(!again.kept && again.paid.is_some());
+    assert_eq!(w.asked("/brave/res/v1/llm/context"), 2);
+}
+
+#[tokio::test]
+async fn a_refused_key_is_said_and_left_alone_and_the_next_service_answers() {
+    let w = world().await;
+    // A wrong Brave key: Tavily, the next with a key, answers; Brave is named, and not asked again for a while.
+    let which = Which { keyed: vec![keyed(Keyed::Brave, "a-wrong-key"), keyed(Keyed::Tavily, "tvly-9012")], ..Which::default() };
+    let found = w.web.search("grey heron", "", &which, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "Tavily (your key)");
+    assert_eq!(found.notes, ["Brave Search (your key) refused the key (401). Check it on the Providers screen. Demido leaves Brave Search alone for a quarter of an hour."]);
+    assert_eq!((found.hits[0].date.as_deref(), found.hits[0].about.as_str()), (Some("2026-11-17"), "Herons nest in reed beds that foxes cannot reach."));
+    assert_eq!(found.paid, Some(Paid { service: Keyed::Tavily, usd: 0.008, exact: false }));
+    let posted: serde_json::Value = serde_json::from_str(&w.seen.lock().unwrap().posted).unwrap();
+    assert_eq!(posted, serde_json::json!({ "query": "grey heron", "search_depth": "basic", "max_results": 5, "include_usage": true, "include_published_date": true }));
+    // Tavily's terms do not forbid keeping: the same search an hour long is not asked again.
+    let again = w.web.search("grey heron", "", &which, &GO_ON).await.unwrap();
+    assert!(again.kept && again.paid.is_none(), "kept, so nothing was paid for: {again:?}");
+    assert_eq!((w.asked("/brave/res/v1/llm/context"), w.asked("POST /tavily/search")), (1, 1));
+    // A new key is tried at once.
+    w.web.fresh_key(Keyed::Brave);
+    let found = w.web.search("herons", "", &Which { keyed: vec![keyed(Keyed::Brave, "brave-key-1234")], ..Which::default() }, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "Brave Search (your key)");
+
+    // Credits used up: said, and the free rungs answer.
+    let w = world().await;
+    w.seen.lock().unwrap().keyed_says = Some(402);
+    let found = w.web.search("grey heron", "", &Which { keyed: vec![keyed(Keyed::Exa, "exa-key-5678")], ..Which::default() }, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "Exa", "the free service: {found:?}");
+    assert_eq!(found.notes, ["Exa (your key) says the key's credits or limit are used up for now (402). Demido leaves Exa alone for a quarter of an hour."]);
+    assert!(found.paid.is_none());
+}
+
+#[tokio::test]
+async fn exa_with_a_key_says_its_own_cost_and_exa_is_never_kept() {
+    let w = world().await;
+    let which = Which { keyed: vec![keyed(Keyed::Exa, "exa-key-5678")], ..Which::default() };
+    let found = w.web.search("grey heron", "", &which, &GO_ON).await.unwrap();
+    assert_eq!(found.engine, "Exa (your key)");
+    assert_eq!(found.paid, Some(Paid { service: Keyed::Exa, usd: 0.004, exact: true }));
+    assert_eq!(found.hits[0].date.as_deref(), Some("2026-11-18"));
+    let posted: serde_json::Value = serde_json::from_str(&w.seen.lock().unwrap().posted).unwrap();
+    assert_eq!(posted, serde_json::json!({ "query": "grey heron", "type": "lite", "numResults": 5, "contents": { "highlights": true } }));
+    assert_eq!(w.seen.lock().unwrap().posted_with["x-api-key"], "exa-key-5678");
+    // Exa's terms forbid copying what it gives but a browser's own cache: without a key too, nothing is kept.
+    let free = w.web.search("grey heron wings", "", &Which::default(), &GO_ON).await.unwrap();
+    assert_eq!(free.engine, "Exa");
+    let again = w.web.search("grey heron wings", "", &Which::default(), &GO_ON).await.unwrap();
+    assert!(!again.kept);
+    assert_eq!(w.asked("POST /mcp"), 2);
+    // A key never shows in what is printed for a person.
+    assert!(!format!("{which:?}").contains("exa-key-5678"));
 }

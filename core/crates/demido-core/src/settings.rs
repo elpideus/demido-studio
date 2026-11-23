@@ -104,7 +104,9 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
         section(
             "web",
             "The internet",
-            Some("What a model may read from the internet. It can only read: it sends no form, no password, nothing about you. Every use is shown in the answer it was for."),
+            Some(
+                "What a model may read from the internet. It can only read: it sends no form, no password, nothing about you (only your own key, to a search service you gave one for). Every use is shown in the answer it was for.",
+            ),
         ),
         section("providers", "Providers and spending", Some("Models that run elsewhere, with your own keys. They cost money: this is how much Demido may spend, and Demido stops there.")),
         section("permissions", "Permission levels", Some("How much a model may do without asking you first. Each session has its own level; this is where new ones start.")),
@@ -235,7 +237,40 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Let models read from the internet",
             "A model can search, and can read a page from its address.",
             Some(
-                "Default on. Demido says who it is to every site (DemidoStudio and this project's address), follows each site's rules for programs (robots.txt), reads at most 2 MB of a page, and keeps what it read for a while so that it asks sites as rarely as it can. A model is given only the parts of a page that match what was asked. A model may open an address you wrote, or one that a search or a page gave it. An address it wrote itself can carry text out of your computer, so Demido asks you first, every time (not at the Autonomous level). A PDF is read for its text (not its pictures), in a process of its own with limits on time and memory. Not built: pages that only show their text after running scripts, and your own keys for search services.",
+                "Default on. Demido says who it is to every site (DemidoStudio and this project's address), follows each site's rules for programs (robots.txt), reads at most 2 MB of a page, and keeps what it read for a while so that it asks sites as rarely as it can. A model is given only the parts of a page that match what was asked. A model may open an address you wrote, or one that a search or a page gave it. An address it wrote itself can carry text out of your computer, so Demido asks you first, every time (not at the Autonomous level). A PDF is read for its text (not its pictures), in a process of its own with limits on time and memory. A search goes first to the search services you gave a key for (Providers screen), then to the free ones below. Not built: pages that only show their text after running scripts.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
+        def(
+            "web.brave",
+            "Search with Brave, with your key",
+            "When you have given a Brave Search key on the Providers screen, a search asks Brave first.",
+            Some(
+                "Default on. Off keeps the key and stops using it. Brave answers from its own index with the passages of each page that match (its LLM Context interface). Each search costs $5 per 1,000 at Brave's list price, and Brave gives $5 of searches every month; Demido counts each one at the list price with your spending, and stops at the month's limit in \"Spend at most\". Brave's terms forbid keeping its results, so a search is asked again rather than kept. The words of a search go to Brave, in the United States; nothing else does.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
+        def(
+            "web.exaKey",
+            "Search with Exa, with your key",
+            "When you have given an Exa key on the Providers screen, a search asks Exa through its own interface, after Brave.",
+            Some(
+                "Default on. Off keeps the key and stops using it. Each search costs $4 per 1,000 (its \"lite\" search); Exa says what each one cost, and gives $10 of searches every month. Demido counts it with your spending and stops at the month's limit. Exa's terms forbid keeping its results. The words of a search go to Exa, in the United States.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
+        def(
+            "web.tavily",
+            "Search with Tavily, with your key",
+            "When you have given a Tavily key on the Providers screen, a search asks Tavily, after Brave and Exa.",
+            Some(
+                "Default on. Off keeps the key and stops using it. A basic search is one credit; Tavily gives 1,000 credits a month, and Demido counts each at $0.008, its dearest price, with your spending, and stops at the month's limit. Tavily's terms say it may use what is sent to it to train its models: the words of a search go to Tavily, in the United States.",
             ),
             Kind::Switch,
             json!(true),
@@ -257,7 +292,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Search with Exa",
             "Exa is a search engine for assistants. It searches the whole web and answers with the passages of each page that match.",
             Some(
-                "Default on. Demido uses the service Exa offers assistants without an account (mcp.exa.ai), which has a free limit; when Exa says the limit is reached, Demido leaves it alone for a quarter of an hour and asks the next source. The words of a search go to Exa, a company in the United States; nothing else does. Without a key Exa answers only a direct connection over IPv4. Not built: your own Exa key, which would lift the limit (the vault that would keep it is built; using a search key is not).",
+                "Default on. Demido uses the service Exa offers assistants without an account (mcp.exa.ai), which has a free limit; when Exa says the limit is reached, Demido leaves it alone for a quarter of an hour and asks the next source. The words of a search go to Exa, a company in the United States; nothing else does. Without a key Exa answers only a direct connection over IPv4. With your own key (Providers screen) Exa is asked first, through its own interface, and this service is asked after the others with a key. Exa's terms forbid keeping what it found, so its results are not kept for later, with a key or without.",
             ),
             Kind::Switch,
             json!(true),

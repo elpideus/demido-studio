@@ -930,6 +930,79 @@ async fn hub_token_remove(State(app): State<App>) -> Result<Json<crate::vault::K
     Ok(Json(gone))
 }
 
+/// A search service the person may give a key for (DECISIONS N17): what it costs, what it gives free, whether
+/// a key is kept (never its value), whether it is turned on, and what was counted for it this month.
+#[derive(Serialize, ToSchema)]
+pub struct SearchService {
+    /// `brave`, `exa` or `tavily`.
+    pub id: String,
+    pub name: String,
+    /// One search at its list price, in dollars, as read on 2026-11-23.
+    pub price_usd: f64,
+    /// What it gives free, in its own words.
+    pub free: String,
+    /// Where its keys are made.
+    pub keys_at: String,
+    /// The setting that turns it on and off.
+    pub setting: String,
+    pub on: bool,
+    pub key: Option<crate::vault::KeyFacts>,
+    /// Searches made with its key this month, and what Demido counted for them.
+    pub searches: u64,
+    pub spent_usd: f64,
+}
+
+fn search_service(app: &App, service: crate::web::Keyed, month: &std::collections::HashMap<String, (u64, f64)>) -> SearchService {
+    let (searches, spent_usd) = month.get(service.id()).copied().unwrap_or((0, 0.0));
+    SearchService {
+        id: service.id().into(),
+        name: service.name().into(),
+        price_usd: service.price(),
+        free: service.free().into(),
+        keys_at: service.keys_at().into(),
+        setting: service.setting().into(),
+        on: app.settings.value::<bool>(service.setting()).unwrap_or(true),
+        key: app.providers.vault().facts(service.vault_name()),
+        searches,
+        spent_usd: spent_usd + 0.0,
+    }
+}
+
+fn keyed(id: &str) -> Result<crate::web::Keyed> {
+    crate::web::Keyed::from_id(id).ok_or_else(|| Error::NotFound(format!("There is no search service \"{id}\". There are: brave, exa, tavily.")))
+}
+
+/// The search services a key can be given for.
+#[utoipa::path(get, path = "/api/v1/search/keys", tag = "providers", responses((status = 200, body = Vec<SearchService>)))]
+async fn search_keys(State(app): State<App>) -> Result<Json<Vec<SearchService>>> {
+    let month = app.providers.searches_this_month()?;
+    Ok(Json(crate::web::Keyed::ALL.into_iter().map(|k| search_service(&app, k, &month)).collect()))
+}
+
+/// Keeps the person's key for a search service, in place of one kept before. It is sent only to that service,
+/// with a search.
+#[utoipa::path(put, path = "/api/v1/search/keys/{id}", tag = "providers", params(("id" = String, Path, description = "brave, exa or tavily")), request_body = NewKey, responses((status = 200, body = SearchService), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn search_key_set(State(app): State<App>, Path(id): Path<String>, Json(body): Json<NewKey>) -> Result<Json<SearchService>> {
+    let service = keyed(&id)?;
+    let vault = app.providers.vault().clone();
+    let facts = tokio::task::spawn_blocking(move || vault.put(service.vault_name(), body.value.trim())).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.chat.web().fresh_key(service);
+    app.events.append("search.key.added", Some(service.id()), json!({ "kept_in": facts.kept_in, "ends_with": facts.ends_with }))?;
+    let month = app.providers.searches_this_month()?;
+    Ok(Json(search_service(&app, service, &month)))
+}
+
+/// Deletes the key for a search service. Searches go on with the free services.
+#[utoipa::path(delete, path = "/api/v1/search/keys/{id}", tag = "providers", params(("id" = String, Path, description = "brave, exa or tavily")), responses((status = 200, body = SearchService), (status = 404, body = Problem)))]
+async fn search_key_remove(State(app): State<App>, Path(id): Path<String>) -> Result<Json<SearchService>> {
+    let service = keyed(&id)?;
+    let vault = app.providers.vault().clone();
+    let gone = tokio::task::spawn_blocking(move || vault.remove(service.vault_name())).await.map_err(|e| Error::Other(e.to_string()))??;
+    app.events.append("search.key.removed", Some(service.id()), json!({ "kept_in": gone.kept_in }))?;
+    let month = app.providers.searches_this_month()?;
+    Ok(Json(search_service(&app, service, &month)))
+}
+
 /// The downloads since the server started, the newest last.
 #[utoipa::path(get, path = "/api/v1/hub/downloads", tag = "models", responses((status = 200, body = Vec<crate::hub::Download>)))]
 async fn hub_downloads(State(app): State<App>) -> Json<Vec<crate::hub::Download>> {
@@ -1457,7 +1530,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1490,6 +1563,8 @@ pub fn router(app: App) -> Router {
         .route("/hub/downloads", get(hub_downloads).post(hub_download))
         .route("/hub/downloads/{id}", axum::routing::delete(hub_stop))
         .route("/hub/token", get(hub_token).put(hub_token_set).delete(hub_token_remove))
+        .route("/search/keys", get(search_keys))
+        .route("/search/keys/{id}", axum::routing::put(search_key_set).delete(search_key_remove))
         .route("/models/{id}/unload", post(model_unload))
         .route("/sessions", get(sessions_list).post(session_new))
         .route("/sessions/{id}", get(session_get).patch(session_change).delete(session_delete))

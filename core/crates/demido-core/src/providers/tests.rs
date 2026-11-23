@@ -533,3 +533,32 @@ async fn a_session_with_a_model_elsewhere_is_answered_and_says_what_it_cost() {
     assert!(sent["system"].as_str().unwrap().starts_with("Today's date: "), "{sent}");
     assert_eq!(sent["messages"], json!([{ "role": "user", "content": "Capital of France?" }]));
 }
+
+#[test]
+fn search_keys_are_offered_while_the_limit_allows_and_each_search_is_counted() {
+    let (p, settings, _home) = providers("http://127.0.0.1:1");
+    // No key: nothing offered, nothing said.
+    assert_eq!(p.search_keys(), (Vec::new(), None));
+    p.vault().put("brave.main", "brave-test-not-real-1").unwrap();
+    p.vault().put("tavily.main", "tvly-test-not-real-2").unwrap();
+    let (keys, said) = p.search_keys();
+    assert_eq!(keys.iter().map(|k| (k.service, k.key.as_str())).collect::<Vec<_>>(), [(crate::web::Keyed::Brave, "brave-test-not-real-1"), (crate::web::Keyed::Tavily, "tvly-test-not-real-2")]);
+    assert!(said.is_none());
+    // Turned off, a key stays and is not used.
+    settings.set("web.brave", json!(false)).unwrap();
+    assert_eq!(p.search_keys().0.iter().map(|k| k.service).collect::<Vec<_>>(), [crate::web::Keyed::Tavily]);
+
+    // A search is counted with the providers' spending, against the answer it was for.
+    p.record_search(&crate::web::Paid { service: crate::web::Keyed::Tavily, usd: 0.008, exact: false }, For { session: Some("s1"), message: Some("m1"), account: None }).unwrap();
+    assert_eq!(p.cost_of("m1").unwrap(), Some((0.008, false)));
+    assert_eq!(p.searches_this_month().unwrap().get("tavily"), Some(&(1, 0.008)));
+    let spending = p.spending().unwrap();
+    assert!((spending.spent_usd - 0.008).abs() < 1e-9 && spending.by_model.iter().any(|s| s.provider == "tavily" && s.model == "search" && s.counted));
+
+    // At the month's limit no key is offered, and why is said; the free services are the ladder's own business.
+    settings.set("providers.monthlyLimit", json!("1")).unwrap();
+    p.db.with(|c| c.execute("INSERT INTO usage (at, provider, model, input, cached, cache_written, output, cost_usd, exact) VALUES (?1, 'anthropic', 'x', 0, 0, 0, 0, 0.995, 1)", [now_ms()])).unwrap();
+    let (keys, said) = p.search_keys();
+    assert!(keys.is_empty());
+    assert!(said.as_deref().is_some_and(|s| s.starts_with("Your keys for search services were not used: Demido has counted $1.00 spent this month")), "{said:?}");
+}

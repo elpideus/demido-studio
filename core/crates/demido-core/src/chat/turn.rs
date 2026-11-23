@@ -725,12 +725,22 @@ impl Chat {
                             wikipedia: on("web.wikipedia"),
                             mwmbl: on("web.mwmbl"),
                             language: self.settings.value::<String>("web.language").unwrap_or_else(|_| "en".into()),
+                            keyed: Vec::new(),
                         };
+                        // The person's keys for search services, asked first, while the month's limit allows.
+                        let (keyed, held_back) = self.providers.as_ref().map(|p| p.search_keys()).unwrap_or_default();
+                        let which = web::Which { keyed, ..which };
                         // What comes back from the internet is text from outside, like a file's.
-                        self.web
-                            .search(args.get("query").and_then(Value::as_str).unwrap_or_default(), request, &which, stop)
-                            .await
-                            .map(|found| tools::Done { gave: tools::clean(&found.told()), changed: None })
+                        let found = self.web.search(args.get("query").and_then(Value::as_str).unwrap_or_default(), request, &which, stop).await;
+                        if let (Ok(found), Some(providers)) = (&found, &self.providers)
+                            && let Some(paid) = &found.paid
+                        {
+                            providers.record_search(paid, crate::providers::For { session: Some(&session.id), message: Some(answer_id), account: None })?;
+                        }
+                        found.map(|mut found| {
+                            found.notes.extend(held_back);
+                            tools::Done { gave: tools::clean(&found.told()), changed: None }
+                        })
                     } else if tool == tools::READ_PAGE {
                         // This computer and its own network are read only at an address the person wrote, and
                         // only when the person turned that on.

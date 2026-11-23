@@ -28,10 +28,10 @@ Marked **(needs you)**: skipped, and left for the owner.
 
 ## Item 6: search services that need a key
 
-- [ ] Research the search services that need a key: Brave Search's API first, and the others worth having (what each costs, its free use, its terms, what may be kept of its results). A research note.
-- [ ] Decide where they go in the ladder of sources (DECISIONS N6) and write it down.
-- [ ] Build: a key for each service kept in the vault (U), added from the window and from `demido keys`; a keyed service asked first when it has a key; what it costs shown, as for providers.
-- [ ] Test against a stand-in that answers as the service's documentation shows (as `core/dev/providers-stand-in.py` does for providers). No real request.
+- [x] Research the search services that need a key: Brave Search's API first, and the others worth having (what each costs, its free use, its terms, what may be kept of its results). A research note.
+- [x] Decide where they go in the ladder of sources (DECISIONS N6) and write it down.
+- [x] Build: a key for each service kept in the vault (U), added from the window and from `demido keys`; a keyed service asked first when it has a key; what it costs shown, as for providers.
+- [x] Test against a stand-in that answers as the service's documentation shows (as `core/dev/providers-stand-in.py` does for providers). No real request.
 - [ ] **(needs you)** The first real search with a key: your key, and maybe money.
 
 ## Item 8: the browser a model drives

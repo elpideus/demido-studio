@@ -827,6 +827,48 @@ impl Providers {
         Ok(())
     }
 
+    /// The keys for search services the person kept and left turned on (DECISIONS N17), as long as the
+    /// month's limit allows one more search. When it does not, none, and the words that say why.
+    pub fn search_keys(&self) -> (Vec<crate::web::WithKey>, Option<String>) {
+        let on: Vec<crate::web::Keyed> =
+            crate::web::Keyed::ALL.into_iter().filter(|k| self.settings.value::<bool>(k.setting()).unwrap_or(true) && self.vault.facts(k.vault_name()).is_some()).collect();
+        if on.is_empty() {
+            return (Vec::new(), None);
+        }
+        // The dearest of them, at least, must fit under the limit.
+        let dearest = on.iter().map(|k| k.price()).fold(0.0, f64::max);
+        if let Err(why) = self.within(dearest) {
+            return (Vec::new(), Some(format!("Your keys for search services were not used: {why}")));
+        }
+        let keys = on.into_iter().filter_map(|service| self.vault.get(service.vault_name()).ok().flatten().map(|key| crate::web::WithKey { service, key })).collect();
+        (keys, None)
+    }
+
+    /// Writes down what a search with the person's key cost. It counts toward the month's limit, as a model's
+    /// request does: the person's money either way.
+    pub fn record_search(&self, paid: &crate::web::Paid, asking: For<'_>) -> Result<()> {
+        let provider = paid.service.id();
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO usage (at, provider, model, session_id, message_id, input, cached, cache_written, output, cost_usd, exact, account) VALUES (?1, ?2, 'search', ?3, ?4, 0, 0, 0, 0, ?5, ?6, NULL)",
+                rusqlite::params![now_ms(), provider, asking.session, asking.message, paid.usd, paid.exact as i64],
+            )
+        })?;
+        self.events.tell("provider.used", Some(provider), json!({ "provider": provider, "account": null, "cost_usd": paid.usd, "exact": paid.exact, "session": asking.session }));
+        Ok(())
+    }
+
+    /// How many searches were made with each search service's key this month, and what Demido counted for them.
+    pub fn searches_this_month(&self) -> Result<HashMap<String, (u64, f64)>> {
+        let (since, _) = this_month();
+        let rows: Vec<(String, i64, f64)> = self.db.with(|c| {
+            c.prepare("SELECT provider, count(*), sum(cost_usd) FROM usage WHERE at >= ?1 AND model = 'search' GROUP BY provider")?
+                .query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect()
+        })?;
+        Ok(rows.into_iter().map(|(p, n, usd)| (p, (n as u64, usd))).collect())
+    }
+
     /// The same, with every provider's API at `base` (`base/anthropic`, `base/gemini`, …). For tests.
     #[cfg(test)]
     pub(crate) fn at(mut self, base: &str) -> Self {
@@ -1267,9 +1309,13 @@ impl Providers {
         if model.free {
             return Ok(());
         }
+        self.within(model.price_in.unwrap_or(0.0) * tokens_in as f64 / 1_000_000.0)
+    }
+
+    /// Says no when what was counted this month, and `at_least` more, is past the limit.
+    fn within(&self, at_least: f64) -> Result<()> {
         let Some(limit) = self.limit() else { return Ok(()) };
         let spending = self.spending()?;
-        let at_least = model.price_in.unwrap_or(0.0) * tokens_in as f64 / 1_000_000.0;
         if spending.spent_usd + at_least >= limit {
             let next = jiff::Timestamp::from_millisecond(spending.until).map(|t| t.to_zoned_datetime(jiff::tz::TimeZone::system()).strftime("%-d %B").to_string()).unwrap_or_default();
             return Err(Error::Invalid(format!(

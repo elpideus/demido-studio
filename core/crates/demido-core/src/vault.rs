@@ -19,8 +19,9 @@
 //! A key is named for its provider and the person's account there, `<provider>.<account>`: a provider may
 //! hold several (DECISIONS U32).
 //!
-//! Not built yet: a vault file locked with a passphrase or by systemd, for servers (note 05 §4.6); keys for
-//! search services. The Hugging Face token for gated models is kept here too (`huggingface.main`, DECISIONS H8).
+//! Not built yet: a vault file locked with a passphrase or by systemd, for servers (note 05 §4.6). The Hugging
+//! Face token for gated models is kept here too (`huggingface.main`, DECISIONS H8), and the person's keys for
+//! search services (`brave.main`, `exa.main`, `tavily.main`, DECISIONS N17).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -32,8 +33,15 @@ use utoipa::ToSchema;
 use crate::{Error, Result, now_ms};
 
 /// The keys there can be: a name, and what it is for.
-pub const KNOWN: &[(&str, &str)] =
-    &[("anthropic", "Anthropic API key"), ("gemini", "Gemini API key (Google AI Studio)"), ("openrouter", "OpenRouter API key"), ("huggingface", "Hugging Face token, for gated models")];
+pub const KNOWN: &[(&str, &str)] = &[
+    ("anthropic", "Anthropic API key"),
+    ("gemini", "Gemini API key (Google AI Studio)"),
+    ("openrouter", "OpenRouter API key"),
+    ("huggingface", "Hugging Face token, for gated models"),
+    ("brave", "Brave Search API key"),
+    ("exa", "Exa API key"),
+    ("tavily", "Tavily API key"),
+];
 
 /// What a kept value is replaced with, wherever it would otherwise be shown.
 pub const HIDDEN: &str = "[a key Demido keeps]";

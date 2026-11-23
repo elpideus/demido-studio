@@ -163,7 +163,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
 | 6 | ~~Settings for each model: the research, and applying what the makers recommend~~ done (DECISIONS K26 to K30, research note 19) | It meets `docs/LATER.md` 1 |
-| 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). Left from it: search services that need a key (Brave and others), which is what would make search good. The Hugging Face key for gated models is built since (H8) | Secrets and money |
+| 6 | ~~Where keys are kept (the vault) and how a provider is allowed to be used.~~ Done (DECISIONS U). ~~Left from it: search services that need a key (Brave and others)~~ done (N17 to N20, research note 30): Brave, Exa and Tavily with the person's key, asked first, counted with the spending; tried against stand-ins, the first real search waits for the owner's key. The Hugging Face key for gated models is built since (H8) | Secrets and money |
 | 6 | ~~Anthropic, Gemini and OpenRouter; usage shown; Claude Code and OpenCode.~~ Done (DECISIONS U), tested against stand-ins: the first real request waits for your key, and the first message to a program for your yes | Documented interfaces, one at a time; never touch a program's login |
 | 7 | Agents with a model each, lending a loaded model, fitting several into memory. **On hold** (the owner, 2026-11-22; O13: no second model by default) | The hardest design left, and the product's main promise |
 | 7 | ~~Schedules and monitors that run with nobody there~~ built (DECISIONS J1 to J11): always autonomous, every tool, no level; monitors on the shop's own price, or on a price the model reads where a page has none; in the window, on the command line. Left: the desktop shell's own notice (plan item 10), and the two measurements note 24 owes (a run's report from a small model, which needs email; injection inside a run) | Nobody is there to say no, so all a run did must be easy to read |
@@ -221,6 +221,10 @@ researched and tried on the checks' Windows machine, five runs (research note 29
 
 Also done on 2026-11-23: the sandbox on Windows, built as T27 says and tried for real by the checks' Windows
 machine.
+
+Also done on 2026-11-23: search with a key (DECISIONS N17 to N20, research note 30): Brave Search, Exa and Tavily, each with
+the person's own key, asked before the free ladder, what each search cost counted with the providers' spending and held
+by the month's limit; Brave's and Exa's results are not kept, as their terms say (Exa's free service included).
 
 Next, by the owner's direction of 2026-11-23: items 6, 8, 9, 7, 5 and 10, in that order, skipping what needs
 the owner. The work list, checked as it goes, is `docs/TODO.md`. Agents wait.
