@@ -41,6 +41,7 @@ pub const KNOWN: &[(&str, &str)] = &[
     ("brave", "Brave Search API key"),
     ("exa", "Exa API key"),
     ("tavily", "Tavily API key"),
+    ("email", "Email password, or a Gmail app password"),
 ];
 
 /// What a kept value is replaced with, wherever it would otherwise be shown.

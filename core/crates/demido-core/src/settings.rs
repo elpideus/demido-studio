@@ -108,6 +108,7 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
                 "What a model may read from the internet. It can only read: it sends no form, no password, nothing about you (only your own key, to a search service you gave one for). Every use is shown in the answer it was for.",
             ),
         ),
+        section("email", "Email", Some("Your own mail accounts, read and sent from by Demido. Reading marks nothing as read; sending cannot be undone.")),
         section("providers", "Providers and spending", Some("Models that run elsewhere, with your own keys. They cost money: this is how much Demido may spend, and Demido stops there.")),
         section("permissions", "Permission levels", Some("How much a model may do without asking you first. Each session has its own level; this is where new ones start.")),
         section("server", "Server and remote use", Some("How this computer offers Demido to its own window, to browsers and to other devices.")),
@@ -238,6 +239,17 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "A model can search, and can read a page from its address.",
             Some(
                 "Default on. Demido says who it is to every site (DemidoStudio and this project's address), follows each site's rules for programs (robots.txt), reads at most 2 MB of a page, and keeps what it read for a while so that it asks sites as rarely as it can. A model is given only the parts of a page that match what was asked. A model may open an address you wrote, or one that a search or a page gave it. An address it wrote itself can carry text out of your computer, so Demido asks you first, every time (not at the Autonomous level). A PDF is read for its text (not its pictures), in a process of its own with limits on time and memory. A search goes first to the search services you gave a key for (Providers screen), then to the free ones below. A page that shows its text only after its scripts run is read in Demido's browser, when it is downloaded.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
+        def(
+            "email.models",
+            "Let models read your mail and send in your name",
+            "With an email account added on the Email screen, a model can list your inbox, read a message, and send one.",
+            Some(
+                "Default on. Models use the first account. Reading marks nothing as read, moves nothing, deletes nothing. What other people wrote is treated as text from outside: it can never give a model orders, and once a model has read a message, a change to a file asks you first. Sending cannot be undone, so it asks you at Cautious and Balanced, each time, with the whole message shown; at Smart the model decides; at Autonomous, and in a schedule, it does not ask, and says what it sent. Not built: replying in a thread, files, other folders than the inbox for models.",
             ),
             Kind::Switch,
             json!(true),

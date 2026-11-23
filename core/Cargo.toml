@@ -56,6 +56,16 @@ rustfft = "6.4"
 # Apache-2.0, on libbz2-rs-sys (bzip2-1.0.6 licence: BSD-style, like zlib's). Read from crates.io on 2026-11-22.
 bzip2 = "0.6"
 libc = "0.2"
+# Email (research note 26, DECISIONS Y). Read from crates.io on 2026-11-24: async-imap 0.12.0 (MIT OR Apache-2.0), on
+# tokio, with TLS from tokio-rustls 0.26 (MIT OR Apache-2.0) and the system's certificates through
+# rustls-platform-verifier 0.7 (MIT OR Apache-2.0), both already in the build through reqwest; lettre 0.11.24 (MIT)
+# for sending, on the same rustls; mail-parser 1.0.2 (Apache-2.0 OR MIT) for reading messages.
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
+lettre = { version = "0.11.24", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
+mail-parser = "1.0"
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "tls12"] }
+rustls-platform-verifier = "0.7"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # The MD5 Google's storage gives with a file of Chrome for Testing, which publishes no checksum (browser/copy.rs).
 # md-5 0.10.6, MIT OR Apache-2.0, RustCrypto's; already in the build through other crates. Read 2026-11-24.
 md5 = { package = "md-5", version = "0.10" }

@@ -32,6 +32,7 @@ pub mod chat;
 pub mod checkpoint;
 pub mod db;
 pub mod desktop;
+pub mod email;
 pub mod engine;
 pub mod error;
 pub mod events;

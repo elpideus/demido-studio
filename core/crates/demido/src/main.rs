@@ -32,6 +32,10 @@ enum Command {
     /// apart from itself, so that a strange file ends this process and not the server.
     #[command(name = "pdf-text", hide = true)]
     PdfText,
+    /// A stand-in mail server on this computer, for a trial of email in a development build (DECISIONS Y).
+    #[cfg(debug_assertions)]
+    #[command(name = "mail-stand-in", hide = true)]
+    MailStandIn,
     /// The speech parts of voice mode, which the server starts (DECISIONS V7): frames on standard input and output.
     #[command(name = "voice-engine", hide = true)]
     VoiceEngine {
@@ -513,6 +517,43 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Settings { command } => settings(&paths, command)?,
         Command::Keys { command } => keys(&paths, command.unwrap_or(KeysCommand::List)).await?,
         Command::Usage { json } => usage(&paths, json)?,
+        #[cfg(debug_assertions)]
+        Command::MailStandIn => {
+            use demido_core::email::stand_in::{self, Held};
+            let inbox = vec![
+                Held {
+                    uid: 1,
+                    seen: true,
+                    raw: stand_in::message(
+                        "Ada Lovelace <ada@example.org>",
+                        "me@example.org",
+                        "The engine",
+                        "Mon, 23 Nov 2026 09:00:00 +0000",
+                        "The analytical engine weaves algebraic patterns, as the loom weaves flowers.",
+                    ),
+                },
+                Held {
+                    uid: 2,
+                    seen: false,
+                    raw: stand_in::message(
+                        "Heron Watch <news@herons.example>",
+                        "me@example.org",
+                        "Count on Saturday",
+                        "Tue, 24 Nov 2026 07:30:00 +0000",
+                        "The heron count is on Saturday at six, from the north shore.\nBring a warm coat.",
+                    ),
+                },
+            ];
+            let (imap, smtp, box_) = stand_in::start("me@example.org", "stand-in-password", inbox).await?;
+            println!("Mail stand-in: IMAP 127.0.0.1:{imap}, SMTP 127.0.0.1:{smtp}; me@example.org, password stand-in-password. Ctrl+C ends it.");
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let sent = box_.lock().unwrap().sent.len();
+                if sent > 0 {
+                    println!("Sent through it so far: {sent}.");
+                }
+            }
+        }
         Command::Browser { command } => browser(&paths, command.unwrap_or(BrowserCommand::Status)).await?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,

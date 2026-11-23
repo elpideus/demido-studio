@@ -10,6 +10,7 @@ use crate::runtime::{Runtimes, Source};
 use crate::settings::Settings;
 
 mod folders_and_permissions;
+mod mail;
 mod schedules;
 mod the_internet;
 mod tools_and_tasks;

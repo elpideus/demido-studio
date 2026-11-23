@@ -122,6 +122,8 @@ pub struct Chat {
     web: Arc<crate::web::Web>,
     /// The browser a model drives (DECISIONS Z), when Demido has one.
     browser: Option<Arc<crate::browser::Browser>>,
+    /// The person's mail (DECISIONS Y), when Demido has it.
+    mail: Option<Arc<crate::email::Mail>>,
     /// Where the whole of what programs printed is kept, a folder for each session.
     outputs: std::path::PathBuf,
     /// Models elsewhere, and the keys for them. `None` in a test that has none.
@@ -179,6 +181,7 @@ impl Chat {
             // Keeps nothing on disk until the server says where (`with_web`).
             web: Arc::new(crate::web::Web::new(None)),
             browser: None,
+            mail: None,
             outputs: std::env::temp_dir().join("demido-outputs"),
             providers: None,
             address: std::sync::OnceLock::new(),
@@ -303,6 +306,22 @@ impl Chat {
 
     pub(crate) fn browser(&self) -> Option<&Arc<crate::browser::Browser>> {
         self.browser.as_ref()
+    }
+
+    /// The same, with the person's mail.
+    pub fn with_mail(mut self, mail: Arc<crate::email::Mail>) -> Self {
+        self.mail = Some(mail);
+        self
+    }
+
+    /// The account models use, when there is one and the person lets models use their mail: the first.
+    pub(crate) fn mail_account(&self) -> Option<(Arc<crate::email::Mail>, crate::email::Account)> {
+        if !self.settings.value::<bool>("email.models").unwrap_or(true) {
+            return None;
+        }
+        let mail = self.mail.clone()?;
+        let account = mail.accounts().ok()?.into_iter().next()?;
+        Some((mail, account))
     }
 
     /// Whether models may use Demido's browser: there is one, downloaded, the internet is on, and so is the setting.
@@ -636,7 +655,10 @@ impl Chat {
     /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are
     /// off. A session with a folder is shown the tools that reach into it too.
     pub fn tools_told(&self, session: &Session) -> Option<String> {
-        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| turn::told_about_tools(session.folder.is_some(), self.internet(), self.artifacts(session.folder.is_some())))
+        self.settings
+            .value::<bool>("tools.use")
+            .unwrap_or(true)
+            .then(|| turn::told_about_tools(session.folder.is_some(), self.internet(), self.artifacts(session.folder.is_some()), self.browsing(), self.mail_account().is_some()))
     }
 
     fn asking(&self) -> std::sync::MutexGuard<'_, HashMap<String, Waiting>> {

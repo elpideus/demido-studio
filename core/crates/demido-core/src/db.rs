@@ -189,6 +189,36 @@ const MIGRATIONS: &[&str] = &[
         note        TEXT NOT NULL
      ) STRICT;
      CREATE INDEX schedule_runs_of ON schedule_runs (schedule_id, started_at);",
+    // Email (DECISIONS Y): the person's accounts (their passwords are in the vault), and what was fetched of their
+    // mail, kept so that asking again fetches only what is newer and a message's text once.
+    "CREATE TABLE email_accounts (
+        id         TEXT PRIMARY KEY,
+        address    TEXT NOT NULL,
+        label      TEXT NOT NULL,
+        preset     TEXT NOT NULL,          -- gmail or other
+        imap_host  TEXT NOT NULL,
+        imap_port  INTEGER NOT NULL,
+        smtp_host  TEXT NOT NULL,
+        smtp_port  INTEGER NOT NULL,
+        username   TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+     ) STRICT;
+     CREATE TABLE email_messages (
+        account      TEXT NOT NULL REFERENCES email_accounts (id) ON DELETE CASCADE,
+        folder       TEXT NOT NULL,
+        uid_validity INTEGER NOT NULL,
+        uid          INTEGER NOT NULL,
+        from_who     TEXT NOT NULL,
+        to_who       TEXT NOT NULL,
+        subject      TEXT NOT NULL,
+        date         INTEGER,
+        seen         INTEGER NOT NULL,
+        size         INTEGER NOT NULL,
+        text         TEXT,                 -- once the message was opened
+        files        TEXT,                 -- the names of its files, as JSON, once opened
+        kept_at      INTEGER NOT NULL,
+        PRIMARY KEY (account, folder, uid_validity, uid)
+     ) STRICT;",
 ];
 
 pub struct Db {

@@ -46,6 +46,10 @@ pub const RUN: &str = "run_command";
 /// The tools that read from the internet. They are run by `chat`, through `web`.
 pub const SEARCH: &str = "search_web";
 pub const READ_PAGE: &str = "read_page";
+/// Email (DECISIONS Y).
+pub const LIST_MAIL: &str = "list_mail";
+pub const READ_MAIL: &str = "read_mail";
+pub const SEND_MAIL: &str = "send_mail";
 /// The browser a model drives (DECISIONS Z6).
 pub const OPEN_PAGE: &str = "open_page";
 pub const PRESS: &str = "press";
@@ -104,6 +108,11 @@ pub enum Reach {
     /// Reads from the internet: a search, or one page. Only reads; what can leave is the address and the
     /// words searched for (`web`).
     Network,
+    /// Reads the person's mail (DECISIONS Y). Only reads, and marks nothing; what other people wrote is text
+    /// from outside.
+    Mail,
+    /// Sends a message in the person's name. It cannot be undone.
+    Sends,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -165,6 +174,14 @@ const TOOLS: &[Tool] = &[
         args: &[arg("number", Kind::Whole), arg("text", Kind::Text)],
         reach: Reach::Network,
     },
+    Tool { name: LIST_MAIL, does: "The newest messages in the person's inbox, numbered, with who sent each and its subject. You cannot see their mail without it.", args: &[], reach: Reach::Mail },
+    Tool { name: READ_MAIL, does: "The text of one message, by its number in that list.", args: &[arg("number", Kind::Whole)], reach: Reach::Mail },
+    Tool {
+        name: SEND_MAIL,
+        does: "Sends an email in the person's name: to whom, its subject, and its text, which you write next. It cannot be taken back.",
+        args: &[arg("to", Kind::Text), arg("subject", Kind::Text), later("text")],
+        reach: Reach::Sends,
+    },
     Tool {
         name: READ_OUTPUT,
         does: "More of what the last command printed, from a line number: for the lines its result says are not shown.",
@@ -211,12 +228,18 @@ pub fn of_the_browser(name: &str) -> bool {
 /// those that read from the internet only when the person has that turned on, and artifacts likewise; the
 /// browser's only when it is downloaded and turned on too; `plan` only where work may still be split.
 pub fn offered(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool, browser: bool) -> Vec<&'static Tool> {
+    offered_with(has_folder, may_plan, internet, artifacts, browser, false)
+}
+
+/// The same, with the person's mail when they have an account and let models use it (DECISIONS Y).
+pub fn offered_with(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool, browser: bool, mail: bool) -> Vec<&'static Tool> {
     TOOLS
         .iter()
         .filter(|t| match t.reach {
             Reach::Nothing => true,
             Reach::Network if of_the_browser(t.name) => internet && browser,
             Reach::Network => internet,
+            Reach::Mail | Reach::Sends => mail,
             Reach::Reads | Reach::Changes | Reach::Runs => has_folder,
         })
         .filter(|t| may_plan || t.name != PLAN)
@@ -227,9 +250,10 @@ pub fn offered(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool
         .collect()
 }
 
-/// Whether a step brought in text from the internet: its result holds addresses a model may then open.
+/// Whether a step brought in text from the internet, or from someone's mail: text nobody here wrote. Its result
+/// holds addresses a model may then open.
 pub fn from_the_internet(step: &Step) -> bool {
-    step.state == "done" && named(&step.tool).is_some_and(|t| t.reach == Reach::Network)
+    step.state == "done" && named(&step.tool).is_some_and(|t| matches!(t.reach, Reach::Network | Reach::Mail))
 }
 
 /// The tool of that name.
@@ -819,7 +843,7 @@ mod tests {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, open_page, press, type_text, read_output, give_file, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, open_page, press, type_text, list_mail, read_mail, send_mail, read_output, give_file, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));

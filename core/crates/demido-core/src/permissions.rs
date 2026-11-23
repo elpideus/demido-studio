@@ -26,6 +26,8 @@
 //! |   wrote itself                  |          |          |                |            |
 //! | presses something on a page in  | asks     | runs     | runs           | runs       |
 //! |   Demido's browser              |          |          |                |            |
+//! | reads the person's mail         | asks     | runs     | runs           | runs       |
+//! | sends a message in their name   | asks     | asks     | the model says | runs       |
 //! | types its own words into a page | asks     | asks     | the model says | runs       |
 //! |   (the person's own words: runs |          |          |                |            |
 //! |   as a page it was given)       |          |          |                |            |
@@ -158,7 +160,9 @@ pub fn asks(level: Level, reach: Reach, around: Around) -> bool {
         (Reach::Nothing, _) => false,
         (_, Level::Autonomous) => false,
         (_, Level::Cautious) => true,
-        (Reach::Reads, _) => false,
+        (Reach::Reads | Reach::Mail, _) => false,
+        // Sending cannot be undone (DECISIONS Y): always someone's yes, but at Autonomous.
+        (Reach::Sends, Level::Balanced | Level::Smart) => true,
         // A change can be undone, so it goes ahead: unless text from outside may be what asked for it.
         (Reach::Changes, Level::Balanced | Level::Smart) => around.after_the_internet,
         // Reading the internet only reads. An address the model wrote itself can carry text away.
@@ -180,6 +184,7 @@ pub fn why(level: Level, reach: Reach, around: Around, no_sandbox_because: Optio
         }
         (_, Reach::Runs) if !held.can_be_undone => "It runs shut in a sandbox: it cannot leave the folder or reach the network. The folder could not be saved first, so what it changes in the folder cannot be undone.".into(),
         (_, Reach::Runs) => "A program can do anything inside the folder, so this level asks before each. It runs shut in a sandbox: it cannot leave the folder or reach the network. The folder was saved first, so everything it does can be undone.".into(),
+        (_, Reach::Sends) => "Sending cannot be undone: once it has gone, it is in their mailbox. Look at whom it goes to and all that it says.".into(),
         (_, Reach::Changes) if after_the_internet => "This session has read from the internet, and what a page says can tell a model to do things. So from then on a change to a file is asked for. It can be undone afterwards.".into(),
         _ => "This could do something that cannot be undone.".into(),
     }
@@ -239,6 +244,9 @@ pub fn what(tool: &str, args: &serde_json::Map<String, serde_json::Value>, exist
         // An address is shown whole, for the same reason.
         "read_page" => format!("Read the page at {}", text("url")),
         "open_page" => format!("Open the page at {} in Demido's browser", text("url")),
+        "list_mail" => "List the newest messages in your inbox".into(),
+        "read_mail" => format!("Read message number {} of your inbox", args.get("number").map(|n| n.to_string()).unwrap_or_default().trim_matches('"')),
+        "send_mail" => format!("Send an email to {}: \"{}\" ({} characters)", text("to"), short(text("subject")), text("text").chars().count()),
         "press" => format!("Press number {} on the page in Demido's browser", args.get("number").map(|n| n.to_string()).unwrap_or_default().trim_matches('"')),
         "type_text" => format!("Type \"{}\" into number {} on the page in Demido's browser", text("text"), args.get("number").map(|n| n.to_string()).unwrap_or_default().trim_matches('"')),
         "read_output" => "Read more of what the last command printed".into(),

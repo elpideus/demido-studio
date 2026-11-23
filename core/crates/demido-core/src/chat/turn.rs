@@ -102,9 +102,9 @@ impl Words {
 }
 
 /// The list of tools and the question a model is asked before each answer, for a person to read.
-pub(super) fn told_about_tools(has_folder: bool, internet: bool, artifacts: bool) -> String {
+pub(super) fn told_about_tools(has_folder: bool, internet: bool, artifacts: bool, browser: bool, mail: bool) -> String {
     let folder = if has_folder { "\n\n(the files in the folder, by their paths, as they are at that moment)" } else { "" };
-    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered(has_folder, true, internet, artifacts, false)), Words::request("").ask)
+    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered_with(has_folder, true, internet, artifacts, browser, mail)), Words::request("").ask)
 }
 
 /// How the last message of a piece of work ends.
@@ -571,6 +571,9 @@ impl Chat {
                         let path = args.get("path").and_then(Value::as_str).unwrap_or_default().to_string();
                         let asked = if tool == "add_to_file" {
                             format!("Write what goes at the end of {path} now: only that text, with nothing before or after it.")
+                        } else if tool == tools::SEND_MAIL {
+                            let to = args.get("to").and_then(Value::as_str).unwrap_or_default();
+                            format!("Write the text of the email to {to} now: only what the message says, with nothing before or after it.")
                         } else {
                             format!("Write the whole of {path} now: only its text, as it goes in the file, with nothing before or after it.")
                         };
@@ -640,7 +643,8 @@ impl Chat {
                             address = if theirs { Address::Given } else { Address::Typed };
                         }
                     }
-                    let once_only = matches!(address, Address::Written | Address::Typed);
+                    // A message sent cannot be taken back: each one is asked for on its own.
+                    let once_only = matches!(address, Address::Written | Address::Typed) || reach == tools::Reach::Sends;
                     let around = Around { held, address, after_the_internet };
                     let granted = self.granted(&session.id, &tool) && !once_only;
                     let answers = permissions::answers(level, reach, around);
@@ -772,6 +776,46 @@ impl Chat {
                             },
                             Ok(read) => Ok(tools::Done { gave: tools::clean(&read.gave), changed: None }),
                             Err(why) => Err(why),
+                        }
+                    } else if matches!(tool.as_str(), tools::LIST_MAIL | tools::READ_MAIL | tools::SEND_MAIL) {
+                        // The person's mail. What other people wrote is text from outside, like a page's.
+                        match self.mail_account() {
+                            None => Err("the person has no email account in Demido, or does not let models use their mail".to_string()),
+                            Some((mail, account)) => {
+                                let number = args.get("number").and_then(Value::as_u64).unwrap_or(0) as usize;
+                                if tool == tools::LIST_MAIL {
+                                    mail.refresh(&account.id, "INBOX")
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                        .map(|list| tools::Done { gave: tools::clean(&self.hide(&crate::email::listed(&account, &list))), changed: None })
+                                } else if tool == tools::READ_MAIL {
+                                    let list = match mail.kept(&account.id, "INBOX") {
+                                        Ok(list) if !list.is_empty() => Ok(list),
+                                        _ => mail.refresh(&account.id, "INBOX").await,
+                                    };
+                                    match list.map_err(|e| e.to_string()) {
+                                        Err(why) => Err(why),
+                                        Ok(list) => match list.get(number.wrapping_sub(1)) {
+                                            None => Err(format!("there is no message number {number}: the inbox lists 1 to {}", list.len())),
+                                            Some(s) => mail
+                                                .open_message(&account.id, "INBOX", s.uid)
+                                                .await
+                                                .map_err(|e| e.to_string())
+                                                .map(|m| tools::Done { gave: tools::clean(&self.hide(&crate::email::told(&m))), changed: None }),
+                                        },
+                                    }
+                                } else {
+                                    let out = crate::email::Outgoing {
+                                        to: args.get("to").and_then(Value::as_str).unwrap_or_default().into(),
+                                        subject: args.get("subject").and_then(Value::as_str).unwrap_or_default().into(),
+                                        text: args.get("text").and_then(Value::as_str).unwrap_or_default().into(),
+                                    };
+                                    mail.send(&account.id, &out)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                        .map(|_| tools::Done { gave: format!("Sent from {} to {}: \"{}\".", account.address, out.to, out.subject), changed: None })
+                                }
+                            }
                         }
                     } else if tools::of_the_browser(&tool) {
                         // Demido's browser: what the model was given is its text, and a picture is kept for the person.
@@ -983,7 +1027,17 @@ impl Chat {
                 break;
             }
             let has_folder = session.folder.is_some();
-            let Err(parts) = self.do_one(session, answer_id, before, request, task, &tools::offered(has_folder, true, self.internet(), self.artifacts(has_folder), self.browsing()), stop).await?
+            let Err(parts) = self
+                .do_one(
+                    session,
+                    answer_id,
+                    before,
+                    request,
+                    task,
+                    &tools::offered_with(has_folder, true, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some()),
+                    stop,
+                )
+                .await?
             else {
                 continue;
             };
@@ -993,7 +1047,17 @@ impl Chat {
                     break;
                 }
                 // `plan` is not offered, so this cannot ask to split.
-                let _ = self.do_one(session, answer_id, before, request, &part, &tools::offered(has_folder, false, self.internet(), self.artifacts(has_folder), self.browsing()), stop).await?;
+                let _ = self
+                    .do_one(
+                        session,
+                        answer_id,
+                        before,
+                        request,
+                        &part,
+                        &tools::offered_with(has_folder, false, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some()),
+                        stop,
+                    )
+                    .await?;
             }
             // What the whole task gave, from what its parts gave.
             let all = self.sessions.tasks_of(answer_id)?;
@@ -1026,7 +1090,7 @@ impl Chat {
                     &before,
                     &request,
                     &Words::request(&request),
-                    &tools::offered(session.folder.is_some(), true, self.internet(), self.artifacts(session.folder.is_some()), self.browsing()),
+                    &tools::offered_with(session.folder.is_some(), true, self.internet(), self.artifacts(session.folder.is_some()), self.browsing(), self.mail_account().is_some()),
                     &mut steps,
                     stop,
                     &shown,

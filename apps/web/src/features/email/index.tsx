@@ -6,6 +6,8 @@ import { useMemo, useState } from 'react'
 import { AlertOctagon, Archive, ArrowDownUp, CalendarDays, ChevronDown, Ellipsis, FolderInput, Forward, Mail, MailOpen, Paperclip, PenLine, Plus, Reply, ReplyAll, Search, Star, Tag, Trash2, UserRoundCheck, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
+import { useCore } from '@/data/core'
+import { RealEmail } from './real'
 import { setSetting, toast, useSetting } from '@/data/store'
 import { Button, Dialog, Icon, Menu, NotBuilt, Segmented, Signal, Switch, Tip, cx } from '@/ui'
 import { AskPanel } from '@/ui/ask'
@@ -44,7 +46,7 @@ function AddAccount({ onClose }: { onClose: () => void }) {
   )
 }
 
-function EmailPage() {
+function PreviewEmail() {
   const [mail, setMail] = useState<Msg[]>(MAIL)
   const [account, setAccount] = useState<Account | 'all'>('all')
   const [folder, setFolder] = useState<Folder>('inbox')
@@ -315,6 +317,12 @@ function EmailPage() {
       {adding && <AddAccount onClose={() => setAdding(false)} />}
     </div>
   )
+}
+
+/** With a core behind the pages, the real one; without, the preview of where it is going. */
+function EmailPage() {
+  const core = useCore()
+  return core.state === 'ready' ? <RealEmail /> : <PreviewEmail />
 }
 
 export const feature: Feature = {

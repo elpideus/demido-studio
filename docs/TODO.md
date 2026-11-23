@@ -54,8 +54,8 @@ Voice:
 - [ ] **(needs you)** What a voice interruption does to a running task (IDEAS 42).
 
 Email:
-- [ ] Build Gmail by app password (DECISIONS Y1, research note 26): the preset, the password kept in the vault, reading by IMAP, sending by SMTP, and the email screen in the window made real. What other people write is data; sending asks first and cannot be undone.
-- [ ] Test against a mail server stand-in on this computer. No real mailbox.
+- [x] Build Gmail by app password (DECISIONS Y1, research note 26): the preset, the password kept in the vault, reading by IMAP, sending by SMTP, and the email screen in the window made real. What other people write is data; sending asks first and cannot be undone.
+- [x] Test against a mail server stand-in on this computer. No real mailbox.
 - [ ] **(needs you)** A real mailbox and its app password.
 
 Messaging (WhatsApp, Telegram, Discord):
