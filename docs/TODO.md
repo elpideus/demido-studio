@@ -9,6 +9,23 @@ How each item goes: research first where nothing is researched yet (a note in `d
 decisions written down in DECISIONS, then built and tested, and what is not built or not tried said so.
 Marked **(needs you)**: skipped, and left for the owner.
 
+## How to work (the owner's standing rules)
+
+- Technical decisions are made here. Research first where nothing is researched yet (the next note in `docs/research/`); decisions go in `docs/DECISIONS.md`, progress in `docs/PLAN.md`, ideas in `docs/IDEAS.md`. Say plainly what is not built and what is not tried; never claim more than was tried.
+- Never look at previous Demido Studio versions: never clone, read, search or reference the folder `/mnt/Storage/Development/Demido Studio Project - OLD - DO NOT READ OR EVEN OPEN/` or the repositories `elpideus/demido-studio-fourth` and `-third`. When unsure whether something is an old version, ask.
+- GPL-3.0-or-later: every dependency must fit (`node scripts/check-licences.mjs`); a new licence name is read before it is added there, with the reason.
+- Nothing irreversible and nothing that costs money without the owner: while they are away, skip it and report it.
+- One worker: no Workflow tool, no subagents and no other sessions unless the owner asks.
+- Every commit signed (SSH; `git log --format=%G?` shows G) and ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; committed and pushed to main as each piece is done and checked. Never a version tag or a release.
+- Downloads the work needs are allowed: official sources, cached, few requests.
+- Never the owner's API keys, passwords or tokens, never their phone or its PIN; Demido never reads, keeps or passes on Claude Code's or OpenCode's login.
+- Before each piece is committed: `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` (in `core/`), `pnpm app:typecheck`, `pnpm app:build`, the licence check.
+- The owner's server on 127.0.0.1:7341 runs on their real data in `~/.local/share/demido`, and they use it: disturb neither. Restart it only on a new build, after checking nothing is answering (`sqlite3 -readonly ~/.local/share/demido/demido.db "SELECT count(*) FROM messages WHERE state='answering';"`): kill the pid from `pgrep -x demido` after checking its `/proc/<pid>/cmdline` and that `DEMIDO_HOME` is unset in its environment, then start it from the repository's root with `env -u DEMIDO_HOME setsid nohup core/target/debug/demido serve --ui-dir apps/web/dist > <scratchpad>/server-7341.log 2>&1 < /dev/null &`. Keep a copy of `demido.db` before a new migration.
+- Trials on scratch servers on port 7398 or 7399, with `DEMIDO_VAULT=file` (the recipes are in `core/dev/`); a sign-in link with `DEMIDO_HOME=<home> DEMIDO_VAULT=file core/target/debug/demido open --print` (60 s). Never "delete model" on a home whose `models` is linked to the real folder. A scratch home has the internet tools on: test words with nothing personal in them.
+- Before a trial on the graphics card or many processor threads, check `nvidia-smi`: while a game or another program holds the card, no model or voice trials; work that needs neither.
+- What only Windows or macOS can try goes on a branch (`gh workflow run Checks --ref <branch>`), merged to main once green. Windows code is type-checked and linted here with `cargo xwin check|clippy --target x86_64-pc-windows-msvc`.
+- The memory files (`demido-local-test-setup.md` and the rest) say what is installed here and how not to break it.
+
 ## Item 6: search services that need a key
 
 - [ ] Research the search services that need a key: Brave Search's API first, and the others worth having (what each costs, its free use, its terms, what may be kept of its results). A research note.
