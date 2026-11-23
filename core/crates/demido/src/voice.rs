@@ -30,6 +30,14 @@ const RATE: i32 = 16_000;
 const PAUSE_S: f32 = 0.2;
 /// The most a turn holds: Smart Turn reads its last 8 seconds, Parakeet all of it.
 const TURN_AT_MOST_S: usize = 60;
+/// Smart Turn's judgement, in three bands (DECISIONS V9, measured on 873 recordings of real English speech in its
+/// makers' test set): above `SURE`, the sentence is finished, and Demido answers at the pause (3.2% of unfinished
+/// sentences are taken for finished, against 5.9% at 0.5); at or below `UNSURE` it is not, and Demido waits with
+/// no time limit (V2); in between, Demido answers only after `MAYBE_WAIT_S` more of silence, and goes on
+/// listening if the person speaks again.
+const SURE: f32 = 0.8;
+const UNSURE: f32 = 0.5;
+const MAYBE_WAIT_S: f32 = 1.5;
 
 /// Where the engine's files are, as the core downloaded them (`demido_core::voice::Files`).
 pub struct Paths {
@@ -170,6 +178,9 @@ fn hear(paths: &Paths, sounds: mpsc::Receiver<Hear>, out: mpsc::Sender<Out>, pla
     let mut pending: Vec<f32> = Vec::new();
     let mut said: Vec<f32> = Vec::new();
     let mut speaking = false;
+    // Samples of silence since the last speech, and whether a judgement in the middle band waits on them.
+    let mut silence: usize = 0;
+    let mut maybe = false;
     let end_turn = |said: &mut Vec<f32>, out: &mpsc::Sender<Out>, forced: bool| {
         if said.is_empty() {
             if forced {
@@ -198,6 +209,7 @@ fn hear(paths: &Paths, sounds: mpsc::Receiver<Hear>, out: mpsc::Sender<Out>, pla
     for message in sounds {
         match message {
             Hear::AnswerNow => {
+                maybe = false;
                 // Speech still under way counts too.
                 if vad.detected() {
                     vad.flush();
@@ -219,6 +231,18 @@ fn hear(paths: &Paths, sounds: mpsc::Receiver<Hear>, out: mpsc::Sender<Out>, pla
                         let _ = out.send(Out::Event(json!({ "event": "speech", "over_demido": over })));
                     }
                     speaking = now;
+                    if now {
+                        // Speaking again: the turn goes on, and a judgement that waited is forgotten.
+                        silence = 0;
+                        maybe = false;
+                    } else {
+                        silence += window.len();
+                        if maybe && silence as f32 >= (PAUSE_S + MAYBE_WAIT_S) * RATE as f32 {
+                            maybe = false;
+                            let _ = out.send(Out::Event(json!({ "event": "finished", "after_silence_s": silence as f32 / RATE as f32 })));
+                            end_turn(&mut said, &out, false);
+                        }
+                    }
                     while let Some(segment) = vad.front() {
                         said.extend_from_slice(segment.samples());
                         vad.pop();
@@ -229,11 +253,13 @@ fn hear(paths: &Paths, sounds: mpsc::Receiver<Hear>, out: mpsc::Sender<Out>, pla
                         let started = std::time::Instant::now();
                         let p = turn.finished(&said).unwrap_or(1.0);
                         let ms = started.elapsed().as_millis() as u64;
-                        if p > 0.5 {
-                            let _ = out.send(Out::Event(json!({ "event": "finished", "probability": p, "ms": ms })));
+                        let seconds = said.len() as f32 / RATE as f32;
+                        if p > SURE {
+                            let _ = out.send(Out::Event(json!({ "event": "finished", "probability": p, "ms": ms, "seconds": seconds })));
                             end_turn(&mut said, &out, false);
                         } else {
-                            let _ = out.send(Out::Event(json!({ "event": "waiting", "probability": p, "ms": ms })));
+                            maybe = p > UNSURE;
+                            let _ = out.send(Out::Event(json!({ "event": "waiting", "probability": p, "ms": ms, "seconds": seconds, "maybe": maybe })));
                         }
                     }
                 }
@@ -269,6 +295,10 @@ fn speak(paths: &Paths, sentences: mpsc::Receiver<Say>, out: mpsc::Sender<Out>, 
     let tts = sherpa_onnx::OfflineTts::create(&config).ok_or_else(|| anyhow!("Pocket TTS could not be opened"))?;
     let (voice, voice_rate) = wav_mono(&paths.voice)?;
     let rate = tts.sample_rate();
+    // The voice is read once now, so that the first answer does not wait for it (DECISIONS V8). With a word: "."
+    // alone has no end that Pocket hears, so it was made to its limit of 500 frames (40 s of sound, 15 s of work).
+    let warm = sherpa_onnx::GenerationConfig { speed: 1.0, reference_audio: Some(voice.clone()), reference_sample_rate: voice_rate, ..Default::default() };
+    let _ = tts.generate_with_config("Hello.", &warm, None::<fn(&[f32], f32) -> bool>);
     let _ = out.send(Out::Event(json!({ "event": "voice", "sample_rate": rate })));
     for say in sentences {
         if say.epoch != epoch.load(Ordering::Relaxed) {

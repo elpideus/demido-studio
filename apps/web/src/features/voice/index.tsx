@@ -4,8 +4,9 @@ import { AudioLines, Download, Mic, Play } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { onCoreEvent, useCore } from '@/data/core'
 import { toast, useSetting, setSetting } from '@/data/store'
+import { useModelChoices } from '@/data/model-choices'
 import { downloadVoice, voiceStatus, type VoiceStatus } from '@/data/voice'
-import { Button, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
+import { Button, Glyph, Icon, NotBuilt, Page, Section, Select, Signal } from '@/ui'
 import { LiveVoiceMode } from './live'
 import { VoiceMode } from './talk'
 
@@ -36,6 +37,8 @@ function RealVoiceHome() {
   const [status, setStatus] = useState<VoiceStatus | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const voice = useSetting<string>('voice.real', '2181')
+  const model = useSetting<string>('voice.model', '')
+  const choices = useModelChoices()
   const read = () => voiceStatus().then(setStatus, (e: Error) => setProblem(e.message))
   useEffect(() => { void read() }, [])
   // While a download runs, how far it has got; and when it ends, what there is.
@@ -91,6 +94,15 @@ function RealVoiceHome() {
           ))}
         </div>
         <p className="d-type-caption d-text-secondary">"Hear the speaker" plays the volunteer's own recording, which Demido's voice is made from. A voice is never made from a recording of anyone who did not agree to it.</p>
+      </Section>
+
+      <Section title="The model that answers" hint="For a new conversation. One you go back to keeps its own.">
+        <div className="d-card"><div className="d-card__body app-stack">
+          <div className="d-field"><span className="d-field__label">Model</span>
+            <Select label="The model that answers in voice mode" value={choices.some((c) => c.value === model) ? model : ''} onChange={(v) => setSetting('voice.model', v)}
+              options={[{ value: '', label: 'One that is loaded, or else the first on this computer' }, ...choices]} /></div>
+          <p className="d-type-caption d-text-secondary">A small model answers sooner; a larger one says more that is right. One through an API costs what that provider charges for each answer.</p>
+        </div></div>
       </Section>
 
       {status?.ready && (

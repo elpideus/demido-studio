@@ -2,8 +2,9 @@
 //! session between them (DECISIONS V1 to V7).
 //!
 //! From the window: sound (16 kHz, mono, 16-bit) as binary messages; and as text, `{"type":"answer_now"}`,
-//! `{"type":"playing","on":true}` (Demido's voice is being played), `{"type":"played","sentence":n,"ms":t}`
-//! (after `stop_playback`: how much of sentence `n` was heard) and `{"type":"stop"}` (stop speaking).
+//! `{"type":"playing","on":true}` (Demido's voice is being played), `{"type":"played","message":id,"sentence":n,"ms":t}`
+//! (after `stop_playback`, which names the answer: how much of its sentence `n` was heard) and `{"type":"stop"}`
+//! (stop speaking).
 //! To the window: Demido's sound as binary messages (the sentence's number, four bytes, then 24 kHz mono 16-bit),
 //! and as text what happens: `ready`, `speech`, `waiting`, `heard`, `heard_nothing`, `thinking`, `say`, `said`,
 //! `answered`, `stop_playback`, `cut`, `error`.
@@ -17,7 +18,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 
-use super::{Voice, as_spoken, engine_args, event_of, heard_of, sentence_end};
+use super::{Saying, Voice, engine_args, event_of, heard_of};
 use crate::chat::Chat;
 use crate::events::EventLog;
 use crate::sessions::Sessions;
@@ -31,20 +32,29 @@ pub struct Opened {
     pub voice: Option<String>,
     /// "Stop when I speak" (V3): on unless `false`.
     pub barge_in: Option<bool>,
+    /// The model, for a new session. Left out: one that is loaded, or else the first on this computer.
+    pub model: Option<String>,
 }
 
 /// The answer being spoken.
 #[derive(Default)]
 struct Answer {
     id: String,
-    /// What has been written so far, as it will be spoken.
-    written: String,
-    /// How much of `written` has been sent to be spoken.
-    sent: usize,
+    /// Its text, as it is written and said.
+    saying: Saying,
     /// The sentences sent, in order, with their sound's length once it is known (24 kHz samples).
     sentences: Vec<(u32, String, u64)>,
-    /// The model has finished writing.
-    done: bool,
+    /// The number of the last sentence the engine has finished saying.
+    said: u32,
+    /// Some of its sound has gone to the window: what was heard of it is the window's to say.
+    voiced: bool,
+}
+
+impl Answer {
+    /// All of it has been said: the model has finished writing, and the engine saying.
+    fn all_said(&self) -> bool {
+        self.saying.all_taken() && self.sentences.last().is_none_or(|(no, _, _)| *no <= self.said)
+    }
 }
 
 async fn send_frame(stdin: &mut ChildStdin, kind: u8, payload: &[u8]) -> std::io::Result<()> {
@@ -101,7 +111,7 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
                 return;
             }
         },
-        None => match chat.start(Some("Spoken conversation"), None).await {
+        None => match chat.start(Some("Spoken conversation"), opened.model.as_deref()).await {
             Ok(s) => s,
             Err(e) => {
                 tell(&mut socket, json!({ "type": "error", "message": e.to_string() })).await;
@@ -158,25 +168,15 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
                             }
                             Some("stop") => {
                                 if let Some(a) = answer.take() {
-                                    stop(&mut stdin, &chat, &session.id).await;
-                                    tell(&mut socket, json!({ "type": "stop_playback" })).await;
-                                    cut_pending = Some(a);
+                                    interrupt(&mut stdin, &chat, &sessions, &mut socket, &session.id, a, &mut cut_pending).await;
                                 }
                             }
                             Some("played") => {
-                                if let Some(a) = cut_pending.take() {
+                                let about = said["message"].as_str();
+                                if let Some(a) = cut_pending.take_if(|a| about.is_none_or(|m| m == a.id)) {
                                     let at = said["sentence"].as_u64().unwrap_or(0) as u32;
                                     let ms = said["ms"].as_u64().unwrap_or(0);
-                                    let spoken: Vec<(String, u64)> = a.sentences.iter().map(|(_, t, n)| (t.clone(), *n)).collect();
-                                    let index = a.sentences.iter().position(|(n, _, _)| *n == at).unwrap_or(spoken.len());
-                                    let heard = heard_of(&spoken, index, ms * 24);
-                                    // The answer may still be finishing its stop; it is cut once it has.
-                                    for _ in 0..50 {
-                                        if !chat.answering(&session.id) { break }
-                                        tokio::time::sleep(Duration::from_millis(40)).await;
-                                    }
-                                    let _ = sessions.cut_spoken(&a.id, &heard);
-                                    tell(&mut socket, json!({ "type": "cut", "message": a.id, "heard": heard })).await;
+                                    settle(&chat, &sessions, &mut socket, &session.id, a, Some((at, ms))).await;
                                 }
                             }
                             _ => {}
@@ -192,6 +192,10 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
                     break;
                 };
                 if kind == b'o' {
+                    if payload.len() >= 4 && let Some(a) = answer.as_mut() {
+                        let n = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                        if a.sentences.iter().any(|(no, _, _)| *no == n) { a.voiced = true; }
+                    }
                     if socket.send(Message::Binary(payload.into())).await.is_err() { break }
                     continue;
                 }
@@ -202,8 +206,7 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
                         tell(&mut socket, json!({ "type": "heard", "text": text, "by": e["by"] })).await;
                         // What is said over an answer still being written ends that answer first.
                         if let Some(a) = answer.take() {
-                            stop(&mut stdin, &chat, &session.id).await;
-                            cut_pending = Some(a);
+                            interrupt(&mut stdin, &chat, &sessions, &mut socket, &session.id, a, &mut cut_pending).await;
                         }
                         for _ in 0..100 {
                             if !chat.answering(&session.id) { break }
@@ -225,13 +228,18 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
                             && over
                             && let Some(a) = answer.take()
                         {
-                            stop(&mut stdin, &chat, &session.id).await;
-                            tell(&mut socket, json!({ "type": "stop_playback" })).await;
-                            cut_pending = Some(a);
+                            interrupt(&mut stdin, &chat, &sessions, &mut socket, &session.id, a, &mut cut_pending).await;
                         }
                     }
-                    "waiting" => { tell(&mut socket, json!({ "type": "waiting", "probability": e["probability"] })).await; }
-                    "finished" => { tell(&mut socket, json!({ "type": "finished" })).await; }
+                    "waiting" => {
+                        let _ = events.append("voice.turn", Some(&session.id), json!({ "probability": e["probability"], "seconds": e["seconds"], "decided": if e["maybe"] == true { "maybe" } else { "waits" } }));
+                        tell(&mut socket, json!({ "type": "waiting", "probability": e["probability"], "maybe": e["maybe"] })).await;
+                    }
+                    "finished" => {
+                        let decided = if e["after_silence_s"].is_null() { "finished" } else { "finished after more silence" };
+                        let _ = events.append("voice.turn", Some(&session.id), json!({ "probability": e["probability"], "seconds": e["seconds"], "after_silence_s": e["after_silence_s"], "decided": decided }));
+                        tell(&mut socket, json!({ "type": "finished" })).await;
+                    }
                     "heard_nothing" => { tell(&mut socket, json!({ "type": "heard_nothing" })).await; }
                     "speaking" => { tell(&mut socket, json!({ "type": "speaking", "sentence": e["sentence"], "first_ms": e["first_ms"] })).await; }
                     "said" => {
@@ -241,10 +249,10 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
                             && let Some(s) = a.sentences.iter_mut().find(|(no, _, _)| *no == n)
                         {
                             s.2 = samples;
+                            a.said = a.said.max(n);
                         }
                         tell(&mut socket, json!({ "type": "said", "sentence": n })).await;
-                        let all_said = answer.as_ref().is_some_and(|a| a.done && a.sent >= a.written.len() && a.sentences.last().is_none_or(|(no, _, _)| *no == n));
-                        if all_said {
+                        if answer.as_ref().is_some_and(Answer::all_said) {
                             answer = None;
                             tell(&mut socket, json!({ "type": "answered" })).await;
                         }
@@ -258,37 +266,21 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
                 let Some(a) = answer.as_mut() else { continue };
                 if event.data["message"].as_str() != Some(a.id.as_str()) { continue }
                 match event.kind.as_str() {
-                    "message.delta" => {
-                        a.written.push_str(event.data["text"].as_str().unwrap_or_default());
-                    }
-                    "message.done" | "message.stopped" | "message.failed" => {
-                        a.done = true;
-                        if a.written.is_empty() {
-                            // Nothing came as it was written (a program's answer): the stored text, whole.
-                            if let Ok(m) = sessions.message(&a.id) { a.written = m.content; }
-                        }
-                    }
+                    "message.delta" => a.saying.write(event.data["text"].as_str().unwrap_or_default()),
+                    "message.done" | "message.stopped" | "message.failed" => a.saying.end(|| sessions.message(&a.id).ok().map(|m| m.content)),
                     _ => continue,
                 }
-                // Every finished sentence is spoken as soon as it is written; at the end, the rest.
-                loop {
-                    let rest = &a.written[a.sent..];
-                    let end = match sentence_end(rest) {
-                        Some(end) => end,
-                        None if a.done && !rest.trim().is_empty() => rest.len(),
-                        None => break,
-                    };
-                    let spoken = as_spoken(&rest[..end]);
-                    a.sent += end;
-                    if spoken.trim().is_empty() { continue }
+                // Every finished sentence is said as soon as it is written; at the end, the rest.
+                while let Some(spoken) = a.saying.next_sentence() {
                     sentence_no += 1;
                     a.sentences.push((sentence_no, spoken.clone(), 0));
                     let mut payload = sentence_no.to_le_bytes().to_vec();
                     payload.extend(spoken.as_bytes());
                     let _ = send_frame(&mut stdin, b's', &payload).await;
-                    tell(&mut socket, json!({ "type": "say", "sentence": sentence_no, "text": spoken })).await;
+                    tell(&mut socket, json!({ "type": "say", "message": a.id, "sentence": sentence_no, "text": spoken })).await;
                 }
-                if a.done && a.sentences.is_empty() {
+                // Nothing to say, or all of it said before the model had finished.
+                if a.all_said() {
                     answer = None;
                     tell(&mut socket, json!({ "type": "answered" })).await;
                 }
@@ -304,8 +296,42 @@ pub async fn run(mut socket: WebSocket, voice: Arc<Voice>, chat: Arc<Chat>, sess
     let _ = events.append("voice.ended", Some(&session.id), json!({}));
 }
 
-/// Stops Demido speaking: the engine's sentences, and the answer being written.
-async fn stop(stdin: &mut ChildStdin, chat: &Chat, session: &str) {
+/// Stops an answer: the engine's sentences, and the answer being written (V3). When some of its sound went to
+/// the window, the window is asked how far it got (`stop_playback`, answered by `played`); when none did, nothing
+/// of it was heard, and it is cut at once. A cut still waiting for its answer is settled first, as it stands.
+#[allow(clippy::too_many_arguments)]
+async fn interrupt(stdin: &mut ChildStdin, chat: &Chat, sessions: &Sessions, socket: &mut WebSocket, session: &str, answer: Answer, cut_pending: &mut Option<Answer>) {
     let _ = send_frame(stdin, b'x', &[]).await;
     chat.stop(session);
+    if let Some(earlier) = cut_pending.take() {
+        settle(chat, sessions, socket, session, earlier, None).await;
+    }
+    if answer.voiced {
+        tell(socket, json!({ "type": "stop_playback", "message": answer.id })).await;
+        *cut_pending = Some(answer);
+    } else {
+        settle(chat, sessions, socket, session, answer, None).await;
+    }
+}
+
+/// Takes out of an answer what the person did not hear: `played`, the sentence that was playing and how far
+/// into it (in milliseconds); `None`, nothing was heard. Waits for the stopped answer to be stored first, so
+/// that its storing does not undo the cut.
+async fn settle(chat: &Chat, sessions: &Sessions, socket: &mut WebSocket, session: &str, a: Answer, played: Option<(u32, u64)>) {
+    let heard = match played {
+        Some((at, ms)) => {
+            let spoken: Vec<(String, u64)> = a.sentences.iter().map(|(_, t, n)| (t.clone(), *n)).collect();
+            let index = a.sentences.iter().position(|(n, _, _)| *n == at).unwrap_or(spoken.len());
+            heard_of(&spoken, index, ms * 24)
+        }
+        None => String::new(),
+    };
+    for _ in 0..250 {
+        if !chat.answering(session) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    let _ = sessions.cut_spoken(&a.id, &heard);
+    tell(socket, json!({ "type": "cut", "message": a.id, "heard": heard })).await;
 }

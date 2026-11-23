@@ -108,7 +108,10 @@ the second run took 5.5 s to its first sound; not looked into.
 
 Half a second is what makes a conversation feel like one, note 25 said, and two seconds is not. This is between.
 Most of it is the first piece of speech: sherpa-onnx gives Pocket TTS's sound in pieces of 1.2 s, so the first
-sound waits until 1.2 s of speech is made. Kyutai's own streaming of the same model works in much smaller
+sound waits until 1.2 s of speech is made. (**Corrected on 2026-11-23**, DECISIONS V10: it waits for more than
+that. sherpa-onnx makes every frame of a sentence before it decodes the first piece, so the first sound comes
+after the whole sentence is made: 0.7 s for the short sentences above, 1.2 to 2.1 s for one of 15 to 20 words.
+The sentence that took 5.5 s was one Pocket heard no end in.) Kyutai's own streaming of the same model works in much smaller
 steps (Known); driving its ONNX parts directly, through `ort`, could give the first sound after a fraction of
 that. With Kokoro instead the delay would be nearer two seconds, and it drops words.
 

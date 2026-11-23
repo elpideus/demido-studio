@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useLocal } from '@/data/local-models'
-import { chosenModels, useProviders } from '@/data/providers'
+import { useModelChoices } from '@/data/model-choices'
 import { changeSchedule, deleteSchedule, desktopNotices, makeSchedule, runSchedule, scheduleRuns, setDesktopNotices, understand, useSchedules, whenFromNow, type Run, type Schedule, type Understood, type When } from '@/data/schedules'
 import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip } from '@/ui'
 
@@ -54,14 +54,6 @@ function WhenEditor({ value, onChange }: { value: When; onChange: (w: When) => v
   )
 }
 
-/** The models a schedule may use: those on this computer, and those chosen through an API. A program such as
-    Claude Code is not among them: its terms are for a person's own use, not for runs with nobody there (U23). */
-function useModelChoices(): { value: string; label: string }[] {
-  const local = useLocal((s) => s.list?.models) ?? []
-  const providers = useProviders((s) => s.providers)
-  const api = chosenModels(providers?.filter((p) => p.kind === 'api') ?? null)
-  return [...local.map((m) => ({ value: m.id, label: m.state === 'loaded' ? `${m.id}, loaded` : m.id })), ...api.map((m) => ({ value: m.id, label: `${m.name}, through ${m.provider}` }))]
-}
 const paid = (model: string) => model.includes('/')
 /** The most a paid model may cost a schedule in a month, as typed: a number of dollars, or nothing. */
 function LimitField({ value, onChange }: { value: string; onChange: (v: string) => void }) {

@@ -908,21 +908,31 @@ impl Chat {
             // The answer so far, looked at now and then: a model that goes round is stopped (`turn::going_round`).
             let (mut written, mut look_at, mut ends_at) = (String::new(), 400usize, None);
             // After a tool was used, a small model sometimes hands its answer back wrapped the way the tool's
-            // result came to it: {"result": "..."}. An answer that starts like that is held back until it is
-            // whole, and then unwrapped (`turn::unwrapped`) or shown as it is.
+            // result came to it: {"result": "..."}. And with a tool or without, one sometimes writes a request for
+            // a tool where its answer should be, with a result it made up after it (Granite 3.3, asked "Ready?" in
+            // voice mode). An answer that starts like either is held back until it is whole, and then unwrapped
+            // (`turn::unwrapped`), tried again (T17) or shown as it is.
             let used_a_tool = !self.sessions.message(&answer_id)?.steps.is_empty();
+            let held = |w: &str| {
+                let w = w.trim_start();
+                w.starts_with('{') || w.starts_with("<result>") || (!w.is_empty() && "<result>".starts_with(w))
+            };
+            // How much of `written` has been told: all of it, from the moment it is not held back.
+            let mut told = 0;
             // Set before a second try at the answer, so that what was written at the first is let go.
             let again = AtomicBool::new(false);
             let mut heard = |piece: Piece| {
                 if again.swap(false, Ordering::Relaxed) {
                     written.clear();
+                    told = 0;
                 }
                 match piece {
                     Piece::Started(name) => *running.named.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string()),
                     Piece::Text(text) => {
                         written.push_str(text);
-                        if !(used_a_tool && (written.trim_start().starts_with('{') || "<result>".starts_with(written.trim_start()) || written.trim_start().starts_with("<result>"))) {
-                            waiting.0.push_str(text);
+                        if !held(&written) {
+                            waiting.0.push_str(&written[told..]);
+                            told = written.len();
                         }
                         if ends_at.is_none() && written.len() >= look_at {
                             look_at = written.len() + 200;
@@ -942,20 +952,23 @@ impl Chat {
             let mut answer = self.ask(&session, body.clone(), &running.stop, &mut heard).await?;
             // A request for a tool where the answer should be: the asking is over, so nothing more is run. The
             // model is told so once and tries again. (Tried on a real model: after a command that printed
-            // nothing, it wrote the same request again as its answer.)
-            if used_a_tool && !answer.stopped && turn::is_a_request(&answer.content) {
+            // nothing, it wrote the same request again as its answer. Granite, with no tool needed, asked for
+            // one and wrote a made-up result under it: what it is shown again is the request alone.)
+            if !answer.stopped
+                && let Some(request) = turn::request_of(&answer.content)
+            {
                 let mut messages = body["messages"].as_array().cloned().unwrap_or_default();
-                messages.push(json!({ "role": "assistant", "content": answer.content.trim() }));
+                messages.push(json!({ "role": "assistant", "content": request }));
                 messages
                     .push(json!({ "role": "user", "content": "That is a request for a tool, not an answer. No more tools can be used now. Answer the person in plain words, from what you have." }));
                 body["messages"] = Value::Array(messages);
                 again.store(true, Ordering::Relaxed);
                 answer = self.ask(&session, body, &running.stop, &mut heard).await?;
             }
-            if used_a_tool && (answer.content.trim_start().starts_with('{') || answer.content.trim_start().starts_with("<result>")) {
-                if let Some(inside) = turn::unwrapped(&answer.content) {
+            if held(&answer.content) {
+                if let Some(inside) = turn::unwrapped(&answer.content).filter(|_| used_a_tool) {
                     answer.content = inside;
-                } else if turn::is_a_request(&answer.content) {
+                } else if turn::request_of(&answer.content).is_some() {
                     answer.not_an_answer = true;
                 }
                 // Held back while it was written; told now, whole.

@@ -458,7 +458,36 @@ async fn an_answer_wrapped_like_a_tools_result_is_unwrapped() {
     // Without a tool in the turn, an answer that is a JSON object is what was asked for, and stays.
     w.stand.replies.lock().unwrap().push_back(r#"{"result": "kept as written"}"#.into());
     assert_eq!(turn(&w, &session.id, "Give me that as JSON.").await.content, r#"{"result": "kept as written"}"#);
+    // But a request for a tool is no answer, with a tool in the turn or without, and so is a result made up
+    // under it (Granite, asked "Ready?" in voice mode): the request alone is shown back, and nobody hears it.
+    let (date, made_up) = (r#"{"args":{"expression":"now()"},"tool":"calculate"}"#, "\n\n<result>\nThe current date and time is 2023-11-23 10:20:15.\n</result>");
+    *w.stand.decisions.lock().unwrap() = [NONE.to_string()].into();
+    *w.stand.replies.lock().unwrap() = [format!("{date}{made_up}"), "Yes, I am ready.".to_string()].into();
+    let mut ear = w.events.listen();
+    let ready = turn(&w, &session.id, "Ready?").await;
+    assert_eq!((ready.state.as_str(), ready.content.as_str()), ("done", "Yes, I am ready."));
+    let second_try = contents(asked(&w).last().unwrap());
+    assert_eq!(second_try[second_try.len() - 2], said("assistant", date));
+    let mut told = String::new();
+    while let Ok(e) = ear.try_recv() {
+        if e.kind == "message.delta" && e.data["message"] == ready.id.as_str() {
+            told.push_str(e.data["text"].as_str().unwrap());
+        }
+    }
+    assert_eq!(told, "Yes, I am ready.");
     w.end().await;
+}
+
+#[test]
+fn a_request_is_found_at_the_start_of_an_answer_with_what_came_after_it_left_out() {
+    use super::super::turn::request_of;
+    let request = r#"{"tool": "calculate", "args": {"expression": "1+1"}}"#;
+    assert_eq!(request_of(request), Some(request));
+    assert_eq!(request_of(&format!("  {request}\n\n<result>\n2\n</result>")), Some(request));
+    assert_eq!(request_of(&format!("{request}<result>2</result>")), Some(request));
+    for not in [r#"{"result": "a"}"#, "Plain words.", r#"{"tool": "calculate", "args"#, r#"Sure: {"tool": "calculate"}"#, ""] {
+        assert_eq!(request_of(not), None, "{not}");
+    }
 }
 
 #[tokio::test]

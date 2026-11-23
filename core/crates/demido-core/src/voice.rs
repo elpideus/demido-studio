@@ -351,42 +351,162 @@ fn unpack_pocket(archive: &Path, into: &Path) -> Result<()> {
 /// Spoken words, without what a page shows and a voice should not say: Markdown's marks, a link's address,
 /// a code block.
 pub fn as_spoken(text: &str) -> String {
-    let mut out = String::new();
-    let mut in_code = false;
-    for line in text.lines() {
-        let t = line.trim();
-        if t.starts_with("```") {
-            in_code = !in_code;
-            continue;
-        }
-        if in_code {
-            continue;
-        }
-        let t = t.trim_start_matches('#').trim_start();
-        let t = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).unwrap_or(t);
-        let mut l = String::new();
-        let mut rest = t;
-        // [text](address) says its text.
-        while let Some(open) = rest.find('[') {
-            match (rest[open..].find("](").map(|i| open + i), rest[open..].find(')').map(|i| open + i)) {
-                (Some(mid), Some(close)) if close > mid => {
-                    l.push_str(&rest[..open]);
-                    l.push_str(&rest[open + 1..mid]);
-                    rest = &rest[close + 1..];
+    Spoken::default().say(text)
+}
+
+/// An answer said a piece at a time: a code block opened in one piece is still open in the next.
+#[derive(Default)]
+pub struct Spoken {
+    in_code: bool,
+}
+
+impl Spoken {
+    /// The spoken words of the next piece (`as_spoken`).
+    pub fn say(&mut self, text: &str) -> String {
+        let mut out = String::new();
+        for line in text.lines() {
+            let t = line.trim();
+            if t.starts_with("```") {
+                self.in_code = !self.in_code;
+                continue;
+            }
+            if self.in_code {
+                continue;
+            }
+            let t = t.trim_start_matches('#').trim_start();
+            let t = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).unwrap_or(t);
+            let mut l = String::new();
+            let mut rest = t;
+            // [text](address) says its text.
+            while let Some(open) = rest.find('[') {
+                match (rest[open..].find("](").map(|i| open + i), rest[open..].find(')').map(|i| open + i)) {
+                    (Some(mid), Some(close)) if close > mid => {
+                        l.push_str(&rest[..open]);
+                        l.push_str(&rest[open + 1..mid]);
+                        rest = &rest[close + 1..];
+                    }
+                    _ => break,
                 }
-                _ => break,
+            }
+            l.push_str(rest);
+            let l = l.replace("**", "").replace("__", "").replace(['`', '*'], "");
+            if !l.trim().is_empty() {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(l.trim());
             }
         }
-        l.push_str(rest);
-        let l = l.replace("**", "").replace("__", "").replace(['`', '*'], "");
-        if !l.trim().is_empty() {
-            if !out.is_empty() {
-                out.push(' ');
-            }
-            out.push_str(l.trim());
+        out
+    }
+}
+
+/// Sentences shorter than this (in characters) are said with the next one: Pocket TTS says the start of a short
+/// one wrong far more often (DECISIONS V10), which is why sherpa-onnx joins them itself, up to 30 characters.
+pub const SHORT: usize = 30;
+
+/// An answer as the voice says it: written a piece at a time, said a sentence at a time, as soon as each is
+/// finished. What is never said (`unsaid`) and Markdown (`Spoken`) are left out, and short sentences joined.
+#[derive(Default)]
+pub struct Saying {
+    written: String,
+    /// How much of `written` has been taken to be said.
+    taken: usize,
+    spoken: Spoken,
+    /// Sentences taken, not yet said: together they are shorter than `SHORT`.
+    held: String,
+    done: bool,
+}
+
+impl Saying {
+    /// More of the answer, as it was written.
+    pub fn write(&mut self, text: &str) {
+        self.written.push_str(text);
+    }
+
+    /// The model has finished writing. `whole`: the answer as it was kept, for one that came all at once
+    /// (a program's) and so was never written a piece at a time.
+    pub fn end(&mut self, whole: impl FnOnce() -> Option<String>) {
+        self.done = true;
+        if self.written.is_empty()
+            && let Some(whole) = whole()
+        {
+            self.written = whole;
         }
     }
-    out
+
+    /// Everything written has been taken to be said, and nothing more will be written.
+    pub fn all_taken(&self) -> bool {
+        self.done && self.taken >= self.written.len() && self.held.is_empty()
+    }
+
+    /// The next sentence to say, once one is ready.
+    pub fn next_sentence(&mut self) -> Option<String> {
+        loop {
+            let rest = &self.written[self.taken..];
+            match unsaid(rest, self.done) {
+                Unsaid::Skip(n) => {
+                    self.taken += n;
+                    continue;
+                }
+                Unsaid::Wait => break,
+                Unsaid::Say => {}
+            }
+            let end = match sentence_end(rest) {
+                Some(end) => end,
+                None if self.done && !rest.trim().is_empty() => rest.len(),
+                None => break,
+            };
+            let piece = self.spoken.say(&rest[..end]);
+            self.taken += end;
+            if piece.trim().is_empty() {
+                continue;
+            }
+            if !self.held.is_empty() {
+                self.held.push(' ');
+            }
+            self.held.push_str(piece.trim());
+            if self.held.chars().count() >= SHORT {
+                return Some(std::mem::take(&mut self.held));
+            }
+        }
+        // At the end, what is held is said as it is.
+        (self.done && !self.held.is_empty()).then(|| std::mem::take(&mut self.held))
+    }
+}
+
+/// What the start of an answer's unsaid text is to the voice (`unsaid`).
+#[derive(Debug, PartialEq)]
+pub enum Unsaid {
+    /// Never said: leave out this many bytes. A JSON object (a request for a tool, mostly: T17), or a result
+    /// between `<result>` and `</result>` (one the model made up, since it is in the answer).
+    Skip(usize),
+    /// It may be one of those, and is not whole yet.
+    Wait,
+    /// Neither: it is said, a sentence at a time.
+    Say,
+}
+
+/// Whether the start of `rest`, what is not yet said of an answer, is said. `done`: nothing more will be written.
+pub fn unsaid(rest: &str, done: bool) -> Unsaid {
+    let t = rest.trim_start();
+    let lead = rest.len() - t.len();
+    if t.starts_with('{') {
+        let mut values = serde_json::Deserializer::from_str(t).into_iter::<Value>();
+        return match values.next() {
+            Some(Ok(_)) => Unsaid::Skip(lead + values.byte_offset()),
+            Some(Err(e)) if e.is_eof() && !done => Unsaid::Wait,
+            _ => Unsaid::Say,
+        };
+    }
+    if let Some(inside) = t.strip_prefix("<result>") {
+        return match inside.find("</result>") {
+            Some(end) => Unsaid::Skip(lead + "<result>".len() + end + "</result>".len()),
+            None if done => Unsaid::Skip(rest.len()),
+            None => Unsaid::Wait,
+        };
+    }
+    if !t.is_empty() && "<result>".starts_with(t) && !done { Unsaid::Wait } else { Unsaid::Say }
 }
 
 /// Where the first finished sentence of `text` ends: after `.`, `!`, `?` or a line's end, followed by space.
@@ -449,6 +569,60 @@ mod tests {
     fn an_answer_is_spoken_without_its_markdown() {
         assert_eq!(as_spoken("## Rome\n**Sunny**, 19 °C. See [the forecast](https://example.org/rome).\n```\ncode\n```\n- Wind: light"), "Rome Sunny, 19 °C. See the forecast. Wind: light");
         assert_eq!(as_spoken("Use `cargo test` to run *them*."), "Use cargo test to run them.");
+        // Said a line at a time, as an answer is while it is written: the code block is still left out.
+        let mut spoken = Spoken::default();
+        let said: Vec<String> = ["Run this:\n", "```\n", "cargo test\n", "```\n", "Then look."].iter().map(|piece| spoken.say(piece)).collect();
+        assert_eq!(said, ["Run this:", "", "", "", "Then look."]);
+    }
+
+    /// Everything `Saying` gives, written in `pieces`, then ended.
+    fn said(pieces: &[&str]) -> (Vec<String>, Vec<String>) {
+        let mut saying = Saying::default();
+        let mut while_written = Vec::new();
+        for piece in pieces {
+            saying.write(piece);
+            while let Some(s) = saying.next_sentence() {
+                while_written.push(s);
+            }
+        }
+        saying.end(|| None);
+        let at_the_end = std::iter::from_fn(|| saying.next_sentence()).collect();
+        assert!(saying.all_taken());
+        (while_written, at_the_end)
+    }
+
+    #[test]
+    fn an_answer_is_said_a_sentence_at_a_time_as_it_is_written() {
+        let (now, last) = said(&["It will be sunny in Rome tomorrow", ", with a high of 19. ", "In the evening", " the wind turns."]);
+        assert_eq!(now, ["It will be sunny in Rome tomorrow, with a high of 19."]);
+        assert_eq!(last, ["In the evening the wind turns."], "the last sentence once nothing more can come");
+        // Short sentences wait for the next, and are said with it.
+        let (now, last) = said(&["Sure. ", "Yes. ", "The train leaves at half past seven. ", "Bye."]);
+        assert_eq!(now, ["Sure. Yes. The train leaves at half past seven."]);
+        assert_eq!(last, ["Bye."], "at the end, what is held is said even if short");
+        // A request for a tool and a made-up result in an answer: nothing said, and nothing waits.
+        let (now, last) = said(&[r#"{"args":{"expression":"now()"},"tool":"calcu"#, r#"late"}"#, "\n\n<result>\nIt is 2023.\n</result>"]);
+        assert!(now.is_empty() && last.is_empty(), "{now:?} {last:?}");
+        // A program's answer comes whole, at the end.
+        let mut saying = Saying::default();
+        saying.end(|| Some("Done: the tests pass, all forty of them.".into()));
+        assert_eq!(saying.next_sentence().as_deref(), Some("Done: the tests pass, all forty of them."));
+    }
+
+    #[test]
+    fn a_request_for_a_tool_and_a_made_up_result_are_never_said() {
+        let request = r#"{"args":{"expression":"now()"},"tool":"calculate"}"#;
+        let granite = format!("{request}\n\n<result>\nThe current date and time is 2023-11-23 10:20:15.\n</result>");
+        assert_eq!(unsaid(&granite, false), Unsaid::Skip(request.len()));
+        let after = &granite[request.len()..];
+        assert_eq!(unsaid(after, false), Unsaid::Skip(after.len()));
+        assert_eq!(unsaid(r#"{"tool": "calcu"#, false), Unsaid::Wait, "not whole yet");
+        assert_eq!(unsaid(r#"{"tool": "calcu"#, true), Unsaid::Say, "never finished: said as it is");
+        assert_eq!(unsaid("\n<res", false), Unsaid::Wait);
+        assert_eq!(unsaid("<result>\nIt is 4.", true), Unsaid::Skip("<result>\nIt is 4.".len()));
+        assert_eq!(unsaid("It is sunny.", false), Unsaid::Say);
+        assert_eq!(unsaid("<b>Sunny</b>", false), Unsaid::Say);
+        assert_eq!(unsaid("", false), Unsaid::Say);
     }
 
     #[test]

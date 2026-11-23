@@ -281,10 +281,16 @@ pub(super) fn unwrapped(text: &str) -> Option<String> {
     }
 }
 
-/// Whether what a model wrote as its answer is a request for a tool: a JSON object that names one, or
-/// carries arguments. After the asking is over nothing more is run, so this is not an answer to anything.
-pub(super) fn is_a_request(text: &str) -> bool {
-    matches!(serde_json::from_str::<Value>(text.trim()), Ok(Value::Object(said)) if said.contains_key("tool") || said.contains_key("args"))
+/// The request for a tool that what a model wrote as its answer starts with: a JSON object that names one, or
+/// carries arguments, with whatever came after it left out (a result it made up, mostly). After the asking is
+/// over nothing more is run, so this is not an answer to anything. `None` when it does not start with one.
+pub(super) fn request_of(text: &str) -> Option<&str> {
+    let text = text.trim();
+    let mut values = serde_json::Deserializer::from_str(text).into_iter::<Value>();
+    match values.next()? {
+        Ok(Value::Object(said)) if said.contains_key("tool") || said.contains_key("args") => Some(&text[..values.byte_offset()]),
+        _ => None,
+    }
 }
 
 fn one_line(text: &str, at_most: usize) -> String {

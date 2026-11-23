@@ -13,7 +13,7 @@ export const voiceStatus = () => coreGet<VoiceStatus>('/voice')
 export const downloadVoice = (whisper = false) => coreSend<VoiceStatus>('POST', '/voice/download', { whisper })
 
 export type Phase = 'starting' | 'listening' | 'hearing' | 'waiting' | 'thinking' | 'speaking' | 'closed'
-export interface Line { id: string; who: 'you' | 'demido' | 'event'; text: string; live?: boolean; cut?: boolean }
+export interface Line { id: string; who: 'you' | 'demido' | 'event'; text: string; live?: boolean; cut?: boolean; message?: string }
 export interface Snapshot { phase: Phase; lines: Line[]; problem: string | null; model: string | null; session: string | null; muted: boolean }
 
 const PLAY_RATE = 24000
@@ -35,7 +35,8 @@ export class Conversation {
   userLevel = 0
   modelLevel = 0
 
-  constructor(private opts: { voice: string; bargeIn: boolean; session?: string }) {}
+  /** `model`: for a new conversation; left out, the core takes one that is loaded, or else the first. */
+  constructor(private opts: { voice: string; bargeIn: boolean; session?: string; model?: string }) {}
 
   subscribe = (l: () => void) => { this.listeners.add(l); return () => { this.listeners.delete(l) } }
   getSnapshot = () => this.snap
@@ -67,6 +68,7 @@ export class Conversation {
     mic.connect(worklet)
     const params = new URLSearchParams({ voice: this.opts.voice, barge_in: String(this.opts.bargeIn) })
     if (this.opts.session) params.set('session', this.opts.session)
+    if (this.opts.model) params.set('model', this.opts.model)
     const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/voice/talk?${params}`)
     socket.binaryType = 'arraybuffer'
     this.socket = socket
@@ -92,13 +94,13 @@ export class Conversation {
       case 'heard_nothing': this.line('event', 'Demido did not catch that.'); this.set({ phase: 'listening' }); break
       case 'say': {
         const last = [...this.snap.lines].reverse().find((l) => l.who !== 'event')
-        if (last?.who === 'demido' && last.live) this.lastDemido({ text: `${last.text} ${String(e.text)}` })
-        else this.line('demido', String(e.text), { live: true })
+        if (last?.who === 'demido' && last.live && last.message === e.message) this.lastDemido({ text: `${last.text} ${String(e.text)}` })
+        else this.line('demido', String(e.text), { live: true, message: String(e.message) })
         break
       }
       case 'answered': this.lastDemido({ live: false }); break
-      case 'stop_playback': this.stopPlayback(); break
-      case 'cut': this.lastDemido({ text: String(e.heard) || '…', live: false, cut: true }); break
+      case 'stop_playback': this.stopPlayback(e.message as string | undefined); break
+      case 'cut': this.cut(String(e.message), String(e.heard)); break
       case 'error': this.set({ problem: String(e.message) }); break
     }
   }
@@ -133,8 +135,20 @@ export class Conversation {
     this.set({ phase: on ? 'speaking' : this.snap.phase === 'speaking' ? 'listening' : this.snap.phase })
   }
 
-  /** Stops Demido's voice at once and tells the core how far it got: the sentence playing, and how much of it. */
-  private stopPlayback() {
+  /** An answer cut where the person spoke over it: it shows what they heard, and no more. */
+  private cut(message: string, heard: string) {
+    const at = this.snap.lines.findLastIndex((l) => l.who === 'demido' && l.message === message)
+    const change = { text: heard || '…', live: false, cut: true }
+    if (at < 0) {
+      if (heard) this.line('demido', heard, { ...change, message })
+      return
+    }
+    this.set({ lines: this.snap.lines.map((l, i) => (i === at ? { ...l, ...change } : l)) })
+  }
+
+  /** Stops Demido's voice at once and tells the core how far it got into the answer `message`: the sentence
+      playing, and how much of it. */
+  private stopPlayback(message?: string) {
     const now = this.play?.currentTime ?? 0
     const playingNow = this.sources.find((s) => s.start <= now && now < s.start + s.seconds) ?? this.sources[0]
     let ms = 0
@@ -150,7 +164,7 @@ export class Conversation {
     this.sources = []
     this.nextTime = 0
     this.playing(false)
-    this.send({ type: 'played', sentence, ms })
+    this.send({ type: 'played', sentence, ms, message })
     this.set({ phase: 'hearing' })
   }
 

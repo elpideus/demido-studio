@@ -2,6 +2,7 @@
 // waits for Demido's voice, says it is playing, speaks over it, and says how far it had got when told to
 // stop. Prints what happens and what was kept of the answer.
 // Usage: node core/dev/voice-socket-try.mjs <host:port> <key> <ask.wav> <over.wav>  (16 kHz mono 16-bit WAVs)
+// TRIAL_MODEL=<id> picks the model of the new session.
 import { readFileSync } from 'node:fs'
 
 const [host, key, askWav, overWav] = process.argv.slice(2)
@@ -9,13 +10,15 @@ const pcm = (file) => readFileSync(file).subarray(44)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const started = Date.now()
 const at = () => `${((Date.now() - started) / 1000).toFixed(1).padStart(5)} s`
-const ws = new WebSocket(`ws://${host}/api/v1/voice/talk?voice=1410`, { headers: { Authorization: `Bearer ${key}` } })
+const model = process.env.TRIAL_MODEL ? `&model=${encodeURIComponent(process.env.TRIAL_MODEL)}` : ''
+const ws = new WebSocket(`ws://${host}/api/v1/voice/talk?voice=1410${model}`, { headers: { Authorization: `Bearer ${key}` } })
 ws.binaryType = 'arraybuffer'
 const seen = []
 let sound = 0
 let firstSentence = null
 ws.onmessage = (m) => {
   if (typeof m.data !== 'string') {
+    if (sound === 0) console.log(at(), 'first sound')
     sound += (m.data.byteLength - 4) / 2
     if (firstSentence === null) firstSentence = new DataView(m.data).getUint32(0, true)
     return
@@ -45,7 +48,7 @@ await feed(Buffer.concat([pcm(overWav), quiet(0.6)]))
 const stopped = await until((e) => e.type === 'stop_playback', 10)
 console.log(at(), stopped ? 'told to stop playing' : 'NOT told to stop playing')
 // The window heard 1.5 s of the first sentence.
-ws.send(JSON.stringify({ type: 'played', sentence: firstSentence ?? 1, ms: 1500 }))
+ws.send(JSON.stringify({ type: 'played', message: seen.find((e) => e.type === 'stop_playback')?.message, sentence: firstSentence ?? 1, ms: 1500 }))
 await until((e) => e.type === 'cut', 10)
 await until((e) => e.type === 'heard' && seen.filter((x) => x.type === 'heard').length >= 2, 15)
 await sleep(1000)
