@@ -112,7 +112,8 @@ public static class R {
   }
 }
 "@
-$said = [R]::Run($cap, "cmd.exe /D /S /C `"$line > `"$out`" 2>&1`"", $dir)
+# In brackets, so that a redirection inside the command stays its own and is not taken over by this one.
+$said = [R]::Run($cap, "cmd.exe /D /S /C `"($line) > `"$out`" 2>&1`"", $dir)
 Write-Output $said
 '@ | Set-Content $runner
 icacls $root /grant "$($name):(RX)" | Out-Null
@@ -136,9 +137,9 @@ $t = Restricted 'whoami'
 Answer 'The runner, as the sandbox user, starts a command with a write-restricted token' ($t -match 'demidotrial2') $t
 $t = Restricted "echo in> `"$session\in.txt`" && type `"$session\in.txt`""
 Answer 'The command can write in the session folder (it grants the session SID)' ($t -match 'in') $t
-$t = Restricted "echo out> `"$public\out.txt`""
+$t = Restricted "echo out> `"$public\out.txt`" && type `"$public\out.txt`""
 Answer "It cannot write in a folder at C:\ that every user may change" (-not (Test-Path "$public\out.txt")) $t
-$t = Restricted "echo out> `"$other\out.txt`""
+$t = Restricted "echo out> `"$other\out.txt`" && type `"$other\out.txt`""
 Answer 'Nor in another folder shared with the same user (another session)' (-not (Test-Path "$other\out.txt")) $t
 Set-Content "$other\theirs.txt" 'another session''s'
 $t = Restricted "type `"$other\theirs.txt`""
