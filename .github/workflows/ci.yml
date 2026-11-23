@@ -114,3 +114,7 @@ jobs:
       - name: The trial
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File core/dev/windows-sandbox-trial.ps1
+      - name: The trial, second half
+        if: always()
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File core/dev/windows-restricted-trial.ps1
