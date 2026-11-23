@@ -181,7 +181,25 @@ impl Sandbox {
             let found = Self { kind: "windows-user".into(), program: Some(program.to_string_lossy().into_owned()), why_not: None, can_set_up: true, home: Some(home.to_path_buf()) };
             let folder = home.join("sandbox").join("tried");
             let _ = std::fs::create_dir_all(&folder);
-            let tried = found.command(&folder, "exit 0").and_then(|(mut c, _)| c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output().map_err(|e| e.to_string()));
+            // Started waiting, as every command here is (`command`): put in its job and let go on, as `run` does,
+            // and given a minute.
+            let tried = found.command(&folder, "exit 0").and_then(|(mut c, _)| {
+                use std::os::windows::io::AsRawHandle;
+                let mut child = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+                let held = job::Job::holding(Some(child.as_raw_handle() as _), child.id());
+                let started = Instant::now();
+                while child.try_wait().map_err(|e| e.to_string())?.is_none() {
+                    if started.elapsed() > Duration::from_secs(60) {
+                        if let Some(job) = &held {
+                            job.end();
+                        }
+                        let _ = child.kill();
+                        return Err("it did not finish within a minute".into());
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                child.wait_with_output().map_err(|e| e.to_string())
+            });
             match tried {
                 Ok(out) if out.status.success() => found,
                 Ok(out) => unset(format!(

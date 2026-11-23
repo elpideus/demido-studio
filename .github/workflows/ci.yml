@@ -61,6 +61,8 @@ jobs:
   core:
     name: Core (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    # A run takes about twenty minutes; one that hangs is ended long before GitHub's six hours.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
