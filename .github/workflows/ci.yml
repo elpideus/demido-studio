@@ -102,3 +102,15 @@ jobs:
         run: cargo test --manifest-path core/Cargo.toml --locked
       - name: It runs and reads this computer
         run: cargo run --manifest-path core/Cargo.toml --locked -- system
+
+  windows-sandbox-trial:
+    # By hand only: what a user of Demido's own keeps a program from on Windows (DECISIONS T26, research note 29).
+    # It makes users and firewall rules on the machine it runs on, which the checks' machine throws away.
+    name: Windows sandbox trial
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The trial
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File core/dev/windows-sandbox-trial.ps1
