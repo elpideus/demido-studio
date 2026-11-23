@@ -74,7 +74,7 @@ function List() {
       </div>
       <div className="app-side__foot">
         <span>These conversations are real: kept by the core, answered by a model on this computer, or by one you chose elsewhere (Providers).</span>
-        <NotBuilt block>Pages that need scripts, and the search services that need a key; a sandbox on Windows; groups and search. The preview shows where these are going.</NotBuilt>
+        <NotBuilt block>Pages that need scripts, and the search services that need a key; groups and search. The preview shows where these are going.</NotBuilt>
       </div>
     </aside>
   )

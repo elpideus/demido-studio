@@ -78,7 +78,7 @@ that is a fraction of a second.
 
 - A model of its own family for each wording (`docs/LATER.md` 1, set aside by the owner) could do better than
   asking both ways; nothing here says it would.
-- Where there is no sandbox (Windows today, until T26), a program at Smart asks the person, not the model:
+- Where there is no sandbox (Windows until it is set up, T27), a program at Smart asks the person, not the model:
   T13 already said a program there asks at every level but Autonomous, and the owner's direction was given
   with the sandbox holding. The owner's to change.
 - OpenCode has no mode in which its own model decides, so at Smart it asks as at Balanced (U18 maps Smart to

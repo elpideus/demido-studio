@@ -136,7 +136,7 @@ the person chooses the level:
 2. **Another session's folder, while both are in use at the same moment**: readable, not changeable.
 3. **Loopback**, and **names looked up** (above).
 
-## Proposed: the build
+## The build (proposed here; built on 2026-11-23, DECISIONS T27)
 
 1. **Setup, once, with Windows's own prompt for an administrator** (from the Setup screen; the person can
    refuse, and then the levels ask, as now): two users of Demido's own, one with the network shut

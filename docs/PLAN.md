@@ -158,7 +158,7 @@ list made for the split stays, because it says what is left and what to watch in
 
 | # | Remaining work | What to watch |
 |---|---|---|
-| 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); the sandbox on Windows, a user of Demido's own made at setup (the owner's choice, T26; researched and tried, T27, research note 29); ~~a filter on what a program may ask of the kernel~~ done (T21) | Security, and it cannot be tried here: only on the checks' machines |
+| 5 | ~~The sandbox on macOS (Seatbelt)~~ done (T20); ~~the sandbox on Windows~~ done: a user of Demido's own made at setup (the owner's choice, T26), with a write-restricted token (T27, research note 29); ~~a filter on what a program may ask of the kernel~~ done (T21) | Security, and it cannot be tried here: only on the checks' machines |
 | 5 | ~~The trial that says whether a small model can give Smart's second look~~ done: none of the test models can (research note 22, T22). The owner chose: at Smart the model decides (T6); ~~not built~~ built, measured how it is asked (research note 27) | How the model says so, measured first; the window says what it risks |
 | 5 | Tools other people write: the package, the WebAssembly runtime, what a tool may ask for, signatures | Runs other people's code. Everything later is built on it |
 | 5 | The tools browser, the updater's window, editing a tool's guidance in the app; bringing in MCP servers and skills once the format stands | Building to a format that is already decided |
@@ -219,8 +219,11 @@ Also done on 2026-11-22: voice mode, for real (DECISIONS V7, V8).
 Also done on 2026-11-23: voice mode after the owner's first try (DECISIONS V8 to V10); the sandbox on Windows
 researched and tried on the checks' Windows machine, five runs (research note 29, T27).
 
-Next, in this order unless the owner says otherwise: the sandbox on Windows built as T27 says, tried on the
-checks' Windows machine. Agents wait.
+Also done on 2026-11-23: the sandbox on Windows, built as T27 says and tried for real by the checks' Windows
+machine.
+
+Next, in this order unless the owner says otherwise: what is left of item 5 (tools other people write, as
+WebAssembly); then the rest of the plan. Agents wait.
 
 ## Set aside for later
 
