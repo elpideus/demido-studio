@@ -56,6 +56,9 @@ rustfft = "6.4"
 # Apache-2.0, on libbz2-rs-sys (bzip2-1.0.6 licence: BSD-style, like zlib's). Read from crates.io on 2026-11-22.
 bzip2 = "0.6"
 libc = "0.2"
+# The MD5 Google's storage gives with a file of Chrome for Testing, which publishes no checksum (browser/copy.rs).
+# md-5 0.10.6, MIT OR Apache-2.0, RustCrypto's; already in the build through other crates. Read 2026-11-24.
+md5 = { package = "md-5", version = "0.10" }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_UI_Shell"] }
 nvml-wrapper = "0.13"
 # rustls with the system's own list of trusted certificates. No OpenSSL.

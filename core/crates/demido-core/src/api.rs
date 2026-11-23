@@ -62,6 +62,8 @@ pub struct Core {
     pub scheduler: Arc<crate::schedules::Scheduler>,
     /// Voice mode's files and conversations (DECISIONS V7).
     pub voice: Arc<crate::voice::Voice>,
+    /// The browser a model drives (DECISIONS Z).
+    pub browser: Arc<crate::browser::Browser>,
 }
 
 impl Core {
@@ -77,6 +79,8 @@ impl Core {
         let providers = Arc::new(Providers::new(db.clone(), vault.clone(), settings.clone(), events.clone()).with_programs(paths.home(), Arc::new(crate::programs::ProcessSpawner)));
         let sessions = Arc::new(Sessions::new(db.clone()));
         let schedules = Arc::new(crate::schedules::Schedules::new(db));
+        let web = Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))).reading_pdfs_apart(std::env::current_exe().ok()));
+        let browser = Arc::new(crate::browser::Browser::new(paths.home(), web.clone(), events.clone()));
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
                 .with_providers(providers.clone())
@@ -84,12 +88,13 @@ impl Core {
                 .keeping_in(paths.home().join("saved-folders"))
                 .keeping_outputs_in(paths.home().join("outputs"))
                 .with_sandbox(crate::sandbox::Sandbox::find_for(paths.home(), std::env::current_exe().ok()))
-                .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))).reading_pdfs_apart(std::env::current_exe().ok()))),
+                .with_web(web.clone())
+                .with_browser(browser.clone()),
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
         let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
         let voice = Arc::new(crate::voice::Voice::new(paths.home().join("voice"), std::env::current_exe().ok(), events.clone()));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice })
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser })
     }
 }
 
@@ -121,6 +126,7 @@ pub struct App {
     pub providers: Arc<Providers>,
     pub scheduler: Arc<crate::schedules::Scheduler>,
     pub voice: Arc<crate::voice::Voice>,
+    pub browser: Arc<crate::browser::Browser>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -1003,6 +1009,53 @@ async fn search_key_remove(State(app): State<App>, Path(id): Path<String>) -> Re
     Ok(Json(search_service(&app, service, &month)))
 }
 
+/// Demido's browser (DECISIONS Z): whether it is offered here, the copy kept, a download under way, the pages
+/// open now, and what its proxy let through and refused.
+#[utoipa::path(get, path = "/api/v1/browser", tag = "browser", responses((status = 200, body = crate::browser::Status)))]
+async fn browser_status(State(app): State<App>) -> Json<crate::browser::Status> {
+    Json(app.browser.status().await)
+}
+
+/// The newest stable build of Chrome for Testing's headless shell for this computer, and its size.
+#[utoipa::path(get, path = "/api/v1/browser/latest", tag = "browser", params(("fresh" = Option<bool>, Query, description = "true asks Chrome for Testing again now")), responses((status = 200, body = crate::browser::copy::Latest), (status = 502, body = Problem)))]
+async fn browser_latest(State(app): State<App>, Query(q): Query<FreshQuery>) -> Result<Json<crate::browser::copy::Latest>> {
+    Ok(Json(app.browser.copy().latest(q.fresh.unwrap_or(false)).await?))
+}
+
+/// Downloads Demido's browser from Google's storage, checks it and keeps it. Answers when it is kept;
+/// progress comes on the event stream as `browser.download`.
+#[utoipa::path(post, path = "/api/v1/browser", tag = "browser", responses((status = 200, body = crate::browser::copy::Kept), (status = 409, body = Problem), (status = 502, body = Problem)))]
+async fn browser_install(State(app): State<App>) -> Result<Json<crate::browser::copy::Kept>> {
+    Ok(Json(app.browser.copy().install().await?))
+}
+
+/// Stops a download of the browser. What was downloaded is kept, so the next try goes on from there.
+#[utoipa::path(delete, path = "/api/v1/browser/download", tag = "browser", responses((status = 200, body = bool)))]
+async fn browser_stop(State(app): State<App>) -> Json<bool> {
+    Json(app.browser.copy().stop())
+}
+
+/// Deletes Demido's browser, with its profile. The pages open in it are closed first.
+#[utoipa::path(delete, path = "/api/v1/browser", tag = "browser", responses((status = 200, body = crate::browser::copy::Kept), (status = 404, body = Problem)))]
+async fn browser_remove(State(app): State<App>) -> Result<Json<crate::browser::copy::Kept>> {
+    app.browser.end().await;
+    Ok(Json(app.browser.copy().remove()?))
+}
+
+/// Closes a session's page in the browser, and forgets its cookies.
+#[utoipa::path(delete, path = "/api/v1/sessions/{id}/browser", tag = "browser", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = bool)))]
+async fn session_browser_close(State(app): State<App>, Path(id): Path<String>) -> Json<bool> {
+    app.browser.close(&id).await;
+    Json(true)
+}
+
+/// A picture of a page in a session's browser, as it was after a use of it (Z8). Sent as a JPEG that runs nothing.
+#[utoipa::path(get, path = "/api/v1/sessions/{id}/browser/pictures/{name}", tag = "browser", params(("id" = String, Path, description = "The session's id"), ("name" = String, Path, description = "The picture's name, from the step")), responses((status = 200, content_type = "image/jpeg"), (status = 404, body = Problem)))]
+async fn session_browser_picture(State(app): State<App>, Path((id, name)): Path<(String, String)>) -> Result<axum::response::Response> {
+    let bytes = app.browser.picture(&id, &name).ok_or_else(|| Error::NotFound("There is no such picture in this session.".into()))?;
+    Ok(([(header::CONTENT_TYPE, "image/jpeg"), (header::X_CONTENT_TYPE_OPTIONS, "nosniff")], bytes).into_response())
+}
+
 /// The downloads since the server started, the newest last.
 #[utoipa::path(get, path = "/api/v1/hub/downloads", tag = "models", responses((status = 200, body = Vec<crate::hub::Download>)))]
 async fn hub_downloads(State(app): State<App>) -> Json<Vec<crate::hub::Download>> {
@@ -1061,8 +1114,9 @@ async fn session_answer_now(State(app): State<App>, Path(id): Path<String>) -> R
 #[utoipa::path(delete, path = "/api/v1/sessions/{id}", tag = "sessions", params(("id" = String, Path, description = "The session's id")), responses((status = 200, body = Session), (status = 404, body = Problem)))]
 async fn session_delete(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Session>> {
     let gone = app.chat.delete(&id)?;
-    // The files deleted from its folder, kept to be put back, go with it.
+    // The files deleted from its folder, kept to be put back, go with it; so do its page in the browser and its pictures.
     let _ = std::fs::remove_dir_all(app.deleted_in.join(&gone.id));
+    app.browser.forget(&gone.id).await;
     Ok(Json(gone))
 }
 
@@ -1530,8 +1584,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -1564,6 +1618,11 @@ pub fn router(app: App) -> Router {
         .route("/hub/downloads/{id}", axum::routing::delete(hub_stop))
         .route("/hub/token", get(hub_token).put(hub_token_set).delete(hub_token_remove))
         .route("/search/keys", get(search_keys))
+        .route("/browser", get(browser_status).post(browser_install).delete(browser_remove))
+        .route("/browser/latest", get(browser_latest))
+        .route("/browser/download", axum::routing::delete(browser_stop))
+        .route("/sessions/{id}/browser", axum::routing::delete(session_browser_close))
+        .route("/sessions/{id}/browser/pictures/{name}", get(session_browser_picture))
         .route("/search/keys/{id}", axum::routing::put(search_key_set).delete(search_key_remove))
         .route("/models/{id}/unload", post(model_unload))
         .route("/sessions", get(sessions_list).post(session_new))
@@ -1671,6 +1730,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         providers: core.providers.clone(),
         scheduler: core.scheduler.clone(),
         voice: core.voice.clone(),
+        browser: core.browser.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -1716,22 +1776,29 @@ pub async fn serve(opts: Options) -> Result<()> {
         })
     };
     // Every few seconds: unload what nobody uses, stop a runtime with nothing loaded, notice one that died.
+    // Every minute: close the browser's pages nobody used for a while, and the browser with the last (Z3).
     let caretaker = {
-        let engine = core.engine.clone();
+        let (engine, browser) = (core.engine.clone(), core.browser.clone());
         tokio::spawn(async move {
             let mut every = tokio::time::interval(LOOK_AFTER_EVERY);
+            let mut ticks: u64 = 0;
             loop {
                 every.tick().await;
                 engine.look_after().await;
+                ticks += 1;
+                if ticks.is_multiple_of(12) {
+                    browser.tidy().await;
+                }
             }
         })
     };
-    let (events, runtimes, engine) = (core.events.clone(), app.runtimes.clone(), core.engine.clone());
+    let (events, runtimes, engine, browser) = (core.events.clone(), app.runtimes.clone(), core.engine.clone(), core.browser.clone());
     let asked_to_stop = async move {
         stop_signal().await;
         tracing::info!("Stopping.");
         caretaker.abort();
         schedules_kept.abort();
+        browser.end().await; // the browser ends with its pages and their cookies
         runtimes.stop(); // a download under way keeps what it has, and says so in the log
         engine.shutdown().await; // loaded models are unloaded and the model runtime ends
         events.tell(STOPPING, None, json!({})); // ends every open event stream
@@ -1825,6 +1892,7 @@ mod tests {
             providers,
             scheduler,
             voice: Arc::new(crate::voice::Voice::new(home.join("voice"), None, events.clone())),
+            browser: Arc::new(crate::browser::Browser::new(home, Arc::new(crate::web::Web::new(None)), events.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),

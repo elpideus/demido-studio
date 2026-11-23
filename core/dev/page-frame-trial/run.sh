@@ -5,6 +5,7 @@
 # (HTTP on 7390, UDP on 7391), and reports what it saw. What reached the listener is printed after.
 # Needs a built core and window (cargo build; pnpm app:build), Chromium and Node. Takes about ten seconds.
 # Usage: core/dev/page-frame-trial/run.sh [attr|csp]   (attr: the frame also has sandbox="allow-scripts")
+# CHROME=<a Chromium> and CHROME_FLAGS="<flags>" try another Chromium or its switches (WebRTC: IDEAS 142).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"

@@ -62,6 +62,12 @@ def reply_for(body):
         # "search the web for <words>" in the person's message, before any result came back: a search, so that
         # a trial can see a search with a key go through a session. Once a result is in, no tool.
         said = json.dumps(body.get("messages", []))
+        # "open the page <address>": the browser (DECISIONS Z), once, before any page came back.
+        opener = "open the page "
+        if opener in said.lower() and "On the page, what can be pressed" not in said and "could not be opened" not in said:
+            at = said.lower().index(opener) + len(opener)
+            address = said[at:].split("\\n")[0].split('"')[0].split(" ")[0].strip(" .?!")
+            return json.dumps({"tool": "open_page", "args": {"url": address}})
         marker = "search the web for "
         if marker in said.lower() and "Results for" not in said and "No search service" not in said:
             at = said.lower().index(marker) + len(marker)

@@ -86,6 +86,8 @@ const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
   add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
   search_web: ['Searched the internet for', 'query'], give_file: ['Gave you', 'file_name'], read_page: ['Read the page', 'url'], read_output: ['Read more of what it printed, from line', 'from_line'],
+  // Demido's browser (DECISIONS Z).
+  open_page: ['Opened in the browser', 'url'], press: ['Pressed, on the page, number', 'number'], type_text: ['Typed into the page', 'text'],
   // Claude Code's own tools, by their names in its stream.
   Read: ['Read', 'file_path'], Write: ['Wrote', 'file_path'], Edit: ['Changed', 'file_path'], MultiEdit: ['Changed', 'file_path'], NotebookEdit: ['Changed', 'notebook_path'],
   Bash: ['Ran', 'command'], Glob: ['Looked for files', 'pattern'], Grep: ['Searched the files for', 'pattern'], WebFetch: ['Read the page', 'url'], WebSearch: ['Searched the internet for', 'query'],
@@ -127,6 +129,19 @@ function ChangeShown({ change }: { change: CoreChange }) {
   )
 }
 
+/** The picture of a page in Demido's browser after a use of it, for the person (DECISIONS Z8). The model was
+    given the page's text, not this. */
+function BrowserPicture({ session, name }: { session: string; name: string }) {
+  const [open, setOpen] = useState(false)
+  const src = `/api/v1/sessions/${encodeURIComponent(session)}/browser/pictures/${encodeURIComponent(name)}`
+  return (
+    <>
+      <Tip label="The page as it was after this, in Demido's browser. The model was given its text, shown above, not the picture."><Button variant="ghost" size="sm" onClick={() => setOpen(true)}>The page</Button></Tip>
+      {open && <Dialog open onOpenChange={(o) => !o && setOpen(false)} title="The page, as the model saw it" text="A picture taken in Demido's browser after this step. The model was given the page's text and its numbered list, not this picture." actions={<Button onClick={() => setOpen(false)}>Close</Button>}><img className="browser__shot" alt="The page in Demido's browser" src={src} style={{ marginBlockStart: 'var(--d-space-16)' }} /></Dialog>}
+    </>
+  )
+}
+
 /** One use of a tool: what was asked for and what came back. Opened, it shows the request as the model made it.
     A use that changed a file can be undone from here, and shows what it changed. A program's whole output is
     one press away: the model was given a short view of it. */
@@ -150,6 +165,7 @@ function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: s
         }} />
         {step.artifact && step.state === 'done' && <Tip label={`Opens ${step.artifact.name} in Files, at version ${step.artifact.n}, with its other versions.`}><Button variant="ghost" size="sm" onClick={() => { if (step.artifact) openArtifact(session, step.artifact.id, step.artifact.n) }}>Open</Button></Tip>}
         {step.output && <Tip label="Everything the command printed, as a terminal would show it. The model was given a short view of it."><a className="d-button d-button--ghost d-button--sm" href={`/api/v1/sessions/${session}/outputs/${step.output}`} target="_blank" rel="noopener">All it printed</a></Tip>}
+        {step.picture && <BrowserPicture session={session} name={step.picture} />}
         {step.model_chose === 'go' && <Tip label="This session is set to Smart: the model was asked whether to ask you first, both ways round, and said to go ahead both times."><span className="d-type-caption d-text-tertiary">The model chose not to ask</span></Tip>}
         {change && (change.undone_at
           ? <span className="d-type-caption d-text-tertiary">Undone</span>

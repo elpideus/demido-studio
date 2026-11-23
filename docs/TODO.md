@@ -36,12 +36,12 @@ Marked **(needs you)**: skipped, and left for the owner.
 
 ## Item 8: the browser a model drives
 
-- [ ] Research: which browser is driven and how (a Chromium of Demido's own over its debugging protocol, or the system's), its licence; a profile of its own that holds none of the person's sign-ins; what the model is shown (text, the page's structure, a picture); what it may do (follow, click, type, fill a form) and at which permission level; how a page's text is kept from giving the model orders. A research note.
-- [ ] Decide and write it down (a section of DECISIONS of its own).
-- [ ] Build the browser tool: open a page, read it after its scripts have run, follow links; clicking and typing under the permission levels; what the model saw shown in the window.
-- [ ] Pages that only show their text after running scripts: reading from the internet (N) falls back to the browser when a page has no text of its own.
-- [ ] Tests, with pages served on this computer (as `core/dev/page-frame-trial/`).
-- [ ] The way out that stays open in a page a model gave: WebRTC (DECISIONS Q15, IDEAS 142). Measure what can shut it; build it where the webview allows (it may wait for item 10's shell).
+- [x] Research: which browser is driven and how (a Chromium of Demido's own over its debugging protocol, or the system's), its licence; a profile of its own that holds none of the person's sign-ins; what the model is shown (text, the page's structure, a picture); what it may do (follow, click, type, fill a form) and at which permission level; how a page's text is kept from giving the model orders. A research note.
+- [x] Decide and write it down (a section of DECISIONS of its own).
+- [x] Build the browser tool: open a page, read it after its scripts have run, follow links; clicking and typing under the permission levels; what the model saw shown in the window.
+- [x] Pages that only show their text after running scripts: reading from the internet (N) falls back to the browser when a page has no text of its own.
+- [x] Tests, with pages served on this computer (as `core/dev/page-frame-trial/`).
+- [x] The way out that stays open in a page a model gave: WebRTC (DECISIONS Q15, IDEAS 142). Measure what can shut it; build it where the webview allows (it may wait for item 10's shell).
 - [ ] **(needs you)** Anything in the person's own logged-in accounts.
 
 ## Item 9: voice, email, messaging, markets

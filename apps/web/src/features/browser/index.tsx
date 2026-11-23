@@ -6,6 +6,8 @@
    - An ad blocker, built in and on by default. Models know it exists and may loosen it for one site when a
      page breaks because of it. Every change is listed with who made it and why, and can be undone. */
 import { useRef, useState } from 'react'
+import { useCore } from '@/data/core'
+import { RealBrowser } from './real'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { AppWindow, ArrowLeft, ArrowRight, ArrowUpRight, Eraser, Highlighter, MapPin, PenLine, Pencil, Plus, RotateCw, Send, ShieldCheck, ShieldOff, Square, Trash2, Undo2, X } from 'lucide-react'
@@ -67,7 +69,7 @@ function MarkShape({ m, erase, onErase }: { m: Mark; erase: boolean; onErase: ()
   return <g {...hit}><line className="browser__ink" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} /><polygon className="browser__head" points={head.map((p) => p.join(',')).join(' ')} /></g>
 }
 
-function BrowserPage() {
+function PreviewBrowser() {
   const sessions = useStore((s) => s.sessions)
   const [tab, setTab] = useState(0)
   const [panel, setPanel] = useState<'actions' | 'marks' | 'blocker' | 'network' | 'console'>('actions')
@@ -270,6 +272,12 @@ function BrowserPage() {
       </div>
     </div>
   )
+}
+
+/** With a core behind the pages, the real browser; without one, the preview of where it is going. */
+function BrowserPage() {
+  const core = useCore()
+  return core.state === 'ready' ? <RealBrowser /> : <PreviewBrowser />
 }
 
 export const feature: Feature = {

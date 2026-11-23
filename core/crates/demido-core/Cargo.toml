@@ -16,6 +16,7 @@ encoding_rs.workspace = true
 pdf-extract.workspace = true
 flate2.workspace = true
 jiff.workspace = true
+md5.workspace = true
 keyring-core.workspace = true
 nvml-wrapper.workspace = true
 reqwest.workspace = true
@@ -43,6 +44,7 @@ libc.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true
+libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store.workspace = true

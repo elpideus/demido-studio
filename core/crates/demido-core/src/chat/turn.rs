@@ -104,7 +104,7 @@ impl Words {
 /// The list of tools and the question a model is asked before each answer, for a person to read.
 pub(super) fn told_about_tools(has_folder: bool, internet: bool, artifacts: bool) -> String {
     let folder = if has_folder { "\n\n(the files in the folder, by their paths, as they are at that moment)" } else { "" };
-    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered(has_folder, true, internet, artifacts)), Words::request("").ask)
+    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered(has_folder, true, internet, artifacts, false)), Words::request("").ask)
 }
 
 /// How the last message of a piece of work ends.
@@ -357,6 +357,8 @@ struct SoFar {
     from_the_internet: HashSet<String>,
     /// Something was read from the internet.
     read_the_internet: bool,
+    /// What the person wrote in the session, in small letters, to tell their own words from the model's (Z7).
+    person_wrote: String,
 }
 
 impl Chat {
@@ -372,7 +374,11 @@ impl Chat {
         };
         for message in self.sessions.messages(&session.id)? {
             match message.role.as_str() {
-                "user" => so_far.by_the_person.extend(guard::addresses_in(&message.content, true)),
+                "user" => {
+                    so_far.by_the_person.extend(guard::addresses_in(&message.content, true));
+                    so_far.person_wrote.push_str(&message.content.to_lowercase());
+                    so_far.person_wrote.push('\n');
+                }
                 _ => message.steps.iter().for_each(|step| of_a_step(step, &mut so_far)),
             }
         }
@@ -619,15 +625,22 @@ impl Chat {
                         let so_far = self.so_far(session, steps)?;
                         // Text from outside can tell a model what to do. Once it is there, a change waits too.
                         after_the_internet = so_far.read_the_internet;
-                        if tool == tools::READ_PAGE
+                        if (tool == tools::READ_PAGE || tool == tools::OPEN_PAGE)
                             && let Ok(url) = guard::address(args.get("url").and_then(Value::as_str).unwrap_or_default())
                         {
                             let same = guard::same_as(&url);
                             by_the_person = so_far.by_the_person.contains(&same);
                             address = if by_the_person || so_far.from_the_internet.contains(&same) { Address::Given } else { Address::Written };
                         }
+                        // Words typed into a page can carry what the model has read, as an address can: unless they
+                        // are the person's own (Z7).
+                        if tool == tools::TYPE_TEXT {
+                            let words = args.get("text").and_then(Value::as_str).unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+                            let theirs = !words.is_empty() && so_far.person_wrote.split_whitespace().collect::<Vec<_>>().join(" ").contains(&words);
+                            address = if theirs { Address::Given } else { Address::Typed };
+                        }
                     }
-                    let once_only = address == Address::Written;
+                    let once_only = matches!(address, Address::Written | Address::Typed);
                     let around = Around { held, address, after_the_internet };
                     let granted = self.granted(&session.id, &tool) && !once_only;
                     let answers = permissions::answers(level, reach, around);
@@ -672,6 +685,7 @@ impl Chat {
                     let seen = tools::seen_in(steps);
                     let mut kept_output = None;
                     let mut gave_artifact = None;
+                    let mut picture = None;
                     let outcome = if tool == tools::RUN {
                         // A program is run through the sandbox, for no longer than the person set.
                         let seconds = self.settings.value::<String>("tools.commandSeconds").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(120);
@@ -745,10 +759,39 @@ impl Chat {
                         // This computer and its own network are read only at an address the person wrote, and
                         // only when the person turned that on.
                         let may_be_local = by_the_person && self.settings.value::<bool>("web.local").unwrap_or(false);
-                        self.web
-                            .read(args.get("url").and_then(Value::as_str).unwrap_or_default(), request, may_be_local, stop)
-                            .await
-                            .map(|read| tools::Done { gave: tools::clean(&read.gave), changed: None })
+                        let address = args.get("url").and_then(Value::as_str).unwrap_or_default();
+                        match self.web.read(address, request, may_be_local, stop).await {
+                            // A page with almost no text until its scripts ran is read in Demido's browser, when it
+                            // is there and turned on (Z9). Only the public internet: the browser goes nowhere else.
+                            Ok(read) if read.needs_scripts && self.browsing() && !may_be_local => match self.browser().expect("browsing means there is one").read(&read.address, request, stop).await {
+                                Ok(seen) => Ok(tools::Done {
+                                    gave: tools::clean(&format!("{}\n\n(Demido's note: this page shows its text only after its scripts run, so it was read in Demido's browser.)", seen.gave)),
+                                    changed: None,
+                                }),
+                                Err(_) => Ok(tools::Done { gave: tools::clean(&read.gave), changed: None }),
+                            },
+                            Ok(read) => Ok(tools::Done { gave: tools::clean(&read.gave), changed: None }),
+                            Err(why) => Err(why),
+                        }
+                    } else if tools::of_the_browser(&tool) {
+                        // Demido's browser: what the model was given is its text, and a picture is kept for the person.
+                        match self.browser() {
+                            None => Err("Demido's browser is not downloaded. The person can download it on the Browser screen".to_string()),
+                            Some(browser) => {
+                                let number = args.get("number").and_then(Value::as_u64).unwrap_or(0) as u32;
+                                let seen = if tool == tools::OPEN_PAGE {
+                                    browser.open(&session.id, args.get("url").and_then(Value::as_str).unwrap_or_default(), request, stop).await
+                                } else if tool == tools::PRESS {
+                                    browser.press(&session.id, number, request, stop).await
+                                } else {
+                                    browser.type_text(&session.id, number, &self.hide(args.get("text").and_then(Value::as_str).unwrap_or_default()), request, stop).await
+                                };
+                                seen.map(|seen| {
+                                    picture = seen.picture.clone();
+                                    tools::Done { gave: tools::clean(&self.hide(&seen.gave)), changed: None }
+                                })
+                            }
+                        }
                     } else {
                         tools::run(&tool, args.as_object().expect("made as one"), &tools::Ground { clock: self.clock, folder, seen: &seen })
                     };
@@ -757,6 +800,7 @@ impl Chat {
                     // However the program ended, it may have changed things. The folder as it was is kept, to put back.
                     step.output = kept_output;
                     step.artifact = gave_artifact;
+                    step.picture = picture;
                     if let Some((id, place)) = &saved {
                         step.change = Some(self.sessions.add_folder_change(&session.id, answer_id, id, &place.to_string_lossy())?.id);
                         // What the program changed, made and removed, compared with the folder saved before it ran.
@@ -939,7 +983,8 @@ impl Chat {
                 break;
             }
             let has_folder = session.folder.is_some();
-            let Err(parts) = self.do_one(session, answer_id, before, request, task, &tools::offered(has_folder, true, self.internet(), self.artifacts(has_folder)), stop).await? else {
+            let Err(parts) = self.do_one(session, answer_id, before, request, task, &tools::offered(has_folder, true, self.internet(), self.artifacts(has_folder), self.browsing()), stop).await?
+            else {
                 continue;
             };
             // The model split this task. Its parts are done one by one; a part is not split again.
@@ -948,7 +993,7 @@ impl Chat {
                     break;
                 }
                 // `plan` is not offered, so this cannot ask to split.
-                let _ = self.do_one(session, answer_id, before, request, &part, &tools::offered(has_folder, false, self.internet(), self.artifacts(has_folder)), stop).await?;
+                let _ = self.do_one(session, answer_id, before, request, &part, &tools::offered(has_folder, false, self.internet(), self.artifacts(has_folder), self.browsing()), stop).await?;
             }
             // What the whole task gave, from what its parts gave.
             let all = self.sessions.tasks_of(answer_id)?;
@@ -981,7 +1026,7 @@ impl Chat {
                     &before,
                     &request,
                     &Words::request(&request),
-                    &tools::offered(session.folder.is_some(), true, self.internet(), self.artifacts(session.folder.is_some())),
+                    &tools::offered(session.folder.is_some(), true, self.internet(), self.artifacts(session.folder.is_some()), self.browsing()),
                     &mut steps,
                     stop,
                     &shown,

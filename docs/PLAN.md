@@ -169,7 +169,7 @@ list made for the split stays, because it says what is left and what to watch in
 | 7 | ~~Schedules and monitors that run with nobody there~~ built (DECISIONS J1 to J11): always autonomous, every tool, no level; monitors on the shop's own price, or on a price the model reads where a page has none; in the window, on the command line. Left: the desktop shell's own notice (plan item 10), and the two measurements note 24 owes (a run's report from a small model, which needs email; injection inside a run) | Nobody is there to say no, so all a run did must be easy to read |
 | 7 | ~~The schedules screen~~ built; messages between sessions shown | Window work on a decided design |
 | 8 | ~~The session's folder, the viewer, the editor, highlighting and artifacts~~ done (DECISIONS Q1 to Q14, research note 23), and with them a long file written into the folder (T24). ~~Left from the owner's answers of 2026-11-22: highlighting in colours (Q7), and a page a model gave running its scripts (Q15)~~ done; one way out of a running page stays open, WebRTC (Q15, IDEAS 142) | Window work with a clear edge; Q15 runs a model's code in the window |
-| 8 | The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts (~~PDFs~~ done, N15) | Logged-in pages are the most private thing there is |
+| 8 | ~~The browser a model drives: what it may see and do. With it: pages that only show their text after running scripts~~ done (DECISIONS Z, research note 31): Demido's own Chrome for Testing headless shell, through a pipe, every request through Demido's proxy (public internet only, WebRTC shut), `open_page`, `press`, `type_text`, `read_page` falling back to it. Left: Windows, tabs, the person driving it, a model's own scripts; logged-in pages are the owner's | Logged-in pages are the most private thing there is |
 | 9 | Voice: ~~the libraries, the screen~~ built (DECISIONS V7, V8; research note 28): a conversation in the window, heard and spoken on this computer, stopped when you speak over it. Left: reading answers aloud and dictation in the message box, the person's own voice (not offered), a measurement on a real voice | Research and building, little risk; the first sound comes 1 to 2 s after a sentence (DECISIONS V10) |
 | 9 | Email and the messaging platforms: reading and sending in a person's name. Gmail by app password first (DECISIONS Y1) | Messages from outside are injected text; sending cannot be undone |
 | 9 | Markets: charts, indicators, the Pine editor | Nothing here places an order |
@@ -225,6 +225,10 @@ machine.
 Also done on 2026-11-23: search with a key (DECISIONS N17 to N20, research note 30): Brave Search, Exa and Tavily, each with
 the person's own key, asked before the free ladder, what each search cost counted with the providers' spending and held
 by the month's limit; Brave's and Exa's results are not kept, as their terms say (Exa's free service included).
+
+Also done on 2026-11-24: the browser a model drives (DECISIONS Z, research note 31), and WebRTC measured: Chromium's switch
+holds in Chrome for Testing's headless shell and not in Arch's Chromium 157; Demido's browser has UDP off and every
+connection through its own proxy, which refuses a TURN tunnel.
 
 Next, by the owner's direction of 2026-11-23: items 6, 8, 9, 7, 5 and 10, in that order, skipping what needs
 the owner. The work list, checked as it goes, is `docs/TODO.md`. Agents wait.

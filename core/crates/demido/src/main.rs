@@ -98,6 +98,12 @@ enum Command {
         #[command(subcommand)]
         command: Option<KeysCommand>,
     },
+    /// Demido's browser, which a model drives (DECISIONS Z): its copy, downloaded from Google's Chrome for
+    /// Testing when you ask, and the pages open in it.
+    Browser {
+        #[command(subcommand)]
+        command: Option<BrowserCommand>,
+    },
     /// What models elsewhere cost this month, as Demido counted it, and the month's limit.
     Usage {
         /// Print JSON instead of text.
@@ -334,6 +340,16 @@ enum RuntimeCommand {
 }
 
 #[derive(Subcommand)]
+enum BrowserCommand {
+    /// Whether the browser is downloaded, whether it runs, and the pages open in it. The same as `demido browser`.
+    Status,
+    /// Download Chrome for Testing's headless shell (stable) from Google's storage, check it, and keep it.
+    Install,
+    /// Delete Demido's copy of the browser, with its profile.
+    Remove,
+}
+
+#[derive(Subcommand)]
 enum KeysCommand {
     /// The keys Demido keeps, by provider and account: where each is kept, its last four characters. The
     /// same as `demido keys`.
@@ -497,6 +513,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Settings { command } => settings(&paths, command)?,
         Command::Keys { command } => keys(&paths, command.unwrap_or(KeysCommand::List)).await?,
         Command::Usage { json } => usage(&paths, json)?,
+        Command::Browser { command } => browser(&paths, command.unwrap_or(BrowserCommand::Status)).await?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
         Command::Ask { text, session, model, think, no_think, thinking, plan, folder, level } => {
@@ -785,6 +802,58 @@ async fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
                 _ => unreachable!(),
             }
             println!("{} at {provider} is deleted, with its key.", found["label"].as_str().unwrap_or_default());
+        }
+    }
+    Ok(())
+}
+
+async fn browser(paths: &Paths, command: BrowserCommand) -> Result<()> {
+    let server = Server::find(paths);
+    let core = if server.is_none() { Some(Core::open(paths)?) } else { None };
+    let status = |server: &Option<Server>, core: &Option<Core>| -> Result<Value> {
+        Ok(match (server, core) {
+            (Some(s), _) => s.get("/api/v1/browser")?,
+            (None, Some(c)) => json!({ "offered": demido_core::browser::copy::platform().is_some() && cfg!(unix), "kept": c.browser.copy().kept(), "running": false, "pages": [] }),
+            _ => unreachable!(),
+        })
+    };
+    match command {
+        BrowserCommand::Status => {
+            let s = status(&server, &core)?;
+            if s["offered"] != true {
+                println!("Demido's browser is not offered on this system yet (it is built for Linux and macOS).");
+                return Ok(());
+            }
+            match s["kept"].as_object() {
+                None => println!("Demido's browser is not downloaded. Download it with: demido browser install"),
+                Some(k) => println!(
+                    "Demido's browser: Chrome for Testing's headless shell {}, checked by {}.\n  {}",
+                    k.get("version").and_then(Value::as_str).unwrap_or("?"),
+                    k.get("checked").and_then(Value::as_str).unwrap_or("?"),
+                    k.get("path").and_then(Value::as_str).unwrap_or("?")
+                ),
+            }
+            println!("{}", if s["running"] == true { "It is running." } else { "It is not running: it starts when a model opens a page." });
+            for page in s["pages"].as_array().into_iter().flatten() {
+                println!("  session {}  {}", page["session"].as_str().unwrap_or("?").chars().take(13).collect::<String>(), page["address"].as_str().unwrap_or(""));
+            }
+        }
+        BrowserCommand::Install => {
+            println!("Downloading Chrome for Testing's headless shell from Google's storage (about 130 MB)…");
+            let kept = match (&server, &core) {
+                (Some(s), _) => s.send("POST", "/api/v1/browser", None)?,
+                (None, Some(c)) => serde_json::to_value(c.browser.copy().install().await?)?,
+                _ => unreachable!(),
+            };
+            println!("Kept: version {}, checked by {}.", kept["version"].as_str().unwrap_or("?"), kept["checked"].as_str().unwrap_or("?"));
+        }
+        BrowserCommand::Remove => {
+            let gone = match (&server, &core) {
+                (Some(s), _) => s.send("DELETE", "/api/v1/browser", None)?,
+                (None, Some(c)) => serde_json::to_value(c.browser.copy().remove()?)?,
+                _ => unreachable!(),
+            };
+            println!("Deleted: Demido's browser {}, with its profile.", gone["version"].as_str().unwrap_or(""));
         }
     }
     Ok(())

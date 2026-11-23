@@ -204,7 +204,7 @@ fn a_request_becomes_anthropics_own() {
 #[test]
 fn a_shape_left_open_on_purpose_is_left_to_the_instructions() {
     // Which tool, with arguments left to the model: Anthropic would hold them empty, so it is not held.
-    let open = crate::tools::shape(&crate::tools::offered(false, true, false, false));
+    let open = crate::tools::shape(&crate::tools::offered(false, true, false, false, false));
     assert_eq!(anthropic::closed(&open), None);
     // One tool with its arguments by name can be held, every object closed.
     let one = crate::tools::shape_of(crate::tools::named("calculate").unwrap());

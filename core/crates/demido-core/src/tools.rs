@@ -46,6 +46,10 @@ pub const RUN: &str = "run_command";
 /// The tools that read from the internet. They are run by `chat`, through `web`.
 pub const SEARCH: &str = "search_web";
 pub const READ_PAGE: &str = "read_page";
+/// The browser a model drives (DECISIONS Z6).
+pub const OPEN_PAGE: &str = "open_page";
+pub const PRESS: &str = "press";
+pub const TYPE_TEXT: &str = "type_text";
 /// The tool that reads on in what a command printed. Run by `chat`, which keeps the whole of it. Offered
 /// only after a command whose output was shortened, in the same request.
 pub const READ_OUTPUT: &str = "read_output";
@@ -144,6 +148,24 @@ const TOOLS: &[Tool] = &[
     },
     Tool { name: READ_PAGE, does: "The text of a web page, from its address. You cannot see a page without it.", args: &[arg("url", Kind::Text)], reach: Reach::Network },
     Tool {
+        name: OPEN_PAGE,
+        does: "Opens a web page in a browser that runs its scripts, to use it: gives its text and a numbered list of its links, buttons and boxes. To only read a page, read_page is enough.",
+        args: &[arg("url", Kind::Text)],
+        reach: Reach::Network,
+    },
+    Tool {
+        name: PRESS,
+        does: "Presses a link or a button on the page open in the browser, by its number in that list, and gives the page after.",
+        args: &[arg("number", Kind::Whole)],
+        reach: Reach::Network,
+    },
+    Tool {
+        name: TYPE_TEXT,
+        does: "Types text into a box on the page open in the browser, by its number in that list. In a form's only box, such as a search, it is sent at once.",
+        args: &[arg("number", Kind::Whole), arg("text", Kind::Text)],
+        reach: Reach::Network,
+    },
+    Tool {
         name: READ_OUTPUT,
         does: "More of what the last command printed, from a line number: for the lines its result says are not shown.",
         args: &[maybe("from_line", Kind::Whole)],
@@ -180,14 +202,20 @@ pub fn without_plan() -> Vec<&'static Tool> {
     TOOLS.iter().filter(|t| t.name != PLAN).collect()
 }
 
+/// Whether a tool is one of the browser's (Z6).
+pub fn of_the_browser(name: &str) -> bool {
+    matches!(name, OPEN_PAGE | PRESS | TYPE_TEXT)
+}
+
 /// The tools a session is offered. Those that reach into a folder are there only when the session has one;
-/// those that read from the internet only when the person has that turned on, and artifacts likewise;
-/// `plan` only where work may still be split.
-pub fn offered(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool) -> Vec<&'static Tool> {
+/// those that read from the internet only when the person has that turned on, and artifacts likewise; the
+/// browser's only when it is downloaded and turned on too; `plan` only where work may still be split.
+pub fn offered(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool, browser: bool) -> Vec<&'static Tool> {
     TOOLS
         .iter()
         .filter(|t| match t.reach {
             Reach::Nothing => true,
+            Reach::Network if of_the_browser(t.name) => internet && browser,
             Reach::Network => internet,
             Reach::Reads | Reach::Changes | Reach::Runs => has_folder,
         })
@@ -301,6 +329,9 @@ pub struct Step {
     /// went ahead unasked, or `ask`. Left out where the level decided.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_chose: Option<String>,
+    /// The picture of the page after a use of the browser, for the person (Z8): its name in the session's pictures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
 }
 
 /// An artifact a step gave, as the window links to it.
@@ -687,17 +718,17 @@ mod tests {
         assert!(list.ends_with("- none(): No tool is needed. Answer from what you know."));
         assert!(!listed(&without_plan()).contains("plan("));
         // A session without a folder is not offered the tools that reach into one.
-        assert_eq!(shape(&offered(false, false, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "none"]));
-        assert_eq!(shape(&offered(false, true, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
+        assert_eq!(shape(&offered(false, false, false, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "none"]));
+        assert_eq!(shape(&offered(false, true, false, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "plan", "none"]));
         assert_eq!(
-            shape(&offered(true, true, false, false))["properties"]["tool"]["enum"],
+            shape(&offered(true, true, false, false, false))["properties"]["tool"]["enum"],
             json!(["time", "calculate", "list_files", "read_file", "search_files", "add_to_file", "write_file", "edit_file", "run_command", "plan", "none"])
         );
         // Reading from the internet needs no folder, only the person's setting; artifacts likewise.
-        assert_eq!(shape(&offered(false, false, true, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "search_web", "read_page", "none"]));
-        assert_eq!(shape(&offered(false, true, false, true))["properties"]["tool"]["enum"], json!(["time", "calculate", "give_file", "plan", "none"]));
+        assert_eq!(shape(&offered(false, false, true, false, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "search_web", "read_page", "none"]));
+        assert_eq!(shape(&offered(false, true, false, true, false))["properties"]["tool"]["enum"], json!(["time", "calculate", "give_file", "plan", "none"]));
         assert_eq!(named(GIVE).unwrap().reach, Reach::Nothing, "an artifact touches nothing outside Demido: no yes is needed");
-        let beside = offered(true, false, false, true).into_iter().find(|t| t.name == GIVE).unwrap();
+        let beside = offered(true, false, false, true, false).into_iter().find(|t| t.name == GIVE).unwrap();
         assert!(beside.does.contains("not put in the folder (write_file puts a file in the folder)"), "with a folder, it says where its file goes");
         assert!(list.contains("- search_web(query: text): Searches the internet") && list.contains("- read_page(url: text): The text of a web page"));
         assert_eq!(
@@ -788,7 +819,7 @@ mod tests {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, read_output, give_file, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, open_page, press, type_text, read_output, give_file, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));

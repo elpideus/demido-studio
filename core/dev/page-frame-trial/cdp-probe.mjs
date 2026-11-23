@@ -6,8 +6,8 @@ import { readFileSync, existsSync } from 'node:fs'
 
 const [profile, url, waitArg] = process.argv.slice(2)
 const wait = Number(waitArg || 6000)
-const chrome = spawn('chromium', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-  `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
+const chrome = spawn(process.env.CHROME || 'chromium', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  `--user-data-dir=${profile}`, '--remote-debugging-port=0', ...(process.env.CHROME_FLAGS || '').split(' ').filter(Boolean), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let port = null
 for (let i = 0; i < 100 && !port; i++) {

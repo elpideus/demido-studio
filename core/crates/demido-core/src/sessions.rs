@@ -717,6 +717,7 @@ mod tests {
             output: None,
             artifact: None,
             model_chose: None,
+            picture: None,
         };
         s.set_steps(&answer.id, std::slice::from_ref(&step)).unwrap();
         assert_eq!(s.message(&answer.id).unwrap().steps, vec![step.clone()]);

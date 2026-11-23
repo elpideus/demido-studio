@@ -237,7 +237,18 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "Let models read from the internet",
             "A model can search, and can read a page from its address.",
             Some(
-                "Default on. Demido says who it is to every site (DemidoStudio and this project's address), follows each site's rules for programs (robots.txt), reads at most 2 MB of a page, and keeps what it read for a while so that it asks sites as rarely as it can. A model is given only the parts of a page that match what was asked. A model may open an address you wrote, or one that a search or a page gave it. An address it wrote itself can carry text out of your computer, so Demido asks you first, every time (not at the Autonomous level). A PDF is read for its text (not its pictures), in a process of its own with limits on time and memory. A search goes first to the search services you gave a key for (Providers screen), then to the free ones below. Not built: pages that only show their text after running scripts.",
+                "Default on. Demido says who it is to every site (DemidoStudio and this project's address), follows each site's rules for programs (robots.txt), reads at most 2 MB of a page, and keeps what it read for a while so that it asks sites as rarely as it can. A model is given only the parts of a page that match what was asked. A model may open an address you wrote, or one that a search or a page gave it. An address it wrote itself can carry text out of your computer, so Demido asks you first, every time (not at the Autonomous level). A PDF is read for its text (not its pictures), in a process of its own with limits on time and memory. A search goes first to the search services you gave a key for (Providers screen), then to the free ones below. A page that shows its text only after its scripts run is read in Demido's browser, when it is downloaded.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
+        def(
+            "web.browser",
+            "Let models use Demido's browser",
+            "A model can open a page in a browser that runs its scripts, press its links and buttons, and type into its boxes.",
+            Some(
+                "Default on, once the browser is downloaded (Browser screen). Demido's browser is its own copy of Chrome for Testing's headless shell, with an empty profile: none of your sign-ins, passwords or history, and each session's cookies apart. Everything it loads goes through Demido, which lets it reach only the public internet; it says it is Demido. Opening an address asks as reading a page does; pressing asks only at Cautious; typing the model's own words asks at Balanced (your own words do not), and it never types into a password box. A page that has almost no text until its scripts run is read in it too. A picture of the page is kept with each step, for you; the model is given the page's text. Not built: a model's own scripts in a page, several tabs, and Windows.",
             ),
             Kind::Switch,
             json!(true),

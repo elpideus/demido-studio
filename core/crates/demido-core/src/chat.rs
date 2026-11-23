@@ -120,6 +120,8 @@ pub struct Chat {
     kept_in: std::path::PathBuf,
     /// The one way a model reads from the internet.
     web: Arc<crate::web::Web>,
+    /// The browser a model drives (DECISIONS Z), when Demido has one.
+    browser: Option<Arc<crate::browser::Browser>>,
     /// Where the whole of what programs printed is kept, a folder for each session.
     outputs: std::path::PathBuf,
     /// Models elsewhere, and the keys for them. `None` in a test that has none.
@@ -176,6 +178,7 @@ impl Chat {
             kept_in: std::env::temp_dir().join("demido-saved-folders"),
             // Keeps nothing on disk until the server says where (`with_web`).
             web: Arc::new(crate::web::Web::new(None)),
+            browser: None,
             outputs: std::env::temp_dir().join("demido-outputs"),
             providers: None,
             address: std::sync::OnceLock::new(),
@@ -290,6 +293,21 @@ impl Chat {
     /// The client that reads from the internet.
     pub fn web(&self) -> &Arc<crate::web::Web> {
         &self.web
+    }
+
+    /// The same, with the browser a model drives.
+    pub fn with_browser(mut self, browser: Arc<crate::browser::Browser>) -> Self {
+        self.browser = Some(browser);
+        self
+    }
+
+    pub(crate) fn browser(&self) -> Option<&Arc<crate::browser::Browser>> {
+        self.browser.as_ref()
+    }
+
+    /// Whether models may use Demido's browser: there is one, downloaded, the internet is on, and so is the setting.
+    pub(crate) fn browsing(&self) -> bool {
+        self.internet() && self.settings.value::<bool>("web.browser").unwrap_or(true) && self.browser.as_ref().is_some_and(|b| b.ready())
     }
 
     /// Whether models may read from the internet at all: the person's setting.

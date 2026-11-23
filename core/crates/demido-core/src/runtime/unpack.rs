@@ -70,7 +70,7 @@ impl Budget {
 }
 
 /// Unpacks `archive` (`.tar.gz` or `.zip`) into `into`, which is made if missing. Returns the bytes written.
-pub(super) fn unpack(archive: &Path, into: &Path, stop: &AtomicBool) -> Result<u64> {
+pub(crate) fn unpack(archive: &Path, into: &Path, stop: &AtomicBool) -> Result<u64> {
     std::fs::create_dir_all(into)?;
     let name = archive.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
     let mut budget = Budget { bytes: 0, entries: 0 };

@@ -918,6 +918,7 @@ dependencies = [
  "jiff",
  "keyring-core",
  "libc",
+ "md-5",
  "nvml-wrapper",
  "pdf-extract",
  "reqwest",

@@ -37,6 +37,15 @@ tryIt('WebRTC', () => {
   pc.createOffer().then((o) => pc.setLocalDescription(o)).then(() => say('WebRTC offer', 'set'), (e) => say('WebRTC offer', 'failed ' + e.name));
   return 'made';
 });
+// WebRTC over TCP: a TURN server named with transport=tcp is reached by a TCP connection, with what the page
+// holds in its user name. Tried because a flag that shuts UDP may leave TCP open.
+tryIt('WebRTC TURN/TCP', () => {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'turn:127.0.0.1:7392?transport=tcp', username: 'turn-' + SECRET, credential: 'x' }], iceTransportPolicy: 'relay' });
+  pc.createDataChannel('y');
+  pc.onicecandidate = (e) => { if (e.candidate) say('TURN candidate', e.candidate.type + ' ' + (e.candidate.address || '')); };
+  pc.createOffer().then((o) => pc.setLocalDescription(o)).then(() => say('TURN offer', 'set'), (e) => say('TURN offer', 'failed ' + e.name));
+  return 'made';
+});
 // A frame inside the page, sending itself elsewhere.
 setTimeout(() => {
   const inner = document.createElement('iframe');

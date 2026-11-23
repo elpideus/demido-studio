@@ -41,6 +41,9 @@ use url::Url;
 
 pub use search::{Found, Hit, Keyed, Paid, Which, WithKey};
 
+/// Said of a page that shows almost nothing until its scripts have run.
+const NEEDS_SCRIPTS: &str = "This page shows almost nothing until its scripts have run, and Demido's browser was not used for it.";
+
 /// How many characters of a page a model is given. About 1,300 tokens: a small model has few to spare.
 pub const MOST_OF_A_PAGE: usize = 5_000;
 /// No more of a page than this is downloaded.
@@ -185,6 +188,8 @@ pub struct Read {
     pub gave: String,
     /// Nothing was asked of the site: the page was kept from before.
     pub kept: bool,
+    /// The page shows almost nothing until its scripts have run: Demido's browser can read it (Z9).
+    pub needs_scripts: bool,
 }
 
 pub struct Web {
@@ -480,6 +485,26 @@ impl Web {
         robots::Robots::read(&rules).allows(&path)
     }
 
+    /// Whether the site lets programs read this page (its `robots.txt`): for Demido's browser too (Z4).
+    pub(crate) async fn allowed(&self, url: &Url, stop: &AtomicBool) -> bool {
+        self.is_local(url) || self.allowed_by_site(url, false, stop).await
+    }
+
+    /// A page's HTML as Demido's browser has it after the page's scripts ran, as a model is given a page:
+    /// its title, and the parts of its text that match what was asked (Z5).
+    pub(crate) async fn told_html(&self, html: &str, address: &str, about: &str) -> (String, String) {
+        let (raw, for_page) = (html.to_string(), address.to_string());
+        let Ok((found, product)) = tokio::task::spawn_blocking(move || (page::readable(&raw, &for_page), page::product_data(&raw))).await else {
+            return (String::new(), format!("Address: {address}\n\n(The page could not be taken apart.)"));
+        };
+        let mut text = found.text;
+        if let Some((at, _)) = text.char_indices().nth(MOST_TEXT) {
+            text.truncate(at);
+        }
+        let page = KeptPage { address: address.into(), title: found.title.clone(), text, etag: None, changed: None, notes: Vec::new(), product, offers: Vec::new() };
+        (found.title, told(&page, about, false).gave)
+    }
+
     // ----- reading a page -------------------------------------------------------------------------------
 
     /// The text of the page at an address, cut to what was asked `about`. `may_be_local`: the person wrote
@@ -582,7 +607,7 @@ impl Web {
                 .map_err(|_| "the page could not be taken apart".to_string())?;
             (product, offers) = (data, priced);
             if found.text.chars().count() < 200 && scripts >= 3 {
-                notes.push("This page shows almost nothing until its scripts have run. Demido does not run a page's scripts yet.".into());
+                notes.push(NEEDS_SCRIPTS.into());
             }
             (found.title, found.text)
         } else {
@@ -627,7 +652,7 @@ fn told(page: &KeptPage, about: &str, kept: bool) -> Read {
     for note in &page.notes {
         gave.push_str(&format!("\n\n({note})"));
     }
-    Read { address: page.address.clone(), title: page.title.clone(), gave, kept }
+    Read { address: page.address.clone(), title: page.title.clone(), gave, kept, needs_scripts: page.notes.iter().any(|n| n == NEEDS_SCRIPTS) }
 }
 
 #[cfg(test)]

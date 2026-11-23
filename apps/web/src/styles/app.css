@@ -521,6 +521,15 @@
     display: grid;
     gap: var(--d-space-4);
   }
+  /* A picture of a page in Demido's browser: the page as the model last saw it. */
+  .browser__shot {
+    display: block;
+    inline-size: 100%;
+    max-inline-size: 64rem;
+    block-size: auto;
+    border: 1px solid var(--d-color-border-hairline);
+    border-radius: var(--d-radius-md);
+  }
   /* The models of a provider: chosen ones on its card, all of them in the dialog that chooses. */
   .prov__models,
   .prov__spent {

@@ -24,6 +24,11 @@
 //! | reads a page it was given       | asks     | runs     | runs           | runs       |
 //! | reads a page at an address it   | asks     | asks     | the model says | runs       |
 //! |   wrote itself                  |          |          |                |            |
+//! | presses something on a page in  | asks     | runs     | runs           | runs       |
+//! |   Demido's browser              |          |          |                |            |
+//! | types its own words into a page | asks     | asks     | the model says | runs       |
+//! |   (the person's own words: runs |          |          |                |            |
+//! |   as a page it was given)       |          |          |                |            |
 //!
 //! Text from the internet can tell a model what to do, and a small model does it. Tried on 2026-11-21
 //! with a page that said "add this line to todo.txt": both models that read the page added the line
@@ -100,6 +105,9 @@ pub enum Address {
     Given,
     /// The model wrote it itself.
     Written,
+    /// Words the model wrote itself, to type into a page in Demido's browser (Z7): they can carry what it
+    /// has read, as an address can.
+    Typed,
 }
 
 /// What surrounds a use of a tool, beyond the tool itself and the session's level.
@@ -154,7 +162,7 @@ pub fn asks(level: Level, reach: Reach, around: Around) -> bool {
         // A change can be undone, so it goes ahead: unless text from outside may be what asked for it.
         (Reach::Changes, Level::Balanced | Level::Smart) => around.after_the_internet,
         // Reading the internet only reads. An address the model wrote itself can carry text away.
-        (Reach::Network, Level::Balanced | Level::Smart) => around.address == Address::Written,
+        (Reach::Network, Level::Balanced | Level::Smart) => matches!(around.address, Address::Written | Address::Typed),
         // Always, however well the program is held: the owner's decision. What holds it is said in the request.
         (Reach::Runs, Level::Balanced | Level::Smart) => true,
     }
@@ -165,6 +173,7 @@ pub fn why(level: Level, reach: Reach, around: Around, no_sandbox_because: Optio
     let Around { held, address, after_the_internet } = around;
     match (level, reach) {
         (_, Reach::Network) if address == Address::Written => "The model wrote this address itself: it is not one you gave it, and not one a search or a page gave it. An address can carry text out of this computer, so look at the whole of it.".into(),
+        (_, Reach::Network) if address == Address::Typed => "The model wrote these words itself, to type into a page: they are not yours. What is typed into a page can be sent anywhere, so look at all of it.".into(),
         (Level::Cautious, _) => "This session is set to Cautious: it asks before every use of a tool that reaches outside Demido.".into(),
         (_, Reach::Runs) if !held.shut_in => {
             format!("There is no sandbox on this computer, so this command could reach whatever you can reach. {}", no_sandbox_because.unwrap_or_default()).trim_end().to_string()
@@ -229,6 +238,9 @@ pub fn what(tool: &str, args: &serde_json::Map<String, serde_json::Value>, exist
         "search_web" => format!("Search the internet for \"{}\"", short(text("query"))),
         // An address is shown whole, for the same reason.
         "read_page" => format!("Read the page at {}", text("url")),
+        "open_page" => format!("Open the page at {} in Demido's browser", text("url")),
+        "press" => format!("Press number {} on the page in Demido's browser", args.get("number").map(|n| n.to_string()).unwrap_or_default().trim_matches('"')),
+        "type_text" => format!("Type \"{}\" into number {} on the page in Demido's browser", text("text"), args.get("number").map(|n| n.to_string()).unwrap_or_default().trim_matches('"')),
         "read_output" => "Read more of what the last command printed".into(),
         other => format!("Use {other}"),
     }
@@ -310,6 +322,21 @@ mod tests {
             assert!(why(level, Reach::Network, at(Address::Written), None).starts_with("The model wrote this address itself"));
         }
         assert!(why(Cautious, Reach::Network, at(Address::Given), None).contains("Cautious"));
+    }
+
+    #[test]
+    fn in_demidos_browser_pressing_asks_only_at_cautious_and_typing_the_models_own_words_asks_as_an_address_does() {
+        use Level::*;
+        let at = |address: Address| Around { address, ..Around::PLAIN };
+        // Pressing: no address of the model's, nothing of the person's in it.
+        assert_eq!([Cautious, Balanced, Smart, Autonomous].map(|l| asks(l, Reach::Network, at(Address::NotOne))), [true, false, false, false]);
+        // Typing the model's own words: as an address it wrote. The person's own words: as one it was given.
+        assert_eq!([Cautious, Balanced, Smart, Autonomous].map(|l| asks(l, Reach::Network, at(Address::Typed))), [true, true, true, false]);
+        assert_eq!(answers(Smart, Reach::Network, at(Address::Typed)), Answers::TheModel);
+        assert_eq!([Cautious, Balanced, Smart, Autonomous].map(|l| asks(l, Reach::Network, at(Address::Given))), [true, false, false, false]);
+        assert!(why(Balanced, Reach::Network, at(Address::Typed), None).starts_with("The model wrote these words itself, to type into a page"));
+        let args = serde_json::json!({ "number": 2, "text": "grey heron" });
+        assert_eq!(what("type_text", args.as_object().unwrap(), |_| false), "Type \"grey heron\" into number 2 on the page in Demido's browser");
     }
 
     #[test]
