@@ -222,8 +222,8 @@ researched and tried on the checks' Windows machine, five runs (research note 29
 Also done on 2026-11-23: the sandbox on Windows, built as T27 says and tried for real by the checks' Windows
 machine.
 
-Next, in this order unless the owner says otherwise: what is left of item 5 (tools other people write, as
-WebAssembly); then the rest of the plan. Agents wait.
+Next, by the owner's direction of 2026-11-23: items 6, 8, 9, 7, 5 and 10, in that order, skipping what needs
+the owner. The work list, checked as it goes, is `docs/TODO.md`. Agents wait.
 
 ## Set aside for later
 
