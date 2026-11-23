@@ -81,11 +81,20 @@ async fn tell(socket: &mut WebSocket, what: Value) -> bool {
 
 /// Starts the engine for a voice. `Err`: why it cannot.
 pub fn start_engine(voice: &Voice, voice_id: &str) -> Result<Child, String> {
+    start_part(voice, voice_id, None)
+}
+
+/// The engine, with only one of its halves when `only` says so: `speak` or `hear`.
+fn start_part(voice: &Voice, voice_id: &str, only: Option<&str>) -> Result<Child, String> {
     let program = voice.program().ok_or("Voice runs in Demido's own program (demido voice-engine), and it was not found beside this server.")?;
     let wav = voice.voice_path(voice_id).filter(|p| p.is_file()).ok_or_else(|| format!("The voice {voice_id} is not downloaded."))?;
     let threads = std::thread::available_parallelism().map_or(4, |n| (n.get() as u32 / 4).clamp(2, 4));
+    let mut args = engine_args(voice.dir(), &wav, threads);
+    if let Some(only) = only {
+        args.extend(["--only".to_string(), only.to_string()]);
+    }
     tokio::process::Command::new(program)
-        .args(engine_args(voice.dir(), &wav, threads))
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -334,4 +343,183 @@ async fn settle(chat: &Chat, sessions: &Sessions, socket: &mut WebSocket, sessio
     }
     let _ = sessions.cut_spoken(&a.id, &heard);
     tell(socket, json!({ "type": "cut", "message": a.id, "heard": heard })).await;
+}
+
+/// What reading aloud and dictation are asked for, from the address the window opens.
+#[derive(Clone, Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+pub struct ReadOpened {
+    /// The answer to read aloud (for dictation: none).
+    pub message: Option<String>,
+    /// The voice, by its id. Left out: the first.
+    pub voice: Option<String>,
+}
+
+/// The voice files are there, and the engine can be started with one of its halves; or why not, said to the window.
+async fn engine_for(socket: &mut WebSocket, voice: &Voice, voice_id: Option<&str>, only: &str) -> Option<(Child, ChildStdin, ChildStdout, String)> {
+    let status = voice.status();
+    if !status.ready {
+        let why = status.problem.unwrap_or_else(|| format!("Voice mode's files are not all downloaded yet ({} MB to go). Download them on the Voice page.", status.missing_bytes / 1_000_000));
+        tell(socket, json!({ "type": "error", "message": why })).await;
+        return None;
+    }
+    let voice_id = voice_id.filter(|v| super::VOICES.iter().any(|x| x.id == *v)).unwrap_or(super::VOICES[0].id).to_string();
+    let mut engine = match start_part(voice, &voice_id, Some(only)) {
+        Ok(child) => child,
+        Err(why) => {
+            tell(socket, json!({ "type": "error", "message": why })).await;
+            return None;
+        }
+    };
+    let (Some(stdin), Some(stdout)) = (engine.stdin.take(), engine.stdout.take()) else {
+        tell(socket, json!({ "type": "error", "message": "The voice engine could not be talked to." })).await;
+        return None;
+    };
+    Some((engine, stdin, stdout, voice_id))
+}
+
+async fn end_engine(mut engine: Child, mut stdin: ChildStdin) {
+    let _ = send_frame(&mut stdin, b'q', &[]).await;
+    drop(stdin);
+    if tokio::time::timeout(Duration::from_secs(5), engine.wait()).await.is_err() {
+        let _ = engine.kill().await;
+    }
+}
+
+/// Reads one answer aloud, with voice mode's voice: a sentence at a time, sent to the window as it is made
+/// (24 kHz mono 16-bit, after the sentence's number in four bytes). `{"type":"stop"}` from the window, or its
+/// closing, stops it at once. To the window: `ready`, `say` (each sentence and its text), `said`, `done`, `error`.
+pub async fn read_aloud(mut socket: WebSocket, voice: Arc<Voice>, sessions: Arc<Sessions>, events: Arc<EventLog>, opened: ReadOpened) {
+    let message = match opened.message.as_deref().map(|id| sessions.message(id)) {
+        Some(Ok(m)) => m,
+        Some(Err(e)) => {
+            tell(&mut socket, json!({ "type": "error", "message": e.to_string() })).await;
+            return;
+        }
+        None => {
+            tell(&mut socket, json!({ "type": "error", "message": "Say which answer to read aloud." })).await;
+            return;
+        }
+    };
+    let sentences = super::sentences_of(&message.content);
+    if sentences.is_empty() {
+        tell(&mut socket, json!({ "type": "done" })).await;
+        return;
+    }
+    let Some((engine, mut stdin, mut stdout, voice_id)) = engine_for(&mut socket, &voice, opened.voice.as_deref(), "speak").await else { return };
+    let _ = events.append("voice.read_aloud", Some(&message.session_id), json!({ "message": message.id, "voice": voice_id, "sentences": sentences.len() }));
+    tell(&mut socket, json!({ "type": "ready", "sentences": sentences.len(), "sample_rate": 24000 })).await;
+    for (i, text) in sentences.iter().enumerate() {
+        let mut payload = (i as u32 + 1).to_le_bytes().to_vec();
+        payload.extend(text.as_bytes());
+        let _ = send_frame(&mut stdin, b's', &payload).await;
+    }
+    let last = sentences.len() as u32;
+    let (frames_tx, mut frames) = tokio::sync::mpsc::channel::<(u8, Vec<u8>)>(256);
+    let reader = tokio::spawn(async move {
+        while let Ok(frame) = read_frame(&mut stdout).await {
+            if frames_tx.send(frame).await.is_err() {
+                break;
+            }
+        }
+    });
+    loop {
+        tokio::select! {
+            from_window = socket.recv() => {
+                match from_window {
+                    Some(Ok(Message::Text(text))) if serde_json::from_str::<Value>(&text).ok().and_then(|v| v["type"].as_str().map(str::to_string)).as_deref() == Some("stop") => {
+                        let _ = send_frame(&mut stdin, b'x', &[]).await;
+                        break;
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => {
+                        let _ = send_frame(&mut stdin, b'x', &[]).await;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            frame = frames.recv() => {
+                let Some((kind, payload)) = frame else {
+                    tell(&mut socket, json!({ "type": "error", "message": "The voice engine stopped." })).await;
+                    break;
+                };
+                if kind == b'o' {
+                    if socket.send(Message::Binary(payload.into())).await.is_err() { break }
+                    continue;
+                }
+                let e = event_of(&payload);
+                match e["event"].as_str().unwrap_or_default() {
+                    "speaking" => {
+                        let n = e["sentence"].as_u64().unwrap_or(0) as usize;
+                        tell(&mut socket, json!({ "type": "say", "sentence": n, "text": sentences.get(n.wrapping_sub(1)) })).await;
+                    }
+                    "said" => {
+                        let n = e["sentence"].as_u64().unwrap_or(0) as u32;
+                        tell(&mut socket, json!({ "type": "said", "sentence": n })).await;
+                        if n >= last {
+                            tell(&mut socket, json!({ "type": "done" })).await;
+                            break;
+                        }
+                    }
+                    "error" => { tell(&mut socket, json!({ "type": "error", "message": e["message"] })).await; }
+                    _ => {}
+                }
+            }
+        }
+    }
+    reader.abort();
+    end_engine(engine, stdin).await;
+}
+
+/// Dictation into the message box, with voice mode's ears: the window sends the microphone's sound (16 kHz mono
+/// 16-bit) as binary messages, and is told each sentence once it is finished (`heard`), to put into the box.
+/// Nothing is said in a session: the person sends it, or not. `{"type":"answer_now"}` ends the sentence being
+/// spoken; closing the socket ends dictation. To the window: `ready`, `speech`, `waiting`, `heard`,
+/// `heard_nothing`, `error`.
+pub async fn dictate(mut socket: WebSocket, voice: Arc<Voice>, events: Arc<EventLog>, opened: ReadOpened) {
+    let Some((engine, mut stdin, mut stdout, _)) = engine_for(&mut socket, &voice, opened.voice.as_deref(), "hear").await else { return };
+    let _ = events.append("voice.dictation", None, json!({}));
+    tell(&mut socket, json!({ "type": "ready" })).await;
+    let (frames_tx, mut frames) = tokio::sync::mpsc::channel::<(u8, Vec<u8>)>(256);
+    let reader = tokio::spawn(async move {
+        while let Ok(frame) = read_frame(&mut stdout).await {
+            if frames_tx.send(frame).await.is_err() {
+                break;
+            }
+        }
+    });
+    loop {
+        tokio::select! {
+            from_window = socket.recv() => {
+                match from_window {
+                    Some(Ok(Message::Binary(sound))) => {
+                        if send_frame(&mut stdin, b'a', &sound).await.is_err() { break }
+                    }
+                    Some(Ok(Message::Text(text))) => {
+                        if serde_json::from_str::<Value>(&text).ok().and_then(|v| v["type"].as_str().map(str::to_string)).as_deref() == Some("answer_now") {
+                            let _ = send_frame(&mut stdin, b'n', &[]).await;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+            frame = frames.recv() => {
+                let Some((kind, payload)) = frame else {
+                    tell(&mut socket, json!({ "type": "error", "message": "The voice engine stopped." })).await;
+                    break;
+                };
+                if kind != b'e' { continue }
+                let e = event_of(&payload);
+                let kind = e["event"].as_str().unwrap_or_default().to_string();
+                match kind.as_str() {
+                    "heard" => { tell(&mut socket, json!({ "type": "heard", "text": e["text"] })).await; }
+                    "speech" | "waiting" | "finished" | "heard_nothing" => { tell(&mut socket, json!({ "type": kind })).await; }
+                    "error" => { tell(&mut socket, json!({ "type": "error", "message": e["message"] })).await; }
+                    _ => {}
+                }
+            }
+        }
+    }
+    reader.abort();
+    end_engine(engine, stdin).await;
 }

@@ -44,6 +44,8 @@ pub struct Paths {
     pub dir: PathBuf,
     pub voice: PathBuf,
     pub threads: i32,
+    /// Only one half: `speak` (reading an answer aloud) or `hear` (dictation). Both when left out (voice mode).
+    pub only: Option<String>,
 }
 
 impl Paths {
@@ -368,22 +370,28 @@ pub fn run(paths: Paths) -> Result<()> {
     let epoch = Arc::new(AtomicU32::new(0));
     let (hear_tx, hear_rx) = mpsc::channel::<Hear>();
     let (say_tx, say_rx) = mpsc::channel::<Say>();
-    let hearing = {
+    // Only the half that is asked for is loaded: reading an answer aloud needs no ears, dictation no voice.
+    let (hears, speaks) = match paths.only.as_deref() {
+        Some("speak") => (false, true),
+        Some("hear") => (true, false),
+        _ => (true, true),
+    };
+    let hearing = hears.then(|| {
         let (paths, out, playing) = (paths.clone(), out_tx.clone(), playing.clone());
         std::thread::spawn(move || {
             if let Err(e) = hear(&paths, hear_rx, out.clone(), playing) {
                 let _ = out.send(Out::Event(json!({ "event": "error", "part": "hearing", "message": format!("{e:#}") })));
             }
         })
-    };
-    let speaking = {
+    });
+    let speaking = speaks.then(|| {
         let (paths, out, epoch) = (paths.clone(), out_tx.clone(), epoch.clone());
         std::thread::spawn(move || {
             if let Err(e) = speak(&paths, say_rx, out.clone(), epoch) {
                 let _ = out.send(Out::Event(json!({ "event": "error", "part": "speaking", "message": format!("{e:#}") })));
             }
         })
-    };
+    });
     let mut stdin = std::io::stdin().lock();
     while let Some((kind, payload)) = read_frame(&mut stdin)? {
         match kind {
@@ -412,8 +420,12 @@ pub fn run(paths: Paths) -> Result<()> {
     drop(hear_tx);
     drop(say_tx);
     epoch.fetch_add(1, Ordering::Relaxed);
-    let _ = hearing.join();
-    let _ = speaking.join();
+    if let Some(hearing) = hearing {
+        let _ = hearing.join();
+    }
+    if let Some(speaking) = speaking {
+        let _ = speaking.join();
+    }
     drop(out_tx);
     let _ = writer.join();
     Ok(())

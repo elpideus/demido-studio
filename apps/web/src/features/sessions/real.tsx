@@ -6,7 +6,8 @@
    here yet, and the note at the foot of the list says so. */
 import { useEffect, useRef, useState } from 'react'
 import { Prose } from '@/ui/prose'
-import { ArrowUp, CalendarClock, Folder, ListChecks, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, type LucideIcon } from 'lucide-react'
+import { ArrowUp, CalendarClock, Folder, ListChecks, Loader, Mic, MicOff, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Dictation, ReadAloud } from '@/data/voice'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
@@ -14,6 +15,7 @@ import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, 
 import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal, StepRow, Tip } from '@/ui'
 import { asAFile, keepAsFile, openArtifact } from '@/data/artifacts'
 import { onCoreEvent } from '@/data/core'
+import { toast, useSetting } from '@/data/store'
 import { runSchedule, scheduleRuns, whenFromNow, type Schedule } from '@/data/schedules'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
@@ -239,6 +241,24 @@ function TaskList({ tasks, changes, parent = null }: { tasks: CoreTask[]; change
   )
 }
 
+/** Reads an answer aloud with voice mode's voice (DECISIONS V11), and stops it. */
+function ReadItAloud({ m }: { m: CoreMessage }) {
+  const voice = useSetting<string>('voice.real', '2181')
+  const [state, setState] = useState<'idle' | 'starting' | 'speaking'>('idle')
+  const reading = useRef<ReadAloud | null>(null)
+  useEffect(() => () => reading.current?.stop(), [])
+  const start = () => {
+    reading.current = new ReadAloud(m.id, voice, (s, why) => {
+      if (s === 'failed') toast(`Not read aloud. ${why ?? ''}`, undefined, 'task-failed')
+      setState(s === 'starting' ? 'starting' : s === 'speaking' ? 'speaking' : 'idle')
+    })
+    reading.current.start()
+  }
+  return state === 'idle'
+    ? <Tip label="Reads this answer aloud with voice mode's voice, on this computer. Its code and links are left out."><Button variant="ghost" size="sm" iconOnly aria-label="Read it aloud" onClick={start}><Icon icon={Volume2} size="sm" /></Button></Tip>
+    : <Tip label="Stop reading it aloud"><Button variant="ghost" size="sm" iconOnly pressed aria-label="Stop reading it aloud" onClick={() => reading.current?.stop()}><Icon icon={state === 'starting' ? Loader : Square} size="sm" /></Button></Tip>
+}
+
 /** Keeps an answer, or its one block of code, as a file of the session's own: an artifact, as a model gives one. */
 function KeepAsFile({ m }: { m: CoreMessage }) {
   const [open, setOpen] = useState(false)
@@ -306,7 +326,7 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
         {folder && m.state === 'done' && !busy && <p className="d-type-caption d-text-tertiary">No file was read or changed for this answer.</p>}
         {m.state === 'stopped' && <Signal level="note">{m.problem ?? 'Stopped. What was written is kept.'}</Signal>}
         {m.state === 'failed' && <Signal level="caution">{m.problem ?? 'The answer failed, and nothing says why.'}</Signal>}
-        {m.state === 'done' && m.content.trim() && <div><KeepAsFile m={m} /></div>}
+        {m.state === 'done' && m.content.trim() && <div className="app-row" style={{ gap: 'var(--d-space-4)' }}><ReadItAloud m={m} /><KeepAsFile m={m} /></div>}
       </div>
       {!writing && t && t.written > 0 && (
         <p className="d-type-caption d-text-tertiary" style={{ marginBlockStart: 'var(--d-space-4)' }}>
@@ -356,6 +376,20 @@ function Composer({ id, answering, context, canShorten, tools, program }: { id: 
   const [plan, setPlan] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { input.current?.focus() }, [id])
+  // Dictation (DECISIONS V11): each finished sentence is put at the end of what is in the box; nothing is sent by it.
+  const [dictating, setDictating] = useState<'off' | 'starting' | 'listening' | 'hearing' | 'waiting'>('off')
+  const dictation = useRef<Dictation | null>(null)
+  useEffect(() => () => dictation.current?.stop(), [])
+  const dictate = () => {
+    if (dictation.current) { dictation.current.stop(); dictation.current = null; setDictating('off'); return }
+    dictation.current = new Dictation(
+      (heard) => setText((t) => (t.trim() ? `${t.trimEnd()} ${heard}` : heard)),
+      (state, why) => {
+        if (state === 'closed') { dictation.current = null; setDictating('off'); if (why) toast(`Dictation stopped. ${why}`, undefined, 'task-failed') } else setDictating(state)
+      },
+    )
+    void dictation.current.start()
+  }
   const send = async () => {
     const mine = text.trim()
     if (!mine || answering) return
@@ -377,6 +411,10 @@ function Composer({ id, answering, context, canShorten, tools, program }: { id: 
           </Tip>
         )}
         <span className="d-composer__spacer" />
+        {dictating === 'waiting' && <Tip label="Demido waits for the end of your sentence. Press to write it down now."><Button variant="ghost" size="sm" onClick={() => dictation.current?.done()}>Done</Button></Tip>}
+        <Tip label={dictating === 'off' ? 'Dictate: speak, and each finished sentence is written into the box, on this computer. Nothing is sent until you send it.' : 'Stop dictating'}>
+          <Button variant="ghost" iconOnly pressed={dictating !== 'off'} aria-label={dictating === 'off' ? 'Dictate' : 'Stop dictating'} onClick={dictate}><Icon icon={dictating === 'off' ? Mic : dictating === 'starting' ? Loader : MicOff} size="sm" /></Button>
+        </Tip>
         {answering
           ? <Tip label="Stop"><Button variant="primary" iconOnly aria-label="Stop" onClick={() => void stopAnswer(id)}><Icon icon={Square} size="sm" /></Button></Tip>
           : <Tip label="Send"><Button variant="primary" iconOnly aria-label="Send" type="submit" disabled={!text.trim()}><Icon icon={ArrowUp} /></Button></Tip>}

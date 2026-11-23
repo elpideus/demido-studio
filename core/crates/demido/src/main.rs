@@ -48,6 +48,9 @@ enum Command {
         /// Processor threads for each part.
         #[arg(long, default_value_t = 4)]
         threads: i32,
+        /// Only one half: speak or hear. Both when left out.
+        #[arg(long)]
+        only: Option<String>,
     },
     /// The sandbox on Windows (DECISIONS T27), set up once, as an administrator: the server starts this
     /// through Windows's own prompt.
@@ -423,8 +426,8 @@ async fn main() -> ExitCode {
     if matches!(cli.command, Command::SandboxSetup { .. } | Command::SandboxLaunch { .. } | Command::SandboxRunner { .. }) {
         sandbox_command(cli.command);
     }
-    if let Command::VoiceEngine { dir, voice, threads } = cli.command {
-        return match voice::run(voice::Paths { dir, voice, threads }) {
+    if let Command::VoiceEngine { dir, voice, threads, only } = cli.command {
+        return match voice::run(voice::Paths { dir, voice, threads, only }) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("demido voice-engine: {e:#}");

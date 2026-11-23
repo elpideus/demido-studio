@@ -557,6 +557,14 @@ pub fn engine_args(dir: &Path, voice: &Path, threads: u32) -> Vec<String> {
     vec!["voice-engine".into(), "--dir".into(), dir.display().to_string(), "--voice".into(), voice.display().to_string(), "--threads".into(), threads.to_string()]
 }
 
+/// The sentences of a whole answer, as voice mode says them: without its markdown, a short one with the next.
+pub fn sentences_of(text: &str) -> Vec<String> {
+    let mut saying = Saying::default();
+    saying.write(text);
+    saying.end(|| None);
+    std::iter::from_fn(|| saying.next_sentence()).collect()
+}
+
 pub(crate) fn event_of(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).unwrap_or(json!({ "event": "error", "message": "the engine sent something that is not JSON" }))
 }
@@ -564,6 +572,15 @@ pub(crate) fn event_of(bytes: &[u8]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_whole_answer_is_read_aloud_a_sentence_at_a_time() {
+        let said = sentences_of("## Rome\nIt is **sunny** today, with a light wind from the west. Wear a hat.\n```\ncode\n```\nThe evening will be cooler, around twelve degrees.");
+        assert!(said.iter().all(|s| !s.contains("**") && !s.contains("```") && !s.contains("code")), "{said:?}");
+        assert!(said.concat().contains("sunny today") && said.concat().contains("around twelve degrees"), "{said:?}");
+        assert!(said.len() >= 2, "{said:?}");
+        assert!(sentences_of("").is_empty());
+    }
 
     #[test]
     fn an_answer_is_spoken_without_its_markdown() {

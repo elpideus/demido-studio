@@ -191,3 +191,124 @@ export class Conversation {
     void this.play?.close()
   }
 }
+
+const socketTo = (path: string, params: URLSearchParams) => new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/voice/${path}?${params}`)
+
+/** Reads one answer aloud with voice mode's voice (DECISIONS V11). One at a time in the whole window: starting
+    another stops this one. `onState` hears `starting`, `speaking`, `done` and, with the reason, `failed`. */
+export class ReadAloud {
+  private static current: ReadAloud | null = null
+  private socket: WebSocket | null = null
+  private play: AudioContext | null = null
+  private nodes: AudioBufferSourceNode[] = []
+  private nextTime = 0
+  private finished = false
+
+  constructor(private message: string, private voice: string, private onState: (state: 'starting' | 'speaking' | 'done' | 'failed', why?: string) => void) {}
+
+  start() {
+    ReadAloud.current?.stop()
+    ReadAloud.current = this
+    this.onState('starting')
+    this.play = new AudioContext({ sampleRate: PLAY_RATE })
+    const socket = socketTo('read', new URLSearchParams({ message: this.message, voice: this.voice }))
+    socket.binaryType = 'arraybuffer'
+    this.socket = socket
+    socket.onmessage = (m) => {
+      if (typeof m.data !== 'string') return this.sound(m.data as ArrayBuffer)
+      const e = JSON.parse(m.data) as { type: string; message?: string }
+      if (e.type === 'error') { this.onState('failed', String(e.message)); this.end() }
+      if (e.type === 'done') { this.finished = true; this.endWhenPlayed() }
+    }
+    socket.onclose = () => { this.finished = true; this.endWhenPlayed() }
+  }
+
+  private sound(data: ArrayBuffer) {
+    if (!this.play || data.byteLength <= 4) return
+    const pcm = new Int16Array(data, 4)
+    const buffer = this.play.createBuffer(1, pcm.length, PLAY_RATE)
+    const ch = buffer.getChannelData(0)
+    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768
+    const node = this.play.createBufferSource()
+    node.buffer = buffer
+    node.connect(this.play.destination)
+    const start = Math.max(this.play.currentTime + 0.03, this.nextTime)
+    node.start(start)
+    this.nextTime = start + buffer.duration
+    this.nodes.push(node)
+    node.onended = () => { this.nodes = this.nodes.filter((n) => n !== node); this.endWhenPlayed() }
+    this.onState('speaking')
+  }
+
+  private endWhenPlayed() {
+    if (this.finished && this.nodes.length === 0 && this.play) { this.onState('done'); this.end() }
+  }
+
+  private end() {
+    this.socket?.close()
+    this.socket = null
+    void this.play?.close()
+    this.play = null
+    if (ReadAloud.current === this) ReadAloud.current = null
+  }
+
+  /** Stops at once. */
+  stop() {
+    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'stop' }))
+    for (const n of this.nodes) { try { n.onended = null; n.stop() } catch { /* ended */ } }
+    this.nodes = []
+    this.onState('done')
+    this.end()
+  }
+}
+
+/** Dictation into the message box (DECISIONS V11): the microphone, heard by voice mode's ears; each finished
+    sentence is given to `onHeard`, to be put into the box. Nothing is sent by it. */
+export class Dictation {
+  private socket: WebSocket | null = null
+  private capture: AudioContext | null = null
+  private stream: MediaStream | null = null
+
+  constructor(private onHeard: (text: string) => void, private onState: (state: 'starting' | 'listening' | 'hearing' | 'waiting' | 'closed', why?: string) => void) {}
+
+  async start() {
+    this.onState('starting')
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } })
+    } catch (e) {
+      this.onState('closed', `The microphone could not be opened: ${(e as Error).message}`)
+      return
+    }
+    this.capture = new AudioContext()
+    await this.capture.audioWorklet.addModule('/voice-capture.js')
+    const mic = this.capture.createMediaStreamSource(this.stream)
+    const worklet = new AudioWorkletNode(this.capture, 'demido-capture')
+    mic.connect(worklet)
+    const socket = socketTo('dictate', new URLSearchParams())
+    socket.binaryType = 'arraybuffer'
+    this.socket = socket
+    worklet.port.onmessage = (e: MessageEvent<{ pcm: ArrayBuffer }>) => { if (socket.readyState === WebSocket.OPEN) socket.send(e.data.pcm) }
+    socket.onmessage = (m) => {
+      if (typeof m.data !== 'string') return
+      const e = JSON.parse(m.data) as { type: string; text?: string; message?: string }
+      if (e.type === 'ready') this.onState('listening')
+      if (e.type === 'speech') this.onState('hearing')
+      if (e.type === 'waiting') this.onState('waiting')
+      if (e.type === 'heard' && e.text) { this.onHeard(String(e.text)); this.onState('listening') }
+      if (e.type === 'heard_nothing') this.onState('listening')
+      if (e.type === 'error') { this.onState('closed', String(e.message)); this.stop() }
+    }
+    socket.onclose = () => this.onState('closed')
+  }
+
+  /** The sentence being spoken is over: write it down now. */
+  done() { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'answer_now' })) }
+
+  stop() {
+    this.socket?.close()
+    this.socket = null
+    this.stream?.getTracks().forEach((t) => t.stop())
+    void this.capture?.close()
+    this.capture = null
+  }
+}

@@ -1545,6 +1545,20 @@ async fn voice_talk(State(app): State<App>, Query(opened): Query<crate::voice::t
     upgrade.on_upgrade(move |socket| crate::voice::talk::run(socket, voice, chat, sessions, events, opened))
 }
 
+/// Reads one answer aloud with voice mode's voice (DECISIONS V11), over a WebSocket: the sound comes as binary
+/// messages, a sentence at a time; `{"type":"stop"}` stops it.
+async fn voice_read(State(app): State<App>, Query(opened): Query<crate::voice::talk::ReadOpened>, upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
+    let (voice, sessions, events) = (app.voice.clone(), app.sessions.clone(), app.events.clone());
+    upgrade.on_upgrade(move |socket| crate::voice::talk::read_aloud(socket, voice, sessions, events, opened))
+}
+
+/// Dictation into the message box with voice mode's ears (DECISIONS V11), over a WebSocket: the microphone's sound
+/// in, each finished sentence out as `heard`. Nothing is said in a session by it.
+async fn voice_dictate(State(app): State<App>, Query(opened): Query<crate::voice::talk::ReadOpened>, upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
+    let (voice, events) = (app.voice.clone(), app.events.clone());
+    upgrade.on_upgrade(move |socket| crate::voice::talk::dictate(socket, voice, events, opened))
+}
+
 // ───────── schedules ─────────
 
 /// A sentence, to be read as a schedule.
@@ -1723,6 +1737,8 @@ pub fn router(app: App) -> Router {
         .route("/voice/download", post(voice_download))
         .route("/voice/voices/{id}", get(voice_sample))
         .route("/voice/talk", get(voice_talk))
+        .route("/voice/read", get(voice_read))
+        .route("/voice/dictate", get(voice_dictate))
         .route("/schedules", get(schedules_list).post(schedule_new))
         .route("/schedules/understand", post(schedule_understand))
         .route("/schedules/{id}", get(schedule_get).patch(schedule_change).delete(schedule_delete))
