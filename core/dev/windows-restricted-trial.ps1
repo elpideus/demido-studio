@@ -56,6 +56,8 @@ $line = (Get-Content $lineFile -Raw).Trim()
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 public static class R {
   [StructLayout(LayoutKind.Sequential)] public struct SID_AND_ATTRIBUTES { public IntPtr Sid; public uint Attributes; }
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] public struct STARTUPINFO { public int cb; public string r; public string d; public string t; public int x, y, w, h, cx, cy, fill, flags; public short show, r2; public IntPtr r3, i, o, e; }
@@ -65,6 +67,7 @@ public static class R {
   [DllImport("advapi32", SetLastError = true)] public static extern bool CreateRestrictedToken(IntPtr t, uint flags, uint nd, IntPtr d, uint np, IntPtr p, uint nr, SID_AND_ATTRIBUTES[] r, out IntPtr nt);
   [DllImport("advapi32", SetLastError = true, CharSet = CharSet.Unicode)] public static extern bool CreateProcessAsUserW(IntPtr t, string app, string cmd, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref STARTUPINFO si, out PI pi);
   [DllImport("advapi32", SetLastError = true)] public static extern bool GetTokenInformation(IntPtr t, int cls, IntPtr info, int len, out int need);
+  [DllImport("advapi32", SetLastError = true)] public static extern bool SetTokenInformation(IntPtr t, int cls, IntPtr info, int len);
   [DllImport("advapi32", SetLastError = true, CharSet = CharSet.Unicode)] public static extern bool ConvertSidToStringSid(IntPtr sid, out string s);
   [DllImport("kernel32")] public static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32")] public static extern uint WaitForSingleObject(IntPtr h, uint ms);
@@ -86,10 +89,20 @@ public static class R {
       if ((attributes & 0xC0000000) == 0xC0000000) logon = Marshal.ReadIntPtr(entry);
     }
     string logonText = "none"; if (logon != IntPtr.Zero) ConvertSidToStringSid(logon, out logonText);
-    var list = logon == IntPtr.Zero ? new SID_AND_ATTRIBUTES[] { new SID_AND_ATTRIBUTES { Sid = sid, Attributes = 0 } }
-      : new SID_AND_ATTRIBUTES[] { new SID_AND_ATTRIBUTES { Sid = sid, Attributes = 0 }, new SID_AND_ATTRIBUTES { Sid = logon, Attributes = 0 } };
+    if (logon == IntPtr.Zero) return "no logon SID";
+    // As Codex does it: the session's SID, the logon SID, and Everyone; and what the new process makes is
+    // granted to its logon SID (the token's default DACL), or it cannot even start (STATUS_DLL_INIT_FAILED).
+    IntPtr everyone; ConvertStringSidToSid("S-1-1-0", out everyone);
+    var list = new SID_AND_ATTRIBUTES[] { new SID_AND_ATTRIBUTES { Sid = sid, Attributes = 0 }, new SID_AND_ATTRIBUTES { Sid = logon, Attributes = 0 }, new SID_AND_ATTRIBUTES { Sid = everyone, Attributes = 0 } };
     // WRITE_RESTRICTED (8): the restricting SIDs are asked for only when something is to be changed.
-    if (!CreateRestrictedToken(own, 8, 0, IntPtr.Zero, 0, IntPtr.Zero, (uint)list.Length, list, out restricted)) return "CreateRestrictedToken " + Marshal.GetLastWin32Error();
+    // DISABLE_MAX_PRIVILEGE (1), LUA_TOKEN (4), WRITE_RESTRICTED (8)
+    if (!CreateRestrictedToken(own, 1 | 4 | 8, 0, IntPtr.Zero, 0, IntPtr.Zero, (uint)list.Length, list, out restricted)) return "CreateRestrictedToken " + Marshal.GetLastWin32Error();
+    var dacl = new RawAcl(2, 1);
+    dacl.InsertAce(0, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, 0x10000000, new SecurityIdentifier(logonText), false, null));
+    byte[] bin = new byte[dacl.BinaryLength]; dacl.GetBinaryForm(bin, 0);
+    IntPtr pAcl = Marshal.AllocHGlobal(bin.Length); Marshal.Copy(bin, 0, pAcl, bin.Length);
+    IntPtr info = Marshal.AllocHGlobal(IntPtr.Size); Marshal.WriteIntPtr(info, pAcl);
+    if (!SetTokenInformation(restricted, 6, info, IntPtr.Size)) return "SetTokenInformation " + Marshal.GetLastWin32Error();
     var si = new STARTUPINFO(); si.cb = Marshal.SizeOf(si);
     PI pi;
     if (!CreateProcessAsUserW(restricted, null, cmd, IntPtr.Zero, IntPtr.Zero, false, 0x08000000, IntPtr.Zero, dir, ref si, out pi)) return "CreateProcessAsUserW " + Marshal.GetLastWin32Error();
@@ -161,6 +174,7 @@ $t = As "echo again> `"$locked\made.txt`""
 Answer 'With the entry taken off, it cannot write to the file it made' ((Get-Content "$locked\made.txt" -Raw) -notmatch 'again') $t
 $t = As "type `"$locked\made.txt`""
 Answer 'Nor read it' ($t -notmatch 'made') $t
+Write-Host "    owner of made.txt: $((Get-Acl "$locked\made.txt").Owner)"
 $t = As "icacls `"$locked\made.txt`" /grant $($name):F"
 Answer 'As its owner, icacls gives it access back' ($t -match 'Successfully processed 1') $t
 # icacls reads the folder's own permissions first, which it may not. Set directly, with nothing inherited, it need not.
@@ -172,9 +186,35 @@ $own = Join-Path $root 'own.ps1'
 Set-Acl '$locked\made.txt' `$acl
 'set'
 "@ | Set-Content $own
+@"
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
+public static class O {
+  [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] public static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint d, uint f, IntPtr t);
+  [DllImport("advapi32", SetLastError = true)] public static extern uint SetSecurityInfo(IntPtr h, int type, uint info, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+  public static string Take(string path) {
+    // READ_CONTROL | WRITE_DAC: what an owner may always do. Nothing about the folder is read.
+    IntPtr h = CreateFileW(path, 0x00020000 | 0x00040000, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+    if (h == new IntPtr(-1)) return "open: " + Marshal.GetLastWin32Error();
+    var me = WindowsIdentity.GetCurrent().User;
+    var acl = new RawAcl(2, 1);
+    acl.InsertAce(0, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, 0x1F01FF, me, false, null));
+    byte[] bin = new byte[acl.BinaryLength]; acl.GetBinaryForm(bin, 0);
+    IntPtr p = Marshal.AllocHGlobal(bin.Length); Marshal.Copy(bin, 0, p, bin.Length);
+    // SE_FILE_OBJECT (1); DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION
+    uint r = SetSecurityInfo(h, 1, 0x4 | 0x80000000, IntPtr.Zero, IntPtr.Zero, p, IntPtr.Zero);
+    return r == 0 ? "set" : "SetSecurityInfo: " + r;
+  }
+}
+'@
+[O]::Take('$locked\made.txt')
+"@ | Set-Content $own
 $t = As "powershell -NoProfile -ExecutionPolicy Bypass -File `"$own`""
 $t2 = As "echo back> `"$locked\made.txt`""
-Answer 'As its owner, setting the permissions itself, it gives itself access back and writes' ((Get-Content "$locked\made.txt" -Raw) -match 'back') "$t | $t2"
+Answer 'As its owner, calling Windows itself, it gives itself access back and writes' ((Get-Content "$locked\made.txt" -Raw) -match 'back') "$t | $t2"
 icacls "$locked\made.txt" /reset | Out-Null
 icacls $locked /setowner $env:USERNAME /T | Out-Null
 $t = As "powershell -NoProfile -ExecutionPolicy Bypass -File `"$own`""
