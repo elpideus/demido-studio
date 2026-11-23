@@ -27,12 +27,13 @@
 //! parts of it that programs a model runs have no need of, and that have been the way out of sandboxes, say
 //! no. Nor can it make namespaces of its own inside (`--disable-userns`).
 //!
-//! Not built: the same on Windows. There a command runs unsandboxed, and so every level but Autonomous
-//! asks first.
+//! On Windows it is a user of Demido's own, made once at setup with an administrator's rights, and a
+//! write-restricted token (`windows`, DECISIONS T27): the person's profile is not there to read, nothing
+//! outside the folder can be changed, and the firewall shuts that user's network. Weaker than the other two
+//! in what it lets be read: what Windows lets every user read stays readable. Until it is set up, a command
+//! runs unsandboxed, and so every level but Autonomous asks first.
 
-use std::path::Path;
-#[cfg(unix)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -43,6 +44,8 @@ use utoipa::ToSchema;
 
 #[cfg(windows)]
 mod job;
+#[cfg(windows)]
+pub mod windows;
 
 /// What a program's output is cut to before it is kept: far more than a person scrolls, less than fills a disk.
 const MOST_KEPT: usize = 2_000_000;
@@ -58,6 +61,12 @@ pub struct Sandbox {
     pub program: Option<String>,
     /// When there is none: why, and what would give this computer one.
     pub why_not: Option<String>,
+    /// Whether the person can set one up from the window (Windows: once, with an administrator's rights).
+    #[serde(default)]
+    pub can_set_up: bool,
+    /// Demido's folder, where a sandbox that is set up keeps what it needs (Windows).
+    #[serde(skip)]
+    pub(crate) home: Option<PathBuf>,
 }
 
 /// What came of running a program.
@@ -96,7 +105,7 @@ impl Ran {
 
 impl Sandbox {
     fn none(why: impl Into<String>) -> Self {
-        Self { kind: "none".into(), program: None, why_not: Some(why.into()) }
+        Self { kind: "none".into(), program: None, why_not: Some(why.into()), can_set_up: false, home: None }
     }
 
     /// No sandbox, because nobody has looked for one yet.
@@ -116,7 +125,7 @@ impl Sandbox {
             let Some(program) = on_path("bwrap") else {
                 return Self::none("bubblewrap is not installed. Your distribution has it as a package called bubblewrap.");
             };
-            let found = Self { kind: "bubblewrap".into(), program: Some(program.to_string_lossy().into_owned()), why_not: None };
+            let found = Self { kind: "bubblewrap".into(), program: Some(program.to_string_lossy().into_owned()), why_not: None, can_set_up: false, home: None };
             // Installed is not the same as working: some systems do not let ordinary programs make the walls.
             let folder = std::env::temp_dir();
             let tried = found.command(&folder, "exit 0").and_then(|(mut c, _)| c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output().map_err(|e| e.to_string()));
@@ -134,7 +143,7 @@ impl Sandbox {
             if !Path::new(SANDBOX_EXEC).is_file() {
                 return Self::none("This Mac has no /usr/bin/sandbox-exec, which macOS has long had: Demido cannot make walls here.");
             }
-            let found = Self { kind: "seatbelt".into(), program: Some(SANDBOX_EXEC.into()), why_not: None };
+            let found = Self { kind: "seatbelt".into(), program: Some(SANDBOX_EXEC.into()), why_not: None, can_set_up: false, home: None };
             // Its rules are read when it starts: a rule this macOS does not know is a failure here, not later.
             let folder = std::env::temp_dir();
             let tried = found.command(&folder, "exit 0").and_then(|(mut c, _scratch)| c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output().map_err(|e| e.to_string()));
@@ -147,10 +156,78 @@ impl Sandbox {
                 Err(e) => Self::none(format!("sandbox-exec could not be started: {e}.")),
             }
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(windows)]
         {
-            Self::none("A sandbox is built for Linux and macOS so far. On this system a command runs without one, so Demido asks before each.")
+            Self::none("The sandbox on Windows is looked for with Demido's folder.")
         }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+        {
+            Self::none("A sandbox is built for Linux, macOS and Windows. On this system a command runs without one, so Demido asks before each.")
+        }
+    }
+
+    /// As `find`, and on Windows the sandbox set up for Demido's folder `home`, run through `program` (Demido's
+    /// own: `demido sandbox-launch`). Tried once, as on the other systems.
+    pub fn find_for(home: &Path, program: Option<PathBuf>) -> Self {
+        #[cfg(windows)]
+        {
+            let unset = |why: String| Self { can_set_up: true, home: Some(home.to_path_buf()), ..Self::none(why) };
+            let Some(program) = program else { return Self::none("Demido cannot find its own program, which the sandbox runs through.") };
+            if let Err(why) = windows::ready(home) {
+                return unset(format!(
+                    "{why} Setting it up takes a minute, once, and Windows asks for an administrator: Demido then makes a user of its own that programs run as, which cannot read your profile, change anything outside the session's folder, or reach the network."
+                ));
+            }
+            let found = Self { kind: "windows-user".into(), program: Some(program.to_string_lossy().into_owned()), why_not: None, can_set_up: true, home: Some(home.to_path_buf()) };
+            let folder = home.join("sandbox").join("tried");
+            let _ = std::fs::create_dir_all(&folder);
+            let tried = found.command(&folder, "exit 0").and_then(|(mut c, _)| c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output().map_err(|e| e.to_string()));
+            match tried {
+                Ok(out) if out.status.success() => found,
+                Ok(out) => unset(format!(
+                    "The sandbox is set up and did not work: {}. Setting it up again may mend it.",
+                    String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("it said nothing")
+                )),
+                Err(e) => unset(format!("The sandbox is set up and could not be started: {e}.")),
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (home, program);
+            Self::find()
+        }
+    }
+
+    /// Sets the sandbox up, where the person can (Windows: Windows asks for an administrator first), and gives
+    /// back the sandbox there is now. Waits for it: call it where waiting is fine.
+    pub fn set_up(&self) -> Result<Self, String> {
+        #[cfg(windows)]
+        {
+            let Some(home) = &self.home else { return Err("This sandbox cannot be set up from here.".into()) };
+            windows::start_setup(home)?;
+            Ok(Self::find_for(home, self.program.clone().map(PathBuf::from).or_else(|| std::env::current_exe().ok())))
+        }
+        #[cfg(not(windows))]
+        {
+            Err("This system's sandbox is not set up from Demido.".into())
+        }
+    }
+
+    /// Takes a folder back from the sandbox, when no session uses it any more (Windows: the entries that shared
+    /// it come off, and what the sandbox made in it is given to the person). In the background: on a large
+    /// folder it takes a while. Elsewhere there is nothing to take back.
+    pub fn give_back(&self, folder: &Path) {
+        #[cfg(windows)]
+        if let Some(home) = self.home.clone() {
+            let folder = folder.to_path_buf();
+            std::thread::spawn(move || {
+                if let Err(why) = windows::give_back(&home, &folder) {
+                    tracing::warn!("{} was not all given back from the sandbox: {why}", folder.display());
+                }
+            });
+        }
+        #[cfg(not(windows))]
+        let _ = folder;
     }
 
     /// The command line that runs a shell script in `folder`, inside the sandbox when there is one, with the
@@ -212,6 +289,25 @@ impl Sandbox {
                 }
             }
             return Ok((command, Some(scratch)));
+        }
+        // The sandbox of Windows: Demido itself, as the person, starts the command as the sandbox's user.
+        #[cfg(windows)]
+        if self.kind == "windows-user"
+            && let (Some(program), Some(home)) = (&self.program, &self.home)
+        {
+            use std::os::windows::process::CommandExt;
+            let mut command = std::process::Command::new(program);
+            command
+                .arg("sandbox-launch")
+                .arg("--home")
+                .arg(home)
+                .arg("--folder")
+                .arg(windows::plain(&folder))
+                .arg("--script")
+                .arg(windows::hex(script.as_bytes()))
+                .current_dir(&folder)
+                .creation_flags(job::STARTED_WAITING);
+            return Ok((command, None));
         }
         // No sandbox: the plain shell, in the folder, with the person's own environment. Asked for first.
         #[cfg(windows)]

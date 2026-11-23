@@ -336,10 +336,10 @@ async fn waiting_in(chat: &Chat, session_id: &str) -> crate::permissions::Reques
 
 /// Said to shut programs in, without doing it: for trying what the levels decide, on any computer.
 fn said_to_hold() -> crate::sandbox::Sandbox {
-    crate::sandbox::Sandbox { kind: "bubblewrap".into(), program: None, why_not: None }
+    crate::sandbox::Sandbox { kind: "bubblewrap".into(), program: None, why_not: None, can_set_up: false, home: None }
 }
 fn no_sandbox() -> crate::sandbox::Sandbox {
-    crate::sandbox::Sandbox { kind: "none".into(), program: None, why_not: Some("bubblewrap is not installed.".into()) }
+    crate::sandbox::Sandbox { kind: "none".into(), program: None, why_not: Some("bubblewrap is not installed.".into()), can_set_up: false, home: None }
 }
 
 #[tokio::test]

@@ -45,6 +45,37 @@ enum Command {
         #[arg(long, default_value_t = 4)]
         threads: i32,
     },
+    /// The sandbox on Windows (DECISIONS T27), set up once, as an administrator: the server starts this
+    /// through Windows's own prompt.
+    #[command(name = "sandbox-setup", hide = true)]
+    SandboxSetup {
+        /// Demido's folder, where what setup made is kept.
+        #[arg(long)]
+        home: PathBuf,
+        /// The SID of the person it is set up for.
+        #[arg(long = "for")]
+        person: String,
+    },
+    /// Runs a command in the sandbox on Windows, as the person: what the server starts for each command.
+    #[command(name = "sandbox-launch", hide = true)]
+    SandboxLaunch {
+        #[arg(long)]
+        home: PathBuf,
+        #[arg(long)]
+        folder: PathBuf,
+        /// The script, in hexadecimal, so that no quoting can change it on the way.
+        #[arg(long)]
+        script: String,
+    },
+    /// Starts a command as the sandbox's user, with a write-restricted token: what `sandbox-launch` starts.
+    #[command(name = "sandbox-runner", hide = true)]
+    SandboxRunner {
+        /// The SID made up for the folder.
+        #[arg(long)]
+        sid: String,
+        #[arg(long)]
+        script: String,
+    },
     /// Run the server. Everything else talks to it.
     Serve {
         /// Address and port to listen on, for this run. Default: the "server.address" setting.
@@ -363,6 +394,9 @@ async fn main() -> ExitCode {
     if let Command::PdfText = cli.command {
         return pdf_text();
     }
+    if matches!(cli.command, Command::SandboxSetup { .. } | Command::SandboxLaunch { .. } | Command::SandboxRunner { .. }) {
+        sandbox_command(cli.command);
+    }
     if let Command::VoiceEngine { dir, voice, threads } = cli.command {
         return match voice::run(voice::Paths { dir, voice, threads }) {
             Ok(()) => ExitCode::SUCCESS,
@@ -378,6 +412,34 @@ async fn main() -> ExitCode {
             eprintln!("demido: {e:#}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The sandbox's hidden commands on Windows (`demido_core::sandbox::windows`). They end the program with the
+/// command's own exit code, which may be larger than an `ExitCode` holds.
+fn sandbox_command(command: Command) -> ! {
+    #[cfg(windows)]
+    {
+        use demido_core::sandbox::windows;
+        let ended = match command {
+            Command::SandboxSetup { home, person } => std::process::exit(windows::setup_and_tell(&home, &person)),
+            Command::SandboxLaunch { home, folder, script } => windows::unhex(&script).map(|s| String::from_utf8_lossy(&s).into_owned()).and_then(|script| windows::launch(&home, &folder, &script)),
+            Command::SandboxRunner { sid, script } => windows::unhex(&script).map(|s| String::from_utf8_lossy(&s).into_owned()).and_then(|script| windows::run_restricted(&sid, &script)),
+            _ => Err("not a sandbox command".into()),
+        };
+        match ended {
+            Ok(code) => std::process::exit(code as i32),
+            Err(why) => {
+                eprintln!("The sandbox could not run the command: {why}");
+                std::process::exit(125)
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+        eprintln!("This is the sandbox of Windows; on this system Demido uses its own.");
+        std::process::exit(2)
     }
 }
 
@@ -405,7 +467,7 @@ async fn run(cli: Cli) -> Result<()> {
     let paths = Paths::resolve()?;
     match cli.command {
         // Run before anything else, in `main`.
-        Command::PdfText | Command::VoiceEngine { .. } => {}
+        Command::PdfText | Command::VoiceEngine { .. } | Command::SandboxSetup { .. } | Command::SandboxLaunch { .. } | Command::SandboxRunner { .. } => {}
         Command::Serve { listen, ui_dir } => {
             let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
             tracing_subscriber::fmt().with_env_filter(filter).with_target(false).init();

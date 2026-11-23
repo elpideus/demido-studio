@@ -10,7 +10,7 @@ import { ArrowUp, CalendarClock, Folder, ListChecks, Plus, ShieldCheck, ShieldEl
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
-import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
+import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, setUpSandbox, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
 import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal, StepRow, Tip } from '@/ui'
 import { asAFile, keepAsFile, openArtifact } from '@/data/artifacts'
 import { onCoreEvent } from '@/data/core'
@@ -156,6 +156,18 @@ function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: s
           : <Tip label={change.whole_folder ? 'Puts the whole folder back as it was before this command ran. What it made is removed, what it changed or removed is as it was.' : change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
       </div>
       {change?.diff_stat && <ChangeShown change={change} />}
+    </div>
+  )
+}
+
+/** The sandbox, set up from here where the core's computer allows it (Windows, DECISIONS T27): once, with an
+    administrator's rights, which Windows asks for on that computer's screen. */
+function SetUpSandbox({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="app-row" style={{ gap: 'var(--d-space-8)', alignItems: 'center' }}>
+      <Button type="button" disabled={busy} onClick={() => { setBusy(true); void setUpSandbox(id).finally(() => setBusy(false)) }}>{busy ? 'Setting up… (Windows asks first)' : 'Set up the sandbox'}</Button>
+      <span className="d-type-caption d-text-secondary">Windows asks for an administrator once. Programs then run as a user of Demido's own: it cannot read your profile or change anything outside the session's folder, and has no network. It can still read what Windows lets every user read, such as folders at C:\ and on other disks.</span>
     </div>
   )
 }
@@ -485,6 +497,7 @@ function Chat() {
                 {session.folder && <Button type="button" onClick={() => void changeSession(id, { folder: '' }).then(() => setFolding(false))}>No folder</Button>}
               </div>
               <p className="d-type-caption d-text-secondary">The model can read every file in it, change them, and run programs in it. It cannot reach anything outside it: that is checked by Demido, not left to the model. Each change can be undone from the answer that made it. {detail.sandbox && detail.sandbox.kind !== 'none' ? `Programs are shut in a sandbox (${detail.sandbox.kind}).` : `There is no sandbox here, so every program asks first. ${detail.sandbox?.why_not ?? ''}`}{(detail.need_not_ask ?? []).length > 0 && ` In this session you said these need not ask again: ${(detail.need_not_ask ?? []).join(', ')}.`}</p>
+              {detail.sandbox?.can_set_up && detail.sandbox.kind === 'none' && <SetUpSandbox id={id} />}
             </form>
           )}
           {told && program && (

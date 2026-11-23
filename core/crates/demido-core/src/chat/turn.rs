@@ -602,7 +602,7 @@ impl Chat {
                     // be undone. Whether it was saved, and whether there is a sandbox, decide whether to ask.
                     let (mut held, mut saved) = (permissions::Held::NOT_A_PROGRAM, None);
                     if reach == tools::Reach::Runs {
-                        held = permissions::Held { shut_in: self.sandbox.contains(), can_be_undone: false };
+                        held = permissions::Held { shut_in: self.sandbox().contains(), can_be_undone: false };
                         if let Some(folder) = session.folder.clone() {
                             let id = uuid::Uuid::now_v7().to_string();
                             let place = self.kept_in.join(&session.id).join(&id);
@@ -648,9 +648,9 @@ impl Chat {
                     steps.push(Step { tool: tool.clone(), args: args.clone(), state: if asks { "waiting" } else { "running" }.into(), model_chose, ..Step::default() });
                     changed(steps);
                     let why = if answers == permissions::Answers::TheModel {
-                        permissions::why_the_model_asked(reach, around, self.sandbox.why_not.as_deref())
+                        permissions::why_the_model_asked(reach, around, self.sandbox().why_not.as_deref())
                     } else {
-                        permissions::why(level, reach, around, self.sandbox.why_not.as_deref())
+                        permissions::why(level, reach, around, self.sandbox().why_not.as_deref())
                     };
                     if asks && self.ask_person(session, answer_id, &tool, args.as_object().expect("made as one"), reach, why, once_only, stop, None).await? == Said::No {
                         if let Some((_, place)) = &saved {
@@ -678,7 +678,7 @@ impl Chat {
                         let command = args.get("command").and_then(Value::as_str).unwrap_or_default();
                         match folder {
                             None => Err("this session has no folder. The person can give it one".to_string()),
-                            Some(folder) => match self.sandbox.run(folder, command, std::time::Duration::from_secs(seconds), stop).await {
+                            Some(folder) => match self.sandbox().run(folder, command, std::time::Duration::from_secs(seconds), stop).await {
                                 Ok(ran) => {
                                     // The whole of what it printed is kept, as a terminal would show it; the model
                                     // is told the short view. What a program prints is text from outside, like a file's.

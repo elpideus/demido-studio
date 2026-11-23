@@ -114,7 +114,8 @@ pub struct Chat {
     /// The tools the person said need not ask again, by session. Kept while Demido runs, and no longer.
     granted: Mutex<HashMap<String, HashSet<String>>>,
     /// The sandbox this computer has for running programs, found once.
-    sandbox: crate::sandbox::Sandbox,
+    /// Replaced when the person sets one up (Windows).
+    sandbox: std::sync::RwLock<crate::sandbox::Sandbox>,
     /// Where folders are saved before a program runs in them.
     kept_in: std::path::PathBuf,
     /// The one way a model reads from the internet.
@@ -171,7 +172,7 @@ impl Chat {
             asking: Mutex::default(),
             granted: Mutex::default(),
             // Looked for where the server starts, once (`with_sandbox`): looking starts a program.
-            sandbox: crate::sandbox::Sandbox::not_looked_for(),
+            sandbox: std::sync::RwLock::new(crate::sandbox::Sandbox::not_looked_for()),
             kept_in: std::env::temp_dir().join("demido-saved-folders"),
             // Keeps nothing on disk until the server says where (`with_web`).
             web: Arc::new(crate::web::Web::new(None)),
@@ -309,14 +310,28 @@ impl Chat {
 
     /// The same, with this sandbox for the programs a model runs: the one found on this computer, or, in a
     /// test, one said to be so.
-    pub fn with_sandbox(mut self, sandbox: crate::sandbox::Sandbox) -> Self {
-        self.sandbox = sandbox;
+    pub fn with_sandbox(self, sandbox: crate::sandbox::Sandbox) -> Self {
+        self.set_sandbox(sandbox);
         self
     }
 
     /// The sandbox programs are run in on this computer, or why there is none.
-    pub fn sandbox(&self) -> &crate::sandbox::Sandbox {
-        &self.sandbox
+    pub fn sandbox(&self) -> crate::sandbox::Sandbox {
+        self.sandbox.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Another sandbox from now on: the one the person has just set up.
+    pub fn set_sandbox(&self, sandbox: crate::sandbox::Sandbox) {
+        *self.sandbox.write().unwrap_or_else(|e| e.into_inner()) = sandbox;
+    }
+
+    /// Takes `folder` back from the sandbox, unless a session still has it (`sandbox::give_back`).
+    fn give_back(&self, folder: Option<&str>) {
+        let Some(folder) = folder else { return };
+        let still = self.sessions.list().map(|all| all.iter().any(|s| s.folder.as_deref() == Some(folder))).unwrap_or(true);
+        if !still {
+            self.sandbox().give_back(std::path::Path::new(folder));
+        }
     }
 
     /// The same, telling the time and the day from `clock`: for tests.
@@ -530,6 +545,7 @@ impl Chat {
     pub fn delete(&self, session_id: &str) -> Result<Session> {
         self.stop(session_id);
         let gone = self.sessions.delete(session_id)?;
+        self.give_back(gone.folder.as_deref());
         // The folders saved for undoing its programs go with it, and what its programs printed.
         let _ = std::fs::remove_dir_all(self.kept_in.join(session_id));
         let _ = std::fs::remove_dir_all(self.outputs.join(session_id));
@@ -660,7 +676,11 @@ impl Chat {
                 Some(real.to_string_lossy().into_owned())
             }
         };
+        let before = self.sessions.get(session_id)?.folder;
         let session = self.sessions.set_folder(session_id, folder.as_deref())?;
+        if before != session.folder {
+            self.give_back(before.as_deref());
+        }
         self.events.append("session.changed", Some(session_id), json!({ "folder": session.folder }))?;
         Ok(session)
     }

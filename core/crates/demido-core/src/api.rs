@@ -83,7 +83,7 @@ impl Core {
                 .keeping_programs_in(paths.home().join("programs").join("sessions"))
                 .keeping_in(paths.home().join("saved-folders"))
                 .keeping_outputs_in(paths.home().join("outputs"))
-                .with_sandbox(crate::sandbox::Sandbox::find())
+                .with_sandbox(crate::sandbox::Sandbox::find_for(paths.home(), std::env::current_exe().ok()))
                 .with_web(Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))).reading_pdfs_apart(std::env::current_exe().ok()))),
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
@@ -530,7 +530,7 @@ async fn session_get(State(app): State<App>, Path(id): Path<String>) -> Result<J
         asking: app.chat.waiting_for(&id),
         need_not_ask: app.chat.need_not_ask(&id),
         changes: app.sessions.changes(&id)?,
-        sandbox: app.chat.sandbox().clone(),
+        sandbox: app.chat.sandbox(),
         session,
     }))
 }
@@ -1312,6 +1312,20 @@ async fn voice_status(State(app): State<App>) -> Json<crate::voice::Status> {
     Json(app.voice.status())
 }
 
+/// Sets up the sandbox where the person can (Windows, DECISIONS T27): Windows asks for an administrator first,
+/// on this computer's screen. Waits until it is done, and gives back the sandbox there is now.
+#[utoipa::path(post, path = "/api/v1/sandbox/set-up", tag = "sessions", responses((status = 200, body = crate::sandbox::Sandbox), (status = 400, body = Problem)))]
+async fn sandbox_set_up(State(app): State<App>) -> Result<Json<crate::sandbox::Sandbox>> {
+    let sandbox = app.chat.sandbox();
+    if !sandbox.can_set_up {
+        return Err(Error::Invalid("This computer's sandbox is not set up from Demido.".into()));
+    }
+    let made = tokio::task::spawn_blocking(move || sandbox.set_up()).await.map_err(|e| Error::Other(e.to_string()))?.map_err(Error::Invalid)?;
+    app.chat.set_sandbox(made.clone());
+    let _ = app.events.append("sandbox.set_up", None, json!({ "kind": made.kind }));
+    Ok(Json(made))
+}
+
 #[derive(Deserialize, ToSchema)]
 pub struct VoiceDownload {
     /// Whisper turbo too (about 1 GB), for when Parakeet hears nothing.
@@ -1443,7 +1457,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1511,6 +1525,7 @@ pub fn router(app: App) -> Router {
         .route("/providers/{id}/program", post(program_download).delete(program_remove))
         .route("/providers/{id}/program/download", axum::routing::delete(program_stop))
         .route("/providers/{id}/program/latest", get(program_latest))
+        .route("/sandbox/set-up", post(sandbox_set_up))
         .route("/voice", get(voice_status))
         .route("/voice/download", post(voice_download))
         .route("/voice/voices/{id}", get(voice_sample))

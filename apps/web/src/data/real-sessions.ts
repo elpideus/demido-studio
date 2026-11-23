@@ -20,7 +20,7 @@ export interface PermissionRequest { id: string; session_id: string; message_id:
     `whole_folder`: it is everything a program did; the folder was saved before the program ran, and undoing puts the whole folder back. */
 export interface CoreChange { id: string; session_id: string; message_id: string; path: string; created: boolean; whole_folder?: boolean; undone_at: number | null; created_at: number; diff_stat?: string | null }
 /** The sandbox the core's computer has for the programs a model runs. `kind` is `none` when it has none, and `why_not` says why. */
-export interface Sandbox { kind: string; program: string | null; why_not: string | null }
+export interface Sandbox { kind: string; program: string | null; why_not: string | null; can_set_up?: boolean }
 /** One task of work that was split into steps. `parent_id` is set for a sub-task. */
 export interface CoreTask { id: string; session_id: string; message_id: string; parent_id: string | null; position: number; title: string; state: 'pending' | 'running' | 'done' | 'failed' | 'stopped'; result: string | null; steps: CoreStep[]; created_at: number; updated_at: number }
 export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; steps: CoreStep[]; created_at: number }
@@ -163,6 +163,20 @@ export async function changeSession(id: string, change: { title?: string; model?
     await Promise.all([readSessions(), readSession(id)])
   } catch (e) {
     toast(`Not changed. ${(e as Error).message}`, undefined, 'task-failed')
+  }
+}
+
+/** Sets up the sandbox where the person can (Windows: Windows asks for an administrator first, on the core's
+    computer), then reads the session again to show it. */
+export async function setUpSandbox(id: string): Promise<Sandbox | null> {
+  try {
+    const made = await coreSend<Sandbox>('POST', '/sandbox/set-up')
+    await readSession(id)
+    toast(made.kind !== 'none' ? 'The sandbox is set up: programs now run in it.' : made.why_not ?? 'The sandbox could not be set up.', undefined, made.kind !== 'none' ? 'task-done' : 'task-failed')
+    return made
+  } catch (e) {
+    toast(`Not set up. ${(e as Error).message}`, undefined, 'task-failed')
+    return null
   }
 }
 

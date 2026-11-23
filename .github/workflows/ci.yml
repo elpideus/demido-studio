@@ -98,6 +98,12 @@ jobs:
           ls -l /usr/bin/sandbox-exec
           sw_vers
           echo "DEMIDO_EXPECT_SANDBOX=1" >> "$GITHUB_ENV"
+      - name: A sandbox, so that the sandbox is tested (Windows)
+        if: runner.os == 'Windows'
+        # The checks' machine is an administrator and is thrown away: there the test may set the sandbox up,
+        # making a user and firewall rules, which it never does on a person's own computer.
+        shell: bash
+        run: echo "DEMIDO_TRY_WINDOWS_SANDBOX=1" >> "$GITHUB_ENV"
       - name: Tests
         run: cargo test --manifest-path core/Cargo.toml --locked
       - name: It runs and reads this computer
