@@ -716,6 +716,9 @@ pub fn setup(home: &Path, person: &str) -> Result<(), String> {
     let powershell = system.join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
     let mut child = std::process::Command::new(&powershell)
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SETUP])
+        // Started from PowerShell 7, the variable names 7's modules, which Windows PowerShell cannot load
+        // ("ConvertTo-SecureString was found in the module …, but the module could not be loaded").
+        .env_remove("PSModulePath")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
