@@ -30,12 +30,23 @@ $session = Join-Path $root 'session2'
 $other = Join-Path $root 'other2'   # shared with the user, but not with the session's SID: as another session's folder
 $public = 'C:\demido-trial-public'  # made at C:\ with Windows's default permissions
 foreach ($d in @($session, $other, $public)) { New-Item -ItemType Directory -Force $d | Out-Null }
-icacls $session /grant "$($name):(OI)(CI)M" /grant "*$($cap):(OI)(CI)M" | Out-Null
+# icacls will not grant to a SID no account has ("No mapping between account names and security IDs"); .NET's own
+# access lists will.
+function Grant-Sid($path, $sid) {
+    $acl = Get-Acl $path
+    $rule = New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier($sid)), 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+    $acl.AddAccessRule($rule)
+    Set-Acl $path $acl
+}
+icacls $session /grant "$($name):(OI)(CI)M" | Out-Null
+Grant-Sid $session $cap
 icacls $other /grant "$($name):(OI)(CI)M" | Out-Null
 $scratch = Join-Path $root 'scratch2'      # the command's own temporary folder
 New-Item -ItemType Directory -Force $scratch | Out-Null
-icacls $scratch /grant "$($name):(OI)(CI)M" /grant "*$($cap):(OI)(CI)M" | Out-Null
-icacls $work /grant "*$($cap):(OI)(CI)M" | Out-Null
+icacls $scratch /grant "$($name):(OI)(CI)M" | Out-Null
+Grant-Sid $scratch $cap
+Grant-Sid $work $cap
+Write-Host "    the session folder: $((icacls $session | Select-Object -First 4 | ForEach-Object { $_.Trim() }) -join ' | ')"
 
 # The runner: C#, compiled by PowerShell, run as the sandbox user.
 $runner = Join-Path $root 'runner.ps1'
@@ -53,6 +64,8 @@ public static class R {
   [DllImport("advapi32", SetLastError = true, CharSet = CharSet.Unicode)] public static extern bool ConvertStringSidToSid(string s, out IntPtr sid);
   [DllImport("advapi32", SetLastError = true)] public static extern bool CreateRestrictedToken(IntPtr t, uint flags, uint nd, IntPtr d, uint np, IntPtr p, uint nr, SID_AND_ATTRIBUTES[] r, out IntPtr nt);
   [DllImport("advapi32", SetLastError = true, CharSet = CharSet.Unicode)] public static extern bool CreateProcessAsUserW(IntPtr t, string app, string cmd, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref STARTUPINFO si, out PI pi);
+  [DllImport("advapi32", SetLastError = true)] public static extern bool GetTokenInformation(IntPtr t, int cls, IntPtr info, int len, out int need);
+  [DllImport("advapi32", SetLastError = true, CharSet = CharSet.Unicode)] public static extern bool ConvertSidToStringSid(IntPtr sid, out string s);
   [DllImport("kernel32")] public static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32")] public static extern uint WaitForSingleObject(IntPtr h, uint ms);
   [DllImport("kernel32")] public static extern bool GetExitCodeProcess(IntPtr h, out uint code);
@@ -60,15 +73,29 @@ public static class R {
     IntPtr own, sid, restricted;
     if (!OpenProcessToken(GetCurrentProcess(), 0x0002 | 0x0001 | 0x0008 | 0x0080, out own)) return "OpenProcessToken " + Marshal.GetLastWin32Error();
     if (!ConvertStringSidToSid(cap, out sid)) return "ConvertStringSidToSid " + Marshal.GetLastWin32Error();
-    var list = new SID_AND_ATTRIBUTES[] { new SID_AND_ATTRIBUTES { Sid = sid, Attributes = 0 } };
+    // The logon SID too: the window station and desktop a program needs to start at all are granted to it,
+    // and with a write-restricted token they must be granted to a restricting SID as well.
+    int need; GetTokenInformation(own, 2, IntPtr.Zero, 0, out need);
+    IntPtr groups = Marshal.AllocHGlobal(need);
+    if (!GetTokenInformation(own, 2, groups, need, out need)) return "GetTokenInformation " + Marshal.GetLastWin32Error();
+    int count = Marshal.ReadInt32(groups);
+    IntPtr logon = IntPtr.Zero;
+    for (int i = 0; i < count; i++) {
+      IntPtr entry = groups + IntPtr.Size + i * (IntPtr.Size * 2);
+      uint attributes = (uint)Marshal.ReadInt32(entry + IntPtr.Size);
+      if ((attributes & 0xC0000000) == 0xC0000000) logon = Marshal.ReadIntPtr(entry);
+    }
+    string logonText = "none"; if (logon != IntPtr.Zero) ConvertSidToStringSid(logon, out logonText);
+    var list = logon == IntPtr.Zero ? new SID_AND_ATTRIBUTES[] { new SID_AND_ATTRIBUTES { Sid = sid, Attributes = 0 } }
+      : new SID_AND_ATTRIBUTES[] { new SID_AND_ATTRIBUTES { Sid = sid, Attributes = 0 }, new SID_AND_ATTRIBUTES { Sid = logon, Attributes = 0 } };
     // WRITE_RESTRICTED (8): the restricting SIDs are asked for only when something is to be changed.
-    if (!CreateRestrictedToken(own, 8, 0, IntPtr.Zero, 0, IntPtr.Zero, 1, list, out restricted)) return "CreateRestrictedToken " + Marshal.GetLastWin32Error();
+    if (!CreateRestrictedToken(own, 8, 0, IntPtr.Zero, 0, IntPtr.Zero, (uint)list.Length, list, out restricted)) return "CreateRestrictedToken " + Marshal.GetLastWin32Error();
     var si = new STARTUPINFO(); si.cb = Marshal.SizeOf(si);
     PI pi;
     if (!CreateProcessAsUserW(restricted, null, cmd, IntPtr.Zero, IntPtr.Zero, false, 0x08000000, IntPtr.Zero, dir, ref si, out pi)) return "CreateProcessAsUserW " + Marshal.GetLastWin32Error();
     WaitForSingleObject(pi.p, 60000);
     uint code; GetExitCodeProcess(pi.p, out code);
-    return "exit " + code;
+    return "exit " + code + " (logon SID " + logonText + ")";
   }
 }
 "@
@@ -135,11 +162,22 @@ Answer 'With the entry taken off, it cannot write to the file it made' ((Get-Con
 $t = As "type `"$locked\made.txt`""
 Answer 'Nor read it' ($t -notmatch 'made') $t
 $t = As "icacls `"$locked\made.txt`" /grant $($name):F"
+Answer 'As its owner, icacls gives it access back' ($t -match 'Successfully processed 1') $t
+# icacls reads the folder's own permissions first, which it may not. Set directly, with nothing inherited, it need not.
+$own = Join-Path $root 'own.ps1'
+@"
+`$acl = Get-Acl '$locked\made.txt'
+`$acl.SetAccessRuleProtection(`$true, `$false)
+`$acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule('$name', 'FullControl', 'Allow')))
+Set-Acl '$locked\made.txt' `$acl
+'set'
+"@ | Set-Content $own
+$t = As "powershell -NoProfile -ExecutionPolicy Bypass -File `"$own`""
 $t2 = As "echo back> `"$locked\made.txt`""
-Answer 'But as its owner it can give itself access back, and write' ((Get-Content "$locked\made.txt" -Raw) -match 'back') "$t | $t2"
+Answer 'As its owner, setting the permissions itself, it gives itself access back and writes' ((Get-Content "$locked\made.txt" -Raw) -match 'back') "$t | $t2"
 icacls "$locked\made.txt" /reset | Out-Null
 icacls $locked /setowner $env:USERNAME /T | Out-Null
-$t = As "icacls `"$locked\made.txt`" /grant $($name):F"
+$t = As "powershell -NoProfile -ExecutionPolicy Bypass -File `"$own`""
 $t2 = As "echo third> `"$locked\made.txt`""
 Answer 'Once the person owns everything there again, it cannot' ((Get-Content "$locked\made.txt" -Raw) -notmatch 'third') "$t | $t2"
 
@@ -152,8 +190,10 @@ $listener = Start-Job { $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loo
 Start-Sleep 2
 $t = As 'curl.exe -s -m 5 http://127.0.0.1:47322/'
 Answer 'With only the any-address rule, it reaches loopback' ($t -match 'ok') $t
-New-NetFirewallRule -Name 'DemidoTrial2LoopTcp' -DisplayName 'Demido trial 2: no loopback TCP' -Direction Outbound -Action Block -Protocol TCP -RemoteAddress '127.0.0.0/8', '::1' -LocalUser $sddl -Profile Any | Out-Null
-New-NetFirewallRule -Name 'DemidoTrial2LoopUdp' -DisplayName 'Demido trial 2: no loopback UDP' -Direction Outbound -Action Block -Protocol UDP -RemoteAddress '127.0.0.0/8', '::1' -LocalUser $sddl -Profile Any | Out-Null
+# PowerShell refuses ::1 here ("loopback IPv6 address"); Codex gives ::/127 through the firewall's COM interface.
+New-NetFirewallRule -Name 'DemidoTrial2LoopTcp' -DisplayName 'Demido trial 2: no loopback TCP' -Direction Outbound -Action Block -Protocol TCP -RemoteAddress '127.0.0.0/8' -LocalUser $sddl -Profile Any | Out-Null
+New-NetFirewallRule -Name 'DemidoTrial2LoopUdp' -DisplayName 'Demido trial 2: no loopback UDP' -Direction Outbound -Action Block -Protocol UDP -RemoteAddress '127.0.0.0/8' -LocalUser $sddl -Profile Any | Out-Null
+try { New-NetFirewallRule -Name 'DemidoTrial2Loop6' -DisplayName 'Demido trial 2: no loopback IPv6' -Direction Outbound -Action Block -Protocol TCP -RemoteAddress '::/127' -LocalUser $sddl -Profile Any | Out-Null; Write-Host '    an IPv6 loopback rule (::/127) was taken' } catch { Write-Host "    an IPv6 loopback rule was refused: $($_.Exception.Message)" }
 Start-Sleep 2
 $t = As 'curl.exe -s -m 5 http://127.0.0.1:47322/'
 Answer 'With loopback named, by protocol, it cannot reach a server on this computer' ($t -notmatch 'ok') $t
