@@ -389,6 +389,22 @@ impl Packages {
         Ok(server)
     }
 
+    /// Calls one of a server's tools by hand, shut in as a model's call is, in the server's own folder: for trying
+    /// a server out. What it gives back, as text.
+    pub async fn try_server(&self, name: &str, tool: &str, args: serde_json::Value, sandbox: &crate::sandbox::Sandbox) -> Result<String> {
+        let server = self.servers().into_iter().find(|s| s.name == name).ok_or_else(|| Error::NotFound(format!("There is no MCP server called \"{name}\". `demido tools mcp` lists them.")))?;
+        if !server.tools.iter().any(|t| t.name == tool) {
+            return Err(Error::NotFound(format!("{name} has no tool \"{tool}\".")));
+        }
+        if !sandbox.contains() {
+            return Err(Error::Invalid("There is no sandbox on this computer, and an MCP server is a program: Demido runs none outside one.".into()));
+        }
+        let folder = external::own_folder(&self.home, &server.name);
+        std::fs::create_dir_all(&folder)?;
+        let (result, _) = external::ask(sandbox, &folder, &server.command, server.era, "tools/call", json!({ "name": tool, "arguments": args })).await?;
+        external::result_text(&result).map_err(|said| Error::Invalid(format!("The tool said it failed: {said}")))
+    }
+
     pub fn remove_server(&self, name: &str) -> Result<()> {
         let all: Vec<external::Server> = self.servers().into_iter().filter(|s| s.name != name).collect();
         std::fs::write(self.servers_file(), serde_json::to_vec_pretty(&all)?)?;

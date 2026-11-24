@@ -430,6 +430,14 @@ enum McpCommand {
     },
     /// Remove a server.
     Remove { name: String },
+    /// Call one of a server's tools by hand, shut in as a model's call is: to try a server out.
+    Try {
+        name: String,
+        tool: String,
+        /// Its arguments, as a JSON object.
+        #[arg(default_value = "{}")]
+        arguments: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1177,6 +1185,15 @@ async fn tools_command(paths: &Paths, command: ToolsCommand) -> Result<()> {
                     _ => unreachable!(),
                 }
                 println!("Removed: {name}.");
+            }
+            McpCommand::Try { name, tool, arguments } => {
+                let args: Value = serde_json::from_str(&arguments).map_err(|e| anyhow::anyhow!("The arguments are not a JSON object: {e}"))?;
+                // On this computer, as this user: the server's own folder, in the sandbox.
+                let c = match &core {
+                    Some(c) => c,
+                    None => &Core::open(paths)?,
+                };
+                println!("{}", c.packages.try_server(&name, &tool, args, &c.chat.sandbox()).await?);
             }
         },
         ToolsCommand::Skills { command } => match command.unwrap_or(SkillsCommand::List) {

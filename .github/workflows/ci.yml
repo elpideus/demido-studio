@@ -86,12 +86,16 @@ jobs:
         shell: bash
         # Its build script is made to run again by removing what cargo kept of it, in either layout of the
         # build folder (`build/<package>/<hash>` now, `build/<package>-<hash>` and `.fingerprint` before).
-        # The library itself is looked for, not its folder: a cache once came back with the folder and without
-        # the library in it.
+        # The library itself is looked for, not its folder: caches came back with the folder and without the
+        # library in it, and the build script, finding the folder, then fetched nothing. So its unpacked folders
+        # go too (the archive, if the cache kept it, is unpacked again).
         run: |
           if ! ls core/target/sherpa-onnx-prebuilt/*/lib/*sherpa-onnx-c-api* > /dev/null 2>&1; then
             echo "sherpa-onnx's library is not in the cache: its build script runs again and fetches it."
             rm -rf core/target/debug/build/sherpa-onnx-sys core/target/debug/build/sherpa-onnx-sys-* core/target/debug/.fingerprint/sherpa-onnx-sys-*
+            if [ -d core/target/sherpa-onnx-prebuilt ]; then
+              find core/target/sherpa-onnx-prebuilt -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
+            fi
           fi
       - name: Formatting
         if: matrix.tidy
