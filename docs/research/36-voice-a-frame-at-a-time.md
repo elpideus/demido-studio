@@ -35,8 +35,8 @@ V10 measured; how much of it the latents take was not measured.
   kept).
 - Their states as sherpa-onnx makes them: zeros shaped from each session's own input description (every input
   of `lm_main` after the first two, every input of `decoder` after the first), carried from run to run.
-- The tokenizer: SentencePiece over `vocab.json` and `token_scores.json` (a unigram model's pieces and
-  scores); sherpa-onnx's text normalizers are optional.
+- The tokenizer: SentencePiece (sherpa-onnx's `SentencePieceTokenizer`) over `vocab.json` and `token_scores.json` (by their names, its pieces and
+  their scores; the files were not read); sherpa-onnx's text normalizers are optional.
 - The loop of (1) as it is, and the decoder run **inside** it: on the first two or three frames, then on every
   few, so the first sound comes after a few frames' work rather than the sentence's. Stopping when the person
   speaks then stops between frames.
