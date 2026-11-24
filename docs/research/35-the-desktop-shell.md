@@ -103,3 +103,35 @@ In Xvfb with a private D-Bus, against a scratch home on port 7399: the shell fou
 in and showed the real window (a picture was taken); `demido stop` stopped it; the probe and the notice as above.
 **Not tried:** the window on the real Wayland desktop with the NVIDIA card (note 01's gate: frame times, blur,
 resizing), the microphone in the shell, the tray on the real desktop, Windows and macOS.
+
+## Installers (Tried, partly)
+
+Tauri's bundler makes them from `tauri.bundle.json`, merged in by the release workflow, with the core (as
+Tauri's "sidecar", `binaries/demido-<target>`) and the web UI (`ui/`, a resource) inside. On this computer a
+`.deb` was made (with a development build of the core inside, so 184 MB): `/usr/bin/demido-desktop` and
+`/usr/bin/demido`, the window's files in `/usr/lib/Demido Studio/ui`, depending on bubblewrap,
+libwebkit2gtk-4.1-0, libgtk-3-0 and libayatana-appindicator3-1. The core now finds that folder, and macOS'
+`Contents/Resources/ui`, by itself. The other formats are made by the checks' machines.
+
+## Updates (Read, `tauri-plugin-updater` 2.14.1's source; Tried)
+
+- `Update::download` fetches the file and checks it before giving it back: a minisign signature (prehashed),
+  against the public key the app was built with; then, when `requireSignedVersion` is set, that the version
+  written in the signature's trusted comment (which the signature covers) is the one `latest.json` announced.
+  Its own words: without that, "anyone able to serve a crafted response can pair an inflated `version` field
+  with the `url` and `signature` of an older release and force a downgrade". `Update::install` checks the bytes
+  again.
+- It installs an AppImage in place, a `.deb` or `.rpm` with `pkexec` (the system's own password prompt), the
+  NSIS setup on Windows, the `.app` on macOS. It looks for `<os>-<arch>-<installer>` in `latest.json`, then
+  `<os>-<arch>`.
+- `tauri build` signs each updater file when given the private key and the public key in its configuration
+  (without the public key it stops: "Missing comment in public key", Tried), and writes the version into the
+  signature (`version:0.1.0` in its trusted comment, Tried on the `.deb`).
+
+**Tried** (`core/dev/updates-trial.sh`): a trial build of the shell holding a development key's public half,
+and a stand-in for the project's releases on this computer announcing 0.2.0. Well signed: fetched, "signed with
+the key this build holds, for this version", not installed (a trial). Changed after signing: "The signature
+verification failed". Signed for 0.1.5 and announced as 0.2.0: refused, "The update was signed for version
+0.1.5 but the update endpoint announced version 0.2.0". Signed with another key: "The signature was created
+with a different key than the one provided". With `updates.check` off: nothing was asked (the stand-in saw no
+request). **Not tried:** installing (replacing a running app), the project's real key and a real release.

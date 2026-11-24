@@ -4,8 +4,10 @@
 //! It holds no product logic and links nothing of the core. It speaks to the core through the `demido` program
 //! beside it (`open --print` for a sign-in link, `serve` to start one, `events --follow` for its news, `stop`),
 //! and the window shows the core's own page, as a browser would. No command of the shell can be called from
-//! that page: no capability grants the core's address anything (F3).
+//! that page: no capability grants the core's address anything (F3). Updates are `updates.rs`.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod updates;
 
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -41,6 +43,15 @@ struct Shell {
     /// The session each notice opens when it is clicked.
     notices: Mutex<HashMap<i32, String>>,
     next_notice: AtomicI32,
+    /// A newer version, once one is offered, and the tray's line for it.
+    offered: Mutex<Option<tauri_plugin_updater::Update>>,
+    update_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+}
+
+impl Shell {
+    fn new(core: PathBuf) -> Self {
+        Self { core, address: Mutex::default(), notices: Mutex::default(), next_notice: AtomicI32::new(1), offered: Mutex::default(), update_item: Mutex::default() }
+    }
 }
 
 /// The `demido` program: `DEMIDO_CORE` when set (a development build), else the one beside the shell (how an
@@ -54,7 +65,7 @@ fn core_program() -> PathBuf {
 }
 
 /// The program, with no console window of its own on Windows and nothing to read.
-fn command(program: &Path) -> Command {
+pub(crate) fn command(program: &Path) -> Command {
     let mut c = Command::new(program);
     c.stdin(Stdio::null());
     #[cfg(windows)]
@@ -77,8 +88,13 @@ fn sign_in_link(core: &Path) -> Option<Url> {
     String::from_utf8_lossy(&out.stdout).lines().find(|l| l.starts_with("http://") || l.starts_with("https://")).and_then(|l| Url::parse(l.trim()).ok())
 }
 
+/// The installer's copy of the window's files, if this is an installed app.
+fn ui_folder(app: &AppHandle) -> Option<PathBuf> {
+    app.path().resource_dir().ok().map(|d| d.join("ui")).filter(|d| d.join("index.html").is_file())
+}
+
 /// Starts a core that outlives the shell: schedules and bots go on when the window is closed (F5).
-fn start_core(core: &Path, ui: Option<PathBuf>) -> std::io::Result<()> {
+pub(crate) fn start_core(core: &Path, ui: Option<PathBuf>) -> std::io::Result<()> {
     let mut c = command(core);
     c.arg("serve");
     if let Some(ui) = ui {
@@ -138,8 +154,7 @@ fn join_the_core(app: AppHandle, shell: Arc<Shell>) {
             Some(link) => Ok(link),
             None => {
                 say(&app, "Starting Demido…");
-                let ui = app.path().resource_dir().ok().map(|d| d.join("ui")).filter(|d| d.join("index.html").is_file());
-                match start_core(&shell.core, ui) {
+                match start_core(&shell.core, ui_folder(&app)) {
                     Err(e) => Err(format!("Demido's core could not be started ({}): {e}", shell.core.display())),
                     Ok(()) => {
                         let started = Instant::now();
@@ -268,8 +283,12 @@ fn set_up_the_webview(window: &WebviewWindow) {
 }
 
 fn main() {
-    let shell = Arc::new(Shell { core: core_program(), address: Mutex::default(), notices: Mutex::default(), next_notice: AtomicI32::new(1) });
-    tauri::Builder::default()
+    let shell = Arc::new(Shell::new(core_program()));
+    let mut app = tauri::Builder::default();
+    if let Some(updater) = updates::plugin() {
+        app = app.plugin(updater);
+    }
+    app
         // A second start shows the window that is there.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show_window(app)))
         .plugin(tauri_plugin_notification::init())
@@ -329,8 +348,10 @@ fn main() {
                 let open = MenuItem::with_id(app, "open", "Open Demido", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Close the app (Demido keeps working)", true, None::<&str>)?;
                 let stop = MenuItem::with_id(app, "stop", "Stop Demido and close", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit, &stop])?;
-                let core = shell.core.clone();
+                let update = MenuItem::with_id(app, "update", updates::tray_text(), false, None::<&str>)?;
+                *shell.update_item.lock().unwrap_or_else(|e| e.into_inner()) = Some(update.clone());
+                let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &update, &PredefinedMenuItem::separator(app)?, &quit, &stop])?;
+                let (core, installs) = (shell.core.clone(), shell.clone());
                 TrayIconBuilder::with_id("demido")
                     .icon(app.default_window_icon().cloned().ok_or("the app has no icon")?)
                     .tooltip("Demido Studio")
@@ -338,6 +359,7 @@ fn main() {
                     .show_menu_on_left_click(false)
                     .on_menu_event(move |app, event| match event.id().as_ref() {
                         "open" => show_window(app),
+                        "update" => updates::install(app.clone(), installs.clone()),
                         "quit" => app.exit(0),
                         "stop" => {
                             let _ = command(&core).arg("stop").stdout(Stdio::null()).stderr(Stdio::null()).status();
@@ -351,6 +373,7 @@ fn main() {
                         }
                     })
                     .build(app)?;
+                updates::look_from_time_to_time(handle.clone(), shell.clone());
                 join_the_core(handle, shell.clone());
                 Ok(())
             }
@@ -371,7 +394,9 @@ mod tests {
     use super::*;
 
     fn shell(address: Option<&str>) -> Shell {
-        Shell { core: PathBuf::new(), address: Mutex::new(address.map(str::to_string)), notices: Mutex::default(), next_notice: AtomicI32::new(1) }
+        let s = Shell::new(PathBuf::new());
+        *s.address.lock().unwrap() = address.map(str::to_string);
+        s
     }
 
     #[test]

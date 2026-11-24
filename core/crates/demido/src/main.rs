@@ -462,7 +462,12 @@ enum SettingsCommand {
         json: bool,
     },
     /// One setting, with what it means.
-    Get { id: String },
+    Get {
+        id: String,
+        /// Print only its value, as JSON (what the desktop app reads).
+        #[arg(long)]
+        json: bool,
+    },
     /// Change a setting. Example: demido settings set events.keepDays 30
     Set { id: String, value: String },
     /// Put a setting back to its default.
@@ -1222,13 +1227,17 @@ fn settings(paths: &Paths, command: SettingsCommand) -> Result<()> {
             }
             println!("\nChange one with: demido settings set <id> <value>");
         }
-        SettingsCommand::Get { id } => {
+        SettingsCommand::Get { id, json } => {
             let e = match (&server, &core) {
                 (Some(s), _) => one(s.get(&format!("/api/v1/settings/{id}"))?)?,
                 (None, Some(c)) => c.settings.get(&id)?,
                 _ => unreachable!(),
             };
-            print_setting(&e);
+            if json {
+                println!("{}", e.value);
+            } else {
+                print_setting(&e);
+            }
         }
         SettingsCommand::Set { id, value } => {
             let e = match (&server, &core) {

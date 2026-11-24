@@ -428,7 +428,17 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             json!(90),
             true,
         ),
-        def("updates.check", "Check for updates", "Looks for a new version once a day, and when Demido starts.", None, Kind::Switch, json!(true), false),
+        def(
+            "updates.check",
+            "Check for updates",
+            "The desktop app looks for a new version when it starts and once a day.",
+            Some(
+                "Default on. It asks the project's releases on GitHub what the newest version is: one small request, which tells GitHub this computer's address and that it runs Demido. A new version is offered in the tray and installed only when you say so, and only once it is checked against the project's key. A build made without that key cannot update itself. The server on its own does not update itself.",
+            ),
+            Kind::Switch,
+            json!(true),
+            true,
+        ),
         def("updates.auto", "Install updates automatically", "Installs when no session is running.", None, Kind::Switch, json!(false), false),
         def("updates.channel", "Update channel", "Which versions you are offered.", None, choices(&[("stable", "Stable"), ("beta", "Beta")]), json!("stable"), false),
     ];
