@@ -1,0 +1,10 @@
+{
+  "name": "word_count",
+  "version": "0.1.0",
+  "publisher": "Demido Studio (development key, not a release key)",
+  "publisher_key": "",
+  "about": "Counts the words, lines and characters of one file in the session's folder. A tool of Demido's own, made as a package to prove the format.",
+  "does": "The words, lines and characters of a file in the folder.",
+  "args": [{ "name": "path", "kind": "text" }],
+  "asks": { "folder": "read", "network": [] }
+}

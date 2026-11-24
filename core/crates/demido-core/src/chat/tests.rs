@@ -14,6 +14,7 @@ mod bots;
 mod folders_and_permissions;
 mod mail;
 mod markets;
+mod packages;
 mod schedules;
 mod the_internet;
 mod tools_and_tasks;

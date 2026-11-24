@@ -41,6 +41,7 @@ pub mod folder;
 pub mod hub;
 pub mod kept;
 pub mod markets;
+pub mod packages;
 pub mod paths;
 pub mod permissions;
 pub mod programs;

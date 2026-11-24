@@ -16,6 +16,9 @@ encoding_rs.workspace = true
 pdf-extract.workspace = true
 flate2.workspace = true
 jiff.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+minisign-verify.workspace = true
 async-imap.workspace = true
 lettre.workspace = true
 mail-parser.workspace = true
@@ -59,3 +62,5 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+# A package of a test's own, signed as a publisher would (minisign 0.10, MIT).
+minisign = "0.10"

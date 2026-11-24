@@ -322,6 +322,7 @@ function PreviewEmail() {
 /** With a core behind the pages, the real one; without, the preview of where it is going. */
 function EmailPage() {
   const core = useCore()
+  if (core.state === 'looking') return null
   return core.state === 'ready' ? <RealEmail /> : <PreviewEmail />
 }
 

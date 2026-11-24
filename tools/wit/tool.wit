@@ -1,0 +1,26 @@
+// The interface a tool for Demido is written to (DECISIONS C6 to C12, research note 34).
+//
+// A tool is a WebAssembly component that exports `run`: it is given the model's arguments as a JSON object and
+// gives back text for the model, or why it could not. It can reach nothing but what it imports here, and the host
+// answers each import only as far as the person allowed when the tool was installed: `fetch` only to the hosts
+// its manifest names, `read-file` and `write-file` only inside the session's folder, and only if the manifest
+// asks for the folder.
+package demido:tool@0.1.0;
+
+interface host {
+    /// A line for the person, in the step's record.
+    log: func(message: string);
+    /// The text of a page at an address, read as Demido reads a page: only the public internet, only the hosts
+    /// the manifest names.
+    fetch: func(url: string) -> result<string, string>;
+    /// A file in the session's folder, by its path inside it.
+    read-file: func(path: string) -> result<string, string>;
+    /// Writes a file in the session's folder; what it held is kept, so it can be undone.
+    write-file: func(path: string, text: string) -> result<_, string>;
+}
+
+world tool {
+    import host;
+    /// `args` is a JSON object; the answer is text for the model.
+    export run: func(args: string) -> result<string, string>;
+}

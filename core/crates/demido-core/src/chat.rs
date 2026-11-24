@@ -124,6 +124,8 @@ pub struct Chat {
     browser: Option<Arc<crate::browser::Browser>>,
     /// The person's mail (DECISIONS Y), when Demido has it.
     mail: Option<Arc<crate::email::Mail>>,
+    /// The tools the person installed (DECISIONS C6).
+    packages: Option<Arc<crate::packages::Packages>>,
     /// Where the whole of what programs printed is kept, a folder for each session.
     outputs: std::path::PathBuf,
     /// Models elsewhere, and the keys for them. `None` in a test that has none.
@@ -182,6 +184,7 @@ impl Chat {
             web: Arc::new(crate::web::Web::new(None)),
             browser: None,
             mail: None,
+            packages: None,
             outputs: std::env::temp_dir().join("demido-outputs"),
             providers: None,
             address: std::sync::OnceLock::new(),
@@ -311,6 +314,36 @@ impl Chat {
 
     pub(crate) fn browser(&self) -> Option<&Arc<crate::browser::Browser>> {
         self.browser.as_ref()
+    }
+
+    /// The same, with the tools the person installed.
+    pub fn with_packages(mut self, packages: Arc<crate::packages::Packages>) -> Self {
+        self.packages = Some(packages);
+        self
+    }
+
+    pub(crate) fn packages(&self) -> Option<&Arc<crate::packages::Packages>> {
+        self.packages.as_ref()
+    }
+
+    /// A tool by its name: one of Demido's own, or one the person installed.
+    pub(crate) fn named(&self, name: &str) -> Option<&'static tools::Tool> {
+        tools::named(name).or_else(|| self.packages.as_ref().and_then(|p| p.tool(name)))
+    }
+
+    /// Every tool a session is offered: Demido's own as the settings and the session allow, and the installed
+    /// ones whose reach the session has (a folder for those that ask for one, the internet for those that read it).
+    pub(crate) fn offer(&self, session: &Session, may_plan: bool) -> Vec<&'static tools::Tool> {
+        let has_folder = session.folder.is_some();
+        let mut all = tools::offered_all(has_folder, may_plan, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some(), !self.others_in_folder(session).is_empty());
+        if let Some(p) = &self.packages {
+            all.extend(p.tools().into_iter().filter(|t| match t.reach {
+                tools::Reach::Reads | tools::Reach::Changes => has_folder,
+                tools::Reach::Network => self.internet(),
+                _ => true,
+            }));
+        }
+        all
     }
 
     /// The same, with the person's mail.
@@ -709,16 +742,7 @@ impl Chat {
     /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are
     /// off. A session with a folder is shown the tools that reach into it too.
     pub fn tools_told(&self, session: &Session) -> Option<String> {
-        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| {
-            turn::told_about_tools(
-                session.folder.is_some(),
-                self.internet(),
-                self.artifacts(session.folder.is_some()),
-                self.browsing(),
-                self.mail_account().is_some(),
-                !self.others_in_folder(session).is_empty(),
-            )
-        })
+        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| turn::told_about_tools(session.folder.is_some(), &self.offer(session, true)))
     }
 
     fn asking(&self) -> std::sync::MutexGuard<'_, HashMap<String, Waiting>> {

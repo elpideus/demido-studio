@@ -176,6 +176,7 @@ function Messenger() {
   const svc = SERVICES.find((s) => s.id === service)
   const core = useCore()
   if (!svc) return <Navigate to="/messages/whatsapp" replace />
+  if (core.state === 'looking') return null
   return core.state === 'ready' ? <RealMessenger key={svc.id} svc={svc} /> : <ServicePage key={svc.id} svc={svc} />
 }
 

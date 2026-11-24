@@ -102,9 +102,9 @@ impl Words {
 }
 
 /// The list of tools and the question a model is asked before each answer, for a person to read.
-pub(super) fn told_about_tools(has_folder: bool, internet: bool, artifacts: bool, browser: bool, mail: bool, others: bool) -> String {
+pub(super) fn told_about_tools(has_folder: bool, offered: &[&Tool]) -> String {
     let folder = if has_folder { "\n\n(the files in the folder, by their paths, as they are at that moment)" } else { "" };
-    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered_all(has_folder, true, internet, artifacts, browser, mail, others)), Words::request("").ask)
+    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(offered), Words::request("").ask)
 }
 
 /// How the last message of a piece of work ends.
@@ -366,8 +366,10 @@ impl Chat {
     /// in earlier ones.
     fn so_far(&self, session: &Session, steps: &[Step]) -> Result<SoFar> {
         let mut so_far = SoFar::default();
+        let installed = |name: &str| self.packages().is_some_and(|p| p.tool(name).is_some());
         let of_a_step = |step: &Step, so_far: &mut SoFar| {
-            if tools::from_the_internet(step) {
+            // What an installed tool gave back was written by someone else's code: text from outside too.
+            if tools::from_the_internet(step) || (step.state == "done" && installed(&step.tool)) {
                 so_far.read_the_internet = true;
                 so_far.from_the_internet.extend(guard::addresses_in(&step.result, false));
             }
@@ -572,7 +574,7 @@ impl Chat {
                     let (tool, mut args) = self.search_as_meant(session, steps, tool, args)?;
                     // A file's text the decision left out, or was cut off in, is written now, as ordinary text,
                     // before anything is checked or asked: the person who is asked sees all of it.
-                    if let Some(long) = tools::named(&tool).and_then(|t| t.args.iter().find(|a| a.later))
+                    if let Some(long) = self.named(&tool).and_then(|t| t.args.iter().find(|a| a.later))
                         && !args.contains_key(long.name)
                     {
                         let path = args.get("path").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -612,13 +614,17 @@ impl Chat {
                     // Whether this needs the person's yes is decided from the tool's reach and the session's
                     // level, in code. At Cautious, Balanced and Autonomous the model is not asked, and nothing it
                     // read can change the answer; at Smart it is asked where Balanced would ask the person.
-                    let reach = tools::named(&tool).map_or(tools::Reach::Changes, |t| t.reach);
+                    let reach = self.named(&tool).map_or(tools::Reach::Changes, |t| t.reach);
+                    // A tool the person installed that may change files is held as a program is: the folder saved
+                    // first, so that all it did is one Undo (C9).
+                    let installed = self.packages().and_then(|p| p.get(&tool));
+                    let writes_files = installed.as_ref().is_some_and(|i| i.manifest.asks.folder == "write");
                     let level = Level::from(&session.permission).unwrap_or(Level::Balanced);
                     // Before a program runs, the folder is saved, when it can be: then all the program does can
                     // be undone. Whether it was saved, and whether there is a sandbox, decide whether to ask.
                     let (mut held, mut saved) = (permissions::Held::NOT_A_PROGRAM, None);
-                    if reach == tools::Reach::Runs {
-                        held = permissions::Held { shut_in: self.sandbox().contains(), can_be_undone: false };
+                    if reach == tools::Reach::Runs || writes_files {
+                        held = permissions::Held { shut_in: reach != tools::Reach::Runs || self.sandbox().contains(), can_be_undone: false };
                         if let Some(folder) = session.folder.clone() {
                             let id = uuid::Uuid::now_v7().to_string();
                             let place = self.kept_in.join(&session.id).join(&id);
@@ -783,6 +789,28 @@ impl Chat {
                             },
                             Ok(read) => Ok(tools::Done { gave: tools::clean(&read.gave), changed: None }),
                             Err(why) => Err(why),
+                        }
+                    } else if let Some(installed) = installed {
+                        // A tool the person installed: its component, in Wasmtime, given only what it asked for (C9).
+                        match self.packages().expect("it is installed").wasm(&tool) {
+                            Err(e) => Err(e.to_string()),
+                            Ok(wasm) => {
+                                let (packages, args_json) = (self.packages().expect("it is installed").clone(), args.to_string());
+                                let ground = crate::packages::run::Ground {
+                                    asks: installed.manifest.asks.clone(),
+                                    folder: session.folder.clone().map(std::path::PathBuf::from),
+                                    web: self.web().clone(),
+                                    handle: tokio::runtime::Handle::current(),
+                                };
+                                match tokio::task::spawn_blocking(move || crate::packages::run::run(&packages.runtime, &wasm, &args_json, ground)).await {
+                                    Err(_) => Err("the tool stopped unexpectedly".to_string()),
+                                    Ok(ran) => {
+                                        let _ = self.events.append("tool.ran", Some(&session.id), json!({ "tool": tool, "ok": ran.gave.is_ok(), "wrote": ran.wrote, "log": ran.log }));
+                                        // What a tool gives back was written by someone else's code: text from outside.
+                                        ran.gave.map(|text| tools::Done { gave: tools::clean(&self.hide(&text)), changed: None }).map_err(|why| tools::clean(&why))
+                                    }
+                                }
+                            }
                         }
                     } else if tool == tools::MESSAGE_SESSION {
                         // To another session working in this folder, by its name; it reaches that session as text from
@@ -1048,19 +1076,7 @@ impl Chat {
             if stop.load(Ordering::Relaxed) {
                 break;
             }
-            let has_folder = session.folder.is_some();
-            let Err(parts) = self
-                .do_one(
-                    session,
-                    answer_id,
-                    before,
-                    request,
-                    task,
-                    &tools::offered_all(has_folder, true, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some(), !self.others_in_folder(session).is_empty()),
-                    stop,
-                )
-                .await?
-            else {
+            let Err(parts) = self.do_one(session, answer_id, before, request, task, &self.offer(session, true), stop).await? else {
                 continue;
             };
             // The model split this task. Its parts are done one by one; a part is not split again.
@@ -1069,17 +1085,7 @@ impl Chat {
                     break;
                 }
                 // `plan` is not offered, so this cannot ask to split.
-                let _ = self
-                    .do_one(
-                        session,
-                        answer_id,
-                        before,
-                        request,
-                        &part,
-                        &tools::offered_all(has_folder, false, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some(), !self.others_in_folder(session).is_empty()),
-                        stop,
-                    )
-                    .await?;
+                let _ = self.do_one(session, answer_id, before, request, &part, &self.offer(session, false), stop).await?;
             }
             // What the whole task gave, from what its parts gave.
             let all = self.sessions.tasks_of(answer_id)?;
@@ -1105,27 +1111,7 @@ impl Chat {
         let always = self.settings.value::<String>("tools.plan").is_ok_and(|v| v == "always");
         let mut planned = if plan_first || always { self.split(session, &before, &request, if plan_first { 2 } else { 1 }, stop).await? } else { None };
         if planned.is_none() {
-            planned = self
-                .use_tools(
-                    session,
-                    answer_id,
-                    &before,
-                    &request,
-                    &Words::request(&request),
-                    &tools::offered_all(
-                        session.folder.is_some(),
-                        true,
-                        self.internet(),
-                        self.artifacts(session.folder.is_some()),
-                        self.browsing(),
-                        self.mail_account().is_some(),
-                        !self.others_in_folder(session).is_empty(),
-                    ),
-                    &mut steps,
-                    stop,
-                    &shown,
-                )
-                .await?;
+            planned = self.use_tools(session, answer_id, &before, &request, &Words::request(&request), &self.offer(session, true), &mut steps, stop, &shown).await?;
         }
         let Some(titles) = planned else { return Ok(()) };
         let started = Instant::now();

@@ -3,6 +3,8 @@ import { NavLink, Navigate, Route, Routes, useParams } from 'react-router'
 import { AppWindow, Calendar, Cloud, FileText, Folder, GitBranch, Globe, Lock, Notebook, Plus, Search, Terminal, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
+import { useCore } from '@/data/core'
+import { RealTools } from './real'
 import { auditTool, convertTool, installTool, resetToolFile, saveToolFile, setToolEnabled, toast, updateTool, useSetting, useStore } from '@/data/store'
 import type { Tool, ToolKind } from '@/data/types'
 import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Signal, Switch } from '@/ui'
@@ -207,7 +209,7 @@ function ToolPage() {
   )
 }
 
-function ToolsPage() {
+function PreviewTools() {
   return (
     <div className="app-split">
       <ToolList />
@@ -217,6 +219,13 @@ function ToolsPage() {
       </Routes>
     </div>
   )
+}
+
+/** With a core behind the pages, the real one; without, the preview of where it is going. */
+function ToolsPage() {
+  const core = useCore()
+  if (core.state === 'looking') return null
+  return core.state === 'ready' ? <RealTools /> : <PreviewTools />
 }
 
 export const feature: Feature = {

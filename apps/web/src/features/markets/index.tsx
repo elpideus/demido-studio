@@ -517,6 +517,7 @@ function PreviewMarkets() {
 /** With a core behind the pages, the real one; without, the preview of where it is going. */
 function MarketsPage() {
   const core = useCore()
+  if (core.state === 'looking') return null
   return core.state === 'ready' ? <RealMarkets /> : <PreviewMarkets />
 }
 

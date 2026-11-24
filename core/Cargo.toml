@@ -8,7 +8,7 @@ members = ["crates/demido-core", "crates/demido"]
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-rust-version = "1.95"
+rust-version = "1.97"
 
 # Versions and licences were read from crates.io on 2026-11-21 (docs/research/11-core-architecture.md).
 [workspace.dependencies]
@@ -56,6 +56,12 @@ rustfft = "6.4"
 # Apache-2.0, on libbz2-rs-sys (bzip2-1.0.6 licence: BSD-style, like zlib's). Read from crates.io on 2026-11-22.
 bzip2 = "0.6"
 libc = "0.2"
+# Tools other people write (DECISIONS C6 to C12, research note 34). wasmtime 51.0.0 with wasmtime-wasi, Apache-2.0
+# WITH LLVM-exception (the exception only adds permissions): WebAssembly components, sandboxed, nothing granted
+# but what the host gives. minisign-verify 0.3.0, MIT, no dependencies: a package's signature. Read 2026-11-24.
+wasmtime = { version = "51", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "parallel-compilation"] }
+wasmtime-wasi = { version = "51", default-features = false, features = ["p2"] }
+minisign-verify = "0.3"
 # Email (research note 26, DECISIONS Y). Read from crates.io on 2026-11-24: async-imap 0.12.0 (MIT OR Apache-2.0), on
 # tokio, with TLS from tokio-rustls 0.26 (MIT OR Apache-2.0) and the system's certificates through
 # rustls-platform-verifier 0.7 (MIT OR Apache-2.0), both already in the build through reqwest; lettre 0.11.24 (MIT)

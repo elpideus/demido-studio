@@ -105,6 +105,12 @@ enum Command {
         #[command(subcommand)]
         command: Option<KeysCommand>,
     },
+    /// The tools you installed (DECISIONS C6): packages of a WebAssembly component, checked against their
+    /// publisher's signature.
+    Tools {
+        #[command(subcommand)]
+        command: Option<ToolsCommand>,
+    },
     /// Demido's browser, which a model drives (DECISIONS Z): its copy, downloaded from Google's Chrome for
     /// Testing when you ask, and the pages open in it.
     Browser {
@@ -347,6 +353,25 @@ enum RuntimeCommand {
 }
 
 #[derive(Subcommand)]
+enum ToolsCommand {
+    /// The tools installed, with what each asks for and its publisher's key. The same as `demido tools`.
+    List,
+    /// Install a package (`.demido-tool`), checked against its signature (`<package>.minisig` beside it). Shows its
+    /// publisher's key and what it asks for, and installs only with --yes.
+    Install {
+        package: PathBuf,
+        /// The signature; `<package>.minisig` when left out.
+        #[arg(long)]
+        signature: Option<PathBuf>,
+        /// Yes to its publisher and to what it asks for.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Remove an installed tool.
+    Remove { name: String },
+}
+
+#[derive(Subcommand)]
 enum BrowserCommand {
     /// Whether the browser is downloaded, whether it runs, and the pages open in it. The same as `demido browser`.
     Status,
@@ -416,13 +441,18 @@ fn end_quietly_when_the_reader_leaves() {
     }));
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     end_quietly_when_the_reader_leaves();
     let cli = Cli::parse();
+    // The PDF reader runs under a limit on memory (DECISIONS N15): it starts no runtime and no threads, which that
+    // limit leaves too little room for in a large build.
     if let Command::PdfText = cli.command {
         return pdf_text();
     }
+    tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("the runtime can be started").block_on(async_main(cli))
+}
+
+async fn async_main(cli: Cli) -> ExitCode {
     if matches!(cli.command, Command::SandboxSetup { .. } | Command::SandboxLaunch { .. } | Command::SandboxRunner { .. }) {
         sandbox_command(cli.command);
     }
@@ -558,6 +588,7 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
         Command::Browser { command } => browser(&paths, command.unwrap_or(BrowserCommand::Status)).await?,
+        Command::Tools { command } => tools_command(&paths, command.unwrap_or(ToolsCommand::List)).await?,
         Command::Runtime { command } => runtime(&paths, command).await?,
         Command::Models { command } => models(&paths, command).await?,
         Command::Ask { text, session, model, think, no_think, thinking, plan, folder, level } => {
@@ -846,6 +877,89 @@ async fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
                 _ => unreachable!(),
             }
             println!("{} at {provider} is deleted, with its key.", found["label"].as_str().unwrap_or_default());
+        }
+    }
+    Ok(())
+}
+
+async fn tools_command(paths: &Paths, command: ToolsCommand) -> Result<()> {
+    use base64::Engine as _;
+    let server = Server::find(paths);
+    let core = if server.is_none() { Some(Core::open(paths)?) } else { None };
+    match command {
+        ToolsCommand::List => {
+            let all = match (&server, &core) {
+                (Some(s), _) => s.get("/api/v1/tools/installed")?,
+                (None, Some(c)) => serde_json::to_value(c.packages.all())?,
+                _ => unreachable!(),
+            };
+            let all = all.as_array().cloned().unwrap_or_default();
+            if all.is_empty() {
+                println!("No tool is installed. Install one with: demido tools install <package.demido-tool>");
+            }
+            for t in all {
+                let m = &t["manifest"];
+                println!(
+                    "{} {}  by {} (key {}){}\n  {}\n  asks for: the folder {}; {}",
+                    m["name"].as_str().unwrap_or("?"),
+                    m["version"].as_str().unwrap_or("?"),
+                    m["publisher"].as_str().unwrap_or("?"),
+                    t["key_id"].as_str().unwrap_or("?"),
+                    if t["edited"] == true { "  (its guidance is your own)" } else { "" },
+                    m["about"].as_str().unwrap_or(""),
+                    m["asks"]["folder"].as_str().unwrap_or("none"),
+                    m["asks"]["network"]
+                        .as_array()
+                        .filter(|n| !n.is_empty())
+                        .map(|n| format!("pages from {}", n.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")))
+                        .unwrap_or_else(|| "nothing from the internet".into())
+                );
+            }
+        }
+        ToolsCommand::Install { package, signature, yes } => {
+            let bytes = std::fs::read(&package)?;
+            let sig_path = signature.unwrap_or_else(|| PathBuf::from(format!("{}.minisig", package.display())));
+            let sig = std::fs::read_to_string(&sig_path).map_err(|_| anyhow::anyhow!("No signature at {}: a package is installed only with its publisher's signature.", sig_path.display()))?;
+            let given = json!({ "package": base64::engine::general_purpose::STANDARD.encode(&bytes), "signature": sig, "agreed": yes });
+            let checked = match (&server, &core) {
+                (Some(s), _) => s.send("POST", "/api/v1/tools/check", Some(&given))?,
+                (None, Some(c)) => serde_json::to_value(c.packages.check(&bytes, &sig)?)?,
+                _ => unreachable!(),
+            };
+            let m = &checked["manifest"];
+            println!(
+                "{} {} by {}\n  signed with the key {} (compare it with the publisher's own)\n  {}",
+                m["name"].as_str().unwrap_or("?"),
+                m["version"].as_str().unwrap_or("?"),
+                m["publisher"].as_str().unwrap_or("?"),
+                checked["key_id"].as_str().unwrap_or("?"),
+                checked["asks_said"].as_str().unwrap_or("")
+            );
+            if let Some(more) = checked["asks_more"].as_array().filter(|a| !a.is_empty()) {
+                println!("  It asks for more than the version installed: {}", more.iter().filter_map(|m| m.as_str()).collect::<Vec<_>>().join(", "));
+            }
+            if !yes {
+                println!("Not installed. If you trust this publisher and what it asks for: demido tools install {} --yes", package.display());
+                return Ok(());
+            }
+            let installed = match (&server, &core) {
+                (Some(s), _) => s.send("POST", "/api/v1/tools/install", Some(&given))?,
+                (None, Some(c)) => serde_json::to_value(c.packages.install(&bytes, &sig, true)?)?,
+                _ => unreachable!(),
+            };
+            println!("Installed: {} {}.", installed["manifest"]["name"].as_str().unwrap_or("?"), installed["manifest"]["version"].as_str().unwrap_or("?"));
+        }
+        ToolsCommand::Remove { name } => {
+            match (&server, &core) {
+                (Some(s), _) => {
+                    s.send("DELETE", &format!("/api/v1/tools/installed/{name}"), None)?;
+                }
+                (None, Some(c)) => {
+                    c.packages.remove(&name)?;
+                }
+                _ => unreachable!(),
+            }
+            println!("Removed: {name}.");
         }
     }
     Ok(())

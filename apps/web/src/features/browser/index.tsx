@@ -277,6 +277,7 @@ function PreviewBrowser() {
 /** With a core behind the pages, the real browser; without one, the preview of where it is going. */
 function BrowserPage() {
   const core = useCore()
+  if (core.state === 'looking') return null
   return core.state === 'ready' ? <RealBrowser /> : <PreviewBrowser />
 }
 

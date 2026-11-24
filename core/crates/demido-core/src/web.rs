@@ -485,6 +485,24 @@ impl Web {
         robots::Robots::read(&rules).allows(&path)
     }
 
+    /// The bytes at an address, of any kind, at most `most`: for a tool's update (C11). Only the public internet,
+    /// under Demido's name, as every request.
+    pub(crate) async fn fetch_bytes(&self, written: &str, most: usize) -> Result<Vec<u8>, String> {
+        let url = guard::address(written)?;
+        if self.is_local(&url) {
+            return Err(format!("{} {}", url.host_str().unwrap_or_default(), guard::NOT_PUBLIC));
+        }
+        let stop = AtomicBool::new(false);
+        let got = self.send(Ask { url: &url, through: Through::Strict, if_changed: None, gap: BETWEEN_TWO, sent: None, accept: "*/*", key: None }, &stop).await?;
+        if got.status != 200 {
+            return Err(format!("the server answered {}", got.status));
+        }
+        if got.cut || got.body.len() > most {
+            return Err("it is larger than a tool's package may be".into());
+        }
+        Ok(got.body)
+    }
+
     /// Whether the site lets programs read this page (its `robots.txt`): for Demido's browser too (Z4).
     pub(crate) async fn allowed(&self, url: &Url, stop: &AtomicBool) -> bool {
         self.is_local(url) || self.allowed_by_site(url, false, stop).await

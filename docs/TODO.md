@@ -78,11 +78,11 @@ Markets:
 
 ## Item 5: tools other people write
 
-- [ ] Research again where note 08 is old: the WebAssembly component runtime (Wasmtime) and its licence, the interface a tool is written to, what a tool may ask for, and how a package is signed and checked. A research note.
-- [ ] Decide and write it down (DECISIONS C5 is the direction).
-- [ ] Build: the package (manifest, guidance, the WebAssembly part), the runtime, asking before what a tool asks for, the signature check, installing and removing.
-- [ ] One tool of Demido's own made as a package, to prove the format.
-- [ ] The tools browser, the updater's window, editing a tool's guidance in the app.
+- [x] Research again where note 08 is old: the WebAssembly component runtime (Wasmtime) and its licence, the interface a tool is written to, what a tool may ask for, and how a package is signed and checked. A research note.
+- [x] Decide and write it down (DECISIONS C5 is the direction).
+- [x] Build: the package (manifest, guidance, the WebAssembly part), the runtime, asking before what a tool asks for, the signature check, installing and removing.
+- [x] One tool of Demido's own made as a package, to prove the format.
+- [x] The tools browser, the updater's window, editing a tool's guidance in the app.
 - [ ] Bringing in MCP servers and skills once the format stands (C5: "External", "Deprecated").
 
 ## Item 10: the desktop shell, the installer, the updater, server mode

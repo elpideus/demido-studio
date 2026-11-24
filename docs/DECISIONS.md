@@ -61,6 +61,19 @@ fact-checked yet.** Licences, legal points and version claims in them must be ve
 | C7 | Providers: two interfaces, model providers (Demido owns the loop) and agent providers (Claude Code and OpenCode run their own loop). Own thin clients. Claude Code is driven through the user's installed `claude` in headless stream mode, never bundled or spoofed. | 06 |
 | C8 | Reading the system accent: on Linux through the XDG desktop portal (`org.freedesktop.appearance`, key `accent-color`). Checked on the owner's machine (Plasma 6.8.3): it returns the current accent. The Windows and macOS calls are built since (K33). Still to find out: how to hear about changes while Demido runs. A browser cannot read it: CSS `AccentColor` returned a default blue here, so the web UI gets the accent from the core, and falls back to green when used from another machine. | Measured here (2026-11-20); the rest unverified |
 
+### C, tools other people write: built (2026-11-24; research notes 08 and 34)
+
+| # | Decision | Status |
+|---|---|---|
+| C6 | **A tool is a package**: a `.tar.gz` of `tool.json`, `guidance.md` and `tool.wasm` (a WebAssembly component written to `tools/wit/tool.wit`), with a minisign signature beside it. Installed into `tools/<name>/<version>/`, one version kept; offered to models with Demido's own when its reach fits the session (a folder for one that asks for the folder, the internet on for one that reads pages). | Built, with tests |
+| C7 | **The signature is checked first**, against the minisign key the package names (`minisign-verify` 0.3.0, MIT). The first install shows the key's id to compare with the publisher's own and needs the person's yes; every update must be signed with the same key, or it is refused. | Built, with tests: a changed byte and another's signature are refused, so is an update from another key |
+| C8 | **What a tool may ask for is the folder (none, read, write) and the hosts it may read pages from**, and nothing else exists to ask for. It is shown before install; an update that asks for more says what, and needs a yes again. Reading the folder is `Reads`, writing it `Changes` with the folder saved first (one Undo, as for a program), reading pages `Network`, through Demido's own reading (N). What a tool gives back is text from outside (T10, N4). | Built, with tests |
+| C9 | **It runs in Wasmtime 51 with nothing granted**: WASI from an empty context, the four host calls answered only as far as its manifest asks, 30 s and 256 MB at most. | Built, with tests; the sample ran for real |
+| C10 | **Its guidance and its line in the list are the person's to change** (X2), kept beside it, so an update keeps them; "its package's words" puts them back. | Built; tried in the window |
+| C11 | **Updates**: a manifest may name where its publisher announces versions (`latest.json`: version, package, signature); Demido reads it when asked (the public internet only), downloads, checks as any package, and installs only with the same key, and with a yes when it asks for more. Never by itself. | Built. **Not tried** against a real announcement |
+| C12 | **`word_count`, a tool of Demido's own, made as a package** to prove the format (`tools/word-count`, `build.sh`), signed with a development key of this computer's that is not in the repository. The project's own signing key is the owner's to make (with the release key, plan item 10). | Built; installed and run |
+| C13 | **Not built:** a registry to browse, an audit by a model, precompiled components kept on disk, WASI 0.3. | Not built |
+
 ## C2. Frontend (Decided for the preview; carried into the app unless the preview shows a problem)
 
 Research note: `docs/research/02-frontend-stack.md`. Versions and licences read from the npm registry.
