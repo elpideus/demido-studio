@@ -346,6 +346,19 @@ impl Sandbox {
         }
     }
 
+    /// Starts a program shut in as `run` shuts it, with its input and output piped for talking to it (an MCP
+    /// server, DECISIONS C14), and what it writes to its error stream dropped. The second value holds what goes
+    /// when it ends.
+    pub(crate) fn start_piped(&self, folder: &Path, script: &str) -> Result<(tokio::process::Child, Option<Scratch>), String> {
+        let (command, scratch) = self.command(folder, script)?;
+        let mut command = tokio::process::Command::from(command);
+        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+        let child = command.spawn().map_err(|e| format!("the server could not be started: {e}"))?;
+        Ok((child, scratch))
+    }
+
     /// Runs a shell script in the folder and waits for it, for no longer than `at_most`. Setting `stop`
     /// ends it early. What it printed is kept up to a size; the rest is dropped, and said to be.
     pub async fn run(&self, folder: &Path, script: &str, at_most: Duration, stop: &AtomicBool) -> Result<Ran, String> {

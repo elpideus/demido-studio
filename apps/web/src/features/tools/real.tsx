@@ -4,9 +4,13 @@
    Installing shows the publisher's key (to compare with the one they publish) and what the tool asks for, and
    installs only on a yes. An update must be signed with the same key; one that asks for more asks again. The
    guidance a model reads, and the line it sees in the list, are the person's to change, and an update keeps
-   the change. Demido's own tools are listed too, as they are: built in. */
+   the change. Demido's own tools are listed too, as they are: built in.
+
+   MCP servers and skills come in too (C14 to C17): a server is a program, run shut in the sandbox for each call,
+   its tools listed once when it is added and asked about as any command a model runs; a skill is guidance only,
+   its text given to a model as someone else's, its scripts never run. */
 import { useEffect, useState } from 'react'
-import { Download, PackagePlus, PenLine, RefreshCw, Trash2, Wrench } from 'lucide-react'
+import { BookOpen, Download, PackagePlus, PenLine, Plug, RefreshCw, Trash2, Wrench } from 'lucide-react'
 import { coreGet, coreSend } from '@/data/core'
 import { toast } from '@/data/store'
 import { Button, Dialog, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
@@ -16,6 +20,9 @@ interface Manifest { name: string; version: string; publisher: string; publisher
 interface Installed { manifest: Manifest; key_id: string; installed_at: number; guidance: string; edited: boolean; does: string }
 interface Checked { manifest: Manifest; key_id: string; replaces: string | null; asks_more: string[]; asks_said: string }
 interface Latest { version: string; package: string; signature: string }
+interface ServerTool { name: string; description: string }
+interface McpServer { name: string; command: string; tools: ServerTool[]; added_at: number }
+interface Skill { name: string; description: string; text: string; added_at: number }
 
 const asksSaid = (a: Asks) => `${a.folder === 'write' ? 'reads and changes files in the folder' : a.folder === 'read' ? 'reads files in the folder' : 'nothing of the folder'}; ${a.network.length ? `pages from ${a.network.join(', ')}` : 'nothing from the internet'}`
 
@@ -160,6 +167,127 @@ function ToolCard({ tool, onChanged }: { tool: Installed; onChanged: () => void 
   )
 }
 
+function AddServerDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState('')
+  const [command, setCommand] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const add = async () => {
+    setBusy(true); setProblem(null)
+    try {
+      const done = await coreSend<McpServer>('POST', '/tools/mcp', { name, command })
+      toast(`Added: ${done.name}, with ${done.tools.length} tool${done.tools.length === 1 ? '' : 's'}.`, undefined, 'task-done')
+      onDone()
+    } catch (e) {
+      setProblem((e as Error).message)
+    }
+    setBusy(false)
+  }
+  return (
+    <Dialog open wide onOpenChange={(o) => !o && onClose()} title="Add an MCP server"
+      text="A server is a program. Demido starts it in the sandbox, with no network and nothing of yours but the session's folder (or a folder of its own), asks it for its tools once, and keeps that list: a server cannot change its tools later without you adding it again."
+      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={busy || name.trim().length < 2 || !command.trim()} onClick={() => void add()}>{busy ? 'Starting it…' : 'Add'}</Button></>}>
+      <div className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }}>
+        <label className="d-field"><span className="d-field__label">Its name</span><input className="d-input" value={name} maxLength={40} placeholder="notes" onChange={(e) => setName(e.target.value)} /><span className="d-field__help">Small letters, digits and _. Its tools are offered as mcp_name_tool.</span></label>
+        <label className="d-field"><span className="d-field__label">The command that starts it</span><input className="d-input d-input--mono" value={command} placeholder="python3 server.py" onChange={(e) => setCommand(e.target.value)} /><span className="d-field__help">Run in Demido's folder mcp/name when the session has none. A server that needs the internet to start (npx, uvx) cannot fetch itself inside the sandbox: install it first.</span></label>
+        {problem && <Signal level="caution">{problem}</Signal>}
+      </div>
+    </Dialog>
+  )
+}
+
+function AddSkillDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [text, setText] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const add = async () => {
+    setProblem(null)
+    try {
+      const done = await coreSend<Skill>('POST', '/tools/skills', { text })
+      toast(`Brought in: ${done.name}.`, undefined, 'task-done')
+      onDone()
+    } catch (e) {
+      setProblem((e as Error).message)
+    }
+  }
+  return (
+    <Dialog open wide onOpenChange={(o) => !o && onClose()} title="Bring in a skill"
+      text="A skill is a SKILL.md: a name and a description at its top, then instructions. A model is offered it by its description and, when it picks it, is given its text to follow, as text someone else wrote. Its scripts are not run."
+      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!text.trim()} onClick={() => void add()}>Bring it in</Button></>}>
+      <div className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }}>
+        <label className="d-field"><span className="d-field__label">Its SKILL.md</span><input className="d-input" type="file" accept=".md,text/markdown,text/plain" onChange={(e) => { const f = e.target.files?.[0]; if (f) void f.text().then(setText) }} /></label>
+        <label className="d-field"><span className="d-field__label">Or its text</span><textarea className="d-input d-input--mono" rows={10} value={text} placeholder={'---\nname: release-notes\ndescription: Write release notes from a changelog.\n---\n\nRead CHANGELOG.md first…'} onChange={(e) => setText(e.target.value)} /></label>
+        {problem && <Signal level="caution">{problem}</Signal>}
+      </div>
+    </Dialog>
+  )
+}
+
+function Removable({ what, name, path, onChanged }: { what: string; name: string; path: string; onChanged: () => void }) {
+  const [removing, setRemoving] = useState(false)
+  return (
+    <>
+      <Button size="sm" variant="ghost" onClick={() => setRemoving(true)}><Icon icon={Trash2} size="sm" />Remove</Button>
+      {removing && <Dialog open onOpenChange={(o) => !o && setRemoving(false)} title={`Remove ${name}?`} text={`Models are no longer offered this ${what}.`} actions={<><Button onClick={() => setRemoving(false)}>Cancel</Button><Button variant="danger" onClick={() => { setRemoving(false); void coreSend('DELETE', path).then(onChanged, (e: Error) => toast(`Not removed. ${e.message}`, undefined, 'task-failed')) }}>Remove</Button></>} />}
+    </>
+  )
+}
+
+function External() {
+  const [servers, setServers] = useState<McpServer[] | null>(null)
+  const [skills, setSkills] = useState<Skill[] | null>(null)
+  const [adding, setAdding] = useState<'server' | 'skill' | null>(null)
+  const read = () => {
+    void coreGet<McpServer[]>('/tools/mcp').then(setServers, () => setServers([]))
+    void coreGet<Skill[]>('/tools/skills').then(setSkills, () => setSkills([]))
+  }
+  useEffect(read, [])
+  return (
+    <>
+      <Section title="MCP servers" hint="Programs of other people's that offer tools. Each call starts the server shut in the sandbox; at Balanced every use is asked about, as any command a model runs is. Without a sandbox none is run.">
+        <div className="app-stack">
+          {servers?.map((s) => (
+            <article key={s.name} className="d-card">
+              <header className="d-card__head">
+                <Glyph name="task-done" size="1.25rem" style={{ marginTop: '0.125rem' }} label="Added" />
+                <div className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
+                  <h3 className="d-card__title"><span className="d-mono">{s.name}</span></h3>
+                  <span className="d-card__sub d-mono">{s.command}</span>
+                </div>
+                <Removable what="server's tools" name={s.name} path={`/tools/mcp/${encodeURIComponent(s.name)}`} onChanged={read} />
+              </header>
+              <div className="d-card__body app-stack">
+                {s.tools.map((t) => <p key={t.name} className="d-type-caption"><span className="d-mono">{t.name}</span> <span className="d-text-secondary">{t.description}</span></p>)}
+              </div>
+            </article>
+          ))}
+          {servers && servers.length === 0 && <p className="app-empty"><Icon icon={Plug} /> No MCP server is added.</p>}
+          <div><Button onClick={() => setAdding('server')}><Icon icon={Plug} />Add an MCP server…</Button></div>
+        </div>
+      </Section>
+      <Section title="Skills" hint="Instructions other people wrote for a kind of task. Only their text is given to a model, fenced as someone else's; nothing of theirs is run.">
+        <div className="app-stack">
+          {skills?.map((s) => (
+            <article key={s.name} className="d-card">
+              <header className="d-card__head">
+                <Glyph name="task-done" size="1.25rem" style={{ marginTop: '0.125rem' }} label="Brought in" />
+                <div className="app-stack" style={{ gap: 'var(--d-space-2)', flex: 1 }}>
+                  <h3 className="d-card__title">{s.name}</h3>
+                  <span className="d-card__sub">{s.description || 'No description'}</span>
+                </div>
+                <Removable what="skill" name={s.name} path={`/tools/skills/${encodeURIComponent(s.name)}`} onChanged={read} />
+              </header>
+            </article>
+          ))}
+          {skills && skills.length === 0 && <p className="app-empty"><Icon icon={BookOpen} /> No skill is brought in.</p>}
+          <div><Button onClick={() => setAdding('skill')}><Icon icon={BookOpen} />Bring in a skill…</Button></div>
+        </div>
+      </Section>
+      {adding === 'server' && <AddServerDialog onClose={() => setAdding(null)} onDone={() => { setAdding(null); read() }} />}
+      {adding === 'skill' && <AddSkillDialog onClose={() => setAdding(null)} onDone={() => { setAdding(null); read() }} />}
+    </>
+  )
+}
+
 export function RealTools() {
   const [installed, setInstalled] = useState<Installed[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -176,7 +304,8 @@ export function RealTools() {
           <div><Button variant="primary" onClick={() => setAdding(true)}><Icon icon={PackagePlus} />Install a tool…</Button></div>
         </div>
       </Section>
-      <NotBuilt block>A list of tools to browse and install from (a registry), tools that are MCP servers or skills, a tool's files besides its guidance, and an audit of a tool by a model.</NotBuilt>
+      <External />
+      <NotBuilt block>A list of tools to browse and install from (a registry), MCP servers over the network (HTTP) and their prompts and resources, a skill's scripts, a tool's files besides its guidance, and an audit of a tool by a model.</NotBuilt>
       {adding && <InstallDialog onClose={() => setAdding(false)} onDone={() => { setAdding(false); void read() }} />}
     </Page>
   )

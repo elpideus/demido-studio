@@ -65,8 +65,45 @@ signed by `tools/word-count/build.sh` with a development key of this computer's 
 installed with `demido tools install … --yes`, showed in the Tools screen with its key and asks, and ran in a
 session's turn (a test with a scripted model).
 
+## MCP servers and skills (Read, 24 November 2026)
+
+C5 called MCP servers "External" and skills "Deprecated": what other ecosystems have, brought in, but held as
+what they are rather than made into packages.
+
+**MCP** (<https://modelcontextprotocol.io/specification/2026-07-28/>, its pages `basic/versioning`,
+`basic/lifecycle`, `basic/transports/stdio`, `server/discover`, `basic/index` and `server/tools`, read as
+Markdown):
+- "The current protocol version is 2026-07-28." It changed how a conversation starts: "There is no negotiation
+  handshake. Every request carries its protocol version", in `_meta` (`io.modelcontextprotocol/protocolVersion`
+  and `…/clientCapabilities`, both required; `…/clientInfo` recommended). Versions up to 2025-11-25 are "Legacy:
+  protocol versions that establish a session with an initialize handshake".
+- A client that speaks both "SHOULD probe with `server/discover` before sending any other request". A
+  `DiscoverResult` means a modern server; a recognised modern error (`UnsupportedProtocolVersionError`, -32022)
+  means a modern server of another version; "any other error, or does not respond within a reasonable timeout:
+  the server is legacy. Fall back to the `initialize` handshake." The answer "SHOULD" be kept for the life of the
+  process and "MAY" be kept across restarts of the same configuration.
+- stdio: the client starts the server; one JSON-RPC message a line; the server "MAY" write to its error stream,
+  which the client may ignore; shutting down is closing its input, then ending it. In the modern protocol a server
+  never sends requests ("Server-to-client interactions are carried in `InputRequiredResult` replies"); a legacy
+  one could (roots, sampling, elicitation).
+- `tools/list` gives `name`, `description` and `inputSchema` (JSON Schema); `tools/call` gives `content` (text
+  among other parts) and `isError`, and in the modern protocol a `resultType` ("complete", or "input_required").
+
+**Skills** (the Agent Skills specification, <https://agentskills.io/specification.md>): a folder with a `SKILL.md`,
+whose YAML front matter has a `name` (64 characters at most, small letters, digits and hyphens) and a
+`description` (1 to 1,024 characters, "what the skill does and when to use it"), and may have `license`,
+`compatibility`, `metadata` and an "experimental" `allowed-tools` ("pre-approved to run"). The body is
+instructions, loaded whole "once it's decided to activate a skill"; `scripts/` may hold "executable code that
+agents can run".
+
+What follows for Demido (decided in C14 to C17): an MCP server is someone else's program, so it is run as one,
+in the sandbox, asked about as a program is; its tools are read once and kept. A skill is someone else's text,
+given to a model as such; its scripts and its `allowed-tools` are not taken, since what runs and what is asked is
+decided by Demido's code.
+
 ## Not done
 
-A registry to browse (note 08's static signed index), an audit of a tool by a model (note 08: triage, never a
+MCP servers over HTTP, their prompts and resources, the modern protocol's subscriptions and
+input-required replies; a skill's scripts and other files. A registry to browse (note 08's static signed index), an audit of a tool by a model (note 08: triage, never a
 gate), precompiled components kept on disk (`Module::deserialize` is a trust boundary, note 08: each run compiles
 again, about a second for this one), WASI 0.3.

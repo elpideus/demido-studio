@@ -16,6 +16,7 @@
 //!   It is stopped after 30 s and 256 MB.
 //! - **Its guidance is the person's to change** (X2): an edit is kept beside it and survives updates.
 
+pub mod external;
 pub mod run;
 
 use std::io::Read;
@@ -261,16 +262,27 @@ fn as_tool(m: &Manifest, does: &str) -> &'static Tool {
 
 pub struct Packages {
     dir: PathBuf,
+    home: PathBuf,
     events: Arc<EventLog>,
     pub(crate) runtime: run::Runtime,
     /// What is installed, with the tool the chat offers for each.
     installed: RwLock<Vec<(Installed, &'static Tool)>>,
+    /// MCP servers and skills (C14 to C17), each tool with what it came from.
+    external: RwLock<Vec<(External, &'static Tool)>>,
+}
+
+/// What an external tool came from.
+#[derive(Clone, Debug)]
+pub enum External {
+    Server { server: external::Server, tool: String },
+    Skill(external::Skill),
 }
 
 impl Packages {
     pub fn new(home: &Path, events: Arc<EventLog>) -> Self {
-        let p = Self { dir: home.join("tools"), events, runtime: run::Runtime::new(), installed: RwLock::default() };
+        let p = Self { dir: home.join("tools"), home: home.to_path_buf(), events, runtime: run::Runtime::new(), installed: RwLock::default(), external: RwLock::default() };
         p.reload();
+        p.reload_external();
         p
     }
 
@@ -303,18 +315,129 @@ impl Packages {
         })
     }
 
+    fn servers_file(&self) -> PathBuf {
+        self.home.join("mcp-servers.json")
+    }
+    fn skills_file(&self) -> PathBuf {
+        self.home.join("skills.json")
+    }
+
+    fn reload_external(&self) {
+        let mut all = Vec::new();
+        for server in self.servers() {
+            for t in &server.tools {
+                all.push((External::Server { server: server.clone(), tool: t.name.clone() }, external::server_tool(&server.name, t)));
+            }
+        }
+        for skill in self.skills() {
+            all.push((External::Skill(skill.clone()), external::skill_tool(&skill)));
+        }
+        *self.external.write().unwrap_or_else(|e| e.into_inner()) = all;
+    }
+
+    /// The MCP servers added.
+    pub fn servers(&self) -> Vec<external::Server> {
+        std::fs::read(self.servers_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+
+    /// The skills brought in.
+    pub fn skills(&self) -> Vec<external::Skill> {
+        std::fs::read(self.skills_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+
+    /// Adds an MCP server: started once shut in, asked for its tools, and that list kept (C14).
+    pub async fn add_server(&self, name: &str, command: &str, sandbox: &crate::sandbox::Sandbox) -> Result<external::Server> {
+        let plain: String = name.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if !name_is_fine(&plain) {
+            return Err(Error::Invalid("A server's name is 2 to 40 small letters, digits and _.".into()));
+        }
+        if command.trim().is_empty() {
+            return Err(Error::Invalid("Give the command that starts the server.".into()));
+        }
+        if !sandbox.contains() {
+            return Err(Error::Invalid(format!(
+                "There is no sandbox on this computer, and an MCP server is a program: Demido runs none outside one. {}",
+                sandbox.why_not.as_deref().unwrap_or_default()
+            )));
+        }
+        let folder = external::own_folder(&self.home, &plain);
+        std::fs::create_dir_all(&folder)?;
+        let (listed, era) = external::ask(sandbox, &folder, command, external::Era::Unknown, "tools/list", json!({})).await?;
+        let tools: Vec<external::ServerTool> = listed
+            .get("tools")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|t| {
+                Some(external::ServerTool {
+                    name: t.get("name")?.as_str()?.to_string(),
+                    description: t.get("description").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    input_schema: t.get("inputSchema").cloned().unwrap_or(json!({})),
+                })
+            })
+            .take(40)
+            .collect();
+        if tools.is_empty() {
+            return Err(Error::Invalid("The server listed no tools.".into()));
+        }
+        let server = external::Server { name: plain.clone(), command: command.trim().into(), tools, era, added_at: now_ms() };
+        let mut all: Vec<external::Server> = self.servers().into_iter().filter(|s| s.name != plain).collect();
+        all.push(server.clone());
+        std::fs::write(self.servers_file(), serde_json::to_vec_pretty(&all)?)?;
+        self.reload_external();
+        let _ = self.events.append("mcp.added", Some(&plain), json!({ "tools": server.tools.len() }));
+        Ok(server)
+    }
+
+    pub fn remove_server(&self, name: &str) -> Result<()> {
+        let all: Vec<external::Server> = self.servers().into_iter().filter(|s| s.name != name).collect();
+        std::fs::write(self.servers_file(), serde_json::to_vec_pretty(&all)?)?;
+        self.reload_external();
+        Ok(())
+    }
+
+    /// Brings in a skill from its `SKILL.md` text (C16).
+    pub fn add_skill(&self, text: &str) -> Result<external::Skill> {
+        let skill = external::read_skill(text)?;
+        let mut all: Vec<external::Skill> = self.skills().into_iter().filter(|s| s.name != skill.name).collect();
+        all.push(skill.clone());
+        std::fs::write(self.skills_file(), serde_json::to_vec_pretty(&all)?)?;
+        self.reload_external();
+        let _ = self.events.append("skill.added", None, json!({ "name": skill.name }));
+        Ok(skill)
+    }
+
+    pub fn remove_skill(&self, name: &str) -> Result<()> {
+        let all: Vec<external::Skill> = self.skills().into_iter().filter(|s| s.name != name).collect();
+        std::fs::write(self.skills_file(), serde_json::to_vec_pretty(&all)?)?;
+        self.reload_external();
+        Ok(())
+    }
+
+    /// The external tool of that name, and what it came from.
+    pub fn external(&self, name: &str) -> Option<(External, &'static Tool)> {
+        self.external.read().unwrap_or_else(|e| e.into_inner()).iter().find(|(_, t)| t.name == name).cloned()
+    }
+
+    /// Where Demido keeps its files: a server's own folder is in it.
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
     /// What is installed.
     pub fn all(&self) -> Vec<Installed> {
         self.installed.read().unwrap_or_else(|e| e.into_inner()).iter().map(|(i, _)| i.clone()).collect()
     }
 
-    /// The tools the chat offers, one for each installed package.
+    /// The tools the chat offers: one for each installed package, each server's tools, each skill.
     pub fn tools(&self) -> Vec<&'static Tool> {
-        self.installed.read().unwrap_or_else(|e| e.into_inner()).iter().map(|(_, t)| *t).collect()
+        let mut all: Vec<&'static Tool> = self.installed.read().unwrap_or_else(|e| e.into_inner()).iter().map(|(_, t)| *t).collect();
+        all.extend(self.external.read().unwrap_or_else(|e| e.into_inner()).iter().map(|(_, t)| *t));
+        all
     }
 
     pub fn tool(&self, name: &str) -> Option<&'static Tool> {
-        self.installed.read().unwrap_or_else(|e| e.into_inner()).iter().find(|(i, _)| i.manifest.name == name).map(|(_, t)| *t)
+        self.installed.read().unwrap_or_else(|e| e.into_inner()).iter().find(|(i, _)| i.manifest.name == name).map(|(_, t)| *t).or_else(|| self.external(name).map(|(_, t)| t))
     }
 
     pub fn get(&self, name: &str) -> Option<Installed> {

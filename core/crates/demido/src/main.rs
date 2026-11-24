@@ -369,6 +369,41 @@ enum ToolsCommand {
     },
     /// Remove an installed tool.
     Remove { name: String },
+    /// MCP servers: programs, run shut in the sandbox for each call, their tools listed once when added.
+    Mcp {
+        #[command(subcommand)]
+        command: Option<McpCommand>,
+    },
+    /// Skills (a `SKILL.md`): guidance for the model, nothing of theirs run.
+    Skills {
+        #[command(subcommand)]
+        command: Option<SkillsCommand>,
+    },
+}
+
+#[derive(Subcommand)]
+enum McpCommand {
+    /// The servers added, with their tools. The same as `demido tools mcp`.
+    List,
+    /// Add a server: started once in the sandbox, in Demido's folder `mcp/<name>`, and asked for its tools.
+    Add {
+        /// Small letters, digits and `_`.
+        name: String,
+        /// The command that starts it, as one argument (quote it).
+        command: String,
+    },
+    /// Remove a server.
+    Remove { name: String },
+}
+
+#[derive(Subcommand)]
+enum SkillsCommand {
+    /// The skills brought in. The same as `demido tools skills`.
+    List,
+    /// Bring in a skill from its `SKILL.md` (or the folder that holds it).
+    Add { path: PathBuf },
+    /// Remove a skill.
+    Remove { name: String },
 }
 
 #[derive(Subcommand)]
@@ -961,6 +996,85 @@ async fn tools_command(paths: &Paths, command: ToolsCommand) -> Result<()> {
             }
             println!("Removed: {name}.");
         }
+        ToolsCommand::Mcp { command } => match command.unwrap_or(McpCommand::List) {
+            McpCommand::List => {
+                let all = match (&server, &core) {
+                    (Some(s), _) => s.get("/api/v1/tools/mcp")?,
+                    (None, Some(c)) => serde_json::to_value(c.packages.servers())?,
+                    _ => unreachable!(),
+                };
+                let all = all.as_array().cloned().unwrap_or_default();
+                if all.is_empty() {
+                    println!("No MCP server is added. Add one with: demido tools mcp add <name> \"<command>\"");
+                }
+                for s in all {
+                    println!("{}: {}", s["name"].as_str().unwrap_or("?"), s["command"].as_str().unwrap_or("?"));
+                    for t in s["tools"].as_array().into_iter().flatten() {
+                        println!("  {}  {}", t["name"].as_str().unwrap_or("?"), t["description"].as_str().unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" "));
+                    }
+                }
+            }
+            McpCommand::Add { name, command } => {
+                let added = match (&server, &core) {
+                    (Some(s), _) => s.send("POST", "/api/v1/tools/mcp", Some(&json!({ "name": name, "command": command })))?,
+                    (None, Some(c)) => serde_json::to_value(c.packages.add_server(&name, &command, &c.chat.sandbox()).await?)?,
+                    _ => unreachable!(),
+                };
+                let tools: Vec<&str> = added["tools"].as_array().into_iter().flatten().filter_map(|t| t["name"].as_str()).collect();
+                println!(
+                    "Added: {}, with {} tools ({}). Each use is asked about as a command a model runs is (at Balanced, every time).",
+                    added["name"].as_str().unwrap_or("?"),
+                    tools.len(),
+                    tools.join(", ")
+                );
+            }
+            McpCommand::Remove { name } => {
+                match (&server, &core) {
+                    (Some(s), _) => {
+                        s.send("DELETE", &format!("/api/v1/tools/mcp/{name}"), None)?;
+                    }
+                    (None, Some(c)) => c.packages.remove_server(&name)?,
+                    _ => unreachable!(),
+                }
+                println!("Removed: {name}.");
+            }
+        },
+        ToolsCommand::Skills { command } => match command.unwrap_or(SkillsCommand::List) {
+            SkillsCommand::List => {
+                let all = match (&server, &core) {
+                    (Some(s), _) => s.get("/api/v1/tools/skills")?,
+                    (None, Some(c)) => serde_json::to_value(c.packages.skills())?,
+                    _ => unreachable!(),
+                };
+                let all = all.as_array().cloned().unwrap_or_default();
+                if all.is_empty() {
+                    println!("No skill is brought in. Bring one in with: demido tools skills add <SKILL.md>");
+                }
+                for s in all {
+                    println!("{}  {}", s["name"].as_str().unwrap_or("?"), s["description"].as_str().unwrap_or(""));
+                }
+            }
+            SkillsCommand::Add { path } => {
+                let file = if path.is_dir() { path.join("SKILL.md") } else { path };
+                let text = std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("{} cannot be read: {e}", file.display()))?;
+                let added = match (&server, &core) {
+                    (Some(s), _) => s.send("POST", "/api/v1/tools/skills", Some(&json!({ "text": text })))?,
+                    (None, Some(c)) => serde_json::to_value(c.packages.add_skill(&text)?)?,
+                    _ => unreachable!(),
+                };
+                println!("Brought in: {}. Only its text is given to a model; its scripts are not run.", added["name"].as_str().unwrap_or("?"));
+            }
+            SkillsCommand::Remove { name } => {
+                match (&server, &core) {
+                    (Some(s), _) => {
+                        s.send("DELETE", &format!("/api/v1/tools/skills/{name}"), None)?;
+                    }
+                    (None, Some(c)) => c.packages.remove_skill(&name)?,
+                    _ => unreachable!(),
+                }
+                println!("Removed: {name}.");
+            }
+        },
     }
     Ok(())
 }

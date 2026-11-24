@@ -812,6 +812,27 @@ impl Chat {
                                 }
                             }
                         }
+                    } else if let Some((from, _)) = self.packages().and_then(|p| p.external(&tool)) {
+                        match from {
+                            // A skill: its text, for the model to follow (C16). Nothing is run.
+                            crate::packages::External::Skill(skill) => Ok(tools::Done {
+                                gave: tools::clean(&format!("The skill \"{}\", written by someone else, for you to follow where it fits the request:\n\n{}", skill.name, skill.text)),
+                                changed: None,
+                            }),
+                            // An MCP server: a program, started shut in for this call (C14).
+                            crate::packages::External::Server { server, tool: called } => {
+                                let folder =
+                                    session.folder.clone().map(std::path::PathBuf::from).unwrap_or_else(|| crate::packages::external::own_folder(self.packages().expect("there").home(), &server.name));
+                                let _ = std::fs::create_dir_all(&folder);
+                                let sandbox = self.sandbox().clone();
+                                match crate::packages::external::ask(&sandbox, &folder, &server.command, server.era, "tools/call", json!({ "name": called, "arguments": args })).await {
+                                    Ok((result, _)) => crate::packages::external::result_text(&result)
+                                        .map(|text| tools::Done { gave: tools::clean(&self.hide(&text)), changed: None })
+                                        .map_err(|why| tools::clean(&why)),
+                                    Err(e) => Err(e.to_string()),
+                                }
+                            }
+                        }
                     } else if tool == tools::MESSAGE_SESSION {
                         // To another session working in this folder, by its name; it reaches that session as text from
                         // outside, never as its person's words (DECISIONS S5).

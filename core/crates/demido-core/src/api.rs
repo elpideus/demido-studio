@@ -1317,6 +1317,58 @@ async fn tools_update(State(app): State<App>, Path(name): Path<String>, Json(bod
     Ok(Json(app.packages.update(&name, app.chat.web(), body.agreed).await?))
 }
 
+/// The MCP servers the person added, each with the tools it listed when it was added (DECISIONS C14).
+#[utoipa::path(get, path = "/api/v1/tools/mcp", tag = "tools", responses((status = 200, body = Vec<crate::packages::external::Server>)))]
+async fn mcp_servers(State(app): State<App>) -> Json<Vec<crate::packages::external::Server>> {
+    Json(app.packages.servers())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ServerGiven {
+    /// Small letters, digits and `_`; its tools are offered as `mcp_<name>_<tool>`.
+    pub name: String,
+    /// The command that starts it, run shut in the sandbox.
+    pub command: String,
+}
+
+/// Adds an MCP server: started once in the sandbox, asked for its tools, and that list kept. Needs a sandbox.
+#[utoipa::path(post, path = "/api/v1/tools/mcp", tag = "tools", request_body = ServerGiven, responses((status = 200, body = crate::packages::external::Server), (status = 422, body = Problem)))]
+async fn mcp_server_add(State(app): State<App>, Json(body): Json<ServerGiven>) -> Result<Json<crate::packages::external::Server>> {
+    Ok(Json(app.packages.add_server(&body.name, &body.command, &app.chat.sandbox()).await?))
+}
+
+/// Removes an MCP server.
+#[utoipa::path(delete, path = "/api/v1/tools/mcp/{name}", tag = "tools", params(("name" = String, Path, description = "The server's name")), responses((status = 200, body = bool)))]
+async fn mcp_server_remove(State(app): State<App>, Path(name): Path<String>) -> Result<Json<bool>> {
+    app.packages.remove_server(&name)?;
+    Ok(Json(true))
+}
+
+/// The skills brought in: guidance only, nothing of theirs run (DECISIONS C16).
+#[utoipa::path(get, path = "/api/v1/tools/skills", tag = "tools", responses((status = 200, body = Vec<crate::packages::external::Skill>)))]
+async fn skills_list(State(app): State<App>) -> Json<Vec<crate::packages::external::Skill>> {
+    Json(app.packages.skills())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct SkillGiven {
+    /// The text of its `SKILL.md`.
+    pub text: String,
+}
+
+/// Brings in a skill from its `SKILL.md`.
+#[utoipa::path(post, path = "/api/v1/tools/skills", tag = "tools", request_body = SkillGiven, responses((status = 200, body = crate::packages::external::Skill), (status = 422, body = Problem)))]
+async fn skill_add(State(app): State<App>, Json(body): Json<SkillGiven>) -> Result<Json<crate::packages::external::Skill>> {
+    Ok(Json(app.packages.add_skill(&body.text)?))
+}
+
+/// Removes a skill.
+#[utoipa::path(delete, path = "/api/v1/tools/skills/{name}", tag = "tools", params(("name" = String, Path, description = "The skill's name")), responses((status = 200, body = bool)))]
+async fn skill_remove(State(app): State<App>, Path(name): Path<String>) -> Result<Json<bool>> {
+    app.packages.remove_skill(&name)?;
+    Ok(Json(true))
+}
+
 /// The downloads since the server started, the newest last.
 #[utoipa::path(get, path = "/api/v1/hub/downloads", tag = "models", responses((status = 200, body = Vec<crate::hub::Download>)))]
 async fn hub_downloads(State(app): State<App>) -> Json<Vec<crate::hub::Download>> {
@@ -1859,7 +1911,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "tools", description = "Tools other people write: packages of a WebAssembly component, checked against their publisher's signature, run with only what they ask for"), (name = "markets", description = "Prices from public feeds, indicators worked out here, and a Pine-compatible engine of Demido's own. Nothing places an order"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1901,6 +1953,10 @@ pub fn router(app: App) -> Router {
         .route("/tools/installed/{name}/guidance", axum::routing::put(tools_edit))
         .route("/tools/installed/{name}/latest", get(tools_latest))
         .route("/tools/installed/{name}/update", post(tools_update))
+        .route("/tools/mcp", get(mcp_servers).post(mcp_server_add))
+        .route("/tools/mcp/{name}", axum::routing::delete(mcp_server_remove))
+        .route("/tools/skills", get(skills_list).post(skill_add).layer(axum::extract::DefaultBodyLimit::max(1_000_000)))
+        .route("/tools/skills/{name}", axum::routing::delete(skill_remove))
         .route("/markets/symbols", get(markets_symbols))
         .route("/markets/candles", get(markets_candles))
         .route("/markets/built-in", get(markets_built_in))
