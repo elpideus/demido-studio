@@ -96,6 +96,12 @@ whose YAML front matter has a `name` (64 characters at most, small letters, digi
 instructions, loaded whole "once it's decided to activate a skill"; `scripts/` may hold "executable code that
 agents can run".
 
+**Tried** with a real server (24 November): `mcp-server-time` 2026.11.18 from PyPI (MIT, on the Python SDK
+`mcp` 2.3.0), installed in a virtual environment inside the server's own folder (the sandbox shows that folder
+and the system, nothing else of the home): it answered `server/discover`, so it speaks 2026-07-28; its three
+tools (`get_current_time`, `convert_time`, `get_time_ago`) were listed; two calls by hand (`demido tools mcp
+try`) answered, and a time zone that does not exist came back with `isError`, said as the tool's failure.
+
 What follows for Demido (decided in C14 to C17): an MCP server is someone else's program, so it is run as one,
 in the sandbox, asked about as a program is; its tools are read once and kept. A skill is someone else's text,
 given to a model as such; its scripts and its `allowed-tools` are not taken, since what runs and what is asked is
