@@ -225,13 +225,14 @@ export function RealSchedules() {
   const [adding, setAdding] = useState(false)
   const [desktop, setDesktop] = useState(desktopNotices())
   const on = list?.filter((s) => s.state === 'on').length ?? 0
-  const desktopTip = desktop === 'none' ? 'This browser cannot show notices on the desktop from this address.'
+  const desktopTip = desktop === 'shell' ? 'The desktop app shows a notice on the desktop for each run that has something to say, while its window is not in front. A click on it opens the run.'
+    : desktop === 'none' ? 'This browser cannot show notices on the desktop from this address.'
     : desktop === 'blocked' ? "Notices are blocked for this page in the browser's own settings."
     : 'A notice on the desktop for each run that has something to say, while this window is not in front. The window shows its own either way.'
   return (
     <Page title="Schedules" lead="Work Demido does on its own: tasks at a time you set, and monitors that tell you when a price is what you wait for. Each is a session of its own, which runs with every tool and asks you nothing. The model is loaded for a run, and unloaded when it has been idle."
       actions={<>
-        <Tip label={desktopTip}><Button variant="ghost" pressed={desktop === 'on'} disabled={desktop === 'none' || desktop === 'blocked'} onClick={() => void setDesktopNotices(desktop !== 'on').then(setDesktop)}>{desktop === 'on' ? 'Desktop notices on' : 'Desktop notices'}</Button></Tip>
+        <Tip label={desktopTip}><Button variant="ghost" pressed={desktop === 'on' || desktop === 'shell'} disabled={desktop === 'none' || desktop === 'blocked' || desktop === 'shell'} onClick={() => void setDesktopNotices(desktop !== 'on').then(setDesktop)}>{desktop === 'on' || desktop === 'shell' ? 'Desktop notices on' : 'Desktop notices'}</Button></Tip>
         <Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />New schedule</Button>
       </>}>
       {error && <Signal level="caution">{error}</Signal>}

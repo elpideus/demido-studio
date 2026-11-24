@@ -60,16 +60,20 @@ export function useSchedules(): { list: Schedule[] | null; error: string | null;
 const openSession = (id: string) => { window.location.hash = `#/sessions/${id}` }
 
 /* Notices on the desktop too, from the browser, while the window is not being looked at (J6). Asked for by
-   the person, who the browser then asks for its permission; remembered in this browser. The desktop shell
-   will show its own (plan item 10). */
+   the person, who the browser then asks for its permission; remembered in this browser. In the desktop app
+   the app shows its own (DECISIONS F7), and the page offers none: `shell`. */
 const DESKTOP_KEY = 'demido-schedule-desktop-notices'
-export function desktopNotices(): 'on' | 'off' | 'blocked' | 'none' {
+/** Set by the desktop app on every page of its window (apps/desktop). */
+export const inTheDesktopApp = (): boolean => Boolean((window as { __DEMIDO_DESKTOP__?: { notices?: boolean } }).__DEMIDO_DESKTOP__?.notices)
+export function desktopNotices(): 'on' | 'off' | 'blocked' | 'none' | 'shell' {
+  if (inTheDesktopApp()) return 'shell'
   if (typeof Notification === 'undefined' || !window.isSecureContext) return 'none'
   if (Notification.permission === 'denied') return 'blocked'
   try { return localStorage.getItem(DESKTOP_KEY) === '1' && Notification.permission === 'granted' ? 'on' : 'off' } catch { return 'off' }
 }
-export async function setDesktopNotices(on: boolean): Promise<'on' | 'off' | 'blocked' | 'none'> {
-  if (desktopNotices() === 'none') return 'none'
+export async function setDesktopNotices(on: boolean): Promise<'on' | 'off' | 'blocked' | 'none' | 'shell'> {
+  const now = desktopNotices()
+  if (now === 'none' || now === 'shell') return now
   if (on && Notification.permission !== 'granted') await Notification.requestPermission()
   try { localStorage.setItem(DESKTOP_KEY, on && Notification.permission === 'granted' ? '1' : '0') } catch {}
   return desktopNotices()

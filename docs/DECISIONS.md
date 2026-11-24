@@ -562,6 +562,19 @@ cannot do, decided by code.
 | Z10 | **WebRTC in the window's own page frame (Q15) is for the desktop shell to shut** (plan item 10): nothing a page or a policy can be given shuts it in a person's browser (measured in Chromium 157: neither the policy switch nor Blink's own did); WebKitGTK has a setting, WebView2 takes Chromium's switches. | Measured (note 31) |
 | Z11 | **Not built:** a script of the model's own run in a page, the network and console for the model, tabs, the person driving the browser from the window, pictures for a model that reads them, Windows. Anything in a person's own logged-in accounts is the owner's to decide. | Not built |
 
+## F. The desktop shell, its installers, its updates, and server mode (decided 2026-11-24; research note 35)
+
+| # | Decision | Status |
+|---|---|---|
+| F1 | **The shell is Tauri 2.12.7, in `apps/desktop`, a Cargo workspace of its own**: the core's never links GTK, WebKit or a window (C1), and holds everything (C3). The shell is one file of some 400 lines. | Built |
+| F2 | **It reaches the core only through the `demido` program beside it**: `open --print` for a one-time sign-in link (the shell never reads Demido's key), `serve` when none runs (in a process group of its own, so the core outlives the shell), `events --follow` for its news, `stop`. The last two are new, and so is `POST /api/v1/server/stop`, the only clean stop for a core on Windows that has no console. | Built; tried in a virtual screen |
+| F3 | **The window's page can call nothing of the shell**: no capability names the core's address, so Tauri gives it no command. The page is a page, as in a browser. | Built |
+| F4 | **The window goes only to the shell's own page and the core's** (its address, its `blob:` files, `about:srcdoc`); anything else is refused, and nothing is opened elsewhere in its place, so that a page a model gave cannot send the person's own browser to an address. A link asking for a new window opens in the person's browser. | Built, with tests |
+| F5 | **Closing the window hides it, and the core goes on** (schedules, bots). The tray has "Open Demido", "Close the app (Demido keeps working)" and "Stop Demido and close"; `--hidden` starts in the tray only. Note 01 asked the owner whether the core keeps running when the app is closed; until they say, it does, and stopping it is one click. | Built; the tray **not seen** on a real desktop |
+| F6 | **The webview, set by the shell**: on Linux WebRTC off (WebKitGTK's default, said again so that no later default turns it on) and MediaStream on; the microphone allowed for the core's own page only, every other permission refused. On Windows, WebView2 given Chromium's switches: UDP only through a proxy, and a proxy that is not there. On macOS nothing shuts WebRTC (WKWebView has no public setting). | Built. **Measured** on Linux: nothing reached the listeners; this WebKitGTK has no WebRTC at all, even with the setting on, so the setting itself was not measured. Windows **not tried** |
+| F7 | **Notices on the desktop come from the shell** (J6): for each run that has something to say, as the window says it, while the window is not in front; a click opens the run's session. In the app, the page does not offer the browser's notices. | Built; **tried** with a stand-in notification server and a canned run. Not tried with a real notification server or a real run |
+| F8 | **Not built or not tried yet:** note 01's Linux gate (frame times, blur, resizing on Wayland with NVIDIA), the microphone and echo cancelling in the shell's webview (V6), Windows and macOS, starting with the computer. | Not done |
+
 ## D. Not researched yet
 
 The research run stalled when the session's usage limit was reached and ended with that session. Since then,

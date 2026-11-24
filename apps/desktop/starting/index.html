@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demido Studio</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f6f6f3; --fg: #1d1f1c; --dim: #6a6d66; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151614; --fg: #ecede8; --dim: #9a9d95; } }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { height: 100%; display: grid; place-content: center; gap: 12px; text-align: center; padding: 0 24px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  p { margin: 0; color: var(--dim); max-width: 36em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Demido Studio</h1>
+  <p id="said">Looking for Demido on this computer…</p>
+</main>
+<script>
+  // The shell says here what it is doing while there is no core to show (src-tauri/src/main.rs, `say`).
+  window.say = (text) => { document.getElementById('said').textContent = text }
+</script>
+</body>
+</html>

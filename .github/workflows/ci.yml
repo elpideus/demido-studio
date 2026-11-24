@@ -1,4 +1,5 @@
-# Checks every change: the web UI builds, the core is tidy, and its tests pass on Linux, Windows and macOS.
+# Checks every change: the web UI builds, the core is tidy, and its tests pass on Linux, Windows and macOS;
+# so do the desktop shell's.
 #
 # Actions are pinned to an exact commit (the version is in the comment beside it). Versions and runner
 # names were read from their official sources on 2026-11-21.
@@ -122,6 +123,40 @@ jobs:
         run: cargo test --manifest-path core/Cargo.toml --locked
       - name: It runs and reads this computer
         run: cargo run --manifest-path core/Cargo.toml --locked -- system
+
+  desktop:
+    # The desktop shell (apps/desktop, DECISIONS F): a Cargo workspace of its own, which links the system's
+    # webview (WebKitGTK on Linux, WebView2 on Windows, WKWebView on macOS). Its installers are built by the
+    # release workflow; here it is checked.
+    name: Desktop shell (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, runner: ubuntu-24.04, tidy: true }
+          - { name: Windows, runner: windows-2025, tidy: false }
+          - { name: macOS, runner: macos-15, tidy: false }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version in rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: The system's webview and tray, to build against (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Formatting
+        if: matrix.tidy
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all --check
+      - name: Lints
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
 
   windows-sandbox-trial:
     # By hand only: what a user of Demido's own keeps a program from on Windows (DECISIONS T26, research note 29).

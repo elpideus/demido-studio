@@ -3,7 +3,8 @@
 
    The brief's rule: MIT, BSD, Apache-2.0, MPL-2.0, LGPL and GPLv3 are fine. AGPL only as a separate process.
    GPLv2-only, proprietary and non-commercial licences are not. This script reads the licence every package
-   declares (the core's through `cargo metadata`, the web UI's through `pnpm licenses`), and fails with the
+   declares (the core's and the desktop shell's through `cargo metadata`, the web UI's through `pnpm licenses`),
+   and fails with the
    names of the packages that do not fit.
 
      node scripts/check-licences.mjs
@@ -103,6 +104,11 @@ function check(where, name, version, licence) {
 const cargo = JSON.parse(run('cargo', ['metadata', '--format-version', '1', '--locked', '--manifest-path', 'core/Cargo.toml']))
 const ours = new Set(cargo.workspace_members)
 for (const p of cargo.packages) if (!ours.has(p.id)) check('core', p.name, p.version, p.license ?? (p.license_file ? `(see ${p.license_file})` : ''))
+
+// The desktop shell: a workspace of its own (it links GTK and WebKit, which the core never does).
+const desktop = JSON.parse(run('cargo', ['metadata', '--format-version', '1', '--locked', '--manifest-path', 'apps/desktop/src-tauri/Cargo.toml']))
+const shell = new Set(desktop.workspace_members)
+for (const p of desktop.packages) if (!shell.has(p.id)) check('desktop', p.name, p.version, p.license ?? (p.license_file ? `(see ${p.license_file})` : ''))
 
 // The web UI and the brand kit: what pnpm installed.
 // Every package of the workspace, not only the root's: without `-r` this saw three packages and missed the web UI's.

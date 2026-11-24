@@ -158,6 +158,8 @@ pub struct App {
     pub hosts: Arc<Vec<String>>,
     /// Where the files a person deletes in the window are kept for 30 days, a folder for each session.
     pub deleted_in: PathBuf,
+    /// Asked to stop from the API (the desktop shell's Stop, `demido stop`): the same as the system's stop signal.
+    pub stop: Arc<tokio::sync::Notify>,
 }
 
 // ───────── errors ─────────
@@ -242,6 +244,15 @@ pub struct Health {
     pub status: String,
     pub version: String,
     pub uptime_s: u64,
+}
+
+/// Stops the server as the system's stop signal would: loaded models unloaded, the browser and the bots ended,
+/// requests under way given a moment. Schedules do not run until it is started again.
+#[utoipa::path(post, path = "/api/v1/server/stop", tag = "server", responses((status = 202, body = bool)))]
+async fn server_stop(State(app): State<App>) -> (StatusCode, Json<bool>) {
+    let _ = app.events.append("server.stop_asked", None, json!({}));
+    app.stop.notify_one();
+    (StatusCode::ACCEPTED, Json(true))
 }
 
 /// Is a Demido server here? Needs no key.
@@ -1911,7 +1922,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, server_stop, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "tools", description = "Tools other people write: packages of a WebAssembly component, checked against their publisher's signature, run with only what they ask for"), (name = "markets", description = "Prices from public feeds, indicators worked out here, and a Pine-compatible engine of Demido's own. Nothing places an order"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -1983,6 +1994,7 @@ pub fn router(app: App) -> Router {
         .route("/sessions/{id}", get(session_get).patch(session_change).delete(session_delete))
         .route("/sessions/{id}/messages", post(session_say))
         .route("/sessions/{id}/stop", post(session_stop))
+        .route("/server/stop", post(server_stop))
         .route("/sessions/{id}/answer-now", post(session_answer_now))
         .route("/sessions/{id}/compact", post(session_compact))
         .route("/sessions/{id}/permissions/{request}", post(session_permission))
@@ -2098,6 +2110,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         started: Instant::now(),
         hosts: Arc::new(hosts_for(&local)),
         deleted_in: opts.paths.home().join("deleted"),
+        stop: Arc::default(),
     };
 
     std::fs::write(opts.paths.running(), json!({ "address": local.to_string(), "pid": std::process::id(), "started_at": now_ms(), "version": VERSION }).to_string())?;
@@ -2155,8 +2168,9 @@ pub async fn serve(opts: Options) -> Result<()> {
     let (events, runtimes, engine, browser, bots) = (core.events.clone(), app.runtimes.clone(), core.engine.clone(), core.browser.clone(), core.bots.clone());
     // The bots connect to their services (DECISIONS G12).
     core.bots.start_all();
+    let stop = app.stop.clone();
     let asked_to_stop = async move {
-        stop_signal().await;
+        tokio::select! { _ = stop_signal() => {}, _ = stop.notified() => {} }
         tracing::info!("Stopping.");
         caretaker.abort();
         schedules_kept.abort();
@@ -2267,6 +2281,7 @@ mod tests {
             started: Instant::now(),
             hosts: Arc::new(vec!["127.0.0.1:7341".into()]),
             deleted_in: home.join("deleted"),
+            stop: Arc::default(),
         };
         let sessions = app.sessions.clone();
         (router(app), auth, events, sessions)
@@ -2537,6 +2552,16 @@ mod tests {
             let res = r.clone().oneshot(request("GET", path).header("authorization", format!("Bearer {KEY}")).body(Body::empty()).unwrap()).await.unwrap();
             assert_eq!(res.headers().get(header::CACHE_CONTROL).and_then(|v| v.to_str().ok()), Some("no-store"), "{path}");
         }
+    }
+
+    #[tokio::test]
+    async fn the_server_is_stopped_only_with_the_key() {
+        let (r, _, events) = app_and_log();
+        let (status, _) = send(&r, request("POST", "/api/v1/server/stop").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, said) = send(&r, request("POST", "/api/v1/server/stop").header("authorization", format!("Bearer {KEY}")).body(Body::empty()).unwrap()).await;
+        assert_eq!((status, said), (StatusCode::ACCEPTED, json!(true)));
+        assert!(events.latest(5).unwrap().iter().any(|e| e.kind == "server.stop_asked"));
     }
 
     #[tokio::test]

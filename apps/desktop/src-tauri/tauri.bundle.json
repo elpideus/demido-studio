@@ -1,0 +1,42 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage",
+      "nsis",
+      "dmg",
+      "app"
+    ],
+    "category": "Productivity",
+    "shortDescription": "A local-first AI harness that makes small models behave.",
+    "longDescription": "Demido Studio runs models on this computer, gives them tools that ask before they reach outside, and keeps everything here. This is its desktop window: the core runs beside it.",
+    "copyright": "Copyright 2026 the Demido Studio authors",
+    "license": "GPL-3.0-or-later",
+    "homepage": "https://github.com/elpideus/demido-studio",
+    "externalBin": [
+      "binaries/demido"
+    ],
+    "resources": {
+      "../../web/dist/": "ui/"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "bubblewrap"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "bubblewrap"
+        ]
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

@@ -73,7 +73,7 @@ Markets:
 
 - [x] Messages between sessions, shown in the window.
 - [ ] The two measurements research note 24 owes: a run's report from a small model (with item 9's email, against the stand-in), and injection inside a run.
-- [ ] The schedules' desktop notice: done with item 10's shell.
+- [x] The schedules' desktop notice: done with item 10's shell.
 - [ ] **(needs you)** Agents with a model each: on hold by your decision (O13).
 
 ## Item 5: tools other people write
@@ -87,7 +87,8 @@ Markets:
 
 ## Item 10: the desktop shell, the installer, the updater, server mode
 
-- [ ] The desktop shell: Tauri 2, kept thin (DECISIONS C1 to C3): a window, a tray, starting or joining the core. With it: the schedules' notice (item 7), and echo cancelling tried in its webview (V6).
+- [x] The desktop shell: Tauri 2, kept thin (DECISIONS C1 to C3): a window, a tray, starting or joining the core. With it: the schedules' notice (item 7), and echo cancelling tried in its webview (V6). *(Echo cancelling is the box below: trying it plays sound aloud and listens to the room.)*
+- [ ] **(needs you)** Echo cancelling tried in the shell's webview (V6), and the window on your own desktop (note 01's Linux gate: frame times, blur, resizing with the NVIDIA card).
 - [ ] The installer for each system, built by the checks.
 - [ ] The updater: what it checks, and an update checked against its signature before anything is replaced.
 - [ ] Hardening server mode (research note 05, section 3.5): what may listen where, and never plain HTTP on an address other than this computer's own.

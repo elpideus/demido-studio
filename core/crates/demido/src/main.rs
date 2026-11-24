@@ -94,6 +94,8 @@ enum Command {
     },
     /// Say whether a server is running, and where.
     Status,
+    /// Stop the running server, as the system's stop signal would, and wait until it has.
+    Stop,
     /// Show what this computer has, and which model runtime suits it.
     System {
         /// Print JSON instead of text.
@@ -139,6 +141,10 @@ enum Command {
         /// Print JSON instead of text.
         #[arg(long)]
         json: bool,
+        /// Then keep printing each event as it happens, one JSON object a line, until the server stops. Needs
+        /// a running server. What the desktop shell reads its notices from.
+        #[arg(long)]
+        follow: bool,
     },
     /// Ask a model something and read its answer as it is written. Needs a running server.
     Ask {
@@ -639,7 +645,19 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::Sessions { command } => sessions(&paths, command)?,
         Command::Schedules { command } => schedules(&paths, command)?,
-        Command::Events { after, limit, json } => {
+        Command::Events { follow: true, .. } => {
+            let server = Server::find(&paths).ok_or_else(|| anyhow!("No Demido server is running. Start one first: demido serve"))?;
+            let mut out = std::io::stdout().lock();
+            for (kind, event) in server.listen()? {
+                let mut line = event;
+                if let Some(o) = line.as_object_mut() {
+                    o.entry("kind").or_insert_with(|| Value::String(kind));
+                }
+                writeln!(out, "{line}")?;
+                out.flush()?;
+            }
+        }
+        Command::Events { after, limit, json, .. } => {
             let events: Value = match Server::find(&paths) {
                 Some(s) => s.get(&format!("/api/v1/events?limit={limit}{}", after.map(|a| format!("&after={a}")).unwrap_or_default()))?,
                 None => {
@@ -661,6 +679,21 @@ async fn run(cli: Cli) -> Result<()> {
                     println!("{:>6}  {}  {:<18} {}  {}", e["seq"], clock(e["at"].as_i64().unwrap_or(0)), e["kind"].as_str().unwrap_or(""), e["subject"].as_str().unwrap_or("-"), e["data"]);
                 }
             }
+        }
+        Command::Stop => {
+            let Some(s) = Server::find(&paths) else {
+                println!("No Demido server is running.");
+                return Ok(());
+            };
+            s.send("POST", "/api/v1/server/stop", None)?;
+            let asked = std::time::Instant::now();
+            while s.get("/api/v1/health").is_ok() {
+                if asked.elapsed() > Duration::from_secs(20) {
+                    bail!("The server was asked to stop, and still answers after 20 seconds.");
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            println!("Stopped.");
         }
         Command::Open { print } => {
             let s = Server::find(&paths).ok_or_else(|| anyhow!("No Demido server is running. Start one first: demido serve"))?;
