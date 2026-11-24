@@ -13,9 +13,11 @@
 # The version comes from the tag, and the program is stamped with it. A tag that is not a version stops
 # the run with a message that says so.
 #
-# What a release holds today: the core (server and command line) and the web UI, as one archive per
-# platform. There is no desktop window and no installer yet (docs/PLAN.md, step 10). The builds are
-# not signed: signing for Windows and macOS costs money, and that is the owner's decision.
+# What a release holds: the core (server and command line) and the web UI, as one archive per platform;
+# and the desktop app (apps/desktop: the window and the tray, with the core and the web UI inside) as an
+# installer per platform: .deb, .rpm and .AppImage on Linux, a setup .exe on Windows, a .dmg on macOS
+# (DECISIONS F9). The builds are not signed: signing for Windows and macOS costs money, and that is the
+# owner's decision.
 #
 # Actions are pinned to an exact commit (the version is in the comment beside it). Versions and runner
 # names were read from their official sources on 2026-11-21.
@@ -152,6 +154,56 @@ jobs:
         with:
           name: demido-studio-${{ matrix.platform }}
           path: release/demido-studio-*
+          if-no-files-found: error
+          retention-days: 14
+      - name: The system's webview and tray, for the desktop app (Linux)
+        if: startsWith(matrix.platform, 'linux')
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev file
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (takes the pnpm version from package.json)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Tauri's command line, for the desktop app (from npm, at the version in apps/desktop)
+        run: pnpm install --frozen-lockfile --filter @demido/desktop
+      - name: The desktop app's installer
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          # The core just built goes inside, beside the window, as Tauri's "sidecar", named for its target.
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          ext=""
+          case "$PLATFORM" in windows-*) ext=".exe" ;; esac
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp "$PROGRAM" "apps/desktop/src-tauri/binaries/demido-$triple$ext"
+          # The web UI goes inside as a resource (tauri.bundle.json: apps/web/dist becomes ui/).
+          rm -rf apps/web/dist
+          cp -r ui-dist apps/web/dist
+          case "$PLATFORM" in
+            linux-*)   bundles=deb,rpm,appimage ;;
+            windows-*) bundles=nsis ;;
+            macos-*)   bundles=app,dmg ;;
+          esac
+          printf '{"version":"%s"}' "$VERSION" > "$RUNNER_TEMP/version.json"
+          (cd apps/desktop && pnpm tauri build --config src-tauri/tauri.bundle.json --config "$RUNNER_TEMP/version.json" --bundles "$bundles")
+          mkdir -p installers
+          find apps/desktop/src-tauri/target/release/bundle -maxdepth 2 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*-setup.exe' -o -name '*.dmg' \) -print0 |
+            while IFS= read -r -d '' made; do
+              name=$(basename "$made")
+              cp "$made" "installers/demido-studio-desktop-$VERSION-$PLATFORM.${name##*.}"
+            done
+          ls -l installers
+          if [ -z "$(ls installers)" ]; then
+            echo "::error::No installer was made."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: demido-studio-desktop-${{ matrix.platform }}
+          path: installers/demido-studio-desktop-*
           if-no-files-found: error
           retention-days: 14
 

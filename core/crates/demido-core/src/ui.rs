@@ -16,14 +16,18 @@ pub struct Ui {
 }
 
 impl Ui {
-    /// `given`, else `DEMIDO_UI_DIR`, else a folder named `ui` beside the program (how a release is laid
-    /// out), else `apps/web/dist` under where the program was started (the repository).
+    /// `given`, else `DEMIDO_UI_DIR`, else a folder named `ui` where a release or an installer puts it (beside
+    /// the program; `../lib/Demido Studio/ui` from Linux's packages; `../Resources/ui` in macOS's app), else
+    /// `apps/web/dist` under where the program was started (the repository).
     pub fn find(given: Option<PathBuf>) -> Self {
         let has_page = |p: &PathBuf| p.join("index.html").is_file();
-        let beside_program = || std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("ui")));
+        let installed = || {
+            let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+            [dir.join("ui"), dir.join("../lib/Demido Studio/ui"), dir.join("../Resources/ui")].into_iter().find(has_page)
+        };
         let dir = given
             .or_else(|| std::env::var_os("DEMIDO_UI_DIR").map(PathBuf::from))
-            .or_else(|| beside_program().filter(has_page))
+            .or_else(installed)
             .or_else(|| ["apps/web/dist", "../apps/web/dist"].iter().map(PathBuf::from).find(has_page))
             .filter(has_page);
         Self { dir }
