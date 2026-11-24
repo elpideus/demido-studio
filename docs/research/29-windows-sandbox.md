@@ -84,8 +84,11 @@ Every other address was shut. So a program inside reaches everything this comput
 Demido's own: its server and the model runtime both ask for a key that lives in the person's own folder,
 which that user cannot read; but whatever else the person runs there (a database, a development server)
 answers it as it answers the person. The way to shut loopback too is a filter of the Windows Filtering
-Platform itself, which the firewall is built on and which can name a user (`FWPM_CONDITION_ALE_USER_ID`);
-not tried.
+Platform itself, which the firewall is built on and which can name a user (`FWPM_CONDITION_ALE_USER_ID`).
+**Built and tried since** (2026-11-24, DECISIONS T29): four persistent filters, at `ALE_AUTH_CONNECT` and
+`ALE_AUTH_RECV_ACCEPT` for IPv4 and IPv6, matching that user's SID (the security descriptor the firewall rule
+uses) and TCP or UDP, in a sublayer of Demido's own of weight 65535, blocking. On the checks' Windows machine a
+server on `127.0.0.1` and one on `::1` heard nothing from the sandbox, and the person still reached both.
 
 ## Names looked up (Tried)
 
@@ -130,11 +133,11 @@ the person chooses the level:
 1. **Reading what Windows lets every user read.** The system, and, by Windows's own defaults, folders made at
    `C:\` and everything on other disks. A project kept in the person's profile (`C:\Users\…`, where Visual
    Studio and most tools put them) is not readable; one at `C:\Projects` or on `D:\` is, and so are the
-   person's other projects beside it. Linux's sandbox and macOS's profile shut those too; here it would take
-   an entry refusing the sandbox users on each such folder, which Demido could offer for the folders it
-   knows (IDEAS).
+   person's other projects beside it. Linux's sandbox and macOS's profile shut those too; here it takes an
+   entry refusing the sandbox's user on each such folder, which the person can now put on the folders their
+   sessions use (`demido sandbox keep-out`, DECISIONS T28).
 2. **Another session's folder, while both are in use at the same moment**: readable, not changeable.
-3. **Loopback**, and **names looked up** (above).
+3. **Names looked up** (above). Loopback was on this list until T29 shut it.
 
 ## The build (proposed here; built on 2026-11-23, DECISIONS T27)
 
