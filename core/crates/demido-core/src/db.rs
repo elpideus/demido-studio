@@ -219,6 +219,28 @@ const MIGRATIONS: &[&str] = &[
         kept_at      INTEGER NOT NULL,
         PRIMARY KEY (account, folder, uid_validity, uid)
      ) STRICT;",
+    // Bots for Telegram and Discord (DECISIONS G12 to G16): their owners, once paired, the session they talk in, and
+    // every message they got and sent. Their tokens are in the vault.
+    "CREATE TABLE bots (
+        id         TEXT PRIMARY KEY,
+        service    TEXT NOT NULL,          -- telegram or discord
+        name       TEXT NOT NULL,
+        code       TEXT,                   -- the pairing code, until the owner sent it
+        owner      TEXT,                   -- the owner's account at the service
+        owner_name TEXT,
+        session_id TEXT,
+        created_at INTEGER NOT NULL
+     ) STRICT;
+     CREATE TABLE bot_messages (
+        bot       TEXT NOT NULL REFERENCES bots (id) ON DELETE CASCADE,
+        chat      TEXT NOT NULL,
+        way       TEXT NOT NULL,           -- in or out
+        from_who  TEXT NOT NULL,
+        text      TEXT NOT NULL,
+        state     TEXT NOT NULL,           -- answered, ignored, paired or sent
+        at        INTEGER NOT NULL
+     ) STRICT;
+     CREATE INDEX bot_messages_of ON bot_messages (bot, at);",
 ];
 
 pub struct Db {

@@ -293,6 +293,11 @@ impl Chat {
         self
     }
 
+    /// Where sessions and their messages are kept.
+    pub fn sessions(&self) -> &Arc<Sessions> {
+        &self.sessions
+    }
+
     /// The client that reads from the internet.
     pub fn web(&self) -> &Arc<crate::web::Web> {
         &self.web

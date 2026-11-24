@@ -59,8 +59,8 @@ Email:
 - [ ] **(needs you)** A real mailbox and its app password.
 
 Messaging (WhatsApp, Telegram, Discord):
-- [ ] Finish the research owed (DECISIONS G7 started it): the libraries and their licences, the services' terms, what each risks for the account. A research note.
-- [ ] Build what needs no phone and no account: the screens made real over a store of chats; Telegram and Discord bots (G4) tested against stand-ins.
+- [x] Finish the research owed (DECISIONS G7 started it): the libraries and their licences, the services' terms, what each risks for the account. A research note.
+- [x] Build what needs no phone and no account: the screens made real over a store of chats; Telegram and Discord bots (G4) tested against stand-ins.
 - [ ] **(needs you)** Linking WhatsApp or Telegram as you (codes on your phone; never your phone or its PIN), and making a Discord bot of your own.
 
 Markets:

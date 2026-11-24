@@ -66,6 +66,8 @@ pub struct Core {
     pub browser: Arc<crate::browser::Browser>,
     /// The person's mail (DECISIONS Y).
     pub mail: Arc<crate::email::Mail>,
+    /// Bots for Telegram and Discord (DECISIONS G12).
+    pub bots: Arc<crate::bots::Bots>,
 }
 
 impl Core {
@@ -84,6 +86,7 @@ impl Core {
         let web = Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))).reading_pdfs_apart(std::env::current_exe().ok()));
         let browser = Arc::new(crate::browser::Browser::new(paths.home(), web.clone(), events.clone()));
         let mail = Arc::new(crate::email::Mail::new(db.clone(), vault.clone(), events.clone()));
+        let bots_db = db.clone();
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
                 .with_providers(providers.clone())
@@ -98,7 +101,8 @@ impl Core {
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
         let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
         let voice = Arc::new(crate::voice::Voice::new(paths.home().join("voice"), std::env::current_exe().ok(), events.clone()));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail })
+        let bots = Arc::new(crate::bots::Bots::new(bots_db, providers.vault().clone(), events.clone(), chat.clone()));
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail, bots })
     }
 }
 
@@ -132,6 +136,7 @@ pub struct App {
     pub voice: Arc<crate::voice::Voice>,
     pub browser: Arc<crate::browser::Browser>,
     pub mail: Arc<crate::email::Mail>,
+    pub bots: Arc<crate::bots::Bots>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -1110,6 +1115,30 @@ async fn email_send(State(app): State<App>, Path(id): Path<String>, Json(body): 
     Ok(Json(true))
 }
 
+/// The bots for Telegram and Discord, with whether each is paired and running. Never a token.
+#[utoipa::path(get, path = "/api/v1/bots", tag = "bots", responses((status = 200, body = Vec<crate::bots::Bot>)))]
+async fn bots_list(State(app): State<App>) -> Result<Json<Vec<crate::bots::Bot>>> {
+    Ok(Json(app.bots.all()?))
+}
+
+/// Adds a bot, once its service says the token is a bot's, and starts it. Its pairing code comes with it.
+#[utoipa::path(post, path = "/api/v1/bots", tag = "bots", request_body = crate::bots::NewBot, responses((status = 200, body = crate::bots::Bot), (status = 422, body = Problem), (status = 502, body = Problem)))]
+async fn bot_add(State(app): State<App>, Json(body): Json<crate::bots::NewBot>) -> Result<Json<crate::bots::Bot>> {
+    Ok(Json(app.bots.add(body).await?))
+}
+
+/// Stops a bot and forgets it, with its token and what it kept of its chats. Its session stays.
+#[utoipa::path(delete, path = "/api/v1/bots/{id}", tag = "bots", params(("id" = String, Path, description = "The bot's id")), responses((status = 200, body = crate::bots::Bot), (status = 404, body = Problem)))]
+async fn bot_remove(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::bots::Bot>> {
+    Ok(Json(app.bots.remove(&id)?))
+}
+
+/// Every message a bot got and sent, the newest last: the owner's, and those of others it did not answer.
+#[utoipa::path(get, path = "/api/v1/bots/{id}/messages", tag = "bots", params(("id" = String, Path, description = "The bot's id")), responses((status = 200, body = Vec<crate::bots::Said>)))]
+async fn bot_messages(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Vec<crate::bots::Said>>> {
+    Ok(Json(app.bots.said(&id)?))
+}
+
 /// The downloads since the server started, the newest last.
 #[utoipa::path(get, path = "/api/v1/hub/downloads", tag = "models", responses((status = 200, body = Vec<crate::hub::Download>)))]
 async fn hub_downloads(State(app): State<App>) -> Json<Vec<crate::hub::Download>> {
@@ -1652,8 +1681,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -1686,6 +1715,9 @@ pub fn router(app: App) -> Router {
         .route("/hub/downloads/{id}", axum::routing::delete(hub_stop))
         .route("/hub/token", get(hub_token).put(hub_token_set).delete(hub_token_remove))
         .route("/search/keys", get(search_keys))
+        .route("/bots", get(bots_list).post(bot_add))
+        .route("/bots/{id}", axum::routing::delete(bot_remove))
+        .route("/bots/{id}/messages", get(bot_messages))
         .route("/email/accounts", get(email_accounts).post(email_account_add))
         .route("/email/accounts/{id}", axum::routing::delete(email_account_remove))
         .route("/email/accounts/{id}/messages", get(email_messages))
@@ -1807,6 +1839,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         voice: core.voice.clone(),
         browser: core.browser.clone(),
         mail: core.mail.clone(),
+        bots: core.bots.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -1868,13 +1901,16 @@ pub async fn serve(opts: Options) -> Result<()> {
             }
         })
     };
-    let (events, runtimes, engine, browser) = (core.events.clone(), app.runtimes.clone(), core.engine.clone(), core.browser.clone());
+    let (events, runtimes, engine, browser, bots) = (core.events.clone(), app.runtimes.clone(), core.engine.clone(), core.browser.clone(), core.bots.clone());
+    // The bots connect to their services (DECISIONS G12).
+    core.bots.start_all();
     let asked_to_stop = async move {
         stop_signal().await;
         tracing::info!("Stopping.");
         caretaker.abort();
         schedules_kept.abort();
         browser.end().await; // the browser ends with its pages and their cookies
+        bots.end();
         runtimes.stop(); // a download under way keeps what it has, and says so in the log
         engine.shutdown().await; // loaded models are unloaded and the model runtime ends
         events.tell(STOPPING, None, json!({})); // ends every open event stream
@@ -1963,13 +1999,14 @@ mod tests {
             runtimes,
             engine: engine.clone(),
             sessions: sessions.clone(),
-            chat,
+            chat: chat.clone(),
             hub: Arc::new(crate::hub::Hub::new(home.join("models"), events.clone())),
             providers,
             scheduler,
             voice: Arc::new(crate::voice::Voice::new(home.join("voice"), None, events.clone())),
             browser: Arc::new(crate::browser::Browser::new(home, Arc::new(crate::web::Web::new(None)), events.clone())),
             mail: Arc::new(crate::email::Mail::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone())),
+            bots: Arc::new(crate::bots::Bots::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone(), chat.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),

@@ -9,6 +9,7 @@ use crate::engine::stand_in::{Stand, StandLauncher};
 use crate::runtime::{Runtimes, Source};
 use crate::settings::Settings;
 
+mod bots;
 mod folders_and_permissions;
 mod mail;
 mod schedules;

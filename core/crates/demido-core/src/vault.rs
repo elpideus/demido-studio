@@ -42,6 +42,7 @@ pub const KNOWN: &[(&str, &str)] = &[
     ("exa", "Exa API key"),
     ("tavily", "Tavily API key"),
     ("email", "Email password, or a Gmail app password"),
+    ("bot", "A Telegram or Discord bot's token"),
 ];
 
 /// What a kept value is replaced with, wherever it would otherwise be shown.

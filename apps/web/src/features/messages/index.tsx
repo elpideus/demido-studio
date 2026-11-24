@@ -11,6 +11,8 @@
    it type into the message box. Discord is laid out the way Discord is: servers, then channels, then the
    talk, then the people. The owner's direction of 2026-11-20. Scripted; nothing is sent anywhere. */
 import { useEffect, useRef, useState } from 'react'
+import { useCore } from '@/data/core'
+import { RealMessenger } from './real'
 import { Navigate, Route, Routes, useParams } from 'react-router'
 import { Bot, CheckCheck, FileText, Hash, Headphones, MessagesSquare, Mic, Plus, Search, Settings, UserRound, UsersRound, Volume2 } from 'lucide-react'
 import type { Feature } from '@/app/registry'
@@ -172,8 +174,9 @@ function Person({ m }: { m: Member }) {
 function Messenger() {
   const { service } = useParams()
   const svc = SERVICES.find((s) => s.id === service)
+  const core = useCore()
   if (!svc) return <Navigate to="/messages/whatsapp" replace />
-  return <ServicePage key={svc.id} svc={svc} />
+  return core.state === 'ready' ? <RealMessenger key={svc.id} svc={svc} /> : <ServicePage key={svc.id} svc={svc} />
 }
 
 function ServicePage({ svc }: { svc: Service }) {
