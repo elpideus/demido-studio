@@ -85,9 +85,14 @@ enum Command {
     },
     /// Run the server. Everything else talks to it.
     Serve {
-        /// Address and port to listen on, for this run. Default: the "server.address" setting.
+        /// This computer's own address and port to listen on, for this run. Default: the "server.address"
+        /// setting. Plain HTTP is answered only there.
         #[arg(long)]
         listen: Option<String>,
+        /// Also listen beyond this computer, over HTTPS only, for this run (an address and port, such as
+        /// 0.0.0.0:7443). Default: the "server.remote" setting. Needs server.tlsCert and server.tlsKey.
+        #[arg(long)]
+        remote: Option<String>,
         /// The folder holding the built web UI. Default: apps/web/dist, if it is there.
         #[arg(long)]
         ui_dir: Option<PathBuf>,
@@ -201,6 +206,9 @@ enum Command {
         /// Only print the link; do not start a browser.
         #[arg(long)]
         print: bool,
+        /// A link for another device, to the server's HTTPS address (server.remote). Implies --print.
+        #[arg(long)]
+        remote: bool,
     },
 }
 
@@ -573,13 +581,13 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         // Run before anything else, in `main`.
         Command::PdfText | Command::VoiceEngine { .. } | Command::SandboxSetup { .. } | Command::SandboxLaunch { .. } | Command::SandboxRunner { .. } => {}
-        Command::Serve { listen, ui_dir } => {
+        Command::Serve { listen, remote, ui_dir } => {
             let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
             tracing_subscriber::fmt().with_env_filter(filter).with_target(false).init();
             if let Some(server) = Server::find(&paths) {
                 bail!("A Demido server is already running on {}. Stop it first, or use it as it is.", server.address);
             }
-            api::serve(api::Options { paths, listen, ui_dir }).await?;
+            api::serve(api::Options { paths, listen, remote, ui_dir }).await?;
         }
         Command::Status => match Server::find(&paths) {
             Some(s) => {
@@ -700,11 +708,19 @@ async fn run(cli: Cli) -> Result<()> {
             }
             println!("Stopped.");
         }
-        Command::Open { print } => {
+        Command::Open { print, remote } => {
             let s = Server::find(&paths).ok_or_else(|| anyhow!("No Demido server is running. Start one first: demido serve"))?;
+            let base = if remote {
+                let note: Value = serde_json::from_str(&std::fs::read_to_string(paths.running())?)?;
+                note["remote"].as_str().map(str::to_string).ok_or_else(|| {
+                    anyhow!("This server listens on this computer only. To be reached from other devices it needs server.remote, server.tlsCert and server.tlsKey (`demido settings`).")
+                })?
+            } else {
+                format!("http://{}", s.address)
+            };
             let link = s.send("POST", "/api/v1/session/link", None)?;
-            let url = format!("http://{}{}", s.address, link["path"].as_str().context("the server sent no link")?);
-            if print || !open_in_browser(&url) {
+            let url = format!("{base}{}", link["path"].as_str().context("the server sent no link")?);
+            if print || remote || !open_in_browser(&url) {
                 println!("{url}");
                 println!("Open this in a browser on this computer. It works once, for {} seconds.", link["expires_in_s"]);
             } else {

@@ -89,9 +89,9 @@ Markets:
 
 - [x] The desktop shell: Tauri 2, kept thin (DECISIONS C1 to C3): a window, a tray, starting or joining the core. With it: the schedules' notice (item 7), and echo cancelling tried in its webview (V6). *(Echo cancelling is the box below: trying it plays sound aloud and listens to the room.)*
 - [ ] **(needs you)** Echo cancelling tried in the shell's webview (V6), and the window on your own desktop (note 01's Linux gate: frame times, blur, resizing with the NVIDIA card).
-- [ ] The installer for each system, built by the checks.
+- [x] The installer for each system, built by the checks.
 - [x] The updater: what it checks, and an update checked against its signature before anything is replaced.
-- [ ] Hardening server mode (research note 05, section 3.5): what may listen where, and never plain HTTP on an address other than this computer's own.
+- [x] Hardening server mode (research note 05, section 3.5): what may listen where, and never plain HTTP on an address other than this computer's own.
 - [ ] **(needs you)** The key releases are signed with, and publishing a release or pushing a version tag.
 - [ ] **(needs you)** Signing the Windows and macOS builds, which costs money every year (R7).
 - [ ] **(needs you)** Whether the previous Demido checked `elpideus/demido-studio` for updates.

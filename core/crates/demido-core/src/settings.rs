@@ -414,9 +414,35 @@ pub fn registry() -> (Vec<Section>, Vec<Def>) {
             "server.address",
             "Listen on",
             "The address and port the server answers on.",
-            Some("Default 127.0.0.1:7341: only this computer can reach it. Takes effect the next time the server starts. `demido serve --listen` overrides it for one run."),
+            Some(
+                "Default 127.0.0.1:7341: only this computer can reach it. It must be this computer's own address (127.0.0.1, ::1 or localhost): Demido answers in plain HTTP nowhere else. For other devices, see \"Also listen on\". Takes effect the next time the server starts. `demido serve --listen` overrides it for one run.",
+            ),
             Kind::Text { secret: false, code: true },
             json!("127.0.0.1:7341"),
+            true,
+        ),
+        def(
+            "server.remote",
+            "Also listen on",
+            "An address beyond this computer, over HTTPS only. Empty: none.",
+            Some(
+                "Such as 192.168.1.20:7443, or 0.0.0.0:7443 for every address (then \"Names\" are needed). It needs a certificate and its key; without them the server does not start, and it never answers in plain HTTP there. The simpler ways stay: an SSH tunnel to this computer's own address, or Tailscale Serve in front of it. Use from other devices signs in with a one-time link (`demido open --remote`); passkeys are not built yet. Takes effect the next time the server starts.",
+            ),
+            Kind::Text { secret: false, code: true },
+            json!(""),
+            true,
+        ),
+        def("server.tlsCert", "Certificate", "The HTTPS certificate for \"Also listen on\": a PEM file, with its chain.", None, Kind::Text { secret: false, code: true }, json!(""), true),
+        def("server.tlsKey", "Certificate's key", "Its private key: a PEM file that only your user can read.", None, Kind::Text { secret: false, code: true }, json!(""), true),
+        def(
+            "server.names",
+            "Names",
+            "The names Demido answers to besides this computer's own, separated by commas.",
+            Some(
+                "A domain, a Tailscale name (computer.tailnet.ts.net), or the name a reverse proxy on this computer uses. A request for any other name is refused, so that a page elsewhere cannot point a name of its own at Demido. Proxies' X-Forwarded headers are never read. Takes effect the next time the server starts.",
+            ),
+            Kind::Text { secret: false, code: true },
+            json!(""),
             true,
         ),
         def(

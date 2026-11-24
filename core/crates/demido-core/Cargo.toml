@@ -64,3 +64,5 @@ windows-sys.workspace = true
 tower = { version = "0.5", features = ["util"] }
 # A package of a test's own, signed as a publisher would (minisign 0.10, MIT).
 minisign = "0.10"
+# A certificate of a test's own, for the server's HTTPS listener (rcgen 0.14, MIT OR Apache-2.0).
+rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }

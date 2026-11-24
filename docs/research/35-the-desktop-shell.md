@@ -135,3 +135,27 @@ verification failed". Signed for 0.1.5 and announced as 0.2.0: refused, "The upd
 0.1.5 but the update endpoint announced version 0.2.0". Signed with another key: "The signature was created
 with a different key than the one provided". With `updates.check` off: nothing was asked (the stand-in saw no
 request). **Not tried:** installing (replacing a running app), the project's real key and a real release.
+
+## Server mode (note 05, section 3.5; Tried)
+
+Note 05 compared the ways to reach Demido from elsewhere and gave one verdict without options: "Plain HTTP on a
+non-loopback address: Refuse. No flag." Until now the server listened wherever `server.address` said, with a
+warning. Now:
+
+- `server.address` must be this computer's own; anything else stops the start, saying how else to be reached.
+- `server.remote` is a second listener, HTTPS only, with the person's certificate and key; without them the
+  start stops. The handshakes are done apart from the listener, ten seconds each at most, 64 at once.
+- The `Host` list covers both listeners: this computer's spellings, the remote address, and `server.names`.
+  **Found trying it:** over HTTPS curl speaks HTTP/2, which carries the name as `:authority`, not as a `Host`
+  header; the guard saw no name and refused everything. It now reads the authority when there is no `Host`,
+  holding it to the same list, with a test.
+- The one-time sign-in link can be made for the remote address (`demido open --remote`); its cookie is
+  `Secure` there.
+- Not as root.
+
+**Tried** on a scratch home (ports 7399 and 7398, a certificate made with openssl for `demido.test`): plain HTTP
+on `0.0.0.0` refused; HTTPS without a certificate refused; with one, `health` answered over HTTP/2 and
+HTTP/1.1; another name refused both ways; the API without the key refused, with it answered; the link's cookie
+came `HttpOnly; SameSite=Strict; Path=/; Secure`; the window's page was served; plain HTTP to the HTTPS port got
+no answer; this computer's own plain address went on answering. **Not tried:** a real certificate, another
+device on the network, Tailscale Serve, a reverse proxy.

@@ -202,10 +202,15 @@ impl IntoResponse for Error {
 
 // ───────── the guard ─────────
 
+/// The name a request was sent to: its `Host` header, or in HTTP/2 (which HTTPS speaks) its `:authority`.
+fn host_of<'a>(headers: &'a HeaderMap, uri: &'a axum::http::Uri) -> Option<&'a str> {
+    headers.get(header::HOST).and_then(|h| h.to_str().ok()).or_else(|| uri.authority().map(|a| a.as_str()))
+}
+
 async fn guard(State(app): State<App>, req: Request, next: Next) -> Response {
     let headers = req.headers();
     let text = |name: header::HeaderName| headers.get(name).and_then(|v| v.to_str().ok());
-    let host = text(header::HOST).unwrap_or("");
+    let host = host_of(headers, req.uri()).unwrap_or("");
     if !app.hosts.is_empty() && !app.hosts.iter().any(|h| h.eq_ignore_ascii_case(host)) {
         return problem(StatusCode::FORBIDDEN, "wrong_host", format!("This server does not answer to \"{host}\". Use {}.", app.hosts[0]));
     }
@@ -1707,11 +1712,15 @@ struct EnterQuery {
 }
 
 /// Where a one-use link lands: it is traded for a session cookie, then the UI opens.
-async fn enter(State(app): State<App>, headers: HeaderMap, Query(q): Query<EnterQuery>) -> Response {
+async fn enter(State(app): State<App>, headers: HeaderMap, uri: axum::http::Uri, Query(q): Query<EnterQuery>) -> Response {
     match app.auth.redeem(&q.code) {
         Some(session) => {
-            let name = cookie_name(headers.get(header::HOST).and_then(|h| h.to_str().ok()));
-            ([(header::SET_COOKIE, format!("{name}={session}; HttpOnly; SameSite=Strict; Path=/"))], Redirect::to("/")).into_response()
+            let host = host_of(&headers, &uri);
+            let name = cookie_name(host);
+            // Beyond this computer a request came over HTTPS (F14), and its cookie is never sent otherwise.
+            let here = host.is_some_and(|h| ["127.0.0.1:", "localhost:", "[::1]:"].iter().any(|own| h.starts_with(own)));
+            let secure = if here { "" } else { "; Secure" };
+            ([(header::SET_COOKIE, format!("{name}={session}; HttpOnly; SameSite=Strict; Path=/{secure}"))], Redirect::to("/")).into_response()
         }
         None => (StatusCode::FORBIDDEN, "This link was already used, or is older than a minute. Run `demido open` again.\n").into_response(),
     }
@@ -2058,17 +2067,9 @@ pub struct Options {
     pub paths: Paths,
     /// Overrides the `server.address` setting for this run.
     pub listen: Option<String>,
+    /// Overrides the `server.remote` setting for this run.
+    pub remote: Option<String>,
     pub ui_dir: Option<PathBuf>,
-}
-
-/// The names a server on `address` answers to. Loopback gets its three spellings; anything else gets none,
-/// which means "any" (use from other devices is not built yet, and will bring its own check).
-fn hosts_for(address: &std::net::SocketAddr) -> Vec<String> {
-    if !address.ip().is_loopback() {
-        return Vec::new();
-    }
-    let port = address.port();
-    vec![format!("127.0.0.1:{port}"), format!("localhost:{port}"), format!("[::1]:{port}")]
 }
 
 /// Runs the server until it is told to stop (Ctrl+C, or the system's stop signal).
@@ -2080,8 +2081,26 @@ pub async fn serve(opts: Options) -> Result<()> {
         Some(a) => a,
         None => core.settings.value::<String>("server.address")?,
     };
-    let listener = tokio::net::TcpListener::bind(&address).await.map_err(|e| Error::Other(format!("Could not listen on {address}: {e}. If another Demido is running, `demido status` shows it.")))?;
+    let remote = match opts.remote {
+        Some(r) => r,
+        None => core.settings.value::<String>("server.remote")?,
+    };
+    // What may listen where (DECISIONS F14 to F18): refused here, before anything listens.
+    crate::listening::not_as_root()?;
+    let plan = crate::listening::plan(
+        &address,
+        &remote,
+        &core.settings.value::<String>("server.tlsCert")?,
+        &core.settings.value::<String>("server.tlsKey")?,
+        &core.settings.value::<String>("server.names")?,
+    )?;
+    let listener = tokio::net::TcpListener::bind(plan.local).await.map_err(|e| Error::Other(format!("Could not listen on {address}: {e}. If another Demido is running, `demido status` shows it.")))?;
     let local = listener.local_addr()?;
+    let remote = match plan.remote {
+        Some((at, config)) => Some(crate::listening::TlsListener::bind(at, config).await?),
+        None => None,
+    };
+    let remote_at = remote.as_ref().map(axum::serve::Listener::local_addr).transpose()?;
     // Where a program on this computer reaches Demido's approval tool.
     let reach_at = if local.ip().is_unspecified() { std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), local.port()) } else { local };
     core.chat.set_address(format!("http://{reach_at}"));
@@ -2108,12 +2127,13 @@ pub async fn serve(opts: Options) -> Result<()> {
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
         ui: ui.clone(),
         started: Instant::now(),
-        hosts: Arc::new(hosts_for(&local)),
+        hosts: Arc::new(crate::listening::hosts(local, remote_at, &plan.names)),
         deleted_in: opts.paths.home().join("deleted"),
         stop: Arc::default(),
     };
 
-    std::fs::write(opts.paths.running(), json!({ "address": local.to_string(), "pid": std::process::id(), "started_at": now_ms(), "version": VERSION }).to_string())?;
+    let remote_url = remote_at.map(|r| crate::listening::remote_url(r, &plan.names));
+    std::fs::write(opts.paths.running(), json!({ "address": local.to_string(), "remote": remote_url, "pid": std::process::id(), "started_at": now_ms(), "version": VERSION }).to_string())?;
     core.events.append("server.started", None, json!({ "address": local.to_string(), "version": VERSION }))?;
     tracing::info!("Demido {VERSION} is listening on http://{local}");
     tracing::info!("Files: {}", opts.paths.home().display());
@@ -2124,8 +2144,8 @@ pub async fn serve(opts: Options) -> Result<()> {
     if forgotten > 0 {
         tracing::info!("Forgot {forgotten} log entries older than {keep} days.");
     }
-    if !local.ip().is_loopback() {
-        tracing::warn!("Listening beyond this computer. Use from other devices is not built yet: there is no encryption and no passkey. Do not expose this.");
+    if let Some(url) = &remote_url {
+        tracing::info!("Also listening beyond this computer, over HTTPS only: {url}. Sign in from another device with a link from `demido open --remote`.");
     }
 
     let (stopping, mut stopped) = tokio::sync::watch::channel(false);
@@ -2181,11 +2201,26 @@ pub async fn serve(opts: Options) -> Result<()> {
         events.tell(STOPPING, None, json!({})); // ends every open event stream
         let _ = stopping.send(true);
     };
+    // Beyond this computer, over HTTPS: the same API and pages, ended with the rest.
+    let remote_served = remote.map(|tls| {
+        let mut ends = stopped.clone();
+        let router = router(app.clone());
+        tokio::spawn(async move {
+            axum::serve(tls, router)
+                .with_graceful_shutdown(async move {
+                    let _ = ends.changed().await;
+                })
+                .await
+        })
+    });
     let served = tokio::select! {
         served = axum::serve(listener, router(app)).with_graceful_shutdown(asked_to_stop) => served,
         // Requests under way get a moment to finish. A connection that will not close does not get to keep the server alive.
         _ = async { let _ = stopped.changed().await; tokio::time::sleep(LAST_MOMENT).await } => Ok(()),
     };
+    if let Some(remote) = remote_served {
+        remote.abort();
+    }
     std::fs::remove_file(opts.paths.running()).ok();
     core.events.append("server.stopped", None, json!({}))?;
     tracing::info!("Stopped.");
@@ -2607,6 +2642,12 @@ mod tests {
         let (status, body) = send(&r, req).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"]["code"], "wrong_host");
+        // HTTP/2 (HTTPS) has no Host header: its name is the request's authority, and it is held to the same list.
+        let h2 = |uri: &str| axum::http::Request::builder().uri(uri).version(axum::http::Version::HTTP_2).body(Body::empty()).unwrap();
+        assert_eq!(send(&r, h2("https://evil.example:7341/api/v1/health")).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&r, h2("https://127.0.0.1:7341/api/v1/health")).await.0, StatusCode::OK);
+        // With neither, nothing.
+        assert_eq!(send(&r, axum::http::Request::builder().uri("/api/v1/health").body(Body::empty()).unwrap()).await.0, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
