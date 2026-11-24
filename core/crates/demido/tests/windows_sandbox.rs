@@ -52,6 +52,27 @@ async fn a_program_runs_as_the_sandboxes_own_user_and_changes_nothing_outside_it
     let read = run(&sandbox, &folder, &format!(r#"type "{}""#, secret.display())).await;
     assert!(!read.output.contains("person's own"), "{read:?}");
 
+    // A project of the person's elsewhere, which Windows lets every user read (IDEAS 147): read before it is kept
+    // out, not after; let in while a session has it; kept out again once given back; readable once let back in.
+    let other = PathBuf::from(format!(r"C:\demido-sandbox-other-{}", std::process::id()));
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("notes.txt"), "another project's").unwrap();
+    let peek = format!(r#"type "{}\notes.txt""#, other.display());
+    let before = run(&sandbox, &folder, &peek).await;
+    assert!(before.output.contains("another project's"), "Windows did not let it read a folder at C:\\, as T27 found: {before:?}");
+    windows::keep_out(&home, &other).unwrap();
+    let kept = run(&sandbox, &folder, &peek).await;
+    assert!(!kept.output.contains("another project's"), "kept out, it still read it: {kept:?}");
+    let inside = run(&sandbox, &other, "type notes.txt").await;
+    assert!(inside.output.contains("another project's"), "a session in that folder could not read it: {inside:?}");
+    windows::give_back(&home, &other).unwrap();
+    let again = run(&sandbox, &folder, &peek).await;
+    assert!(!again.output.contains("another project's"), "given back, it was not kept out again: {again:?}");
+    windows::let_back_in(&home, &other).unwrap();
+    let after = run(&sandbox, &folder, &peek).await;
+    assert!(after.output.contains("another project's"), "let back in, it could not read it: {after:?}");
+    assert!(windows::kept_out(&home).is_empty());
+
     // No network.
     let net = run(&sandbox, &folder, r#"curl.exe -s -m 10 -o NUL -w "%{http_code}" https://example.com"#).await;
     assert!(!net.output.contains("200"), "it reached the internet: {net:?}");

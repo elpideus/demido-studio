@@ -32,8 +32,8 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, GetLastError, HANDLE, HANDLE_FLAG_INHERIT, HLOCAL, LocalFree, SetHandleInformation};
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_FILE_OBJECT, SET_ACCESS, SetEntriesInAclW,
-    SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+    ConvertSidToStringSidW, ConvertStringSidToSidW, DENY_ACCESS, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_FILE_OBJECT, SET_ACCESS,
+    SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
 };
 use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData};
 use windows_sys::Win32::Security::{
@@ -309,6 +309,16 @@ fn set_entries(path: &Path, entries: &[EXPLICIT_ACCESS_W], protected: bool) -> R
 
 /// Whether `path` itself grants `sid` something (an entry of its own, not one it inherits).
 fn grants(path: &Path, sid: &Sid) -> bool {
+    has_entry(path, sid, 0)
+}
+
+/// Whether `path` itself refuses `sid` (an entry of its own).
+fn refuses(path: &Path, sid: &Sid) -> bool {
+    has_entry(path, sid, 1)
+}
+
+/// Whether `path` has an entry of its own of `kind` (0 allows, 1 refuses) for `sid`.
+fn has_entry(path: &Path, sid: &Sid, wanted: u8) -> bool {
     let name = wide(path);
     // SAFETY: Windows's own descriptor, read and freed here; every ACE is read within the ACL's size.
     unsafe {
@@ -326,7 +336,7 @@ fn grants(path: &Path, sid: &Sid) -> bool {
             // ACE_HEADER: type (u8), flags (u8), size (u16); an ACCESS_ALLOWED_ACE then has its mask (u32) and the SID.
             let (kind, flags, size) = (*at, *at.add(1), u16::from_le_bytes([*at.add(2), *at.add(3)]) as usize);
             const INHERITED_ACE: u8 = 0x10;
-            if kind == 0 && flags & INHERITED_ACE == 0 && EqualSid(at.add(8) as PSID, sid.0) != 0 {
+            if kind == wanted && flags & INHERITED_ACE == 0 && EqualSid(at.add(8) as PSID, sid.0) != 0 {
                 found = true;
                 break;
             }
@@ -370,6 +380,11 @@ fn set_owner(path: &Path, sid: &Sid) -> Result<(), String> {
 pub fn share(kept: &Kept, folder: &Path) -> Result<String, String> {
     let made_up = folder_sid(&kept.salt, folder);
     let (user, sid) = (Sid::parse(&kept.sid)?, Sid::parse(&made_up)?);
+    // A folder kept from the sandbox (IDEAS 147) is let in while a session has it: an entry that refuses
+    // would weigh more than the one that allows.
+    if refuses(folder, &user) {
+        set_entries(folder, &[access(&user, 0, REVOKE_ACCESS, false)], false)?;
+    }
     if !(grants(folder, &user) && grants(folder, &sid)) {
         set_entries(folder, &[access(&user, MODIFY, GRANT_ACCESS, true), access(&sid, MODIFY, GRANT_ACCESS, true)], false)?;
     }
@@ -385,6 +400,10 @@ pub fn give_back(home: &Path, folder: &Path) -> Result<(), String> {
     if grants(folder, &user) || grants(folder, &sid) {
         set_entries(folder, &[access(&user, 0, REVOKE_ACCESS, false), access(&sid, 0, REVOKE_ACCESS, false)], false)?;
     }
+    // Kept from the sandbox again, if the person asked for it (IDEAS 147).
+    if kept_out(home).iter().any(|k| k == folder) {
+        set_entries(folder, &[access(&user, FULL, DENY_ACCESS, true)], false)?;
+    }
     let me = Sid::parse(&own_sid()?)?;
     let mut problems = Vec::new();
     reown(folder, &kept.sid, &me, &mut problems);
@@ -392,6 +411,53 @@ pub fn give_back(home: &Path, folder: &Path) -> Result<(), String> {
         None => Ok(()),
         Some(first) => Err(format!("{} of the files the sandbox made could not be given back to you; the first: {first}", problems.len())),
     }
+}
+
+// ---------- folders kept from the sandbox (IDEAS 147) ----------
+
+fn kept_out_path(home: &Path) -> PathBuf {
+    home.join("sandbox").join("kept-out.json")
+}
+
+/// The folders the person keeps the sandbox out of.
+pub fn kept_out(home: &Path) -> Vec<PathBuf> {
+    std::fs::read(kept_out_path(home)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn keep_list(home: &Path, list: &[PathBuf]) -> Result<(), String> {
+    std::fs::write(kept_out_path(home), serde_json::to_vec_pretty(list).map_err(|e| e.to_string())?).map_err(|e| format!("the list of folders kept from the sandbox could not be written: {e}"))
+}
+
+/// Keeps the sandbox's user out of one of the person's folders: an entry that refuses it everything, which
+/// Windows weighs before any entry that allows, so a program inside cannot read it even where Windows lets
+/// every user read (a folder at `C:\` or on another disk). Changes the person's own folder, so only when they
+/// ask (`demido sandbox keep-out`). A session that uses the folder lets the sandbox in while it has it.
+pub fn keep_out(home: &Path, folder: &Path) -> Result<PathBuf, String> {
+    let kept = kept(home)?;
+    let folder = plain(&folder.canonicalize().map_err(|e| format!("{} cannot be opened: {e}", folder.display()))?);
+    let user = Sid::parse(&kept.sid)?;
+    if !refuses(&folder, &user) && !grants(&folder, &user) {
+        set_entries(&folder, &[access(&user, FULL, DENY_ACCESS, true)], false)?;
+    }
+    let mut list = kept_out(home);
+    if !list.contains(&folder) {
+        list.push(folder.clone());
+        keep_list(home, &list)?;
+    }
+    Ok(folder)
+}
+
+/// Undoes `keep_out`: the refusing entry comes off, and the folder is as Windows had it.
+pub fn let_back_in(home: &Path, folder: &Path) -> Result<PathBuf, String> {
+    let kept = kept(home)?;
+    let folder = plain(&folder.canonicalize().map_err(|e| format!("{} cannot be opened: {e}", folder.display()))?);
+    let user = Sid::parse(&kept.sid)?;
+    if refuses(&folder, &user) && !grants(&folder, &user) {
+        set_entries(&folder, &[access(&user, 0, REVOKE_ACCESS, false)], false)?;
+    }
+    let list: Vec<PathBuf> = kept_out(home).into_iter().filter(|k| k != &folder).collect();
+    keep_list(home, &list)?;
+    Ok(folder)
 }
 
 fn reown(path: &Path, from: &str, to: &Sid, problems: &mut Vec<String>) {
