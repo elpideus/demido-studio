@@ -56,6 +56,43 @@ async fn a_program_runs_as_the_sandboxes_own_user_and_changes_nothing_outside_it
     let net = run(&sandbox, &folder, r#"curl.exe -s -m 10 -o NUL -w "%{http_code}" https://example.com"#).await;
     assert!(!net.output.contains("200"), "it reached the internet: {net:?}");
 
+    // Nor this computer's own servers (IDEAS 148): a server of the person's on loopback hears nothing from it,
+    // over IPv4 or IPv6, while the person still reaches it.
+    for (bind, url) in [("127.0.0.1:0", "http://127.0.0.1"), ("[::1]:0", "http://[::1]")] {
+        let server = std::net::TcpListener::bind(bind).unwrap();
+        server.set_nonblocking(true).unwrap();
+        let port = server.local_addr().unwrap().port();
+        let tried = run(&sandbox, &folder, &format!(r#"curl.exe -s -m 5 -o NUL -w "%{{http_code}}" {url}:{port}/"#)).await;
+        assert!(server.accept().is_err(), "it reached a server on loopback ({url}): {tried:?}");
+        std::net::TcpStream::connect(server.local_addr().unwrap()).expect("the person reaches it");
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(server.accept().is_ok(), "the person's own connection did not arrive");
+    }
+
+    // A project of the person's elsewhere, which Windows lets every user read (IDEAS 147): read before it is kept
+    // out, not after; let in while a session has it; kept out again once given back; readable once let back in.
+    let other = PathBuf::from(format!(r"C:\demido-sandbox-other-{}", std::process::id()));
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("notes.txt"), "another project's").unwrap();
+    let peek = format!(r#"type "{}\notes.txt""#, other.display());
+    // Who may use the folder and its file, as icacls says: in each message, so that a failure says why.
+    let entries = |p: &Path| String::from_utf8_lossy(&std::process::Command::new("icacls").arg(p).output().unwrap().stdout).into_owned();
+    let both = || format!("{}{}", entries(&other), entries(&other.join("notes.txt")));
+    let before = run(&sandbox, &folder, &peek).await;
+    assert!(before.output.contains("another project's"), "Windows did not let it read a folder at C:\\, as T27 found: {before:?}");
+    windows::keep_out(&home, &other).unwrap();
+    let kept = run(&sandbox, &folder, &peek).await;
+    assert!(!kept.output.contains("another project's"), "kept out, it still read it: {kept:?}\n{}", both());
+    let inside = run(&sandbox, &other, "type notes.txt").await;
+    assert!(inside.output.contains("another project's"), "a session in that folder could not read it: {inside:?}\n{}", both());
+    windows::give_back(&home, &other).unwrap();
+    let again = run(&sandbox, &folder, &peek).await;
+    assert!(!again.output.contains("another project's"), "given back, it was not kept out again: {again:?}\n{}", both());
+    windows::let_back_in(&home, &other).unwrap();
+    let after = run(&sandbox, &folder, &peek).await;
+    assert!(after.output.contains("another project's"), "let back in, it could not read it: {after:?}\n{}", both());
+    assert!(windows::kept_out(&home).is_empty());
+
     // Nothing of the person's environment comes along.
     // SAFETY: a test of its own; nothing else here reads the environment at the same time.
     unsafe { std::env::set_var("DEMIDO_TEST_SECRET", "a key of the person's") };

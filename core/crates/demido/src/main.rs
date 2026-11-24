@@ -101,6 +101,12 @@ enum Command {
     Status,
     /// Stop the running server, as the system's stop signal would, and wait until it has.
     Stop,
+    /// The sandbox's reach into your other folders, on Windows (IDEAS 147). On Linux and macOS a program sees
+    /// only its session's folder already.
+    Sandbox {
+        #[command(subcommand)]
+        command: SandboxCommand,
+    },
     /// Show what this computer has, and which model runtime suits it.
     System {
         /// Print JSON instead of text.
@@ -393,6 +399,22 @@ enum ToolsCommand {
         #[command(subcommand)]
         command: Option<SkillsCommand>,
     },
+}
+
+#[derive(Subcommand)]
+enum SandboxCommand {
+    /// Keep the sandbox out of a folder of yours: an entry refusing its user everything, which Windows weighs
+    /// before any that allows. Without a folder: every folder your sessions use. A session there lets it in
+    /// while it has the folder. Changes your own folders, so it asks first: --yes to do it.
+    KeepOut {
+        folder: Option<PathBuf>,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Undo keep-out for a folder.
+    LetIn { folder: PathBuf },
+    /// The folders kept from the sandbox.
+    KeptOut,
 }
 
 #[derive(Subcommand)]
@@ -701,6 +723,7 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
         }
+        Command::Sandbox { command } => sandbox_folders(&paths, command)?,
         Command::Stop => {
             let Some(s) = Server::find(&paths) else {
                 println!("No Demido server is running.");
@@ -977,6 +1000,69 @@ async fn keys(paths: &Paths, command: KeysCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn sandbox_folders(paths: &Paths, command: SandboxCommand) -> Result<()> {
+    #[cfg(not(windows))]
+    {
+        let _ = (paths, command);
+        println!("Only on Windows: on Linux and macOS a program a model runs sees only its session's folder already.");
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        use demido_core::sandbox::windows;
+        let home = paths.home();
+        match command {
+            SandboxCommand::KeptOut => {
+                let list = windows::kept_out(home);
+                if list.is_empty() {
+                    println!("No folder is kept from the sandbox. `demido sandbox keep-out` keeps it out of the folders your sessions use.");
+                }
+                for f in list {
+                    println!("{}", f.display());
+                }
+            }
+            SandboxCommand::LetIn { folder } => {
+                let done = windows::let_back_in(home, &folder).map_err(|e| anyhow!(e))?;
+                println!("The sandbox is no longer kept out of {}.", done.display());
+            }
+            SandboxCommand::KeepOut { folder, yes } => {
+                let folders: Vec<PathBuf> = match folder {
+                    Some(f) => vec![f],
+                    None => {
+                        let sessions = match Server::find(paths) {
+                            Some(s) => s.get("/api/v1/sessions")?,
+                            None => serde_json::to_value(Core::open(paths)?.sessions.list()?)?,
+                        };
+                        let mut all: Vec<PathBuf> = sessions.as_array().into_iter().flatten().filter_map(|s| s["folder"].as_str().map(PathBuf::from)).filter(|f| f.is_dir()).collect();
+                        all.sort();
+                        all.dedup();
+                        all
+                    }
+                };
+                if folders.is_empty() {
+                    println!("No session has a folder yet.");
+                    return Ok(());
+                }
+                println!("Each of these gets an entry refusing the sandbox's user ({}):", windows::USER);
+                for f in &folders {
+                    println!("  {}", f.display());
+                }
+                if !yes {
+                    println!("Nothing was changed. To do it: demido sandbox keep-out{} --yes", if folders.len() == 1 { format!(" \"{}\"", folders[0].display()) } else { String::new() });
+                    return Ok(());
+                }
+                for f in &folders {
+                    match windows::keep_out(home, f) {
+                        Ok(done) => println!("Kept out of {}.", done.display()),
+                        Err(e) => println!("Not {}: {e}", f.display()),
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 async fn tools_command(paths: &Paths, command: ToolsCommand) -> Result<()> {

@@ -32,8 +32,8 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, GetLastError, HANDLE, HANDLE_FLAG_INHERIT, HLOCAL, LocalFree, SetHandleInformation};
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_FILE_OBJECT, SET_ACCESS, SetEntriesInAclW,
-    SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+    ConvertSidToStringSidW, ConvertStringSidToSidW, DENY_ACCESS, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_FILE_OBJECT, SET_ACCESS,
+    SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
 };
 use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData};
 use windows_sys::Win32::Security::{
@@ -309,6 +309,16 @@ fn set_entries(path: &Path, entries: &[EXPLICIT_ACCESS_W], protected: bool) -> R
 
 /// Whether `path` itself grants `sid` something (an entry of its own, not one it inherits).
 fn grants(path: &Path, sid: &Sid) -> bool {
+    has_entry(path, sid, 0)
+}
+
+/// Whether `path` itself refuses `sid` (an entry of its own).
+fn refuses(path: &Path, sid: &Sid) -> bool {
+    has_entry(path, sid, 1)
+}
+
+/// Whether `path` has an entry of its own of `kind` (0 allows, 1 refuses) for `sid`.
+fn has_entry(path: &Path, sid: &Sid, wanted: u8) -> bool {
     let name = wide(path);
     // SAFETY: Windows's own descriptor, read and freed here; every ACE is read within the ACL's size.
     unsafe {
@@ -326,7 +336,7 @@ fn grants(path: &Path, sid: &Sid) -> bool {
             // ACE_HEADER: type (u8), flags (u8), size (u16); an ACCESS_ALLOWED_ACE then has its mask (u32) and the SID.
             let (kind, flags, size) = (*at, *at.add(1), u16::from_le_bytes([*at.add(2), *at.add(3)]) as usize);
             const INHERITED_ACE: u8 = 0x10;
-            if kind == 0 && flags & INHERITED_ACE == 0 && EqualSid(at.add(8) as PSID, sid.0) != 0 {
+            if kind == wanted && flags & INHERITED_ACE == 0 && EqualSid(at.add(8) as PSID, sid.0) != 0 {
                 found = true;
                 break;
             }
@@ -370,6 +380,11 @@ fn set_owner(path: &Path, sid: &Sid) -> Result<(), String> {
 pub fn share(kept: &Kept, folder: &Path) -> Result<String, String> {
     let made_up = folder_sid(&kept.salt, folder);
     let (user, sid) = (Sid::parse(&kept.sid)?, Sid::parse(&made_up)?);
+    // A folder kept from the sandbox (IDEAS 147) is let in while a session has it: an entry that refuses
+    // would weigh more than the one that allows.
+    if refuses(folder, &user) {
+        drop_refusal(folder, &user)?;
+    }
     if !(grants(folder, &user) && grants(folder, &sid)) {
         set_entries(folder, &[access(&user, MODIFY, GRANT_ACCESS, true), access(&sid, MODIFY, GRANT_ACCESS, true)], false)?;
     }
@@ -385,6 +400,10 @@ pub fn give_back(home: &Path, folder: &Path) -> Result<(), String> {
     if grants(folder, &user) || grants(folder, &sid) {
         set_entries(folder, &[access(&user, 0, REVOKE_ACCESS, false), access(&sid, 0, REVOKE_ACCESS, false)], false)?;
     }
+    // Kept from the sandbox again, if the person asked for it (IDEAS 147).
+    if kept_out(home).iter().any(|k| k == folder) {
+        set_entries(folder, &[access(&user, FULL, DENY_ACCESS, true)], false)?;
+    }
     let me = Sid::parse(&own_sid()?)?;
     let mut problems = Vec::new();
     reown(folder, &kept.sid, &me, &mut problems);
@@ -392,6 +411,61 @@ pub fn give_back(home: &Path, folder: &Path) -> Result<(), String> {
         None => Ok(()),
         Some(first) => Err(format!("{} of the files the sandbox made could not be given back to you; the first: {first}", problems.len())),
     }
+}
+
+// ---------- folders kept from the sandbox (IDEAS 147) ----------
+
+/// Takes an entry refusing `sid` off `path`. Windows's REVOKE_ACCESS takes off only the entries that allow (found
+/// on the checks' Windows machine: the refusal stayed); GRANT_ACCESS cancels the rights an entry refuses. So the
+/// rights are granted, which cancels the refusal, and then revoked, which leaves neither.
+fn drop_refusal(path: &Path, sid: &Sid) -> Result<(), String> {
+    set_entries(path, &[access(sid, FULL, GRANT_ACCESS, true)], false)?;
+    set_entries(path, &[access(sid, 0, REVOKE_ACCESS, false)], false)
+}
+
+fn kept_out_path(home: &Path) -> PathBuf {
+    home.join("sandbox").join("kept-out.json")
+}
+
+/// The folders the person keeps the sandbox out of.
+pub fn kept_out(home: &Path) -> Vec<PathBuf> {
+    std::fs::read(kept_out_path(home)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn keep_list(home: &Path, list: &[PathBuf]) -> Result<(), String> {
+    std::fs::write(kept_out_path(home), serde_json::to_vec_pretty(list).map_err(|e| e.to_string())?).map_err(|e| format!("the list of folders kept from the sandbox could not be written: {e}"))
+}
+
+/// Keeps the sandbox's user out of one of the person's folders: an entry that refuses it everything, which
+/// Windows weighs before any entry that allows, so a program inside cannot read it even where Windows lets
+/// every user read (a folder at `C:\` or on another disk). Changes the person's own folder, so only when they
+/// ask (`demido sandbox keep-out`). A session that uses the folder lets the sandbox in while it has it.
+pub fn keep_out(home: &Path, folder: &Path) -> Result<PathBuf, String> {
+    let kept = kept(home)?;
+    let folder = plain(&folder.canonicalize().map_err(|e| format!("{} cannot be opened: {e}", folder.display()))?);
+    let user = Sid::parse(&kept.sid)?;
+    if !refuses(&folder, &user) && !grants(&folder, &user) {
+        set_entries(&folder, &[access(&user, FULL, DENY_ACCESS, true)], false)?;
+    }
+    let mut list = kept_out(home);
+    if !list.contains(&folder) {
+        list.push(folder.clone());
+        keep_list(home, &list)?;
+    }
+    Ok(folder)
+}
+
+/// Undoes `keep_out`: the refusing entry comes off, and the folder is as Windows had it.
+pub fn let_back_in(home: &Path, folder: &Path) -> Result<PathBuf, String> {
+    let kept = kept(home)?;
+    let folder = plain(&folder.canonicalize().map_err(|e| format!("{} cannot be opened: {e}", folder.display()))?);
+    let user = Sid::parse(&kept.sid)?;
+    if refuses(&folder, &user) && !grants(&folder, &user) {
+        drop_refusal(&folder, &user)?;
+    }
+    let list: Vec<PathBuf> = kept_out(home).into_iter().filter(|k| k != &folder).collect();
+    keep_list(home, &list)?;
+    Ok(folder)
 }
 
 fn reown(path: &Path, from: &str, to: &Sid, problems: &mut Vec<String>) {
@@ -677,6 +751,135 @@ pub fn run_restricted(folder_sid: &str, script: &str) -> Result<u32, String> {
     }
 }
 
+// ---------- the Windows Filtering Platform: loopback too (IDEAS 148) ----------
+
+/// Demido's own sublayer and filters, known by these keys so that a second setup replaces them.
+const WFP_SUBLAYER: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a57);
+const WFP_FILTERS: [windows_sys::core::GUID; 4] = [
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a58),
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a59),
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a5a),
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a5b),
+];
+
+/// Every TCP or UDP connection the sandbox's user makes or accepts is blocked by the Windows Filtering Platform itself, which
+/// the firewall is built on: Windows Firewall's rules leave loopback alone (research note 29: a block rule did not
+/// stop the user reaching a server on 127.0.0.1), a filter does not. Four filters (connecting and accepting, IPv4
+/// and IPv6), matching that user (`FWPM_CONDITION_ALE_USER_ID`, as the firewall rule names it), in a sublayer of
+/// Demido's own of the highest weight, so that no permit of another sublayer decides first; kept across restarts.
+/// Set at setup, as an administrator; a second setup replaces them.
+pub fn shut_every_connection(user_sid: &str) -> Result<(), String> {
+    use windows_sys::Win32::NetworkManagement::WindowsFilteringPlatform::*;
+    use windows_sys::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+
+    let sddl = wide(format!("O:LSD:(A;;CC;;;{user_sid})"));
+    let (mut sd, mut sd_size): (PSECURITY_DESCRIPTOR, u32) = (std::ptr::null_mut(), 0);
+    // SAFETY: a valid wide string in; the descriptor out is freed below.
+    if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, &mut sd_size) } == 0 {
+        return Err(last_error("Describing the sandbox's user for the filter"));
+    }
+    struct Freed(PSECURITY_DESCRIPTOR);
+    impl Drop for Freed {
+        fn drop(&mut self) {
+            // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW, freed once.
+            unsafe { LocalFree(self.0 as HLOCAL) };
+        }
+    }
+    let _freed = Freed(sd);
+    let mut blob = FWP_BYTE_BLOB { size: sd_size, data: sd as *mut u8 };
+
+    let mut engine: HANDLE = std::ptr::null_mut();
+    // SAFETY: the local engine, Windows's own authentication; the handle is closed below.
+    let opened = unsafe { FwpmEngineOpen0(std::ptr::null(), windows_sys::Win32::System::Rpc::RPC_C_AUTHN_WINNT, std::ptr::null(), std::ptr::null(), &mut engine) };
+    if opened != ERROR_SUCCESS {
+        return Err(format!("The Windows Filtering Platform could not be opened (error {opened:#x}): is this an administrator?"));
+    }
+    struct Engine(HANDLE);
+    impl Drop for Engine {
+        fn drop(&mut self) {
+            // SAFETY: opened by FwpmEngineOpen0, closed once.
+            unsafe { FwpmEngineClose0(self.0) };
+        }
+    }
+    let engine = Engine(engine);
+    let failed = |what: &str, code: u32| format!("The Windows Filtering Platform refused {what} (error {code:#x}).");
+    // SAFETY: an open engine.
+    let began = unsafe { FwpmTransactionBegin0(engine.0, 0) };
+    if began != ERROR_SUCCESS {
+        return Err(failed("to begin", began));
+    }
+    let mut all = || -> Result<(), String> {
+        // What an earlier setup left, if anything.
+        for key in &WFP_FILTERS {
+            // SAFETY: an open engine and a key; not found is fine.
+            unsafe { FwpmFilterDeleteByKey0(engine.0, key) };
+        }
+        // SAFETY: as above.
+        unsafe { FwpmSubLayerDeleteByKey0(engine.0, &WFP_SUBLAYER) };
+
+        let (mut name, mut about) = (wide("Demido Studio sandbox"), wide("The programs a model runs: no TCP or UDP connection at all, this computer's own included."));
+        // SAFETY: plain data; every pointer set below outlives the call that reads it.
+        let mut sublayer: FWPM_SUBLAYER0 = unsafe { std::mem::zeroed() };
+        sublayer.subLayerKey = WFP_SUBLAYER;
+        sublayer.displayData = FWPM_DISPLAY_DATA0 { name: name.as_mut_ptr(), description: about.as_mut_ptr() };
+        sublayer.flags = FWPM_SUBLAYER_FLAG_PERSISTENT;
+        sublayer.weight = u16::MAX;
+        // SAFETY: a filled sublayer, and no descriptor of its own (the default).
+        let added = unsafe { FwpmSubLayerAdd0(engine.0, &sublayer, std::ptr::null_mut()) };
+        if added != ERROR_SUCCESS {
+            return Err(failed("Demido's sublayer", added));
+        }
+        let layers = [FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6];
+        for (key, layer) in WFP_FILTERS.iter().zip(layers) {
+            // That user, and TCP or UDP (conditions on one field are either-or, on different fields both). The
+            // firewall's rules already shut every protocol beyond this computer; on loopback what matters is
+            // reaching a server, and ICMP (ping) carries nothing to one.
+            // SAFETY: plain data, filled below.
+            let mut conditions: [FWPM_FILTER_CONDITION0; 3] = unsafe { std::mem::zeroed() };
+            conditions[0].fieldKey = FWPM_CONDITION_ALE_USER_ID;
+            conditions[0].matchType = FWP_MATCH_EQUAL;
+            conditions[0].conditionValue.r#type = FWP_SECURITY_DESCRIPTOR_TYPE;
+            conditions[0].conditionValue.Anonymous.sd = &mut blob;
+            for (c, protocol) in conditions[1..].iter_mut().zip([6u8, 17u8]) {
+                c.fieldKey = FWPM_CONDITION_IP_PROTOCOL;
+                c.matchType = FWP_MATCH_EQUAL;
+                c.conditionValue.r#type = FWP_UINT8;
+                c.conditionValue.Anonymous.uint8 = protocol;
+            }
+            // SAFETY: plain data, filled below.
+            let mut filter: FWPM_FILTER0 = unsafe { std::mem::zeroed() };
+            filter.filterKey = *key;
+            filter.displayData = FWPM_DISPLAY_DATA0 { name: name.as_mut_ptr(), description: about.as_mut_ptr() };
+            filter.flags = FWPM_FILTER_FLAG_PERSISTENT;
+            filter.layerKey = layer;
+            filter.subLayerKey = WFP_SUBLAYER;
+            filter.weight.r#type = FWP_UINT8;
+            filter.weight.Anonymous.uint8 = 15;
+            filter.numFilterConditions = conditions.len() as u32;
+            filter.filterCondition = conditions.as_mut_ptr();
+            filter.action.r#type = FWP_ACTION_BLOCK;
+            // SAFETY: a filled filter whose pointers (condition, blob, names) live until the call returns.
+            let added = unsafe { FwpmFilterAdd0(engine.0, &filter, std::ptr::null_mut(), std::ptr::null_mut()) };
+            if added != ERROR_SUCCESS {
+                return Err(failed("a filter", added));
+            }
+        }
+        Ok(())
+    };
+    match all() {
+        Ok(()) => {
+            // SAFETY: an open engine with a transaction under way.
+            let committed = unsafe { FwpmTransactionCommit0(engine.0) };
+            if committed != ERROR_SUCCESS { Err(failed("to keep the filters", committed)) } else { Ok(()) }
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { FwpmTransactionAbort0(engine.0) };
+            Err(e)
+        }
+    }
+}
+
 // ---------- demido sandbox-setup, once, as an administrator ----------
 
 /// What setup asks PowerShell to do, as an administrator: the user (made, or its password changed), off the
@@ -734,6 +937,8 @@ pub fn setup(home: &Path, person: &str) -> Result<(), String> {
     }
     let printed = String::from_utf8_lossy(&out.stdout);
     let sid = printed.lines().find_map(|l| l.trim().strip_prefix("SID=")).ok_or("the user was made, and its SID could not be read")?.to_string();
+    // Loopback too, which the firewall's rules leave alone (IDEAS 148). Without it, no sandbox.
+    shut_every_connection(&sid)?;
     // Its place: only the administrators and the person may change it; the user may read and run.
     let (user, me, system, admins) = (Sid::parse(&sid)?, Sid::parse(person)?, Sid::parse(SYSTEM)?, Sid::parse(ADMINISTRATORS)?);
     private_folder(&place(), &[(&system, FULL), (&admins, FULL), (&me, FULL), (&user, READ_AND_RUN)])?;
