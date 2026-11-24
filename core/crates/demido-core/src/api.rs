@@ -68,6 +68,8 @@ pub struct Core {
     pub mail: Arc<crate::email::Mail>,
     /// Bots for Telegram and Discord (DECISIONS G12).
     pub bots: Arc<crate::bots::Bots>,
+    /// Prices, indicators and Pine-compatible scripts (DECISIONS M).
+    pub markets: Arc<crate::markets::Markets>,
 }
 
 impl Core {
@@ -87,6 +89,7 @@ impl Core {
         let browser = Arc::new(crate::browser::Browser::new(paths.home(), web.clone(), events.clone()));
         let mail = Arc::new(crate::email::Mail::new(db.clone(), vault.clone(), events.clone()));
         let bots_db = db.clone();
+        let markets = Arc::new(crate::markets::Markets::new(crate::markets::Feeds::default(), db.clone()));
         let chat = Arc::new(
             Chat::new(sessions.clone(), engine.clone(), events.clone(), settings.clone())
                 .with_providers(providers.clone())
@@ -102,7 +105,7 @@ impl Core {
         let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
         let voice = Arc::new(crate::voice::Voice::new(paths.home().join("voice"), std::env::current_exe().ok(), events.clone()));
         let bots = Arc::new(crate::bots::Bots::new(bots_db, providers.vault().clone(), events.clone(), chat.clone()));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail, bots })
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail, bots, markets })
     }
 }
 
@@ -137,6 +140,7 @@ pub struct App {
     pub browser: Arc<crate::browser::Browser>,
     pub mail: Arc<crate::email::Mail>,
     pub bots: Arc<crate::bots::Bots>,
+    pub markets: Arc<crate::markets::Markets>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -1139,6 +1143,99 @@ async fn bot_messages(State(app): State<App>, Path(id): Path<String>) -> Result<
     Ok(Json(app.bots.said(&id)?))
 }
 
+/// The symbols Demido has prices for, and where each comes from.
+#[utoipa::path(get, path = "/api/v1/markets/symbols", tag = "markets", responses((status = 200, body = Vec<crate::markets::Symbol>)))]
+async fn markets_symbols() -> Json<Vec<crate::markets::Symbol>> {
+    Json(crate::markets::symbols())
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct CandlesQuery {
+    pub symbol: String,
+    /// In minutes: 1, 5, 15, 30, 60, 240, 1440 or 10080.
+    pub interval: u32,
+    /// `true` asks the feed again now.
+    pub fresh: Option<bool>,
+}
+
+/// The candles of a symbol, oldest first, from its public feed; kept a quarter of their interval, and 15 s at least.
+#[utoipa::path(get, path = "/api/v1/markets/candles", tag = "markets", params(CandlesQuery), responses((status = 200, body = crate::markets::Candles), (status = 404, body = Problem), (status = 502, body = Problem)))]
+async fn markets_candles(State(app): State<App>, Query(q): Query<CandlesQuery>) -> Result<Json<crate::markets::Candles>> {
+    Ok(Json(app.markets.candles(&q.symbol, q.interval, q.fresh.unwrap_or(false)).await?))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct BuiltIn {
+    pub id: String,
+    pub name: String,
+    pub source: String,
+}
+
+/// The built-in indicators, each a script of the engine's.
+#[utoipa::path(get, path = "/api/v1/markets/built-in", tag = "markets", responses((status = 200, body = Vec<BuiltIn>)))]
+async fn markets_built_in() -> Json<Vec<BuiltIn>> {
+    Json(crate::markets::BUILT_IN.iter().map(|(id, name, source)| BuiltIn { id: (*id).into(), name: (*name).into(), source: (*source).into() }).collect())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct PineRun {
+    pub source: String,
+    pub symbol: String,
+    pub interval: u32,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PineRan {
+    pub ran: Option<crate::markets::pine::Ran>,
+    pub error: Option<crate::markets::pine::PineError>,
+    /// The candles' times, so that each value can be put under its candle.
+    pub times: Vec<i64>,
+}
+
+/// Runs a Pine-compatible script on a symbol's candles, in Demido's own engine (M17). It is not TradingView's.
+#[utoipa::path(post, path = "/api/v1/markets/pine/run", tag = "markets", request_body = PineRun, responses((status = 200, body = PineRan), (status = 502, body = Problem)))]
+async fn markets_pine_run(State(app): State<App>, Json(body): Json<PineRun>) -> Result<Json<PineRan>> {
+    let (candles, ran) = app.markets.run(&body.source, &body.symbol, body.interval).await?;
+    let times = candles.candles.iter().map(|c| c.t).collect();
+    Ok(Json(match ran {
+        Ok(ran) => PineRan { ran: Some(ran), error: None, times },
+        Err(e) => PineRan { ran: None, error: Some(e), times },
+    }))
+}
+
+/// Has a session's model write a script for what the person asked, run it, and mend it from the error, three
+/// tries at most (M3). Every try is in the session.
+#[utoipa::path(post, path = "/api/v1/markets/pine/write", tag = "markets", request_body = crate::markets::Write, responses((status = 200, body = crate::markets::Written), (status = 422, body = Problem)))]
+async fn markets_pine_write(State(app): State<App>, Json(body): Json<crate::markets::Write>) -> Result<Json<crate::markets::Written>> {
+    Ok(Json(app.markets.write(&app.chat, &body).await?))
+}
+
+/// The person's scripts, kept on this computer, the newest first.
+#[utoipa::path(get, path = "/api/v1/markets/scripts", tag = "markets", responses((status = 200, body = Vec<crate::markets::Script>)))]
+async fn markets_scripts(State(app): State<App>) -> Result<Json<Vec<crate::markets::Script>>> {
+    Ok(Json(crate::markets::scripts(&app.markets.db)?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct KeptScript {
+    pub id: Option<String>,
+    pub name: String,
+    pub source: String,
+}
+
+/// Keeps a script: a new one, or in place of the one with its id.
+#[utoipa::path(put, path = "/api/v1/markets/scripts", tag = "markets", request_body = KeptScript, responses((status = 200, body = crate::markets::Script), (status = 422, body = Problem)))]
+async fn markets_script_keep(State(app): State<App>, Json(body): Json<KeptScript>) -> Result<Json<crate::markets::Script>> {
+    Ok(Json(crate::markets::keep(&app.markets.db, body.id.as_deref(), &body.name, &body.source)?))
+}
+
+/// Deletes a kept script.
+#[utoipa::path(delete, path = "/api/v1/markets/scripts/{id}", tag = "markets", params(("id" = String, Path, description = "The script's id")), responses((status = 200, body = bool)))]
+async fn markets_script_forget(State(app): State<App>, Path(id): Path<String>) -> Result<Json<bool>> {
+    crate::markets::forget(&app.markets.db, &id)?;
+    Ok(Json(true))
+}
+
 /// The downloads since the server started, the newest last.
 #[utoipa::path(get, path = "/api/v1/hub/downloads", tag = "models", responses((status = 200, body = Vec<crate::hub::Download>)))]
 async fn hub_downloads(State(app): State<App>) -> Json<Vec<crate::hub::Download>> {
@@ -1681,8 +1778,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "markets", description = "Prices from public feeds, indicators worked out here, and a Pine-compatible engine of Demido's own. Nothing places an order"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -1715,6 +1812,13 @@ pub fn router(app: App) -> Router {
         .route("/hub/downloads/{id}", axum::routing::delete(hub_stop))
         .route("/hub/token", get(hub_token).put(hub_token_set).delete(hub_token_remove))
         .route("/search/keys", get(search_keys))
+        .route("/markets/symbols", get(markets_symbols))
+        .route("/markets/candles", get(markets_candles))
+        .route("/markets/built-in", get(markets_built_in))
+        .route("/markets/pine/run", post(markets_pine_run))
+        .route("/markets/pine/write", post(markets_pine_write))
+        .route("/markets/scripts", get(markets_scripts).put(markets_script_keep))
+        .route("/markets/scripts/{id}", axum::routing::delete(markets_script_forget))
         .route("/bots", get(bots_list).post(bot_add))
         .route("/bots/{id}", axum::routing::delete(bot_remove))
         .route("/bots/{id}/messages", get(bot_messages))
@@ -1840,6 +1944,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         browser: core.browser.clone(),
         mail: core.mail.clone(),
         bots: core.bots.clone(),
+        markets: core.markets.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -2007,6 +2112,7 @@ mod tests {
             browser: Arc::new(crate::browser::Browser::new(home, Arc::new(crate::web::Web::new(None)), events.clone())),
             mail: Arc::new(crate::email::Mail::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone())),
             bots: Arc::new(crate::bots::Bots::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone(), chat.clone())),
+            markets: Arc::new(crate::markets::Markets::new(crate::markets::Feeds::default(), db.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),

@@ -521,6 +521,29 @@
     display: grid;
     gap: var(--d-space-4);
   }
+  /* Markets, for real: Demido's own chart and the script under it. */
+  .mk-real__chart {
+    position: relative;
+    inline-size: 100%;
+  }
+  .mk-real__chart svg {
+    display: block;
+    cursor: crosshair;
+  }
+  .mk-real__legend {
+    min-block-size: 1.25rem;
+    color: var(--d-color-text-secondary);
+  }
+  .mk-real__axis {
+    font-family: var(--d-font-mono, monospace);
+    font-size: 0.6875rem;
+    fill: var(--d-color-text-tertiary);
+  }
+  .mk-real__pine {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    resize: vertical;
+  }
   /* A picture of a page in Demido's browser: the page as the model last saw it. */
   .browser__shot {
     display: block;

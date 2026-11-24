@@ -40,6 +40,7 @@ pub mod events;
 pub mod folder;
 pub mod hub;
 pub mod kept;
+pub mod markets;
 pub mod paths;
 pub mod permissions;
 pub mod programs;

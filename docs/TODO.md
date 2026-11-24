@@ -64,9 +64,9 @@ Messaging (WhatsApp, Telegram, Discord):
 - [ ] **(needs you)** Linking WhatsApp or Telegram as you (codes on your phone; never your phone or its PIN), and making a Discord bot of your own.
 
 Markets:
-- [ ] Research price feeds (DECISIONS M7: public exchange feeds first; what there is for stocks and currencies) and the chart (M9: Lightweight Charts, Apache-2.0 with its attribution, or Demido's own). A research note.
-- [ ] Build the real Markets screen: Demido's own chart, the indicators worked out on this computer (M2), live prices from a public feed.
-- [ ] A Pine-compatible engine of Demido's own (M3, M4, M5): a first part of the language, so that a model can write a script, run it on the chart, read the error and mend it.
+- [x] Research price feeds (DECISIONS M7: public exchange feeds first; what there is for stocks and currencies) and the chart (M9: Lightweight Charts, Apache-2.0 with its attribution, or Demido's own). A research note.
+- [x] Build the real Markets screen: Demido's own chart, the indicators worked out on this computer (M2), live prices from a public feed.
+- [x] A Pine-compatible engine of Demido's own (M3, M4, M5): a first part of the language, so that a model can write a script, run it on the chart, read the error and mend it.
 - [ ] **(needs you)** TradingView's sign-in (M10), with an account of yours.
 
 ## Item 7: what is left of agents and schedules

@@ -15,6 +15,8 @@ import type { CSSProperties } from 'react'
 import { Bell, ChartCandlestick, ChevronDown, Code, Copy, Eraser, Eye, EyeOff, LineChart, Minus, MousePointer2, Play, Plus, RectangleHorizontal, Ruler, Search, Slash, Star, Trash2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
+import { useCore } from '@/data/core'
+import { RealMarkets } from './real'
 import { setSetting, toast, useSetting } from '@/data/store'
 import { Button, Dialog, Facts, Glyph, Icon, InspectorToggle, Menu, NotBuilt, Segmented, Select, Signal, Tip, cx, useInspector } from '@/ui'
 import { Chart, fmt } from './chart'
@@ -309,7 +311,7 @@ function PinePanel({ scripts, signedIn, engine, onEngine, onChart, onToggle, onM
 // ───────── page ─────────
 const onChartOf = (e: Entry, engine: Engine): OnChart => ({ key: `${e.id}#${Math.random().toString(36).slice(2, 8)}`, entry: e.id, name: e.name, draw: e.draw, engine, hidden: false })
 
-function MarketsPage() {
+function PreviewMarkets() {
   const [symId, setSymId] = useState('BTC/EUR')
   const [tfId, setTfId] = useState('1D')
   const [type, setType] = useState<ChartType>('candles')
@@ -510,6 +512,12 @@ function MarketsPage() {
       {dialog && typeof dialog === 'object' && <Indicators signedIn={signedIn} entries={entries} counts={counts} first={dialog.shelf} onAdd={add} onLayout={loadLayout} onSignIn={() => setDialog('signin')} onPine={() => { setDialog(null); setPine(true) }} onClose={() => setDialog(null)} />}
     </div>
   )
+}
+
+/** With a core behind the pages, the real one; without, the preview of where it is going. */
+function MarketsPage() {
+  const core = useCore()
+  return core.state === 'ready' ? <RealMarkets /> : <PreviewMarkets />
 }
 
 export const feature: Feature = {

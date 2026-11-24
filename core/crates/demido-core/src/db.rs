@@ -241,6 +241,13 @@ const MIGRATIONS: &[&str] = &[
         at        INTEGER NOT NULL
      ) STRICT;
      CREATE INDEX bot_messages_of ON bot_messages (bot, at);",
+    // Pine-compatible scripts of the person's, kept on this computer (DECISIONS M12, M17).
+    "CREATE TABLE pine_scripts (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        source     TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+     ) STRICT;",
 ];
 
 pub struct Db {
