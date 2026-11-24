@@ -383,7 +383,7 @@ pub fn share(kept: &Kept, folder: &Path) -> Result<String, String> {
     // A folder kept from the sandbox (IDEAS 147) is let in while a session has it: an entry that refuses
     // would weigh more than the one that allows.
     if refuses(folder, &user) {
-        set_entries(folder, &[access(&user, 0, REVOKE_ACCESS, false)], false)?;
+        drop_refusal(folder, &user)?;
     }
     if !(grants(folder, &user) && grants(folder, &sid)) {
         set_entries(folder, &[access(&user, MODIFY, GRANT_ACCESS, true), access(&sid, MODIFY, GRANT_ACCESS, true)], false)?;
@@ -414,6 +414,14 @@ pub fn give_back(home: &Path, folder: &Path) -> Result<(), String> {
 }
 
 // ---------- folders kept from the sandbox (IDEAS 147) ----------
+
+/// Takes an entry refusing `sid` off `path`. Windows's REVOKE_ACCESS takes off only the entries that allow (found
+/// on the checks' Windows machine: the refusal stayed); GRANT_ACCESS cancels the rights an entry refuses. So the
+/// rights are granted, which cancels the refusal, and then revoked, which leaves neither.
+fn drop_refusal(path: &Path, sid: &Sid) -> Result<(), String> {
+    set_entries(path, &[access(sid, FULL, GRANT_ACCESS, true)], false)?;
+    set_entries(path, &[access(sid, 0, REVOKE_ACCESS, false)], false)
+}
 
 fn kept_out_path(home: &Path) -> PathBuf {
     home.join("sandbox").join("kept-out.json")
@@ -453,7 +461,7 @@ pub fn let_back_in(home: &Path, folder: &Path) -> Result<PathBuf, String> {
     let folder = plain(&folder.canonicalize().map_err(|e| format!("{} cannot be opened: {e}", folder.display()))?);
     let user = Sid::parse(&kept.sid)?;
     if refuses(&folder, &user) && !grants(&folder, &user) {
-        set_entries(&folder, &[access(&user, 0, REVOKE_ACCESS, false)], false)?;
+        drop_refusal(&folder, &user)?;
     }
     let list: Vec<PathBuf> = kept_out(home).into_iter().filter(|k| k != &folder).collect();
     keep_list(home, &list)?;
