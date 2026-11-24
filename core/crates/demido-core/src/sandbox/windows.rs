@@ -754,7 +754,7 @@ const WFP_FILTERS: [windows_sys::core::GUID; 4] = [
     windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a5b),
 ];
 
-/// Every connection the sandbox's user makes or accepts is blocked by the Windows Filtering Platform itself, which
+/// Every TCP or UDP connection the sandbox's user makes or accepts is blocked by the Windows Filtering Platform itself, which
 /// the firewall is built on: Windows Firewall's rules leave loopback alone (research note 29: a block rule did not
 /// stop the user reaching a server on 127.0.0.1), a filter does not. Four filters (connecting and accepting, IPv4
 /// and IPv6), matching that user (`FWPM_CONDITION_ALE_USER_ID`, as the firewall rule names it), in a sublayer of
@@ -809,7 +809,7 @@ pub fn shut_every_connection(user_sid: &str) -> Result<(), String> {
         // SAFETY: as above.
         unsafe { FwpmSubLayerDeleteByKey0(engine.0, &WFP_SUBLAYER) };
 
-        let (mut name, mut about) = (wide("Demido Studio sandbox"), wide("The programs a model runs: no connection at all, this computer's own included."));
+        let (mut name, mut about) = (wide("Demido Studio sandbox"), wide("The programs a model runs: no TCP or UDP connection at all, this computer's own included."));
         // SAFETY: plain data; every pointer set below outlives the call that reads it.
         let mut sublayer: FWPM_SUBLAYER0 = unsafe { std::mem::zeroed() };
         sublayer.subLayerKey = WFP_SUBLAYER;
@@ -823,12 +823,21 @@ pub fn shut_every_connection(user_sid: &str) -> Result<(), String> {
         }
         let layers = [FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6];
         for (key, layer) in WFP_FILTERS.iter().zip(layers) {
+            // That user, and TCP or UDP (conditions on one field are either-or, on different fields both). The
+            // firewall's rules already shut every protocol beyond this computer; on loopback what matters is
+            // reaching a server, and ICMP (ping) carries nothing to one.
             // SAFETY: plain data, filled below.
-            let mut condition: FWPM_FILTER_CONDITION0 = unsafe { std::mem::zeroed() };
-            condition.fieldKey = FWPM_CONDITION_ALE_USER_ID;
-            condition.matchType = FWP_MATCH_EQUAL;
-            condition.conditionValue.r#type = FWP_SECURITY_DESCRIPTOR_TYPE;
-            condition.conditionValue.Anonymous.sd = &mut blob;
+            let mut conditions: [FWPM_FILTER_CONDITION0; 3] = unsafe { std::mem::zeroed() };
+            conditions[0].fieldKey = FWPM_CONDITION_ALE_USER_ID;
+            conditions[0].matchType = FWP_MATCH_EQUAL;
+            conditions[0].conditionValue.r#type = FWP_SECURITY_DESCRIPTOR_TYPE;
+            conditions[0].conditionValue.Anonymous.sd = &mut blob;
+            for (c, protocol) in conditions[1..].iter_mut().zip([6u8, 17u8]) {
+                c.fieldKey = FWPM_CONDITION_IP_PROTOCOL;
+                c.matchType = FWP_MATCH_EQUAL;
+                c.conditionValue.r#type = FWP_UINT8;
+                c.conditionValue.Anonymous.uint8 = protocol;
+            }
             // SAFETY: plain data, filled below.
             let mut filter: FWPM_FILTER0 = unsafe { std::mem::zeroed() };
             filter.filterKey = *key;
@@ -838,8 +847,8 @@ pub fn shut_every_connection(user_sid: &str) -> Result<(), String> {
             filter.subLayerKey = WFP_SUBLAYER;
             filter.weight.r#type = FWP_UINT8;
             filter.weight.Anonymous.uint8 = 15;
-            filter.numFilterConditions = 1;
-            filter.filterCondition = &mut condition;
+            filter.numFilterConditions = conditions.len() as u32;
+            filter.filterCondition = conditions.as_mut_ptr();
             filter.action.r#type = FWP_ACTION_BLOCK;
             // SAFETY: a filled filter whose pointers (condition, blob, names) live until the call returns.
             let added = unsafe { FwpmFilterAdd0(engine.0, &filter, std::ptr::null_mut(), std::ptr::null_mut()) };
