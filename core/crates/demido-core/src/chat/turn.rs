@@ -102,9 +102,9 @@ impl Words {
 }
 
 /// The list of tools and the question a model is asked before each answer, for a person to read.
-pub(super) fn told_about_tools(has_folder: bool, internet: bool, artifacts: bool, browser: bool, mail: bool) -> String {
+pub(super) fn told_about_tools(has_folder: bool, internet: bool, artifacts: bool, browser: bool, mail: bool, others: bool) -> String {
     let folder = if has_folder { "\n\n(the files in the folder, by their paths, as they are at that moment)" } else { "" };
-    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered_with(has_folder, true, internet, artifacts, browser, mail)), Words::request("").ask)
+    format!("{}{folder}\n\n(the request)\n\n{}", tools::listed(&tools::offered_all(has_folder, true, internet, artifacts, browser, mail, others)), Words::request("").ask)
 }
 
 /// How the last message of a piece of work ends.
@@ -374,6 +374,8 @@ impl Chat {
         };
         for message in self.sessions.messages(&session.id)? {
             match message.role.as_str() {
+                // What another session said is text from outside: once it is there, a change asks (N4, S5).
+                "session" => so_far.read_the_internet = true,
                 "user" => {
                     so_far.by_the_person.extend(guard::addresses_in(&message.content, true));
                     so_far.person_wrote.push_str(&message.content.to_lowercase());
@@ -529,6 +531,11 @@ impl Chat {
                     let names: Vec<String> = given.iter().map(|a| if a.versions > 1 { format!("{} (version {})", a.name, a.versions) } else { a.name.clone() }).collect();
                     listed = format!("{listed}\n\nFiles you gave the person in this session: {}. The same name again gives a new version.", tools::clean(&names.join(", ")));
                 }
+            }
+            // And the other sessions that work in this folder, by their names (DECISIONS S5).
+            if offered.iter().any(|t| t.name == tools::MESSAGE_SESSION) {
+                let others: Vec<String> = self.others_in_folder(session).iter().map(|o| format!("\"{}\"", o.title)).collect();
+                listed = format!("{listed}\n\nOther sessions working in this folder: {}.", tools::clean(&others.join(", ")));
             }
             let mut messages = before.to_vec();
             messages.extend(request_messages(request, steps, &End::Decide(&listed), words));
@@ -776,6 +783,21 @@ impl Chat {
                             },
                             Ok(read) => Ok(tools::Done { gave: tools::clean(&read.gave), changed: None }),
                             Err(why) => Err(why),
+                        }
+                    } else if tool == tools::MESSAGE_SESSION {
+                        // To another session working in this folder, by its name; it reaches that session as text from
+                        // outside, never as its person's words (DECISIONS S5).
+                        let to = args.get("to").and_then(Value::as_str).unwrap_or_default().trim().trim_matches(['"', '\'', '«', '»']).to_lowercase();
+                        let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
+                        let others = self.others_in_folder(session);
+                        match others.iter().find(|o| o.title.to_lowercase() == to).or_else(|| others.iter().find(|o| !to.is_empty() && o.title.to_lowercase().contains(&to))) {
+                            None => {
+                                Err(format!("there is no other session named \"{to}\" in this folder; there are: {}", others.iter().map(|o| format!("\"{}\"", o.title)).collect::<Vec<_>>().join(", ")))
+                            }
+                            Some(other) => self
+                                .tell_session(&other.id, &session.title, &self.hide(text))
+                                .map(|_| tools::Done { gave: format!("Sent to \"{}\". It reads it before its next answer.", other.title), changed: None })
+                                .map_err(|e| e.to_string()),
                         }
                     } else if matches!(tool.as_str(), tools::LIST_MAIL | tools::READ_MAIL | tools::SEND_MAIL) {
                         // The person's mail. What other people wrote is text from outside, like a page's.
@@ -1034,7 +1056,7 @@ impl Chat {
                     before,
                     request,
                     task,
-                    &tools::offered_with(has_folder, true, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some()),
+                    &tools::offered_all(has_folder, true, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some(), !self.others_in_folder(session).is_empty()),
                     stop,
                 )
                 .await?
@@ -1054,7 +1076,7 @@ impl Chat {
                         before,
                         request,
                         &part,
-                        &tools::offered_with(has_folder, false, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some()),
+                        &tools::offered_all(has_folder, false, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some(), !self.others_in_folder(session).is_empty()),
                         stop,
                     )
                     .await?;
@@ -1090,7 +1112,15 @@ impl Chat {
                     &before,
                     &request,
                     &Words::request(&request),
-                    &tools::offered_with(session.folder.is_some(), true, self.internet(), self.artifacts(session.folder.is_some()), self.browsing(), self.mail_account().is_some()),
+                    &tools::offered_all(
+                        session.folder.is_some(),
+                        true,
+                        self.internet(),
+                        self.artifacts(session.folder.is_some()),
+                        self.browsing(),
+                        self.mail_account().is_some(),
+                        !self.others_in_folder(session).is_empty(),
+                    ),
                     &mut steps,
                     stop,
                     &shown,

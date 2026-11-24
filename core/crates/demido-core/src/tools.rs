@@ -46,6 +46,8 @@ pub const RUN: &str = "run_command";
 /// The tools that read from the internet. They are run by `chat`, through `web`.
 pub const SEARCH: &str = "search_web";
 pub const READ_PAGE: &str = "read_page";
+/// Messages between sessions (DECISIONS S5).
+pub const MESSAGE_SESSION: &str = "message_session";
 /// Email (DECISIONS Y).
 pub const LIST_MAIL: &str = "list_mail";
 pub const READ_MAIL: &str = "read_mail";
@@ -174,6 +176,12 @@ const TOOLS: &[Tool] = &[
         args: &[arg("number", Kind::Whole), arg("text", Kind::Text)],
         reach: Reach::Network,
     },
+    Tool {
+        name: MESSAGE_SESSION,
+        does: "Sends a short message to another session that works in this folder, by its name in the list: to say what you are changing, or to ask it to wait. It cannot see your work otherwise.",
+        args: &[arg("to", Kind::Text), arg("text", Kind::Text)],
+        reach: Reach::Nothing,
+    },
     Tool { name: LIST_MAIL, does: "The newest messages in the person's inbox, numbered, with who sent each and its subject. You cannot see their mail without it.", args: &[], reach: Reach::Mail },
     Tool { name: READ_MAIL, does: "The text of one message, by its number in that list.", args: &[arg("number", Kind::Whole)], reach: Reach::Mail },
     Tool {
@@ -233,6 +241,11 @@ pub fn offered(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool
 
 /// The same, with the person's mail when they have an account and let models use it (DECISIONS Y).
 pub fn offered_with(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool, browser: bool, mail: bool) -> Vec<&'static Tool> {
+    offered_all(has_folder, may_plan, internet, artifacts, browser, mail, false)
+}
+
+/// The same, with `message_session` when other sessions work in this one's folder (DECISIONS S5).
+pub fn offered_all(has_folder: bool, may_plan: bool, internet: bool, artifacts: bool, browser: bool, mail: bool, others: bool) -> Vec<&'static Tool> {
     TOOLS
         .iter()
         .filter(|t| match t.reach {
@@ -244,6 +257,7 @@ pub fn offered_with(has_folder: bool, may_plan: bool, internet: bool, artifacts:
         })
         .filter(|t| may_plan || t.name != PLAN)
         .filter(|t| artifacts || t.name != GIVE)
+        .filter(|t| others || t.name != MESSAGE_SESSION)
         // Only after a command whose output was shortened (`chat`): offered before that, a model would ask for it.
         .filter(|t| t.name != READ_OUTPUT)
         .map(|t| if has_folder && t.name == GIVE { &GIVE_BESIDE_A_FOLDER } else { t })
@@ -843,7 +857,7 @@ mod tests {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, open_page, press, type_text, list_mail, read_mail, send_mail, read_output, give_file, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, open_page, press, type_text, message_session, list_mail, read_mail, send_mail, read_output, give_file, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));

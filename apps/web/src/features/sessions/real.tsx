@@ -87,6 +87,7 @@ function List() {
 const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
   add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
+  message_session: ['Told another session', 'to'],
   search_web: ['Searched the internet for', 'query'], give_file: ['Gave you', 'file_name'], read_page: ['Read the page', 'url'], read_output: ['Read more of what it printed, from line', 'from_line'],
   // Demido's browser (DECISIONS Z).
   open_page: ['Opened in the browser', 'url'], press: ['Pressed, on the page, number', 'number'], type_text: ['Typed into the page', 'text'],
@@ -297,6 +298,16 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
   const at = useProviders(() => elsewhere(m.model))
   if (m.role === 'user')
     return <article className="d-message" data-from="user"><div className="d-message__body" style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div></article>
+  // A message from another session in the same folder, or Demido's note of what it changed (DECISIONS S5).
+  if (m.role === 'session') {
+    const [from, ...rest] = m.content.split('\n')
+    return (
+      <article className="d-message chat__from-session" data-from="session" aria-label={`From ${from}`}>
+        <div className="app-row" style={{ gap: 'var(--d-space-8)' }}><span className="d-type-caption d-text-secondary">{from.startsWith("Demido's note") ? from : `From the session "${from}"`}</span><span className="d-untrusted">From another session · treated as data</span></div>
+        <div className="d-message__body" style={{ whiteSpace: 'pre-wrap' }}>{rest.join('\n')}</div>
+      </article>
+    )
+  }
   const writing = m.state === 'answering'
   const text = writing ? (live?.text ?? '') : m.content
   const thought = writing ? (live?.thought ?? '') : (m.thought ?? '')

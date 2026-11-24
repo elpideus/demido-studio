@@ -521,6 +521,11 @@
     display: grid;
     gap: var(--d-space-4);
   }
+  /* A message from another session: set apart from the person's own words and the model's. */
+  .chat__from-session {
+    border-inline-start: 2px solid var(--d-color-border-hairline);
+    padding-inline-start: var(--d-space-12);
+  }
   /* Markets, for real: Demido's own chart and the script under it. */
   .mk-real__chart {
     position: relative;

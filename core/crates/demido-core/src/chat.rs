@@ -319,6 +319,45 @@ impl Chat {
         self
     }
 
+    /// The other sessions that have the same folder as this one (DECISIONS S5): those a model may message, and
+    /// those told when this one changes a file there. Schedules' sessions are among them.
+    pub(crate) fn others_in_folder(&self, session: &Session) -> Vec<Session> {
+        let Some(folder) = session.folder.as_deref() else { return Vec::new() };
+        self.sessions.list().unwrap_or_default().into_iter().filter(|s| s.id != session.id && s.folder.as_deref() == Some(folder)).collect()
+    }
+
+    /// Puts a message into another session, from `from` (a session's title, or Demido's own note), as text from
+    /// outside: shown in the window as such, and given to its model before its next request, fenced.
+    pub fn tell_session(&self, to: &str, from: &str, text: &str) -> Result<Message> {
+        let text: String = tools::clean(text).chars().take(2_000).collect();
+        let said = self.sessions.add(to, "session", &format!("{from}\n{text}"), "done", None)?;
+        self.events.tell("session.message", Some(to), json!({ "from": from, "message": said.id }));
+        let _ = self.events.append("session.told", Some(to), json!({ "from": from, "characters": text.chars().count() }));
+        Ok(said)
+    }
+
+    /// After a turn that changed files in its folder, tells every other session with the same folder which
+    /// (DECISIONS S5): by code, so that a session does not overwrite what another just did without knowing.
+    pub(crate) fn tell_others_of_changes(&self, session: &Session, steps: &[tools::Step]) {
+        let mut changed: Vec<String> = Vec::new();
+        for step in steps.iter().filter(|s| s.state == "done" && s.change.is_some()) {
+            let what = step.args.get("path").and_then(|p| p.as_str()).map(str::to_string).unwrap_or_else(|| "files, by a command".into());
+            if !changed.contains(&what) {
+                changed.push(what);
+            }
+        }
+        if changed.is_empty() {
+            return;
+        }
+        for other in self.others_in_folder(session) {
+            let _ = self.tell_session(
+                &other.id,
+                &format!("Demido's note, about the session \"{}\"", session.title),
+                &format!("It changed {} in the folder just now. Read a file again before you change it.", changed.join(", ")),
+            );
+        }
+    }
+
     /// The account models use, when there is one and the person lets models use their mail: the first.
     pub(crate) fn mail_account(&self) -> Option<(Arc<crate::email::Mail>, crate::email::Account)> {
         if !self.settings.value::<bool>("email.models").unwrap_or(true) {
@@ -486,7 +525,17 @@ impl Chat {
             transcript.push_str(&format!("Notes on what came before:\n{}\n\n", earlier.content.trim()));
         }
         for m in older {
-            transcript.push_str(&format!("{}: {}\n\n", if m.role == "user" { "Person" } else { "Model" }, m.content.trim()));
+            transcript.push_str(&format!(
+                "{}: {}\n\n",
+                if m.role == "user" {
+                    "Person"
+                } else if m.role == "session" {
+                    "Another session"
+                } else {
+                    "Model"
+                },
+                m.content.trim()
+            ));
         }
         // The material first, fenced. What to do with it, last.
         let asked = format!("<conversation>\n{}\n</conversation>\n\n{ACCOUNT_INSTRUCTIONS}", transcript.trim_end());
@@ -660,10 +709,16 @@ impl Chat {
     /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are
     /// off. A session with a folder is shown the tools that reach into it too.
     pub fn tools_told(&self, session: &Session) -> Option<String> {
-        self.settings
-            .value::<bool>("tools.use")
-            .unwrap_or(true)
-            .then(|| turn::told_about_tools(session.folder.is_some(), self.internet(), self.artifacts(session.folder.is_some()), self.browsing(), self.mail_account().is_some()))
+        self.settings.value::<bool>("tools.use").unwrap_or(true).then(|| {
+            turn::told_about_tools(
+                session.folder.is_some(),
+                self.internet(),
+                self.artifacts(session.folder.is_some()),
+                self.browsing(),
+                self.mail_account().is_some(),
+                !self.others_in_folder(session).is_empty(),
+            )
+        })
     }
 
     fn asking(&self) -> std::sync::MutexGuard<'_, HashMap<String, Waiting>> {
@@ -882,7 +937,19 @@ impl Chat {
         // The answer about to be written is not part of its own question.
         let upto = in_view.iter().position(|m| m.id == answer_id).unwrap_or(in_view.len());
         let request_at = in_view[..upto].iter().rposition(|m| m.role == "user");
+        // What other sessions said (S5) goes with the person's next message, fenced as text from outside: a model's
+        // template has no turn of its own for it.
+        let mut from_others = String::new();
+        let mut before_request = String::new();
         for (i, m) in in_view[..upto].iter().enumerate() {
+            if m.role == "session" {
+                let (from, text) = m.content.split_once('\n').unwrap_or(("Another session", &m.content));
+                from_others.push_str(&format!("<from another session: {from}>\n{}\n</from another session>\n\n", tools::clean(text)));
+                continue;
+            }
+            if Some(i) == request_at {
+                before_request = std::mem::take(&mut from_others);
+            }
             // An answer that failed said nothing.
             if Some(i) == request_at || (m.role == "assistant" && m.content.trim().is_empty()) {
                 continue;
@@ -893,10 +960,11 @@ impl Chat {
                 messages.push(json!({ "role": m.role, "content": m.content }));
             } else {
                 asked = dated(m);
-                messages.push(json!({ "role": m.role, "content": asked.clone() }));
+                let with_others = format!("{}{asked}", std::mem::take(&mut from_others));
+                messages.push(json!({ "role": m.role, "content": with_others }));
             }
         }
-        Ok((messages, request_at.map(|i| dated(&in_view[i])).unwrap_or_default()))
+        Ok((messages, request_at.map(|i| format!("{before_request}{}", dated(&in_view[i]))).unwrap_or_default()))
     }
 
     /// The prompt for the answer itself: everything before, the request, and the tools used for it.
@@ -1100,6 +1168,10 @@ impl Chat {
             }
             // The session was deleted while its answer was being written: there is nowhere to write it.
             Err(e) => tracing::debug!("An answer could not be stored: {e}"),
+        }
+        // The other sessions in this folder are told which files this turn changed (S5).
+        if let Ok(done) = self.sessions.message(&answer_id) {
+            self.tell_others_of_changes(&session, &done.steps);
         }
     }
 }

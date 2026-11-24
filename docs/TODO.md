@@ -71,7 +71,7 @@ Markets:
 
 ## Item 7: what is left of agents and schedules
 
-- [ ] Messages between sessions, shown in the window.
+- [x] Messages between sessions, shown in the window.
 - [ ] The two measurements research note 24 owes: a run's report from a small model (with item 9's email, against the stand-in), and injection inside a run.
 - [ ] The schedules' desktop notice: done with item 10's shell.
 - [ ] **(needs you)** Agents with a model each: on hold by your decision (O13).

@@ -90,8 +90,23 @@ fn claude_code_mode(level: Level) -> &'static str {
 
 /// A message for the program, from what it has not seen of the conversation and the request.
 fn prompt_from(unseen: &[Message], request: &str) -> String {
-    let earlier: Vec<String> =
-        unseen.iter().filter(|m| !(m.role == "assistant" && m.content.trim().is_empty())).map(|m| format!("{}: {}", if m.role == "user" { "Person" } else { "Model" }, m.content.trim())).collect();
+    let earlier: Vec<String> = unseen
+        .iter()
+        .filter(|m| !(m.role == "assistant" && m.content.trim().is_empty()))
+        .map(|m| {
+            format!(
+                "{}: {}",
+                if m.role == "user" {
+                    "Person"
+                } else if m.role == "session" {
+                    "Another session"
+                } else {
+                    "Model"
+                },
+                m.content.trim()
+            )
+        })
+        .collect();
     if earlier.is_empty() {
         return request.to_string();
     }
