@@ -77,6 +77,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: core
+          # sherpa-onnx's build script downloads its prebuilt library into the target folder, which the cache
+          # otherwise leaves out while keeping the build's note that points there.
+          cache-directories: core/target/debug/sherpa-onnx-prebuilt
+      - name: sherpa-onnx's library, fetched again when a cache came without it
+        shell: bash
+        run: |
+          if [ ! -d core/target/debug/sherpa-onnx-prebuilt ]; then
+            rm -rf core/target/debug/build/sherpa-onnx-sys-* core/target/debug/.fingerprint/sherpa-onnx-sys-*
+          fi
       - name: Formatting
         if: matrix.tidy
         run: cargo fmt --manifest-path core/Cargo.toml --all --check
