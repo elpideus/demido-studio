@@ -78,7 +78,7 @@ tokio-tungstenite = { version = "0.29", default-features = false, features = ["h
 # The MD5 Google's storage gives with a file of Chrome for Testing, which publishes no checksum (browser/copy.rs).
 # md-5 0.10.6, MIT OR Apache-2.0, RustCrypto's; already in the build through other crates. Read 2026-11-24.
 md5 = { package = "md-5", version = "0.10" }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_UI_Shell"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_System_Rpc", "Win32_UI_Shell"] }
 nvml-wrapper = "0.13"
 # rustls with the system's own list of trusted certificates. No OpenSSL.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream", "json", "system-proxy", "gzip", "brotli"] }

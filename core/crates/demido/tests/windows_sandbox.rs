@@ -56,6 +56,19 @@ async fn a_program_runs_as_the_sandboxes_own_user_and_changes_nothing_outside_it
     let net = run(&sandbox, &folder, r#"curl.exe -s -m 10 -o NUL -w "%{http_code}" https://example.com"#).await;
     assert!(!net.output.contains("200"), "it reached the internet: {net:?}");
 
+    // Nor this computer's own servers (IDEAS 148): a server of the person's on loopback hears nothing from it,
+    // over IPv4 or IPv6, while the person still reaches it.
+    for (bind, url) in [("127.0.0.1:0", "http://127.0.0.1"), ("[::1]:0", "http://[::1]")] {
+        let server = std::net::TcpListener::bind(bind).unwrap();
+        server.set_nonblocking(true).unwrap();
+        let port = server.local_addr().unwrap().port();
+        let tried = run(&sandbox, &folder, &format!(r#"curl.exe -s -m 5 -o NUL -w "%{{http_code}}" {url}:{port}/"#)).await;
+        assert!(server.accept().is_err(), "it reached a server on loopback ({url}): {tried:?}");
+        std::net::TcpStream::connect(server.local_addr().unwrap()).expect("the person reaches it");
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(server.accept().is_ok(), "the person's own connection did not arrive");
+    }
+
     // Nothing of the person's environment comes along.
     // SAFETY: a test of its own; nothing else here reads the environment at the same time.
     unsafe { std::env::set_var("DEMIDO_TEST_SECRET", "a key of the person's") };

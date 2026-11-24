@@ -677,6 +677,126 @@ pub fn run_restricted(folder_sid: &str, script: &str) -> Result<u32, String> {
     }
 }
 
+// ---------- the Windows Filtering Platform: loopback too (IDEAS 148) ----------
+
+/// Demido's own sublayer and filters, known by these keys so that a second setup replaces them.
+const WFP_SUBLAYER: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a57);
+const WFP_FILTERS: [windows_sys::core::GUID; 4] = [
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a58),
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a59),
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a5a),
+    windows_sys::core::GUID::from_u128(0x4c7e_2f41_9b3a_4d6e_8a0f_d3e1_6b9c_2a5b),
+];
+
+/// Every connection the sandbox's user makes or accepts is blocked by the Windows Filtering Platform itself, which
+/// the firewall is built on: Windows Firewall's rules leave loopback alone (research note 29: a block rule did not
+/// stop the user reaching a server on 127.0.0.1), a filter does not. Four filters (connecting and accepting, IPv4
+/// and IPv6), matching that user (`FWPM_CONDITION_ALE_USER_ID`, as the firewall rule names it), in a sublayer of
+/// Demido's own of the highest weight, so that no permit of another sublayer decides first; kept across restarts.
+/// Set at setup, as an administrator; a second setup replaces them.
+pub fn shut_every_connection(user_sid: &str) -> Result<(), String> {
+    use windows_sys::Win32::NetworkManagement::WindowsFilteringPlatform::*;
+    use windows_sys::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+
+    let sddl = wide(format!("O:LSD:(A;;CC;;;{user_sid})"));
+    let (mut sd, mut sd_size): (PSECURITY_DESCRIPTOR, u32) = (std::ptr::null_mut(), 0);
+    // SAFETY: a valid wide string in; the descriptor out is freed below.
+    if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, &mut sd_size) } == 0 {
+        return Err(last_error("Describing the sandbox's user for the filter"));
+    }
+    struct Freed(PSECURITY_DESCRIPTOR);
+    impl Drop for Freed {
+        fn drop(&mut self) {
+            // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW, freed once.
+            unsafe { LocalFree(self.0 as HLOCAL) };
+        }
+    }
+    let _freed = Freed(sd);
+    let mut blob = FWP_BYTE_BLOB { size: sd_size, data: sd as *mut u8 };
+
+    let mut engine: HANDLE = std::ptr::null_mut();
+    // SAFETY: the local engine, Windows's own authentication; the handle is closed below.
+    let opened = unsafe { FwpmEngineOpen0(std::ptr::null(), windows_sys::Win32::System::Rpc::RPC_C_AUTHN_WINNT, std::ptr::null(), std::ptr::null(), &mut engine) };
+    if opened != ERROR_SUCCESS {
+        return Err(format!("The Windows Filtering Platform could not be opened (error {opened:#x}): is this an administrator?"));
+    }
+    struct Engine(HANDLE);
+    impl Drop for Engine {
+        fn drop(&mut self) {
+            // SAFETY: opened by FwpmEngineOpen0, closed once.
+            unsafe { FwpmEngineClose0(self.0) };
+        }
+    }
+    let engine = Engine(engine);
+    let failed = |what: &str, code: u32| format!("The Windows Filtering Platform refused {what} (error {code:#x}).");
+    // SAFETY: an open engine.
+    let began = unsafe { FwpmTransactionBegin0(engine.0, 0) };
+    if began != ERROR_SUCCESS {
+        return Err(failed("to begin", began));
+    }
+    let mut all = || -> Result<(), String> {
+        // What an earlier setup left, if anything.
+        for key in &WFP_FILTERS {
+            // SAFETY: an open engine and a key; not found is fine.
+            unsafe { FwpmFilterDeleteByKey0(engine.0, key) };
+        }
+        // SAFETY: as above.
+        unsafe { FwpmSubLayerDeleteByKey0(engine.0, &WFP_SUBLAYER) };
+
+        let (mut name, mut about) = (wide("Demido Studio sandbox"), wide("The programs a model runs: no connection at all, this computer's own included."));
+        // SAFETY: plain data; every pointer set below outlives the call that reads it.
+        let mut sublayer: FWPM_SUBLAYER0 = unsafe { std::mem::zeroed() };
+        sublayer.subLayerKey = WFP_SUBLAYER;
+        sublayer.displayData = FWPM_DISPLAY_DATA0 { name: name.as_mut_ptr(), description: about.as_mut_ptr() };
+        sublayer.flags = FWPM_SUBLAYER_FLAG_PERSISTENT;
+        sublayer.weight = u16::MAX;
+        // SAFETY: a filled sublayer, and no descriptor of its own (the default).
+        let added = unsafe { FwpmSubLayerAdd0(engine.0, &sublayer, std::ptr::null_mut()) };
+        if added != ERROR_SUCCESS {
+            return Err(failed("Demido's sublayer", added));
+        }
+        let layers = [FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6];
+        for (key, layer) in WFP_FILTERS.iter().zip(layers) {
+            // SAFETY: plain data, filled below.
+            let mut condition: FWPM_FILTER_CONDITION0 = unsafe { std::mem::zeroed() };
+            condition.fieldKey = FWPM_CONDITION_ALE_USER_ID;
+            condition.matchType = FWP_MATCH_EQUAL;
+            condition.conditionValue.r#type = FWP_SECURITY_DESCRIPTOR_TYPE;
+            condition.conditionValue.Anonymous.sd = &mut blob;
+            // SAFETY: plain data, filled below.
+            let mut filter: FWPM_FILTER0 = unsafe { std::mem::zeroed() };
+            filter.filterKey = *key;
+            filter.displayData = FWPM_DISPLAY_DATA0 { name: name.as_mut_ptr(), description: about.as_mut_ptr() };
+            filter.flags = FWPM_FILTER_FLAG_PERSISTENT;
+            filter.layerKey = layer;
+            filter.subLayerKey = WFP_SUBLAYER;
+            filter.weight.r#type = FWP_UINT8;
+            filter.weight.Anonymous.uint8 = 15;
+            filter.numFilterConditions = 1;
+            filter.filterCondition = &mut condition;
+            filter.action.r#type = FWP_ACTION_BLOCK;
+            // SAFETY: a filled filter whose pointers (condition, blob, names) live until the call returns.
+            let added = unsafe { FwpmFilterAdd0(engine.0, &filter, std::ptr::null_mut(), std::ptr::null_mut()) };
+            if added != ERROR_SUCCESS {
+                return Err(failed("a filter", added));
+            }
+        }
+        Ok(())
+    };
+    match all() {
+        Ok(()) => {
+            // SAFETY: an open engine with a transaction under way.
+            let committed = unsafe { FwpmTransactionCommit0(engine.0) };
+            if committed != ERROR_SUCCESS { Err(failed("to keep the filters", committed)) } else { Ok(()) }
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { FwpmTransactionAbort0(engine.0) };
+            Err(e)
+        }
+    }
+}
+
 // ---------- demido sandbox-setup, once, as an administrator ----------
 
 /// What setup asks PowerShell to do, as an administrator: the user (made, or its password changed), off the
@@ -734,6 +854,8 @@ pub fn setup(home: &Path, person: &str) -> Result<(), String> {
     }
     let printed = String::from_utf8_lossy(&out.stdout);
     let sid = printed.lines().find_map(|l| l.trim().strip_prefix("SID=")).ok_or("the user was made, and its SID could not be read")?.to_string();
+    // Loopback too, which the firewall's rules leave alone (IDEAS 148). Without it, no sandbox.
+    shut_every_connection(&sid)?;
     // Its place: only the administrators and the person may change it; the user may read and run.
     let (user, me, system, admins) = (Sid::parse(&sid)?, Sid::parse(person)?, Sid::parse(SYSTEM)?, Sid::parse(ADMINISTRATORS)?);
     private_folder(&place(), &[(&system, FULL), (&admins, FULL), (&me, FULL), (&user, READ_AND_RUN)])?;
