@@ -18,7 +18,9 @@ import { asAFile, keepAsFile, openArtifact, useFilesFocus } from '@/data/artifac
 import { onCoreEvent } from '@/data/core'
 import { toast, useSetting } from '@/data/store'
 import { runSchedule, scheduleRuns, whenFromNow, type Schedule } from '@/data/schedules'
-import { BrowserCard, BrowserPanel, FolderPanel, shotsOf, type Shot } from './panels'
+import { BrowserCard, FolderPanel, shotsOf, type Shot } from './panels'
+import { LiveBrowser } from './live-browser'
+import { useInsert } from './draft'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
 /** How long ago, short: "now", "5 min", "3 h", "2 d". */
@@ -480,6 +482,14 @@ function Composer({ id, answering, tools, program, children }: { id: string; ans
   const [plan, setPlan] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { input.current?.focus() }, [id])
+  // What the browser's marks put here, added to what is being written.
+  const inserted = useInsert((s) => s.waiting[id])
+  useEffect(() => {
+    if (!inserted) return
+    setText((t) => (t.trim() ? `${t.trimEnd()}\n\n${inserted}` : inserted))
+    useInsert.getState().taken(id)
+    input.current?.focus()
+  }, [inserted, id])
   // Dictation (DECISIONS V11): each finished sentence is put at the end of what is in the box; nothing is sent by it.
   const [dictating, setDictating] = useState<'off' | 'starting' | 'listening' | 'hearing' | 'waiting'>('off')
   const dictation = useRef<Dictation | null>(null)
@@ -586,14 +596,13 @@ function Chat() {
   // What is open beside the conversation, whether it takes the whole view, and the page chosen in the browser.
   const [panel, setPanel] = useState<'browser' | 'files' | null>(null)
   const [wide, setWide] = useState(false)
-  const [shot, setShot] = useState<string | null>(null)
   // An artifact opened from anywhere opens in its session's files.
   const focus = useFilesFocus((s) => s.focus)
   const [artifact, setArtifact] = useState<{ id: string; n: number } | null>(null)
   useEffect(() => {
     if (focus && focus.session === id) { setArtifact({ id: focus.artifact, n: focus.n }); setPanel('files'); useFilesFocus.getState().clear() }
   }, [focus, id])
-  useEffect(() => { setTold(false); setSure(false); setPanel(null); setWide(false); setShot(null); setArtifact(null) }, [id])
+  useEffect(() => { setTold(false); setSure(false); setPanel(null); setWide(false); setArtifact(null) }, [id])
   // Only a session the list knows is asked for: the address may still name one that is gone, or one of the preview's.
   useEffect(() => { if (known) void readSession(id) }, [id, known])
   // Follow the answer down as it is written.
@@ -623,7 +632,7 @@ function Chat() {
   const offLabel = program ? 'Default' : always ? 'Least' : 'Off'
   const internet = Boolean(detail.tools_told?.includes('search_web'))
   const shots = shotsOf(messages)
-  const openPage = (s: Shot) => { setShot(s.picture); setPanel('browser') }
+  const openPage = (_: Shot) => setPanel('browser')
   const toggle = (p: 'browser' | 'files') => { setPanel(panel === p ? null : p); setWide(false) }
 
   const modelState = (m: string) => models.find((x) => x.id === m)?.state
@@ -691,7 +700,7 @@ function Chat() {
           {!program && <Room id={id} context={detail.context} busy={answering} canShorten={messages.filter((m) => m.seq > covered).length >= 4} />}
         </Composer>
       </section>
-      {panel === 'browser' && <BrowserPanel session={id} shots={shots} chosen={shot} onChoose={setShot} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)} />}
+      {panel === 'browser' && <LiveBrowser session={id} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)} />}
       {panel === 'files' && <FolderPanel session={id} folder={session.folder ?? null} focus={artifact} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)}
         empty={<><p>No folder.</p><FolderForm id={id} folder={null} sandbox={detail.sandbox} /></>} />}
       {told && <Told detail={detail} onClose={() => setTold(false)} />}

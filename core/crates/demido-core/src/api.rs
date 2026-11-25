@@ -1847,6 +1847,22 @@ async fn voice_read(State(app): State<App>, Query(opened): Query<crate::voice::t
     upgrade.on_upgrade(move |socket| crate::voice::talk::read_aloud(socket, voice, sessions, events, opened))
 }
 
+/// A session's browser in the window, over a WebSocket (DECISIONS Z12): the tab in front as it is drawn, and the
+/// person's mouse, keys, addresses and tabs. Only from Demido's own pages: a page elsewhere that opened this
+/// socket with the person's cookie would be driving their browser.
+async fn session_browser_live(State(app): State<App>, Path(id): Path<String>, headers: HeaderMap, upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or_default();
+    let ours = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok()).is_none_or(|o| o.split("://").nth(1).is_some_and(|o| o.eq_ignore_ascii_case(host)));
+    if !ours {
+        return problem(StatusCode::FORBIDDEN, "wrong_origin", "The browser is driven only from Demido's own pages.");
+    }
+    if let Err(e) = app.sessions.get(&id) {
+        return e.into_response();
+    }
+    let browser = app.browser.clone();
+    upgrade.on_upgrade(move |socket| crate::browser::live::serve(socket, browser, id))
+}
+
 /// Dictation into the message box with voice mode's ears (DECISIONS V11), over a WebSocket: the microphone's sound
 /// in, each finished sentence out as `heard`. Nothing is said in a session by it.
 async fn voice_dictate(State(app): State<App>, Query(opened): Query<crate::voice::talk::ReadOpened>, upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
@@ -2056,6 +2072,7 @@ pub fn router(app: App) -> Router {
         .route("/voice/download", post(voice_download))
         .route("/voice/voices/{id}", get(voice_sample))
         .route("/voice/talk", get(voice_talk))
+        .route("/sessions/{id}/browser/live", get(session_browser_live))
         .route("/voice/read", get(voice_read))
         .route("/voice/dictate", get(voice_dictate))
         .route("/schedules", get(schedules_list).post(schedule_new))

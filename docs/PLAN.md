@@ -230,6 +230,10 @@ Also done on 2026-11-24: the browser a model drives (DECISIONS Z, research note 
 holds in Chrome for Testing's headless shell and not in Arch's Chromium 157; Demido's browser has UDP off and every
 connection through its own proxy, which refuses a TURN tunnel.
 
+Also done on 2026-11-26, by the owner's direction: the session's browser live beside the conversation and used
+as a browser, with tabs, an address bar, the mouse and the keys, and marks (point, draw, box, note) sent to the
+message box as words (DECISIONS Z12 to Z17).
+
 Next, by the owner's direction of 2026-11-23: items 6, 8, 9, 7, 5 and 10, in that order, skipping what needs
 the owner. The work list, checked as it goes, is `docs/TODO.md`. Agents wait.
 

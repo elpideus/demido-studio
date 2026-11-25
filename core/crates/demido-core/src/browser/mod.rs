@@ -12,9 +12,14 @@
 //! When a use asks the person is decided where every tool's is (`permissions`): opening an address as
 //! `read_page` does; pressing only at Cautious; typing the model's own words at Balanced (Z7). A password
 //! field is never typed in.
+//!
+//! The person uses the same browser from the window (`live`, DECISIONS Z12 to Z16): a session's place has
+//! tabs; the window sees the active one as it changes, and its clicks, keys and addresses go to it. The model's
+//! tools act on the active tab too.
 
 pub mod cdp;
 pub mod copy;
+pub mod live;
 pub mod proxy;
 
 use std::collections::HashMap;
@@ -103,22 +108,48 @@ pub struct OpenPage {
     pub idle_ms: u64,
 }
 
+/// One tab of a session's place.
 struct Tab {
-    context: String,
+    /// The browser's own name for the page (its target).
+    target: String,
     /// The browser's own name for the page's session (the protocol's).
     session: String,
     items: Vec<Item>,
     address: String,
     title: String,
     picture: Option<String>,
+}
+
+/// A session's place in the browser: a context of its own (its cookies), its tabs, and which is in front.
+struct Place {
+    context: String,
+    tabs: Vec<Tab>,
+    active: usize,
     used: Instant,
+    /// The size its pages are laid out at: the window's view of them, or a person's window's.
+    size: (u32, u32),
+}
+
+impl Place {
+    fn front(&mut self) -> Option<&mut Tab> {
+        let at = self.active.min(self.tabs.len().saturating_sub(1));
+        self.tabs.get_mut(at)
+    }
 }
 
 struct Running {
     cdp: Arc<cdp::Cdp>,
     proxy: proxy::Proxy,
     agent: String,
-    tabs: HashMap<String, Tab>,
+    places: HashMap<String, Place>,
+}
+
+/// A tab, as the window lists it.
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct TabFacts {
+    pub id: String,
+    pub address: String,
+    pub title: String,
 }
 
 pub struct Browser {
@@ -209,10 +240,13 @@ impl Browser {
         let pages = running
             .as_ref()
             .map(|r| {
-                r.tabs
+                r.places
                     .iter()
                     .filter(|(s, _)| s.as_str() != ONLY_READING)
-                    .map(|(s, t)| OpenPage { session: s.clone(), address: t.address.clone(), title: t.title.clone(), picture: t.picture.clone(), idle_ms: t.used.elapsed().as_millis() as u64 })
+                    .filter_map(|(s, p)| {
+                        let t = p.tabs.get(p.active.min(p.tabs.len().saturating_sub(1)))?;
+                        Some(OpenPage { session: s.clone(), address: t.address.clone(), title: t.title.clone(), picture: t.picture.clone(), idle_ms: p.used.elapsed().as_millis() as u64 })
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -271,29 +305,54 @@ impl Browser {
         // Its own name, and Demido's after it: never a browser's name alone (N7).
         let agent = format!("{} {}", version.get("userAgent").and_then(Value::as_str).unwrap_or("Chromium"), crate::web::name());
         let _ = self.events.append("browser.started", None, json!({ "product": version.get("product") }));
-        *running = Some(Running { cdp, proxy, agent, tabs: HashMap::new() });
+        // News of every tab: its address and title as they change, and the tabs a page opens itself.
+        let _ = cdp.call("Target.setDiscoverTargets", json!({ "discover": true }), None).await;
+        *running = Some(Running { cdp, proxy, agent, places: HashMap::new() });
         Ok(())
     }
 
-    /// The page of a session, made when it has none.
-    async fn tab<'a>(&self, running: &'a mut Option<Running>, session: &str) -> Result<&'a mut Tab, String> {
+    /// A tab of the browser's own, attached and set up as Demido's: its name, its size.
+    async fn set_up(cdp: &cdp::Cdp, agent: &str, target: &str, size: (u32, u32)) -> Result<Tab, String> {
+        let attached = cdp.call("Target.attachToTarget", json!({ "targetId": target, "flatten": true }), None).await?;
+        let page = attached.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
+        cdp.call("Page.enable", json!({}), Some(&page)).await?;
+        cdp.call("Emulation.setUserAgentOverride", json!({ "userAgent": agent }), Some(&page)).await?;
+        cdp.call("Emulation.setDeviceMetricsOverride", json!({ "width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false }), Some(&page)).await?;
+        Ok(Tab { target: target.to_string(), session: page, items: Vec::new(), address: String::new(), title: String::new(), picture: None })
+    }
+
+    /// A new tab in a place, in front.
+    async fn new_tab(r: &mut Running, session: &str) -> Result<(), String> {
+        let (cdp, agent) = (r.cdp.clone(), r.agent.clone());
+        let place = r.places.get_mut(session).ok_or("no place")?;
+        let target = cdp.call("Target.createTarget", json!({ "url": "about:blank", "browserContextId": place.context }), None).await?;
+        let target = target.get("targetId").and_then(Value::as_str).unwrap_or_default().to_string();
+        let tab = Self::set_up(&cdp, &agent, &target, place.size).await?;
+        place.tabs.push(tab);
+        place.active = place.tabs.len() - 1;
+        Ok(())
+    }
+
+    /// The place of a session, made with one empty tab when it has none.
+    async fn place<'a>(&self, running: &'a mut Option<Running>, session: &str) -> Result<&'a mut Place, String> {
         self.start(running).await?;
         let r = running.as_mut().expect("just started");
-        if !r.tabs.contains_key(session) {
+        if !r.places.contains_key(session) {
             let context = r.cdp.call("Target.createBrowserContext", json!({ "disposeOnDetach": true }), None).await?;
             let context = context.get("browserContextId").and_then(Value::as_str).unwrap_or_default().to_string();
-            let target = r.cdp.call("Target.createTarget", json!({ "url": "about:blank", "browserContextId": context }), None).await?;
-            let target = target.get("targetId").and_then(Value::as_str).unwrap_or_default().to_string();
-            let attached = r.cdp.call("Target.attachToTarget", json!({ "targetId": target, "flatten": true }), None).await?;
-            let page = attached.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
-            r.cdp.call("Page.enable", json!({}), Some(&page)).await?;
-            r.cdp.call("Emulation.setUserAgentOverride", json!({ "userAgent": r.agent }), Some(&page)).await?;
-            r.cdp.call("Emulation.setDeviceMetricsOverride", json!({ "width": WIDTH, "height": HEIGHT, "deviceScaleFactor": 1, "mobile": false }), Some(&page)).await?;
-            r.tabs.insert(session.to_string(), Tab { context, session: page, items: Vec::new(), address: String::new(), title: String::new(), picture: None, used: Instant::now() });
+            r.places.insert(session.to_string(), Place { context, tabs: Vec::new(), active: 0, used: Instant::now(), size: (WIDTH, HEIGHT) });
         }
-        let tab = r.tabs.get_mut(session).expect("just made");
-        tab.used = Instant::now();
-        Ok(tab)
+        if r.places.get(session).is_some_and(|p| p.tabs.is_empty()) {
+            Self::new_tab(r, session).await?;
+        }
+        let place = r.places.get_mut(session).expect("just made");
+        place.used = Instant::now();
+        Ok(place)
+    }
+
+    /// The tab in front of a session's place, made when it has none.
+    async fn tab<'a>(&self, running: &'a mut Option<Running>, session: &str) -> Result<&'a mut Tab, String> {
+        self.place(running, session).await?.front().ok_or_else(|| "the session has no tab".to_string())
     }
 
     /// Waits until the page has loaded and its scripts had a moment, or until it has taken long enough.
@@ -329,7 +388,7 @@ impl Browser {
     /// Reads the page as it is now, takes its picture, and remembers what it lists.
     async fn look(&self, running: &mut Option<Running>, session: &str, about: &str, picture: bool) -> Result<Seen, String> {
         let r = running.as_mut().ok_or("the browser has stopped")?;
-        let tab = r.tabs.get_mut(session).ok_or("the session has no page open")?;
+        let tab = r.places.get_mut(session).and_then(Place::front).ok_or("the session has no page open")?;
         let seen = Self::in_our_world(&r.cdp, &tab.session, LOOK).await?;
         let items: Vec<Item> = serde_json::from_value(seen.get("items").cloned().unwrap_or(Value::Null)).unwrap_or_default();
         let address = seen.get("address").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -394,7 +453,7 @@ impl Browser {
 
     /// What the session's page lists under a number, as it was last read.
     pub async fn item(&self, session: &str, n: u32) -> Option<Item> {
-        self.running.lock().await.as_ref()?.tabs.get(session)?.items.iter().find(|i| i.n == n).cloned()
+        self.running.lock().await.as_mut()?.places.get_mut(session)?.front()?.items.iter().find(|i| i.n == n).cloned()
     }
 
     /// The numbered thing, found again on the page as it is now, scrolled into view: its middle, to press.
@@ -422,8 +481,9 @@ impl Browser {
     pub async fn press(&self, session: &str, n: u32, about: &str, stop: &AtomicBool) -> Result<Seen, String> {
         let mut running = self.running.lock().await;
         let r = running.as_mut().ok_or("no page is open in this session: open one first")?;
-        let tab = r.tabs.get_mut(session).ok_or("no page is open in this session: open one first")?;
-        tab.used = Instant::now();
+        let place = r.places.get_mut(session).ok_or("no page is open in this session: open one first")?;
+        place.used = Instant::now();
+        let tab = place.front().ok_or("no page is open in this session: open one first")?;
         let Some(item) = tab.items.iter().find(|i| i.n == n).cloned() else { return Err(self.no_such(n, tab)) };
         // A link leads to a page of its own: the site's rules for programs hold for it as for any.
         if let Some(href) = item.href.as_deref().and_then(|h| Url::parse(h).ok())
@@ -449,8 +509,9 @@ impl Browser {
     pub async fn type_text(&self, session: &str, n: u32, text: &str, about: &str, stop: &AtomicBool) -> Result<Seen, String> {
         let mut running = self.running.lock().await;
         let r = running.as_mut().ok_or("no page is open in this session: open one first")?;
-        let tab = r.tabs.get_mut(session).ok_or("no page is open in this session: open one first")?;
-        tab.used = Instant::now();
+        let place = r.places.get_mut(session).ok_or("no page is open in this session: open one first")?;
+        place.used = Instant::now();
+        let tab = place.front().ok_or("no page is open in this session: open one first")?;
         let Some(item) = tab.items.iter().find(|i| i.n == n).cloned() else { return Err(self.no_such(n, tab)) };
         if item.password {
             return Err(format!("number {n} is a password field, and Demido never types into one: nothing of the person's is kept for this, and a page that asks a model for a password is a trick"));
@@ -506,13 +567,156 @@ impl Browser {
         seen.map(|s| Seen { picture: None, ..s })
     }
 
+    // ───────── what the person does, from the window (live) ─────────
+
+    /// The tab in front of a session, for the window to show: the browser, its pipe, the page's session and its
+    /// target. Started, and the place made, when there is none. The window's view counts as use.
+    pub async fn front(&self, session: &str) -> Result<(Arc<cdp::Cdp>, String, String), String> {
+        let mut running = self.running.lock().await;
+        let tab = self.tab(&mut running, session).await?;
+        let (page, target) = (tab.session.clone(), tab.target.clone());
+        Ok((running.as_ref().expect("a tab means it runs").cdp.clone(), page, target))
+    }
+
+    /// The tab in front, if the session has a place: without starting anything.
+    pub async fn front_if_any(&self, session: &str) -> Option<(String, String)> {
+        let mut running = self.running.lock().await;
+        let place = running.as_mut()?.places.get_mut(session)?;
+        place.used = Instant::now();
+        place.front().map(|t| (t.session.clone(), t.target.clone()))
+    }
+
+    /// The tabs of a session, and which is in front.
+    pub async fn tabs(&self, session: &str) -> (Vec<TabFacts>, Option<String>) {
+        let mut running = self.running.lock().await;
+        let Some(place) = running.as_mut().and_then(|r| r.places.get_mut(session)) else { return (Vec::new(), None) };
+        let front = place.front().map(|t| t.target.clone());
+        (place.tabs.iter().map(|t| TabFacts { id: t.target.clone(), address: t.address.clone(), title: t.title.clone() }).collect(), front)
+    }
+
+    /// What the browser says of a tab now: its address and title, kept for the window and the status.
+    pub async fn heard(&self, target: &str, address: &str, title: &str) {
+        let mut running = self.running.lock().await;
+        if let Some(t) = running.as_mut().into_iter().flat_map(|r| r.places.values_mut()).flat_map(|p| p.tabs.iter_mut()).find(|t| t.target == target) {
+            (t.address, t.title) = (address.to_string(), title.to_string());
+        }
+    }
+
+    /// A new tab, in front, opened at an address the person typed if there is one.
+    pub async fn open_tab(&self, session: &str, address: Option<&str>) -> Result<(), String> {
+        let url = address.map(|a| self.person_may_go(a)).transpose()?;
+        let mut running = self.running.lock().await;
+        self.place(&mut running, session).await?;
+        let r = running.as_mut().expect("a place means it runs");
+        Self::new_tab(r, session).await?;
+        if let Some(url) = url {
+            let page = r.places.get_mut(session).and_then(Place::front).map(|t| t.session.clone()).unwrap_or_default();
+            r.cdp.call("Page.navigate", json!({ "url": url.as_str() }), Some(&page)).await?;
+        }
+        Ok(())
+    }
+
+    /// Puts a tab in front.
+    pub async fn activate(&self, session: &str, target: &str) -> bool {
+        let mut running = self.running.lock().await;
+        let Some(place) = running.as_mut().and_then(|r| r.places.get_mut(session)) else { return false };
+        match place.tabs.iter().position(|t| t.target == target) {
+            Some(at) => {
+                place.active = at;
+                place.used = Instant::now();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Closes one tab; the last one closed closes the place, with its cookies.
+    pub async fn close_tab(&self, session: &str, target: &str) {
+        let last = {
+            let mut running = self.running.lock().await;
+            let Some(r) = running.as_mut() else { return };
+            let Some(place) = r.places.get_mut(session) else { return };
+            let Some(at) = place.tabs.iter().position(|t| t.target == target) else { return };
+            place.tabs.remove(at);
+            if place.active >= at && place.active > 0 {
+                place.active -= 1;
+            }
+            let _ = r.cdp.call("Target.closeTarget", json!({ "targetId": target }), None).await;
+            r.places.get(session).is_some_and(|p| p.tabs.is_empty())
+        };
+        if last {
+            self.close(session).await;
+        }
+    }
+
+    /// A tab a page of the session's opened itself (a link to a new window): taken in, and put in front.
+    pub async fn adopt(&self, session: &str, target: &str) -> Result<(), String> {
+        let mut running = self.running.lock().await;
+        let r = running.as_mut().ok_or("the browser has stopped")?;
+        let (cdp, agent) = (r.cdp.clone(), r.agent.clone());
+        let place = r.places.get_mut(session).ok_or("no place")?;
+        if place.tabs.iter().any(|t| t.target == target) {
+            return Ok(());
+        }
+        let tab = Self::set_up(&cdp, &agent, target, place.size).await?;
+        place.tabs.push(tab);
+        place.active = place.tabs.len() - 1;
+        Ok(())
+    }
+
+    /// Whether a target is one of a session's tabs, or was opened by one of them: (its own, opened by it).
+    pub async fn knows(&self, session: &str, target: &str, opener: Option<&str>, context: Option<&str>) -> (bool, bool) {
+        let running = self.running.lock().await;
+        let Some(place) = running.as_ref().and_then(|r| r.places.get(session)) else { return (false, false) };
+        let own = place.tabs.iter().any(|t| t.target == target);
+        let opened = !own && context == Some(place.context.as_str()) && opener.is_some_and(|o| place.tabs.iter().any(|t| t.target == o));
+        (own, opened)
+    }
+
+    /// The size the session's pages are laid out at: set by the window's view of them.
+    pub async fn resize(&self, session: &str, width: u32, height: u32) {
+        let size = (width.clamp(320, 3840), height.clamp(240, 2400));
+        let mut running = self.running.lock().await;
+        let Some(r) = running.as_mut() else { return };
+        let cdp = r.cdp.clone();
+        if let Some(place) = r.places.get_mut(session) {
+            place.size = size;
+            for t in &place.tabs {
+                let _ = cdp.call("Emulation.setDeviceMetricsOverride", json!({ "width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false }), Some(&t.session)).await;
+            }
+        }
+    }
+
+    /// Where the person may send a tab: an address of the public internet (N3), as the proxy holds it to anyway.
+    /// No robots.txt: the person is browsing, not a program reading.
+    pub fn person_may_go(&self, written: &str) -> Result<Url, String> {
+        let written = written.trim();
+        // Words that are not an address are a search, on the search engine Demido asks without a key.
+        let an_address = written.contains("://") || (!written.contains(char::is_whitespace) && (written.contains('.') || written.contains(':') || written.eq_ignore_ascii_case("localhost")));
+        if !an_address {
+            return Url::parse_with_params("https://duckduckgo.com/", &[("q", written)]).map_err(|e| e.to_string());
+        }
+        let with_scheme = if written.contains("://") { written.to_string() } else { format!("https://{written}") };
+        let url = guard::address(&with_scheme)?;
+        if guard::is_local(&url) && !self.stand_ins.contains(&format!("{}:{}", url.host_str().unwrap_or_default(), url.port_or_known_default().unwrap_or(0))) {
+            return Err(format!("{} {}, and Demido's browser does not go there", url.host_str().unwrap_or_default(), guard::NOT_PUBLIC));
+        }
+        Ok(url)
+    }
+
+    /// Describes what is on the page at a point, or the smallest thing that holds a box: for the person's
+    /// marks, sent to the conversation as words.
+    pub async fn describe(cdp: &cdp::Cdp, page: &str, x: f64, y: f64, w: f64, h: f64) -> Result<Value, String> {
+        Self::in_our_world(cdp, page, &format!("({})({x}, {y}, {w}, {h})", live::DESCRIBE)).await
+    }
+
     /// Closes a session's page and forgets its cookies.
     pub async fn close(&self, session: &str) {
         let mut running = self.running.lock().await;
         if let Some(r) = running.as_mut()
-            && let Some(tab) = r.tabs.remove(session)
+            && let Some(place) = r.places.remove(session)
         {
-            let _ = r.cdp.call("Target.disposeBrowserContext", json!({ "browserContextId": tab.context }), None).await;
+            let _ = r.cdp.call("Target.disposeBrowserContext", json!({ "browserContextId": place.context }), None).await;
         }
     }
 
@@ -520,13 +724,13 @@ impl Browser {
     pub async fn tidy(&self) {
         let mut running = self.running.lock().await;
         let Some(r) = running.as_mut() else { return };
-        let old: Vec<String> = r.tabs.iter().filter(|(_, t)| t.used.elapsed() > IDLE).map(|(s, _)| s.clone()).collect();
+        let old: Vec<String> = r.places.iter().filter(|(_, p)| p.used.elapsed() > IDLE).map(|(s, _)| s.clone()).collect();
         for session in old {
-            if let Some(tab) = r.tabs.remove(&session) {
-                let _ = r.cdp.call("Target.disposeBrowserContext", json!({ "browserContextId": tab.context }), None).await;
+            if let Some(place) = r.places.remove(&session) {
+                let _ = r.cdp.call("Target.disposeBrowserContext", json!({ "browserContextId": place.context }), None).await;
             }
         }
-        if r.tabs.is_empty() || !r.cdp.running() {
+        if r.places.is_empty() || !r.cdp.running() {
             let r = running.take().expect("just looked");
             r.cdp.end().await;
             let _ = self.events.append("browser.stopped", None, json!({}));

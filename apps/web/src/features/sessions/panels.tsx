@@ -1,16 +1,14 @@
-/* What opens beside a session: its browser and its folder. Each takes the right part of the session's view,
-   can take all of it, and closes back to the conversation.
+/* What opens beside a session: its folder (here) and its browser (live-browser.tsx). Each takes the right part
+   of the session's view, can take all of it, and closes back to the conversation.
 
-   The browser shows the session's page as the model last left it (a picture: the model is given its text),
-   with every page it saw this session along the bottom. The folder is the session's files, as Files showed
-   them: open ones as tabs, the tree on the right, and the files models gave (artifacts) under it. */
+   The folder is the session's files, as Files showed them: open ones as tabs, the tree on the right, and the
+   files models gave (artifacts) under it. A page the model opened is a card in the conversation. */
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, Download, ExternalLink, FilePlus, FolderOpen, Gift, Globe, Maximize2, Minimize2, MoreHorizontal, RefreshCw, Search, X, XCircle } from 'lucide-react'
-import { coreGet, coreSend, onCoreEvent } from '@/data/core'
+import { Copy, ExternalLink, FilePlus, FolderOpen, Gift, Maximize2, Minimize2, MoreHorizontal, Search, X } from 'lucide-react'
 import type { CoreMessage } from '@/data/real-sessions'
 import { CoreProblem, draftKey, newFile, useDrafts, watchFolders, type FolderEntry } from '@/data/session-files'
 import { toast } from '@/data/store'
-import { Button, Glyph, Icon, Menu, Tip, cx } from '@/ui'
+import { Button, Icon, Menu, Tip } from '@/ui'
 import { Branch, DeletedFiles, NameIt, Viewer } from '@/features/files/real'
 import { ArtifactList, ArtifactView, useArtifacts } from '@/features/files/artifact'
 
@@ -32,67 +30,6 @@ function PanelHead({ wide, onWide, onClose, children }: { wide: boolean; onWide:
       <Tip label={wide ? 'Beside the conversation' : 'Whole view'}><Button size="sm" variant="ghost" iconOnly aria-label={wide ? 'Beside the conversation' : 'Whole view'} onClick={onWide}><Icon icon={wide ? Minimize2 : Maximize2} size="sm" /></Button></Tip>
       <Tip label="Close"><Button size="sm" variant="ghost" iconOnly aria-label="Close" onClick={onClose}><Icon icon={X} size="sm" /></Button></Tip>
     </header>
-  )
-}
-
-interface OpenPage { session: string; address: string; title: string; picture: string | null; idle_ms: number }
-interface BrowserStatus { offered: boolean; kept: { version: string } | null; downloading: { done: number; total: number | null } | null; running: boolean; pages: OpenPage[] }
-
-/** The session's browser. */
-export function BrowserPanel({ session, shots, chosen, onChoose, wide, onWide, onClose }: { session: string; shots: Shot[]; chosen: string | null; onChoose: (picture: string) => void; wide: boolean; onWide: () => void; onClose: () => void }) {
-  const [status, setStatus] = useState<BrowserStatus | null>(null)
-  const read = () => coreGet<BrowserStatus>('/browser').then(setStatus, () => setStatus(null))
-  useEffect(() => {
-    void read()
-    const offs = ['browser.opened', 'browser.pressed', 'browser.typed', 'browser.stopped', 'browser.downloaded', 'browser.download'].map((k) => onCoreEvent(k, () => void read()))
-    const every = setInterval(() => void read(), 15_000)
-    return () => { offs.forEach((off) => off()); clearInterval(every) }
-  }, [session])
-  const live = status?.pages.find((p) => p.session === session) ?? null
-  const latest = shots.at(-1) ?? null
-  const shown = shots.find((s) => s.picture === chosen) ?? (live?.picture ? { picture: live.picture, address: live.address, title: live.title } : latest)
-  const isLive = Boolean(live && shown && live.picture === shown.picture)
-  const download = async () => {
-    try { await coreSend('POST', '/browser'); toast("Demido's browser is downloaded.", undefined, 'task-done') } catch (e) { toast(`Not downloaded. ${(e as Error).message}`, undefined, 'task-failed') }
-    void read()
-  }
-  return (
-    <aside className="panel" aria-label="Browser">
-      <PanelHead wide={wide} onWide={onWide} onClose={onClose}>
-        <span className="panel__icon"><Icon icon={Globe} size="sm" /></span>
-        <span className="panel__title">
-          <span className="panel__name">{shown ? shown.title || host(shown.address) : 'Browser'}</span>
-          {shown && <span className="panel__sub d-mono">{shown.address}</span>}
-        </span>
-        {shown && <span className={cx('panel__state', isLive && 'is-live')}>{isLive ? 'open' : 'closed'}</span>}
-        {shown && <Tip label="In your own browser"><a className="d-button d-button--ghost d-button--sm d-button--icon" aria-label="In your own browser" href={shown.address} target="_blank" rel="noopener noreferrer"><Icon icon={ExternalLink} size="sm" /></a></Tip>}
-        <Tip label="Look again"><Button size="sm" variant="ghost" iconOnly aria-label="Look again" onClick={() => void read()}><Icon icon={RefreshCw} size="sm" /></Button></Tip>
-        {live && <Tip label="Close the page"><Button size="sm" variant="ghost" iconOnly aria-label="Close the page" onClick={() => void coreSend('DELETE', `/sessions/${encodeURIComponent(session)}/browser`).then(read, () => {})}><Icon icon={XCircle} size="sm" /></Button></Tip>}
-      </PanelHead>
-      <div className="panel__body browser-panel">
-        {shown ? (
-          <div className="browser-panel__page"><img src={pictureUrl(session, shown.picture)} alt={shown.title || shown.address} /></div>
-        ) : (
-          <div className="panel__empty">
-            <span className="panel__empty-art"><Icon icon={Globe} size="xl" /></span>
-            {status && !status.offered ? <p>Not on this system yet.</p>
-              : status && !status.kept ? (status.downloading
-                ? <p><Glyph name="task-running" busy /> Downloading…</p>
-                : <><p>No browser yet.</p><Button size="sm" onClick={() => void download()}><Icon icon={Download} size="sm" />Download</Button></>)
-              : <p>No page yet.</p>}
-          </div>
-        )}
-        {shots.length > 1 && (
-          <div className="browser-panel__strip" role="list" aria-label="Pages seen in this session">
-            {[...shots].reverse().map((s, i) => (
-              <button key={`${s.picture}-${i}`} type="button" role="listitem" className="browser-panel__thumb" aria-current={s.picture === shown?.picture ? 'true' : undefined} title={s.title || s.address} onClick={() => onChoose(s.picture)}>
-                <img src={pictureUrl(session, s.picture)} alt="" loading="lazy" />
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </aside>
   )
 }
 

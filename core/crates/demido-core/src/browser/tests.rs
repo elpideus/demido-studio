@@ -181,3 +181,69 @@ fn the_list_a_model_is_given_says_what_each_thing_is() {
     );
     assert_eq!(listed(&[]), "Nothing on the page can be pressed or filled.");
 }
+
+/// The person's side (DECISIONS Z12 to Z16): tabs, any public address, and what is at a point, in words.
+#[tokio::test]
+async fn the_person_has_tabs_goes_to_public_addresses_and_a_point_is_described() {
+    let Some(program) = shell() else {
+        eprintln!("Skipped: DEMIDO_TRY_BROWSER does not name a headless shell.");
+        return;
+    };
+    let page = r#"<!doctype html><html><head><title>Two buttons</title></head><body style="margin:0">
+<button id="more" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Show more</button>
+<div class="card" style="position:absolute;left:300px;top:200px;width:300px;height:200px"><p>Grey herons nest in reeds.</p></div>
+<svg style="position:absolute;left:40px;top:120px" width="40" height="40"><title>A heron</title><path d="M0 0H40V40H0Z"/></svg>
+</body></html>"#;
+    let door = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let at = door.local_addr().unwrap();
+    tokio::spawn(async move {
+        let app = Router::new().route("/", axum::routing::get(move || async move { ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], page) }));
+        axum::serve(door, app).await.unwrap()
+    });
+    let home = crate::testing::TempDir::new("demido-browser-person");
+    let events = Arc::new(EventLog::new(Arc::new(crate::db::Db::memory().unwrap())));
+    let stand_ins = vec![at.to_string()];
+    let web = Arc::new(Web::with(None, crate::web::Sources::default(), stand_ins.clone()));
+    let browser = Browser::new(&home, web, events).for_a_test(program, stand_ins);
+
+    // Where the person may go: a name alone is https; this computer is not the public internet.
+    assert_eq!(browser.person_may_go("example.org").unwrap().as_str(), "https://example.org/");
+    assert!(browser.person_may_go("127.0.0.1:9").unwrap_err().contains(guard::NOT_PUBLIC));
+    assert!(browser.person_may_go("file:///etc/passwd").is_err());
+    assert_eq!(browser.person_may_go("grey heron").unwrap().as_str(), "https://duckduckgo.com/?q=grey+heron");
+
+    // A tab, opened at an address; its place is made with it.
+    browser.open_tab("p1", Some(&format!("http://{at}/"))).await.unwrap();
+    let (cdp, page_session, first) = browser.front("p1").await.unwrap();
+    for _ in 0..40 {
+        let state = cdp.call("Runtime.evaluate", json!({ "expression": "document.readyState", "returnByValue": true }), Some(&page_session)).await.unwrap();
+        if state.pointer("/result/value").and_then(Value::as_str) == Some("complete") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // The empty tab the place was made with, and the one opened: the second is in front.
+    let (tabs, front) = browser.tabs("p1").await;
+    assert_eq!((tabs.len(), front.as_deref()), (2, Some(first.as_str())));
+
+    // What is at a point, and what holds a box, in words.
+    let button = Browser::describe(&cdp, &page_session, 100.0, 60.0, 0.0, 0.0).await.unwrap();
+    assert_eq!((button["tag"].as_str(), button["text"].as_str(), button["selector"].as_str()), (Some("button"), Some("Show more"), Some("button#more")));
+    let card = Browser::describe(&cdp, &page_session, 310.0, 210.0, 200.0, 40.0).await.unwrap();
+    assert_eq!(card["tag"].as_str(), Some("div"), "{card}");
+    assert!(card["text"].as_str().unwrap().contains("Grey herons"), "{card}");
+    let drawing = Browser::describe(&cdp, &page_session, 60.0, 140.0, 0.0, 0.0).await.unwrap();
+    assert_eq!((drawing["tag"].as_str(), drawing["label"].as_str()), (Some("svg"), Some("A heron")), "{drawing}");
+
+    // Tabs: another in front, the first again, and one closed.
+    let other = tabs[0].id.clone();
+    assert!(browser.activate("p1", &other).await);
+    assert_eq!(browser.tabs("p1").await.1.as_deref(), Some(other.as_str()));
+    browser.close_tab("p1", &other).await;
+    let (tabs, front) = browser.tabs("p1").await;
+    assert_eq!((tabs.len(), front.as_deref()), (1, Some(first.as_str())));
+    // The last one closed closes the place.
+    browser.close_tab("p1", &first).await;
+    assert!(browser.tabs("p1").await.0.is_empty());
+    browser.end().await;
+}
