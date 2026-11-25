@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { Popover } from '@base-ui/react/popover'
-import { coreGet, type CoreSystem } from '@/data/core'
+import { coreGet, useCore, type CoreSystem } from '@/data/core'
 import { unloadLocal, useLocal } from '@/data/local-models'
 import { applyAppearance, dismissToast, memoryBudget, startCore, useStore } from '@/data/store'
-import { Budget, Button, Glyph, MODEL_STATE_LABEL, Tip, TooltipProvider } from '@/ui'
+import { Budget, Button, Glyph, MODEL_STATE_LABEL, Signal, Tip, TooltipProvider } from '@/ui'
 import { allFeatures, GROUPS } from './registry'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
@@ -17,11 +17,22 @@ export function App() {
   const { pathname } = useLocation()
   // A feature may ask for the whole window (voice mode does). The rail steps aside; the feature shows the way back.
   const immersive = features.some((f) => f.immersive?.some((p) => pathname === `/${p}` || pathname.startsWith(`/${p}/`)))
+  // A core is here, but this browser is not signed in to it: every screen then shows the scripted preview, and
+  // the window says so on every screen, not only on Setup.
+  const core = useCore()
+  const locked = core.state === 'locked'
   return (
     <TooltipProvider delay={500} closeDelay={0}>
       <div className="app" data-immersive={immersive ? '' : undefined}>
         {!immersive && <Rail />}
-        <main className="app-main" onPointerDownCapture={(e) => { if (!(e.target as Element).closest('.app-side')) document.documentElement.classList.remove('side-open') }}>
+        <main className="app-main" data-notice={locked ? '' : undefined} onPointerDownCapture={(e) => { if (!(e.target as Element).closest('.app-side')) document.documentElement.classList.remove('side-open') }}>
+          {locked && (
+            <div className="app-locked">
+              <Signal level="caution" actions={<Button size="sm" onClick={() => window.location.reload()}>Look again</Button>}>
+                Demido {core.version} is running on this computer, but this browser is not signed in to it, so every screen shows the scripted preview. Run <code>demido open</code> in a terminal to sign this browser in.
+              </Signal>
+            </div>
+          )}
           <Routes>
             {features.map((f) => (
               <Route key={f.id} path={`${f.path}/*`} element={<f.Page />} />

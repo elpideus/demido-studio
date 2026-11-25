@@ -153,6 +153,13 @@
     min-width: 0;
     min-height: 0;
   }
+  /* This browser is not signed in to the core here: said above every screen. */
+  .app-main[data-notice] {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .app-locked {
+    padding: var(--d-space-12) var(--d-space-16) 0;
+  }
   /* A screen with its own list on the left, and optionally an inspector on the right. */
   .app-split {
     display: grid;
