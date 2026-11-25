@@ -137,10 +137,118 @@ impl Place {
     }
 }
 
+/// The name, the client hints and the languages an ordinary Chrome of the browser's version sends on this
+/// system (the owner's decision, DECISIONS Z18): what the headless shell would say of itself, with nothing that
+/// says it is headless or that a program drives it.
+#[derive(Clone, Debug)]
+pub(crate) struct Ordinary {
+    pub(crate) agent: String,
+    platform: &'static str,
+    navigator_platform: &'static str,
+    brands: Vec<(String, String)>,
+    full: Vec<(String, String)>,
+    pub(crate) languages: String,
+}
+
+impl Ordinary {
+    /// For a version of the browser (`158.0.8127.88`).
+    pub(crate) fn of(full: &str) -> Ordinary {
+        let full = full.to_string();
+        let major: usize = full.split('.').next().and_then(|m| m.parse().ok()).unwrap_or(0);
+        // Chrome's name is reduced: the system frozen to one string for each, the major version and zeros.
+        let (system, platform, navigator_platform) = if cfg!(windows) {
+            ("Windows NT 10.0; Win64; x64", "Windows", "Win32")
+        } else if cfg!(target_os = "macos") {
+            ("Macintosh; Intel Mac OS X 10_15_7", "macOS", "MacIntel")
+        } else {
+            ("X11; Linux x86_64", "Linux", "Linux x86_64")
+        };
+        let agent = format!("Mozilla/5.0 ({system}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36");
+        let (grease, grease_version) = Self::grease(major);
+        let named = |v: &str| {
+            vec![
+                (grease.clone(), if v == "full" { format!("{grease_version}.0.0.0") } else { grease_version.to_string() }),
+                ("Chromium".to_string(), if v == "full" { full.clone() } else { major.to_string() }),
+                ("Google Chrome".to_string(), if v == "full" { full.clone() } else { major.to_string() }),
+            ]
+        };
+        Ordinary { agent, platform, navigator_platform, brands: Self::shuffled(named("major"), major), full: Self::shuffled(named("full"), major), languages: languages() }
+    }
+
+    /// The version a browser program says it is (`--version`: "Google Chrome for Testing 158.0.8127.88").
+    async fn version_of(program: &std::path::Path) -> Option<String> {
+        let run = tokio::process::Command::new(program).arg("--version").stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true).output();
+        let out = tokio::time::timeout(std::time::Duration::from_secs(10), run).await.ok()?.ok()?;
+        let said = String::from_utf8_lossy(&out.stdout);
+        said.split_whitespace().last().filter(|v| v.split('.').count() == 4 && v.chars().all(|c| c.is_ascii_digit() || c == '.')).map(str::to_string)
+    }
+
+    /// The made-up brand Chrome puts among its own, so that sites do not match brand lists exactly; chosen from
+    /// the major version as Chromium chooses it (measured: Chromium 158 says `Not.A/Brand`, version 24).
+    fn grease(major: usize) -> (String, &'static str) {
+        const CHARS: [&str; 11] = [" ", "(", ":", "-", ".", "/", ")", ";", "=", "?", "_"];
+        const VERSIONS: [&str; 3] = ["8", "99", "24"];
+        (format!("Not{}A{}Brand", CHARS[major % 11], CHARS[(major + 1) % 11]), VERSIONS[major % 3])
+    }
+
+    /// The made-up brand, Chromium and the product, in the order Chromium gives them for the major version.
+    fn shuffled(brands: Vec<(String, String)>, major: usize) -> Vec<(String, String)> {
+        const ORDERS: [[usize; 3]; 6] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+        let order = ORDERS[major % 6];
+        let mut out = brands.clone();
+        for (i, brand) in brands.into_iter().enumerate() {
+            out[order[i]] = brand;
+        }
+        out
+    }
+
+    /// What `Emulation.setUserAgentOverride` is given for a page.
+    pub(crate) fn override_params(&self) -> Value {
+        let list = |l: &[(String, String)]| l.iter().map(|(b, v)| json!({ "brand": b, "version": v })).collect::<Vec<_>>();
+        let architecture = match std::env::consts::ARCH {
+            "aarch64" | "arm" => "arm",
+            _ => "x86",
+        };
+        json!({
+            "userAgent": self.agent,
+            "acceptLanguage": self.languages,
+            "platform": self.navigator_platform,
+            "userAgentMetadata": {
+                "brands": list(&self.brands),
+                "fullVersionList": list(&self.full),
+                "platform": self.platform,
+                "platformVersion": "",
+                "architecture": architecture,
+                "model": "",
+                "mobile": false,
+                "bitness": "64",
+                "wow64": false,
+            },
+        })
+    }
+}
+
+/// The person's languages, as their system names them (`LC_ALL`, `LC_MESSAGES`, `LANG`), for the
+/// `Accept-Language` a browser sends: `en_US.UTF-8` is `en-US,en`. English when the system names none.
+fn languages() -> String {
+    languages_of(["LC_ALL", "LC_MESSAGES", "LANG"].iter().filter_map(|k| std::env::var(k).ok()).find(|v| !v.is_empty() && v != "C" && v != "POSIX" && !v.starts_with("C.")).as_deref())
+}
+
+fn languages_of(named: Option<&str>) -> String {
+    let tag = named.and_then(|v| v.split(['.', '@']).next()).map(|t| t.replace('_', "-")).filter(|t| t.len() >= 2 && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    match tag {
+        Some(t) => match t.split_once('-') {
+            Some((language, _)) => format!("{t},{language}"),
+            None => t,
+        },
+        None => "en-US,en".to_string(),
+    }
+}
+
 struct Running {
     cdp: Arc<cdp::Cdp>,
     proxy: proxy::Proxy,
-    agent: String,
+    agent: Ordinary,
     places: HashMap<String, Place>,
 }
 
@@ -271,7 +379,10 @@ impl Browser {
         let proxy = proxy::Proxy::start(self.stand_ins.clone()).await.map_err(|e| format!("the browser's proxy could not start ({e})"))?;
         let profile = self.copy.profile();
         std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
-        let args: Vec<String> = [
+        // The name an ordinary Chrome of this version sends, for everything the browser asks for itself (a
+        // service worker's script and requests too); a page's client hints are set as it is opened (Z18).
+        let ordinary = Ordinary::version_of(&program).await.map(|v| Ordinary::of(&v));
+        let mut args: Vec<String> = [
             "--remote-debugging-pipe".to_string(),
             "--no-first-run".into(),
             "--no-default-browser-check".into(),
@@ -297,13 +408,18 @@ impl Browser {
             "--disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,InterestFeedContentSuggestions".into(),
             format!("--window-size={WIDTH},{HEIGHT}"),
             "--hide-scrollbars".into(),
-            "about:blank".into(),
+            // Pages are not told a program drives it: `navigator.webdriver` is false, as in an ordinary Chrome (Z18).
+            "--disable-blink-features=AutomationControlled".into(),
         ]
         .into();
+        if let Some(o) = &ordinary {
+            args.push(format!("--user-agent={}", o.agent));
+        }
+        args.push("about:blank".into());
         let cdp = cdp::Cdp::start(&program, &args).map_err(|e| format!("the browser could not start ({e})"))?;
         let version = cdp.call("Browser.getVersion", json!({}), None).await?;
-        // Its own name, and Demido's after it: never a browser's name alone (N7).
-        let agent = format!("{} {}", version.get("userAgent").and_then(Value::as_str).unwrap_or("Chromium"), crate::web::name());
+        // What an ordinary Chrome of this version says and sends here (the owner's decision, Z18).
+        let agent = ordinary.unwrap_or_else(|| Ordinary::of(version.get("product").and_then(Value::as_str).and_then(|p| p.split('/').nth(1)).unwrap_or("0.0.0.0")));
         let _ = self.events.append("browser.started", None, json!({ "product": version.get("product") }));
         // News of every tab: its address and title as they change, and the tabs a page opens itself.
         let _ = cdp.call("Target.setDiscoverTargets", json!({ "discover": true }), None).await;
@@ -312,11 +428,11 @@ impl Browser {
     }
 
     /// A tab of the browser's own, attached and set up as Demido's: its name, its size.
-    async fn set_up(cdp: &cdp::Cdp, agent: &str, target: &str, size: (u32, u32)) -> Result<Tab, String> {
+    async fn set_up(cdp: &cdp::Cdp, agent: &Ordinary, target: &str, size: (u32, u32)) -> Result<Tab, String> {
         let attached = cdp.call("Target.attachToTarget", json!({ "targetId": target, "flatten": true }), None).await?;
         let page = attached.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
         cdp.call("Page.enable", json!({}), Some(&page)).await?;
-        cdp.call("Emulation.setUserAgentOverride", json!({ "userAgent": agent }), Some(&page)).await?;
+        cdp.call("Emulation.setUserAgentOverride", agent.override_params(), Some(&page)).await?;
         cdp.call("Emulation.setDeviceMetricsOverride", json!({ "width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false }), Some(&page)).await?;
         Ok(Tab { target: target.to_string(), session: page, items: Vec::new(), address: String::new(), title: String::new(), picture: None })
     }

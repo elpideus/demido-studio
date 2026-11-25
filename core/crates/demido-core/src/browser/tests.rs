@@ -124,9 +124,9 @@ async fn a_model_opens_a_page_after_its_scripts_ran_presses_and_types_and_only_t
     assert!(opened.gave.contains("5. field \"Password\" (a password: never typed in)"), "{}", opened.gave);
     let picture = opened.picture.clone().expect("a picture for the person");
     assert!(browser.picture("s1", &picture).is_some_and(|b| b.starts_with(&[0xFF, 0xD8])), "a JPEG");
-    // It said who it is: its own name with Demido's after it.
+    // An ordinary Chrome's name (Z18).
     let agent = seen.lock().unwrap().user_agent.clone();
-    assert!(agent.contains("HeadlessChrome/") && agent.contains("DemidoStudio/"), "{agent}");
+    assert!(agent.contains(" Chrome/") && !agent.contains("Headless") && !agent.contains("DemidoStudio"), "{agent}");
 
     // Pressing a button: the page as it is after.
     let pressed = browser.press("s1", 3, "", &GO_ON).await.unwrap();
@@ -246,4 +246,87 @@ async fn the_person_has_tabs_goes_to_public_addresses_and_a_point_is_described()
     browser.close_tab("p1", &first).await;
     assert!(browser.tabs("p1").await.0.is_empty());
     browser.end().await;
+}
+
+/// Chrome's own brands, in Chrome's own order, as Chromium 158 gives them (measured: the headless shell, with
+/// its own name in Google Chrome's place); the person's language from the system's.
+#[test]
+fn an_ordinary_chrome_is_named_as_chrome_names_itself() {
+    let o = Ordinary::of("158.0.8127.88");
+    let names: Vec<(&str, &str)> = o.brands.iter().map(|(b, v)| (b.as_str(), v.as_str())).collect();
+    assert_eq!(names, [("Chromium", "158"), ("Not.A/Brand", "24"), ("Google Chrome", "158")]);
+    assert_eq!(o.full[1], ("Not.A/Brand".to_string(), "24.0.0.0".to_string()));
+    assert!(o.agent.ends_with("(KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36"), "{}", o.agent);
+    assert_eq!(languages_of(Some("en_US.UTF-8")), "en-US,en");
+    assert_eq!(languages_of(Some("it_IT@euro")), "it-IT,it");
+    assert_eq!(languages_of(Some("de")), "de");
+    assert_eq!(languages_of(None), "en-US,en");
+}
+
+/// What a site is told and what its scripts read: an ordinary Chrome's, nothing that says a program drives it
+/// (DECISIONS Z18). The page's own requests, a worker's and a service worker's are heard by the site.
+#[tokio::test]
+async fn the_browser_says_and_sends_what_an_ordinary_chrome_does() {
+    let Some(program) = shell() else {
+        eprintln!("Skipped: DEMIDO_TRY_BROWSER does not name a headless shell.");
+        return;
+    };
+    let page = r#"<!doctype html><html><head><title>Who</title></head><body><pre id="out"></pre><script>
+const worker = new Worker('/worker.js');
+const fromWorker = new Promise((done) => { worker.onmessage = (e) => done(e.data); });
+navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(() => fetch('/after-sw')).catch(() => {});
+Promise.all([navigator.userAgentData.getHighEntropyValues(['platformVersion', 'fullVersionList', 'architecture']), fromWorker]).then(([high, worker]) => {
+  document.getElementById('out').textContent = JSON.stringify({ webdriver: navigator.webdriver, agent: navigator.userAgent, brands: navigator.userAgentData.brands, mobile: navigator.userAgentData.mobile, platform: navigator.userAgentData.platform, navigatorPlatform: navigator.platform, high, languages: navigator.languages, worker });
+});
+</script></body></html>"#;
+    let worker = "fetch('/from-worker').then(() => postMessage(navigator.userAgent));";
+    let service = "self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(fetch('/from-sw')); }); self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));";
+    let heard = Arc::new(Mutex::new(HashMap::<String, Vec<(String, String)>>::new()));
+    let kept = heard.clone();
+    let door = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let at = door.local_addr().unwrap();
+    tokio::spawn(async move {
+        let app = Router::new().route("/robots.txt", axum::routing::get(|| async { "User-agent: *\nAllow: /\n" })).fallback(move |request: Request| async move {
+            let path = request.uri().path().to_string();
+            kept.lock().unwrap().insert(path.clone(), request.headers().iter().map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string())).collect());
+            match path.as_str() {
+                "/who" => ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], page).into_response(),
+                "/worker.js" => ([(header::CONTENT_TYPE, "text/javascript")], worker).into_response(),
+                "/sw.js" => ([(header::CONTENT_TYPE, "text/javascript")], service).into_response(),
+                _ => "ok".into_response(),
+            }
+        });
+        axum::serve(door, app).await.unwrap()
+    });
+    let home = crate::testing::TempDir::new("demido-browser-who");
+    let events = Arc::new(EventLog::new(Arc::new(crate::db::Db::memory().unwrap())));
+    let stand_ins = vec![at.to_string()];
+    let web = Arc::new(Web::with(None, crate::web::Sources::default(), stand_ins.clone()));
+    let browser = Browser::new(&home, web, events).for_a_test(program, stand_ins);
+    let opened = browser.open("w1", &format!("http://{at}/who"), "", &GO_ON).await.unwrap();
+    // The service worker's requests come when it is installed: a little after the page.
+    for _ in 0..50 {
+        if heard.lock().unwrap().contains_key("/from-sw") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let heard = heard.lock().unwrap().clone();
+    let header_of = |path: &str, name: &str| heard.get(path).and_then(|h| h.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()));
+
+    let ordinary = |agent: &str| agent.contains("Chrome/") && agent.ends_with(" Safari/537.36") && !agent.contains("Headless") && !agent.contains("DemidoStudio") && agent.contains(".0.0.0 ");
+    for path in ["/who", "/worker.js", "/from-worker", "/sw.js", "/from-sw", "/after-sw"] {
+        let agent = header_of(path, "user-agent").unwrap_or_else(|| panic!("{path} was not asked for"));
+        assert!(ordinary(&agent), "{path}: {agent}");
+    }
+    let hints = header_of("/who", "sec-ch-ua").expect("the client hints");
+    assert!(hints.contains("\"Google Chrome\"") && hints.contains("\"Chromium\"") && !hints.contains("Headless"), "{hints}");
+    assert_eq!(header_of("/who", "sec-ch-ua-mobile").as_deref(), Some("?0"));
+    assert!(header_of("/who", "accept-language").is_some_and(|l| !l.is_empty()), "a language");
+    // What the page's scripts read.
+    let said: Value = serde_json::from_str(opened.gave.lines().find(|l| l.starts_with('{')).expect("the page wrote what it read")).unwrap();
+    assert_eq!(said["webdriver"], json!(false), "{said}");
+    assert!(ordinary(said["agent"].as_str().unwrap()) && ordinary(said["worker"].as_str().unwrap()), "{said}");
+    let brands: Vec<&str> = said["brands"].as_array().unwrap().iter().filter_map(|b| b["brand"].as_str()).collect();
+    assert!(brands.contains(&"Google Chrome") && brands.contains(&"Chromium") && !brands.iter().any(|b| b.contains("Headless")), "{said}");
 }
