@@ -109,4 +109,5 @@ function Files() {
   return core.state === 'ready' ? <RealFiles /> : <FilesPage />
 }
 
-export const feature: Feature = { id: 'files', title: 'Files', icon: Folder, group: 'work', order: 2, path: 'files', Page: Files }
+// No place in the rail: a session's files open beside it (its folder button). The route stays, for links.
+export const feature: Feature = { id: 'files', title: 'Files', icon: Folder, group: 'work', order: 2, path: 'files', Page: Files, nav: [] }

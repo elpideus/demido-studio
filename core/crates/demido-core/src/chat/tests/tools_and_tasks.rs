@@ -119,7 +119,8 @@ async fn the_clock_is_read_for_the_model() {
             output: None,
             artifact: None,
             model_chose: None,
-            picture: None
+            picture: None,
+            page: None
         }]
     );
     w.end().await;

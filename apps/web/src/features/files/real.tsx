@@ -8,12 +8,12 @@
    person is told and chooses. Beside the folder: the files models gave in the session (artifacts), with
    every version. */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Gift, Image, Music } from 'lucide-react'
+import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Gift, Image, Music, PenLine, Trash2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useFilesFocus } from '@/data/artifacts'
 import { useReal } from '@/data/real-sessions'
 import { compareText, CoreProblem, deleteFile, draftKey, fileUrl, listDeleted, listFolder, MOST_TEXT, newFile, putBack, readText, renameFile, saveText, useDrafts, useFolderTicks, watchFolders, type Deleted, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
-import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal } from '@/ui'
+import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal, Tip } from '@/ui'
 import { Prose } from '@/ui/prose'
 import { ArtifactList, ArtifactView, useArtifacts } from './artifact'
 import { PdfPages } from './pdf'
@@ -35,7 +35,7 @@ const ICON: Record<ShownAs, LucideIcon> = { markdown: FileText, html: FileCode, 
 const PROSE = /\.(txt|text|log)$/i
 
 /** A name asked for in a dialog: for a new file, or a new name. `done` gives the core's words when it says no. */
-function NameIt({ title, text, initial, action, done, onClose }: { title: string; text: string; initial: string; action: string; done: (name: string) => Promise<string | null>; onClose: () => void }) {
+export function NameIt({ title, text, initial, action, done, onClose }: { title: string; text: string; initial: string; action: string; done: (name: string) => Promise<string | null>; onClose: () => void }) {
   const [name, setName] = useState(initial)
   const [problem, setProblem] = useState<string | null>(null)
   const go = async () => {
@@ -60,7 +60,7 @@ function Rename({ session, entry, onRenamed }: { session: string; entry: FolderE
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>Rename</Button>
+      <Tip label="Rename"><Button size="sm" variant="ghost" iconOnly aria-label="Rename" onClick={() => setOpen(true)}><Icon icon={PenLine} size="sm" /></Button></Tip>
       {open && <NameIt title={`Rename ${entry.name}`} text="A new name, or a new place in the folder. A file that is there keeps its place." initial={entry.path} action="Rename"
         done={async (to) => { try { onRenamed(await renameFile(session, entry.path, to)); return null } catch (e) { return (e as Error).message } }} onClose={() => setOpen(false)} />}
     </>
@@ -82,7 +82,7 @@ function Delete({ session, entry, onDeleted }: { session: string; entry: FolderE
   }
   return (
     <>
-      <Button size="sm" variant="ghost" onClick={() => { setProblem(null); setOpen(true) }}>Delete</Button>
+      <Tip label="Delete"><Button size="sm" variant="ghost" iconOnly aria-label="Delete" onClick={() => { setProblem(null); setOpen(true) }}><Icon icon={Trash2} size="sm" /></Button></Tip>
       {open && (
         <Dialog open onOpenChange={(o) => !o && setOpen(false)} title={`Delete ${entry.name}?`}
           text="It is taken out of the session's folder and kept in Demido for 30 days: Files can put it back where it was. An edit of it not saved is let go."
@@ -95,7 +95,7 @@ function Delete({ session, entry, onDeleted }: { session: string; entry: FolderE
 }
 
 /** The files deleted from the folder that are still kept, each to be put back. Read again when the folder changes. */
-function DeletedFiles({ session, onBack }: { session: string; onBack: (e: FolderEntry) => void }) {
+export function DeletedFiles({ session, onBack }: { session: string; onBack: (e: FolderEntry) => void }) {
   const tick = useFolderTicks((s) => s.ticks[session] ?? 0)
   const [kept, setKept] = useState<Deleted[]>([])
   const [problem, setProblem] = useState<string | null>(null)
@@ -130,7 +130,7 @@ function DeletedFiles({ session, onBack }: { session: string; onBack: (e: Folder
 }
 
 /** One folder of the tree: listed when it is first opened. */
-function Branch({ session, path, depth, open, onOpen }: { session: string; path: string; depth: number; open: string | null; onOpen: (e: FolderEntry) => void }) {
+export function Branch({ session, path, depth, open, onOpen, filter = '' }: { session: string; path: string; depth: number; open: string | null; onOpen: (e: FolderEntry) => void; filter?: string }) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [unfolded, setUnfolded] = useState<Record<string, boolean>>({})
@@ -147,7 +147,7 @@ function Branch({ session, path, depth, open, onOpen }: { session: string; path:
   if (!listing.entries.length && depth === 0) return <p className="app-empty">The folder is empty.</p>
   return (
     <ul className="d-list">
-      {listing.entries.map((e) => {
+      {listing.entries.filter((e) => !filter || e.kind === 'folder' || e.name.toLowerCase().includes(filter.toLowerCase())).map((e) => {
         const folder = e.kind === 'folder'
         const out = unfolded[e.path]
         const unsaved = !folder && Boolean(drafts[draftKey(session, e.path)])
@@ -160,7 +160,7 @@ function Branch({ session, path, depth, open, onOpen }: { session: string; path:
               {unsaved && <span className="d-row__meta files__unsaved">Not saved</span>}
               {!folder && !unsaved && <span className="d-row__meta">{size(e.size)}</span>}
             </button>
-            {folder && out && <Branch session={session} path={e.path} depth={depth + 1} open={open} onOpen={onOpen} />}
+            {folder && out && <Branch session={session} path={e.path} depth={depth + 1} open={open} onOpen={onOpen} filter={filter} />}
           </li>
         )
       })}
@@ -190,7 +190,7 @@ function Different({ session, path, text }: { session: string; path: string; tex
 }
 
 /** A text file, in the editor: saved over the version it was opened at. */
-function TextFile({ session, entry, onRenamed, onDeleted }: { session: string; entry: FolderEntry; onRenamed: (e: FolderEntry) => void; onDeleted: () => void }) {
+function TextFile({ session, entry, onRenamed, onDeleted, bare }: { session: string; entry: FolderEntry; onRenamed: (e: FolderEntry) => void; onDeleted: () => void; bare?: boolean }) {
   const kind = entry.shown_as ?? 'text'
   const key = draftKey(session, entry.path)
   const draft = useDrafts((s) => s.drafts[key])
@@ -291,9 +291,9 @@ function TextFile({ session, entry, onRenamed, onDeleted }: { session: string; e
   return (
     <section className="chat" style={{ gridTemplateRows: refused || stale ? 'auto auto minmax(0, 1fr)' : 'auto minmax(0, 1fr)' }} aria-label="File">
       <header className="chat__head chat__head--tools">
-        <span className="chat__title">{entry.name}</span>
+        {!bare && <span className="chat__title">{entry.name}</span>}
         <span className="d-type-caption d-text-tertiary">
-          {size(bytes)}{modified ? ` · changed ${new Date(modified).toLocaleString()}` : ''}
+          {size(bytes)}{modified ? ` · ${new Date(modified).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}` : ''}
           {partial ? ` · the first ${size(MOST_TEXT)} are shown, so it is not edited here` : ''}
         </span>
         <span className="app-spacer" />
@@ -335,14 +335,14 @@ function TextFile({ session, entry, onRenamed, onDeleted }: { session: string; e
 }
 
 /** A file, shown as what it is. */
-function Viewer({ session, entry, folder, onRenamed, onDeleted }: { session: string; entry: FolderEntry; folder: string; onRenamed: (e: FolderEntry) => void; onDeleted: () => void }) {
+export function Viewer({ session, entry, folder, onRenamed, onDeleted, bare }: { session: string; entry: FolderEntry; folder: string; onRenamed: (e: FolderEntry) => void; onDeleted: () => void; bare?: boolean }) {
   const kind = entry.shown_as ?? 'other'
-  if (kind === 'markdown' || kind === 'html' || kind === 'text') return <TextFile session={session} entry={entry} onRenamed={onRenamed} onDeleted={onDeleted} />
+  if (kind === 'markdown' || kind === 'html' || kind === 'text') return <TextFile session={session} entry={entry} onRenamed={onRenamed} onDeleted={onDeleted} bare={bare} />
   const url = fileUrl(session, entry.path)
   return (
     <section className="chat" style={{ gridTemplateRows: 'auto minmax(0, 1fr)' }} aria-label="File">
       <header className="chat__head chat__head--tools">
-        <span className="chat__title">{entry.name}</span>
+        {!bare && <span className="chat__title">{entry.name}</span>}
         <span className="d-type-caption d-text-tertiary">{size(entry.size)}{entry.modified ? ` · changed ${new Date(entry.modified).toLocaleString()}` : ''}</span>
         <span className="app-spacer" />
         <Rename session={session} entry={entry} onRenamed={onRenamed} />

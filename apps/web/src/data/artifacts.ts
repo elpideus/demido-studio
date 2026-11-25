@@ -78,8 +78,8 @@ export const useFilesFocus = create<{ focus: { session: string; artifact: string
   clear: () => set({ focus: null }),
 }))
 
-/** Opens an artifact, at a version, in the Files screen. */
+/** Opens an artifact, at a version, in its session's files panel. */
 export function openArtifact(session: string, artifact: string, n: number) {
   useFilesFocus.setState({ focus: { session, artifact, n } })
-  window.location.hash = '#/files'
+  window.location.hash = `#/sessions/${encodeURIComponent(session)}`
 }

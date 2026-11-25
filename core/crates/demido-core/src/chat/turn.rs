@@ -702,7 +702,7 @@ impl Chat {
                     let seen = tools::seen_in(steps);
                     let mut kept_output = None;
                     let mut gave_artifact = None;
-                    let mut picture = None;
+                    let (mut picture, mut page) = (None, None);
                     let outcome = if tool == tools::RUN {
                         // A program is run through the sandbox, for no longer than the person set.
                         let seconds = self.settings.value::<String>("tools.commandSeconds").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(120);
@@ -903,6 +903,7 @@ impl Chat {
                                 };
                                 seen.map(|seen| {
                                     picture = seen.picture.clone();
+                                    page = Some(tools::PageSeen { address: seen.address.clone(), title: seen.title.clone() });
                                     tools::Done { gave: tools::clean(&self.hide(&seen.gave)), changed: None }
                                 })
                             }
@@ -916,6 +917,7 @@ impl Chat {
                     step.output = kept_output;
                     step.artifact = gave_artifact;
                     step.picture = picture;
+                    step.page = page;
                     if let Some((id, place)) = &saved {
                         step.change = Some(self.sessions.add_folder_change(&session.id, answer_id, id, &place.to_string_lossy())?.id);
                         // What the program changed, made and removed, compared with the folder saved before it ran.

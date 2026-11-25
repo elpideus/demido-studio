@@ -1,22 +1,24 @@
 /* Sessions, for real: conversations with a model on this computer, or one chosen elsewhere, kept and run by the core.
 
-   This is what is built of the Sessions screen: talking, thinking, making a long session shorter, the first
-   tools (the clock, the calculator) and work split into tasks. The preview (the same pages without a core)
-   shows where it is going: tools that reach files and the web, permission levels, groups. Those are not
-   here yet, and the note at the foot of the list says so. */
+   The conversation leads. What the session works with sits where it is used: the model, its thinking, the
+   permission level and the folder under the message box; the browser and the folder open beside the
+   conversation (panels.tsx), from the header and from the card of each page the model opened. Each message has
+   its own actions under it: copy, and for the person's own, edit and send again. */
 import { useEffect, useRef, useState } from 'react'
+import { Popover } from '@base-ui/react/popover'
 import { Prose } from '@/ui/prose'
-import { ArrowUp, CalendarClock, Folder, ListChecks, Loader, Mic, MicOff, Plus, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { ArrowUp, Brain, CalendarClock, ChevronDown, Copy, FilePlus, Folder, FolderOpen, Globe, Info, ListChecks, Loader, Mic, MicOff, MoreHorizontal, Pencil, Plus, RotateCcw, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, Wifi, WifiOff, type LucideIcon } from 'lucide-react'
 import { Dictation, ReadAloud } from '@/data/voice'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
-import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, setUpSandbox, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
-import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal, StepRow, Tip } from '@/ui'
-import { asAFile, keepAsFile, openArtifact } from '@/data/artifacts'
+import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, sayAgain, setUpSandbox, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
+import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry } from '@/ui'
+import { asAFile, keepAsFile, openArtifact, useFilesFocus } from '@/data/artifacts'
 import { onCoreEvent } from '@/data/core'
 import { toast, useSetting } from '@/data/store'
 import { runSchedule, scheduleRuns, whenFromNow, type Schedule } from '@/data/schedules'
+import { BrowserCard, BrowserPanel, FolderPanel, shotsOf, type Shot } from './panels'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
 /** How long ago, short: "now", "5 min", "3 h", "2 d". */
@@ -44,6 +46,8 @@ function byProgram(model: string | null | undefined): boolean {
   return Boolean(model && ['claude-code/', 'opencode/'].some((p) => model.startsWith(p)))
 }
 
+const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).at(-1) ?? folder
+
 function List() {
   const list = useReal((s) => s.list)
   const { '*': rest } = useParams()
@@ -60,55 +64,51 @@ function List() {
         <Tip label="New session"><Button size="sm" variant="ghost" iconOnly aria-label="New session" onClick={start}><Icon icon={Plus} /></Button></Tip>
       </div>
       <div className="app-side__scroll">
-        {!list && <p className="app-empty"><Glyph name="task-running" /> Reading the sessions…</p>}
+        {!list && <p className="app-empty"><Glyph name="task-running" busy /></p>}
         {list && !list.length && <p className="app-empty">No sessions yet.</p>}
         <ul className="d-list">
           {list?.map((s) => (
             <li key={s.id}>
               <button type="button" className="d-row" aria-current={s.id === current ? 'true' : undefined} onClick={() => navigate(`/sessions/${s.id}`)}>
                 {s.schedule_id && <span className="d-row__lead"><Icon icon={CalendarClock} size="sm" label="A schedule's session" /></span>}
-                <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{s.schedule_id ? 'Schedule · ' : ''}{s.model} · {s.messages} {s.messages === 1 ? 'message' : 'messages'}</span></span>
+                <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{s.model}</span></span>
                 <span className="d-row__meta">{ago(s.updated_at)}</span>
               </button>
             </li>
           ))}
         </ul>
       </div>
-      <div className="app-side__foot">
-        <span>These conversations are real: kept by the core, answered by a model on this computer, or by one you chose elsewhere (Providers).</span>
-        <NotBuilt block>Groups of sessions and searching them. The preview shows where these are going.</NotBuilt>
-      </div>
     </aside>
   )
 }
-
 
 /** What a tool is called when it is used, in plain words, and which of its arguments says what it was used on. */
 const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
   add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
   message_session: ['Told another session', 'to'],
-  search_web: ['Searched the internet for', 'query'], give_file: ['Gave you', 'file_name'], read_page: ['Read the page', 'url'], read_output: ['Read more of what it printed, from line', 'from_line'],
+  search_web: ['Searched for', 'query'], give_file: ['Gave you', 'file_name'], read_page: ['Read', 'url'], read_output: ['Read more of the output, from line', 'from_line'],
   // Demido's browser (DECISIONS Z).
-  open_page: ['Opened in the browser', 'url'], press: ['Pressed, on the page, number', 'number'], type_text: ['Typed into the page', 'text'],
+  open_page: ['Opened', 'url'], press: ['Pressed', 'number'], type_text: ['Typed', 'text'],
   // Claude Code's own tools, by their names in its stream.
   Read: ['Read', 'file_path'], Write: ['Wrote', 'file_path'], Edit: ['Changed', 'file_path'], MultiEdit: ['Changed', 'file_path'], NotebookEdit: ['Changed', 'notebook_path'],
-  Bash: ['Ran', 'command'], Glob: ['Looked for files', 'pattern'], Grep: ['Searched the files for', 'pattern'], WebFetch: ['Read the page', 'url'], WebSearch: ['Searched the internet for', 'query'],
+  Bash: ['Ran', 'command'], Glob: ['Looked for files', 'pattern'], Grep: ['Searched the files for', 'pattern'], WebFetch: ['Read', 'url'], WebSearch: ['Searched for', 'query'],
   TodoWrite: ['Wrote its to-do list', ''], Task: ['Gave part of it to a helper', 'description'], Agent: ['Gave part of it to a helper', 'description'],
   // OpenCode's own tools, by their names in its updates.
   read: ['Read', 'path'], write: ['Wrote', 'path'], edit: ['Changed', 'path'], shell: ['Ran', 'command'], bash: ['Ran', 'command'], glob: ['Looked for files', 'pattern'],
-  grep: ['Searched the files for', 'pattern'], list: ['Listed the files', 'path'], webfetch: ['Read the page', 'url'], websearch: ['Searched the internet for', 'query'], todowrite: ['Wrote its to-do list', ''],
+  grep: ['Searched the files for', 'pattern'], list: ['Listed the files', 'path'], webfetch: ['Read', 'url'], websearch: ['Searched for', 'query'], todowrite: ['Wrote its to-do list', ''],
   // Everything a program changed in the folder in one turn, undone in one go.
   all_it_changed: ['Changed files in the folder', ''],
 }
-/** The four levels, as they are today. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
-const LEVELS: Record<Level, { label: string; text: string; icon: LucideIcon }> = {
-  cautious: { label: 'Cautious', icon: ShieldCheck, text: 'Asks you before every use of a tool that reaches the folder or the internet, reading included.' },
-  balanced: { label: 'Balanced', icon: ShieldHalf, text: 'Reads and changes files in the folder without asking: a change cannot leave the folder, and can be undone. Searches the internet and reads pages it was given without asking. Asks before every program, before opening an address the model wrote itself, and, once the session has read from the internet, before a change to a file.' },
-  smart: { label: 'Smart', icon: ShieldEllipsis, text: 'The model decides when to ask you, wherever Balanced would ask: before a program, before an address it wrote itself, and before a change once the session read the internet. It goes ahead only when it says so twice, asked both ways round. Small models do what the last thing they read tells them, so a page or a file can talk one into going ahead. The folder, the sandbox and Undo hold as at Balanced, and where there is no sandbox a program still asks you.' },
-  autonomous: { label: 'Autonomous', icon: ShieldOff, text: 'Never asks. A model that obeys something it read can then send what it has read to any address.' },
+/** The four levels. One shield each, so the level reads from the icon alone: whole, half, deciding, off. */
+const LEVELS: Record<Level, { label: string; hint: string; text: string; icon: LucideIcon }> = {
+  cautious: { label: 'Cautious', icon: ShieldCheck, hint: 'Asks before every tool', text: 'Asks you before every use of a tool that reaches the folder or the internet, reading included.' },
+  balanced: { label: 'Balanced', icon: ShieldHalf, hint: 'Asks before programs', text: 'Reads and changes files in the folder without asking: a change can be undone. Asks before every program, before an address the model wrote itself, and, once the session read the internet, before a change to a file.' },
+  smart: { label: 'Smart', icon: ShieldEllipsis, hint: 'The model decides', text: 'The model decides when to ask you, wherever Balanced would ask. A page or a file can talk a small model into going ahead; the folder, the sandbox and Undo hold as at Balanced.' },
+  autonomous: { label: 'Autonomous', icon: ShieldOff, hint: 'Never asks', text: 'Never asks. A model that obeys something it read can then send what it has read to any address.' },
 }
 const flat = (text: string, most: number) => { const one = text.replace(/\s+/g, ' ').trim(); return one.length > most ? `${one.slice(0, most)}…` : one }
+const copy = (text: string) => void navigator.clipboard.writeText(text).then(() => toast('Copied.'), () => toast('Not copied: this browser would not let the page write to the clipboard.', undefined, 'task-failed'))
 
 /** What a change changed, fetched when it is opened: the lines that went, and the lines that came. */
 function ChangeShown({ change }: { change: CoreChange }) {
@@ -122,32 +122,18 @@ function ChangeShown({ change }: { change: CoreChange }) {
     line.startsWith('+++') || line.startsWith('---') ? 'file' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : undefined
   return (
     <details className="d-disclosure chat__diff" onToggle={(e) => { if (e.currentTarget.open) load() }}>
-      <summary>What it changed <span className="d-text-tertiary">{change.diff_stat}</span></summary>
+      <summary>Changes <span className="d-text-tertiary">{change.diff_stat}</span></summary>
       <div className="d-disclosure__body">
         {failed ? <p className="d-type-caption d-text-secondary">{failed}</p>
-          : text === null ? <p className="d-type-caption d-text-tertiary">Loading…</p>
+          : text === null ? <p className="d-type-caption d-text-tertiary"><Glyph name="task-running" busy /></p>
           : <pre className="d-code chat__diff-text"><code>{text.replace(/\n$/, '').split('\n').map((line, i) => <span key={i} data-line={kind(line)}>{line}{'\n'}</span>)}</code></pre>}
       </div>
     </details>
   )
 }
 
-/** The picture of a page in Demido's browser after a use of it, for the person (DECISIONS Z8). The model was
-    given the page's text, not this. */
-function BrowserPicture({ session, name }: { session: string; name: string }) {
-  const [open, setOpen] = useState(false)
-  const src = `/api/v1/sessions/${encodeURIComponent(session)}/browser/pictures/${encodeURIComponent(name)}`
-  return (
-    <>
-      <Tip label="The page as it was after this, in Demido's browser. The model was given its text, shown above, not the picture."><Button variant="ghost" size="sm" onClick={() => setOpen(true)}>The page</Button></Tip>
-      {open && <Dialog open onOpenChange={(o) => !o && setOpen(false)} title="The page, as the model saw it" text="A picture taken in Demido's browser after this step. The model was given the page's text and its numbered list, not this picture." actions={<Button onClick={() => setOpen(false)}>Close</Button>}><img className="browser__shot" alt="The page in Demido's browser" src={src} style={{ marginBlockStart: 'var(--d-space-16)' }} /></Dialog>}
-    </>
-  )
-}
-
 /** One use of a tool: what was asked for and what came back. Opened, it shows the request as the model made it.
-    A use that changed a file can be undone from here, and shows what it changed. A program's whole output is
-    one press away: the model was given a short view of it. */
+    A use that changed a file can be undone from here, and shows what it changed. */
 function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: string; change?: CoreChange; session: string; program?: boolean }) {
   const [said, on] = TOOL_SAID[step.tool] ?? [step.tool, '']
   const value = (name: string) => { const v = (step.args ?? {})[name]; return typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v) }
@@ -166,29 +152,22 @@ function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: s
           request: JSON.stringify({ tool: step.tool, args: step.args }, null, 1),
           output: step.state === 'running' || step.state === 'waiting' ? undefined : step.result,
         }} />
-        {step.artifact && step.state === 'done' && <Tip label={`Opens ${step.artifact.name} in Files, at version ${step.artifact.n}, with its other versions.`}><Button variant="ghost" size="sm" onClick={() => { if (step.artifact) openArtifact(session, step.artifact.id, step.artifact.n) }}>Open</Button></Tip>}
-        {step.output && <Tip label="Everything the command printed, as a terminal would show it. The model was given a short view of it."><a className="d-button d-button--ghost d-button--sm" href={`/api/v1/sessions/${session}/outputs/${step.output}`} target="_blank" rel="noopener">All it printed</a></Tip>}
-        {step.picture && <BrowserPicture session={session} name={step.picture} />}
-        {step.model_chose === 'go' && <Tip label="This session is set to Smart: the model was asked whether to ask you first, both ways round, and said to go ahead both times."><span className="d-type-caption d-text-tertiary">The model chose not to ask</span></Tip>}
+        {step.artifact && step.state === 'done' && <Button variant="ghost" size="sm" onClick={() => { if (step.artifact) openArtifact(session, step.artifact.id, step.artifact.n) }}>Open</Button>}
+        {step.output && <Tip label="Everything it printed"><a className="d-button d-button--ghost d-button--sm" href={`/api/v1/sessions/${session}/outputs/${step.output}`} target="_blank" rel="noopener">Output</a></Tip>}
+        {step.model_chose === 'go' && <Tip label="At Smart the model chose not to ask you, both ways round."><span className="d-type-caption d-text-tertiary">model's call</span></Tip>}
         {change && (change.undone_at
           ? <span className="d-type-caption d-text-tertiary">Undone</span>
-          : <Tip label={change.whole_folder ? 'Puts the whole folder back as it was before this command ran. What it made is removed, what it changed or removed is as it was.' : change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was before this.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
+          : <Tip label={change.whole_folder ? 'Puts the whole folder back as it was before this command ran.' : change.created ? `Removes ${change.path}: this created it.` : `Puts ${change.path} back as it was.`}><Button variant="ghost" size="sm" onClick={() => void undoChange(change.session_id, change.id)}>Undo</Button></Tip>)}
       </div>
       {change?.diff_stat && <ChangeShown change={change} />}
     </div>
   )
 }
 
-/** The sandbox, set up from here where the core's computer allows it (Windows, DECISIONS T27): once, with an
-    administrator's rights, which Windows asks for on that computer's screen. */
+/** The sandbox, set up from here where the core's computer allows it (Windows, DECISIONS T27). */
 function SetUpSandbox({ id }: { id: string }) {
   const [busy, setBusy] = useState(false)
-  return (
-    <div className="app-row" style={{ gap: 'var(--d-space-8)', alignItems: 'center' }}>
-      <Button type="button" disabled={busy} onClick={() => { setBusy(true); void setUpSandbox(id).finally(() => setBusy(false)) }}>{busy ? 'Setting up… (Windows asks first)' : 'Set up the sandbox'}</Button>
-      <span className="d-type-caption d-text-secondary">Windows asks for an administrator once. Programs then run as a user of Demido's own: it cannot read your profile or change anything outside the session's folder, and has no network. It can still read what Windows lets every user read, such as folders at C:\ and on other disks.</span>
-    </div>
-  )
+  return <Tip label="Windows asks for an administrator once. Programs then run as a user of Demido's own, with no network."><Button size="sm" disabled={busy} onClick={() => { setBusy(true); void setUpSandbox(id).finally(() => setBusy(false)) }}>{busy ? 'Windows asks first…' : 'Set up the sandbox'}</Button></Tip>
 }
 
 function Asking({ request }: { request: PermissionRequest }) {
@@ -197,19 +176,18 @@ function Asking({ request }: { request: PermissionRequest }) {
     <section className="d-permission" data-risk={request.reach === 'runs' || request.once_only ? 'high' : request.reach === 'changes' ? 'medium' : 'low'} aria-label={request.what}>
       <header className="d-permission__head">
         <span className="d-permission__risk">{request.reach === 'runs' ? 'Runs a program' : request.reach === 'changes' ? 'Changes a file' : request.reach === 'network' ? (request.once_only ? 'An address the model wrote' : 'Reads the internet') : 'Reads'}</span>
-        <h3 className="d-permission__title">The model wants to use a tool</h3>
       </header>
       <pre className="d-permission__what"><code>{request.what}</code></pre>
       <p className="d-permission__why">{request.why}</p>
       <details className="d-disclosure">
-        <summary>The request, as the model made it</summary>
+        <summary>The request</summary>
         <div className="d-disclosure__body"><pre className="d-code"><code>{JSON.stringify({ tool: request.tool, args: request.args }, null, 1)}</code></pre></div>
       </details>
       <div className="d-permission__actions">
         <Button onClick={() => answer('no')}>No</Button>
         {/* A yes to an address the model wrote is for that one address. */}
-        {!request.once_only && <Button onClick={() => answer('session')}>Yes, and do not ask again for {request.tool} in this session</Button>}
-        <Button variant="primary" onClick={() => answer('once')}>Yes, this once</Button>
+        {!request.once_only && <Tip label={`Do not ask again for ${request.tool} in this session`}><Button onClick={() => answer('session')}>Always here</Button></Tip>}
+        <Button variant="primary" onClick={() => answer('once')}>Yes</Button>
       </div>
     </section>
   )
@@ -256,8 +234,8 @@ function ReadItAloud({ m }: { m: CoreMessage }) {
     reading.current.start()
   }
   return state === 'idle'
-    ? <Tip label="Reads this answer aloud with voice mode's voice, on this computer. Its code and links are left out."><Button variant="ghost" size="sm" iconOnly aria-label="Read it aloud" onClick={start}><Icon icon={Volume2} size="sm" /></Button></Tip>
-    : <Tip label="Stop reading it aloud"><Button variant="ghost" size="sm" iconOnly pressed aria-label="Stop reading it aloud" onClick={() => reading.current?.stop()}><Icon icon={state === 'starting' ? Loader : Square} size="sm" /></Button></Tip>
+    ? <Tip label="Read aloud"><Button variant="ghost" size="sm" iconOnly aria-label="Read aloud" onClick={start}><Icon icon={Volume2} size="sm" /></Button></Tip>
+    : <Tip label="Stop"><Button variant="ghost" size="sm" iconOnly pressed aria-label="Stop reading aloud" onClick={() => reading.current?.stop()}><Icon icon={state === 'starting' ? Loader : Square} size="sm" /></Button></Tip>
 }
 
 /** Keeps an answer, or its one block of code, as a file of the session's own: an artifact, as a model gives one. */
@@ -278,13 +256,13 @@ function KeepAsFile({ m }: { m: CoreMessage }) {
   }
   return (
     <>
-      <Tip label="Keeps this answer as a file of the session's own, shown in Files with every version. Nothing is put in the session's folder."><Button variant="ghost" size="sm" onClick={() => { setName(proposed.name); setProblem(null); setOpen(true) }}>Keep as a file</Button></Tip>
+      <Tip label="Keep as a file"><Button variant="ghost" size="sm" iconOnly aria-label="Keep as a file" onClick={() => { setName(proposed.name); setProblem(null); setOpen(true) }}><Icon icon={FilePlus} size="sm" /></Button></Tip>
       {open && (
         <Dialog open onOpenChange={(o) => !o && setOpen(false)} title="Keep as a file"
-          text={proposed.text === m.content ? 'The whole answer, as a file of the session’s own. The same name again keeps a new version of it.' : 'The answer’s block of code, as a file of the session’s own. The same name again keeps a new version of it.'}
-          actions={<><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" disabled={!name.trim()} onClick={() => void keep()}>Keep it</Button></>}>
+          text={proposed.text === m.content ? 'The whole answer. The same name again keeps a new version.' : 'Its block of code. The same name again keeps a new version.'}
+          actions={<><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" disabled={!name.trim()} onClick={() => void keep()}>Keep</Button></>}>
           <form className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }} onSubmit={(e) => { e.preventDefault(); void keep() }}>
-            <label className="d-field"><span className="d-field__label">Name, with the ending that says what it is</span><input className="d-input d-input--mono" autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
+            <input className="d-input d-input--mono" aria-label="Its name" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
             {problem && <Signal level="caution">{problem}</Signal>}
           </form>
         </Dialog>
@@ -293,17 +271,80 @@ function KeepAsFile({ m }: { m: CoreMessage }) {
   )
 }
 
-function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: CoreMessage; live?: { text: string; thought: string }; doing?: { steps?: CoreStep[]; tasks?: CoreTask[] }; tasks: CoreTask[]; changes: CoreChange[]; asking?: PermissionRequest | null; folder: boolean }) {
+/** Asks before saying a message again when later messages would go with it. */
+function AgainConfirm({ count, onYes, onNo }: { count: number; onYes: () => void; onNo: () => void }) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onNo()} title="Send it again from here?" text={`The ${count} messages after it go. Files the model changed stay as they are.`}
+      actions={<><Button onClick={onNo}>Cancel</Button><Button variant="primary" onClick={onYes}>Send again</Button></>} />
+  )
+}
+
+interface MessageProps {
+  m: CoreMessage
+  live?: { text: string; thought: string }
+  doing?: { steps?: CoreStep[]; tasks?: CoreTask[] }
+  tasks: CoreTask[]
+  changes: CoreChange[]
+  asking?: PermissionRequest | null
+  folder: boolean
+  /** Whether the session is being answered: nothing is said again meanwhile. */
+  answering: boolean
+  /** How many messages come after this one. */
+  after: number
+  /** The person's message this answer answers, to ask it again. */
+  request?: CoreMessage
+  onPage: (shot: Shot) => void
+}
+
+function Mine({ m, answering, after }: { m: CoreMessage; answering: boolean; after: number }) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(m.content)
+  const [asking, setAsking] = useState<string | null | undefined>(undefined)
+  // Said again with its text (null: as it was), once the person agreed when later messages go with it.
+  const go = (content: string | null) => {
+    if (after > 1 && asking === undefined) return setAsking(content)
+    setAsking(undefined)
+    setEditing(false)
+    void sayAgain(m.session_id, m.id, content ?? undefined)
+  }
+  if (editing)
+    return (
+      <article className="d-message" data-from="user">
+        <form className="chat__edit" onSubmit={(e) => { e.preventDefault(); if (text.trim()) go(text.trim()) }}>
+          <textarea className="d-composer__input" aria-label="Your message, edited" autoFocus value={text} onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (text.trim()) go(text.trim()) } else if (e.key === 'Escape') setEditing(false) }} />
+          <div className="chat__edit-bar">
+            <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setText(m.content) }}>Cancel</Button>
+            <Button size="sm" variant="primary" type="submit" disabled={!text.trim() || answering}>Send</Button>
+          </div>
+        </form>
+        {asking !== undefined && <AgainConfirm count={after} onYes={() => go(asking)} onNo={() => setAsking(undefined)} />}
+      </article>
+    )
+  return (
+    <article className="d-message" data-from="user">
+      <div className="d-message__body">{m.content}</div>
+      <div className="d-message__actions">
+        <Tip label="Copy"><Button variant="ghost" size="sm" iconOnly aria-label="Copy" onClick={() => copy(m.content)}><Icon icon={Copy} size="sm" /></Button></Tip>
+        <Tip label="Edit"><Button variant="ghost" size="sm" iconOnly aria-label="Edit" disabled={answering} onClick={() => { setText(m.content); setEditing(true) }}><Icon icon={Pencil} size="sm" /></Button></Tip>
+        <Tip label="Send again"><Button variant="ghost" size="sm" iconOnly aria-label="Send again" disabled={answering} onClick={() => go(null)}><Icon icon={RotateCcw} size="sm" /></Button></Tip>
+      </div>
+      {asking !== undefined && <AgainConfirm count={after} onYes={() => go(asking)} onNo={() => setAsking(undefined)} />}
+    </article>
+  )
+}
+
+function MessageView({ m, live, doing, tasks, changes, asking, folder, answering, after, request, onPage }: MessageProps) {
   const loading = useLocal((s) => s.list?.models.find((x) => x.id === m.model)?.state === 'loading')
   const at = useProviders(() => elsewhere(m.model))
-  if (m.role === 'user')
-    return <article className="d-message" data-from="user"><div className="d-message__body" style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div></article>
+  const [again, setAgain] = useState(false)
+  if (m.role === 'user') return <Mine m={m} answering={answering} after={after} />
   // A message from another session in the same folder, or Demido's note of what it changed (DECISIONS S5).
   if (m.role === 'session') {
     const [from, ...rest] = m.content.split('\n')
     return (
       <article className="d-message chat__from-session" data-from="session" aria-label={`From ${from}`}>
-        <div className="app-row" style={{ gap: 'var(--d-space-8)' }}><span className="d-type-caption d-text-secondary">{from.startsWith("Demido's note") ? from : `From the session "${from}"`}</span><span className="d-untrusted">From another session · treated as data</span></div>
+        <div className="app-row" style={{ gap: 'var(--d-space-8)' }}><span className="d-type-caption d-text-secondary">{from.startsWith("Demido's note") ? from : from}</span><span className="d-untrusted">another session · data</span></div>
         <div className="d-message__body" style={{ whiteSpace: 'pre-wrap' }}>{rest.join('\n')}</div>
       </article>
     )
@@ -315,74 +356,126 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder }: { m: Co
   const steps = ((writing ? doing?.steps : undefined) ?? m.steps ?? []).filter((s) => s.tool !== 'plan')
   const split = (writing ? doing?.tasks : undefined) ?? tasks
   const busy = steps.length > 0 || split.length > 0
+  // The last page the model saw in this answer, as a card.
+  const page = shotsOf([{ ...m, steps }]).at(-1)
   const t = m.timings
+  const ask = () => { if (request) void sayAgain(m.session_id, request.id) }
   return (
     <article className="d-message" data-from="assistant">
       <div className="d-message__body chat__blocks">
-        {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {at ? `Asking ${at}…` : loading ? `Loading ${m.model}…` : 'Waking the model…'}</p>}
+        {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {at ? at : loading ? m.model : ''}</p>}
         {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} session={m.session_id} program={byProgram(m.model)} />)}
+        {page && <BrowserCard session={m.session_id} shot={page} onOpen={() => onPage(page)} />}
         {split.length > 0 && <TaskList tasks={split} changes={changes} />}
         {writing && asking && <Asking request={asking} />}
         {thought && (
           // Open while it is being thought, so it can be watched. Folded away once the answer has begun.
           <details className="d-thinking" open={writing && !text ? true : undefined}>
-            <summary>{writing && !text ? 'Thinking…' : 'Thought first'}</summary>
+            <summary>{writing && !text ? 'Thinking…' : 'Thought'}</summary>
             <pre>{thought}</pre>
           </details>
         )}
         {/* A provider's model cannot be told from outside to end its thought. */}
         {writing && thought && !text && !at && <div><Button size="sm" onClick={() => void answerNow(m.session_id)}>Answer now</Button></div>}
         {text && <Prose text={text} />}
-        {/* In a session with a folder, an answer about files that read no file is an answer from nowhere. Small models write those. */}
-        {folder && m.state === 'done' && !busy && <p className="d-type-caption d-text-tertiary">No file was read or changed for this answer.</p>}
-        {m.state === 'stopped' && <Signal level="note">{m.problem ?? 'Stopped. What was written is kept.'}</Signal>}
-        {m.state === 'failed' && <Signal level="caution">{m.problem ?? 'The answer failed, and nothing says why.'}</Signal>}
-        {m.state === 'done' && m.content.trim() && <div className="app-row" style={{ gap: 'var(--d-space-4)' }}><ReadItAloud m={m} /><KeepAsFile m={m} /></div>}
+        {m.state === 'stopped' && <Signal level="note">{m.problem ?? 'Stopped.'}</Signal>}
+        {m.state === 'failed' && <Signal level="caution">{m.problem ?? 'The answer failed.'}</Signal>}
       </div>
-      {!writing && t && t.written > 0 && (
-        <p className="d-type-caption d-text-tertiary" style={{ marginBlockStart: 'var(--d-space-4)' }}>
-          {m.model} · {t.written} tokens{t.per_second > 0 ? ` at ${Math.round(t.per_second)} a second` : ''} · of the prompt, {t.read} tokens read and {t.reused} {at ? `from ${at}'s cache` : 'not read again'}
-          {t.cost_usd !== undefined && (byProgram(m.model)
-            ? <> · <Tip label={m.model?.startsWith('claude-code/') ? 'What Claude Code said this turn would cost at API prices. Under a Claude plan nothing is billed per token: the turn counts against your plan’s limits.' : 'What OpenCode said this turn cost. Free models cost nothing; others bill through the provider you set up in OpenCode.'}><span>{dollars(t.cost_usd)} by {at}'s own count</span></Tip></>
-            : <> · <Tip label={t.cost_exact ? `What ${at ?? 'the provider'} said this answer cost, with every request made for it (the tools it chose, its tasks).` : `What this answer cost, with every request made for it, as Demido counted it from the tokens ${at ?? 'the provider'} reported and the prices it read.`}><span>{dollars(t.cost_usd)}{t.cost_exact ? '' : ' (estimated)'}</span></Tip></>)}
-        </p>
+      {!writing && (
+        <div className="d-message__actions chat__actions">
+          {m.content.trim() && <Tip label="Copy"><Button variant="ghost" size="sm" iconOnly aria-label="Copy" onClick={() => copy(m.content)}><Icon icon={Copy} size="sm" /></Button></Tip>}
+          {request && <Tip label="Ask again"><Button variant="ghost" size="sm" iconOnly aria-label="Ask again" disabled={answering} onClick={() => (after > 0 ? setAgain(true) : ask())}><Icon icon={RotateCcw} size="sm" /></Button></Tip>}
+          {m.state === 'done' && m.content.trim() && <><ReadItAloud m={m} /><KeepAsFile m={m} /></>}
+          {t && t.written > 0 && (
+            <Tip label={<>{m.model}<br />{t.written} tokens written{t.per_second > 0 ? `, ${Math.round(t.per_second)} a second` : ''}<br />Prompt: {t.read} read, {t.reused} reused{t.cost_usd !== undefined ? <><br />{dollars(t.cost_usd)}{byProgram(m.model) ? ` by ${at}'s own count` : t.cost_exact ? '' : ' (estimated)'}</> : null}</>}>
+              <span className="chat__meta">{t.per_second > 0 ? `${Math.round(t.per_second)} t/s` : `${t.written} t`}{t.cost_usd !== undefined ? ` · ${dollars(t.cost_usd)}` : ''}</span>
+            </Tip>
+          )}
+          {/* In a session with a folder, an answer about files that read no file is an answer from nowhere. Small models write those. */}
+          {folder && m.state === 'done' && !busy && <Tip label="No file was read or changed for this answer."><span className="chat__meta chat__meta--flag"><Icon icon={Info} size="sm" /> no file read</span></Tip>}
+        </div>
       )}
+      {again && <AgainConfirm count={after + 1} onYes={() => { setAgain(false); ask() }} onNo={() => setAgain(false)} />}
     </article>
-  )
-}
-
-/** How full the session is, and the way to make it shorter. */
-function Room({ id, context, busy, canShorten }: { id: string; context: ContextUse; busy: boolean; canShorten: boolean }) {
-  const shortening = useReal((s) => Boolean(s.shortening[id]))
-  const full = Math.min(100, Math.round((context.used / context.limit) * 100))
-  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
-  if (shortening) return <span className="d-type-caption d-text-secondary"><Glyph name="task-running" busy /> Writing an account of the older part…</span>
-  return (
-    <>
-      <Tip label={`About ${context.used.toLocaleString()} of the ${context.limit.toLocaleString()} tokens the model is loaded with room for. ${context.auto ? `At ${context.compact_at.toLocaleString()} the older part is replaced by a short account, by itself.` : 'It is not made shorter by itself (Settings › Context and compaction).'}`}>
-        <span className="app-row" style={{ gap: 'var(--d-space-6)' }}>
-          <span className="d-meter" style={{ width: '3.5rem' }} role="meter" aria-valuenow={full} aria-valuemin={0} aria-valuemax={100} aria-label="How full the session is"><span style={{ '--d-meter': `${full}%` } as React.CSSProperties} /></span>
-          <span className="d-type-caption d-text-tertiary d-mono">{k(context.used)} of {k(context.limit)}</span>
-        </span>
-      </Tip>
-      <Tip label="The model writes a short account of the older messages and works from that. The messages stay here for you.">
-        <Button variant="ghost" size="sm" disabled={busy || !canShorten} onClick={() => void makeShorter(id)}>Make shorter</Button>
-      </Tip>
-    </>
   )
 }
 
 /** Where a session was made shorter: what is above is no longer given to the model word for word. */
 function Cut({ account }: { account: { content: string; why: string; tokens_before: number } }) {
   return (
-    <Signal level="note">
-      Made shorter here{account.why === 'auto' ? ', by itself: the conversation had reached about ' + account.tokens_before.toLocaleString() + ' tokens' : ''}. The model no longer sees the messages above word for word. They stay here for you; the model is given this account of them:
-      <span style={{ display: 'block', marginBlockStart: 'var(--d-space-6)', whiteSpace: 'pre-wrap' }}>{account.content}</span>
-    </Signal>
+    <details className="chat__cut">
+      <summary>Made shorter here{account.why === 'auto' ? ` at ${account.tokens_before.toLocaleString()} tokens` : ''}</summary>
+      <p className="d-type-small d-text-secondary" style={{ whiteSpace: 'pre-wrap' }}>{account.content}</p>
+    </details>
   )
 }
 
-function Composer({ id, answering, context, canShorten, tools, program }: { id: string; answering: boolean; context: ContextUse; canShorten: boolean; tools: boolean; program?: boolean }) {
+/** A control of the session under the message box: an icon, a short value, and a menu. */
+function Chip({ icon, label, title, tone, items, disabled }: { icon: LucideIcon; label: string; title: string; tone?: string; items: MenuEntry[]; disabled?: boolean }) {
+  return (
+    <Menu side="top" items={items} trigger={
+      <button type="button" className="chat__chip" data-tone={tone} aria-label={`${title}: ${label}`} title={title} disabled={disabled}>
+        <Icon icon={icon} size="sm" /><span className="chat__chip-label">{label}</span><Icon icon={ChevronDown} size="sm" />
+      </button>
+    } />
+  )
+}
+
+/** The folder this session may work in, typed as a path: a folder on the computer the core runs on. */
+export function FolderForm({ id, folder, sandbox, onDone }: { id: string; folder: string | null; sandbox?: { kind: string; why_not?: string | null; can_set_up?: boolean } | null; onDone?: () => void }) {
+  const [path, setPath] = useState(folder ?? '')
+  const shut = Boolean(sandbox && sandbox.kind !== 'none')
+  return (
+    <form className="chat__where" onSubmit={(e) => { e.preventDefault(); void changeSession(id, { folder: path.trim() }).then(() => onDone?.()) }}>
+      <div className="app-row" style={{ gap: 'var(--d-space-6)' }}>
+        <input className="d-input d-mono" style={{ flex: 1, minWidth: 0 }} aria-label="The folder, as a full path" placeholder="/home/you/project" value={path} onChange={(e) => setPath(e.target.value)} autoFocus spellCheck={false} />
+        <Button variant="primary" size="sm" type="submit" disabled={!path.trim() || path.trim() === folder}>Use</Button>
+        {folder && <Button size="sm" type="button" onClick={() => void changeSession(id, { folder: '' }).then(() => onDone?.())}>None</Button>}
+      </div>
+      <p className="chat__where-facts">
+        <span><Icon icon={shut ? ShieldCheck : ShieldOff} size="sm" /> {shut ? `Programs in a sandbox (${sandbox?.kind})` : 'No sandbox: programs ask first'}</span>
+        <span><Icon icon={RotateCcw} size="sm" /> Every change can be undone</span>
+      </p>
+      {sandbox?.can_set_up && !shut && <SetUpSandbox id={id} />}
+    </form>
+  )
+}
+
+function FolderChip({ id, folder, sandbox, disabled }: { id: string; folder: string | null; sandbox?: { kind: string; why_not?: string | null; can_set_up?: boolean } | null; disabled?: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger render={<button type="button" className="chat__chip" data-tone={folder ? 'set' : undefined} disabled={disabled} title="The session's folder" aria-label={`Folder: ${folder ?? 'none'}`} />}>
+        <Icon icon={folder ? FolderOpen : Folder} size="sm" /><span className="chat__chip-label">{folder ? folderName(folder) : 'No folder'}</span><Icon icon={ChevronDown} size="sm" />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner side="top" align="start" sideOffset={8} className="app-layer">
+          <Popover.Popup className="d-menu app-pop chat__folder-pop">
+            <FolderForm id={id} folder={folder} sandbox={sandbox} onDone={() => setOpen(false)} />
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  )
+}
+
+/** How full the session is, as a ring, and the way to make it shorter. */
+function Room({ id, context, busy, canShorten }: { id: string; context: ContextUse; busy: boolean; canShorten: boolean }) {
+  const shortening = useReal((s) => Boolean(s.shortening[id]))
+  const full = Math.min(100, Math.round((context.used / context.limit) * 100))
+  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+  if (shortening) return <Tip label="Making it shorter"><span className="chat__ring"><Glyph name="task-running" busy /></span></Tip>
+  return (
+    <Menu side="top" align="end" items={[
+      { kind: 'label', label: `${k(context.used)} of ${k(context.limit)} tokens` },
+      { label: 'Make shorter', hint: context.auto ? `by itself at ${k(context.compact_at)}` : undefined, disabled: busy || !canShorten, onSelect: () => void makeShorter(id) },
+    ]} trigger={
+      <button type="button" className="chat__ring" aria-label={`${full}% full`} title={`${full}% full`} style={{ '--ring': `${full * 3.6}deg` } as React.CSSProperties} data-full={full > 80 ? '' : undefined} />
+    } />
+  )
+}
+
+function Composer({ id, answering, tools, program, children }: { id: string; answering: boolean; tools: boolean; program?: boolean; children: React.ReactNode }) {
   const [text, setText] = useState('')
   const [plan, setPlan] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -410,31 +503,33 @@ function Composer({ id, answering, context, canShorten, tools, program }: { id: 
     else setText(mine)
   }
   return (
-    <form className="d-composer chat__composer" onSubmit={(e) => { e.preventDefault(); void send() }}>
-      <textarea ref={input} className="d-composer__input" rows={1} placeholder="Ask something" aria-label="Message" value={text} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
-      <div className="d-composer__bar">
-        {/* A program keeps its own conversation and plans its own way: Demido's room and tasks are not its. */}
-        {!program && <Room id={id} context={context} busy={answering} canShorten={canShorten} />}
-        {!program && (
-          <Tip label={tools ? 'For work with several steps. The model first lists the steps; Demido then has it do them one at a time and shows the list as it goes.' : 'Tools are switched off (Settings › Tools and tasks), and tasks are done with them.'}>
-            <Button variant="ghost" size="sm" pressed={plan && tools} disabled={!tools} onClick={() => setPlan(!plan)}><Icon icon={ListChecks} size="sm" /> Plan first</Button>
+    <div className="chat__input">
+      <form className="d-composer" onSubmit={(e) => { e.preventDefault(); void send() }}>
+        <textarea ref={input} className="d-composer__input" rows={1} placeholder="Ask something" aria-label="Message" value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
+        <div className="d-composer__bar">
+          {/* A program keeps its own conversation and plans its own way. */}
+          {!program && (
+            <Tip label={tools ? 'Plan first: the steps, then one at a time' : 'Tools are off'}>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Plan first" pressed={plan && tools} disabled={!tools} onClick={() => setPlan(!plan)}><Icon icon={ListChecks} size="sm" /></Button>
+            </Tip>
+          )}
+          <span className="d-composer__spacer" />
+          {dictating === 'waiting' && <Tip label="Write it down now"><Button variant="ghost" size="sm" onClick={() => dictation.current?.done()}>Done</Button></Tip>}
+          <Tip label={dictating === 'off' ? 'Dictate' : 'Stop dictating'}>
+            <Button variant="ghost" iconOnly pressed={dictating !== 'off'} aria-label={dictating === 'off' ? 'Dictate' : 'Stop dictating'} onClick={dictate}><Icon icon={dictating === 'off' ? Mic : dictating === 'starting' ? Loader : MicOff} size="sm" /></Button>
           </Tip>
-        )}
-        <span className="d-composer__spacer" />
-        {dictating === 'waiting' && <Tip label="Demido waits for the end of your sentence. Press to write it down now."><Button variant="ghost" size="sm" onClick={() => dictation.current?.done()}>Done</Button></Tip>}
-        <Tip label={dictating === 'off' ? 'Dictate: speak, and each finished sentence is written into the box, on this computer. Nothing is sent until you send it.' : 'Stop dictating'}>
-          <Button variant="ghost" iconOnly pressed={dictating !== 'off'} aria-label={dictating === 'off' ? 'Dictate' : 'Stop dictating'} onClick={dictate}><Icon icon={dictating === 'off' ? Mic : dictating === 'starting' ? Loader : MicOff} size="sm" /></Button>
-        </Tip>
-        {answering
-          ? <Tip label="Stop"><Button variant="primary" iconOnly aria-label="Stop" onClick={() => void stopAnswer(id)}><Icon icon={Square} size="sm" /></Button></Tip>
-          : <Tip label="Send"><Button variant="primary" iconOnly aria-label="Send" type="submit" disabled={!text.trim()}><Icon icon={ArrowUp} /></Button></Tip>}
-      </div>
-    </form>
+          {answering
+            ? <Tip label="Stop"><Button variant="primary" iconOnly aria-label="Stop" onClick={() => void stopAnswer(id)}><Icon icon={Square} size="sm" /></Button></Tip>
+            : <Tip label="Send"><Button variant="primary" iconOnly aria-label="Send" type="submit" disabled={!text.trim()}><Icon icon={ArrowUp} /></Button></Tip>}
+        </div>
+      </form>
+      <div className="chat__controls">{children}</div>
+    </div>
   )
 }
 
-/** At the top of a schedule's session: what the schedule does, when it runs next, and a run now. */
+/** At the top of a schedule's session: what it does, when it runs next, and a run now. */
 function ScheduleStrip({ id }: { id: string }) {
   const [s, setS] = useState<{ schedule: Schedule; running: boolean } | null>(null)
   const [tick, setTick] = useState(0)
@@ -445,14 +540,32 @@ function ScheduleStrip({ id }: { id: string }) {
   }, [id])
   if (!s) return null
   const { schedule, running } = s
-  const next = running ? 'It is running now.' : schedule.state === 'on' && schedule.next_at ? `Next ${whenFromNow(schedule.next_at)}.` : schedule.state === 'paused' ? `Paused${schedule.paused_why ? `: ${schedule.paused_why}` : '.'}` : 'It does not run again.'
+  const next = running ? 'running now' : schedule.state === 'on' && schedule.next_at ? `next ${whenFromNow(schedule.next_at)}` : schedule.state === 'paused' ? 'paused' : 'done'
   return (
-    <Signal level="note" actions={<>
+    <div className="chat__schedule">
+      <Icon icon={CalendarClock} size="sm" />
+      <span className="chat__schedule-what">{schedule.watch ? schedule.watch_said : schedule.what}</span>
+      <span className="d-text-tertiary">{schedule.when_said} · {next}</span>
+      <span className="app-spacer" />
       <Button size="sm" disabled={running} onClick={() => void runSchedule(id).then(() => setTick((t) => t + 1))}>{running ? 'Running…' : 'Run now'}</Button>
-      <Button size="sm" variant="ghost" onClick={() => { window.location.hash = '#/schedules' }}>Schedules</Button>
-    </>}>
-      This is the session of a schedule: {schedule.watch ? `${(schedule.watch_said ?? '').charAt(0).toLowerCase()}${(schedule.watch_said ?? '').slice(1)}` : `"${schedule.what}"`},{schedule.when_said.charAt(0).toLowerCase() + schedule.when_said.slice(1)}. {next} Its runs are said and answered here, on their own.
-    </Signal>
+    </div>
+  )
+}
+
+/** What the model is told, word for word. */
+function Told({ detail, onClose }: { detail: NonNullable<ReturnType<typeof useReal.getState>['open'][string]>; onClose: () => void }) {
+  const program = byProgram(detail.session.model)
+  return (
+    <Dialog wide open onOpenChange={(o) => !o && onClose()} title="What the model is told" actions={<Button onClick={onClose}>Close</Button>}>
+      <div className="app-stack" style={{ marginBlockStart: 'var(--d-space-12)' }}>
+        <p className="d-list__label">{program ? `Added to ${elsewhere(detail.session.model)}'s own instructions` : 'Before the conversation'}</p>
+        <pre className="d-code" style={{ whiteSpace: 'pre-wrap' }}><code>{program ? detail.instructions.split('\n\n').slice(1).join('\n\n') : detail.instructions}</code></pre>
+        {!program && detail.tools_told && <>
+          <p className="d-list__label">Before each answer, to choose a tool</p>
+          <pre className="d-code" style={{ whiteSpace: 'pre-wrap' }}><code>{detail.tools_told}</code></pre>
+        </>}
+      </div>
+    </Dialog>
   )
 }
 
@@ -470,10 +583,17 @@ function Chat() {
   const thread = useRef<HTMLDivElement>(null)
   const [told, setTold] = useState(false)
   const [sure, setSure] = useState(false)
-  // The folder is typed as a path: it is a folder on the computer the core runs on, which may not be this one.
-  const [folding, setFolding] = useState(false)
-  const [path, setPath] = useState('')
-  useEffect(() => { setTold(false); setSure(false); setFolding(false) }, [id])
+  // What is open beside the conversation, whether it takes the whole view, and the page chosen in the browser.
+  const [panel, setPanel] = useState<'browser' | 'files' | null>(null)
+  const [wide, setWide] = useState(false)
+  const [shot, setShot] = useState<string | null>(null)
+  // An artifact opened from anywhere opens in its session's files.
+  const focus = useFilesFocus((s) => s.focus)
+  const [artifact, setArtifact] = useState<{ id: string; n: number } | null>(null)
+  useEffect(() => {
+    if (focus && focus.session === id) { setArtifact({ id: focus.artifact, n: focus.n }); setPanel('files'); useFilesFocus.getState().clear() }
+  }, [focus, id])
+  useEffect(() => { setTold(false); setSure(false); setPanel(null); setWide(false); setShot(null); setArtifact(null) }, [id])
   // Only a session the list knows is asked for: the address may still name one that is gone, or one of the preview's.
   useEffect(() => { if (known) void readSession(id) }, [id, known])
   // Follow the answer down as it is written.
@@ -488,8 +608,6 @@ function Chat() {
   if (listed && !known && !detail) return <Navigate to="/sessions" replace />
   if (!detail) return <section className="chat" aria-label="Conversation" />
   const { session, messages } = detail
-  // Whether models may read from the internet is the person's setting; the list of tools a model is shown says so.
-  const internet = detail.tools_told?.includes('search_web') ? 'It can search the internet and read a page from its address; it can only read there, and it asks before opening an address it wrote itself.' : 'Reading from the internet is switched off in the settings.'
   const answering = messages.some((m) => m.state === 'answering')
   const level: Level = session.permission ?? 'balanced'
   // The account in force, and the last message it stands for.
@@ -502,100 +620,84 @@ function Chat() {
   // The accounts at its model's provider: with more than one, the session picks which it goes through.
   const accounts = (at && providers?.find((p) => p.id === session.model.split('/')[0])?.accounts) || []
   const inUse = accounts.find((a) => a.id === session.account) ?? accounts.find((a) => a.is_default)
-  const offLabel = program ? 'Its own default' : always ? 'Least thinking' : 'No thinking'
-  // Demido's way of answering: what the core tells every model, after the date.
-  const INSTRUCTIONS = detail.instructions.split('\n\n').slice(1).join('\n\n')
+  const offLabel = program ? 'Default' : always ? 'Least' : 'Off'
+  const internet = Boolean(detail.tools_told?.includes('search_web'))
+  const shots = shotsOf(messages)
+  const openPage = (s: Shot) => { setShot(s.picture); setPanel('browser') }
+  const toggle = (p: 'browser' | 'files') => { setPanel(panel === p ? null : p); setWide(false) }
+
+  const modelState = (m: string) => models.find((x) => x.id === m)?.state
+  const modelItems: MenuEntry[] = [
+    ...(models.length ? [{ kind: 'label' as const, label: 'On this computer' }] : []),
+    ...models.map((m) => ({ label: m.id, lead: <Glyph name={m.state === 'loaded' ? 'model-loaded' : m.state === 'loading' ? 'model-loading' : 'model-unloaded'} busy={m.state === 'loading'} tone={m.state === 'loaded' ? 'live' as const : undefined} />, checked: m.id === session.model, onSelect: () => void changeSession(id, { model: m.id }) })),
+    ...(remote.length ? [{ kind: 'label' as const, label: 'Elsewhere' }] : []),
+    ...remote.map((r) => ({ label: r.name, hint: `${elsewhere(r.id)}${r.free ? ' · free' : ''}`, checked: r.id === session.model, onSelect: () => void changeSession(id, { model: r.id }) })),
+    ...(accounts.length > 1 ? [{ kind: 'sep' as const }, { kind: 'label' as const, label: 'Account' }, ...accounts.map((a) => ({ label: a.label, hint: a.is_default ? 'default' : undefined, checked: a.id === inUse?.id, onSelect: () => void changeSession(id, { account: a.id }) }))] : []),
+  ]
+  const modelLabel = remote.find((r) => r.id === session.model)?.name ?? session.model
+  const thinking = detail.thinking_choices ?? []
+  const thinkLabel = session.thinking === 'off' ? offLabel : session.thinking === 'on' ? 'On' : session.thinking
+
   return (
-    <section className="chat" aria-label="Conversation">
-      <header className="chat__head chat__head--tools">
-        <h1 className="chat__title">{session.title}</h1>
-        {detail.thinking_choices && detail.thinking_choices.length > 0 && (
-          <Tip label={always ? 'This model always thinks before it answers. "Least thinking" asks it for as little as it does.' : 'Whether the model thinks before it answers. Slower; it can help on hard questions.'}>
-            <span>
-              {detail.thinking_choices.length <= 3
-                ? <Segmented small label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: offLabel }, ...detail.thinking_choices.map((c) => ({ value: c, label: c === 'on' ? 'Think first' : `Think: ${c}` }))]} />
-                : <Select label="Thinking" value={session.thinking} onChange={(thinking) => void changeSession(id, { thinking })} options={[{ value: 'off', label: offLabel }, ...detail.thinking_choices.map((c) => ({ value: c, label: `Think: ${c}` }))]} />}
-            </span>
-          </Tip>
-        )}
-        <Tip label={session.folder ? `The model may read and change files in ${session.folder}, and nowhere else.` : 'Give the session a folder, and the model can read and change files in it. Without one it cannot touch a file.'}>
-          <Button variant="ghost" size="sm" pressed={folding} disabled={answering} onClick={() => { setPath(session.folder ?? ''); setFolding(!folding) }}>
-            <Icon icon={Folder} size="sm" /> {session.folder ? session.folder.split(/[\\/]/).filter(Boolean).at(-1) : 'No folder'}
-          </Button>
-        </Tip>
-        {session.schedule_id ? (
-          <Tip label="This is a schedule's session. A schedule runs on its own, with every tool, and asks you nothing: it has no permission level. What you say here yourself is answered the same way."><span className="d-badge d-badge--outline">Runs on its own</span></Tip>
-        ) : <Tip label={LEVELS[level].text}>
-          <span className="app-row" style={{ gap: 'var(--d-space-4)' }}>
-            <span className="sess__shield" data-level={level}><Icon icon={LEVELS[level].icon} size="sm" /></span>
-            <Select label="How much the model may do without asking" value={level} onChange={(permission) => void changeSession(id, { permission })}
-              options={(Object.keys(LEVELS) as Level[]).map((l) => ({ value: l, label: LEVELS[l].label }))} />
-          </span>
-        </Tip>}
-        {at && (program
-          ? <Tip label={`${at} runs this session on this computer, with its own tools and its own loop, and sends what it needs to its models. Demido shows what it does and asks you what it asks. Before each turn the folder is saved, so all a turn changed can be undone.`}><span className="d-badge d-badge--outline">Runs in {at}</span></Tip>
-          : <Tip label={`What is said in this session, and what its tools read, is sent to ${at}. Each answer costs money: Providers shows the month's count and limit.`}><span className="d-badge d-badge--outline">Sent to {at}</span></Tip>)}
-        {accounts.length > 1 && inUse && (
-          <Tip label={program ? `${at} runs this session signed in as ${inUse.label}, on its plan. With another account it starts again in that account's own profile, and is given the conversation so far.` : `Each answer is paid with ${inUse.label}'s key at ${at}, and counted against it.`}>
-            <span><Select label="Account" value={inUse.id} onChange={(account) => void changeSession(id, { account })} options={accounts.map((a) => ({ value: a.id, label: `${a.label}${a.is_default ? ' (default)' : ''}` }))} /></span>
-          </Tip>
-        )}
-        <Select label="Model for this session" value={session.model} onChange={(model) => void changeSession(id, { model })}
-          options={[...new Set([session.model, ...models.map((m) => m.id), ...remote.map((m) => m.id)])].map((m) => {
-            const there = remote.find((r) => r.id === m)
-            return { value: m, label: there ? `${there.name} · ${elsewhere(m)}${there.free ? ', free' : ''}` : m }
-          })} />
-        <Button variant="ghost" size="sm" pressed={told} onClick={() => setTold(!told)}>What the model is told</Button>
-        {sure
-          ? <><Button size="sm" variant="ghost" onClick={() => setSure(false)}>Keep</Button><Button size="sm" variant="danger" onClick={async () => { await deleteSession(id); navigate('/sessions') }}>Delete it all</Button></>
-          : <Tip label="Delete this session"><Button variant="ghost" size="sm" iconOnly aria-label="Delete this session" onClick={() => setSure(true)}><Icon icon={Trash2} size="sm" /></Button></Tip>}
-      </header>
-      <div className="chat__thread" ref={thread}>
-        <div className="chat__col">
-          {session.schedule_id && <ScheduleStrip id={session.schedule_id} />}
-          {folding && (
-            <form className="chat__folder" onSubmit={(e) => { e.preventDefault(); void changeSession(id, { folder: path.trim() }).then(() => setFolding(false)) }}>
-              <label className="d-type-small" htmlFor="session-folder">The folder this session may work in, as a full path on the computer Demido runs on</label>
-              <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
-                <input id="session-folder" className="d-input d-mono" style={{ flex: 1, minWidth: 0 }} placeholder="/home/you/project" value={path} onChange={(e) => setPath(e.target.value)} autoFocus spellCheck={false} />
-                <Button variant="primary" type="submit" disabled={!path.trim() || path.trim() === session.folder}>Use this folder</Button>
-                {session.folder && <Button type="button" onClick={() => void changeSession(id, { folder: '' }).then(() => setFolding(false))}>No folder</Button>}
+    <div className="sess" data-panel={panel ?? undefined} data-wide={panel && wide ? '' : undefined}>
+      <section className="chat" aria-label="Conversation">
+        <header className="chat__head">
+          <h1 className="chat__title">{session.title}</h1>
+          {session.schedule_id && <Tip label="A schedule's session: it runs on its own, with every tool, and asks nothing."><span className="d-badge d-badge--outline"><Icon icon={CalendarClock} size="sm" /> Runs on its own</span></Tip>}
+          <span className="app-spacer" />
+          <Tip label="Browser"><Button variant="ghost" size="sm" iconOnly aria-label="Browser" pressed={panel === 'browser'} onClick={() => toggle('browser')}><Icon icon={Globe} size="sm" />{shots.length > 0 && <span className="chat__dot" />}</Button></Tip>
+          <Tip label={session.folder ? folderName(session.folder) : 'Files'}><Button variant="ghost" size="sm" iconOnly aria-label="Files" pressed={panel === 'files'} onClick={() => toggle('files')}><Icon icon={session.folder ? FolderOpen : Folder} size="sm" /></Button></Tip>
+          <Menu align="end" trigger={<Button variant="ghost" size="sm" iconOnly aria-label="More"><Icon icon={MoreHorizontal} size="sm" /></Button>} items={[
+            { label: 'What the model is told', lead: <Icon icon={Brain} size="sm" />, onSelect: () => setTold(true) },
+            { kind: 'sep' },
+            { label: 'Delete the session', lead: <Icon icon={Trash2} size="sm" />, danger: true, onSelect: () => setSure(true) },
+          ]} />
+        </header>
+        <div className="chat__thread" ref={thread}>
+          <div className="chat__col">
+            {session.schedule_id && <ScheduleStrip id={session.schedule_id} />}
+            {!messages.length && (
+              <div className="chat__welcome">
+                <span dangerouslySetInnerHTML={{ __html: logo }} />
+                <h2 className="d-type-title-2">What do you want to know?</h2>
+                <div className="chat__facts">
+                  <Tip label={at ? `Runs at ${at}: what you write is sent there` : 'Runs on this computer'}><span className="chat__fact"><Glyph name={modelState(session.model) === 'loaded' ? 'model-loaded' : 'model-unloaded'} tone={modelState(session.model) === 'loaded' ? 'live' : undefined} /> {modelLabel}{at ? ` · ${at}` : ''}</span></Tip>
+                  <span className="chat__fact" data-off={session.folder ? undefined : ''}><Icon icon={session.folder ? FolderOpen : Folder} size="sm" /> {session.folder ? folderName(session.folder) : 'No folder'}</span>
+                  {!program && <span className="chat__fact" data-off={internet ? undefined : ''}><Icon icon={internet ? Wifi : WifiOff} size="sm" /> {internet ? 'Internet' : 'No internet'}</span>}
+                  {session.folder && <span className="chat__fact" data-off={detail.sandbox && detail.sandbox.kind !== 'none' ? undefined : ''}><Icon icon={detail.sandbox && detail.sandbox.kind !== 'none' ? ShieldCheck : ShieldOff} size="sm" /> {detail.sandbox && detail.sandbox.kind !== 'none' ? 'Sandbox' : 'No sandbox'}</span>}
+                  {!program && !detail.tools_told && <span className="chat__fact" data-off=""><Icon icon={ListChecks} size="sm" /> Tools off</span>}
+                </div>
               </div>
-              <p className="d-type-caption d-text-secondary">The model can read every file in it, change them, and run programs in it. It cannot reach anything outside it: that is checked by Demido, not left to the model. Each change can be undone from the answer that made it. {detail.sandbox && detail.sandbox.kind !== 'none' ? `Programs are shut in a sandbox (${detail.sandbox.kind}).` : `There is no sandbox here, so every program asks first. ${detail.sandbox?.why_not ?? ''}`}{(detail.need_not_ask ?? []).length > 0 && ` In this session you said these need not ask again: ${(detail.need_not_ask ?? []).join(', ')}.`}</p>
-              {detail.sandbox?.can_set_up && detail.sandbox.kind === 'none' && <SetUpSandbox id={id} />}
-            </form>
-          )}
-          {told && program && (
-            <Signal level="note">
-              {at} is given your messages, and Demido's way of answering is added to its own instructions, word for word: <span className="d-mono" style={{ whiteSpace: 'pre-wrap' }}>{INSTRUCTIONS}</span> What else it is told, which tools it has and how it goes about the work are its own. When an earlier part of this conversation was answered by another model, {at} is given that part with your next message.
-            </Signal>
-          )}
-          {told && !program && (
-            <Signal level="note">
-              Before the conversation, the model is told this, word for word: <span className="d-mono" style={{ whiteSpace: 'pre-wrap' }}>{detail.instructions}</span> Then everything said so far, oldest first. Thinking is {session.thinking === 'off' ? 'switched off' : `set to "${session.thinking}"`}.
-              {detail.tools_told
-                ? <> Before each answer it is first asked, apart from the conversation, whether it needs a tool. It is shown this, with your request in the middle: <span className="d-mono" style={{ whiteSpace: 'pre-wrap', display: 'block', marginBlockStart: 'var(--d-space-6)' }}>{detail.tools_told}</span></>
-                : ' Tools are switched off (Settings › Tools and tasks).'}
-            </Signal>
-          )}
-          {!messages.length && (
-            <div className="chat__welcome">
-              <span dangerouslySetInnerHTML={{ __html: logo }} />
-              <h2 className="d-type-title-2">What do you want to know?</h2>
-              <p className="d-text-secondary">{program ? `${at} runs this session, with its own tools and its own way of working: it reads, changes and runs what its own rules allow, and asks you through Demido what they say to ask. ${session.folder ? `It works in ${session.folder}, which is saved before each turn so that a turn can be undone.` : 'It works in an empty folder of its own: give the session a folder to let it work on yours.'} Demido's own tools are not used here.` : at ? `${remote.find((r) => r.id === session.model)?.name ?? session.model} runs at ${at}: what you write here, and what its tools read, is sent there, and each answer costs money. ` : `${session.model} loads when you send, and unloads when it has been idle. `}{program ? '' : !detail.tools_told ? 'It answers from what it knows: tools are switched off.' : session.folder ? `It can read and change files in ${session.folder} and run programs there, read the clock, calculate, and split work into tasks. ${detail.sandbox && detail.sandbox.kind !== 'none' ? 'Programs run shut in a sandbox: they see the folder and the system, not the rest of your home, and no network.' : `There is no sandbox on this computer, so it asks before each program. ${detail.sandbox?.why_not ?? ''}`} ${internet}` : `It can read the clock, calculate, and split work into tasks. Give the session a folder, and it can read and change files in it and run programs there. ${internet}`}</p>
-            </div>
-          )}
-          {messages.map((m) => (
-            <div key={m.id} className="chat__blocks" style={m.seq <= covered ? { opacity: 0.55 } : undefined}>
-              {account && m.seq === covered + 1 && <Cut account={account} />}
-              <MessageView m={m} live={writing[m.id]} doing={working[m.id]} tasks={(detail.tasks ?? []).filter((t) => t.message_id === m.id)} changes={detail.changes ?? []} asking={detail.asking && detail.asking.message_id === m.id ? detail.asking : null} folder={Boolean(session.folder)} />
-            </div>
-          ))}
-          {account && covered >= (messages.at(-1)?.seq ?? 0) && <Cut account={account} />}
+            )}
+            {messages.map((m, i) => (
+              <div key={m.id} className="chat__blocks" style={m.seq <= covered ? { opacity: 0.55 } : undefined}>
+                {account && m.seq === covered + 1 && <Cut account={account} />}
+                <MessageView m={m} live={writing[m.id]} doing={working[m.id]} tasks={(detail.tasks ?? []).filter((t) => t.message_id === m.id)} changes={detail.changes ?? []}
+                  asking={detail.asking && detail.asking.message_id === m.id ? detail.asking : null} folder={Boolean(session.folder)} answering={answering}
+                  after={messages.length - i - 1} request={m.role === 'assistant' ? messages.slice(0, i).reverse().find((x) => x.role === 'user') : undefined} onPage={openPage} />
+              </div>
+            ))}
+            {account && covered >= (messages.at(-1)?.seq ?? 0) && <Cut account={account} />}
+          </div>
         </div>
-      </div>
-      <Composer id={id} answering={answering} context={detail.context} canShorten={messages.filter((m) => m.seq > covered).length >= 4} tools={Boolean(detail.tools_told)} program={program} />
-    </section>
+        <Composer id={id} answering={answering} tools={Boolean(detail.tools_told)} program={program}>
+          <FolderChip id={id} folder={session.folder ?? null} sandbox={detail.sandbox} disabled={answering} />
+          <Chip icon={at ? Globe : Brain} title="Model" label={modelLabel} items={modelItems} tone={modelState(session.model) === 'loaded' ? 'live' : undefined} />
+          {thinking.length > 0 && <Chip icon={Brain} title={always ? 'Thinking (it always thinks)' : 'Thinking'} label={`Think: ${thinkLabel}`} tone={session.thinking !== 'off' ? 'set' : undefined}
+            items={[{ label: offLabel, checked: session.thinking === 'off', onSelect: () => void changeSession(id, { thinking: 'off' }) }, ...thinking.map((c) => ({ label: c === 'on' ? 'On' : c, checked: session.thinking === c, onSelect: () => void changeSession(id, { thinking: c }) }))]} />}
+          {!session.schedule_id && <Chip icon={LEVELS[level].icon} title={LEVELS[level].text} label={LEVELS[level].label} tone={`level-${level}`}
+            items={(Object.keys(LEVELS) as Level[]).map((l) => ({ label: LEVELS[l].label, hint: LEVELS[l].hint, lead: <Icon icon={LEVELS[l].icon} size="sm" />, checked: l === level, onSelect: () => void changeSession(id, { permission: l }) }))} />}
+          <span className="app-spacer" />
+          {!program && <Room id={id} context={detail.context} busy={answering} canShorten={messages.filter((m) => m.seq > covered).length >= 4} />}
+        </Composer>
+      </section>
+      {panel === 'browser' && <BrowserPanel session={id} shots={shots} chosen={shot} onChoose={setShot} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)} />}
+      {panel === 'files' && <FolderPanel session={id} folder={session.folder ?? null} focus={artifact} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)}
+        empty={<><p>No folder.</p><FolderForm id={id} folder={null} sandbox={detail.sandbox} /></>} />}
+      {told && <Told detail={detail} onClose={() => setTold(false)} />}
+      {sure && <Dialog open onOpenChange={(o) => !o && setSure(false)} title="Delete this session?" text="Everything said in it goes. Files in its folder stay."
+        actions={<><Button onClick={() => setSure(false)}>Keep</Button><Button variant="danger" onClick={async () => { setSure(false); await deleteSession(id); navigate('/sessions') }}>Delete</Button></>} />}
+    </div>
   )
 }
 
@@ -609,8 +711,7 @@ function Empty() {
         <div className="chat__welcome">
           <span dangerouslySetInnerHTML={{ __html: logo }} />
           <h2 className="d-type-title-2">No session yet</h2>
-          <p className="d-text-secondary">A session is a conversation with a model on this computer, or with one you chose elsewhere (Providers).</p>
-          <div className="chat__ideas"><Button variant="primary" disabled={!list} onClick={async () => { const id = await newSession(firstModel()); if (id) navigate(`/sessions/${id}`) }}>Start a session</Button></div>
+          <div className="chat__ideas"><Button variant="primary" disabled={!list} onClick={async () => { const id = await newSession(firstModel()); if (id) navigate(`/sessions/${id}`) }}><Icon icon={Plus} size="sm" />New session</Button></div>
         </div>
       </div></div>
     </section>
@@ -630,3 +731,4 @@ export function RealSessions() {
     </div>
   )
 }
+

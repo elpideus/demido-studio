@@ -370,6 +370,16 @@ pub struct Step {
     /// The picture of the page after a use of the browser, for the person (Z8): its name in the session's pictures.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture: Option<String>,
+    /// The page the browser was on after it: its address and title, for the card the window shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<PageSeen>,
+}
+
+/// A page of Demido's browser, as a step left it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct PageSeen {
+    pub address: String,
+    pub title: String,
 }
 
 /// An artifact a step gave, as the window links to it.

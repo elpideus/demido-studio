@@ -353,6 +353,30 @@ async fn turn(w: &World, session_id: &str, text: &str) -> Message {
 }
 
 #[tokio::test]
+async fn a_message_said_again_takes_the_session_back_to_it() {
+    let w = world("again");
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    w.stand.replies.lock().unwrap().extend(["First.".to_string(), "Second.".to_string(), "Edited.".to_string(), "Once more.".to_string()]);
+    turn(&w, &session.id, "One").await;
+    turn(&w, &session.id, "Two").await;
+    let said = |w: &World| w.sessions.messages(&session.id).unwrap().into_iter().map(|m| (m.role, m.content)).collect::<Vec<_>>();
+    let before = w.sessions.messages(&session.id).unwrap();
+    // Only a message of the person's.
+    assert!(matches!(w.chat.again(&session.id, &before[1].id, None, false), Err(Error::Invalid(_))));
+    // Edited: it and everything after it go, and it is said anew.
+    w.chat.again(&session.id, &before[0].id, Some("One, edited"), false).unwrap();
+    assert_eq!(w.answered(&session.id).await.content, "Edited.");
+    assert_eq!(said(&w), [("user".into(), "One, edited".into()), ("assistant".into(), "Edited.".into())]);
+    // As it was.
+    let mine = w.sessions.messages(&session.id).unwrap()[0].id.clone();
+    w.chat.again(&session.id, &mine, None, false).unwrap();
+    assert_eq!(w.answered(&session.id).await.content, "Once more.");
+    assert_eq!(said(&w), [("user".into(), "One, edited".into()), ("assistant".into(), "Once more.".into())]);
+    assert!(kinds(&w.events).contains(&"session.rewound".to_string()));
+    w.end().await;
+}
+
+#[tokio::test]
 async fn a_conversation_is_made_shorter_by_hand_and_the_model_gets_the_account() {
     let w = world("shorter");
     let session = w.chat.start(None, Some("small")).await.unwrap();

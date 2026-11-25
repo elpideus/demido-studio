@@ -683,6 +683,23 @@ impl Chat {
         Ok(gone)
     }
 
+    /// Says one of the person's messages again, as it was or edited: the session is taken back to before it
+    /// (it and everything after it go, Sessions::rewind) and it is said anew. Not while the session is being
+    /// answered.
+    pub fn again(self: &Arc<Self>, session_id: &str, message_id: &str, content: Option<&str>, plan: bool) -> Result<Turn> {
+        let message = self.sessions.message(message_id)?;
+        if message.session_id != session_id || message.role != "user" {
+            return Err(Error::Invalid("Only a message you wrote in this session can be said again.".into()));
+        }
+        if self.answering(session_id) {
+            return Err(Error::Busy("The session is being answered. Stop the answer first.".into()));
+        }
+        let text = content.map(str::trim).filter(|t| !t.is_empty()).unwrap_or(&message.content).to_string();
+        let gone = self.sessions.rewind(session_id, i64::from(message.seq))?;
+        self.events.append("session.rewound", Some(session_id), json!({ "from": message.seq, "messages": gone, "edited": text != message.content }))?;
+        self.say_with(session_id, &text, plan)
+    }
+
     /// Writes down what the person said and starts the answer. Returns at once; the answer follows as news.
     pub fn say(self: &Arc<Self>, session_id: &str, text: &str) -> Result<Turn> {
         self.say_with(session_id, text, false)

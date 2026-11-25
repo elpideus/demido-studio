@@ -441,6 +441,22 @@ impl Sessions {
         self.db.with(|c| c.prepare(&format!("{MESSAGE} WHERE id = ?1"))?.query_map([id], message_from)?.next().transpose())?.ok_or_else(|| Error::NotFound(format!("There is no message \"{id}\".")))
     }
 
+    /// Takes a session back to before message `from_seq`: that message and every one after it go, with their
+    /// tasks; so do the accounts of a shortening that covered any of them, and what a program (Claude Code,
+    /// OpenCode) kept of the conversation, so that its next turn starts again from what is left. Changes made to
+    /// files stay as they are, and stay undoable from the command line. How many messages went.
+    pub fn rewind(&self, session_id: &str, from_seq: i64) -> Result<usize> {
+        self.db.with(|c| {
+            let tx = c.unchecked_transaction()?;
+            let gone = tx.execute("DELETE FROM messages WHERE session_id = ?1 AND seq >= ?2", rusqlite::params![session_id, from_seq])?;
+            tx.execute("DELETE FROM summaries WHERE session_id = ?1 AND upto_seq >= ?2", rusqlite::params![session_id, from_seq])?;
+            tx.execute("DELETE FROM program_sessions WHERE session_id = ?1", [session_id])?;
+            tx.execute("UPDATE sessions SET updated_at = ?2 WHERE id = ?1", rusqlite::params![session_id, now_ms()])?;
+            tx.commit()?;
+            Ok(gone)
+        })
+    }
+
     /// Adds a message at the end of a session.
     pub fn add(&self, session_id: &str, role: &str, content: &str, state: &str, model: Option<&str>) -> Result<Message> {
         let (id, now) = (uuid::Uuid::now_v7().to_string(), now_ms());
@@ -718,6 +734,7 @@ mod tests {
             artifact: None,
             model_chose: None,
             picture: None,
+            page: None,
         };
         s.set_steps(&answer.id, std::slice::from_ref(&step)).unwrap();
         assert_eq!(s.message(&answer.id).unwrap().steps, vec![step.clone()]);

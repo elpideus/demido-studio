@@ -12,7 +12,7 @@ import { toast } from './store'
 export interface CoreTimings { reused: number; read: number; written: number; per_second: number; took_ms: number; cost_usd?: number; cost_exact?: boolean }
 /** One use of a tool. `waiting`: for the person's yes. `refused`: the request could not be used, or the person said no; nothing ran.
     `change`: the id of the change it made to a file, for undoing it. */
-export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null; artifact?: { id: string; name: string; n: number } | null; model_chose?: 'go' | 'ask' | null; picture?: string | null }
+export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null; artifact?: { id: string; name: string; n: number } | null; model_chose?: 'go' | 'ask' | null; picture?: string | null; page?: { address: string; title: string } | null }
 export type Level = 'cautious' | 'balanced' | 'smart' | 'autonomous'
 /** A use of a tool that is waiting for the person's yes. Every word of it is made by the core from the request, none by the model. */
 export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes' | 'runs' | 'network'; what: string; why: string; once_only?: boolean; asked_at: number }
@@ -97,6 +97,18 @@ export async function say(id: string, content: string, plan = false): Promise<bo
     const at = get().open[id]
     // Shown at once, without waiting for the news to come round.
     if (at && !at.messages.some((m) => m.id === turn.said.id)) set({ open: { ...get().open, [id]: { ...at, answering: true, messages: [...at.messages, turn.said, turn.answer] } } })
+    return true
+  } catch (e) {
+    toast(`Not sent. ${(e as Error).message}`, undefined, 'task-failed')
+    return false
+  }
+}
+
+/** Says one of the person's messages again, as it was or edited: it and everything after it go first. */
+export async function sayAgain(id: string, message: string, content?: string): Promise<boolean> {
+  try {
+    await coreSend('POST', `/sessions/${id}/messages/${message}/again`, { content })
+    await readSession(id)
     return true
   } catch (e) {
     toast(`Not sent. ${(e as Error).message}`, undefined, 'task-failed')

@@ -283,6 +283,8 @@ function BrowserPage() {
 
 export const feature: Feature = {
   id: 'browser', title: 'Browser', icon: AppWindow, group: 'connect', order: 0, path: 'browser', Page: BrowserPage,
+  // No place in the rail: a session's browser opens beside it (its globe button, and the card of each page).
+  nav: [],
   settings: [
     {
       id: 'browser', title: 'Browser', order: 6.5,
