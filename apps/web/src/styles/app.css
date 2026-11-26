@@ -2994,3 +2994,15 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
 .voice-hero__facts { display: flex; flex-wrap: wrap; gap: var(--d-space-8) var(--d-space-24); margin: 0; padding: var(--d-space-12) 0 0; border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline); list-style: none; color: var(--d-color-text-secondary); font-size: var(--d-type-caption-size); }
 .voice-hero__facts li { display: inline-flex; align-items: center; gap: var(--d-space-6); }
 .voice-hero__facts .app-about__button { --_h: 1.25rem; }
+/* Facts: the name on the left, the value beside it, both on one left edge; a long value wraps under itself. */
+.app-facts { gap: var(--d-space-6); }
+.app-facts > div { display: grid; grid-template-columns: minmax(6rem, 11rem) minmax(0, 1fr); column-gap: var(--d-space-16); align-items: baseline; justify-content: stretch; }
+.app-facts dt { display: inline-flex; align-items: center; gap: var(--d-space-2); }
+.app-facts dt .app-about__button { --_h: 1.25rem; margin-block: calc(-1 * var(--d-space-4)); }
+.app-facts dd { color: var(--d-color-text-primary); font-family: inherit; font-size: var(--d-type-body-size); font-weight: inherit; text-align: start; overflow-wrap: anywhere; }
+/* The rail's selection glides from one screen to the next. */
+.app-rail__scroll { position: relative; }
+.app-rail__pill { position: absolute; inset-block-start: 0; inset-inline-start: 0; z-index: 0; border-radius: var(--d-radius-md); background: var(--d-color-fill-selected); pointer-events: none; }
+.app-rail__pill[data-moved] { transition: transform var(--d-spring-default-duration) var(--d-spring-default), height var(--d-spring-default-duration) var(--d-spring-default); }
+.app-rail__item { position: relative; z-index: 1; }
+.app-rail__scroll[data-pill] .app-rail__item.active { background: transparent; }

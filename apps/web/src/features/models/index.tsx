@@ -7,13 +7,13 @@ import { LocalDetail, LocalList } from './local'
 import { HubDetail, HubList } from './hub'
 import type { Search as HubSearch } from '@/data/hub'
 import { useEffect, useMemo, useState } from 'react'
-import { AudioLines, Box, Boxes, Brain, ChevronLeft, ChevronRight, Download, Eye, Heart, Search, Star, TrendingUp, Wrench } from 'lucide-react'
+import { SearchX, AudioLines, Box, Boxes, Brain, ChevronLeft, ChevronRight, Download, Eye, Heart, Search, Star, TrendingUp, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { SYSTEM } from '@/data/fixtures'
 import { cancelDownload, deleteModel, downloadModel, loadModel, memoryOf, toast, unloadModel, useStore } from '@/data/store'
 import type { Capability, Model } from '@/data/types'
-import { Budget, Button, Facts, Glyph, Icon, MODEL_STATE_LABEL, NotBuilt, Segmented, Select, Signal, Switch, cx, Brief } from '@/ui'
+import { Budget, Button, Facts, Glyph, Icon, MODEL_STATE_LABEL, NotBuilt, Segmented, Select, Signal, Switch, cx, Brief, Empty } from '@/ui'
 
 const CAPS: Record<Capability, { label: string; icon: LucideIcon }> = {
   vision: { label: 'Vision', icon: Eye },
@@ -287,7 +287,7 @@ function ModelsPage() {
                 <Select label="Sort by" value={sort} onChange={(v) => { setSort(v); reset() }} options={[{ value: 'downloads', label: 'Most downloaded' }, { value: 'trending', label: 'Rising fastest' }, { value: 'likes', label: 'Most liked' }, { value: 'updated', label: 'Recently updated' }, { value: 'recommended', label: 'Recommended first' }, { value: 'size', label: 'Smallest first' }]} />
               </div>
               {list(matches.slice(at * PAGE, at * PAGE + PAGE))}
-              {!matches.length && <p className="app-empty">{view === 'mine' && !searching ? 'Nothing is downloaded yet.' : 'No model matches. Loosen a filter.'}</p>}
+              {!matches.length && (view === 'mine' && !searching ? <Empty icon={Box} title="Nothing downloaded yet" /> : <Empty icon={SearchX} title="No model matches" text="Loosen a filter." />)}
             </>
           )}
         </div>

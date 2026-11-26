@@ -13,7 +13,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
 import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, sayAgain, setUpSandbox, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
-import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry, useLeaving, useLiveList, ContextMenu, selectedWithin } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry, useLeaving, useLiveList, ContextMenu, selectedWithin, Empty } from '@/ui'
 import { asAFile, keepAsFile, openArtifact, useFilesFocus } from '@/data/artifacts'
 import { onCoreEvent } from '@/data/core'
 import { toast, useSetting } from '@/data/store'
@@ -84,7 +84,7 @@ function List() {
       </div>
       <div className="app-side__scroll">
         {!list && <p className="app-empty"><Glyph name="task-running" busy /></p>}
-        {list && !list.length && <p className="app-empty">No sessions yet.</p>}
+        {list && !list.length && <Empty icon={MessageSquare} title="No sessions yet" />}
         <ul className="d-list" ref={live}>
           {list?.map((s) => (
             <li key={s.id}>
@@ -164,6 +164,17 @@ function ChangeShown({ change }: { change: CoreChange }) {
 
 /** One use of a tool: what was asked for and what came back. Opened, it shows the request as the model made it.
     A use that changed a file can be undone from here, and shows what it changed. */
+/** What a finished step gave, at a glance: a page's site, a short answer as it is, or how long a long one is. The
+    whole of it is one press away, under the step. */
+function glance(step: CoreStep): string {
+  if (step.page?.address) { try { return new URL(step.page.address).host } catch { return '' } }
+  const said = (step.result ?? '').trim()
+  if (!said) return ''
+  if (!said.includes('\n') && said.length <= 48) return said
+  const lines = said.split('\n').length
+  return lines > 1 ? `${lines.toLocaleString()} lines` : flat(said, 40)
+}
+
 function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: string; change?: CoreChange; session: string; program?: boolean }) {
   const [said, on] = TOOL_SAID[step.tool] ?? [step.tool, '']
   const value = (name: string) => { const v = (step.args ?? {})[name]; return typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v) }
@@ -178,7 +189,7 @@ function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: s
           state: step.state === 'running' ? 'running' : step.state === 'waiting' ? 'needs-input' : step.state === 'done' ? 'done' : 'failed',
           what: refused ? (program ? `${said}: not allowed` : `Asked for ${step.tool} in a way that cannot be used`) : denied ? `${said}: you said no` : said,
           code: refused ? undefined : flat(shown, 80) || undefined,
-          meta: step.state === 'done' ? flat(step.result, 60) : step.state === 'running' ? '' : step.state === 'waiting' ? 'waiting for you' : step.state === 'refused' ? 'not run' : 'could not',
+          meta: step.state === 'done' ? glance(step) : step.state === 'running' ? '' : step.state === 'waiting' ? 'waiting for you' : step.state === 'refused' ? 'not run' : 'could not',
           request: JSON.stringify({ tool: step.tool, args: step.args }, null, 1),
           output: step.state === 'running' || step.state === 'waiting' ? undefined : step.result,
         }} />
@@ -764,7 +775,7 @@ function Chat() {
   )
 }
 
-function Empty() {
+function NoSession() {
   const list = useReal((s) => s.list)
   const navigate = useNavigate()
   if (list?.length) return <Navigate to={`/sessions/${list[0].id}`} replace />
@@ -789,7 +800,7 @@ export function RealSessions() {
       </Routes>
       <Routes>
         <Route path=":id" element={<Chat />} />
-        <Route path="*" element={<Empty />} />
+        <Route path="*" element={<NoSession />} />
       </Routes>
     </div>
   )

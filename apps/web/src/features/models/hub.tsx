@@ -1,10 +1,10 @@
 /* Discover and All, for real: models on Hugging Face that the runtime runs (GGUF), searched through the core,
    with whether each fits this computer, and downloading one into the models folder. */
 import { useEffect, useMemo, useState } from 'react'
-import { AudioLines, Boxes, Brain, Download as DownloadIcon, ExternalLink, Eye, Heart, Wrench } from 'lucide-react'
+import { SearchX, AudioLines, Boxes, Brain, Download as DownloadIcon, ExternalLink, Eye, Heart, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { hubModel, readToken, removeToken, saveToken, searchHub, startDownload, stopDownload, useDownloads, type HubDetail as Detail, type HubModel, type HubQuant, type Machine, type Search, type TokenFacts } from '@/data/hub'
-import { Button, Dialog, Facts, Glyph, Icon, NotBuilt, Page, Segmented, Signal, cx, Brief } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Icon, NotBuilt, Page, Segmented, Signal, cx, Brief, Empty } from '@/ui'
 import { Prose } from '@/ui/prose'
 import { size } from './local'
 
@@ -59,7 +59,7 @@ export function HubList({ search, open, onOpen }: { search: Search; open: string
   }
   if (error) return <Signal level="caution">{error}</Signal>
   if (!models) return <p className="app-empty"><Glyph name="task-running" busy /> Asking Hugging Face…</p>
-  if (!models.length) return <p className="app-empty">No model on this page matches. {next ? 'There are more pages.' : 'Loosen a filter.'}</p>
+  if (!models.length) return <Empty icon={SearchX} title="No model matches" text={next ? 'Not on this page: there are more.' : 'Loosen a filter.'} />
   return (
     <>
       <ul className="d-list">

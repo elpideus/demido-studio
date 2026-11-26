@@ -5,10 +5,10 @@
    tell it was opened. Sending cannot be undone, so the window asks once more, with the whole message in view.
    A password is given once and never shown again. */
 import { useEffect, useState } from 'react'
-import { ChevronDown, Mail, PenLine, Plus, RefreshCw, Reply, Trash2 } from 'lucide-react'
+import { MailOpen, Inbox, ChevronDown, Mail, PenLine, Plus, RefreshCw, Reply, Trash2 } from 'lucide-react'
 import { coreGet, coreSend } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Segmented, Signal } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Segmented, Signal, Empty } from '@/ui'
 
 interface KeyFacts { kept_in: 'keyring' | 'file'; ends_with: string }
 interface Account { id: string; address: string; label: string; preset: 'gmail' | 'other'; imap_host: string; imap_port: number; smtp_host: string; smtp_port: number; username: string; password: KeyFacts | null }
@@ -158,7 +158,7 @@ export function RealEmail() {
     return (
       <Page title="Email" lead="Your own mail accounts, read and sent from by Demido."
         about={<><p>Reading marks nothing as read. A message is shown as text, so its pictures are never loaded. Sending asks you first and cannot be undone.</p><p>Models can list your inbox, read a message and write one when Settings › Email allows it.</p></>}>
-        <div><Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />Add a mail account</Button></div>
+        <Empty icon={Mail} title="No mail account yet" text="Your inbox, read as text. Sending always asks you first." action={<Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />Add a mail account</Button>} />
         <NotBuilt block>Folders other than the inbox, replying in the same thread, files, search, labels, stars, moving, deleting, drafts kept, and "Ask Demido about this" here (ask in a session instead).</NotBuilt>
         {adding && <AddAccount onClose={() => setAdding(false)} onAdded={(a) => { setAdding(false); setCurrent(a.id); void readAccounts() }} />}
       </Page>
@@ -206,7 +206,7 @@ export function RealEmail() {
               </li>
             ))}
           </ul>
-          {!list.length && !reading && <p className="app-empty">No messages kept yet. <Button size="sm" onClick={() => void readList(true)}>Read the inbox</Button></p>}
+          {!list.length && !reading && <Empty icon={Inbox} title="Nothing read yet" action={<Button size="sm" onClick={() => void readList(true)}>Read the inbox</Button>} />}
           {reading && !list.length && <p className="app-empty"><Glyph name="task-running" busy /> Reading the inbox…</p>}
         </div>
       </div>
@@ -220,7 +220,7 @@ export function RealEmail() {
               {open.files.length > 0 && <p className="d-type-caption d-text-secondary">Files with it, not opened here: {open.files.join(', ')}</p>}
             </div></div>
           </>
-        ) : <p className="app-empty">No message is open.</p>}
+        ) : <Empty icon={MailOpen} title="No message open" text="Pick one in the list." />}
       </section>
       {adding && <AddAccount onClose={() => setAdding(false)} onAdded={(a) => { setAdding(false); setCurrent(a.id); void readAccounts() }} />}
       {draft && account && <Write account={account} draft={draft} onChange={setDraft} onClose={() => setDraft(null)} />}

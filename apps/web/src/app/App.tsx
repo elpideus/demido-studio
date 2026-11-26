@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { Popover } from '@base-ui/react/popover'
 import { coreGet, useCore, type CoreSystem } from '@/data/core'
@@ -69,10 +69,24 @@ function Rail() {
   const toggleSide = (path: string) => {
     if (pathname.startsWith(`/${path}`)) document.documentElement.classList.toggle('side-open')
   }
+  // The selection is one pill that glides to the screen chosen, on the default spring, instead of jumping.
+  const scroll = useRef<HTMLDivElement>(null)
+  const [pill, setPill] = useState<{ x: number; y: number; w: number; h: number; moved: boolean } | null>(null)
+  useLayoutEffect(() => {
+    const place = () => {
+      const on = scroll.current?.querySelector<HTMLElement>('.app-rail__item.active')
+      setPill((was) => (on ? { x: on.offsetLeft, y: on.offsetTop, w: on.offsetWidth, h: on.offsetHeight, moved: was !== null } : null))
+    }
+    place()
+    const seen = new ResizeObserver(place)
+    if (scroll.current) seen.observe(scroll.current)
+    return () => seen.disconnect()
+  }, [pathname])
   return (
     <nav className="app-rail" aria-label="Demido Studio">
       <NavLink to="/" className="app-rail__brand" aria-label="Demido Studio" dangerouslySetInnerHTML={{ __html: logo }} />
-      <div className="app-rail__scroll">
+      <div className="app-rail__scroll" ref={scroll} data-pill={pill ? '' : undefined}>
+        {pill && <span className="app-rail__pill" aria-hidden="true" data-moved={pill.moved ? '' : undefined} style={{ width: pill.w, height: pill.h, transform: `translate(${pill.x}px, ${pill.y}px)` }} />}
         {GROUPS.map((g) => {
           const items = features.filter((f) => f.group === g)
           if (!items.length) return null

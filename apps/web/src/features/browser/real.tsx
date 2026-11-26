@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router'
 import { AppWindow, Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import { coreGet, coreSend, onCoreEvent } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Dialog, Glyph, Icon, NotBuilt, Page, Section, Signal, Brief } from '@/ui'
+import { Button, Dialog, Glyph, Icon, NotBuilt, Page, Section, Signal, Brief, Empty } from '@/ui'
 
 interface Kept { version: string; path: string; size: number; checked: string; from: string; kept_at: number }
 interface Downloading { version: string; done: number; total: number | null }
@@ -103,7 +103,7 @@ export function RealBrowser() {
         <Section title="Pages open now" hint="One for each session that is using the browser. A page left alone for ten minutes is closed, with its cookies, and the browser with the last one.">
           <div><Button size="sm" variant="ghost" onClick={() => void read()}><Icon icon={RefreshCw} size="sm" />Read again</Button></div>
           {status.pages.length === 0
-            ? <p className="app-empty"><Icon icon={AppWindow} /> No page is open. A model opens one with open_page, in a session.</p>
+            ? <Empty compact icon={AppWindow} title="No page is open" text="A model opens one in a session, and you can beside it." />
             : (
               <div className="app-stack">
                 {status.pages.map((p) => (

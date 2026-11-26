@@ -1,9 +1,9 @@
 import { useMemo, useState, type ComponentType } from 'react'
-import { Search, Settings as SettingsIcon } from 'lucide-react'
+import { SearchX, Search, Settings as SettingsIcon } from 'lucide-react'
 import { allFeatures, type Feature } from '@/app/registry'
 import type { CoreSetting } from '@/data/core'
 import { setSetting, useSetting, useStore } from '@/data/store'
-import { Button, Icon, NotBuilt, Page, Segmented, Select, SettingRow, Slider, Switch } from '@/ui'
+import { Button, Icon, NotBuilt, Page, Segmented, Select, SettingRow, Slider, Switch, Empty } from '@/ui'
 import type { SettingDef, SettingsSection } from './schema'
 
 // ───────────── the accent control: the one setting with a shape of its own ─────────────
@@ -256,7 +256,7 @@ function SettingsPage() {
             {s.rows.map((r) => (r.core ? <CoreRow key={r.key} entry={r.core} /> : <Row key={r.key} def={r.def!} preview={live} />))}
           </section>
         ))}
-        {!shown.length && <p className="app-empty">No setting matches “{q}”.</p>}
+        {!shown.length && <Empty icon={SearchX} title={`No setting matches “${q}”`} text="Try another word: every setting's name and description is searched." />}
       </Page>
     </div>
   )
