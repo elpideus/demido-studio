@@ -301,7 +301,7 @@ function ModelsPage() {
         <div className="app-side__foot">
           {!real && <span>{SYSTEM.gpu} · {SYSTEM.vramGb.toFixed(1)} GB · {SYSTEM.ramGb} GB RAM</span>}
           {!real && <Budget compact />}
-          {real ? <Brief className="" text="From Hugging Face: models this runtime runs (GGUF). Whether one fits is worked out from its size; the runtime measures it once it is loaded." /> : <span>Model families are real. Sizes, counts and licence labels here are illustrative.</span>}
+          {real ? <Brief className="" text="Models this runtime runs (GGUF), from Hugging Face. Whether one fits is worked out from its size; the runtime measures it once it is loaded." /> : <span>Model families are real. Sizes, counts and licence labels here are illustrative.</span>}
         </div>
       </aside>
       {mineForReal ? <LocalDetail id={openLocal} /> : real ? <HubDetail repo={openHub} /> : <Detail key={current.id} model={current} />}

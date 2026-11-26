@@ -2,11 +2,11 @@
    before anything is kept (J1), every part of it changeable there; each a session of its own, which runs on
    its own and asks nobody (J2). A monitor reads the shop's own price by code (J5). */
 import { useEffect, useState } from 'react'
-import { CalendarClock, BellOff, BellRing, Trash2, MessageSquare, Pencil, Pause, Play, Plus } from 'lucide-react'
+import { MoreHorizontal, CalendarClock, BellOff, BellRing, Trash2, MessageSquare, Pencil, Pause, Play, Plus } from 'lucide-react'
 import { useLocal } from '@/data/local-models'
 import { useModelChoices } from '@/data/model-choices'
 import { changeSchedule, deleteSchedule, desktopNotices, makeSchedule, runSchedule, scheduleRuns, setDesktopNotices, understand, useSchedules, whenFromNow, type Run, type Schedule, type Understood, type When } from '@/data/schedules'
-import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip, ContextMenu, Empty } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip, ContextMenu, Empty, Menu } from '@/ui'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const RUN_GLYPH: Record<Run['state'], [string, string]> = {
@@ -217,9 +217,13 @@ function ScheduleCard({ schedule: s, running, onChanged }: { schedule: Schedule;
         <Button disabled={running} onClick={() => act(runSchedule(s.id))}>{running ? 'Running…' : 'Run now'}</Button>
         {s.state === 'on' ? <Button variant="ghost" onClick={() => act(changeSchedule(s.id, { state: 'paused' }))}>Pause</Button>
           : <Button variant="ghost" onClick={() => act(changeSchedule(s.id, { state: 'on' }))}>{s.state === 'paused' ? 'Turn on' : 'Again'}</Button>}
-        <Button variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
-        <Button variant="ghost" onClick={() => { window.location.hash = `#/sessions/${s.session_id}` }}>Open its session</Button>
-        <Button variant="ghost" disabled={running} onClick={() => setDeleting(true)}>Delete</Button>
+        <span className="app-spacer" />
+        <Menu align="end" trigger={<Button variant="ghost" iconOnly aria-label="More"><Icon icon={MoreHorizontal} /></Button>} items={[
+          { label: 'Edit…', lead: <Icon icon={Pencil} size="sm" />, onSelect: () => setEditing(true) },
+          { label: 'Open its session', lead: <Icon icon={MessageSquare} size="sm" />, onSelect: () => { window.location.hash = `#/sessions/${s.session_id}` } },
+          { kind: 'sep' },
+          { label: 'Delete…', lead: <Icon icon={Trash2} size="sm" />, danger: true, disabled: running, onSelect: () => setDeleting(true) },
+        ]} />
       </footer>
       {editing && <EditSchedule schedule={s} onClose={() => setEditing(false)} onChanged={onChanged} />}
       {deleting && (
