@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router'
 import { Bot, ExternalLink, KeyRound, Trash2 } from 'lucide-react'
 import { coreGet, coreSend, onCoreEvent } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Dialog, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
+import { Brief, Button, Dialog, Empty, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
 import type { Service } from './data'
 
 interface KeyFacts { ends_with: string; kept_in: 'keyring' | 'file' }
@@ -108,19 +108,20 @@ export function RealMessenger({ svc }: { svc: Service }) {
     return () => offs.forEach((off) => off())
   }, [svc.id])
   return (
-    <Page title={svc.name} lead={svc.bot ? `Talk to Demido from ${svc.name}, through a bot of your own: ${svc.name}'s own, allowed way for a program. A bot is its own account: it cannot read your chats.` : `WhatsApp has no bots for people, and no allowed way for a program to use a personal account.`}>
+    <Page title={svc.name} lead={svc.bot ? `Talk to Demido from ${svc.name}, through a bot of your own.` : 'Not open to programs: there is no allowed way in.'}
+      about={svc.bot ? `A bot is ${svc.name}'s own, allowed way for a program. It is an account of its own: it cannot read your chats.` : 'WhatsApp has no bots for people, and no allowed way for a program to use a personal account.'}
+      actions={svc.bot && bots && bots.length > 0 ? <Button variant="primary" onClick={() => setAdding(true)}><Icon icon={KeyRound} />Add a {svc.name} bot</Button> : undefined}>
       {error && <Signal level="caution">The core did not say. {error}</Signal>}
       {svc.bot && (
         <Section title="Bots" hint="What the owner writes goes into a session of its own, with a note of where it came from; the answer comes back as plain text, a message a second. A use of a tool that needs your yes is asked there in words: reply yes or no.">
           <div className="app-stack">
             {bots?.map((b) => <BotCard key={b.id} bot={b} svc={svc} />)}
-            {bots && bots.length === 0 && <p className="app-empty"><Icon icon={Bot} /> No {svc.name} bot yet.</p>}
-            <div><Button variant="primary" onClick={() => setAdding(true)}><Icon icon={KeyRound} />Add a {svc.name} bot</Button></div>
+            {bots && bots.length === 0 && <Empty icon={Bot} title={`No ${svc.name} bot yet`} text={`Make one in ${svc.name}, give Demido its token, and write to it.`} action={<Button variant="primary" onClick={() => setAdding(true)}><Icon icon={KeyRound} />Add a {svc.name} bot</Button>} />}
           </div>
         </Section>
       )}
       <Section title="Your own account" hint="Your chats in Demido, marked as seen, replies drafted for you.">
-        <Signal level={svc.risk}>{svc.rule}</Signal>
+        <Signal level={svc.risk}><Brief className="" text={svc.rule} /></Signal>
         <NotBuilt block>Linking your own {svc.name} account. It needs your phone{svc.id === 'telegram' ? ', and the project its own api_id from Telegram (which needs a phone number), and Telegram\'s terms forbid using what is read there for AI in words that are not plain about a person\'s own model: yours to weigh' : svc.id === 'discord' ? ', and Discord forbids it outright ("self-bots")' : ', and WhatsApp forbids unofficial clients'}. Research note 32.</NotBuilt>
       </Section>
       {adding && <AddBot svc={svc} onClose={() => { setAdding(false); void read() }} />}
