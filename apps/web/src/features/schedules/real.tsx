@@ -2,11 +2,11 @@
    before anything is kept (J1), every part of it changeable there; each a session of its own, which runs on
    its own and asks nobody (J2). A monitor reads the shop's own price by code (J5). */
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Trash2, MessageSquare, Pencil, Pause, Play, Plus } from 'lucide-react'
 import { useLocal } from '@/data/local-models'
 import { useModelChoices } from '@/data/model-choices'
 import { changeSchedule, deleteSchedule, desktopNotices, makeSchedule, runSchedule, scheduleRuns, setDesktopNotices, understand, useSchedules, whenFromNow, type Run, type Schedule, type Understood, type When } from '@/data/schedules'
-import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip, ContextMenu } from '@/ui'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const RUN_GLYPH: Record<Run['state'], [string, string]> = {
@@ -183,6 +183,16 @@ function ScheduleCard({ schedule: s, running, onChanged }: { schedule: Schedule;
   const last = s.last_run
   const glyph = running ? 'task-running' : s.state === 'on' ? 'task-pending' : s.state === 'paused' ? 'task-failed' : 'task-done'
   return (
+    <ContextMenu items={[
+      { label: running ? 'Running…' : 'Run now', lead: <Icon icon={Play} size="sm" />, disabled: running, onSelect: () => void act(runSchedule(s.id)) },
+      s.state === 'on'
+        ? { label: 'Pause', lead: <Icon icon={Pause} size="sm" />, onSelect: () => void act(changeSchedule(s.id, { state: 'paused' })) }
+        : { label: s.state === 'paused' ? 'Turn on' : 'Again', lead: <Icon icon={Play} size="sm" />, onSelect: () => void act(changeSchedule(s.id, { state: 'on' })) },
+      { label: 'Edit…', lead: <Icon icon={Pencil} size="sm" />, onSelect: () => setEditing(true) },
+      { label: 'Open its session', lead: <Icon icon={MessageSquare} size="sm" />, onSelect: () => { window.location.hash = `#/sessions/${s.session_id}` } },
+      { kind: 'sep' },
+      { label: 'Delete…', lead: <Icon icon={Trash2} size="sm" />, danger: true, disabled: running, onSelect: () => setDeleting(true) },
+    ]}>
     <article className="d-card">
       <header className="d-card__head">
         <Glyph name={glyph} busy={running} tone={s.state === 'paused' ? 'caution' : undefined} size="1.25rem" style={{ marginTop: '0.125rem' }} label={running ? 'Running' : s.state === 'on' ? 'Waiting for its time' : s.state === 'paused' ? 'Paused' : 'Done'} />
@@ -217,6 +227,7 @@ function ScheduleCard({ schedule: s, running, onChanged }: { schedule: Schedule;
           actions={<><Button onClick={() => setDeleting(false)}>Cancel</Button><Button variant="danger" onClick={() => { setDeleting(false); void act(deleteSchedule(s.id)) }}>Delete</Button></>} />
       )}
     </article>
+    </ContextMenu>
   )
 }
 

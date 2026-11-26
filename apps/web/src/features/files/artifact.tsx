@@ -3,11 +3,11 @@
    no address with every connection shut (Q15); a drawing (SVG) is shown as a picture, in which it runs
    nothing. */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { FileCode, FileText, Image } from 'lucide-react'
+import { Copy, FileCode, FileText, Image } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { keepAsFile, listArtifacts, putIntoFolder, readArtifact, readVersion, versionFileUrl, type Artifact, type ArtifactShownAs, type Version, type VersionFacts } from '@/data/artifacts'
 import { CoreProblem, useFolderTicks, type FolderEntry } from '@/data/session-files'
-import { Button, Dialog, Glyph, Icon, Segmented, Select, Signal } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Segmented, Select, Signal, ContextMenu } from '@/ui'
 import { Prose } from '@/ui/prose'
 
 const Code = lazy(() => import('./code'))
@@ -35,11 +35,16 @@ export function ArtifactList({ artifacts, open, onOpen }: { artifacts: Artifact[
     <ul className="d-list">
       {artifacts.map((a) => (
         <li key={a.id}>
+          <ContextMenu items={[
+            { label: 'Open', lead: <Icon icon={ICON[a.shown_as]} size="sm" />, onSelect: () => onOpen(a) },
+            { label: 'Copy the name', lead: <Icon icon={Copy} size="sm" />, onSelect: () => void navigator.clipboard.writeText(a.name) },
+          ]}>
           <button type="button" className="d-row d-row--compact" aria-current={a.id === open ? 'true' : undefined} onClick={() => onOpen(a)}>
             <span className="d-row__lead"><Icon icon={ICON[a.shown_as]} /></span>
             <span className="d-row__text"><span className="d-row__title">{a.name}</span></span>
             <span className="d-row__meta">{a.versions === 1 ? '1 version' : `${a.versions} versions`}</span>
           </button>
+          </ContextMenu>
         </li>
       ))}
     </ul>

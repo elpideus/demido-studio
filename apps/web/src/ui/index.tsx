@@ -3,6 +3,7 @@
 import { type ButtonHTMLAttributes, type CSSProperties, type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Dialog as BaseDialog } from '@base-ui/react/dialog'
 import { Menu as BaseMenu } from '@base-ui/react/menu'
+import { ContextMenu as BaseContextMenu } from '@base-ui/react/context-menu'
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { PanelRight, PanelRightClose } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -96,6 +97,23 @@ export type MenuEntry =
   | { kind?: 'item'; label: ReactNode; hint?: ReactNode; lead?: ReactNode; onSelect?: () => void; checked?: boolean; danger?: boolean; disabled?: boolean }
   | { kind: 'label'; label: string }
   | { kind: 'sep' }
+/** The entries of a menu, as one menu or another draws them (both share Base UI's menu parts). */
+function MenuItems({ items }: { items: MenuEntry[] }) {
+  return items.map((it, i) =>
+    it.kind === 'sep' ? (
+      <hr key={i} className="d-menu__sep" />
+    ) : it.kind === 'label' ? (
+      <p key={i} className="d-menu__label">{it.label}</p>
+    ) : (
+      <BaseMenu.Item key={i} className="d-menu__item" onClick={it.onSelect} disabled={it.disabled} data-tone={it.danger ? 'danger' : undefined} aria-checked={it.checked}>
+        {it.lead ?? <span style={{ width: 0 }} />}
+        <span>{it.label}</span>
+        {it.hint && <span className="d-menu__hint">{it.hint}</span>}
+      </BaseMenu.Item>
+    ),
+  )
+}
+
 export function Menu({ trigger, items, align = 'start', side = 'bottom' }: { trigger: React.ReactElement; items: MenuEntry[]; align?: 'start' | 'center' | 'end'; side?: 'top' | 'bottom' }) {
   return (
     <BaseMenu.Root>
@@ -103,24 +121,37 @@ export function Menu({ trigger, items, align = 'start', side = 'bottom' }: { tri
       <BaseMenu.Portal>
         <BaseMenu.Positioner align={align} side={side} sideOffset={6} className="app-layer">
           <BaseMenu.Popup className="d-menu app-pop">
-            {items.map((it, i) =>
-              it.kind === 'sep' ? (
-                <hr key={i} className="d-menu__sep" />
-              ) : it.kind === 'label' ? (
-                <p key={i} className="d-menu__label">{it.label}</p>
-              ) : (
-                <BaseMenu.Item key={i} className="d-menu__item" onClick={it.onSelect} disabled={it.disabled} data-tone={it.danger ? 'danger' : undefined} aria-checked={it.checked}>
-                  {it.lead ?? <span style={{ width: 0 }} />}
-                  <span>{it.label}</span>
-                  {it.hint && <span className="d-menu__hint">{it.hint}</span>}
-                </BaseMenu.Item>
-              ),
-            )}
+            <MenuItems items={items} />
           </BaseMenu.Popup>
         </BaseMenu.Positioner>
       </BaseMenu.Portal>
     </BaseMenu.Root>
   )
+}
+
+/** What a right click on `children` offers: a menu at the pointer, with the same entries and look as `Menu`.
+    With no entries, the right click does what it would do anyway. */
+export function ContextMenu({ items, children }: { items: MenuEntry[] | null | undefined; children: React.ReactElement }) {
+  if (!items || items.length === 0) return children
+  return (
+    <BaseContextMenu.Root>
+      <BaseContextMenu.Trigger render={children} />
+      <BaseContextMenu.Portal>
+        <BaseContextMenu.Positioner className="app-layer">
+          <BaseContextMenu.Popup className="d-menu app-pop">
+            <MenuItems items={items} />
+          </BaseContextMenu.Popup>
+        </BaseContextMenu.Positioner>
+      </BaseContextMenu.Portal>
+    </BaseContextMenu.Root>
+  )
+}
+
+/** The text selected inside an element, if any: what "Copy" copies before the whole of it. */
+export function selectedWithin(el: Element | null): string {
+  const sel = window.getSelection()
+  if (!el || !sel || sel.isCollapsed || sel.rangeCount === 0) return ''
+  return el.contains(sel.getRangeAt(0).commonAncestorContainer) ? sel.toString() : ''
 }
 
 // ───────────── dialog ─────────────

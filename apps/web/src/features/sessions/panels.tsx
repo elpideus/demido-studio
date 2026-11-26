@@ -8,7 +8,7 @@ import { Copy, ExternalLink, FilePlus, FolderOpen, Gift, Maximize2, Minimize2, M
 import type { CoreMessage } from '@/data/real-sessions'
 import { CoreProblem, draftKey, newFile, useDrafts, watchFolders, type FolderEntry } from '@/data/session-files'
 import { toast } from '@/data/store'
-import { Button, Icon, Menu, Tip } from '@/ui'
+import { Button, ContextMenu, Icon, Menu, Tip, type MenuEntry } from '@/ui'
 import { Branch, DeletedFiles, NameIt, Viewer } from '@/features/files/real'
 import { ArtifactList, ArtifactView, useArtifacts } from '@/features/files/artifact'
 
@@ -35,7 +35,13 @@ function PanelHead({ wide, onWide, onClose, children }: { wide: boolean; onWide:
 
 /** A page the model opened, in the conversation: its picture, its name, and the browser beside it. */
 export function BrowserCard({ session, shot, onOpen }: { session: string; shot: Shot; onOpen: () => void }) {
+  const items: MenuEntry[] = [
+    { label: 'Open beside the conversation', lead: <Icon icon={Maximize2} size="sm" />, onSelect: onOpen },
+    { label: 'In your own browser', lead: <Icon icon={ExternalLink} size="sm" />, onSelect: () => window.open(shot.address, '_blank', 'noopener,noreferrer') },
+    { label: 'Copy the address', lead: <Icon icon={Copy} size="sm" />, onSelect: () => void navigator.clipboard.writeText(shot.address).then(() => toast('Copied.')) },
+  ]
   return (
+    <ContextMenu items={items}>
     <figure className="page-card">
       <button type="button" className="page-card__shot" onClick={onOpen} aria-label={`Open ${shot.title || shot.address} beside the conversation`}>
         <img src={pictureUrl(session, shot.picture)} alt="" loading="lazy" />
@@ -52,6 +58,7 @@ export function BrowserCard({ session, shot, onOpen }: { session: string; shot: 
         ]} />
       </figcaption>
     </figure>
+    </ContextMenu>
   )
 }
 
@@ -97,10 +104,17 @@ export function FolderPanel({ session, folder, focus, wide, onWide, onClose, emp
             const key = tabKey(t)
             const name = t.kind === 'file' ? t.entry.name : t.name
             return (
-              <span key={key} className="panel__tab" role="tab" aria-selected={key === active} data-unsaved={unsaved.has(key) ? '' : undefined}>
+              <ContextMenu key={key} items={[
+                { label: 'Close', lead: <Icon icon={X} size="sm" />, onSelect: () => close(key) },
+                { label: 'Close the others', disabled: tabs.length < 2, onSelect: () => { setTabs([t]); setActive(key) } },
+                { label: 'Close all', onSelect: () => { setTabs([]); setActive(null) } },
+                ...(t.kind === 'file' ? [{ kind: 'sep' as const }, { label: 'Copy the path', lead: <Icon icon={Copy} size="sm" />, onSelect: () => void navigator.clipboard.writeText(t.entry.path).then(() => toast('Copied.')) }] : []),
+              ]}>
+              <span className="panel__tab" role="tab" aria-selected={key === active} data-unsaved={unsaved.has(key) ? '' : undefined} onAuxClick={(e) => { if (e.button === 1) close(key) }}>
                 <button type="button" className="panel__tab-name" onClick={() => setActive(key)}>{t.kind === 'artifact' && <Icon icon={Gift} size="sm" />}{name}</button>
                 <button type="button" className="panel__tab-close" aria-label={`Close ${name}`} onClick={() => close(key)}><Icon icon={X} size="sm" /></button>
               </span>
+              </ContextMenu>
             )
           })}
         </div>
@@ -126,7 +140,9 @@ export function FolderPanel({ session, folder, focus, wide, onWide, onClose, emp
             </label>
           )}
           <div className="folder-panel__scroll">
-            {folder && <Branch key={session} session={session} path="" depth={0} open={current?.kind === 'file' ? current.entry.path : null} onOpen={openFile} filter={filter} />}
+            {folder && <Branch key={session} session={session} path="" depth={0} open={current?.kind === 'file' ? current.entry.path : null} onOpen={openFile} filter={filter}
+              onRenamed={(from, to) => { const was = tabs.find((t) => t.kind === 'file' && t.entry.path === from); if (was) { close(tabKey(was)); openFile(to) } }}
+              onDeleted={(p) => { const was = tabs.find((t) => t.kind === 'file' && t.entry.path === p); if (was) close(tabKey(was)) }} />}
             {artifacts && artifacts.length > 0 && <>
               <p className="d-list__label"><Icon icon={Gift} size="sm" /> Given to you</p>
               <ArtifactList artifacts={artifacts} open={current?.kind === 'artifact' ? current.id : null} onOpen={(a) => open({ kind: 'artifact', id: a.id, name: a.name })} />

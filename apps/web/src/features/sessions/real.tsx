@@ -7,13 +7,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { Prose } from '@/ui/prose'
-import { ArrowUp, Brain, CalendarClock, ChevronDown, Copy, FilePlus, Folder, FolderOpen, Globe, Info, ListChecks, Loader, Mic, MicOff, MoreHorizontal, Pencil, Plus, RotateCcw, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, Wifi, WifiOff, type LucideIcon } from 'lucide-react'
+import { ArrowUp, Brain, CalendarClock, MessageSquare, ChevronDown, Copy, FilePlus, Folder, FolderOpen, Globe, Info, ListChecks, Loader, Mic, MicOff, MoreHorizontal, Pencil, Plus, RotateCcw, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, Wifi, WifiOff, type LucideIcon } from 'lucide-react'
 import { Dictation, ReadAloud } from '@/data/voice'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
 import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, sayAgain, setUpSandbox, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
-import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry, useLeaving, useLiveList } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry, useLeaving, useLiveList, ContextMenu, selectedWithin } from '@/ui'
 import { asAFile, keepAsFile, openArtifact, useFilesFocus } from '@/data/artifacts'
 import { onCoreEvent } from '@/data/core'
 import { toast, useSetting } from '@/data/store'
@@ -50,12 +50,28 @@ function byProgram(model: string | null | undefined): boolean {
 
 const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).at(-1) ?? folder
 
+/** A session's new name. */
+function RenameSession({ id, title, onClose }: { id: string; title: string; onClose: () => void }) {
+  const [name, setName] = useState(title)
+  const save = async () => { if (name.trim() && name.trim() !== title) await changeSession(id, { title: name.trim() }); onClose() }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title="Rename the session"
+      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!name.trim()} onClick={() => void save()}>Rename</Button></>}>
+      <form onSubmit={(e) => { e.preventDefault(); void save() }}>
+        <input className="d-input" aria-label="The session's name" autoFocus value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.currentTarget.select()} style={{ width: '100%' }} />
+      </form>
+    </Dialog>
+  )
+}
+
 function List() {
   const list = useReal((s) => s.list)
   const { '*': rest } = useParams()
   const current = rest?.split('/')[0]
   const navigate = useNavigate()
   const live = useLiveList()
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
+  const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null)
   const start = async () => {
     const id = await newSession(firstModel())
     if (id) navigate(`/sessions/${id}`)
@@ -72,15 +88,26 @@ function List() {
         <ul className="d-list" ref={live}>
           {list?.map((s) => (
             <li key={s.id}>
-              <button type="button" className="d-row" aria-current={s.id === current ? 'true' : undefined} onClick={() => navigate(`/sessions/${s.id}`)}>
-                {s.schedule_id && <span className="d-row__lead"><Icon icon={CalendarClock} size="sm" label="A schedule's session" /></span>}
-                <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{s.model}</span></span>
-                <span className="d-row__meta">{ago(s.updated_at)}</span>
-              </button>
+              <ContextMenu items={[
+                { label: 'Open', lead: <Icon icon={MessageSquare} size="sm" />, onSelect: () => navigate(`/sessions/${s.id}`) },
+                { label: 'Rename…', lead: <Icon icon={Pencil} size="sm" />, onSelect: () => setRenaming({ id: s.id, title: s.title }) },
+                { label: 'Copy the title', lead: <Icon icon={Copy} size="sm" />, onSelect: () => copy(s.title) },
+                { kind: 'sep' },
+                { label: 'Delete…', lead: <Icon icon={Trash2} size="sm" />, danger: true, onSelect: () => setDeleting({ id: s.id, title: s.title }) },
+              ]}>
+                <button type="button" className="d-row" aria-current={s.id === current ? 'true' : undefined} onClick={() => navigate(`/sessions/${s.id}`)}>
+                  {s.schedule_id && <span className="d-row__lead"><Icon icon={CalendarClock} size="sm" label="A schedule's session" /></span>}
+                  <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{s.model}</span></span>
+                  <span className="d-row__meta">{ago(s.updated_at)}</span>
+                </button>
+              </ContextMenu>
             </li>
           ))}
         </ul>
       </div>
+      {renaming && <RenameSession id={renaming.id} title={renaming.title} onClose={() => setRenaming(null)} />}
+      {deleting && <Dialog open onOpenChange={(o) => !o && setDeleting(null)} title={`Delete “${deleting.title}”?`} text="Everything said in it goes. Files in its folder stay."
+        actions={<><Button onClick={() => setDeleting(null)}>Keep</Button><Button variant="danger" onClick={async () => { const gone = deleting.id; setDeleting(null); await deleteSession(gone); if (gone === current) navigate('/sessions') }}>Delete</Button></>} />}
     </aside>
   )
 }
@@ -303,6 +330,7 @@ function Mine({ m, answering, after }: { m: CoreMessage; answering: boolean; aft
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(m.content)
   const [asking, setAsking] = useState<string | null | undefined>(undefined)
+  const mine = useRef<HTMLElement>(null)
   // Said again with its text (null: as it was), once the person agreed when later messages go with it.
   const go = (content: string | null) => {
     if (after > 1 && asking === undefined) return setAsking(content)
@@ -325,7 +353,12 @@ function Mine({ m, answering, after }: { m: CoreMessage; answering: boolean; aft
       </article>
     )
   return (
-    <article className="d-message" data-from="user">
+    <ContextMenu items={[
+      { label: 'Copy', lead: <Icon icon={Copy} size="sm" />, onSelect: () => copy(selectedWithin(mine.current) || m.content) },
+      { label: 'Edit', lead: <Icon icon={Pencil} size="sm" />, disabled: answering, onSelect: () => { setText(m.content); setEditing(true) } },
+      { label: 'Send again', lead: <Icon icon={RotateCcw} size="sm" />, disabled: answering, onSelect: () => go(null) },
+    ]}>
+    <article className="d-message" data-from="user" ref={mine}>
       <div className="d-message__body">{m.content}</div>
       <div className="d-message__actions">
         <Tip label="Copy"><Button variant="ghost" size="sm" iconOnly aria-label="Copy" onClick={() => copy(m.content)}><Icon icon={Copy} size="sm" /></Button></Tip>
@@ -334,6 +367,7 @@ function Mine({ m, answering, after }: { m: CoreMessage; answering: boolean; aft
       </div>
       {asking !== undefined && <AgainConfirm count={after} onYes={() => go(asking)} onNo={() => setAsking(undefined)} />}
     </article>
+    </ContextMenu>
   )
 }
 
@@ -341,6 +375,7 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder, answering
   const loading = useLocal((s) => s.list?.models.find((x) => x.id === m.model)?.state === 'loading')
   const at = useProviders(() => elsewhere(m.model))
   const [again, setAgain] = useState(false)
+  const article = useRef<HTMLElement>(null)
   if (m.role === 'user') return <Mine m={m} answering={answering} after={after} />
   // A message from another session in the same folder, or Demido's note of what it changed (DECISIONS S5).
   if (m.role === 'session') {
@@ -363,8 +398,19 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder, answering
   const page = shotsOf([{ ...m, steps }]).at(-1)
   const t = m.timings
   const ask = () => { if (request) void sayAgain(m.session_id, request.id) }
+  // The menu's entries press the same buttons as the row under the answer: one place does each thing.
+  const pressIn = (label: string) => (article.current?.querySelector(`.chat__actions button[aria-label="${label}"]`) as HTMLButtonElement | null)?.click()
+  const menu: MenuEntry[] = writing ? [] : [
+    ...(m.content.trim() ? [{ label: 'Copy', lead: <Icon icon={Copy} size="sm" />, onSelect: () => copy(selectedWithin(article.current) || m.content) }] : []),
+    ...(request ? [{ label: 'Ask again', lead: <Icon icon={RotateCcw} size="sm" />, disabled: answering, onSelect: () => (after > 0 ? setAgain(true) : ask()) }] : []),
+    ...(m.state === 'done' && m.content.trim() ? [
+      { label: 'Read aloud', lead: <Icon icon={Volume2} size="sm" />, onSelect: () => pressIn('Read aloud') },
+      { label: 'Keep as a file…', lead: <Icon icon={FilePlus} size="sm" />, onSelect: () => pressIn('Keep as a file') },
+    ] : []),
+  ]
   return (
-    <article className="d-message" data-from="assistant">
+    <ContextMenu items={menu}>
+    <article className="d-message" data-from="assistant" ref={article}>
       <div className="d-message__body chat__blocks">
         {writing && !text && !thought && !busy && <p className="d-text-secondary"><Glyph name="model-loading" busy /> {at ? at : loading ? m.model : ''}</p>}
         {steps.map((step, i) => <ToolUse key={i} step={step} at={`${m.id}-${i}`} change={changes.find((c) => c.id === step.change)} session={m.session_id} program={byProgram(m.model)} />)}
@@ -400,6 +446,7 @@ function MessageView({ m, live, doing, tasks, changes, asking, folder, answering
       )}
       {again && <AgainConfirm count={after + 1} onYes={() => { setAgain(false); ask() }} onNo={() => setAgain(false)} />}
     </article>
+    </ContextMenu>
   )
 }
 
@@ -594,6 +641,7 @@ function Chat() {
   const thread = useRef<HTMLDivElement>(null)
   const [told, setTold] = useState(false)
   const [sure, setSure] = useState(false)
+  const [renamingThis, setRenamingThis] = useState(false)
   // What is open beside the conversation, whether it takes the whole view, and the page chosen in the browser.
   const [panel, setPanel] = useState<'browser' | 'files' | null>(null)
   // A panel leaves the way it came: it stays a moment, sliding out, before the conversation takes its place.
@@ -655,12 +703,13 @@ function Chat() {
     <div className="sess" data-panel={shownPanel ?? undefined} data-wide={shownPanel && wide ? '' : undefined}>
       <section className="chat" aria-label="Conversation">
         <header className="chat__head">
-          <h1 className="chat__title">{session.title}</h1>
+          <h1 className="chat__title" onDoubleClick={() => setRenamingThis(true)} title="Double-click to rename">{session.title}</h1>
           {session.schedule_id && <Tip label="A schedule's session: it runs on its own, with every tool, and asks nothing."><span className="d-badge d-badge--outline"><Icon icon={CalendarClock} size="sm" /> Runs on its own</span></Tip>}
           <span className="app-spacer" />
           <Tip label="Browser"><Button variant="ghost" size="sm" iconOnly aria-label="Browser" pressed={panel === 'browser'} onClick={() => toggle('browser')}><Icon icon={Globe} size="sm" />{shots.length > 0 && <span className="chat__dot" />}</Button></Tip>
           <Tip label={session.folder ? folderName(session.folder) : 'Files'}><Button variant="ghost" size="sm" iconOnly aria-label="Files" pressed={panel === 'files'} onClick={() => toggle('files')}><Icon icon={session.folder ? FolderOpen : Folder} size="sm" /></Button></Tip>
           <Menu align="end" trigger={<Button variant="ghost" size="sm" iconOnly aria-label="More"><Icon icon={MoreHorizontal} size="sm" /></Button>} items={[
+            { label: 'Rename…', lead: <Icon icon={Pencil} size="sm" />, onSelect: () => setRenamingThis(true) },
             { label: 'What the model is told', lead: <Icon icon={Brain} size="sm" />, onSelect: () => setTold(true) },
             { kind: 'sep' },
             { label: 'Delete the session', lead: <Icon icon={Trash2} size="sm" />, danger: true, onSelect: () => setSure(true) },
@@ -708,6 +757,7 @@ function Chat() {
       {shownPanel === 'files' && <FolderPanel leaving={panelLeaving} session={id} folder={session.folder ?? null} focus={artifact} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)}
         empty={<><p>No folder.</p><FolderForm id={id} folder={null} sandbox={detail.sandbox} /></>} />}
       {told && <Told detail={detail} onClose={() => setTold(false)} />}
+      {renamingThis && <RenameSession id={id} title={session.title} onClose={() => setRenamingThis(false)} />}
       {sure && <Dialog open onOpenChange={(o) => !o && setSure(false)} title="Delete this session?" text="Everything said in it goes. Files in its folder stay."
         actions={<><Button onClick={() => setSure(false)}>Keep</Button><Button variant="danger" onClick={async () => { setSure(false); await deleteSession(id); navigate('/sessions') }}>Delete</Button></>} />}
     </div>

@@ -1,5 +1,8 @@
 /* Text written by someone else (a model, a model card), drawn as Markdown and never as HTML. */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Check, Copy } from 'lucide-react'
+import { ContextMenu, Icon } from '@/ui'
+import { toast } from '@/data/store'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -19,6 +22,30 @@ function Code({ className, children }: { className?: string; children?: ReactNod
   return <code className={className}>{pieces.pieces.map(([piece, classes], i) => (classes ? <span key={i} className={classes}>{piece}</span> : piece))}</code>
 }
 
+/** A block of code with a way to copy it: a button that shows on hover, and the right click. */
+function Block({ children }: { children?: ReactNode }) {
+  const pre = useRef<HTMLPreElement>(null)
+  const [copied, setCopied] = useState(false)
+  const language = /language-([\w+#.-]+)/.exec((children as { props?: { className?: string } } | undefined)?.props?.className ?? '')?.[1]
+  const copy = () => {
+    const text = pre.current?.innerText ?? ''
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400) }, () => toast('Not copied.', undefined, 'task-failed'))
+  }
+  return (
+    <ContextMenu items={[{ label: 'Copy the code', lead: <Icon icon={Copy} size="sm" />, onSelect: copy }]}>
+      <figure className="d-codeblock">
+        <figcaption>
+          <span>{language ?? 'code'}</span>
+          <button type="button" className="d-button d-button--ghost d-button--sm" onClick={copy} aria-label="Copy the code">
+            <Icon icon={copied ? Check : Copy} size="sm" />{copied ? 'Copied' : 'Copy'}
+          </button>
+        </figcaption>
+        <pre ref={pre} className="d-code">{children}</pre>
+      </figure>
+    </ContextMenu>
+  )
+}
+
 /** A model's words, as markdown. Never as HTML: whatever a model writes is text to be shown, not code to be run.
 
     A picture is never loaded from an address in an answer. A browser fetches a picture by itself, and the
@@ -35,6 +62,7 @@ export function Prose({ text }: { text: string }) {
           img: ({ src, alt }) => <span className="d-type-caption d-text-tertiary">[A picture{alt ? ` (${alt})` : ''} that Demido did not load: <code>{typeof src === 'string' ? src : ''}</code>]</span>,
           a: ({ href, children }) => <a href={href} title={href} target="_blank" rel="noreferrer noopener">{children}</a>,
           code: ({ className, children }) => <Code className={className}>{children}</Code>,
+          pre: ({ children }) => <Block>{children}</Block>,
         }}
       >{text}</Markdown>
     </div>

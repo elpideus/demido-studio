@@ -8,12 +8,13 @@
    person is told and chooses. Beside the folder: the files models gave in the session (artifacts), with
    every version. */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, File, FileCode, FileText, Film, Folder, Gift, Image, Music, PenLine, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, File, FileCode, FilePlus, FileText, Film, Folder, FolderOpen, Gift, Image, Music, PenLine, Trash2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useFilesFocus } from '@/data/artifacts'
 import { useReal } from '@/data/real-sessions'
 import { compareText, CoreProblem, deleteFile, draftKey, fileUrl, listDeleted, listFolder, MOST_TEXT, newFile, putBack, readText, renameFile, saveText, useDrafts, useFolderTicks, watchFolders, type Deleted, type FolderEntry, type Listing, type Opened, type ShownAs } from '@/data/session-files'
-import { Button, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal, Tip } from '@/ui'
+import { Button, ContextMenu, Dialog, Glyph, Icon, NotBuilt, Segmented, Select, Signal, Tip, type MenuEntry } from '@/ui'
+import { toast } from '@/data/store'
 import { Prose } from '@/ui/prose'
 import { ArtifactList, ArtifactView, useArtifacts } from './artifact'
 import { PdfPages } from './pdf'
@@ -130,7 +131,43 @@ export function DeletedFiles({ session, onBack }: { session: string; onBack: (e:
 }
 
 /** One folder of the tree: listed when it is first opened. */
-export function Branch({ session, path, depth, open, onOpen, filter = '' }: { session: string; path: string; depth: number; open: string | null; onOpen: (e: FolderEntry) => void; filter?: string }) {
+/** What a right click on a file or a folder in the tree offers. */
+function useEntryMenu(session: string, onOpen: (e: FolderEntry) => void, onRenamed?: (from: string, to: FolderEntry) => void, onDeleted?: (path: string) => void) {
+  const [naming, setNaming] = useState<{ kind: 'rename' | 'new'; entry: FolderEntry } | null>(null)
+  const bump = useFolderTicks((s) => s.bump)
+  const copyPath = (p: string) => void navigator.clipboard.writeText(p).then(() => toast('Copied.'), () => toast('Not copied.', undefined, 'task-failed'))
+  const remove = async (e: FolderEntry) => {
+    try {
+      const gone = await deleteFile(session, e.path)
+      bump(session)
+      onDeleted?.(e.path)
+      toast(`${e.name} deleted.`, { label: 'Put back', run: () => void putBack(session, gone.id).then(() => bump(session)) }, 'task-done')
+    } catch (err) { toast(`Not deleted. ${(err as Error).message}`, undefined, 'task-failed') }
+  }
+  const items = (e: FolderEntry, toggle: () => void, out: boolean): MenuEntry[] => e.kind === 'folder'
+    ? [
+        { label: out ? 'Fold' : 'Unfold', lead: <Icon icon={out ? Folder : FolderOpen} size="sm" />, onSelect: toggle },
+        { label: 'New file here…', lead: <Icon icon={FilePlus} size="sm" />, onSelect: () => setNaming({ kind: 'new', entry: e }) },
+        { kind: 'sep' },
+        { label: 'Copy the path', lead: <Icon icon={Copy} size="sm" />, onSelect: () => copyPath(e.path) },
+      ]
+    : [
+        { label: 'Open', lead: <Icon icon={File} size="sm" />, onSelect: () => onOpen(e) },
+        { label: 'Rename…', lead: <Icon icon={PenLine} size="sm" />, onSelect: () => setNaming({ kind: 'rename', entry: e }) },
+        { label: 'Copy the path', lead: <Icon icon={Copy} size="sm" />, onSelect: () => copyPath(e.path) },
+        { kind: 'sep' },
+        { label: 'Delete', hint: 'can be put back', lead: <Icon icon={Trash2} size="sm" />, danger: true, onSelect: () => void remove(e) },
+      ]
+  const dialog = naming && (naming.kind === 'rename'
+    ? <NameIt title="Rename" text="In the session's folder." initial={naming.entry.path} action="Rename" onClose={() => setNaming(null)}
+        done={async (to) => { try { const moved = await renameFile(session, naming.entry.path, to); bump(session); onRenamed?.(naming.entry.path, moved); return null } catch (err) { return err instanceof CoreProblem && err.status === 409 ? `${to} is there already.` : (err as Error).message } }} />
+    : <NameIt title="New file" text={`In ${naming.entry.path}.`} initial={`${naming.entry.path}/notes.md`} action="Make it" onClose={() => setNaming(null)}
+        done={async (p) => { try { const made = await newFile(session, p); bump(session); onOpen(made); return null } catch (err) { return err instanceof CoreProblem && err.status === 409 ? `${p} is there already.` : (err as Error).message } }} />)
+  return { items, dialog }
+}
+
+export function Branch({ session, path, depth, open, onOpen, filter = '', onRenamed, onDeleted }: { session: string; path: string; depth: number; open: string | null; onOpen: (e: FolderEntry) => void; filter?: string; onRenamed?: (from: string, to: FolderEntry) => void; onDeleted?: (path: string) => void }) {
+  const menu = useEntryMenu(session, onOpen, onRenamed, onDeleted)
   const [listing, setListing] = useState<Listing | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [unfolded, setUnfolded] = useState<Record<string, boolean>>({})
@@ -153,6 +190,7 @@ export function Branch({ session, path, depth, open, onOpen, filter = '' }: { se
         const unsaved = !folder && Boolean(drafts[draftKey(session, e.path)])
         return (
           <li key={e.path}>
+            <ContextMenu items={menu.items(e, () => setUnfolded({ ...unfolded, [e.path]: !out }), Boolean(out))}>
             <button type="button" className="d-row d-row--compact" style={{ paddingInlineStart: `calc(var(--d-space-8) + ${depth}rem)` }} aria-current={e.path === open ? 'true' : undefined} aria-expanded={folder ? Boolean(out) : undefined}
               onClick={() => (folder ? setUnfolded({ ...unfolded, [e.path]: !out }) : onOpen(e))}>
               <span className="d-row__lead"><Icon icon={folder ? (out ? ChevronDown : ChevronRight) : ICON[e.shown_as ?? 'other']} /></span>
@@ -160,11 +198,13 @@ export function Branch({ session, path, depth, open, onOpen, filter = '' }: { se
               {unsaved && <span className="d-row__meta files__unsaved">Not saved</span>}
               {!folder && !unsaved && <span className="d-row__meta">{size(e.size)}</span>}
             </button>
-            {folder && out && <Branch session={session} path={e.path} depth={depth + 1} open={open} onOpen={onOpen} filter={filter} />}
+            </ContextMenu>
+            {folder && out && <Branch session={session} path={e.path} depth={depth + 1} open={open} onOpen={onOpen} filter={filter} onRenamed={onRenamed} onDeleted={onDeleted} />}
           </li>
         )
       })}
       {listing.more > 0 && <li className="app-empty">{listing.more.toLocaleString()} more not listed.</li>}
+      {menu.dialog}
     </ul>
   )
 }

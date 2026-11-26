@@ -10,6 +10,17 @@ import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
 export function App() {
   useEffect(() => applyAppearance(), [])
+  // A right click is the window's: what is under it offers its own menu (ContextMenu), and where nothing does, no
+  // web page menu (back, reload, inspect) appears. Fields, links and selected text keep the browser's own.
+  useEffect(() => {
+    const own = (e: MouseEvent) => {
+      const at = e.target as Element | null
+      if (e.defaultPrevented || at?.closest('input, textarea, select, [contenteditable="true"], a[href]') || window.getSelection()?.toString()) return
+      e.preventDefault()
+    }
+    document.addEventListener('contextmenu', own)
+    return () => document.removeEventListener('contextmenu', own)
+  }, [])
   // If a core is behind these pages, its settings become the real ones.
   useEffect(() => void startCore(), [])
   const features = allFeatures()

@@ -6,10 +6,10 @@
    it is, its words, where it leads, a selector to find it again) and sent to the message box as words, for the
    model, which reads text and not pictures. */
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Download, ExternalLink, Globe, Maximize2, MessageSquarePlus, Minimize2, MousePointer2, Pencil, Plus, RotateCw, Square, SquareDashedMousePointer, Trash2, Type, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Copy, Download, ExternalLink, Globe, Maximize2, MessageSquarePlus, Minimize2, MousePointer2, Pencil, Plus, RotateCw, Square, SquareDashedMousePointer, Trash2, Type, X } from 'lucide-react'
 import { coreGet, coreSend } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Glyph, Icon, Tip, cx } from '@/ui'
+import { Button, ContextMenu, Glyph, Icon, Tip, cx } from '@/ui'
 import { useInsert } from './draft'
 
 interface Meta { deviceWidth: number; deviceHeight: number; offsetTop: number; pageScaleFactor: number; scrollOffsetX: number; scrollOffsetY: number }
@@ -231,12 +231,25 @@ export function LiveBrowser({ session, wide, onWide, onClose, leaving }: { sessi
       <header className="lb__tabs">
         <div className="lb__tablist" role="tablist" aria-label="Tabs">
           {tabs.map((t) => (
-            <span key={t.id} className="lb__tab" role="tab" aria-selected={t.id === front}>
+            <ContextMenu key={t.id} items={[
+              { label: 'New tab', lead: <Icon icon={Plus} size="sm" />, onSelect: () => { send({ type: 'newTab' }); setAddress(''); addressBox.current?.focus() } },
+              { label: 'Reload', lead: <Icon icon={RotateCw} size="sm" />, onSelect: () => { if (t.id !== front) send({ type: 'activate', id: t.id }); send({ type: 'reload' }) } },
+              { kind: 'sep' },
+              ...(!blank(t.address) ? [
+                { label: 'Copy the address', lead: <Icon icon={Copy} size="sm" />, onSelect: () => void navigator.clipboard.writeText(t.address).then(() => toast('Copied.')) },
+                { label: 'In your own browser', lead: <Icon icon={ExternalLink} size="sm" />, onSelect: () => window.open(t.address, '_blank', 'noopener,noreferrer') },
+                { kind: 'sep' as const },
+              ] : []),
+              { label: 'Close the others', disabled: tabs.length < 2, onSelect: () => tabs.filter((o) => o.id !== t.id).forEach((o) => send({ type: 'closeTab', id: o.id })) },
+              { label: 'Close', lead: <Icon icon={X} size="sm" />, onSelect: () => send({ type: 'closeTab', id: t.id }) },
+            ]}>
+            <span className="lb__tab" role="tab" aria-selected={t.id === front} onAuxClick={(e) => { if (e.button === 1) send({ type: 'closeTab', id: t.id }) }}>
               <button type="button" className="lb__tab-name" onClick={() => send({ type: 'activate', id: t.id })} title={t.address}>
                 <Icon icon={Globe} size="sm" /><span>{blank(t.address) ? 'New tab' : t.title || host(t.address)}</span>
               </button>
               <button type="button" className="lb__tab-close" aria-label={`Close ${t.title || 'the tab'}`} onClick={() => send({ type: 'closeTab', id: t.id })}><Icon icon={X} size="sm" /></button>
             </span>
+            </ContextMenu>
           ))}
           <Tip label="New tab"><button type="button" className="lb__tab-new" aria-label="New tab" onClick={() => { send({ type: 'newTab' }); setAddress(''); addressBox.current?.focus() }}><Icon icon={Plus} size="sm" /></button></Tip>
         </div>

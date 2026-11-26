@@ -1,7 +1,8 @@
 /* "On this computer", for real: the models in Demido's folder, and loading and unloading them through the core. */
+import { Box, Power, PowerOff, Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { deleteLocal, loadLocal, readModelSettings, setContext, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
-import { Button, Dialog, Facts, Glyph, Page, Select, Signal } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Page, Select, Signal, ContextMenu, Icon } from '@/ui'
 
 const MB = 1024 * 1024
 export const size = (bytes: number) => (bytes >= 1024 * MB ? `${(bytes / 1024 / MB).toFixed(1)} GB` : `${Math.round(bytes / MB)} MB`)
@@ -39,10 +40,19 @@ export function LocalList({ open, onOpen }: { open: string | null; onOpen: (id: 
         const s = stateOf(m, waiting[m.id])
         return (
           <li key={m.id}>
+            <ContextMenu items={[
+              { label: 'Open', lead: <Icon icon={Box} size="sm" />, onSelect: () => onOpen(m.id) },
+              m.state === 'loaded'
+                ? { label: 'Unload', lead: <Icon icon={PowerOff} size="sm" />, disabled: Boolean(waiting[m.id]), onSelect: () => void unloadLocal(m.id) }
+                : { label: 'Load', lead: <Icon icon={Power} size="sm" />, disabled: Boolean(waiting[m.id]) || !list.engine.runtime || m.state === 'loading', onSelect: () => void loadLocal(m.id) },
+              { kind: 'sep' },
+              { label: 'Copy the name', lead: <Icon icon={Copy} size="sm" />, onSelect: () => void navigator.clipboard.writeText(m.id) },
+            ]}>
             <button type="button" className="d-row" aria-current={m.id === open ? 'true' : undefined} onClick={() => onOpen(m.id)}>
               <span className="d-row__lead"><Glyph name={s.glyph} tone={s.live ? 'live' : undefined} busy={s.glyph === 'model-loading'} label={s.words} /></span>
               <span className="d-row__text"><span className="d-row__title">{m.id}</span><span className="d-row__sub">{size(m.size)} · {s.words.toLowerCase()}{m.needs_mb !== null ? ` · needs ${gb(m.needs_mb)}` : ''}</span></span>
             </button>
+            </ContextMenu>
           </li>
         )
       })}
