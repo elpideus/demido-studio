@@ -45,7 +45,9 @@ export function App() {
   // message box. None of them while typing, except the first two.
   useEffect(() => {
     const keys = async (e: KeyboardEvent) => {
-      const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')
+      // A key something took already (the live browser's page, an editor) is not the window's.
+      if (e.defaultPrevented) return
+      const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"], .lb__view')
       const mod = e.ctrlKey || e.metaKey
       if (mod && !e.shiftKey && e.key === ',') { e.preventDefault(); navigate('/settings') }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
