@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { newSession } from '@/data/real-sessions'
 import { firstModel } from '@/features/sessions/real'
@@ -73,18 +73,42 @@ export function App() {
           )}
           {/* Another screen comes in with a short fade; moving within one screen does not. */}
           <div className="app-route" key={pathname.split('/')[1] ?? ''}>
+            <Fallen key={pathname}>
             <Routes>
               {features.map((f) => (
                 <Route key={f.id} path={`${f.path}/*`} element={<f.Page />} />
               ))}
               <Route path="*" element={<Navigate to={home?.home ?? `/${features[0].path}`} replace />} />
             </Routes>
+            </Fallen>
           </div>
         </main>
         <Toasts />
       </div>
     </TooltipProvider>
   )
+}
+
+/** A screen that failed while it was drawn: said, with a way on, instead of an empty window. Another screen (or
+    the same one opened again) starts over. */
+class Fallen extends Component<{ children: ReactNode }, { problem: Error | null }> {
+  state = { problem: null as Error | null }
+  static getDerivedStateFromError(problem: Error) { return { problem } }
+  render() {
+    const { problem } = this.state
+    if (!problem) return this.props.children
+    const parts = /dynamically imported module|Importing a module script failed/i.test(problem.message)
+    return (
+      <div className="app-page"><div className="app-page__inner app-page__inner--narrow">
+        <div className="d-empty">
+          <span className="d-empty__art" aria-hidden="true"><Glyph name="task-failed" size="1.75rem" /></span>
+          <p className="d-empty__title">{parts ? 'Demido was updated' : 'This screen stopped'}</p>
+          <p className="d-empty__text">{parts ? 'A part of this window has a newer version. Reloading brings it.' : problem.message}</p>
+          <div className="d-empty__action"><Button variant="primary" onClick={() => window.location.reload()}>Reload</Button></div>
+        </div>
+      </div></div>
+    )
+  }
 }
 
 function Rail() {
