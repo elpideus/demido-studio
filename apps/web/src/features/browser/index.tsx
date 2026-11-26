@@ -13,7 +13,7 @@ import { Popover } from '@base-ui/react/popover'
 import { AppWindow, ArrowLeft, ArrowRight, ArrowUpRight, Eraser, Highlighter, MapPin, PenLine, Pencil, Plus, RotateCw, Send, ShieldCheck, ShieldOff, Square, Trash2, Undo2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
-import { setSetting, toast, useSetting, useStore } from '@/data/store'
+import { toast, useSetting, useStore } from '@/data/store'
 import { Button, Facts, Glyph, Icon, Menu, NotBuilt, Segmented, Switch, Tip, cx, Brief } from '@/ui'
 
 const SITE = 'shop.example'
