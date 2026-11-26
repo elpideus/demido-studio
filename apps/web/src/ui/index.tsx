@@ -378,6 +378,20 @@ export function About({ children, label = 'About this', side = 'bottom' }: { chi
   )
 }
 
+/** While a list is read: the shape of what is coming, shimmering calmly. Says "Loading" to a screen reader. */
+export function Skeleton({ rows = 4, lead = false }: { rows?: number; lead?: boolean }) {
+  return (
+    <div className="app-skeleton" role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="app-skeleton__row" style={{ '--_w': `${[78, 62, 70, 54, 66][i % 5]}%` } as CSSProperties}>
+          {lead && <span className="app-skeleton__lead" />}
+          <span className="app-skeleton__lines"><span /><span /></span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** Nothing here yet: a picture of what would be here, what it is in a few words, and the way to make one. */
 export function Empty({ icon, title, text, action, compact }: { icon: LucideIcon; title: string; text?: ReactNode; action?: ReactNode; compact?: boolean }) {
   return (
@@ -441,6 +455,7 @@ export function Facts({ rows }: { rows: ([string, ReactNode] | [string, ReactNod
 }
 export function SettingRow({ label, desc, details, changed, onReset, children, wide }: { label: string; desc?: ReactNode; details?: ReactNode; changed?: boolean; onReset?: () => void; children?: ReactNode; wide?: boolean }) {
   return (
+    <ContextMenu items={onReset ? [{ label: 'Reset to the default', disabled: !changed, onSelect: onReset }] : null}>
     <div className="d-setting">
       <div className="d-setting__text">
         <span className="d-setting__label">
@@ -459,5 +474,6 @@ export function SettingRow({ label, desc, details, changed, onReset, children, w
         </details>
       )}
     </div>
+    </ContextMenu>
   )
 }

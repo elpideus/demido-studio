@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router'
+import { newSession } from '@/data/real-sessions'
+import { firstModel } from '@/features/sessions/real'
 import { Popover } from '@base-ui/react/popover'
 import { coreGet, useCore, type CoreSystem } from '@/data/core'
 import { unloadLocal, useLocal } from '@/data/local-models'
@@ -14,7 +16,7 @@ export function App() {
   // web page menu (back, reload, inspect) appears. Fields, links and selected text keep the browser's own.
   useEffect(() => {
     const own = (e: MouseEvent) => {
-      const at = e.target as Element | null
+      const at = e.target instanceof Element ? e.target : null
       if (e.defaultPrevented || at?.closest('input, textarea, select, [contenteditable="true"], a[href]') || window.getSelection()?.toString()) return
       e.preventDefault()
     }
@@ -32,6 +34,31 @@ export function App() {
   // the window says so on every screen, not only on Setup.
   const core = useCore()
   const locked = core.state === 'locked'
+  const navigate = useNavigate()
+  // The window is named for the screen it shows (a session names it itself, with its title).
+  useEffect(() => {
+    const here = features.find((f) => pathname === `/${f.path}` || pathname.startsWith(`/${f.path}/`))
+    if (here && (here.id !== 'sessions' || pathname === '/sessions')) document.title = `${here.title} · Demido Studio`
+    else if (!here) document.title = 'Demido Studio'
+  }, [pathname, features])
+  // A few keys, as a desktop app has them: Ctrl+, opens Settings; Ctrl+Shift+O starts a session; / goes to the
+  // message box. None of them while typing, except the first two.
+  useEffect(() => {
+    const keys = async (e: KeyboardEvent) => {
+      const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && !e.shiftKey && e.key === ',') { e.preventDefault(); navigate('/settings') }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault()
+        if (core.state === 'ready') { const id = await newSession(firstModel()); if (id) navigate(`/sessions/${id}`) } else navigate('/sessions')
+      } else if (!typing && !mod && !e.altKey && e.key === '/') {
+        const box = document.querySelector<HTMLTextAreaElement>('.chat__input textarea')
+        if (box) { e.preventDefault(); box.focus() }
+      }
+    }
+    window.addEventListener('keydown', keys)
+    return () => window.removeEventListener('keydown', keys)
+  }, [navigate, core.state])
   return (
     <TooltipProvider delay={500} closeDelay={0}>
       <div className="app" data-immersive={immersive ? '' : undefined}>

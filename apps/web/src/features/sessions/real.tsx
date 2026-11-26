@@ -13,7 +13,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
 import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, sayAgain, setUpSandbox, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
-import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry, useLeaving, useLiveList, ContextMenu, selectedWithin, Empty } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry, useLeaving, useLiveList, ContextMenu, selectedWithin, Empty, Skeleton } from '@/ui'
 import { asAFile, keepAsFile, openArtifact, useFilesFocus } from '@/data/artifacts'
 import { onCoreEvent } from '@/data/core'
 import { toast, useSetting } from '@/data/store'
@@ -31,7 +31,7 @@ function ago(at: number): string {
 
 /** The model a new session starts with: the core picks one on this computer. With none here, the first one
     the person chose elsewhere, named, so that it is their choice and not the core's. */
-function firstModel(): string | undefined {
+export function firstModel(): string | undefined {
   if (useLocal.getState().list?.models.length) return undefined
   return chosenModels(useProviders.getState().providers)[0]?.id
 }
@@ -83,7 +83,7 @@ function List() {
         <Tip label="New session"><Button size="sm" variant="ghost" iconOnly aria-label="New session" onClick={start}><Icon icon={Plus} /></Button></Tip>
       </div>
       <div className="app-side__scroll">
-        {!list && <p className="app-empty"><Glyph name="task-running" busy /></p>}
+        {!list && <Skeleton rows={5} />}
         {list && !list.length && <Empty icon={MessageSquare} title="No sessions yet" />}
         <ul className="d-list" ref={live}>
           {list?.map((s) => (
@@ -653,6 +653,7 @@ function Chat() {
   const [told, setTold] = useState(false)
   const [sure, setSure] = useState(false)
   const [renamingThis, setRenamingThis] = useState(false)
+  useEffect(() => { const t = detail?.session.title; if (t) document.title = `${t} · Demido Studio` }, [detail?.session.title])
   // What is open beside the conversation, whether it takes the whole view, and the page chosen in the browser.
   const [panel, setPanel] = useState<'browser' | 'files' | null>(null)
   // A panel leaves the way it came: it stays a moment, sliding out, before the conversation takes its place.

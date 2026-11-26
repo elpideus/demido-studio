@@ -3,7 +3,7 @@ import { SearchX, Search, Settings as SettingsIcon } from 'lucide-react'
 import { allFeatures, type Feature } from '@/app/registry'
 import type { CoreSetting } from '@/data/core'
 import { setSetting, useSetting, useStore } from '@/data/store'
-import { Button, Icon, NotBuilt, Page, Segmented, Select, SettingRow, Slider, Switch, Empty } from '@/ui'
+import { Button, Icon, NotBuilt, Page, Segmented, Select, SettingRow, Slider, Switch, Empty, Brief } from '@/ui'
 import type { SettingDef, SettingsSection } from './schema'
 
 // ───────────── the accent control: the one setting with a shape of its own ─────────────
@@ -244,10 +244,9 @@ function SettingsPage() {
             ))}
           </ul>
         </div>
-        <p className="app-side__foot">
-          Every setting is here. Nothing is hidden behind an advanced mode: detail is one step away, under Details.
-          {live && ' Settings the core keeps are saved on this computer and are the same in every window. The others are marked Not built yet: they still belong to the scripted preview and stay in this browser.'}
-        </p>
+        <div className="app-side__foot">
+          <Brief className="" text={`Every setting is here. Nothing is hidden behind an advanced mode: detail is one step away, under Details.${live ? ' Settings the core keeps are saved on this computer and are the same in every window. The others are marked Not built yet: they still belong to the scripted preview and stay in this browser.' : ''}`} />
+        </div>
       </aside>
       <Page narrow title="Settings" lead="Each row says what it does. A changed one resets with one press." about="Details, under a row, gives the default, the range and the trade-off.">
         {shown.map((s) => (

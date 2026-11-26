@@ -2,7 +2,7 @@
 import { Box, Power, PowerOff, Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { deleteLocal, loadLocal, readModelSettings, setContext, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
-import { Button, Dialog, Facts, Glyph, Page, Select, Signal, ContextMenu, Icon, Empty } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Page, Select, Signal, ContextMenu, Icon, Empty, Skeleton } from '@/ui'
 
 const MB = 1024 * 1024
 export const size = (bytes: number) => (bytes >= 1024 * MB ? `${(bytes / 1024 / MB).toFixed(1)} GB` : `${Math.round(bytes / MB)} MB`)
@@ -32,7 +32,7 @@ export function stateOf(m: LocalModel, waiting?: 'loading' | 'unloading'): { gly
 export function LocalList({ open, onOpen }: { open: string | null; onOpen: (id: string) => void }) {
   const list = useLocal((s) => s.list)
   const waiting = useLocal((s) => s.waiting)
-  if (!list) return <p className="app-empty"><Glyph name="task-running" /> Looking in the models folder…</p>
+  if (!list) return <Skeleton rows={3} lead />
   if (!list.models.length) return <Empty icon={Box} title="No model here yet" text="Download one from Discover, or put a GGUF file in the models folder." />
   return (
     <ul className="d-list">

@@ -5,10 +5,10 @@
    tell it was opened. Sending cannot be undone, so the window asks once more, with the whole message in view.
    A password is given once and never shown again. */
 import { useEffect, useState } from 'react'
-import { MailOpen, Inbox, ChevronDown, Mail, PenLine, Plus, RefreshCw, Reply, Trash2 } from 'lucide-react'
+import { Copy, MailOpen, Inbox, ChevronDown, Mail, PenLine, Plus, RefreshCw, Reply, Trash2 } from 'lucide-react'
 import { coreGet, coreSend } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Segmented, Signal, Empty } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Segmented, Signal, Empty, ContextMenu, Skeleton } from '@/ui'
 
 interface KeyFacts { kept_in: 'keyring' | 'file'; ends_with: string }
 interface Account { id: string; address: string; label: string; preset: 'gmail' | 'other'; imap_host: string; imap_port: number; smtp_host: string; smtp_port: number; username: string; password: KeyFacts | null }
@@ -196,6 +196,12 @@ export function RealEmail() {
           <ul className="d-list">
             {list.map((m) => (
               <li key={`${m.account}-${m.uid}`} className="email__row">
+                <ContextMenu items={[
+                  { label: 'Open', lead: <Icon icon={MailOpen} size="sm" />, onSelect: () => void pick(m) },
+                  { kind: 'sep' },
+                  { label: 'Copy the sender', lead: <Icon icon={Copy} size="sm" />, onSelect: () => void navigator.clipboard.writeText(m.from.match(/<([^>]+)>/)?.[1] ?? m.from).then(() => toast('Copied.')) },
+                  { label: 'Copy the subject', lead: <Icon icon={Copy} size="sm" />, onSelect: () => void navigator.clipboard.writeText(m.subject).then(() => toast('Copied.')) },
+                ]}>
                 <button type="button" className="d-row" aria-current={open?.uid === m.uid} onClick={() => void pick(m)}>
                   <span className="d-row__text">
                     <span className="d-row__title" style={{ fontWeight: m.seen ? undefined : 'var(--d-font-weight-semibold)' }}>{m.from || '(no sender)'}</span>
@@ -203,11 +209,12 @@ export function RealEmail() {
                   </span>
                   <span className="d-row__meta">{when(m.date)}</span>
                 </button>
+                </ContextMenu>
               </li>
             ))}
           </ul>
           {!list.length && !reading && <Empty icon={Inbox} title="Nothing read yet" action={<Button size="sm" onClick={() => void readList(true)}>Read the inbox</Button>} />}
-          {reading && !list.length && <p className="app-empty"><Glyph name="task-running" busy /> Reading the inbox…</p>}
+          {reading && !list.length && <Skeleton rows={6} />}
         </div>
       </div>
       <section className="chat" style={{ gridTemplateRows: 'auto minmax(0, 1fr)' }} aria-label="Message">
