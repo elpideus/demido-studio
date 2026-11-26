@@ -250,6 +250,9 @@ async function readSystemAccentNow() {
 /** Theme, text size and accent are applied to <html>, where the brand tokens read them. */
 export function applyAppearance() {
   const el = document.documentElement
+  // A theme swap is one change: every part at once, none fading at its own speed.
+  el.setAttribute('data-swapping', '')
+  requestAnimationFrame(() => requestAnimationFrame(() => el.removeAttribute('data-swapping')))
   const theme = setting<string>('appearance.theme', 'system')
   if (theme === 'dark' || theme === 'light') el.dataset.theme = theme
   else delete el.dataset.theme
@@ -272,7 +275,9 @@ export function toast(text: string, action?: Toast['action'], glyph?: string) {
   setTimeout(() => dismissToast(t.id), action ? 9000 : 4200)
 }
 export function dismissToast(toastId: string) {
-  set({ toasts: get().toasts.filter((t) => t.id !== toastId) })
+  if (!get().toasts.some((t) => t.id === toastId && !t.leaving)) return
+  set({ toasts: get().toasts.map((t) => (t.id === toastId ? { ...t, leaving: true } : t)) })
+  setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== toastId) }), 180)
 }
 
 // ───────────────────────── helpers ─────────────────────────

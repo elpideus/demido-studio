@@ -12,7 +12,7 @@
     gap: var(--d-space-8);
     min-height: var(--d-size-hit);
     padding-block: var(--d-space-4);
-    cursor: default;
+    cursor: pointer;
   }
   .d-check__text {
     display: grid;
@@ -40,7 +40,7 @@
     margin: 0;
     border-radius: var(--d-radius-full);
     background: var(--d-color-border-strong);
-    cursor: default;
+    cursor: pointer;
     transition: background-color var(--d-duration-base) var(--d-ease-standard);
   }
   .d-switch::before {
@@ -79,7 +79,7 @@
     border: var(--d-stroke-icon) solid var(--d-color-border-strong);
     border-radius: var(--d-radius-xs);
     background: transparent;
-    cursor: default;
+    cursor: pointer;
     transition:
       background-color var(--d-duration-fast) var(--d-ease-standard),
       border-color var(--d-duration-fast) var(--d-ease-standard),

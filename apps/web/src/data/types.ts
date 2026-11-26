@@ -197,6 +197,8 @@ export interface Provider {
 export interface Toast {
   id: string
   text: string
+  /** On its way out: shown leaving for a moment, then gone. */
+  leaving?: boolean
   action?: { label: string; run: () => void }
   glyph?: string
 }

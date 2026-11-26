@@ -33,7 +33,7 @@
     height: var(--d-size-hit);
     margin: 0;
     background: transparent;
-    cursor: default;
+    cursor: pointer;
   }
   .d-slider input[type="range"]::-webkit-slider-runnable-track {
     height: var(--_track);

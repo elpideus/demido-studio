@@ -73,6 +73,63 @@ pub const DESCRIBE: &str = r#"(x, y, w, h) => {
   };
 }"#;
 
+/// The cursor a browser shows at a point: the page's own, else the text bar over words and fields, the pointer
+/// over a link, the arrow elsewhere. Run in Demido's own world on the page.
+pub const CURSOR: &str = r#"(x, y) => {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return 'default';
+  const own = getComputedStyle(el).cursor;
+  if (own && own !== 'auto') return own.split(',').pop().trim();
+  if (el.closest('a[href]')) return 'pointer';
+  if (el.isContentEditable || el.matches('textarea, input:not([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=image])')) return 'text';
+  const at = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+  if (at && at.startContainer.nodeType === 3 && at.startContainer.textContent.trim()) {
+    const words = document.createRange();
+    words.selectNodeContents(at.startContainer);
+    for (const r of words.getClientRects()) if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return 'text';
+  }
+  return 'default';
+}"#;
+
+/// The cursors the window shows: CSS's own names, never a picture from the page.
+const CURSORS: &[&str] = &[
+    "default",
+    "pointer",
+    "text",
+    "vertical-text",
+    "crosshair",
+    "move",
+    "grab",
+    "grabbing",
+    "not-allowed",
+    "no-drop",
+    "help",
+    "wait",
+    "progress",
+    "copy",
+    "alias",
+    "cell",
+    "context-menu",
+    "zoom-in",
+    "zoom-out",
+    "col-resize",
+    "row-resize",
+    "ew-resize",
+    "ns-resize",
+    "nesw-resize",
+    "nwse-resize",
+    "n-resize",
+    "s-resize",
+    "e-resize",
+    "w-resize",
+    "ne-resize",
+    "nw-resize",
+    "se-resize",
+    "sw-resize",
+    "all-scroll",
+    "none",
+];
+
 /// How long without a word from the window before its view counts as gone.
 const QUIET_AT_MOST: Duration = Duration::from_secs(120);
 
@@ -125,6 +182,11 @@ pub async fn serve(mut socket: WebSocket, browser: Arc<Browser>, session: String
     let _ = socket.send(tabs_said(&browser, &session).await).await;
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     let mut last_word = std::time::Instant::now();
+    // Where the mouse last was, to say which cursor the page wants there, a few times a second at most.
+    let mut hovering: Option<(f64, f64)> = None;
+    let mut shown_cursor = String::from("default");
+    let mut look = tokio::time::interval(Duration::from_millis(90));
+    look.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tokio::select! {
             got = socket.recv() => {
@@ -151,6 +213,7 @@ pub async fn serve(mut socket: WebSocket, browser: Arc<Browser>, session: String
                             "buttons": num("buttons") as i64, "clickCount": num("clickCount") as i64, "modifiers": num("modifiers") as i64,
                             "deltaX": num("deltaX"), "deltaY": num("deltaY"),
                         }), Some(&page)).await;
+                        if kind == "mouseMoved" || kind == "mouseReleased" { hovering = Some((num("x"), num("y"))); }
                         // Whether the person is in a password box: the window says what the model can then use.
                         if kind == "mouseReleased" {
                             let focus = cdp.call("Runtime.evaluate", json!({ "expression": "document.activeElement ? document.activeElement.type === 'password' : false", "returnByValue": true }), Some(&page)).await;
@@ -240,6 +303,15 @@ pub async fn serve(mut socket: WebSocket, browser: Arc<Browser>, session: String
                         let _ = socket.send(said("dialog", json!({ "message": heard.params.get("message") }))).await;
                     }
                     _ => {}
+                }
+            }
+            _ = look.tick(), if hovering.is_some() => {
+                let (x, y) = hovering.take().expect("just looked");
+                let wanted = Browser::in_our_world(&cdp, &page, &format!("({CURSOR})({x}, {y})")).await.ok();
+                let wanted = wanted.as_ref().and_then(Value::as_str).filter(|c| CURSORS.contains(c)).unwrap_or("default");
+                if wanted != shown_cursor {
+                    shown_cursor = wanted.to_string();
+                    let _ = socket.send(said("cursor", json!({ "cursor": wanted }))).await;
                 }
             }
             _ = tick.tick() => {

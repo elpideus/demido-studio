@@ -193,6 +193,8 @@ async fn the_person_has_tabs_goes_to_public_addresses_and_a_point_is_described()
 <button id="more" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Show more</button>
 <div class="card" style="position:absolute;left:300px;top:200px;width:300px;height:200px"><p>Grey herons nest in reeds.</p></div>
 <svg style="position:absolute;left:40px;top:120px" width="40" height="40"><title>A heron</title><path d="M0 0H40V40H0Z"/></svg>
+<a href="/x" style="position:absolute;left:40px;top:200px;font-size:20px">A link</a>
+<p style="position:absolute;left:40px;top:300px;margin:0;font-size:20px">Herons</p>
 </body></html>"#;
     let door = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let at = door.local_addr().unwrap();
@@ -234,6 +236,14 @@ async fn the_person_has_tabs_goes_to_public_addresses_and_a_point_is_described()
     assert!(card["text"].as_str().unwrap().contains("Grey herons"), "{card}");
     let drawing = Browser::describe(&cdp, &page_session, 60.0, 140.0, 0.0, 0.0).await.unwrap();
     assert_eq!((drawing["tag"].as_str(), drawing["label"].as_str()), (Some("svg"), Some("A heron")), "{drawing}");
+    // The cursor a browser would show there: the pointer on a link, the text bar on words, the arrow elsewhere.
+    let cursor = |x: f64, y: f64| {
+        let (cdp, page_session) = (cdp.clone(), page_session.clone());
+        async move { Browser::in_our_world(&cdp, &page_session, &format!("({})({x}, {y})", super::live::CURSOR)).await.unwrap() }
+    };
+    assert_eq!(cursor(50.0, 210.0).await, json!("pointer"));
+    assert_eq!(cursor(50.0, 310.0).await, json!("text"));
+    assert_eq!(cursor(900.0, 700.0).await, json!("default"));
 
     // Tabs: another in front, the first again, and one closed.
     let other = tabs[0].id.clone();

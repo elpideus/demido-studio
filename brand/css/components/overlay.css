@@ -62,7 +62,7 @@
     color: var(--d-color-text-primary);
     text-align: start;
     text-decoration: none;
-    cursor: default;
+    cursor: pointer;
   }
   .d-menu__item > :nth-child(2) {
     flex: 1;

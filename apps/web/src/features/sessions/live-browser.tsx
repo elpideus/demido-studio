@@ -52,7 +52,7 @@ const TOOLS: { tool: Tool; icon: typeof Pencil; label: string }[] = [
   { tool: 'note', icon: Type, label: 'A note' },
 ]
 
-export function LiveBrowser({ session, wide, onWide, onClose }: { session: string; wide: boolean; onWide: () => void; onClose: () => void }) {
+export function LiveBrowser({ session, wide, onWide, onClose, leaving }: { session: string; wide: boolean; onWide: () => void; onClose: () => void; leaving?: boolean }) {
   const socket = useRef<WebSocket | null>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const view = useRef<HTMLDivElement>(null)
@@ -66,6 +66,7 @@ export function LiveBrowser({ session, wide, onWide, onClose }: { session: strin
   const [address, setAddress] = useState('')
   const [editing, setEditing] = useState(false)
   const [password, setPassword] = useState(false)
+  const [pageCursor, setPageCursor] = useState('default')
   const [tool, setTool] = useState<Tool>('browse')
   const [marks, setMarks] = useState<Mark[]>([])
   const [hover, setHover] = useState<[number, number, number, number] | null>(null)
@@ -111,6 +112,8 @@ export function LiveBrowser({ session, wide, onWide, onClose }: { session: strin
       } else if (said.type === 'problem') {
         if (/not downloaded/i.test(said.message)) setState('none')
         setProblem(said.message)
+      } else if (said.type === 'cursor') {
+        setPageCursor(String(said.cursor))
       } else if (said.type === 'focus') {
         setPassword(Boolean(said.password))
       } else if (said.type === 'dialog') {
@@ -224,7 +227,7 @@ export function LiveBrowser({ session, wide, onWide, onClose }: { session: strin
   useEffect(() => { if (state === 'none') coreGet<{ offered: boolean }>('/browser').then((s) => setOffered(s.offered), () => {}) }, [state])
 
   return (
-    <aside className="panel lb" aria-label="Browser">
+    <aside className="panel lb" aria-label="Browser" data-leaving={leaving ? '' : undefined}>
       <header className="lb__tabs">
         <div className="lb__tablist" role="tablist" aria-label="Tabs">
           {tabs.map((t) => (
@@ -252,7 +255,7 @@ export function LiveBrowser({ session, wide, onWide, onClose }: { session: strin
         {tab && !blank(tab.address) && <Tip label="In your own browser"><a className="d-button d-button--ghost d-button--sm d-button--icon" aria-label="In your own browser" href={tab.address} target="_blank" rel="noopener noreferrer"><Icon icon={ExternalLink} size="sm" /></a></Tip>}
       </div>
       {password && <p className="lb__note">What you sign in to here, the model can use in this session.</p>}
-      <div className="lb__view" ref={view} tabIndex={0} data-tool={tool}
+      <div className="lb__view" ref={view} tabIndex={0} data-tool={tool} style={tool === 'browse' && state === 'open' ? { cursor: pageCursor } : undefined}
         onMouseDown={down} onMouseMove={move} onMouseUp={(e) => void up(e)} onMouseLeave={() => setHover(null)}
         onWheel={(e) => { if (tool === 'browse') mouse('mouseWheel', e, { deltaX: e.deltaX, deltaY: e.deltaY, button: 'none' }) }}
         onContextMenu={(e) => e.preventDefault()} onKeyDown={(e) => key(e, 'down')} onKeyUp={(e) => key(e, 'up')}

@@ -33,12 +33,15 @@ export function App() {
               </Signal>
             </div>
           )}
-          <Routes>
-            {features.map((f) => (
-              <Route key={f.id} path={`${f.path}/*`} element={<f.Page />} />
-            ))}
-            <Route path="*" element={<Navigate to={home?.home ?? `/${features[0].path}`} replace />} />
-          </Routes>
+          {/* Another screen comes in with a short fade; moving within one screen does not. */}
+          <div className="app-route" key={pathname.split('/')[1] ?? ''}>
+            <Routes>
+              {features.map((f) => (
+                <Route key={f.id} path={`${f.path}/*`} element={<f.Page />} />
+              ))}
+              <Route path="*" element={<Navigate to={home?.home ?? `/${features[0].path}`} replace />} />
+            </Routes>
+          </div>
         </main>
         <Toasts />
       </div>
@@ -188,7 +191,7 @@ function Toasts() {
   return (
     <div className="d-toasts" aria-live="polite">
       {toasts.map((t) => (
-        <div key={t.id} className="d-toast app-toast" role="status">
+        <div key={t.id} className="d-toast app-toast" role="status" data-leaving={t.leaving ? '' : undefined}>
           {t.glyph && <Glyph name={t.glyph} />}
           <span>{t.text}</span>
           {t.action && (

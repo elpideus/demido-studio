@@ -30,7 +30,7 @@
     line-height: 1;
     white-space: nowrap;
     text-decoration: none;
-    cursor: default;
+    cursor: pointer;
     user-select: none;
     transition:
       background-color var(--d-duration-fast) var(--d-ease-standard),

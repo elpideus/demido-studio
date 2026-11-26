@@ -1,6 +1,6 @@
 /* Thin React wrappers around the brand components (brand/css/components). They add no styles of their own:
    the look lives in the brand kit, so the kit page and the app cannot drift apart. */
-import { type ButtonHTMLAttributes, type CSSProperties, type ReactNode, useId } from 'react'
+import { type ButtonHTMLAttributes, type CSSProperties, type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Dialog as BaseDialog } from '@base-ui/react/dialog'
 import { Menu as BaseMenu } from '@base-ui/react/menu'
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
@@ -10,6 +10,29 @@ import { memoryBudget, setSetting, useSetting, useStore } from '@/data/store'
 import type { Model, SignalLevel, Step, Task } from '@/data/types'
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ')
+
+// ───────────── motion helpers ─────────────
+/** What was shown stays a moment after it goes, marked as leaving, so it can leave the way it came. */
+export function useLeaving<T>(value: T | null, ms = 200): [T | null, boolean] {
+  const [shown, setShown] = useState<T | null>(value)
+  const last = useRef(value)
+  useEffect(() => {
+    if (value !== null) { last.current = value; setShown(value); return }
+    const t = setTimeout(() => setShown(null), ms)
+    return () => clearTimeout(t)
+  }, [value, ms])
+  return value !== null ? [value, false] : [shown === null ? null : last.current, shown !== null]
+}
+
+/** A ref for a list whose new items come in with motion (CSS: `[data-live] > *` with `@starting-style`). Items
+    already there when it appears do not: it turns live a moment after it is put on the screen. */
+export function useLiveList(ms = 400) {
+  return useCallback((el: HTMLElement | null) => {
+    if (!el) return
+    el.removeAttribute('data-live')
+    setTimeout(() => el.setAttribute('data-live', ''), ms)
+  }, [ms])
+}
 
 // ───────────── icon and glyph ─────────────
 export function Icon({ icon: I, size, label }: { icon: LucideIcon; size?: 'sm' | 'lg' | 'xl'; label?: string }) {

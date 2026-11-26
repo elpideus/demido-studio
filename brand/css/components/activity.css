@@ -34,7 +34,7 @@
     border-radius: var(--d-radius-md);
     color: var(--d-color-text-secondary);
     list-style: none;
-    cursor: default;
+    cursor: pointer;
     user-select: none;
     transition: background-color var(--d-duration-fast) var(--d-ease-standard), color var(--d-duration-fast) var(--d-ease-standard);
   }

@@ -22,7 +22,7 @@
     font-size: var(--d-type-caption-size);
     font-weight: var(--d-font-weight-medium);
     list-style: none;
-    cursor: default;
+    cursor: pointer;
     user-select: none;
     transition: background-color var(--d-duration-fast) var(--d-ease-standard), color var(--d-duration-fast) var(--d-ease-standard);
   }

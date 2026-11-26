@@ -88,7 +88,7 @@
   select.d-input {
     appearance: none;
     padding-inline-end: var(--d-space-32);
-    cursor: default;
+    cursor: pointer;
   }
   /* The chevron is drawn by the wrapper so it follows the text colour. */
   .d-select {
@@ -122,7 +122,7 @@
     border: var(--d-stroke-hairline) solid var(--d-color-border-default);
     border-radius: var(--d-radius-md);
     background: var(--d-color-bg-sunken);
-    cursor: default;
+    cursor: pointer;
     transition: border-color var(--d-duration-fast) var(--d-ease-standard), scale var(--d-duration-instant) var(--d-ease-out);
   }
   .d-colorwell::-webkit-color-swatch-wrapper {

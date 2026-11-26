@@ -61,7 +61,7 @@
     color: var(--d-color-text-secondary);
     font-weight: var(--d-font-weight-medium);
     white-space: nowrap;
-    cursor: default;
+    cursor: pointer;
     transition: color var(--d-duration-fast) var(--d-ease-standard), scale var(--d-duration-instant) var(--d-ease-out);
   }
   .d-segmented > label:has(input:checked) {
@@ -84,7 +84,7 @@
     inset: 0;
     margin: 0;
     opacity: 0;
-    cursor: default;
+    cursor: pointer;
   }
 
   .d-segmented--sm {

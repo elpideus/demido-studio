@@ -59,7 +59,7 @@ type Tab = { kind: 'file'; entry: FolderEntry } | { kind: 'artifact'; id: string
 const tabKey = (t: Tab) => (t.kind === 'file' ? `f:${t.entry.path}` : `a:${t.id}`)
 
 /** The session's folder: its files to look at and edit, and the files models gave. */
-export function FolderPanel({ session, folder, focus, wide, onWide, onClose, empty }: { session: string; folder: string | null; focus: { id: string; n: number } | null; wide: boolean; onWide: () => void; onClose: () => void; empty: React.ReactNode }) {
+export function FolderPanel({ session, folder, focus, wide, onWide, onClose, empty, leaving }: { session: string; folder: string | null; focus: { id: string; n: number } | null; wide: boolean; onWide: () => void; onClose: () => void; empty: React.ReactNode; leaving?: boolean }) {
   const artifacts = useArtifacts(session)
   const [tabs, setTabs] = useState<Tab[]>([])
   const [active, setActive] = useState<string | null>(null)
@@ -89,7 +89,7 @@ export function FolderPanel({ session, folder, focus, wide, onWide, onClose, emp
   const openFile = (entry: FolderEntry) => open({ kind: 'file', entry })
   const unsaved = useMemo(() => new Set(tabs.filter((t) => t.kind === 'file' && drafts[draftKey(session, t.entry.path)]).map(tabKey)), [tabs, drafts, session])
   return (
-    <aside className="panel" aria-label="Files">
+    <aside className="panel" aria-label="Files" data-leaving={leaving ? '' : undefined}>
       <PanelHead wide={wide} onWide={onWide} onClose={onClose}>
         <div className="panel__tabs" role="tablist" aria-label="Open files">
           {tabs.length === 0 && <span className="panel__name panel__name--quiet"><Icon icon={FolderOpen} size="sm" /> {folder ? folder.split(/[\\/]/).filter(Boolean).at(-1) : 'Files'}</span>}

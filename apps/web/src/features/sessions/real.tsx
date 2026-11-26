@@ -13,7 +13,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
 import { chosenModels, dollars, useProviders } from '@/data/providers'
 import { answerNow, answerPermission, changeDiff, changeSession, deleteSession, makeShorter, newSession, readSession, say, sayAgain, setUpSandbox, stopAnswer, undoChange, useReal, type ContextUse, type CoreChange, type CoreMessage, type CoreStep, type CoreTask, type Level, type PermissionRequest } from '@/data/real-sessions'
-import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Menu, Signal, StepRow, Tip, cx, type MenuEntry, useLeaving, useLiveList } from '@/ui'
 import { asAFile, keepAsFile, openArtifact, useFilesFocus } from '@/data/artifacts'
 import { onCoreEvent } from '@/data/core'
 import { toast, useSetting } from '@/data/store'
@@ -55,6 +55,7 @@ function List() {
   const { '*': rest } = useParams()
   const current = rest?.split('/')[0]
   const navigate = useNavigate()
+  const live = useLiveList()
   const start = async () => {
     const id = await newSession(firstModel())
     if (id) navigate(`/sessions/${id}`)
@@ -68,7 +69,7 @@ function List() {
       <div className="app-side__scroll">
         {!list && <p className="app-empty"><Glyph name="task-running" busy /></p>}
         {list && !list.length && <p className="app-empty">No sessions yet.</p>}
-        <ul className="d-list">
+        <ul className="d-list" ref={live}>
           {list?.map((s) => (
             <li key={s.id}>
               <button type="button" className="d-row" aria-current={s.id === current ? 'true' : undefined} onClick={() => navigate(`/sessions/${s.id}`)}>
@@ -595,6 +596,9 @@ function Chat() {
   const [sure, setSure] = useState(false)
   // What is open beside the conversation, whether it takes the whole view, and the page chosen in the browser.
   const [panel, setPanel] = useState<'browser' | 'files' | null>(null)
+  // A panel leaves the way it came: it stays a moment, sliding out, before the conversation takes its place.
+  const [shownPanel, panelLeaving] = useLeaving(panel, 180)
+  const liveThread = useLiveList()
   const [wide, setWide] = useState(false)
   // An artifact opened from anywhere opens in its session's files.
   const focus = useFilesFocus((s) => s.focus)
@@ -648,7 +652,7 @@ function Chat() {
   const thinkLabel = session.thinking === 'off' ? offLabel : session.thinking === 'on' ? 'On' : session.thinking
 
   return (
-    <div className="sess" data-panel={panel ?? undefined} data-wide={panel && wide ? '' : undefined}>
+    <div className="sess" data-panel={shownPanel ?? undefined} data-wide={shownPanel && wide ? '' : undefined}>
       <section className="chat" aria-label="Conversation">
         <header className="chat__head">
           <h1 className="chat__title">{session.title}</h1>
@@ -663,7 +667,7 @@ function Chat() {
           ]} />
         </header>
         <div className="chat__thread" ref={thread}>
-          <div className="chat__col">
+          <div className="chat__col" ref={liveThread}>
             {session.schedule_id && <ScheduleStrip id={session.schedule_id} />}
             {!messages.length && (
               <div className="chat__welcome">
@@ -700,8 +704,8 @@ function Chat() {
           {!program && <Room id={id} context={detail.context} busy={answering} canShorten={messages.filter((m) => m.seq > covered).length >= 4} />}
         </Composer>
       </section>
-      {panel === 'browser' && <LiveBrowser session={id} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)} />}
-      {panel === 'files' && <FolderPanel session={id} folder={session.folder ?? null} focus={artifact} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)}
+      {shownPanel === 'browser' && <LiveBrowser leaving={panelLeaving} session={id} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)} />}
+      {shownPanel === 'files' && <FolderPanel leaving={panelLeaving} session={id} folder={session.folder ?? null} focus={artifact} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)}
         empty={<><p>No folder.</p><FolderForm id={id} folder={null} sandbox={detail.sandbox} /></>} />}
       {told && <Told detail={detail} onClose={() => setTold(false)} />}
       {sure && <Dialog open onOpenChange={(o) => !o && setSure(false)} title="Delete this session?" text="Everything said in it goes. Files in its folder stay."
