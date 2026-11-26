@@ -72,6 +72,8 @@ pub struct Core {
     pub markets: Arc<crate::markets::Markets>,
     /// The tools the person installed (DECISIONS C6).
     pub packages: Arc<crate::packages::Packages>,
+    /// The person's characters (DECISIONS E).
+    pub characters: Arc<crate::characters::Characters>,
 }
 
 impl Core {
@@ -87,6 +89,7 @@ impl Core {
         let providers = Arc::new(Providers::new(db.clone(), vault.clone(), settings.clone(), events.clone()).with_programs(paths.home(), Arc::new(crate::programs::ProcessSpawner)));
         let sessions = Arc::new(Sessions::new(db.clone()));
         let schedules = Arc::new(crate::schedules::Schedules::new(db.clone()));
+        let characters = Arc::new(crate::characters::Characters::new(db.clone()));
         let web = Arc::new(crate::web::Web::new(Some(paths.home().join("cache").join("web"))).reading_pdfs_apart(std::env::current_exe().ok()));
         let browser = Arc::new(crate::browser::Browser::new(paths.home(), web.clone(), events.clone()));
         let mail = Arc::new(crate::email::Mail::new(db.clone(), vault.clone(), events.clone()));
@@ -104,13 +107,14 @@ impl Core {
                 .with_browser(browser.clone())
                 .with_mail(mail.clone())
                 .with_schedules(schedules.clone())
+                .with_characters(characters.clone())
                 .with_packages(packages.clone()),
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
         let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
         let voice = Arc::new(crate::voice::Voice::new(paths.home().join("voice"), std::env::current_exe().ok(), events.clone()));
         let bots = Arc::new(crate::bots::Bots::new(bots_db, providers.vault().clone(), events.clone(), chat.clone()));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail, bots, markets, packages })
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail, bots, markets, packages, characters })
     }
 }
 
@@ -147,6 +151,8 @@ pub struct App {
     pub bots: Arc<crate::bots::Bots>,
     pub markets: Arc<crate::markets::Markets>,
     pub packages: Arc<crate::packages::Packages>,
+    /// The person's characters (DECISIONS E).
+    pub characters: Arc<crate::characters::Characters>,
     /// Which runtime build suits this computer. Worked out once: the hardware does not change while the server runs.
     pub advice: Arc<tokio::sync::OnceCell<Advice>>,
     /// This computer as last read. Memory in use moves, so it is kept only for seconds.
@@ -501,6 +507,10 @@ pub struct NewSession {
     /// A folder on this computer, by its full path, that the session's tools may read and change files in.
     /// Left out: the session has none, and is not offered those tools.
     pub folder: Option<String>,
+    /// A character, by its id (DECISIONS E): the session is told its instructions, with its model, its
+    /// thinking and its temperature where it has them. A model given here is used over the character's.
+    #[serde(default)]
+    pub character: Option<String>,
 }
 
 /// Starts a session with a model. Nothing is loaded until something is said.
@@ -513,7 +523,15 @@ async fn session_new(State(app): State<App>, body: Option<Json<NewSession>>) -> 
     {
         return Err(crate::Error::Invalid(format!("There is no folder \"{folder}\" on this computer.")));
     }
-    let session = app.chat.start(ask.title.as_deref(), ask.model.as_deref()).await?;
+    let character = ask.character.as_deref().filter(|c| !c.is_empty()).map(|id| app.characters.get(id)).transpose()?;
+    let model = ask.model.as_deref().or(character.as_ref().and_then(|c| c.model.as_deref()));
+    let mut session = app.chat.start(ask.title.as_deref(), model).await?;
+    if let Some(character) = &character {
+        session = app.sessions.set_character(&session.id, Some(&character.id))?;
+        if let Some(thinking) = character.thinking.as_deref() {
+            session = app.chat.change(&session.id, None, None, Some(thinking)).await.unwrap_or(session);
+        }
+    }
     Ok(Json(match ask.folder.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
         Some(folder) => app.chat.set_folder(&session.id, Some(folder))?,
         None => session,
@@ -590,6 +608,10 @@ pub struct SessionChange {
     pub permission: Option<String>,
     /// The account at the model's provider it goes through, by its id. An empty text: the provider's default.
     pub account: Option<String>,
+    /// The character it is, by its id; an empty text: none (DECISIONS E). Its model and thinking come with it,
+    /// where it has them, unless this change names others.
+    #[serde(default)]
+    pub character: Option<String>,
 }
 
 /// Changes what is given: the title, the model, whether the model thinks before it answers, the folder
@@ -606,7 +628,52 @@ async fn session_change(State(app): State<App>, Path(id): Path<String>, Json(bod
     if let Some(account) = body.account.as_deref() {
         session = app.chat.set_account(&id, Some(account).filter(|a| !a.is_empty()))?;
     }
+    if let Some(character) = body.character.as_deref() {
+        if character.is_empty() {
+            session = app.sessions.set_character(&id, None)?;
+        } else {
+            let c = app.characters.get(character)?;
+            session = app.sessions.set_character(&id, Some(&c.id))?;
+            let model = if body.model.is_none() { c.model.as_deref() } else { None };
+            let thinking = if body.thinking.is_none() { c.thinking.as_deref() } else { None };
+            if model.is_some() || thinking.is_some() {
+                session = app.chat.change(&id, None, model, thinking).await?;
+            }
+        }
+    }
     Ok(Json(session))
+}
+
+/// The person's characters, by name (DECISIONS E).
+#[utoipa::path(get, path = "/api/v1/characters", tag = "characters", responses((status = 200, body = Vec<crate::characters::Character>)))]
+async fn characters_list(State(app): State<App>) -> Result<Json<Vec<crate::characters::Character>>> {
+    Ok(Json(app.characters.list()?))
+}
+
+/// Makes a character.
+#[utoipa::path(post, path = "/api/v1/characters", tag = "characters", request_body = crate::characters::NewCharacter, responses((status = 200, body = crate::characters::Character), (status = 422, body = Problem)))]
+async fn character_new(State(app): State<App>, Json(body): Json<crate::characters::NewCharacter>) -> Result<Json<crate::characters::Character>> {
+    let made = app.characters.create(&body)?;
+    app.events.append("character.made", Some(&made.id), json!({ "name": made.name }))?;
+    Ok(Json(made))
+}
+
+/// Changes a character. Sessions set to it are told its new instructions from their next answer on.
+#[utoipa::path(put, path = "/api/v1/characters/{id}", tag = "characters", params(("id" = String, Path, description = "The character's id")), request_body = crate::characters::NewCharacter, responses((status = 200, body = crate::characters::Character), (status = 404, body = Problem), (status = 422, body = Problem)))]
+async fn character_change(State(app): State<App>, Path(id): Path<String>, Json(body): Json<crate::characters::NewCharacter>) -> Result<Json<crate::characters::Character>> {
+    let changed = app.characters.change(&id, &body)?;
+    app.events.append("character.changed", Some(&changed.id), json!({ "name": changed.name }))?;
+    Ok(Json(changed))
+}
+
+/// Forgets a character. Its sessions stay, set to none.
+#[utoipa::path(delete, path = "/api/v1/characters/{id}", tag = "characters", params(("id" = String, Path, description = "The character's id")), responses((status = 200, body = bool)))]
+async fn character_delete(State(app): State<App>, Path(id): Path<String>) -> Result<Json<bool>> {
+    let gone = app.characters.delete(&id)?;
+    if gone {
+        app.events.append("character.deleted", Some(&id), json!({}))?;
+    }
+    Ok(Json(gone))
 }
 
 #[derive(Deserialize, utoipa::IntoParams)]
@@ -1964,7 +2031,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, server_stop, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_say_again, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, server_stop, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_say_again, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, characters_list, character_new, character_change, character_delete, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "tools", description = "Tools other people write: packages of a WebAssembly component, checked against their publisher's signature, run with only what they ask for"), (name = "markets", description = "Prices from public feeds, indicators worked out here, and a Pine-compatible engine of Demido's own. Nothing places an order"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -2017,6 +2084,8 @@ pub fn router(app: App) -> Router {
         .route("/markets/pine/write", post(markets_pine_write))
         .route("/markets/scripts", get(markets_scripts).put(markets_script_keep))
         .route("/markets/scripts/{id}", axum::routing::delete(markets_script_forget))
+        .route("/characters", get(characters_list).post(character_new))
+        .route("/characters/{id}", axum::routing::put(character_change).delete(character_delete))
         .route("/bots", get(bots_list).post(bot_add))
         .route("/bots/{id}", axum::routing::delete(bot_remove))
         .route("/bots/{id}/messages", get(bot_messages))
@@ -2157,6 +2226,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         bots: core.bots.clone(),
         markets: core.markets.clone(),
         packages: core.packages.clone(),
+        characters: core.characters.clone(),
         advice: Arc::default(),
         system: Arc::new(Kept::new(SYSTEM_KEEPS)),
         appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),
@@ -2344,6 +2414,7 @@ mod tests {
             bots: Arc::new(crate::bots::Bots::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone(), chat.clone())),
             markets: Arc::new(crate::markets::Markets::new(crate::markets::Feeds::default(), db.clone())),
             packages: Arc::new(crate::packages::Packages::new(home, events.clone())),
+            characters: Arc::new(crate::characters::Characters::new(db.clone())),
             advice: Arc::default(),
             system: Arc::new(Kept::new(SYSTEM_KEEPS)),
             appearance: Arc::new(Kept::new(APPEARANCE_KEEPS)),

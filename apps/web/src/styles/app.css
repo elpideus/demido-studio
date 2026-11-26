@@ -3030,3 +3030,14 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
 @media (max-width: 70rem) { .mkr[data-side] { grid-template-columns: minmax(0, 1fr) 15rem; } }
 @media (max-width: 52rem) { .mkr[data-side] { grid-template-columns: minmax(0, 1fr); } .mkr__side { display: none; } }
 .mkr__details .d-notbuilt { white-space: normal; }
+
+/* Characters (DECISIONS E): the editor and the cards. */
+.chr__form { display: grid; gap: var(--d-space-12); margin-block-start: var(--d-space-12); }
+.chr__pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--d-space-12); }
+.chr__temp { display: flex; align-items: center; justify-content: space-between; }
+.chr__count { margin-inline-start: auto; font-size: var(--d-type-caption-size); font-variant-numeric: tabular-nums; }
+.chr__form .d-field__label:has(.chr__count) { display: flex; align-items: baseline; }
+.chr__instructions { min-height: 10rem; font-family: var(--d-font-family-mono); font-size: var(--d-type-code-size); line-height: var(--d-type-code-leading); resize: vertical; }
+.chr__said { margin: 0; white-space: pre-line; }
+.chr__card .d-card__foot { display: flex; gap: var(--d-space-8); }
+@media (max-width: 40rem) { .chr__pair { grid-template-columns: minmax(0, 1fr); } }

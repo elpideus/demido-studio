@@ -178,6 +178,16 @@ did is written down in `docs/research/10-accounts-and-blocker.md`, section 2.
 | S10 | **The browser and the folder open beside the conversation**, and can take the whole view: the browser as the session's page, ~~as the picture the model's last step left~~ live, and used as a browser (Z12 to Z17); the folder as Files was, open files as tabs, the tree on the right with a filter, the files models gave under it. A page the model opened is a card in the conversation (its picture, its title and site, Open, and a menu: in your own browser, copy the address); a browser step now keeps the page's address and title for it. Browser and Files leave the rail; their routes stay, for links. In a window narrower than 1,100 px the panel takes the view. | Built; tried in the window |
 | S11 | **Less text, more shape**: the session list without its notes, the welcome as chips of what the session has (model, folder, internet, sandbox) instead of a paragraph, the schedule as a strip, a shortening as a rule with its account folded, tool lines and tips in a few words. The rules a model works under are unchanged; only how they are said. | Built; the other screens not yet |
 
+## E. Characters (owner's direction, 2026-11-26: "There is no Characters system built yet")
+
+| # | Decision | Status |
+|---|---|---|
+| E1 | **A character is a name, a few words of what it is, a model, whether it thinks first, how warmly it picks its words (0 to 2), and the person's own instructions** (a page at most, 8,000 characters), kept by the core (`characters`, migration 17). Each but the name may be left to the model's own. Deleting one leaves its sessions, set to none. | Built, with tests (`characters`) |
+| E2 | **A session set to a character is told its instructions after Demido's own, word for word, as the person's**: "In this session you are "Mira": … The person wrote these instructions for it; follow them as theirs:". They are in what the model is told (the session's "What the model is told" shows them), never a model's words; a change to the character is told from the next answer on. | Built, with a test through a turn; tried with Qwen3 4B in the window: told to end every answer with "Done", it answered "The capital of France is Paris. Done." |
+| E3 | **Its model and thinking are the session's when it starts with one, or is set to one; its temperature is used for the session's answers**, over the model's own settings (only for the answer: Demido's own decisions keep theirs). | Built, with a test (the answer's request carries the character's temperature) |
+| E4 | **In the window**: the Characters screen (cards with what each is, its model, temperature and thinking, its instructions behind an ⓘ; start a session, change, make a copy, delete, also on a right click), an editor, and a Character chip in a session's message box, beside the model, with its name in the header and in the sessions list. A schedule's session has none. | Built; tried in the window |
+| E5 | **Not built:** a picture for a character, a voice of its own (voice mode's voices are Demido's), characters on the command line, and bringing characters in or out as files. | Not built |
+
 ## X. Other screens, second round (2026-11-20)
 
 | # | Decision | Status |

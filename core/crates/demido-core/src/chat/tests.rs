@@ -11,6 +11,7 @@ use crate::settings::Settings;
 
 mod between;
 mod bots;
+mod characters;
 mod folders_and_permissions;
 mod mail;
 mod markets;

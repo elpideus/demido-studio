@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { Plus, UserRound } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { useCore } from '@/data/core'
+import { RealCharacters } from './real'
 import { newSession, saveCharacter, setSessionField, toast, useStore } from '@/data/store'
 import type { Character } from '@/data/types'
 import { Button, Dialog, Facts, Icon, NotBuilt, Page, Section, Select, Slider } from '@/ui'
@@ -43,18 +44,22 @@ function Editor({ character, onClose }: { character: Character; onClose: () => v
   )
 }
 
+/** With a core behind the window, the person's own characters; without, the preview's. */
 function CharactersPage() {
+  const core = useCore()
+  if (core.state === 'looking') return null
+  return core.state === 'ready' ? <RealCharacters /> : <PreviewCharacters />
+}
+
+function PreviewCharacters() {
   const characters = useStore((s) => s.characters)
   const models = useStore((s) => s.models)
   const navigate = useNavigate()
-  // With a core behind the window, characters are still the preview's: the core has none yet.
-  const real = useCore().state === 'ready'
   const [editing, setEditing] = useState<Character | null>(null)
   const blank: Character = { id: `c-${Date.now()}`, name: '', initials: '', role: 'Custom', description: '', modelId: 'qwen3-4b', temperature: 0.7, voice: 'Not set', prompt: 'Answer first.\nSteps numbered. One action each.' }
   return (
     <Page title="Characters" lead="A name, a way of behaving, and a model." about="Start a session with a character and it brings its prompt and its settings."
       actions={<Button variant="primary" onClick={() => setEditing(blank)}><Icon icon={Plus} />New character</Button>}>
-      {real && <NotBuilt block label="Scripted in the preview">Characters are not in the core yet. These are the preview's: they can be looked at and edited here, and a session cannot start with one.</NotBuilt>}
       <Section title={`${characters.length} characters`}>
         <div className="app-grid">
           {characters.map((c) => (
@@ -72,7 +77,7 @@ function CharactersPage() {
                 <details className="d-disclosure"><summary>System prompt</summary><div className="d-disclosure__body"><pre className="d-code">{c.prompt}</pre></div></details>
               </div>
               <footer className="d-card__foot">
-                <Button disabled={real} onClick={() => { const id = newSession(); setSessionField(id, 'characterId', c.id); setSessionField(id, 'modelId', c.modelId); toast(`New session with ${c.name}.`); navigate(`/sessions/${id}`) }}>Start a session</Button>
+                <Button onClick={() => { const id = newSession(); setSessionField(id, 'characterId', c.id); setSessionField(id, 'modelId', c.modelId); toast(`New session with ${c.name}.`); navigate(`/sessions/${id}`) }}>Start a session</Button>
                 <Button variant="ghost" onClick={() => setEditing(c)}>Edit</Button>
               </footer>
             </article>

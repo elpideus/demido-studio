@@ -44,6 +44,9 @@ pub struct Session {
     /// The schedule whose session it is, if it is one's (DECISIONS J1): its runs are said and answered here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedule_id: Option<String>,
+    /// The character it is set to, if any (DECISIONS E): its instructions are told to the model.
+    #[serde(default)]
+    pub character_id: Option<String>,
 }
 
 /// A change a tool made to a file in a session's folder. What the file held before is kept with it, so the
@@ -186,6 +189,7 @@ fn session_from(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         account: r.get(9)?,
         artifacts: r.get(10)?,
         schedule_id: r.get(11)?,
+        character_id: r.get(12)?,
     })
 }
 
@@ -237,7 +241,7 @@ fn task_from(r: &rusqlite::Row) -> rusqlite::Result<Task> {
     })
 }
 
-const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission, s.account, (SELECT count(*) FROM artifacts a WHERE a.session_id = s.id), (SELECT id FROM schedules h WHERE h.session_id = s.id) FROM sessions s";
+const SESSION: &str = "SELECT s.id, s.title, s.model, s.created_at, s.updated_at, (SELECT count(*) FROM messages m WHERE m.session_id = s.id), s.thinking, s.folder, s.permission, s.account, (SELECT count(*) FROM artifacts a WHERE a.session_id = s.id), (SELECT id FROM schedules h WHERE h.session_id = s.id), s.character_id FROM sessions s";
 const MESSAGE: &str = "SELECT id, session_id, seq, role, content, thought, state, problem, model, timings, created_at, steps FROM messages";
 const TASK: &str = "SELECT id, session_id, message_id, parent_id, position, title, state, result, steps, created_at, updated_at FROM tasks";
 
@@ -298,6 +302,13 @@ impl Sessions {
     pub fn set_folder(&self, id: &str, folder: Option<&str>) -> Result<Session> {
         self.get(id)?;
         self.db.with(|c| c.execute("UPDATE sessions SET folder = ?2 WHERE id = ?1", rusqlite::params![id, folder]))?;
+        self.get(id)
+    }
+
+    /// Sets the character a session is, or (`None`) none.
+    pub fn set_character(&self, id: &str, character: Option<&str>) -> Result<Session> {
+        self.get(id)?;
+        self.db.with(|c| c.execute("UPDATE sessions SET character_id = ?2 WHERE id = ?1", rusqlite::params![id, character]))?;
         self.get(id)
     }
 

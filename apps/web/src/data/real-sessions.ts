@@ -26,7 +26,7 @@ export interface CoreTask { id: string; session_id: string; message_id: string; 
 export interface CoreMessage { id: string; session_id: string; seq: number; role: 'user' | 'assistant' | 'session'; content: string; thought: string | null; state: 'done' | 'answering' | 'stopped' | 'failed'; problem: string | null; model: string | null; timings: CoreTimings | null; steps: CoreStep[]; created_at: number }
 /** `thinking`: off, on, or one of the model's own levels. */
 /** `account`: the account at its model's provider it goes through; null or missing, the provider's default. */
-export interface CoreSession { id: string; title: string; model: string; thinking: string; folder?: string | null; permission?: Level; account?: string | null; created_at: number; updated_at: number; messages: number; artifacts?: number; schedule_id?: string | null }
+export interface CoreSession { id: string; title: string; model: string; thinking: string; folder?: string | null; permission?: Level; account?: string | null; created_at: number; updated_at: number; messages: number; artifacts?: number; schedule_id?: string | null; character_id?: string | null }
 /** An account of the older part of a session. The model is given it in place of the messages up to `upto_seq`. */
 export interface CoreSummary { id: string; session_id: string; upto_seq: number; content: string; why: 'asked' | 'auto'; tokens_before: number; created_at: number }
 /** How much of what the model can hold a session is using, in tokens. */
@@ -78,9 +78,9 @@ export async function readSession(id: string) {
 }
 
 /** Starts a session and returns its id, or null with the reason shown. */
-export async function newSession(model?: string): Promise<string | null> {
+export async function newSession(model?: string, character?: string): Promise<string | null> {
   try {
-    const made = await coreSend<CoreSession>('POST', '/sessions', model ? { model } : {})
+    const made = await coreSend<CoreSession>('POST', '/sessions', { ...(model ? { model } : {}), ...(character ? { character } : {}) })
     await readSessions()
     return made.id
   } catch (e) {
@@ -169,7 +169,7 @@ export async function undoChange(id: string, change: string) {
 
 /** `folder`: a full path on the computer the core runs on; an empty text takes the folder away. `account`: an
     account's id at the model's provider; an empty text, the provider's default. */
-export async function changeSession(id: string, change: { title?: string; model?: string; thinking?: string; folder?: string; permission?: Level; account?: string }) {
+export async function changeSession(id: string, change: { title?: string; model?: string; thinking?: string; folder?: string; permission?: Level; account?: string; character?: string }) {
   try {
     await coreSend('PATCH', `/sessions/${id}`, change)
     await Promise.all([readSessions(), readSession(id)])

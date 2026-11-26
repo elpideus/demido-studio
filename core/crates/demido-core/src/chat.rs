@@ -126,6 +126,8 @@ pub struct Chat {
     mail: Option<Arc<crate::email::Mail>>,
     /// Where schedules a model makes are kept (DECISIONS J13).
     schedules: Option<Arc<crate::schedules::Schedules>>,
+    /// The person's characters (DECISIONS E).
+    characters: Option<Arc<crate::characters::Characters>>,
     /// The tools the person installed (DECISIONS C6).
     packages: Option<Arc<crate::packages::Packages>>,
     /// Where the whole of what programs printed is kept, a folder for each session.
@@ -187,6 +189,7 @@ impl Chat {
             browser: None,
             mail: None,
             schedules: None,
+            characters: None,
             packages: None,
             outputs: std::env::temp_dir().join("demido-outputs"),
             providers: None,
@@ -354,6 +357,18 @@ impl Chat {
             }));
         }
         all
+    }
+
+    /// The same, with the person's characters (DECISIONS E).
+    pub fn with_characters(mut self, characters: Arc<crate::characters::Characters>) -> Self {
+        self.characters = Some(characters);
+        self
+    }
+
+    /// The character a session is set to, if it is set to one that is still there.
+    pub(crate) fn character_of(&self, session: &Session) -> Option<crate::characters::Character> {
+        let id = session.character_id.as_deref()?;
+        self.characters.as_ref()?.get(id).ok()
     }
 
     /// The same, able to make schedules (DECISIONS J13).
@@ -804,8 +819,13 @@ impl Chat {
     /// a date up and counted from that. The day is the day the session started, so these words never
     /// change, and the runtime reads them once. The date comes first and the way to answer last: with the
     /// date last, one model began its answers with it.
+    /// A session set to a character is told its instructions after Demido's own, as the person's (DECISIONS E2).
     pub fn told_first(&self, session: &Session) -> String {
-        format!("Today's date: {}.\n\n{INSTRUCTIONS}", (self.clock)(session.created_at).day)
+        let first = format!("Today's date: {}.\n\n{INSTRUCTIONS}", (self.clock)(session.created_at).day);
+        match self.character_of(session) {
+            Some(character) => format!("{first}\n\n{}", crate::characters::Characters::told(&character)),
+            None => first,
+        }
     }
 
     /// What a model is shown before each answer when it may use tools, word for word. `None` when tools are
@@ -1135,6 +1155,10 @@ impl Chat {
             // for this way of answering (`engine::sampling`). A model elsewhere is left to its provider.
             if crate::providers::split(&session.model).is_none() {
                 self.engine.sampling_for(&session.model, thinks).into_request(&mut body);
+            }
+            // A character's temperature is the person's choice for it, here as at a provider (E3).
+            if let Some(t) = self.character_of(&session).and_then(|c| c.temperature) {
+                body["temperature"] = json!(t);
             }
             // The answer so far, looked at now and then: a model that goes round is stopped (`turn::going_round`).
             let (mut written, mut look_at, mut ends_at) = (String::new(), 400usize, None);

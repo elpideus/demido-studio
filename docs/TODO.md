@@ -100,7 +100,7 @@ Markets:
 
 - [x] A model makes a schedule from a session (the owner: "I tried to schedule something but it did not work"): DECISIONS J13.
 - [x] Markets: a screen like TradingView's (a watchlist on the right, search at the top): DECISIONS M20.
-- [ ] Characters, built in the core and the window (the owner: "There is no Characters system built yet").
+- [x] Characters, built in the core and the window (the owner: "There is no Characters system built yet"): DECISIONS E.
 - [ ] Email, finished: the rest of what Y marks as not built (folders, replies in their thread, search, moving and deleting, drafts, files).
 - [ ] WhatsApp, Telegram and Discord built, with the person's own account on Telegram and Discord, not only bots.
 

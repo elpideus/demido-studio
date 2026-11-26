@@ -248,6 +248,20 @@ const MIGRATIONS: &[&str] = &[
         source     TEXT NOT NULL,
         updated_at INTEGER NOT NULL
      ) STRICT;",
+    // Characters (DECISIONS E): a name, a model, a temperature and the person's own instructions; a session set to
+    // one says so. Deleting a character leaves its sessions, set to none.
+    "CREATE TABLE characters (
+        id           TEXT PRIMARY KEY,
+        name         TEXT NOT NULL,
+        about        TEXT NOT NULL,
+        model        TEXT,
+        thinking     TEXT,
+        temperature  REAL,
+        instructions TEXT NOT NULL,
+        created_at   INTEGER NOT NULL,
+        updated_at   INTEGER NOT NULL
+     ) STRICT;
+     ALTER TABLE sessions ADD COLUMN character_id TEXT REFERENCES characters (id) ON DELETE SET NULL;",
 ];
 
 pub struct Db {

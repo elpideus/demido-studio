@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { Prose } from '@/ui/prose'
-import { ArrowDown, ArrowUp, Brain, CalendarClock, MessageSquare, ChevronDown, Copy, FilePlus, Folder, FolderOpen, Globe, Info, ListChecks, Loader, Mic, MicOff, MoreHorizontal, Pencil, Plus, RotateCcw, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, Wifi, WifiOff, type LucideIcon } from 'lucide-react'
+import { UserRound, ArrowDown, ArrowUp, Brain, CalendarClock, MessageSquare, ChevronDown, Copy, FilePlus, Folder, FolderOpen, Globe, Info, ListChecks, Loader, Mic, MicOff, MoreHorizontal, Pencil, Plus, RotateCcw, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, Wifi, WifiOff, type LucideIcon } from 'lucide-react'
 import { Dictation, ReadAloud } from '@/data/voice'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
@@ -21,6 +21,7 @@ import { runSchedule, scheduleRuns, whenFromNow, type Schedule } from '@/data/sc
 import { BrowserCard, FolderPanel, shotsOf, type Shot } from './panels'
 import { LiveBrowser } from './live-browser'
 import { useInsert } from './draft'
+import { useCharacters, watchCharacters } from '@/data/characters'
 import logo from '@brand/logo/demido-symbol-small.svg?raw'
 
 /** How long ago, short: "now", "5 min", "3 h", "2 d". */
@@ -83,6 +84,8 @@ function List() {
   const providers = useProviders((p) => p.providers)
   const remote = chosenModels(providers)
   const named = (model: string | null | undefined) => (model ? remote.find((r) => r.id === model)?.name ?? model : '')
+  const allCharacters = useCharacters((c) => c.list)
+  const characterNames = new Map((allCharacters ?? []).map((c) => [c.id, c.name]))
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null)
   const start = async () => {
@@ -111,7 +114,7 @@ function List() {
               ]}>
                 <button type="button" className="d-row" aria-current={s.id === current ? 'true' : undefined} onClick={() => navigate(`/sessions/${s.id}`)}>
                   {s.schedule_id && <span className="d-row__lead"><Icon icon={CalendarClock} size="sm" label="A schedule's session" /></span>}
-                  <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{named(s.model)}</span></span>
+                  <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{[characterNames.get(s.character_id ?? ''), named(s.model)].filter(Boolean).join(' · ')}</span></span>
                   <span className="d-row__meta">{ago(s.updated_at)}</span>
                 </button>
               </ContextMenu>
@@ -698,6 +701,8 @@ function Chat() {
   }, [panel])
   // The page to go back to when the browser opens on nothing: the one a card was opened from, or the last.
   const [resumeAt, setResumeAt] = useState<string | undefined>(undefined)
+  const characters = useCharacters((s) => s.list)
+  useEffect(() => watchCharacters(), [])
   const liveThread = useLiveList()
   const [wide, setWide] = useState(false)
   // An artifact opened from anywhere opens in its session's files.
@@ -724,6 +729,7 @@ function Chat() {
   if (listed && !known && !detail) return <Navigate to="/sessions" replace />
   if (!detail) return <section className="chat" aria-label="Conversation" />
   const { session, messages } = detail
+  const character = characters?.find((c) => c.id === session.character_id) ?? null
   const answering = messages.some((m) => m.state === 'answering')
   const level: Level = session.permission ?? 'balanced'
   // The account in force, and the last message it stands for.
@@ -759,6 +765,7 @@ function Chat() {
       <section className="chat" aria-label="Conversation">
         <header className="chat__head">
           <h1 className="chat__title" onDoubleClick={() => setRenamingThis(true)} title="Double-click to rename">{session.title}</h1>
+          {character && <Tip label={character.about || 'The character this session is'}><span className="d-badge d-badge--outline"><Icon icon={UserRound} size="sm" /> {character.name}</span></Tip>}
           {session.schedule_id && <Tip label="A schedule's session: it runs on its own, with every tool, and asks nothing."><span className="d-badge d-badge--outline"><Icon icon={CalendarClock} size="sm" /> Runs on its own</span></Tip>}
           <span className="app-spacer" />
           <Tip label="Browser"><Button variant="ghost" size="sm" iconOnly aria-label="Browser" pressed={panel === 'browser'} onClick={() => toggle('browser')}><Icon icon={Globe} size="sm" />{shots.length > 0 && <span className="chat__dot" />}</Button></Tip>
@@ -803,6 +810,12 @@ function Chat() {
         <Composer id={id} answering={answering} tools={Boolean(detail.tools_told)} program={program}>
           <FolderChip id={id} folder={session.folder ?? null} sandbox={detail.sandbox} disabled={answering} />
           <Chip icon={at ? Globe : Brain} title="Model" label={modelLabel} items={modelItems} tone={modelState(session.model) === 'loaded' ? 'live' : undefined} />
+          {!session.schedule_id && <Chip icon={UserRound} title="Character" label={character?.name ?? 'No character'} tone={character ? 'set' : undefined} items={[
+            { label: 'None', checked: !character, onSelect: () => void changeSession(id, { character: '' }) },
+            ...(characters ?? []).map((c) => ({ label: c.name, hint: c.about ? c.about.slice(0, 40) : undefined, checked: c.id === character?.id, onSelect: () => void changeSession(id, { character: c.id }) })),
+            { kind: 'sep' as const },
+            { label: characters?.length ? 'Characters…' : 'Make a character…', lead: <Icon icon={UserRound} size="sm" />, onSelect: () => navigate('/characters') },
+          ]} />}
           {thinking.length > 0 && <Chip icon={Brain} title={always ? 'Thinking (it always thinks)' : 'Thinking'} label={`Think: ${thinkLabel}`} tone={session.thinking !== 'off' ? 'set' : undefined}
             items={[{ label: offLabel, checked: session.thinking === 'off', onSelect: () => void changeSession(id, { thinking: 'off' }) }, ...thinking.map((c) => ({ label: c === 'on' ? 'On' : c, checked: session.thinking === c, onSelect: () => void changeSession(id, { thinking: c }) }))]} />}
           {!session.schedule_id && <Chip icon={LEVELS[level].icon} title={LEVELS[level].text} label={LEVELS[level].label} tone={`level-${level}`}

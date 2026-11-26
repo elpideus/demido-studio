@@ -29,6 +29,7 @@ pub mod api;
 pub mod auth;
 pub mod bots;
 pub mod browser;
+pub mod characters;
 pub mod chat;
 pub mod checkpoint;
 pub mod db;
