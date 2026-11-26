@@ -597,6 +597,33 @@ impl Chat {
                             }
                         }
                     }
+                    // A schedule's time is read from the person's words by code (J11), before anything is asked: the
+                    // person is shown Demido's reading of it, and words it cannot read go back to the model.
+                    let mut schedule = None;
+                    // The same schedule asked for again in one request is going round, whatever its capitals: a real
+                    // model (Granite 3.3 2B) made one twice, "drink" and then "Drink".
+                    let alike = |s: &Step| {
+                        let said = |a: &Value, k: &str| a.get(k).and_then(Value::as_str).unwrap_or_default().trim().trim_end_matches('.').to_lowercase();
+                        s.tool == tools::SCHEDULE
+                            && s.state == "done"
+                            && said(&s.args, "what") == args.get("what").and_then(Value::as_str).unwrap_or_default().trim().trim_end_matches('.').to_lowercase()
+                    };
+                    if tool == tools::SCHEDULE && steps.iter().any(alike) {
+                        break;
+                    }
+                    if tool == tools::SCHEDULE {
+                        match self.schedule_from(session, &args) {
+                            Ok((new, read)) => {
+                                args.insert("when_read".into(), json!(read));
+                                schedule = Some(new);
+                            }
+                            Err(problem) => {
+                                steps.push(Step { tool, args: Value::Object(args), result: problem, state: "failed".into(), ..Step::default() });
+                                changed(steps);
+                                continue;
+                            }
+                        }
+                    }
                     let args = Value::Object(args);
                     // A key Demido keeps is never sent anywhere by a tool, whatever the model was told. It can
                     // only have come from something it read, so nothing more is asked of it.
@@ -637,7 +664,7 @@ impl Chat {
                     // An address can carry text away. One the model was given cannot hold what the model has
                     // read; one it wrote itself can, and so that one waits for the person, each time.
                     let (mut address, mut by_the_person, mut after_the_internet) = (Address::NotOne, false, false);
-                    if matches!(reach, tools::Reach::Network | tools::Reach::Changes) {
+                    if matches!(reach, tools::Reach::Network | tools::Reach::Changes | tools::Reach::Schedules) {
                         let so_far = self.so_far(session, steps)?;
                         // Text from outside can tell a model what to do. Once it is there, a change waits too.
                         after_the_internet = so_far.read_the_internet;
@@ -657,7 +684,7 @@ impl Chat {
                         }
                     }
                     // A message sent cannot be taken back: each one is asked for on its own.
-                    let once_only = matches!(address, Address::Written | Address::Typed) || reach == tools::Reach::Sends;
+                    let once_only = matches!(address, Address::Written | Address::Typed) || matches!(reach, tools::Reach::Sends | tools::Reach::Schedules);
                     let around = Around { held, address, after_the_internet };
                     let granted = self.granted(&session.id, &tool) && !once_only;
                     let answers = permissions::answers(level, reach, around);
@@ -832,6 +859,19 @@ impl Chat {
                                     Err(e) => Err(e.to_string()),
                                 }
                             }
+                        }
+                    } else if tool == tools::SCHEDULE {
+                        // Made as the Schedules screen makes one, in a session of its own (J1, J13).
+                        match (self.schedules(), schedule.take()) {
+                            (Some(store), Some(new)) => crate::schedules::runner::make_with(self, store, &self.events, &new).await.map_err(|e| e.to_string()).map(|made| tools::Done {
+                                gave: format!(
+                                    "Made: \"{}\", {}. It runs on its own in a session of its own, and what it gives comes to the person each time. They see it on the Schedules screen, where they can pause or delete it.",
+                                    tools::clean(&made.what),
+                                    made.when_said
+                                ),
+                                changed: None,
+                            }),
+                            _ => Err("schedules cannot be made from here".to_string()),
                         }
                     } else if tool == tools::MESSAGE_SESSION {
                         // To another session working in this folder, by its name; it reaches that session as text from

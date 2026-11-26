@@ -103,6 +103,7 @@ impl Core {
                 .with_web(web.clone())
                 .with_browser(browser.clone())
                 .with_mail(mail.clone())
+                .with_schedules(schedules.clone())
                 .with_packages(packages.clone()),
         );
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));

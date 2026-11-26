@@ -158,6 +158,9 @@ pub fn why_the_model_asked(reach: Reach, around: Around, no_sandbox_because: Opt
 pub fn asks(level: Level, reach: Reach, around: Around) -> bool {
     match (reach, level) {
         (Reach::Nothing, _) => false,
+        // A schedule keeps running on its own (J2): after the internet, a page could have asked for one, and it
+        // would go on. So then it is asked for even at Autonomous (J13).
+        (Reach::Schedules, Level::Autonomous) => around.after_the_internet,
         (_, Level::Autonomous) => false,
         (_, Level::Cautious) => true,
         (Reach::Reads | Reach::Mail, _) => false,
@@ -169,6 +172,7 @@ pub fn asks(level: Level, reach: Reach, around: Around) -> bool {
         (Reach::Network, Level::Balanced | Level::Smart) => matches!(around.address, Address::Written | Address::Typed),
         // Always, however well the program is held: the owner's decision. What holds it is said in the request.
         (Reach::Runs, Level::Balanced | Level::Smart) => true,
+        (Reach::Schedules, Level::Balanced | Level::Smart) => true,
     }
 }
 
@@ -184,6 +188,8 @@ pub fn why(level: Level, reach: Reach, around: Around, no_sandbox_because: Optio
         }
         (_, Reach::Runs) if !held.can_be_undone => "It runs shut in a sandbox: it cannot leave the folder or reach the network. The folder could not be saved first, so what it changes in the folder cannot be undone.".into(),
         (_, Reach::Runs) => "A program can do anything inside the folder, so this level asks before each. It runs shut in a sandbox: it cannot leave the folder or reach the network. The folder was saved first, so everything it does can be undone.".into(),
+        (Level::Autonomous, Reach::Schedules) => "This session has read from the internet, and a page can tell a model to set up work that keeps going. So a schedule is asked for even at Autonomous. It runs on its own, with every tool, until you pause or delete it on the Schedules screen.".into(),
+        (_, Reach::Schedules) => "A schedule runs on its own later, again and again, with every tool and without asking, until you pause or delete it on the Schedules screen. Look at what it will do and when.".into(),
         (_, Reach::Sends) => "Sending cannot be undone: once it has gone, it is in their mailbox. Look at whom it goes to and all that it says.".into(),
         (_, Reach::Changes) if after_the_internet => "This session has read from the internet, and what a page says can tell a model to do things. So from then on a change to a file is asked for. It can be undone afterwards.".into(),
         _ => "This could do something that cannot be undone.".into(),
@@ -250,6 +256,8 @@ pub fn what(tool: &str, args: &serde_json::Map<String, serde_json::Value>, exist
         "press" => format!("Press number {} on the page in Demido's browser", args.get("number").map(|n| n.to_string()).unwrap_or_default().trim_matches('"')),
         "type_text" => format!("Type \"{}\" into number {} on the page in Demido's browser", text("text"), args.get("number").map(|n| n.to_string()).unwrap_or_default().trim_matches('"')),
         "read_output" => "Read more of what the last command printed".into(),
+        // When, as Demido's own reading of it says (`when_read`), never the model's words alone.
+        "make_schedule" => format!("Make a schedule: \"{}\", {}", short(text("what")), if text("when_read").is_empty() { text("when") } else { text("when_read") }),
         other => format!("Use {other}"),
     }
 }
@@ -277,6 +285,14 @@ mod tests {
         }
         assert!(why(Balanced, Reach::Runs, safe, None).ends_with("The folder was saved first, so everything it does can be undone."));
         assert!(!asks(Autonomous, Reach::Runs, loose), "autonomous never asks");
+        // A schedule keeps running on its own (J13): asked at every level, and at Autonomous once the session has
+        // read from the internet, where a page could have asked for it.
+        let after_the_internet = Around { after_the_internet: true, ..Around::PLAIN };
+        for level in [Cautious, Balanced, Smart] {
+            assert!(asks(level, Reach::Schedules, Around::PLAIN));
+        }
+        assert!(!asks(Autonomous, Reach::Schedules, Around::PLAIN) && asks(Autonomous, Reach::Schedules, after_the_internet));
+        assert!(why(Autonomous, Reach::Schedules, after_the_internet, None).starts_with("This session has read from the internet"));
         assert!(
             why(Balanced, Reach::Runs, loose, Some("bubblewrap is not installed.")).starts_with("There is no sandbox on this computer")
                 && why(Balanced, Reach::Runs, loose, Some("bubblewrap is not installed.")).ends_with("bubblewrap is not installed.")

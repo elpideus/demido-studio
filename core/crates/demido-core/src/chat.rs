@@ -124,6 +124,8 @@ pub struct Chat {
     browser: Option<Arc<crate::browser::Browser>>,
     /// The person's mail (DECISIONS Y), when Demido has it.
     mail: Option<Arc<crate::email::Mail>>,
+    /// Where schedules a model makes are kept (DECISIONS J13).
+    schedules: Option<Arc<crate::schedules::Schedules>>,
     /// The tools the person installed (DECISIONS C6).
     packages: Option<Arc<crate::packages::Packages>>,
     /// Where the whole of what programs printed is kept, a folder for each session.
@@ -184,6 +186,7 @@ impl Chat {
             web: Arc::new(crate::web::Web::new(None)),
             browser: None,
             mail: None,
+            schedules: None,
             packages: None,
             outputs: std::env::temp_dir().join("demido-outputs"),
             providers: None,
@@ -336,6 +339,13 @@ impl Chat {
     pub(crate) fn offer(&self, session: &Session, may_plan: bool) -> Vec<&'static tools::Tool> {
         let has_folder = session.folder.is_some();
         let mut all = tools::offered_all(has_folder, may_plan, self.internet(), self.artifacts(has_folder), self.browsing(), self.mail_account().is_some(), !self.others_in_folder(session).is_empty());
+        // A schedule is made from a person's own session: never from a schedule's run, which would then make more.
+        if self.schedules.is_some() && session.schedule_id.is_none() {
+            let at = all.iter().position(|t| t.name == tools::READ_OUTPUT || t.name == tools::GIVE || t.name == tools::PLAN).unwrap_or(all.len());
+            all.extend(tools::named(tools::SCHEDULE));
+            let made = all.pop().expect("just put there");
+            all.insert(at, made);
+        }
         if let Some(p) = &self.packages {
             all.extend(p.tools().into_iter().filter(|t| match t.reach {
                 tools::Reach::Reads | tools::Reach::Changes => has_folder,
@@ -344,6 +354,48 @@ impl Chat {
             }));
         }
         all
+    }
+
+    /// The same, able to make schedules (DECISIONS J13).
+    pub fn with_schedules(mut self, schedules: Arc<crate::schedules::Schedules>) -> Self {
+        self.schedules = Some(schedules);
+        self
+    }
+
+    pub(crate) fn schedules(&self) -> Option<&Arc<crate::schedules::Schedules>> {
+        self.schedules.as_ref()
+    }
+
+    /// A schedule a model asked for, read as the Schedules screen reads a sentence (J11): what to do, and when
+    /// in Demido's own words. What code cannot read goes back to the model, with how to say it.
+    pub(crate) fn schedule_from(&self, session: &Session, args: &serde_json::Map<String, serde_json::Value>) -> std::result::Result<(crate::schedules::New, String), String> {
+        let Some(store) = self.schedules() else { return Err("schedules cannot be made from here".into()) };
+        let text = |k: &str| args.get(k).and_then(serde_json::Value::as_str).unwrap_or_default().trim().to_string();
+        let (what, when) = (text("what"), text("when"));
+        let said = format!("{what} {when}").trim().to_string();
+        // The time from its own words first: then what to do is the model's words for it, with no time left in
+        // them ("8:00 AM daily" stayed in a name when both were read as one). A monitor's watch is read from both.
+        let (now, tz) = (crate::now_ms(), store.tz());
+        let alone = crate::schedules::when::understand(&when, now, tz);
+        let whole = crate::schedules::when::understand(&said, now, tz);
+        let (read, what) = match alone.when.is_some() && whole.watch.is_none() {
+            true => (alone, what.trim_end_matches(['.', ',', ';', ':', ' ']).to_string()),
+            false => {
+                let what = if whole.what.trim().is_empty() { what } else { whole.what.trim().to_string() };
+                (whole, what)
+            }
+        };
+        let (Some(rule), Some(when_said)) = (read.when, read.when_said) else {
+            return Err(format!("the time cannot be read from \"{when}\". Say it as a person would: every day at 8am, on weekdays at 9:30, every 2 hours, tomorrow at 9, in 20 minutes"));
+        };
+        if what.is_empty() && read.watch.is_none() {
+            return Err("say what the schedule should do".into());
+        }
+        // Named as the Schedules screen names one: with a capital.
+        let mut letters = what.chars();
+        let what = letters.next().map(|first| first.to_uppercase().chain(letters).collect::<String>()).unwrap_or_default();
+        let new = crate::schedules::New { said, what, when: rule, watch: read.watch, model: Some(session.model.clone()), folder: None, limit_month_usd: None };
+        Ok((new, when_said))
     }
 
     /// The same, with the person's mail.

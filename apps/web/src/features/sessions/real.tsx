@@ -130,7 +130,8 @@ function List() {
 const TOOL_SAID: Record<string, [string, string]> = {
   time: ['Read the clock', ''], calculate: ['Calculated', 'expression'], list_files: ['Listed the files', ''], read_file: ['Read', 'path'], search_files: ['Searched the files for', 'text'],
   add_to_file: ['Added to', 'path'], write_file: ['Wrote', 'path'], edit_file: ['Changed', 'path'], run_command: ['Ran', 'command'],
-  message_session: ['Told another session', 'to'],
+  message_session: ['Told another session', 'to'], make_schedule: ['Made a schedule:', 'what'],
+  list_mail: ['Listed your inbox', ''], read_mail: ['Read message', 'number'], send_mail: ['Sent an email to', 'to'],
   search_web: ['Searched for', 'query'], give_file: ['Gave you', 'file_name'], read_page: ['Read', 'url'], read_output: ['Read more of the output, from line', 'from_line'],
   // Demido's browser (DECISIONS Z).
   open_page: ['Opened', 'url'], press: ['Pressed', 'number'], type_text: ['Typed', 'text'],
@@ -208,6 +209,7 @@ function ToolUse({ step, at, change, session, program }: { step: CoreStep; at: s
           output: step.state === 'running' || step.state === 'waiting' ? undefined : step.result,
         }} />
         {step.artifact && step.state === 'done' && <Button variant="ghost" size="sm" onClick={() => { if (step.artifact) openArtifact(session, step.artifact.id, step.artifact.n) }}>Open</Button>}
+        {step.tool === 'make_schedule' && step.state === 'done' && <Button variant="ghost" size="sm" onClick={() => { window.location.hash = '#/schedules' }}>Schedules</Button>}
         {step.output && <Tip label="Everything it printed"><a className="d-button d-button--ghost d-button--sm" href={`/api/v1/sessions/${session}/outputs/${step.output}`} target="_blank" rel="noopener">Output</a></Tip>}
         {step.model_chose === 'go' && <Tip label="At Smart the model chose not to ask you, both ways round."><span className="d-type-caption d-text-tertiary">model's call</span></Tip>}
         {change && (change.undone_at

@@ -96,6 +96,14 @@ Markets:
 - [ ] **(needs you)** Signing the Windows and macOS builds, which costs money every year (R7).
 - [ ] **(needs you)** Whether the previous Demido checked `elpideus/demido-studio` for updates.
 
+## The owner's direction, 2026-11-26 (morning)
+
+- [x] A model makes a schedule from a session (the owner: "I tried to schedule something but it did not work"): DECISIONS J13.
+- [ ] Markets: a screen like TradingView's (a watchlist on the right, search at the top).
+- [ ] Characters, built in the core and the window (the owner: "There is no Characters system built yet").
+- [ ] Email, finished: the rest of what Y marks as not built (folders, replies in their thread, search, moving and deleting, drafts, files).
+- [ ] WhatsApp, Telegram and Discord built, with the person's own account on Telegram and Discord, not only bots.
+
 ## Needs you, and not part of these items
 
 - [ ] **(needs you)** Search: the two things left out on purpose (a browser's name in place of Demido's; Brave's and Bing's pages, N7).

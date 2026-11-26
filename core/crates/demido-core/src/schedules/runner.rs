@@ -88,34 +88,7 @@ impl Scheduler {
     /// Autonomous, and its level is never asked about (J2). A program such as Claude Code or OpenCode is not
     /// offered: their terms are for a person's own use, not for runs with nobody there (U23).
     pub async fn make(&self, new: &New) -> Result<Schedule> {
-        new.when.check().map_err(Error::Invalid)?;
-        if let Some(model) = &new.model {
-            refuse_a_program(model)?;
-        }
-        // A monitor's session is named for what it watches; a task's, for what it does.
-        let title = match &new.watch {
-            Some(watch) => watch.said(),
-            None => new.what.trim().to_string(),
-        };
-        let session = self.chat.start(Some(&one_line(&title, 60)), new.model.as_deref()).await?;
-        let made = (|| -> Result<Schedule> {
-            refuse_a_program(&session.model)?;
-            if let Some(folder) = &new.folder {
-                self.chat.set_folder(&session.id, Some(folder))?;
-            }
-            self.chat.set_permission(&session.id, "autonomous")?;
-            self.schedules.create(&session.id, new)
-        })();
-        match made {
-            Ok(made) => {
-                self.events.append("schedule.created", Some(&made.id), json!({ "session": made.session_id, "what": made.what, "when": made.when_said, "watch": made.watch_said }))?;
-                Ok(made)
-            }
-            Err(e) => {
-                let _ = self.chat.delete(&session.id);
-                Err(e)
-            }
-        }
+        make_with(&self.chat, &self.schedules, &self.events, new).await
     }
 
     /// Runs whatever is due by `now`, one at a time, the longest waiting first.
@@ -316,5 +289,40 @@ fn refuse_a_program(model: &str) -> Result<()> {
             def.name
         ))),
         _ => Ok(()),
+    }
+}
+
+/// Makes a schedule and the session of its own that its runs are in (J1): from the Schedules screen, or from a
+/// model in a session when the person said yes (J13). Its session runs at Autonomous, and its level is never asked
+/// about (J2). A program such as Claude Code or OpenCode is not offered: their terms are for a person's own use,
+/// not for runs with nobody there (U23).
+pub(crate) async fn make_with(chat: &Chat, schedules: &Schedules, events: &EventLog, new: &New) -> Result<Schedule> {
+    new.when.check().map_err(Error::Invalid)?;
+    if let Some(model) = &new.model {
+        refuse_a_program(model)?;
+    }
+    // A monitor's session is named for what it watches; a task's, for what it does.
+    let title = match &new.watch {
+        Some(watch) => watch.said(),
+        None => new.what.trim().to_string(),
+    };
+    let session = chat.start(Some(&one_line(&title, 60)), new.model.as_deref()).await?;
+    let made = (|| -> Result<Schedule> {
+        refuse_a_program(&session.model)?;
+        if let Some(folder) = &new.folder {
+            chat.set_folder(&session.id, Some(folder))?;
+        }
+        chat.set_permission(&session.id, "autonomous")?;
+        schedules.create(&session.id, new)
+    })();
+    match made {
+        Ok(made) => {
+            events.append("schedule.created", Some(&made.id), json!({ "session": made.session_id, "what": made.what, "when": made.when_said, "watch": made.watch_said }))?;
+            Ok(made)
+        }
+        Err(e) => {
+            let _ = chat.delete(&session.id);
+            Err(e)
+        }
     }
 }

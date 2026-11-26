@@ -15,7 +15,7 @@ export interface CoreTimings { reused: number; read: number; written: number; pe
 export interface CoreStep { tool: string; args: Record<string, unknown>; result: string; state: 'running' | 'waiting' | 'done' | 'failed' | 'refused'; took_ms: number; change?: string | null; output?: string | null; artifact?: { id: string; name: string; n: number } | null; model_chose?: 'go' | 'ask' | null; picture?: string | null; page?: { address: string; title: string } | null }
 export type Level = 'cautious' | 'balanced' | 'smart' | 'autonomous'
 /** A use of a tool that is waiting for the person's yes. Every word of it is made by the core from the request, none by the model. */
-export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes' | 'runs' | 'network'; what: string; why: string; once_only?: boolean; asked_at: number }
+export interface PermissionRequest { id: string; session_id: string; message_id: string; tool: string; args: Record<string, unknown>; reach: 'nothing' | 'reads' | 'changes' | 'runs' | 'network' | 'mail' | 'sends' | 'schedules'; what: string; why: string; once_only?: boolean; asked_at: number }
 /** A change a tool made to a file in the session's folder. `created`: the change made the file, so undoing removes it.
     `whole_folder`: it is everything a program did; the folder was saved before the program ran, and undoing puts the whole folder back. */
 export interface CoreChange { id: string; session_id: string; message_id: string; path: string; created: boolean; whole_folder?: boolean; undone_at: number | null; created_at: number; diff_stat?: string | null }

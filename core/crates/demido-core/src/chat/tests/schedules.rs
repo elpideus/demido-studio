@@ -173,3 +173,55 @@ async fn a_run_waits_for_a_session_being_answered_and_gives_up_after_a_while() {
     w.answered(&other.id).await;
     w.end().await;
 }
+
+/// Waits until a use of a tool is waiting for the person's yes.
+async fn asked_in(w: &World, session_id: &str) -> crate::permissions::Request {
+    for _ in 0..500 {
+        if let Some(request) = w.chat.waiting_for(session_id) {
+            return request;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("nothing asked for the person's yes");
+}
+
+/// A model makes a schedule from a session (DECISIONS J13): its time is read by code and shown to the person,
+/// who says yes first; a time code cannot read goes back to the model; a schedule's own run cannot make one.
+#[tokio::test]
+async fn a_model_makes_a_schedule_when_the_person_says_yes_and_its_time_is_read_by_code() {
+    let mut w = world("schedule-by-model");
+    w.settings.set("tools.use", json!(true)).unwrap();
+    let schedules = Arc::new(Schedules::new(w.db.clone()).in_zone(jiff::tz::TimeZone::get("Europe/Rome").unwrap()));
+    w.chat = Arc::new(Chat::new(w.sessions.clone(), w.engine.clone(), w.events.clone(), w.settings.clone()).with_clock(CLOCK).with_schedules(schedules.clone()));
+    let session = w.chat.start(None, Some("small")).await.unwrap();
+    assert!(w.chat.tools_told(&session).unwrap().contains("- make_schedule(what: text, when: text)"), "offered in a person's session");
+
+    // A time it cannot read goes back to the model, with how to say one; then a time it can.
+    w.stand.decisions.lock().unwrap().extend([
+        r#"{"tool": "make_schedule", "args": {"what": "Tell me a dad joke", "when": "whenever the sun feels like it"}}"#.to_string(),
+        r#"{"tool": "make_schedule", "args": {"what": "Tell me a dad joke", "when": "every day at 8am"}}"#.to_string(),
+        r#"{"tool": "none", "args": {}}"#.to_string(),
+    ]);
+    w.stand.replies.lock().unwrap().push_back("Done: a dad joke every morning at 8.".into());
+    w.chat.say(&session.id, "Can you schedule a dad joke every day at 8 in the morning?").unwrap();
+    let request = asked_in(&w, &session.id).await;
+    assert_eq!((request.tool.as_str(), request.reach, request.once_only), ("make_schedule", tools::Reach::Schedules, true));
+    assert_eq!(request.what, "Make a schedule: \"Tell me a dad joke\", Every day at 08:00", "Demido's own reading of when");
+    assert!(request.why.starts_with("A schedule runs on its own later"), "{}", request.why);
+    assert!(schedules.list().unwrap().is_empty(), "nothing is made while it waits");
+    w.chat.answer_request(&session.id, &request.id, crate::permissions::Said::Once).unwrap();
+    let answer = w.answered(&session.id).await;
+    let steps: Vec<(&str, &str)> = answer.steps.iter().map(|s| (s.tool.as_str(), s.state.as_str())).collect();
+    assert_eq!(steps, [("make_schedule", "failed"), ("make_schedule", "done")], "{:?}", answer.steps);
+    assert!(answer.steps[0].result.starts_with("the time cannot be read from \"whenever the sun feels like it\""), "{}", answer.steps[0].result);
+    assert!(answer.steps[1].result.starts_with("Made: \"Tell me a dad joke\", Every day at 08:00."), "{}", answer.steps[1].result);
+    let made = schedules.list().unwrap();
+    assert_eq!(made.len(), 1);
+    assert_eq!((made[0].what.as_str(), made[0].when_said.as_str()), ("Tell me a dad joke", "Every day at 08:00"));
+    let its = w.sessions.get(&made[0].session_id).unwrap();
+    assert_eq!((its.permission.as_str(), its.model.as_str(), its.folder.as_deref()), ("autonomous", "small", None), "a session of its own, with the session's model, and no folder");
+
+    // A schedule's own session is not offered the tool: a run cannot make more runs.
+    assert!(!w.chat.tools_told(&its).unwrap().contains("make_schedule"), "{}", w.chat.tools_told(&its).unwrap());
+    w.end().await;
+}

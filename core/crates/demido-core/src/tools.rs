@@ -52,6 +52,8 @@ pub const MESSAGE_SESSION: &str = "message_session";
 pub const LIST_MAIL: &str = "list_mail";
 pub const READ_MAIL: &str = "read_mail";
 pub const SEND_MAIL: &str = "send_mail";
+/// Makes a schedule (DECISIONS J13).
+pub const SCHEDULE: &str = "make_schedule";
 /// The browser a model drives (DECISIONS Z6).
 pub const OPEN_PAGE: &str = "open_page";
 pub const PRESS: &str = "press";
@@ -115,6 +117,8 @@ pub enum Reach {
     Mail,
     /// Sends a message in the person's name. It cannot be undone.
     Sends,
+    /// Makes a schedule: work that runs later on its own, with every tool, until the person stops it (J13).
+    Schedules,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -191,6 +195,12 @@ const TOOLS: &[Tool] = &[
         reach: Reach::Sends,
     },
     Tool {
+        name: SCHEDULE,
+        does: "Makes a schedule: Demido does something on its own at a time, again and again (every day at 8am, on weekdays at 9, every 2 hours) or once (tomorrow at 9). Its answer each time comes to the person. Say what to do, and when, in the person's words.",
+        args: &[arg("what", Kind::Text), arg("when", Kind::Text)],
+        reach: Reach::Schedules,
+    },
+    Tool {
         name: READ_OUTPUT,
         does: "More of what the last command printed, from a line number: for the lines its result says are not shown.",
         args: &[maybe("from_line", Kind::Whole)],
@@ -253,6 +263,8 @@ pub fn offered_all(has_folder: bool, may_plan: bool, internet: bool, artifacts: 
             Reach::Network if of_the_browser(t.name) => internet && browser,
             Reach::Network => internet,
             Reach::Mail | Reach::Sends => mail,
+            // Offered by the conversation where schedules can be made (`Chat::offer`, J13).
+            Reach::Schedules => false,
             Reach::Reads | Reach::Changes | Reach::Runs => has_folder,
         })
         .filter(|t| may_plan || t.name != PLAN)
@@ -867,7 +879,7 @@ mod tests {
         assert_eq!(asked("I think the calculator would help."), Err("the reply is not a JSON object".into()));
         assert_eq!(
             asked(r#"{"tool": "weather", "args": {"city": "Rome"}}"#),
-            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, open_page, press, type_text, message_session, list_mail, read_mail, send_mail, read_output, give_file, plan, none".into())
+            Err("there is no tool called \"weather\". The tools are: time, calculate, list_files, read_file, search_files, add_to_file, write_file, edit_file, run_command, search_web, read_page, open_page, press, type_text, message_session, list_mail, read_mail, send_mail, make_schedule, read_output, give_file, plan, none".into())
         );
         assert_eq!(asked(r#"{"tool": "calculate", "args": {}}"#), Err("calculate needs \"expression\"".into()));
         assert_eq!(asked(r#"{"tool": "calculate", "args": {"expression": ""}}"#), Err("\"expression\" of calculate must be text, and not empty".into()));
