@@ -75,7 +75,7 @@ export function App() {
           )}
           {/* Another screen comes in with a short fade; moving within one screen does not. */}
           <div className="app-route" key={pathname.split('/')[1] ?? ''}>
-            <Fallen key={pathname}>
+            <Fallen at={pathname}>
             <Routes>
               {features.map((f) => (
                 <Route key={f.id} path={`${f.path}/*`} element={<f.Page />} />
@@ -93,9 +93,11 @@ export function App() {
 
 /** A screen that failed while it was drawn: said, with a way on, instead of an empty window. Another screen (or
     the same one opened again) starts over. */
-class Fallen extends Component<{ children: ReactNode }, { problem: Error | null }> {
+class Fallen extends Component<{ at: string; children: ReactNode }, { problem: Error | null }> {
   state = { problem: null as Error | null }
   static getDerivedStateFromError(problem: Error) { return { problem } }
+  // Going elsewhere tries again, without starting over what did not fail.
+  componentDidUpdate(before: { at: string }) { if (before.at !== this.props.at && this.state.problem) this.setState({ problem: null }) }
   render() {
     const { problem } = this.state
     if (!problem) return this.props.children
