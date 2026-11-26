@@ -481,9 +481,22 @@ async fn a_program_that_runs_too_long_is_ended_and_the_model_is_told() {
     let chat = chat_with(&w, said_to_hold());
     // Autonomous, so that the program starts without a question and it is the program that is stopped.
     chat.set_permission(&session.id, "autonomous").unwrap();
+    let mut ear = w.events.listen();
     chat.say(&session.id, "Wait a while.").unwrap();
-    // The person does not wait thirty seconds either: stopping the answer ends the program.
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    // The person does not wait thirty seconds either: stopping the answer ends the program. Stopped once the
+    // program is running, not after a set time: on a slow machine it may not have started by then.
+    let started = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            match ear.recv().await {
+                Ok(e) if e.kind == "message.steps" && e.data["steps"][0]["state"] == "running" => break,
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => panic!("the events ended"),
+            }
+        }
+    })
+    .await;
+    assert!(started.is_ok(), "the program never started");
+    tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(chat.stop(&session.id));
     let answer = answered_by(&chat, &w, &session.id).await;
     assert_eq!(answer.state, "stopped");
