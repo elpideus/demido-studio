@@ -641,6 +641,8 @@ async fn run(cli: Cli) -> Result<()> {
                 Held {
                     uid: 1,
                     seen: true,
+                    flagged: false,
+                    deleted: false,
                     raw: stand_in::message(
                         "Ada Lovelace <ada@example.org>",
                         "me@example.org",
@@ -652,6 +654,8 @@ async fn run(cli: Cli) -> Result<()> {
                 Held {
                     uid: 2,
                     seen: false,
+                    flagged: false,
+                    deleted: false,
                     raw: stand_in::message(
                         "Heron Watch <news@herons.example>",
                         "me@example.org",
@@ -659,6 +663,14 @@ async fn run(cli: Cli) -> Result<()> {
                         "Tue, 24 Nov 2026 07:30:00 +0000",
                         "The heron count is on Saturday at six, from the north shore.\nBring a warm coat.",
                     ),
+                },
+                // A reply in a thread, with a file: for replying in the thread, and saving and forwarding a file.
+                Held {
+                    uid: 3,
+                    raw: "From: Ada Lovelace <ada@example.org>\r\nTo: me@example.org, Charles Babbage <charles@example.org>\r\nSubject: Re: The engine\r\nDate: Wed, 25 Nov 2026 10:00:00 +0000\r\nMessage-ID: <notes-1@example.org>\r\nReferences: <engine-0@example.org>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"b1\"\r\n\r\n--b1\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThe notes are attached.\r\n--b1\r\nContent-Type: text/plain; name=\"notes.txt\"\r\nContent-Disposition: attachment; filename=\"notes.txt\"\r\nContent-Transfer-Encoding: base64\r\n\r\nRmlyc3QgYWxnb3JpdGhtLg==\r\n--b1--\r\n"
+                        .as_bytes()
+                        .to_vec(),
+                    ..Held::default()
                 },
             ];
             let (imap, smtp, box_) = stand_in::start("me@example.org", "stand-in-password", inbox).await?;

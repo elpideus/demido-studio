@@ -262,6 +262,20 @@ const MIGRATIONS: &[&str] = &[
         updated_at   INTEGER NOT NULL
      ) STRICT;
      ALTER TABLE sessions ADD COLUMN character_id TEXT REFERENCES characters (id) ON DELETE SET NULL;",
+    // Email, finished (DECISIONS Y9 to Y14): a message's star and its place in a thread, and drafts kept by Demido.
+    "ALTER TABLE email_messages ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE email_messages ADD COLUMN message_id TEXT;
+     ALTER TABLE email_messages ADD COLUMN refs TEXT;
+     CREATE TABLE email_drafts (
+        id          TEXT PRIMARY KEY,
+        account     TEXT NOT NULL REFERENCES email_accounts (id) ON DELETE CASCADE,
+        to_who      TEXT NOT NULL,
+        subject     TEXT NOT NULL,
+        text        TEXT NOT NULL,
+        in_reply_to TEXT,
+        refs        TEXT,
+        updated_at  INTEGER NOT NULL
+     ) STRICT;",
 ];
 
 pub struct Db {

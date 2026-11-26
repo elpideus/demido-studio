@@ -337,6 +337,11 @@ export const feature: Feature = {
           desc: 'Shows every message the way its sender designed it, without asking.',
           details: 'Default off. A picture in a mail is fetched from the sender\'s server. That tells the sender you opened the mail, when, and roughly from where. Off: Demido asks for each message. On: every message loads everything. A model reading your mail never loads them either way.',
         },
+        {
+          id: 'email.read_on_open', type: 'switch', label: 'Mark a message read when I open it', default: false,
+          desc: 'Off: opening a message on the Email screen changes nothing on the server.',
+          details: 'Default off. On: opening a message marks it read on the server, as other mail programs do, so it shows as read on your phone too. A model reading your mail never marks anything, either way.',
+        },
       ],
     },
   ],

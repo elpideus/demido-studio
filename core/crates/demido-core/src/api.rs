@@ -1208,6 +1208,95 @@ async fn email_send(State(app): State<App>, Path(id): Path<String>, Json(body): 
     Ok(Json(true))
 }
 
+/// An account's mailboxes, the inbox first, with what each is for where the server says (Y9).
+#[utoipa::path(get, path = "/api/v1/email/accounts/{id}/folders", tag = "email", params(("id" = String, Path, description = "The account's id")), responses((status = 200, body = Vec<crate::email::Folder>), (status = 502, body = Problem)))]
+async fn email_folders(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Vec<crate::email::Folder>>> {
+    Ok(Json(app.mail.folders(&id).await?))
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct MailSearch {
+    /// The mailbox. Left out: the inbox.
+    pub folder: Option<String>,
+    /// The words to find, in any part of a message.
+    pub q: String,
+}
+
+/// Searches a mailbox on the server: the newest messages that hold the words (Y9).
+#[utoipa::path(get, path = "/api/v1/email/accounts/{id}/search", tag = "email", params(("id" = String, Path, description = "The account's id"), MailSearch), responses((status = 200, body = Vec<crate::email::Summary>), (status = 502, body = Problem)))]
+async fn email_search(State(app): State<App>, Path(id): Path<String>, Query(q): Query<MailSearch>) -> Result<Json<Vec<crate::email::Summary>>> {
+    Ok(Json(app.mail.search(&id, &q.folder.unwrap_or_else(|| "INBOX".into()), &q.q).await?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct MailFlags {
+    /// Read (true) or unread (false). Left out: as it is.
+    pub seen: Option<bool>,
+    /// Starred or not. Left out: as it is.
+    pub flagged: Option<bool>,
+}
+
+/// Marks a message read or unread, starred or not, as the person says in the window (Y10).
+#[utoipa::path(post, path = "/api/v1/email/accounts/{id}/messages/{uid}/flags", tag = "email", params(("id" = String, Path, description = "The account's id"), ("uid" = u32, Path, description = "The message's UID"), MailboxQuery), request_body = MailFlags, responses((status = 200, body = bool), (status = 502, body = Problem)))]
+async fn email_flags(State(app): State<App>, Path((id, uid)): Path<(String, u32)>, Query(q): Query<MailboxQuery>, Json(body): Json<MailFlags>) -> Result<Json<bool>> {
+    app.mail.set_flags(&id, &q.folder.unwrap_or_else(|| "INBOX".into()), uid, body.seen, body.flagged).await?;
+    Ok(Json(true))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct MailMove {
+    /// The mailbox it goes to.
+    pub to: String,
+}
+
+/// Moves a message to another mailbox, as the person says in the window (Y11).
+#[utoipa::path(post, path = "/api/v1/email/accounts/{id}/messages/{uid}/move", tag = "email", params(("id" = String, Path, description = "The account's id"), ("uid" = u32, Path, description = "The message's UID"), MailboxQuery), request_body = MailMove, responses((status = 200, body = bool), (status = 422, body = Problem), (status = 502, body = Problem)))]
+async fn email_move(State(app): State<App>, Path((id, uid)): Path<(String, u32)>, Query(q): Query<MailboxQuery>, Json(body): Json<MailMove>) -> Result<Json<bool>> {
+    app.mail.move_message(&id, &q.folder.unwrap_or_else(|| "INBOX".into()), uid, &body.to).await?;
+    Ok(Json(true))
+}
+
+/// Deletes a message: into the trash, or from the trash for good (Y11).
+#[utoipa::path(delete, path = "/api/v1/email/accounts/{id}/messages/{uid}", tag = "email", params(("id" = String, Path, description = "The account's id"), ("uid" = u32, Path, description = "The message's UID"), MailboxQuery), responses((status = 200, body = crate::email::Deleted), (status = 502, body = Problem)))]
+async fn email_delete(State(app): State<App>, Path((id, uid)): Path<(String, u32)>, Query(q): Query<MailboxQuery>) -> Result<Json<crate::email::Deleted>> {
+    Ok(Json(app.mail.delete_message(&id, &q.folder.unwrap_or_else(|| "INBOX".into()), uid).await?))
+}
+
+/// One of a message's files, to save (Y13). Never shown as a page: sent as a download, with `nosniff`.
+#[utoipa::path(get, path = "/api/v1/email/accounts/{id}/messages/{uid}/files/{n}", tag = "email", params(("id" = String, Path, description = "The account's id"), ("uid" = u32, Path, description = "The message's UID"), ("n" = usize, Path, description = "The file's place among the message's files, from 0"), MailboxQuery), responses((status = 200, description = "The file"), (status = 404, body = Problem)))]
+async fn email_file(State(app): State<App>, Path((id, uid, n)): Path<(String, u32, usize)>, Query(q): Query<MailboxQuery>) -> Result<Response> {
+    let (name, kind, bytes) = app.mail.file(&id, &q.folder.unwrap_or_else(|| "INBOX".into()), uid, n).await?;
+    let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || ".-_ ".contains(c) { c } else { '_' }).collect();
+    Ok((
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{safe}\"")),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".into()),
+            (header::CONTENT_SECURITY_POLICY, "sandbox".into()),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
+/// The drafts of an account, kept by Demido (Y14).
+#[utoipa::path(get, path = "/api/v1/email/accounts/{id}/drafts", tag = "email", params(("id" = String, Path, description = "The account's id")), responses((status = 200, body = Vec<crate::email::Draft>)))]
+async fn email_drafts(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Vec<crate::email::Draft>>> {
+    Ok(Json(app.mail.drafts(&id)?))
+}
+
+/// Keeps a draft: a new one (no id), or what one became.
+#[utoipa::path(put, path = "/api/v1/email/accounts/{id}/drafts", tag = "email", params(("id" = String, Path, description = "The account's id")), request_body = crate::email::Draft, responses((status = 200, body = crate::email::Draft)))]
+async fn email_draft_keep(State(app): State<App>, Path(id): Path<String>, Json(body): Json<crate::email::Draft>) -> Result<Json<crate::email::Draft>> {
+    Ok(Json(app.mail.keep_draft(&id, &body)?))
+}
+
+/// Throws a draft away.
+#[utoipa::path(delete, path = "/api/v1/email/accounts/{id}/drafts/{draft}", tag = "email", params(("id" = String, Path, description = "The account's id"), ("draft" = String, Path, description = "The draft's id")), responses((status = 200, body = bool)))]
+async fn email_draft_forget(State(app): State<App>, Path((id, draft)): Path<(String, String)>) -> Result<Json<bool>> {
+    Ok(Json(app.mail.forget_draft(&id, &draft)?))
+}
+
 /// The bots for Telegram and Discord, with whether each is paired and running. Never a token.
 #[utoipa::path(get, path = "/api/v1/bots", tag = "bots", responses((status = 200, body = Vec<crate::bots::Bot>)))]
 async fn bots_list(State(app): State<App>) -> Result<Json<Vec<crate::bots::Bot>>> {
@@ -2031,7 +2120,7 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, server_stop, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_say_again, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, characters_list, character_new, character_change, character_delete, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    paths(health, server_stop, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_say_again, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, characters_list, character_new, character_change, character_delete, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, email_folders, email_search, email_flags, email_move, email_delete, email_file, email_drafts, email_draft_keep, email_draft_forget, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
     tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "tools", description = "Tools other people write: packages of a WebAssembly component, checked against their publisher's signature, run with only what they ask for"), (name = "markets", description = "Prices from public feeds, indicators worked out here, and a Pine-compatible engine of Demido's own. Nothing places an order"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
@@ -2092,7 +2181,14 @@ pub fn router(app: App) -> Router {
         .route("/email/accounts", get(email_accounts).post(email_account_add))
         .route("/email/accounts/{id}", axum::routing::delete(email_account_remove))
         .route("/email/accounts/{id}/messages", get(email_messages))
-        .route("/email/accounts/{id}/messages/{uid}", get(email_message))
+        .route("/email/accounts/{id}/messages/{uid}", get(email_message).delete(email_delete))
+        .route("/email/accounts/{id}/messages/{uid}/flags", post(email_flags))
+        .route("/email/accounts/{id}/messages/{uid}/move", post(email_move))
+        .route("/email/accounts/{id}/messages/{uid}/files/{n}", get(email_file))
+        .route("/email/accounts/{id}/folders", get(email_folders))
+        .route("/email/accounts/{id}/search", get(email_search))
+        .route("/email/accounts/{id}/drafts", get(email_drafts).put(email_draft_keep))
+        .route("/email/accounts/{id}/drafts/{draft}", axum::routing::delete(email_draft_forget))
         .route("/email/accounts/{id}/send", post(email_send))
         .route("/browser", get(browser_status).post(browser_install).delete(browser_remove))
         .route("/browser/latest", get(browser_latest))

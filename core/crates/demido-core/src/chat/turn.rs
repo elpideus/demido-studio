@@ -920,6 +920,7 @@ impl Chat {
                                         to: args.get("to").and_then(Value::as_str).unwrap_or_default().into(),
                                         subject: args.get("subject").and_then(Value::as_str).unwrap_or_default().into(),
                                         text: args.get("text").and_then(Value::as_str).unwrap_or_default().into(),
+                                        ..crate::email::Outgoing::default()
                                     };
                                     mail.send(&account.id, &out)
                                         .await

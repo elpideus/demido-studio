@@ -98,6 +98,9 @@ pub struct Summary {
     pub date: Option<i64>,
     pub seen: bool,
     pub size: u32,
+    /// Starred (`\\Flagged`).
+    #[serde(default)]
+    pub flagged: bool,
 }
 
 /// A message opened: its summary, its text, the names of its files.
@@ -107,14 +110,86 @@ pub struct Opened {
     pub summary: Summary,
     pub text: String,
     pub files: Vec<String>,
+    /// Its `Message-ID`, for a reply to stay in its thread (Y12).
+    #[serde(default)]
+    pub message_id: Option<String>,
+    /// The messages it answers, from its `References`, oldest first.
+    #[serde(default)]
+    pub references: Vec<String>,
 }
 
 /// A message to send, as the person or the model wrote it.
-#[derive(Clone, Debug, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, Deserialize, ToSchema)]
 pub struct Outgoing {
     pub to: String,
     pub subject: String,
     pub text: String,
+    /// The message it answers, by its `Message-ID`: a reply stays in its thread (Y12).
+    #[serde(default)]
+    pub in_reply_to: Option<String>,
+    /// The thread so far, by `Message-ID`, oldest first.
+    #[serde(default)]
+    pub references: Vec<String>,
+    /// Files sent with it (Y13).
+    #[serde(default)]
+    pub files: Vec<OutFile>,
+}
+
+/// A file to send with a message: its name, its type, and its bytes in base64.
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub struct OutFile {
+    pub name: String,
+    #[serde(default)]
+    pub content_type: Option<String>,
+    pub base64: String,
+}
+
+/// A mailbox of an account, with what it is for where the server says (RFC 6154).
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct Folder {
+    pub name: String,
+    /// `inbox`, `sent`, `drafts`, `trash`, `junk`, `archive`, `all` or `flagged`; `null` for the person's own.
+    pub role: Option<String>,
+}
+
+/// A message being written, kept by Demido until it is sent or thrown away (Y14).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Draft {
+    #[serde(default)]
+    pub id: String,
+    pub to: String,
+    pub subject: String,
+    pub text: String,
+    #[serde(default)]
+    pub in_reply_to: Option<String>,
+    #[serde(default)]
+    pub references: Vec<String>,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+/// What became of a message deleted: moved to the trash (and can be had back from there), or gone for good.
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct Deleted {
+    /// The trash it is in now; `null`: it was in the trash already, and is gone.
+    pub moved_to: Option<String>,
+}
+
+/// The most that may be sent with one message, in bytes: what Gmail takes.
+pub const MOST_FILES: usize = 25 * 1024 * 1024;
+
+/// A text as an IMAP string: quoted, its quotes and backslashes escaped. No line breaks: they end a command.
+fn quoted(text: &str) -> Result<String> {
+    if text.contains(['\r', '\n']) {
+        return Err(Error::Invalid("A search is one line.".into()));
+    }
+    Ok(format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\"")))
+}
+
+/// A `Message-ID` as headers write it: in angle brackets.
+fn bracketed(id: &str) -> String {
+    let id = id.trim().trim_start_matches('<').trim_end_matches('>');
+    format!("<{id}>")
 }
 
 /// How a server is spoken to.
@@ -187,14 +262,44 @@ fn text_of(raw: &[u8]) -> (String, Vec<String>) {
     (text, files)
 }
 
-/// What a fetched header says, as a summary.
-fn summary_of(account: &str, folder: &str, uid: u32, seen: bool, size: u32, header: &[u8]) -> Summary {
+/// What a fetched header says, as a summary, with its `Message-ID` and its `References` (Y12).
+fn summary_of(account: &str, folder: &str, uid: u32, seen: bool, flagged: bool, size: u32, header: &[u8]) -> (Summary, Option<String>, Vec<String>) {
     let parsed = mail_parser::MessageParser::default().parse_headers(header);
-    let (from, to, subject, date) = match &parsed {
-        Some(m) => (people(m.from()), people(m.to()), m.subject().unwrap_or_default().to_string(), m.date().map(|d| d.to_timestamp() * 1000)),
-        None => (String::new(), String::new(), String::new(), None),
+    let (from, to, subject, date, id, refs) = match &parsed {
+        Some(m) => (
+            people(m.from()),
+            people(m.to()),
+            m.subject().unwrap_or_default().to_string(),
+            m.date().map(|d| d.to_timestamp() * 1000),
+            m.message_id().map(str::to_string),
+            m.references().map(|r| r.iter().map(str::to_string).collect()).unwrap_or_default(),
+        ),
+        None => (String::new(), String::new(), String::new(), None, None, Vec::new()),
     };
-    Summary { account: account.into(), folder: folder.into(), uid, from, to, subject: if subject.trim().is_empty() { "(no subject)".into() } else { subject }, date, seen, size }
+    let summary =
+        Summary { account: account.into(), folder: folder.into(), uid, from, to, subject: if subject.trim().is_empty() { "(no subject)".into() } else { subject }, date, seen, size, flagged };
+    (summary, id, refs)
+}
+
+/// What the server says a mailbox is for (RFC 6154), in Demido's words.
+fn role_of(name: &async_imap::types::Name) -> Option<String> {
+    use async_imap::imap_proto::NameAttribute as A;
+    if name.name().eq_ignore_ascii_case("INBOX") {
+        return Some("inbox".into());
+    }
+    name.attributes()
+        .iter()
+        .find_map(|a| match a {
+            A::Sent => Some("sent"),
+            A::Drafts => Some("drafts"),
+            A::Trash => Some("trash"),
+            A::Junk => Some("junk"),
+            A::Archive => Some("archive"),
+            A::All => Some("all"),
+            A::Flagged => Some("flagged"),
+            _ => None,
+        })
+        .map(str::to_string)
 }
 
 impl Mail {
@@ -367,23 +472,231 @@ impl Mail {
     pub fn kept(&self, account: &str, folder: &str) -> Result<Vec<Summary>> {
         self.db.with(|c| {
             c.prepare(
-                "SELECT account, folder, uid, from_who, to_who, subject, date, seen, size FROM email_messages WHERE account = ?1 AND folder = ?2 ORDER BY coalesce(date, 0) DESC, uid DESC LIMIT ?3",
+                "SELECT account, folder, uid, from_who, to_who, subject, date, seen, size, flagged FROM email_messages WHERE account = ?1 AND folder = ?2 ORDER BY coalesce(date, 0) DESC, uid DESC LIMIT ?3",
             )?
-            .query_map(rusqlite::params![account, folder, MOST_LISTED as i64], |r| {
-                Ok(Summary {
-                    account: r.get(0)?,
-                    folder: r.get(1)?,
-                    uid: r.get::<_, i64>(2)? as u32,
-                    from: r.get(3)?,
-                    to: r.get(4)?,
-                    subject: r.get(5)?,
-                    date: r.get(6)?,
-                    seen: r.get::<_, i64>(7)? == 1,
-                    size: r.get::<_, i64>(8)? as u32,
-                })
-            })?
+            .query_map(rusqlite::params![account, folder, MOST_LISTED as i64], summary_row)?
             .collect()
         })
+    }
+
+    /// Keeps what a fetch said of a message, or what is new about one already kept (its flags).
+    fn keep(&self, s: &Summary, validity: i64, id: Option<&str>, refs: &[String]) -> Result<()> {
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO email_messages (account, folder, uid_validity, uid, from_who, to_who, subject, date, seen, size, kept_at, flagged, message_id, refs)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                 ON CONFLICT (account, folder, uid_validity, uid) DO UPDATE SET seen = excluded.seen, flagged = excluded.flagged",
+                rusqlite::params![
+                    s.account,
+                    s.folder,
+                    validity,
+                    s.uid as i64,
+                    s.from,
+                    s.to,
+                    s.subject,
+                    s.date,
+                    s.seen as i64,
+                    s.size as i64,
+                    now_ms(),
+                    s.flagged as i64,
+                    id,
+                    serde_json::to_string(refs).unwrap_or_default()
+                ],
+            )
+        })?;
+        Ok(())
+    }
+
+    /// Fetches the headers and flags of some messages of the open mailbox, by UID, and keeps them.
+    async fn fetch_kept(&self, session: &mut async_imap::Session<Box<dyn Stream>>, account: &str, folder: &str, validity: i64, uids: &str) -> Result<Vec<Summary>> {
+        let fetched: Vec<async_imap::types::Fetch> =
+            session.uid_fetch(uids, "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER])").await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+        let mut out = Vec::new();
+        for f in fetched {
+            let Some(uid) = f.uid else { continue };
+            let seen = f.flags().any(|fl| matches!(fl, async_imap::types::Flag::Seen));
+            let flagged = f.flags().any(|fl| matches!(fl, async_imap::types::Flag::Flagged));
+            let (summary, id, refs) = summary_of(account, folder, uid, seen, flagged, f.size.unwrap_or(0), f.header().unwrap_or_default());
+            self.keep(&summary, validity, id.as_deref(), &refs)?;
+            out.push(summary);
+        }
+        out.sort_by(|a, b| b.date.unwrap_or(0).cmp(&a.date.unwrap_or(0)).then(b.uid.cmp(&a.uid)));
+        Ok(out)
+    }
+
+    /// The mailboxes of an account, the inbox first, then those the server says what they are for, then the
+    /// person's own by name.
+    pub async fn folders(&self, account_id: &str) -> Result<Vec<Folder>> {
+        let account = self.account(account_id)?;
+        let password = self.password(&account)?;
+        let mut session = self.open(&account, &password).await?;
+        let names: Vec<async_imap::types::Name> = session.list(Some(""), Some("*")).await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+        let _ = session.logout().await;
+        const ORDER: [&str; 8] = ["inbox", "drafts", "sent", "archive", "all", "flagged", "junk", "trash"];
+        let mut out: Vec<Folder> = names
+            .iter()
+            .filter(|n| !n.attributes().iter().any(|a| matches!(a, async_imap::imap_proto::NameAttribute::NoSelect)))
+            .map(|n| Folder { name: n.name().to_string(), role: role_of(n) })
+            .collect();
+        out.sort_by_key(|f| (f.role.as_deref().and_then(|r| ORDER.iter().position(|o| *o == r)).unwrap_or(ORDER.len()), f.name.to_lowercase()));
+        Ok(out)
+    }
+
+    /// Searches a mailbox on the server (`UID SEARCH TEXT`): the newest that match, kept like any listed.
+    pub async fn search(&self, account_id: &str, folder: &str, text: &str) -> Result<Vec<Summary>> {
+        let text = text.trim();
+        if text.is_empty() {
+            return self.kept(account_id, folder);
+        }
+        let account = self.account(account_id)?;
+        let password = self.password(&account)?;
+        let mut session = self.open(&account, &password).await?;
+        let mailbox = session.examine(folder).await.map_err(|e| Error::Invalid(format!("The mailbox \"{folder}\" could not be opened ({e}).")))?;
+        let validity = mailbox.uid_validity.unwrap_or(0) as i64;
+        let mut found: Vec<u32> = session.uid_search(format!("TEXT {}", quoted(text)?)).await.map_err(|e| Error::Net(e.to_string()))?.into_iter().collect();
+        found.sort_unstable_by(|a, b| b.cmp(a));
+        found.truncate(MOST_LISTED);
+        let out = if found.is_empty() { Vec::new() } else { self.fetch_kept(&mut session, &account.id, folder, validity, &found.iter().map(u32::to_string).collect::<Vec<_>>().join(",")).await? };
+        let _ = session.logout().await;
+        Ok(out)
+    }
+
+    /// Opens a mailbox to change it (`SELECT`), for the person's own doing in the window (Y10).
+    async fn changing(&self, account_id: &str, folder: &str) -> Result<(Account, async_imap::Session<Box<dyn Stream>>)> {
+        let account = self.account(account_id)?;
+        let password = self.password(&account)?;
+        let mut session = self.open(&account, &password).await?;
+        session.select(folder).await.map_err(|e| Error::Invalid(format!("The mailbox \"{folder}\" could not be opened ({e}).")))?;
+        Ok((account, session))
+    }
+
+    /// Marks a message read or unread, starred or not (Y10). Only when the person says so, in the window.
+    pub async fn set_flags(&self, account_id: &str, folder: &str, uid: u32, seen: Option<bool>, flagged: Option<bool>) -> Result<()> {
+        let (account, mut session) = self.changing(account_id, folder).await?;
+        for (on, flag, column) in [(seen, "\\Seen", "seen"), (flagged, "\\Flagged", "flagged")] {
+            let Some(on) = on else { continue };
+            let how = if on { "+FLAGS.SILENT" } else { "-FLAGS.SILENT" };
+            let _: Vec<_> = session.uid_store(uid.to_string(), format!("{how} ({flag})")).await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+            self.db.with(|c| {
+                c.execute(&format!("UPDATE email_messages SET {column} = ?4 WHERE account = ?1 AND folder = ?2 AND uid = ?3"), rusqlite::params![account.id, folder, uid as i64, on as i64])
+            })?;
+        }
+        let _ = session.logout().await;
+        self.events.append("email.marked", Some(&account.id), json!({ "folder": folder, "uid": uid, "seen": seen, "flagged": flagged }))?;
+        Ok(())
+    }
+
+    /// Moves a message to another mailbox (`UID MOVE`, or a copy and then the original taken out where the server
+    /// has no MOVE), for the person's own doing in the window (Y11).
+    pub async fn move_message(&self, account_id: &str, folder: &str, uid: u32, to: &str) -> Result<()> {
+        if folder == to {
+            return Ok(());
+        }
+        let (account, mut session) = self.changing(account_id, folder).await?;
+        let can = session.capabilities().await.map_err(|e| Error::Net(e.to_string()))?;
+        if can.has_str("MOVE") {
+            session.uid_mv(uid.to_string(), to).await.map_err(|e| Error::Invalid(format!("It could not be moved to \"{to}\" ({e}).")))?;
+        } else {
+            session.uid_copy(uid.to_string(), to).await.map_err(|e| Error::Invalid(format!("It could not be copied to \"{to}\" ({e}).")))?;
+            let _: Vec<_> = session.uid_store(uid.to_string(), "+FLAGS.SILENT (\\Deleted)").await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+            if can.has_str("UIDPLUS") {
+                let _: Vec<_> = session.uid_expunge(uid.to_string()).await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+            } else {
+                let _: Vec<_> = session.expunge().await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+            }
+        }
+        let _ = session.logout().await;
+        self.db.with(|c| c.execute("DELETE FROM email_messages WHERE account = ?1 AND folder = ?2 AND uid = ?3", rusqlite::params![account.id, folder, uid as i64]))?;
+        self.events.append("email.moved", Some(&account.id), json!({ "folder": folder, "uid": uid, "to": to }))?;
+        Ok(())
+    }
+
+    /// Deletes a message: into the trash, from where it can be had back; from the trash, for good (Y11).
+    pub async fn delete_message(&self, account_id: &str, folder: &str, uid: u32) -> Result<Deleted> {
+        let trash = self.folders(account_id).await?.into_iter().find(|f| f.role.as_deref() == Some("trash")).map(|f| f.name);
+        match trash {
+            Some(trash) if trash != folder => {
+                self.move_message(account_id, folder, uid, &trash).await?;
+                Ok(Deleted { moved_to: Some(trash) })
+            }
+            _ => {
+                let (account, mut session) = self.changing(account_id, folder).await?;
+                let can = session.capabilities().await.map_err(|e| Error::Net(e.to_string()))?;
+                let _: Vec<_> =
+                    session.uid_store(uid.to_string(), "+FLAGS.SILENT (\\Deleted)").await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+                // Without UIDPLUS only a whole EXPUNGE is there: it also takes what another program marked deleted here.
+                if can.has_str("UIDPLUS") {
+                    let _: Vec<_> = session.uid_expunge(uid.to_string()).await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+                } else {
+                    let _: Vec<_> = session.expunge().await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+                }
+                let _ = session.logout().await;
+                self.db.with(|c| c.execute("DELETE FROM email_messages WHERE account = ?1 AND folder = ?2 AND uid = ?3", rusqlite::params![account.id, folder, uid as i64]))?;
+                self.events.append("email.deleted", Some(&account.id), json!({ "folder": folder, "uid": uid }))?;
+                Ok(Deleted { moved_to: None })
+            }
+        }
+    }
+
+    /// One of a message's files, by its place among them: its name, its type, its bytes (Y13).
+    pub async fn file(&self, account_id: &str, folder: &str, uid: u32, n: usize) -> Result<(String, String, Vec<u8>)> {
+        let account = self.account(account_id)?;
+        let password = self.password(&account)?;
+        let mut session = self.open(&account, &password).await?;
+        session.examine(folder).await.map_err(|e| Error::Invalid(format!("The mailbox \"{folder}\" could not be opened ({e}).")))?;
+        let fetched: Vec<async_imap::types::Fetch> =
+            session.uid_fetch(uid.to_string(), "BODY.PEEK[]").await.map_err(|e| Error::Net(e.to_string()))?.try_collect().await.map_err(|e| Error::Net(e.to_string()))?;
+        let _ = session.logout().await;
+        let raw = fetched.iter().find_map(|f| f.body().map(<[u8]>::to_vec)).ok_or_else(|| Error::NotFound("The server has no such message any more.".into()))?;
+        tokio::task::spawn_blocking(move || {
+            let message = mail_parser::MessageParser::default().parse(&raw).ok_or_else(|| Error::Invalid("The message could not be read.".into()))?;
+            let part = message.attachments().nth(n).ok_or_else(|| Error::NotFound(format!("The message has no file number {}.", n + 1)))?;
+            let kind = part.content_type().map(|t| format!("{}/{}", t.ctype(), t.subtype().unwrap_or("octet-stream"))).unwrap_or_else(|| "application/octet-stream".into());
+            let name = part.attachment_name().unwrap_or("file").to_string();
+            Ok((name, kind, part.decoded().into_owned()))
+        })
+        .await
+        .map_err(|e| Error::Other(e.to_string()))?
+    }
+
+    /// The drafts of an account, kept by Demido, the newest first (Y14).
+    pub fn drafts(&self, account_id: &str) -> Result<Vec<Draft>> {
+        self.account(account_id)?;
+        self.db.with(|c| {
+            c.prepare("SELECT id, to_who, subject, text, in_reply_to, refs, updated_at FROM email_drafts WHERE account = ?1 ORDER BY updated_at DESC")?
+                .query_map([account_id], |r| {
+                    let refs: Option<String> = r.get(5)?;
+                    Ok(Draft {
+                        id: r.get(0)?,
+                        to: r.get(1)?,
+                        subject: r.get(2)?,
+                        text: r.get(3)?,
+                        in_reply_to: r.get(4)?,
+                        references: refs.and_then(|r| serde_json::from_str(&r).ok()).unwrap_or_default(),
+                        updated_at: r.get(6)?,
+                    })
+                })?
+                .collect()
+        })
+    }
+
+    /// Keeps a draft: a new one, or what an earlier one became.
+    pub fn keep_draft(&self, account_id: &str, draft: &Draft) -> Result<Draft> {
+        self.account(account_id)?;
+        let id = if draft.id.trim().is_empty() { uuid::Uuid::now_v7().to_string() } else { draft.id.clone() };
+        let now = now_ms();
+        self.db.with(|c| {
+            c.execute(
+                "INSERT INTO email_drafts (id, account, to_who, subject, text, in_reply_to, refs, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT (id) DO UPDATE SET to_who = excluded.to_who, subject = excluded.subject, text = excluded.text, in_reply_to = excluded.in_reply_to, refs = excluded.refs, updated_at = excluded.updated_at",
+                rusqlite::params![id, account_id, draft.to, draft.subject, draft.text, draft.in_reply_to, serde_json::to_string(&draft.references).unwrap_or_default(), now],
+            )
+        })?;
+        Ok(Draft { id, updated_at: now, ..draft.clone() })
+    }
+
+    pub fn forget_draft(&self, account_id: &str, id: &str) -> Result<bool> {
+        Ok(self.db.with(|c| c.execute("DELETE FROM email_drafts WHERE account = ?1 AND id = ?2", rusqlite::params![account_id, id]))? > 0)
     }
 
     /// Asks the server for what is new in a mailbox, keeps it, and gives the newest. Read-only: `EXAMINE`, and
@@ -407,20 +720,22 @@ impl Mail {
                 .try_collect()
                 .await
                 .map_err(|e| Error::Net(e.to_string()))?;
-            let now = now_ms();
             for f in fetched {
                 let Some(uid) = f.uid else { continue };
+                let seen = f.flags().any(|fl| matches!(fl, async_imap::types::Flag::Seen));
+                let flagged = f.flags().any(|fl| matches!(fl, async_imap::types::Flag::Flagged));
                 if (uid as i64) <= known {
+                    // Kept already: only whether it was read or starred elsewhere since.
+                    self.db.with(|c| {
+                        c.execute(
+                            "UPDATE email_messages SET seen = ?4, flagged = ?5 WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+                            rusqlite::params![account.id, folder, uid as i64, seen as i64, flagged as i64],
+                        )
+                    })?;
                     continue;
                 }
-                let seen = f.flags().any(|fl| matches!(fl, async_imap::types::Flag::Seen));
-                let s = summary_of(&account.id, folder, uid, seen, f.size.unwrap_or(0), f.header().unwrap_or_default());
-                self.db.with(|c| {
-                    c.execute(
-                        "INSERT OR IGNORE INTO email_messages (account, folder, uid_validity, uid, from_who, to_who, subject, date, seen, size, kept_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                        rusqlite::params![s.account, s.folder, validity, s.uid as i64, s.from, s.to, s.subject, s.date, s.seen as i64, s.size as i64, now],
-                    )
-                })?;
+                let (summary, id, refs) = summary_of(&account.id, folder, uid, seen, flagged, f.size.unwrap_or(0), f.header().unwrap_or_default());
+                self.keep(&summary, validity, id.as_deref(), &refs)?;
             }
         }
         let _ = session.logout().await;
@@ -430,6 +745,26 @@ impl Mail {
     /// Opens a message: its text kept from before, or fetched once with `BODY.PEEK[]`, which does not mark it read.
     pub async fn open_message(&self, account_id: &str, folder: &str, uid: u32) -> Result<Opened> {
         let summary = self.kept(account_id, folder)?.into_iter().find(|s| s.uid == uid);
+        let summary = match summary {
+            Some(s) => Some(s),
+            // Found by a search, and so not among the newest.
+            None => self.db.with(|c| {
+                c.query_row(
+                    "SELECT account, folder, uid, from_who, to_who, subject, date, seen, size, flagged FROM email_messages WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+                    rusqlite::params![account_id, folder, uid as i64],
+                    summary_row,
+                )
+                .map(Some)
+                .or_else(|e| if e == rusqlite::Error::QueryReturnedNoRows { Ok(None) } else { Err(e) })
+            })?,
+        };
+        let (id, refs): (Option<String>, Option<String>) = self.db.with(|c| {
+            c.query_row("SELECT message_id, refs FROM email_messages WHERE account = ?1 AND folder = ?2 AND uid = ?3", rusqlite::params![account_id, folder, uid as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .or_else(|e| if e == rusqlite::Error::QueryReturnedNoRows { Ok((None, None)) } else { Err(e) })
+        })?;
+        let references: Vec<String> = refs.and_then(|r| serde_json::from_str(&r).ok()).unwrap_or_default();
         let kept: Option<(String, String)> = self.db.with(|c| {
             c.query_row("SELECT text, files FROM email_messages WHERE account = ?1 AND folder = ?2 AND uid = ?3 AND text IS NOT NULL", rusqlite::params![account_id, folder, uid as i64], |r| {
                 Ok((r.get(0)?, r.get(1)?))
@@ -439,7 +774,7 @@ impl Mail {
         })?;
         let summary = summary.ok_or_else(|| Error::NotFound("That message is not among those Demido has listed. List the mailbox again.".into()))?;
         if let Some((text, files)) = kept {
-            return Ok(Opened { summary, text, files: serde_json::from_str(&files).unwrap_or_default() });
+            return Ok(Opened { summary, text, files: serde_json::from_str(&files).unwrap_or_default(), message_id: id, references });
         }
         let account = self.account(account_id)?;
         let password = self.password(&account)?;
@@ -456,7 +791,7 @@ impl Mail {
                 rusqlite::params![account_id, folder, uid as i64, text, serde_json::to_string(&files).unwrap_or_default()],
             )
         })?;
-        Ok(Opened { summary, text, files })
+        Ok(Opened { summary, text, files, message_id: id, references })
     }
 
     /// Sends a message from an account. It cannot be taken back: whether it may go was decided before.
@@ -467,6 +802,15 @@ impl Mail {
         let password = self.password(&account)?;
         let from: lettre::message::Mailbox = account.address.parse().map_err(|_| Error::Invalid(format!("{} is not an address mail can be sent from.", account.address)))?;
         let mut message = lettre::Message::builder().from(from).subject(out.subject.trim());
+        // A reply stays in its thread (Y12).
+        if let Some(id) = out.in_reply_to.as_deref().filter(|i| !i.trim().is_empty()) {
+            message = message.in_reply_to(bracketed(id));
+            let mut thread: Vec<String> = out.references.iter().map(|r| bracketed(r)).collect();
+            if !thread.contains(&bracketed(id)) {
+                thread.push(bracketed(id));
+            }
+            message = message.references(thread.join(" "));
+        }
         let mut to_count = 0;
         for to in out.to.split([',', ';']).map(str::trim).filter(|t| !t.is_empty()) {
             message = message.to(to.parse().map_err(|_| Error::Invalid(format!("\"{to}\" is not an email address.")))?);
@@ -475,7 +819,26 @@ impl Mail {
         if to_count == 0 {
             return Err(Error::Invalid("A message needs someone to go to.".into()));
         }
-        let message = message.header(lettre::message::header::ContentType::TEXT_PLAIN).body(out.text.clone()).map_err(|e| Error::Invalid(format!("The message could not be made ({e}).")))?;
+        let message = if out.files.is_empty() {
+            message.header(lettre::message::header::ContentType::TEXT_PLAIN).body(out.text.clone())
+        } else {
+            // Its files, with it (Y13): each as its type says, the whole no larger than a mail server takes.
+            use base64::Engine as _;
+            let mut whole = lettre::message::MultiPart::mixed().singlepart(lettre::message::SinglePart::plain(out.text.clone()));
+            let mut size = 0;
+            for f in &out.files {
+                let bytes = base64::engine::general_purpose::STANDARD.decode(f.base64.trim()).map_err(|_| Error::Invalid(format!("The file {} could not be read.", f.name)))?;
+                size += bytes.len();
+                if size > MOST_FILES {
+                    return Err(Error::Invalid("The files are more than 25 MB together: more than a mail server takes.".into()));
+                }
+                let kind = lettre::message::header::ContentType::parse(f.content_type.as_deref().unwrap_or("application/octet-stream"))
+                    .unwrap_or(lettre::message::header::ContentType::parse("application/octet-stream").expect("a type"));
+                whole = whole.singlepart(lettre::message::Attachment::new(f.name.clone()).body(bytes, kind));
+            }
+            message.multipart(whole)
+        }
+        .map_err(|e| Error::Invalid(format!("The message could not be made ({e}).")))?;
         let wire = self.wire(&account.smtp_host, account.smtp_port, true)?;
         let tls = || TlsParameters::builder(account.smtp_host.clone()).build_rustls().map_err(|e| Error::Other(format!("TLS could not be set up ({e})")));
         let tls = match wire {
@@ -491,9 +854,25 @@ impl Mail {
             .timeout(Some(TAKES_AT_MOST))
             .build();
         transport.send(message).await.map_err(|e| Error::Net(format!("The message was not sent: {} said no ({e}).", account.smtp_host)))?;
-        self.events.append("email.sent", Some(&account.id), json!({ "to": out.to, "subject": out.subject, "characters": out.text.chars().count() }))?;
+        self.events.append("email.sent", Some(&account.id), json!({ "to": out.to, "subject": out.subject, "characters": out.text.chars().count(), "files": out.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>(), "reply": out.in_reply_to.is_some() }))?;
         Ok(())
     }
+}
+
+/// A message kept, as the list shows it.
+fn summary_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
+    Ok(Summary {
+        account: r.get(0)?,
+        folder: r.get(1)?,
+        uid: r.get::<_, i64>(2)? as u32,
+        from: r.get(3)?,
+        to: r.get(4)?,
+        subject: r.get(5)?,
+        date: r.get(6)?,
+        seen: r.get::<_, i64>(7)? == 1,
+        size: r.get::<_, i64>(8)? as u32,
+        flagged: r.get::<_, i64>(9)? == 1,
+    })
 }
 
 /// The inbox as a model is given it: numbered, the newest first.

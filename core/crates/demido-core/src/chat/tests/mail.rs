@@ -13,6 +13,8 @@ async fn mailing(name: &str) -> (World, stand_in::Shared, Session) {
     let inbox = vec![Held {
         uid: 7,
         seen: false,
+        flagged: false,
+        deleted: false,
         raw: stand_in::message(
             "Heron Watch <news@herons.example>",
             "me@example.org",
