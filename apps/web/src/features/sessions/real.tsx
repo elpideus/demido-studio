@@ -29,6 +29,16 @@ function ago(at: number): string {
   return min < 1 ? 'now' : min < 60 ? `${min} min` : min < 60 * 48 ? `${Math.round(min / 60)} h` : `${Math.round(min / 60 / 24)} d`
 }
 
+/** Which part of the list a session sits in, by when it was last used: Today, Yesterday, This week, Earlier. */
+function when(at: number): string {
+  const day = new Date(); day.setHours(0, 0, 0, 0)
+  const start = day.getTime()
+  if (at >= start) return 'Today'
+  if (at >= start - 86_400_000) return 'Yesterday'
+  if (at >= start - 6 * 86_400_000) return 'This week'
+  return 'Earlier'
+}
+
 /** The model a new session starts with: the core picks one on this computer. With none here, the first one
     the person chose elsewhere, named, so that it is their choice and not the core's. */
 export function firstModel(): string | undefined {
@@ -70,6 +80,9 @@ function List() {
   const current = rest?.split('/')[0]
   const navigate = useNavigate()
   const live = useLiveList()
+  const providers = useProviders((p) => p.providers)
+  const remote = chosenModels(providers)
+  const named = (model: string | null | undefined) => (model ? remote.find((r) => r.id === model)?.name ?? model : '')
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null)
   const start = async () => {
@@ -86,8 +99,9 @@ function List() {
         {!list && <Skeleton rows={5} />}
         {list && !list.length && <Empty icon={MessageSquare} title="No sessions yet" />}
         <ul className="d-list" ref={live}>
-          {list?.map((s) => (
+          {list?.map((s, i) => (
             <li key={s.id}>
+              {(i === 0 || when(list[i - 1].updated_at) !== when(s.updated_at)) && <p className="d-list__label">{when(s.updated_at)}</p>}
               <ContextMenu items={[
                 { label: 'Open', lead: <Icon icon={MessageSquare} size="sm" />, onSelect: () => navigate(`/sessions/${s.id}`) },
                 { label: 'Rename…', lead: <Icon icon={Pencil} size="sm" />, onSelect: () => setRenaming({ id: s.id, title: s.title }) },
@@ -97,7 +111,7 @@ function List() {
               ]}>
                 <button type="button" className="d-row" aria-current={s.id === current ? 'true' : undefined} onClick={() => navigate(`/sessions/${s.id}`)}>
                   {s.schedule_id && <span className="d-row__lead"><Icon icon={CalendarClock} size="sm" label="A schedule's session" /></span>}
-                  <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{s.model}</span></span>
+                  <span className="d-row__text"><span className="d-row__title">{s.title}</span><span className="d-row__sub">{named(s.model)}</span></span>
                   <span className="d-row__meta">{ago(s.updated_at)}</span>
                 </button>
               </ContextMenu>
@@ -668,6 +682,18 @@ function Chat() {
   const [panel, setPanel] = useState<'browser' | 'files' | null>(null)
   // A panel leaves the way it came: it stays a moment, sliding out, before the conversation takes its place.
   const [shownPanel, panelLeaving] = useLeaving(panel, 180)
+  // Escape closes the panel beside the conversation, when nothing else (a menu, a dialog, a field) wants it.
+  useEffect(() => {
+    if (!panel) return
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const at = e.target instanceof Element ? e.target : null
+      if (at?.closest('input, textarea, select, [contenteditable="true"], .lb__view') || document.querySelector('[role="menu"], [role="dialog"], [role="alertdialog"]')) return
+      setPanel(null)
+    }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [panel])
   // The page to go back to when the browser opens on nothing: the one a card was opened from, or the last.
   const [resumeAt, setResumeAt] = useState<string | undefined>(undefined)
   const liveThread = useLiveList()
