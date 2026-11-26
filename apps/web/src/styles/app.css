@@ -3018,3 +3018,9 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
   animation: app-shimmer 1.8s var(--d-ease-in-out) infinite;
 }
 @keyframes app-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* Scrolled up in a conversation: a pill at its foot takes you back to the latest. */
+.chat__latest { position: sticky; inset-block-end: var(--d-space-12); display: flex; justify-content: center; height: 0; pointer-events: none; }
+.chat__latest-pill { display: inline-flex; align-items: center; gap: var(--d-space-6); height: 2rem; padding: 0 var(--d-space-12); translate: 0 calc(-100% - var(--d-space-4)); border: var(--d-stroke-hairline) solid var(--d-color-border-default); border-radius: var(--d-radius-full); background: var(--d-color-bg-raised); box-shadow: var(--d-shadow-2); color: var(--d-color-text-secondary); font: inherit; font-size: var(--d-type-caption-size); font-weight: var(--d-font-weight-medium); cursor: pointer; opacity: 0; scale: 0.94; transition: opacity var(--d-duration-fast) var(--d-ease-out), scale var(--d-spring-snappy-duration) var(--d-spring-snappy), background-color var(--d-duration-fast) var(--d-ease-standard), color var(--d-duration-fast) var(--d-ease-standard); }
+.chat__latest[data-shown] .chat__latest-pill { opacity: 1; scale: 1; pointer-events: auto; }
+.chat__latest-pill:hover { background: var(--d-color-bg-raised); color: var(--d-color-text-primary); }
+.chat__latest-pill:active { scale: 0.96; }

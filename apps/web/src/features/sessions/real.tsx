@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { Prose } from '@/ui/prose'
-import { ArrowUp, Brain, CalendarClock, MessageSquare, ChevronDown, Copy, FilePlus, Folder, FolderOpen, Globe, Info, ListChecks, Loader, Mic, MicOff, MoreHorizontal, Pencil, Plus, RotateCcw, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, Wifi, WifiOff, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Brain, CalendarClock, MessageSquare, ChevronDown, Copy, FilePlus, Folder, FolderOpen, Globe, Info, ListChecks, Loader, Mic, MicOff, MoreHorizontal, Pencil, Plus, RotateCcw, ShieldCheck, ShieldEllipsis, ShieldHalf, ShieldOff, Square, Trash2, Volume2, Wifi, WifiOff, type LucideIcon } from 'lucide-react'
 import { Dictation, ReadAloud } from '@/data/voice'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { useLocal } from '@/data/local-models'
@@ -650,6 +650,16 @@ function Chat() {
   const remote = chosenModels(providers)
   const navigate = useNavigate()
   const thread = useRef<HTMLDivElement>(null)
+  const stuck = useRef(true)
+  const [away, setAway] = useState(false)
+  const onScroll = () => {
+    const el = thread.current
+    if (!el) return
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    stuck.current = bottom
+    if (away === bottom) setAway(!bottom)
+  }
+  const toLatest = () => { const el = thread.current; if (el) { stuck.current = true; el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }) } }
   const [told, setTold] = useState(false)
   const [sure, setSure] = useState(false)
   const [renamingThis, setRenamingThis] = useState(false)
@@ -676,10 +686,13 @@ function Chat() {
   const doing = last ? working[last.id] : undefined
   const height = (last ? (writing[last.id]?.text.length ?? 0) + (writing[last.id]?.thought.length ?? 0) : 0) + (detail?.messages.length ?? 0)
     + (doing?.steps?.length ?? 0) + (doing?.tasks?.reduce((n, t) => n + 1 + t.steps.length + (t.result?.length ?? 0), 0) ?? 0)
+  // Followed only while the person is at the bottom: scrolled up to read, they stay where they are, and a pill
+  // takes them back down.
   useEffect(() => {
     const el = thread.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (el && stuck.current) el.scrollTop = el.scrollHeight
   }, [height, id])
+  useEffect(() => { stuck.current = true; setAway(false); const el = thread.current; if (el) el.scrollTop = el.scrollHeight }, [id])
   if (listed && !known && !detail) return <Navigate to="/sessions" replace />
   if (!detail) return <section className="chat" aria-label="Conversation" />
   const { session, messages } = detail
@@ -729,7 +742,7 @@ function Chat() {
             { label: 'Delete the session', lead: <Icon icon={Trash2} size="sm" />, danger: true, onSelect: () => setSure(true) },
           ]} />
         </header>
-        <div className="chat__thread" ref={thread}>
+        <div className="chat__thread" ref={thread} onScroll={onScroll}>
           <div className="chat__col" ref={liveThread}>
             {session.schedule_id && <ScheduleStrip id={session.schedule_id} />}
             {!messages.length && (
@@ -754,6 +767,9 @@ function Chat() {
               </div>
             ))}
             {account && covered >= (messages.at(-1)?.seq ?? 0) && <Cut account={account} />}
+            <div className="chat__latest" data-shown={away ? '' : undefined}>
+              <button type="button" className="chat__latest-pill" tabIndex={away ? 0 : -1} aria-hidden={away ? undefined : true} onClick={toLatest}><Icon icon={ArrowDown} size="sm" />Latest</button>
+            </div>
           </div>
         </div>
         <Composer id={id} answering={answering} tools={Boolean(detail.tools_told)} program={program}>
