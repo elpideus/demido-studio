@@ -234,6 +234,12 @@ Also done on 2026-11-26, by the owner's direction: the session's browser live be
 as a browser, with tabs, an address bar, the mouse and the keys, and marks (point, draw, box, note) sent to the
 message box as words (DECISIONS Z12 to Z17).
 
+Also done on the night of 2026-11-26, by the owner's direction ("better, cleaner, more professional"): the
+pointer over what can be pressed and the page's own cursor in the live browser (A14); Apple-style motion across
+the window (A15); right-click menus on what can be acted on (A16); one line per screen with the rest behind an
+ⓘ, empty states drawn, facts that read as facts (A17); a desktop app's manners: titles, a few keys, list shapes
+while loading, a pill back to the latest (A18); and no empty window after an update (A19).
+
 Next, by the owner's direction of 2026-11-23: items 6, 8, 9, 7, 5 and 10, in that order, skipping what needs
 the owner. The work list, checked as it goes, is `docs/TODO.md`. Agents wait.
 
