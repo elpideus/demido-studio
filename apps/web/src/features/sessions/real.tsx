@@ -658,6 +658,8 @@ function Chat() {
   const [panel, setPanel] = useState<'browser' | 'files' | null>(null)
   // A panel leaves the way it came: it stays a moment, sliding out, before the conversation takes its place.
   const [shownPanel, panelLeaving] = useLeaving(panel, 180)
+  // The page to go back to when the browser opens on nothing: the one a card was opened from, or the last.
+  const [resumeAt, setResumeAt] = useState<string | undefined>(undefined)
   const liveThread = useLiveList()
   const [wide, setWide] = useState(false)
   // An artifact opened from anywhere opens in its session's files.
@@ -666,7 +668,7 @@ function Chat() {
   useEffect(() => {
     if (focus && focus.session === id) { setArtifact({ id: focus.artifact, n: focus.n }); setPanel('files'); useFilesFocus.getState().clear() }
   }, [focus, id])
-  useEffect(() => { setTold(false); setSure(false); setPanel(null); setWide(false); setArtifact(null) }, [id])
+  useEffect(() => { setTold(false); setSure(false); setPanel(null); setWide(false); setArtifact(null); setResumeAt(undefined) }, [id])
   // Only a session the list knows is asked for: the address may still name one that is gone, or one of the preview's.
   useEffect(() => { if (known) void readSession(id) }, [id, known])
   // Follow the answer down as it is written.
@@ -696,7 +698,7 @@ function Chat() {
   const offLabel = program ? 'Default' : always ? 'Least' : 'Off'
   const internet = Boolean(detail.tools_told?.includes('search_web'))
   const shots = shotsOf(messages)
-  const openPage = (_: Shot) => setPanel('browser')
+  const openPage = (shot: Shot) => { setResumeAt(shot.address || undefined); setPanel('browser') }
   const toggle = (p: 'browser' | 'files') => { setPanel(panel === p ? null : p); setWide(false) }
 
   const modelState = (m: string) => models.find((x) => x.id === m)?.state
@@ -765,7 +767,7 @@ function Chat() {
           {!program && <Room id={id} context={detail.context} busy={answering} canShorten={messages.filter((m) => m.seq > covered).length >= 4} />}
         </Composer>
       </section>
-      {shownPanel === 'browser' && <LiveBrowser leaving={panelLeaving} session={id} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)} />}
+      {shownPanel === 'browser' && <LiveBrowser leaving={panelLeaving} resume={resumeAt ?? shots.at(-1)?.address} session={id} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)} />}
       {shownPanel === 'files' && <FolderPanel leaving={panelLeaving} session={id} folder={session.folder ?? null} focus={artifact} wide={wide} onWide={() => setWide(!wide)} onClose={() => setPanel(null)}
         empty={<><p>No folder.</p><FolderForm id={id} folder={null} sandbox={detail.sandbox} /></>} />}
       {told && <Told detail={detail} onClose={() => setTold(false)} />}

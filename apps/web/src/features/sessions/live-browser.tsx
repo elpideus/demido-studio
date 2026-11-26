@@ -52,7 +52,7 @@ const TOOLS: { tool: Tool; icon: typeof Pencil; label: string }[] = [
   { tool: 'note', icon: Type, label: 'A note' },
 ]
 
-export function LiveBrowser({ session, wide, onWide, onClose, leaving }: { session: string; wide: boolean; onWide: () => void; onClose: () => void; leaving?: boolean }) {
+export function LiveBrowser({ session, wide, onWide, onClose, leaving, resume }: { session: string; wide: boolean; onWide: () => void; onClose: () => void; leaving?: boolean; resume?: string }) {
   const socket = useRef<WebSocket | null>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const view = useRef<HTMLDivElement>(null)
@@ -76,6 +76,9 @@ export function LiveBrowser({ session, wide, onWide, onClose, leaving }: { sessi
   const asks = useRef(new Map<number, (d: Described | null) => void>())
   const nextAsk = useRef(1)
   const put = useInsert((s) => s.put)
+  // Where the model last was, to go back to when the session's browser comes up empty (it closes when idle).
+  const resumeAt = useRef(resume)
+  useEffect(() => { resumeAt.current = resume }, [resume])
   const tab = tabs.find((t) => t.id === front)
 
   const send = (message: object) => { if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(message)) }
@@ -109,6 +112,9 @@ export function LiveBrowser({ session, wide, onWide, onClose, leaving }: { sessi
       } else if (said.type === 'tabs') {
         setTabs(said.tabs)
         setFront(said.front)
+        const only = said.tabs.length === 1 ? (said.tabs[0] as TabFacts) : null
+        if (resumeAt.current && only && blank(only.address)) { send({ type: 'go', address: resumeAt.current }) }
+        resumeAt.current = undefined
       } else if (said.type === 'problem') {
         if (/not downloaded/i.test(said.message)) setState('none')
         setProblem(said.message)
