@@ -366,12 +366,12 @@ export function InspectorToggle({ open, onToggle }: { open: boolean; onToggle: (
 export function About({ children, label = 'About this', side = 'bottom' }: { children: ReactNode; label?: string; side?: 'top' | 'bottom' | 'right' | 'left' }) {
   return (
     <BasePopover.Root>
-      <BasePopover.Trigger className="d-button d-button--ghost d-button--sm d-button--icon app-about__button" aria-label={label}>
+      <BasePopover.Trigger className="d-button d-button--ghost d-button--sm d-button--icon d-about__button" aria-label={label}>
         <Icon icon={Info} size="sm" />
       </BasePopover.Trigger>
       <BasePopover.Portal>
         <BasePopover.Positioner side={side} align="start" sideOffset={6} className="app-layer">
-          <BasePopover.Popup className="d-menu app-pop app-about">{children}</BasePopover.Popup>
+          <BasePopover.Popup className="d-menu app-pop d-about">{children}</BasePopover.Popup>
         </BasePopover.Positioner>
       </BasePopover.Portal>
     </BasePopover.Root>
@@ -381,11 +381,11 @@ export function About({ children, label = 'About this', side = 'bottom' }: { chi
 /** While a list is read: the shape of what is coming, shimmering calmly. Says "Loading" to a screen reader. */
 export function Skeleton({ rows = 4, lead = false }: { rows?: number; lead?: boolean }) {
   return (
-    <div className="app-skeleton" role="status" aria-label="Loading">
+    <div className="d-skeleton" role="status" aria-label="Loading">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="app-skeleton__row" style={{ '--_w': `${[78, 62, 70, 54, 66][i % 5]}%` } as CSSProperties}>
-          {lead && <span className="app-skeleton__lead" />}
-          <span className="app-skeleton__lines"><span /><span /></span>
+        <div key={i} className="d-skeleton__row" style={{ '--_w': `${[78, 62, 70, 54, 66][i % 5]}%` } as CSSProperties}>
+          {lead && <span className="d-skeleton__lead" />}
+          <span className="d-skeleton__lines"><span /><span /></span>
         </div>
       ))}
     </div>
@@ -395,11 +395,11 @@ export function Skeleton({ rows = 4, lead = false }: { rows?: number; lead?: boo
 /** Nothing here yet: a picture of what would be here, what it is in a few words, and the way to make one. */
 export function Empty({ icon, title, text, action, compact }: { icon: LucideIcon; title: string; text?: ReactNode; action?: ReactNode; compact?: boolean }) {
   return (
-    <div className={cx('app-blank', compact && 'app-blank--compact')}>
-      <span className="app-blank__art" aria-hidden="true"><Icon icon={icon} size="xl" /></span>
-      <p className="app-blank__title">{title}</p>
-      {text && <p className="app-blank__text">{text}</p>}
-      {action && <div className="app-blank__action">{action}</div>}
+    <div className={cx('d-empty', compact && 'd-empty--compact')}>
+      <span className="d-empty__art" aria-hidden="true"><Icon icon={icon} size="xl" /></span>
+      <p className="d-empty__title">{title}</p>
+      {text && <p className="d-empty__text">{text}</p>}
+      {action && <div className="d-empty__action">{action}</div>}
     </div>
   )
 }

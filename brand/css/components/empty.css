@@ -1,0 +1,68 @@
+/* Empty: nothing here yet, drawn rather than written. An icon in a soft circle, a short title, one line, and
+   the way to make one.
+   <div class="d-empty">
+     <span class="d-empty__art" aria-hidden="true"><span class="d-icon d-icon--xl">…</span></span>
+     <p class="d-empty__title">No schedules yet</p>
+     <p class="d-empty__text">Make one from a sentence.</p>
+     <div class="d-empty__action"><button class="d-button">New schedule</button></div>
+   </div>
+   .d-empty--compact: one row inside a section, the action beside it, in a dashed frame. */
+@layer demido.components {
+  .d-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--d-space-8);
+    padding: var(--d-space-40) var(--d-space-24);
+    text-align: center;
+  }
+  .d-empty__art {
+    display: grid;
+    place-items: center;
+    width: 4rem;
+    height: 4rem;
+    margin-block-end: var(--d-space-4);
+    border-radius: var(--d-radius-full);
+    background: var(--d-color-fill-control);
+    box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline);
+    color: var(--d-color-text-secondary);
+  }
+  .d-empty__title {
+    margin: 0;
+    color: var(--d-color-text-primary);
+    font-weight: var(--d-font-weight-medium);
+  }
+  .d-empty__text {
+    max-width: 26rem;
+    margin: 0;
+    color: var(--d-color-text-tertiary);
+    font-size: var(--d-type-caption-size);
+    text-wrap: pretty;
+  }
+  .d-empty__action {
+    margin-block-start: var(--d-space-8);
+  }
+  .d-empty--compact {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "art title action" "art text action";
+    align-items: center;
+    justify-items: start;
+    column-gap: var(--d-space-12);
+    row-gap: var(--d-space-2);
+    padding: var(--d-space-12) var(--d-space-16);
+    border: var(--d-stroke-hairline) dashed var(--d-color-border-default);
+    border-radius: var(--d-radius-lg);
+    text-align: start;
+  }
+  .d-empty--compact .d-empty__art {
+    grid-area: art;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin: 0;
+  }
+  .d-empty--compact .d-empty__art .d-icon {
+    --d-icon-size: var(--d-size-icon-lg);
+  }
+  .d-empty--compact .d-empty__title { grid-area: title; align-self: end; }
+  .d-empty--compact .d-empty__text { grid-area: text; align-self: start; max-width: none; }
+  .d-empty--compact .d-empty__action { grid-area: action; margin: 0; }
+}

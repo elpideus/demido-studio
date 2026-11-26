@@ -2964,26 +2964,10 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
 /* ───────── one line per screen, the rest one press away; nothing yet, drawn (DECISIONS A17) ───────── */
 .app-page__title, .app-section__title { display: inline-flex; align-items: center; gap: var(--d-space-4); }
 .app-page__lead { max-width: 34rem; text-wrap: pretty; }
-.app-about__button { color: var(--d-color-text-tertiary); }
-.app-section__title .app-about__button { --_h: 1.25rem; margin-block: calc(-1 * var(--d-space-4)); }
-.app-about { max-width: 22rem; padding: var(--d-space-12) var(--d-space-16); color: var(--d-color-text-secondary); font-size: var(--d-type-caption-size); line-height: 1.5; text-wrap: pretty; }
-.app-about p + p { margin-block-start: var(--d-space-8); }
-.app-about strong { color: var(--d-color-text-primary); font-weight: var(--d-font-weight-medium); }
-.app-blank { display: grid; justify-items: center; gap: var(--d-space-8); padding: var(--d-space-40) var(--d-space-24); text-align: center; }
-.app-blank__art { display: grid; place-items: center; width: 4rem; height: 4rem; margin-block-end: var(--d-space-4); border-radius: var(--d-radius-full); background: var(--d-color-fill-control); box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline); color: var(--d-color-text-secondary); }
-.app-blank__title { margin: 0; color: var(--d-color-text-primary); font-weight: var(--d-font-weight-medium); }
-.app-blank__text { max-width: 26rem; margin: 0; color: var(--d-color-text-tertiary); font-size: var(--d-type-caption-size); text-wrap: pretty; }
-.app-blank__action { margin-block-start: var(--d-space-8); }
 .app-section__head { align-items: center; }
 .app-section__action { margin-inline-start: auto; }
 .app-section__head > .d-type-caption + .app-section__action { margin-inline-start: 0; }
-.app-blank--compact { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "art title action" "art text action"; align-items: center; justify-items: start; column-gap: var(--d-space-12); row-gap: var(--d-space-2); padding: var(--d-space-12) var(--d-space-16); border: var(--d-stroke-hairline) dashed var(--d-color-border-default); border-radius: var(--d-radius-lg); text-align: start; }
-.app-blank--compact .app-blank__art { grid-area: art; width: 2.5rem; height: 2.5rem; margin: 0; }
-.app-blank--compact .app-blank__art .d-icon { --d-icon-size: var(--d-size-icon-lg); }
-.app-blank--compact .app-blank__title { grid-area: title; align-self: end; }
-.app-blank--compact .app-blank__text { grid-area: text; align-self: start; max-width: none; }
-.app-blank--compact .app-blank__action { grid-area: action; margin: 0; }
-.app-brief .app-about__button { --_h: 1.25rem; vertical-align: -0.3em; margin-inline-start: var(--d-space-2); }
+.app-brief .d-about__button { --_h: 1.25rem; vertical-align: -0.3em; margin-inline-start: var(--d-space-2); }
 /* Voice mode, at a glance: what state it is in, the one thing to do, and how it behaves in three lines. */
 .voice-hero__top { display: flex; align-items: center; gap: var(--d-space-16); }
 .voice-hero__art { display: grid; flex: none; place-items: center; width: 3.5rem; height: 3.5rem; border-radius: var(--d-radius-full); background: var(--d-color-fill-control); color: var(--d-color-text-secondary); }
@@ -2993,12 +2977,12 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
 .voice-hero__sub { display: flex; align-items: center; gap: var(--d-space-2); margin: 0; color: var(--d-color-text-secondary); font-size: var(--d-type-caption-size); font-variant-numeric: tabular-nums; }
 .voice-hero__facts { display: flex; flex-wrap: wrap; gap: var(--d-space-8) var(--d-space-24); margin: 0; padding: var(--d-space-12) 0 0; border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline); list-style: none; color: var(--d-color-text-secondary); font-size: var(--d-type-caption-size); }
 .voice-hero__facts li { display: inline-flex; align-items: center; gap: var(--d-space-6); }
-.voice-hero__facts .app-about__button { --_h: 1.25rem; }
+.voice-hero__facts .d-about__button { --_h: 1.25rem; }
 /* Facts: the name on the left, the value beside it, both on one left edge; a long value wraps under itself. */
 .app-facts { gap: var(--d-space-6); }
 .app-facts > div { display: grid; grid-template-columns: minmax(6rem, 11rem) minmax(0, 1fr); column-gap: var(--d-space-16); align-items: baseline; justify-content: stretch; }
 .app-facts dt { display: inline-flex; align-items: center; gap: var(--d-space-2); }
-.app-facts dt .app-about__button { --_h: 1.25rem; margin-block: calc(-1 * var(--d-space-4)); }
+.app-facts dt .d-about__button { --_h: 1.25rem; margin-block: calc(-1 * var(--d-space-4)); }
 .app-facts dd { color: var(--d-color-text-primary); font-family: inherit; font-size: var(--d-type-body-size); font-weight: inherit; text-align: start; overflow-wrap: anywhere; }
 /* The rail's selection glides from one screen to the next. */
 .app-rail__scroll { position: relative; }
@@ -3006,18 +2990,6 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
 .app-rail__pill[data-moved] { transition: transform var(--d-spring-default-duration) var(--d-spring-default), height var(--d-spring-default-duration) var(--d-spring-default); }
 .app-rail__item { position: relative; z-index: 1; }
 .app-rail__scroll[data-pill] .app-rail__item.active { background: transparent; }
-/* While a list is read: its shape, with one slow, calm shimmer passing over it. */
-.app-skeleton { display: grid; gap: var(--d-space-4); padding: var(--d-space-4) var(--d-space-8); }
-.app-skeleton__row { display: flex; align-items: center; gap: var(--d-space-10, 0.625rem); min-height: 2.5rem; }
-.app-skeleton__lead { flex: none; width: 1.25rem; height: 1.25rem; border-radius: var(--d-radius-full); }
-.app-skeleton__lines { display: grid; flex: 1; gap: var(--d-space-6); }
-.app-skeleton__lines > span { height: 0.5rem; width: var(--_w); border-radius: var(--d-radius-full); }
-.app-skeleton__lines > span + span { width: calc(var(--_w) * 0.6); height: 0.375rem; }
-.app-skeleton :is(.app-skeleton__lead, .app-skeleton__lines > span) {
-  background: linear-gradient(90deg, var(--d-color-fill-control) 0%, var(--d-color-fill-hover) 50%, var(--d-color-fill-control) 100%) 0 0 / 300% 100%;
-  animation: app-shimmer 1.8s var(--d-ease-in-out) infinite;
-}
-@keyframes app-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 /* Scrolled up in a conversation: a pill at its foot takes you back to the latest. */
 .chat__latest { position: sticky; inset-block-end: var(--d-space-12); display: flex; justify-content: center; height: 0; pointer-events: none; }
 .chat__latest-pill { display: inline-flex; align-items: center; gap: var(--d-space-6); height: 2rem; padding: 0 var(--d-space-12); translate: 0 calc(-100% - var(--d-space-4)); border: var(--d-stroke-hairline) solid var(--d-color-border-default); border-radius: var(--d-radius-full); background: var(--d-color-bg-raised); box-shadow: var(--d-shadow-2); color: var(--d-color-text-secondary); font: inherit; font-size: var(--d-type-caption-size); font-weight: var(--d-font-weight-medium); cursor: pointer; opacity: 0; scale: 0.94; transition: opacity var(--d-duration-fast) var(--d-ease-out), scale var(--d-spring-snappy-duration) var(--d-spring-snappy), background-color var(--d-duration-fast) var(--d-ease-standard), color var(--d-duration-fast) var(--d-ease-standard); }
