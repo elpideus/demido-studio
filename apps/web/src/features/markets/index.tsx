@@ -12,45 +12,18 @@
    then do everything automatically. See DECISIONS, section M. In the preview the account is made up. */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Bell, ChartCandlestick, ChevronDown, Code, Copy, Eraser, Eye, EyeOff, LineChart, Minus, MousePointer2, Play, Plus, RectangleHorizontal, Ruler, Search, Slash, Star, Trash2, X } from 'lucide-react'
+import { Bell, ChartCandlestick, ChevronDown, Code, Copy, Eye, EyeOff, LineChart, Play, Plus, Search, Star, Trash2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { useCore } from '@/data/core'
 import { RealMarkets } from './real'
 import { setSetting, toast, useSetting } from '@/data/store'
 import { Button, Dialog, Facts, Glyph, Icon, InspectorToggle, Menu, NotBuilt, Segmented, Select, Signal, Tip, cx, useInspector, Brief } from '@/ui'
-import { Chart, fmt } from './chart'
-import type { ChartType, Drawing, Shown, Tool } from './chart'
+import { CANDLE_OPTIONS, Chart, TOOLS, TYPES, fmt, useCandleColours } from './chart'
+import type { CandleStyle, ChartType, Drawing, Shown, Tool } from './chart'
 import { ACCOUNT, DRAW, KIND_LABEL, LOCAL, MODEL_RUN, MODEL_SCRIPT, PINE, QUICK_TF, SIGN_IN_RUN, TIMEFRAMES, TV_BUILT_IN, TV_BUILT_IN_TOTAL, TV_COMMUNITY, TV_FAVOURITES, TV_MINE, UNIVERSE, WATCHLIST_DEFAULT, series } from './data'
 import type { Engine, Entry, Kind, OnChart, PineScript, RunStep, Shelf } from './data'
 
-type CandleStyle = 'classic' | 'hollow' | 'custom'
-const CANDLE_OPTIONS: { value: CandleStyle; label: string }[] = [
-  { value: 'classic', label: 'Green and red' },
-  { value: 'hollow', label: 'Hollow and solid' },
-  { value: 'custom', label: 'Custom' },
-]
-const TYPES: { value: ChartType; label: string }[] = [
-  { value: 'candles', label: 'Candles' }, { value: 'bars', label: 'Bars' }, { value: 'line', label: 'Line' }, { value: 'area', label: 'Area' }, { value: 'heikin', label: 'Heikin Ashi' },
-]
-const TOOLS: { value: Tool; label: string; icon: LucideIcon }[] = [
-  { value: 'cursor', label: 'Move and zoom', icon: MousePointer2 }, { value: 'trend', label: 'Trend line: drag', icon: Slash }, { value: 'hline', label: 'Horizontal line: click', icon: Minus },
-  { value: 'rect', label: 'Rectangle: drag', icon: RectangleHorizontal }, { value: 'measure', label: 'Measure: drag', icon: Ruler }, { value: 'erase', label: 'Erase: click a drawing', icon: Eraser },
-]
-
-/** The two candle colours, as CSS variables for the chart and the watchlist. */
-function useCandleColours() {
-  const style = useSetting<CandleStyle>('markets.candles', 'classic')
-  const up = useSetting('markets.up', '#26a69a')
-  const down = useSetting('markets.down', '#ef5350')
-  const vars =
-    style === 'classic'
-      ? { '--mk-up': 'var(--d-color-success-base)', '--mk-down': 'var(--d-color-danger-base)' }
-      : style === 'custom'
-        ? { '--mk-up': up, '--mk-down': down }
-        : { '--mk-up': 'var(--d-color-text-primary)', '--mk-down': 'var(--d-color-text-secondary)' }
-  return { style, up, down, vars: vars as CSSProperties }
-}
 function CandleColours() {
   const { style, up, down } = useCandleColours()
   if (style !== 'custom') return <span className="d-type-caption d-text-tertiary">Set "Candle colours" to Custom first.</span>

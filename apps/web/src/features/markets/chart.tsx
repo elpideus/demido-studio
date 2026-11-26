@@ -3,7 +3,10 @@
    Indices are positions in the whole kept history (`all`), so drawings stay put when you zoom or move. */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { Eye, EyeOff, Plus, X } from 'lucide-react'
+import { Eraser, Eye, EyeOff, Minus, MousePointer2, Plus, RectangleHorizontal, Ruler, Slash, X } from 'lucide-react'
+import type { CSSProperties } from 'react'
+import type { LucideIcon } from 'lucide-react'
+import { useSetting } from '@/data/store'
 import { Icon } from '@/ui'
 import { HISTORY, WARM_UP, heikin, timeLabel, timeOf } from './data'
 import type { Candle, Drawer, Line, OnChart, Plot, Timeframe } from './data'
@@ -14,6 +17,34 @@ export interface Point { i: number; p: number }
 export interface Drawing { id: number; type: 'trend' | 'hline' | 'rect'; a: Point; b: Point }
 export interface Shown extends OnChart { drawer: Drawer; refused?: boolean; canLocal?: boolean }
 export const fmt = (v: number) => (Math.abs(v) < 10 ? v.toFixed(4) : Math.abs(v) < 1000 ? v.toFixed(2) : v.toLocaleString(undefined, { maximumFractionDigits: 0 }))
+
+export type CandleStyle = 'classic' | 'hollow' | 'custom'
+export const CANDLE_OPTIONS: { value: CandleStyle; label: string }[] = [
+  { value: 'classic', label: 'Green and red' },
+  { value: 'hollow', label: 'Hollow and solid' },
+  { value: 'custom', label: 'Custom' },
+]
+export const TYPES: { value: ChartType; label: string }[] = [
+  { value: 'candles', label: 'Candles' }, { value: 'bars', label: 'Bars' }, { value: 'line', label: 'Line' }, { value: 'area', label: 'Area' }, { value: 'heikin', label: 'Heikin Ashi' },
+]
+export const TOOLS: { value: Tool; label: string; icon: LucideIcon }[] = [
+  { value: 'cursor', label: 'Move and zoom', icon: MousePointer2 }, { value: 'trend', label: 'Trend line: drag', icon: Slash }, { value: 'hline', label: 'Horizontal line: click', icon: Minus },
+  { value: 'rect', label: 'Rectangle: drag', icon: RectangleHorizontal }, { value: 'measure', label: 'Measure: drag', icon: Ruler }, { value: 'erase', label: 'Erase: click a drawing', icon: Eraser },
+]
+
+/** The two candle colours, as CSS variables for the chart and the watchlist. */
+export function useCandleColours() {
+  const style = useSetting<CandleStyle>('markets.candles', 'classic')
+  const up = useSetting('markets.up', '#26a69a')
+  const down = useSetting('markets.down', '#ef5350')
+  const vars =
+    style === 'classic'
+      ? { '--mk-up': 'var(--d-color-success-base)', '--mk-down': 'var(--d-color-danger-base)' }
+      : style === 'custom'
+        ? { '--mk-up': up, '--mk-down': down }
+        : { '--mk-up': 'var(--d-color-text-primary)', '--mk-down': 'var(--d-color-text-secondary)' }
+  return { style, up, down, vars: vars as CSSProperties }
+}
 
 type Scale = (v: number) => number
 
@@ -96,16 +127,35 @@ interface Props {
   onDrawings: (d: Drawing[]) => void
   hideDrawings: boolean
   alerts: { id: number; price: number }[]
-  onAlert: (price: number) => void
+  /** Where alerts can be set: without it, the chart offers none. */
+  onAlert?: (price: number) => void
   title: string
   /** Signed in to TradingView: indicators are split between two engines, so each one is labelled. */
   split: boolean
   onHide: (key: string) => void
   onRemove: (key: string) => void
   onLocal: (key: string) => void
+  /** Real candles: when each began (ms), for the time axis in the person's own time. Without it, made-up times. */
+  times?: number[]
+  /** Candles before the first one shown, kept only so slow indicators have values (the preview's warm-up). */
+  warm?: number
+  /** Real prices, said so to a screen reader. */
+  real?: boolean
 }
 
-export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings, onDrawings, hideDrawings, alerts, onAlert, title, split, onHide, onRemove, onLocal }: Props) {
+/** A real candle's time, in the person's own time zone, as the axis and the crosshair say it. */
+function realLabel(t: number, minutes: number, long = false): string {
+  const d = new Date(t)
+  const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  const clock = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (minutes >= 10080) return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' })
+  if (minutes >= 1440) return long ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : day
+  return long ? `${day}, ${clock}` : clock === '00:00' ? day : clock
+}
+
+export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings, onDrawings, hideDrawings, alerts, onAlert, title, split, onHide, onRemove, onLocal, times, warm = WARM_UP, real }: Props) {
+  const history = times ? Math.max(24, all.length) : HISTORY
+  const label = (i: number, long = false) => (times ? realLabel(times[Math.max(0, Math.min(times.length - 1, i))], tf.minutes, long) : timeLabel(timeOf(i, all.length, tf), tf, long))
   const [box, size] = useSize<HTMLDivElement>()
   const [view, setView] = useState({ end: all.length + 6, count: 120 })
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
@@ -126,7 +176,7 @@ export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings
   const mainH = Math.max(90, size.h - TIME - panes.length * paneH)
   const start = view.end - view.count
   const step = W / view.count
-  const first = Math.max(start, WARM_UP), last = Math.max(first + 1, Math.min(view.end, all.length))
+  const first = Math.max(start, warm), last = Math.max(first + 1, Math.min(view.end, all.length))
   const X: Scale = (i) => (i - start + 0.5) * step
   const vis: number[] = []
   for (let i = first; i < last; i++) vis.push(i)
@@ -142,8 +192,8 @@ export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings
   const newest = data[all.length - 1]
 
   const clamp = (end: number, count: number) => {
-    const c = Math.round(Math.max(24, Math.min(HISTORY, count)))
-    return { count: c, end: Math.round(Math.max(WARM_UP + Math.min(c, 24), Math.min(all.length + Math.round(c * 0.4), end))) }
+    const c = Math.round(Math.max(24, Math.min(history, count)))
+    return { count: c, end: Math.round(Math.max(warm + Math.min(c, 24), Math.min(all.length + Math.round(c * 0.4), end))) }
   }
   const local = (e: ReactPointerEvent | ReactWheelEvent) => {
     const r = box.current!.getBoundingClientRect()
@@ -187,7 +237,7 @@ export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings
     const f = Math.min(local(e).x, W) / W
     const zoom = e.deltaY > 0 ? 1.18 : 1 / 1.18
     setView((v) => {
-      const count = Math.max(24, Math.min(HISTORY, v.count * zoom))
+      const count = Math.max(24, Math.min(history, v.count * zoom))
       const under = v.end - v.count + f * v.count
       return clamp(under - f * count + count, count)
     })
@@ -203,7 +253,7 @@ export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings
   return (
     <div className="mk__box" ref={box} data-candles={hollow && type === 'candles' ? 'hollow' : undefined} data-tool={tool} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={() => setHover(null)} onWheel={wheel}>
       {size.w > 0 && (
-        <svg className="mk__svg" width={size.w} height={size.h} role="img" aria-label={`${title}: chart of made-up prices with ${shown.length} indicators`}>
+        <svg className="mk__svg" width={size.w} height={size.h} role="img" aria-label={`${title}: chart of ${real ? '' : 'made-up '}prices with ${shown.length} indicators`}>
           <defs>
             <clipPath id="mk-main"><rect width={W} height={mainH} /></clipPath>
             <linearGradient id="mk-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="currentColor" stopOpacity="0.28" /><stop offset="1" stopColor="currentColor" stopOpacity="0" /></linearGradient>
@@ -318,13 +368,13 @@ export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings
           })}
 
           <line className="mk__rule" x1={0} x2={size.w} y1={size.h - TIME} y2={size.h - TIME} />
-          {vis.filter((i) => i % everyLabel === 0).map((i) => <text key={i} className="mk__tick" x={X(i)} y={size.h - 7} textAnchor="middle">{timeLabel(timeOf(i, all.length, tf), tf)}</text>)}
+          {vis.filter((i) => i % everyLabel === 0).map((i) => <text key={i} className="mk__tick" x={X(i)} y={size.h - 7} textAnchor="middle">{label(i)}</text>)}
 
           {inside && !drag.current && (
             <g className="mk__cross">
               <line x1={X(at)} x2={X(at)} y1={0} y2={size.h - TIME} />
               <rect className="mk__tag" x={Math.max(0, Math.min(W - 112, X(at) - 56))} y={size.h - TIME + 2} width={112} height={18} rx={3} />
-              <text className="mk__tick mk__tick--tag" x={Math.max(56, Math.min(W - 56, X(at)))} y={size.h - 7} textAnchor="middle">{timeLabel(timeOf(at, all.length, tf), tf, true)}</text>
+              <text className="mk__tick mk__tick--tag" x={Math.max(56, Math.min(W - 56, X(at)))} y={size.h - 7} textAnchor="middle">{label(at, true)}</text>
               {inside.y <= mainH && (
                 <>
                   <line x1={0} x2={W} y1={inside.y} y2={inside.y} />
@@ -336,7 +386,7 @@ export function Chart({ all, tf, type, hollow, shown, tool, onToolDone, drawings
           )}
         </svg>
       )}
-      {inside && inside.y <= mainH && tool === 'cursor' && !drag.current && (
+      {inside && inside.y <= mainH && tool === 'cursor' && !drag.current && onAlert && (
         <button type="button" className="mk__plus" style={{ left: W - 22, top: inside.y - 10 }} aria-label={`Add an alert at ${fmt(P(inside.y))}`} onClick={() => onAlert(P(inside.y))}><Icon icon={Plus} size="sm" /></button>
       )}
       <div className="mk__legend">

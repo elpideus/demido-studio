@@ -2996,3 +2996,37 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
 .chat__latest[data-shown] .chat__latest-pill { opacity: 1; scale: 1; pointer-events: auto; }
 .chat__latest-pill:hover { background: var(--d-color-bg-raised); color: var(--d-color-text-primary); }
 .chat__latest-pill:active { scale: 0.96; }
+
+/* ───────── Markets, laid out as TradingView lays out a chart (DECISIONS M20) ─────────
+   The search and timeframes along the top, drawing tools down the left, the chart, the watchlist down the right
+   with the symbol in detail under it, and the Pine editor below the chart. */
+.mkr { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; }
+.mkr[data-side] { grid-template-columns: minmax(0, 1fr) 19rem; }
+.mkr__top { display: flex; align-items: center; gap: var(--d-space-10, 0.625rem); min-height: 3.25rem; padding: var(--d-space-8) var(--d-space-12); border-block-end: var(--d-stroke-hairline) solid var(--d-color-border-hairline); }
+.mkr__find { position: relative; width: min(18rem, 40%); flex: none; }
+.mkr__find .d-input-wrap { width: 100%; }
+.mkr__hits { position: absolute; inset-block-start: calc(100% + var(--d-space-4)); inset-inline-start: 0; z-index: var(--d-z-dropdown); width: min(28rem, 80vw); max-height: 24rem; margin: 0; padding: var(--d-space-4); overflow-y: auto; list-style: none; }
+.mkr__hit { display: flex; align-items: center; gap: var(--d-space-4); border-radius: var(--d-radius-md); }
+.mkr__hit[data-at] { background: var(--d-color-fill-hover); }
+.mkr__hit-name { display: flex; flex: 1; align-items: center; gap: var(--d-space-8); min-width: 0; padding: var(--d-space-6) var(--d-space-8); border: 0; background: none; color: var(--d-color-text-primary); font: inherit; text-align: start; cursor: pointer; }
+.mkr__hit-name .d-text-tertiary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--d-type-caption-size); }
+.mkr__none { padding: var(--d-space-12); color: var(--d-color-text-tertiary); font-size: var(--d-type-caption-size); }
+.mkr__name { display: inline-flex; align-items: baseline; gap: var(--d-space-8); min-width: 0; white-space: nowrap; }
+.mkr__name .d-text-tertiary { overflow: hidden; text-overflow: ellipsis; font-size: var(--d-type-caption-size); }
+.mkr__price { font-size: var(--d-type-headline-size); font-variant-numeric: tabular-nums; }
+.mkr__cover { display: grid; place-content: center; padding: var(--d-space-24); }
+.mkr__cover .d-skeleton { width: min(28rem, 80%); }
+.mkr__side { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; border-inline-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline); background: var(--d-color-bg-surface); }
+.mkr__watch { min-height: 0; padding: 0 var(--d-space-6); overflow-y: auto; scrollbar-width: thin; }
+.mkr__row { padding-inline-end: var(--d-space-24); }
+.mkr__quote { display: grid; justify-items: end; gap: var(--d-space-2); font-variant-numeric: tabular-nums; }
+.mkr__quote .mk__change { font-size: var(--d-type-caption-size); }
+.mk__change:not([data-up]) { color: var(--mk-down); }
+.mkr__details { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--d-space-8); padding: var(--d-space-12) var(--d-space-16) var(--d-space-16); border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline); }
+.mkr__details-head { display: flex; justify-content: space-between; margin: 0; font-size: var(--d-type-caption-size); }
+.mkr__big { margin: 0; font-size: 1.5rem; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.mkr__big .mk__change { font-size: var(--d-type-body-size); }
+.mkr__details .app-facts > div { grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr); }
+@media (max-width: 70rem) { .mkr[data-side] { grid-template-columns: minmax(0, 1fr) 15rem; } }
+@media (max-width: 52rem) { .mkr[data-side] { grid-template-columns: minmax(0, 1fr); } .mkr__side { display: none; } }
+.mkr__details .d-notbuilt { white-space: normal; }
