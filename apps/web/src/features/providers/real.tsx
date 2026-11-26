@@ -12,7 +12,7 @@ import { Ellipsis, ExternalLink, KeyRound, ListPlus, Plus, RefreshCw } from 'luc
 import { useNavigate } from 'react-router'
 import { addAccount, changeAccount, choose, dollars, downloadCopy, holds, latestCopy, listModels, priceOf, readAccount, removeAccount, removeCopy, removeSearchKey, replaceKey, setSearchKey, signIn, stopDownload, useProviders, type Account, type Latest, type PlanLimit, type ProviderAccount, type ProviderView, type RemoteModel, type SearchService, type Spending } from '@/data/providers'
 import { setSetting } from '@/data/store'
-import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal, Switch, Tip, type MenuEntry } from '@/ui'
+import { Button, Dialog, Glyph, Icon, Menu, NotBuilt, Page, Section, Signal, Switch, Tip, type MenuEntry, Brief } from '@/ui'
 
 function Meter({ label, used, limit, unit, note }: { label: string; used: number; limit: number | null; unit: string; note?: string }) {
   const pct = limit ? Math.min(100, (used / limit) * 100) : 0
@@ -357,13 +357,13 @@ function ProgramCard({ p }: { p: ProviderView }) {
         {p.takes_accounts && here && p.accounts.length > 0 && <Button size="sm" onClick={() => setEditing({ mode: 'add' })}><Icon icon={Plus} size="sm" />Add an account</Button>}
       </header>
       <div className="d-card__body app-stack">
-        <p className="d-text-secondary">{p.note}</p>
+        <Brief text={p.note} />
         <OwnCopy p={p} />
         {problem && <Signal level="caution">{problem}</Signal>}
         {p.takes_accounts && here && p.accounts.length === 0 && (
           <div className="app-stack" style={{ gap: 'var(--d-space-6)' }}>
             <div><Button size="sm" variant="primary" onClick={() => setEditing({ mode: 'add' })}>Sign in to Claude</Button></div>
-            <p className="d-type-caption d-text-secondary">Opens Anthropic's own sign-in page. Use your Claude plan's account; Demido never sees or keeps the login. You can add more accounts afterwards, each signed in on its own.</p>
+            <Brief className="d-type-caption d-text-secondary" text={"Opens Anthropic's own sign-in page. Use your Claude plan's account; Demido never sees or keeps the login. You can add more accounts afterwards, each signed in on its own."} />
           </div>
         )}
         {p.accounts.length > 0 && <ul className="prov__accounts">{p.accounts.map((a, i) => <AccountRow key={a.id} p={p} a={a} first={i === 0} onEdit={setEditing} />)}</ul>}
@@ -394,9 +394,9 @@ function ProviderCard({ p, where }: { p: ProviderView; where: string }) {
         <Button size="sm" onClick={() => setEditing({ mode: 'add' })}><Icon icon={has ? Plus : KeyRound} size="sm" />{has ? 'Add another key' : 'Add your key'}</Button>
       </header>
       <div className="d-card__body app-stack">
-        <p className="d-text-secondary">{p.note}</p>
+        <Brief text={p.note} />
         {has && <ul className="prov__accounts">{p.accounts.map((a, i) => <AccountRow key={a.id} p={p} a={a} first={i === 0} onEdit={setEditing} />)}</ul>}
-        {p.accounts.length > 1 && <p className="d-type-caption d-text-secondary">A session uses the default unless you pick another account in its header. Each key is sent only for the sessions that use it, and what each cost is counted on its own; the month's limit holds them together.</p>}
+        {p.accounts.length > 1 && <Brief className="d-type-caption d-text-secondary" text={"A session uses the default unless you pick another account in its header. Each key is sent only for the sessions that use it, and what each cost is counted on its own; the month's limit holds them together."} />}
         <Chosen p={p} />
         <div className="app-row" style={{ gap: 'var(--d-space-8)' }}>
           <Button size="sm" disabled={!has && p.id !== 'openrouter'} onClick={() => setChoosing(true)}><Icon icon={ListPlus} size="sm" />Choose models…</Button>
@@ -467,7 +467,8 @@ function SearchCard({ s, where }: { s: SearchService; where: string }) {
 export function RealProviders() {
   const { providers, vault, spending, search, error } = useProviders()
   return (
-    <Page title="Providers" lead="Where models can run besides this computer. A model elsewhere is sent what is said in a session that uses it, and costs money; a model here is free and nothing leaves the computer. Demido sends nothing to a model you did not choose here.">
+    <Page title="Providers" lead="Where models can run besides this computer."
+      about={<><p>A model elsewhere is sent what is said in a session that uses it, and costs money. A model here is free, and nothing leaves the computer.</p><p>Demido sends nothing to a model you did not choose here.</p></>}>
       {error && <Signal level="caution">The core did not say. {error}</Signal>}
       {!providers && !error && <p className="app-empty"><Glyph name="task-running" busy /> Reading the providers…</p>}
       {spending && <Month spending={spending} />}

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Route, Routes, useNavigate } from 'react-router'
-import { AudioLines, Download, Mic, Play } from 'lucide-react'
+import { AudioLines, Download, Hand, Hourglass, Languages, Mic, Play } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { onCoreEvent, useCore } from '@/data/core'
 import { toast, useSetting, setSetting } from '@/data/store'
 import { useModelChoices } from '@/data/model-choices'
 import { downloadVoice, voiceStatus, type VoiceStatus } from '@/data/voice'
-import { Button, Glyph, Icon, NotBuilt, Page, Section, Select, Signal } from '@/ui'
+import { About, Button, Glyph, Icon, NotBuilt, Page, Section, Select, Signal, Brief } from '@/ui'
 import { LiveVoiceMode } from './live'
 import { VoiceMode } from './talk'
 
@@ -57,26 +57,32 @@ function RealVoiceHome() {
   const start = (whisper: boolean) => { setProblem(null); downloadVoice(whisper).then(setStatus, (e: Error) => setProblem(e.message)) }
   const d = status?.downloading
   return (
-    <Page narrow title="Voice" lead="Talk with Demido. Speech is turned into text on this computer, and Demido's voice is made here too: nothing you say is sent away.">
+    <Page narrow title="Voice" lead="Talk with Demido. Nothing you say leaves this computer." about="Speech is turned into text on this computer, and Demido's voice is made here too.">
       <Section title="Voice mode" hint="A conversation, hands free.">
-        <div className="d-card"><div className="d-card__body app-stack">
+        <div className="d-card voice-hero"><div className="d-card__body app-stack">
           {!status && !problem && <p className="app-empty"><Glyph name="task-running" busy /> Reading…</p>}
           {status?.problem && <Signal level="caution">{status.problem}</Signal>}
-          {status && !status.ready && !d && !status.problem && (
-            <>
-              <p>Voice mode needs its parts on this computer first: a speech detector, a model that hears when your sentence is finished, one that turns speech into text, and one that speaks. {mb(status.missing_bytes)}, from their makers, each checked.</p>
-              <div className="app-row"><Button variant="primary" onClick={() => start(false)}><Icon icon={Download} />Download ({mb(status.missing_bytes)})</Button></div>
-            </>
+          {status && !status.problem && (
+            <div className="voice-hero__top">
+              <span className="voice-hero__art" data-ready={status.ready ? '' : undefined}><Icon icon={AudioLines} size="xl" /></span>
+              <div className="voice-hero__said">
+                <p className="voice-hero__title">{status.ready ? 'Ready to talk' : d ? 'Downloading its parts' : 'Its parts come first'}</p>
+                <p className="voice-hero__sub">
+                  {status.ready ? 'Hands free, on this computer.' : d ? `${d.file || '…'} · ${mb(d.done)} of ${mb(d.total)}` : `${mb(status.missing_bytes)}, from their makers, each checked.`}
+                  {!status.ready && <About label="What is downloaded">A speech detector, a model that hears when your sentence is finished, one that turns speech into text, and one that speaks.</About>}
+                </p>
+              </div>
+              {status.ready
+                ? <Button variant="primary" onClick={() => navigate('/voice/talk')}><Icon icon={AudioLines} />Open voice mode</Button>
+                : !d && <Button variant="primary" onClick={() => start(false)}><Icon icon={Download} />Download</Button>}
+            </div>
           )}
-          {d && <p><Glyph name="task-running" busy /> Downloading {d.file || '…'}: {mb(d.done)} of {mb(d.total)}</p>}
-          {status?.ready && (
-            <div className="app-row"><Button variant="primary" onClick={() => navigate('/voice/talk')}><Icon icon={AudioLines} />Open voice mode</Button></div>
-          )}
-          <ol className="d-prose" style={{ margin: 0 }}>
-            <li>Demido answers when your sentence is finished. If you stop to think, it waits; "Answer now" ends the wait.</li>
-            <li>Speak while it talks and it stops at once. What you did not hear is taken out of the conversation.</li>
-            <li>It speaks English. It understands 25 European languages.</li>
-          </ol>
+          {d && d.total > 0 && <div className="d-meter" role="progressbar" aria-valuenow={Math.round((d.done / d.total) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Downloaded"><span style={{ '--d-meter': `${(d.done / d.total) * 100}%` } as React.CSSProperties} /></div>}
+          <ul className="voice-hero__facts">
+            <li><Icon icon={Hourglass} size="sm" />Waits while you think<About label="When it answers">Demido answers when your sentence is finished. If you stop to think, it waits; “Answer now” ends the wait.</About></li>
+            <li><Icon icon={Hand} size="sm" />Stops when you speak<About label="When you speak over it">Speak while it talks and it stops at once. What you did not hear is taken out of the conversation.</About></li>
+            <li><Icon icon={Languages} size="sm" />Speaks English, understands 25 languages</li>
+          </ul>
           {problem && <Signal level="caution">{problem}</Signal>}
         </div></div>
       </Section>
@@ -87,13 +93,12 @@ function RealVoiceHome() {
             <label key={v.id} className="d-setting" style={{ cursor: 'default' }}>
               <div className="d-setting__text">
                 <span className="d-setting__label"><input className="d-radio" type="radio" name="voice" checked={voice === v.id} onChange={() => setSetting('voice.real', v.id)} />Voice {i + 1} <span className="d-text-tertiary">({v.id})</span></span>
-                <span className="d-setting__desc">{v.present ? 'Downloaded.' : 'Downloaded with the rest.'}</span>
               </div>
               <div className="d-setting__control">{v.present && <Button variant="ghost" size="sm" onClick={(e) => { e.preventDefault(); void new Audio(`/api/v1/voice/voices/${v.id}`).play() }}><Icon icon={Play} size="sm" />Hear the speaker</Button>}</div>
             </label>
           ))}
         </div>
-        <p className="d-type-caption d-text-secondary">"Hear the speaker" plays the volunteer's own recording, which Demido's voice is made from. A voice is never made from a recording of anyone who did not agree to it.</p>
+        <Brief className="d-type-caption d-text-secondary" text={"\"Hear the speaker\" plays the volunteer's own recording, which Demido's voice is made from. A voice is never made from a recording of anyone who did not agree to it."} />
       </Section>
 
       <Section title="The model that answers" hint="For a new conversation. One you go back to keeps its own.">
@@ -101,14 +106,14 @@ function RealVoiceHome() {
           <div className="d-field"><span className="d-field__label">Model</span>
             <Select label="The model that answers in voice mode" value={choices.some((c) => c.value === model) ? model : ''} onChange={(v) => setSetting('voice.model', v)}
               options={[{ value: '', label: 'One that is loaded, or else the first on this computer' }, ...choices]} /></div>
-          <p className="d-type-caption d-text-secondary">A small model answers sooner; a larger one says more that is right. One through an API costs what that provider charges for each answer.</p>
+          <Brief className="d-type-caption d-text-secondary" text={"A small model answers sooner; a larger one says more that is right. One through an API costs what that provider charges for each answer."} />
         </div></div>
       </Section>
 
       {status?.ready && (
         <Section title="When Demido does not catch you" hint="A second listener, for speech the first one hears nothing in.">
           <div className="d-card"><div className="d-card__body app-stack">
-            <p>Parakeet writes down what you say. Now and then it hears nothing where there was speech; Whisper turbo then listens again, a second or so slower. {status.whisper ? 'It is downloaded.' : `It is ${mb(status.whisper_bytes)} more.`}</p>
+            <Brief className="" text={`Whisper turbo listens again when Parakeet hears nothing where there was speech. Parakeet writes down what you say; now and then it misses speech, and Whisper turbo is a second or so slower. ${status.whisper ? 'It is downloaded.' : `It is ${mb(status.whisper_bytes)} more.`}`} />
             {!status.whisper && !d && <div className="app-row"><Button onClick={() => start(true)}><Icon icon={Download} />Download Whisper turbo</Button></div>}
           </div></div>
         </Section>
@@ -124,7 +129,7 @@ function VoiceHome() {
   const [consent, setConsent] = useState(false)
   const listen = () => { setDict('listening'); setTimeout(() => setDict('done'), 2400) }
   return (
-    <Page narrow title="Voice" lead="Speak instead of typing, hear answers read aloud, or simply talk. Speech is turned into text on this computer; nothing is sent away.">
+    <Page narrow title="Voice" lead="Speak, listen, or simply talk." about="Speak instead of typing, hear answers read aloud, or talk hands free. Speech is turned into text on this computer; nothing is sent away.">
       <Section title="Voice mode" hint="A conversation, hands free.">
         <div className="d-card"><div className="d-card__body app-stack">
           <div className="app-row"><Button variant="primary" onClick={() => navigate('/voice/talk')}><Icon icon={AudioLines} />Open voice mode</Button><NotBuilt>Scripted: no microphone, no sound</NotBuilt></div>
@@ -148,7 +153,7 @@ function VoiceHome() {
               <div><p className="d-type-micro d-text-tertiary">What is written</p><p>{dict === 'listening' ? '…' : 'Clean up the build folder and the cache folder.'}</p></div>
             </div>
           )}
-          <p className="d-type-caption d-text-secondary">Fillers, repeated words and corrections are removed. The meaning is not changed; you see the text before it is sent.</p>
+          <Brief className="d-type-caption d-text-secondary" text={"Fillers, repeated words and corrections are removed. The meaning is not changed; you see the text before it is sent."} />
         </div></div>
       </Section>
 

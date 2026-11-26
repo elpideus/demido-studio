@@ -13,7 +13,7 @@ import type { Feature } from '@/app/registry'
 import { SYSTEM } from '@/data/fixtures'
 import { cancelDownload, deleteModel, downloadModel, loadModel, memoryOf, toast, unloadModel, useStore } from '@/data/store'
 import type { Capability, Model } from '@/data/types'
-import { Budget, Button, Facts, Glyph, Icon, MODEL_STATE_LABEL, NotBuilt, Segmented, Select, Signal, Switch, cx } from '@/ui'
+import { Budget, Button, Facts, Glyph, Icon, MODEL_STATE_LABEL, NotBuilt, Segmented, Select, Signal, Switch, cx, Brief } from '@/ui'
 
 const CAPS: Record<Capability, { label: string; icon: LucideIcon }> = {
   vision: { label: 'Vision', icon: Eye },
@@ -301,7 +301,7 @@ function ModelsPage() {
         <div className="app-side__foot">
           {!real && <span>{SYSTEM.gpu} · {SYSTEM.vramGb.toFixed(1)} GB · {SYSTEM.ramGb} GB RAM</span>}
           {!real && <Budget compact />}
-          <span>{real ? 'Discover and All search Hugging Face for models this runtime runs (GGUF). Whether one fits is worked out from its size; the runtime measures it once it is loaded.' : 'Model families are real. Sizes, counts and licence labels here are illustrative.'}</span>
+          {real ? <Brief className="" text="From Hugging Face: models this runtime runs (GGUF). Whether one fits is worked out from its size; the runtime measures it once it is loaded." /> : <span>Model families are real. Sizes, counts and licence labels here are illustrative.</span>}
         </div>
       </aside>
       {mineForReal ? <LocalDetail id={openLocal} /> : real ? <HubDetail repo={openHub} /> : <Detail key={current.id} model={current} />}

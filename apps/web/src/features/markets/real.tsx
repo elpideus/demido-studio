@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router'
 import { Copy, Play, RefreshCw, Save, Sparkles, Trash2 } from 'lucide-react'
 import { coreGet, coreSend } from '@/data/core'
 import { toast, useSetting } from '@/data/store'
-import { Button, Glyph, Icon, NotBuilt, Signal, Tip } from '@/ui'
+import { Button, Glyph, Icon, NotBuilt, Signal, Tip, Brief } from '@/ui'
 
 interface Candle { t: number; o: number; h: number; l: number; c: number; v: number }
 interface Symbol { id: string; name: string; kind: string; from: string; intervals: number[] }
@@ -249,7 +249,7 @@ export function RealMarkets() {
           <Button size="sm" disabled={writing || !request.trim()} onClick={() => void write()}><Icon icon={writing ? RefreshCw : Sparkles} size="sm" />{writing ? 'Writing…' : 'Write with Demido'}</Button>
           {written && <Button size="sm" variant="ghost" onClick={() => navigate(`/sessions/${encodeURIComponent(written.session)}`)}>{written.tries} {written.tries === 1 ? 'try' : 'tries'}, in its session</Button>}
         </div>
-        <p className="d-type-caption d-text-tertiary">Demido's engine reads a first part of the language (research note 33) and is not TradingView's: a script can behave differently there. Pine Script is TradingView's trademark; Demido is not affiliated with TradingView. A model writes, Demido runs it, and hands the error back to be mended, three tries at most.</p>
+        <Brief className="d-type-caption d-text-tertiary" text={"Demido's engine reads a first part of the language (research note 33) and is not TradingView's: a script can behave differently there. Pine Script is TradingView's trademark; Demido is not affiliated with TradingView. A model writes, Demido runs it, and hands the error back to be mended, three tries at most."} />
       </div></section>
       <NotBuilt block>Stocks (no public feed without a key or a check meant for people), live ticks (the candles are asked again every 30 s), drawing tools, alerts, saved layouts, comparing symbols, a logarithmic scale, if and for in scripts, and TradingView's sign-in (shown in the preview).</NotBuilt>
     </div></div>

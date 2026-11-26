@@ -7,7 +7,7 @@ import { NavLink, useNavigate } from 'react-router'
 import { RefreshCw } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { setSetting, toast, useSetting, useStore } from '@/data/store'
-import { Button, Facts, Glyph, Icon, NotBuilt, Page, Section, Select, Signal, Switch, Tip } from '@/ui'
+import { Button, Facts, Glyph, Icon, NotBuilt, Page, Section, Select, Signal, Switch, Tip, Brief } from '@/ui'
 
 export const VERSION = '0.1.0'
 const NEXT = { version: '0.2.0', released: '18 November 2026', size: '14 MB' }
@@ -76,7 +76,7 @@ function UpdatesPage() {
   const busy = sessions.filter((s) => s.state === 'running' || s.state === 'needs-input')
   const details = `Demido Studio ${VERSION} (preview build)\nChannel: ${channel}\nSystem: Linux, NVIDIA RTX 3060, CUDA 12\nRuntime: llama.cpp build 6210`
   return (
-    <Page narrow title="Updates" lead="Which version you have, what is newer, and the versions of the parts Demido downloaded for you."
+    <Page narrow title="Updates" lead="Your version, what is newer, and the parts Demido downloaded."
       actions={<Button disabled={status === 'checking' || status === 'downloading'} onClick={check}><Icon icon={RefreshCw} />{status === 'checking' ? 'Checking…' : 'Check now'}</Button>}>
       <div className="d-card"><div className="d-card__body app-stack">
         <div className="app-row">
@@ -145,7 +145,7 @@ function UpdatesPage() {
           <div className="d-setting"><div className="d-setting__text"><span className="d-setting__label">Install updates automatically</span><span className="d-setting__desc">Downloads in the background and installs when no session is running. Off: Demido tells you and waits.</span></div><div className="d-setting__control"><Switch label="Install updates automatically" checked={auto} onChange={(v) => setSetting('updates.auto', v)} /></div></div>
           <div className="d-setting"><div className="d-setting__text"><span className="d-setting__label">Channel</span><span className="d-setting__desc">Stable gets finished versions. Beta gets them earlier, with rough edges.</span></div><div className="d-setting__control" style={{ width: '12rem' }}><Select label="Channel" value={channel} onChange={(v) => setSetting('updates.channel', v)} options={[{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }]} /></div></div>
         </div>
-        <p className="d-type-caption d-text-secondary">An update never interrupts a running session. The download is checked against the project's signature before anything is replaced, and the old version is kept until the new one has started once.</p>
+        <Brief className="d-type-caption d-text-secondary" text={"An update never interrupts a running session. The download is checked against the project's signature before anything is replaced, and the old version is kept until the new one has started once."} />
       </Section>
 
       <Section title="History">

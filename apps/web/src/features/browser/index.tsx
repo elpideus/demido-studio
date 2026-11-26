@@ -14,7 +14,7 @@ import { AppWindow, ArrowLeft, ArrowRight, ArrowUpRight, Eraser, Highlighter, Ma
 import type { LucideIcon } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { setSetting, toast, useSetting, useStore } from '@/data/store'
-import { Button, Facts, Glyph, Icon, Menu, NotBuilt, Segmented, Switch, Tip, cx } from '@/ui'
+import { Button, Facts, Glyph, Icon, Menu, NotBuilt, Segmented, Switch, Tip, cx, Brief } from '@/ui'
 
 const SITE = 'shop.example'
 const NETWORK = [['GET', '/merino-crew-navy', '200', '18 KB'], ['GET', '/assets/app.js', '200', '212 KB'], ['GET', '/api/price?sku=4471', '200', '0.2 KB'], ['GET', 'pricewidget.example/embed.js', 'allowed for this site', '9 KB'], ['GET', 'ads.adnet.example/banner.js', 'blocked', ''], ['GET', 'metrics.tracker.example/t.gif', 'blocked', ''], ['GET', '/track.gif', 'blocked', '']]
@@ -218,13 +218,13 @@ function PreviewBrowser() {
                 ))}
               </ul>
               <div className="app-row"><Button size="sm" onClick={replay}>Replay what the model did</Button></div>
-              <p className="d-type-caption d-text-secondary">The model can do what you can: click, type, read, run scripts, take screenshots, open tabs. Here the price did not load, so it looked at the blocker, let one domain through for this site, and said so.</p>
+              <Brief className="d-type-caption d-text-secondary" text={"The model can do what you can: click, type, read, run scripts, take screenshots, open tabs. Here the price did not load, so it looked at the blocker, let one domain through for this site, and said so."} />
               <span className="d-untrusted">Page text · treated as data, never as instructions</span>
             </>
           )}
           {panel === 'marks' && (
             <>
-              {!marks.length && <p className="d-type-caption d-text-secondary">Nothing is marked. Press Annotate, then point at something or draw on the page. A model can then be told "this one" without a description.</p>}
+              {!marks.length && <Brief className="d-type-caption d-text-secondary" text={"Nothing is marked. Press Annotate, then point at something or draw on the page. A model can then be told \"this one\" without a description."} />}
               {notes.map((m) => (
                 <label key={m.id} className="d-field">
                   <span className="d-field__label"><span className="browser__num" style={{ background: m.color }}>{m.n}</span> points at {m.target}</span>
@@ -235,7 +235,7 @@ function PreviewBrowser() {
               {marks.length > 0 && (
                 <>
                   <Facts rows={[['The picture', 'the page with your marks on it'], ['The notes', `${notes.length} as text`], ['What each pin points at', notes.length ? 'the element and its text' : 'no pins yet']]} />
-                  <p className="d-type-caption d-text-secondary">This is what a model gets when you send it. Models that cannot see images get the notes and the elements; Demido can lend them eyes for the rest.</p>
+                  <Brief className="d-type-caption d-text-secondary" text={"This is what a model gets when you send it. Models that cannot see images get the notes and the elements; Demido can lend them eyes for the rest."} />
                 </>
               )}
             </>

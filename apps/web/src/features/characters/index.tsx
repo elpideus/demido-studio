@@ -49,7 +49,7 @@ function CharactersPage() {
   const [editing, setEditing] = useState<Character | null>(null)
   const blank: Character = { id: `c-${Date.now()}`, name: '', initials: '', role: 'Custom', description: '', modelId: 'qwen3-4b', temperature: 0.7, voice: 'Not set', prompt: 'Answer first.\nSteps numbered. One action each.' }
   return (
-    <Page title="Characters" lead="A character is a name, a way of behaving and a model. Start a session with one and it brings its prompt and its settings."
+    <Page title="Characters" lead="A name, a way of behaving, and a model." about="Start a session with a character and it brings its prompt and its settings."
       actions={<Button variant="primary" onClick={() => setEditing(blank)}><Icon icon={Plus} />New character</Button>}>
       <Section title={`${characters.length} characters`}>
         <div className="app-grid">

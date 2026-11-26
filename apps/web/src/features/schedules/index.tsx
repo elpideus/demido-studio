@@ -93,7 +93,7 @@ function SchedulesPage() {
   const schedules = useStore((s) => s.schedules)
   const [adding, setAdding] = useState(false)
   return (
-    <Page title="Schedules" lead="Things Demido does on its own: reports at a set time, and monitors that speak up only when something changes. A model is loaded for the run and unloaded after."
+    <Page title="Schedules" lead="Tasks at a time you set, and monitors that watch for a change." about="Things Demido does on its own. A model is loaded for the run and unloaded after."
       actions={<Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />New schedule</Button>}>
       <Section title={`${schedules.filter((s) => s.enabled).length} on · ${schedules.filter((s) => !s.enabled).length} off`}>
         <div className="app-grid">{schedules.map((s) => <ScheduleCard key={s.id} s={s} />)}</div>

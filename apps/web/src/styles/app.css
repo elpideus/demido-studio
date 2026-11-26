@@ -2960,3 +2960,37 @@ span.chat__ring { -webkit-mask: none; mask: none; background: none; }
 :is(.app-rail__item, .app-rail__now, .chat__chip, .chat__ring, .lb__tool, .lb__tab-close, .lb__tab-new, .panel__tab-close, .sess__more):active:not(:disabled) { scale: 0.96; }
 /* While the theme or the accent changes, nothing transitions. */
 :root[data-swapping] *, :root[data-swapping] *::before, :root[data-swapping] *::after { transition: none !important; }
+
+/* ───────── one line per screen, the rest one press away; nothing yet, drawn (DECISIONS A17) ───────── */
+.app-page__title, .app-section__title { display: inline-flex; align-items: center; gap: var(--d-space-4); }
+.app-page__lead { max-width: 34rem; text-wrap: pretty; }
+.app-about__button { color: var(--d-color-text-tertiary); }
+.app-section__title .app-about__button { --_h: 1.25rem; margin-block: calc(-1 * var(--d-space-4)); }
+.app-about { max-width: 22rem; padding: var(--d-space-12) var(--d-space-16); color: var(--d-color-text-secondary); font-size: var(--d-type-caption-size); line-height: 1.5; text-wrap: pretty; }
+.app-about p + p { margin-block-start: var(--d-space-8); }
+.app-about strong { color: var(--d-color-text-primary); font-weight: var(--d-font-weight-medium); }
+.app-blank { display: grid; justify-items: center; gap: var(--d-space-8); padding: var(--d-space-40) var(--d-space-24); text-align: center; }
+.app-blank__art { display: grid; place-items: center; width: 4rem; height: 4rem; margin-block-end: var(--d-space-4); border-radius: var(--d-radius-full); background: var(--d-color-fill-control); box-shadow: inset 0 0 0 var(--d-stroke-hairline) var(--d-color-border-hairline); color: var(--d-color-text-secondary); }
+.app-blank__title { margin: 0; color: var(--d-color-text-primary); font-weight: var(--d-font-weight-medium); }
+.app-blank__text { max-width: 26rem; margin: 0; color: var(--d-color-text-tertiary); font-size: var(--d-type-caption-size); text-wrap: pretty; }
+.app-blank__action { margin-block-start: var(--d-space-8); }
+.app-section__head { align-items: center; }
+.app-section__action { margin-inline-start: auto; }
+.app-section__head > .d-type-caption + .app-section__action { margin-inline-start: 0; }
+.app-blank--compact { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "art title action" "art text action"; align-items: center; justify-items: start; column-gap: var(--d-space-12); row-gap: var(--d-space-2); padding: var(--d-space-12) var(--d-space-16); border: var(--d-stroke-hairline) dashed var(--d-color-border-default); border-radius: var(--d-radius-lg); text-align: start; }
+.app-blank--compact .app-blank__art { grid-area: art; width: 2.5rem; height: 2.5rem; margin: 0; }
+.app-blank--compact .app-blank__art .d-icon { --d-icon-size: var(--d-size-icon-lg); }
+.app-blank--compact .app-blank__title { grid-area: title; align-self: end; }
+.app-blank--compact .app-blank__text { grid-area: text; align-self: start; max-width: none; }
+.app-blank--compact .app-blank__action { grid-area: action; margin: 0; }
+.app-brief .app-about__button { --_h: 1.25rem; vertical-align: -0.3em; margin-inline-start: var(--d-space-2); }
+/* Voice mode, at a glance: what state it is in, the one thing to do, and how it behaves in three lines. */
+.voice-hero__top { display: flex; align-items: center; gap: var(--d-space-16); }
+.voice-hero__art { display: grid; flex: none; place-items: center; width: 3.5rem; height: 3.5rem; border-radius: var(--d-radius-full); background: var(--d-color-fill-control); color: var(--d-color-text-secondary); }
+.voice-hero__art[data-ready] { background: color-mix(in oklab, var(--d-color-accent-base) 16%, transparent); color: var(--d-color-accent-text, var(--d-color-accent-base)); }
+.voice-hero__said { flex: 1; min-width: 0; }
+.voice-hero__title { margin: 0; font-size: var(--d-type-headline-size); font-weight: var(--d-type-headline-weight); }
+.voice-hero__sub { display: flex; align-items: center; gap: var(--d-space-2); margin: 0; color: var(--d-color-text-secondary); font-size: var(--d-type-caption-size); font-variant-numeric: tabular-nums; }
+.voice-hero__facts { display: flex; flex-wrap: wrap; gap: var(--d-space-8) var(--d-space-24); margin: 0; padding: var(--d-space-12) 0 0; border-block-start: var(--d-stroke-hairline) solid var(--d-color-border-hairline); list-style: none; color: var(--d-color-text-secondary); font-size: var(--d-type-caption-size); }
+.voice-hero__facts li { display: inline-flex; align-items: center; gap: var(--d-space-6); }
+.voice-hero__facts .app-about__button { --_h: 1.25rem; }

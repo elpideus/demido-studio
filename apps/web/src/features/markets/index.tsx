@@ -18,7 +18,7 @@ import type { Feature } from '@/app/registry'
 import { useCore } from '@/data/core'
 import { RealMarkets } from './real'
 import { setSetting, toast, useSetting } from '@/data/store'
-import { Button, Dialog, Facts, Glyph, Icon, InspectorToggle, Menu, NotBuilt, Segmented, Select, Signal, Tip, cx, useInspector } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Icon, InspectorToggle, Menu, NotBuilt, Segmented, Select, Signal, Tip, cx, useInspector, Brief } from '@/ui'
 import { Chart, fmt } from './chart'
 import type { ChartType, Drawing, Shown, Tool } from './chart'
 import { ACCOUNT, DRAW, KIND_LABEL, LOCAL, MODEL_RUN, MODEL_SCRIPT, PINE, QUICK_TF, SIGN_IN_RUN, TIMEFRAMES, TV_BUILT_IN, TV_BUILT_IN_TOTAL, TV_COMMUNITY, TV_FAVOURITES, TV_MINE, UNIVERSE, WATCHLIST_DEFAULT, series } from './data'
@@ -150,7 +150,7 @@ function SignIn({ onClose, onDone }: { onClose: () => void; onDone: () => void }
                   <li>Place a trade.</li>
                 </ul>
                 <p className="d-list__label" style={{ paddingInline: 0 }}>Before you decide</p>
-                <p className="d-text-secondary">If the account matters to you (a paid plan, published scripts, followers), think twice. Everything except TradingView's own indicators also works without signing in.</p>
+                <Brief className="d-text-secondary" text={"If the account matters to you (a paid plan, published scripts, followers), think twice. Everything except TradingView's own indicators also works without signing in."} />
               </div>
             </div>
             <label className="d-check"><input className="d-checkbox" type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} /><span className="d-check__text">I understand that TradingView may ban this account.</span></label>
@@ -302,7 +302,7 @@ function PinePanel({ scripts, signedIn, engine, onEngine, onChart, onToggle, onM
         <Button size="sm" disabled={busy || !ask.trim()} onClick={askModel}><Glyph name="model-loaded" tone="live" />Write and test · Qwen3 4B Instruct</Button>
         {run.steps.length > 0 && <Steps steps={run.steps} />}
         <Facts rows={[['Kept on', 'this computer'], ['Added to an account', 'never, unless you copy it there']]} />
-        <p className="d-type-caption d-text-tertiary">The samples are drawn by code written for the preview. Your edits are kept but not run. Pine Script is a trademark of TradingView; Demido is not affiliated with it.</p>
+        <Brief className="d-type-caption d-text-tertiary" text={"The samples are drawn by code written for the preview. Your edits are kept but not run. Pine Script is a trademark of TradingView; Demido is not affiliated with it."} />
       </div>
     </section>
   )

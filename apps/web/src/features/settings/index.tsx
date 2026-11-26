@@ -249,7 +249,7 @@ function SettingsPage() {
           {live && ' Settings the core keeps are saved on this computer and are the same in every window. The others are marked Not built yet: they still belong to the scripted preview and stay in this browser.'}
         </p>
       </aside>
-      <Page narrow title="Settings" lead="Each row says what it does. Details gives the default, the range and the trade-off. A changed value is marked, and resets with one press.">
+      <Page narrow title="Settings" lead="Each row says what it does. A changed one resets with one press." about="Details, under a row, gives the default, the range and the trade-off.">
         {shown.map((s) => (
           <section key={s.id} id={`set-${s.id}`} className="d-settings" style={{ scrollMarginTop: 'var(--d-space-16)' }}>
             <h2 className="d-settings__title">{s.title}{s.lead && <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 'var(--d-font-weight-small)' }}> · {s.lead}</span>}</h2>

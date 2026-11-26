@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AudioLines, Boxes, Brain, Download as DownloadIcon, ExternalLink, Eye, Heart, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { hubModel, readToken, removeToken, saveToken, searchHub, startDownload, stopDownload, useDownloads, type HubDetail as Detail, type HubModel, type HubQuant, type Machine, type Search, type TokenFacts } from '@/data/hub'
-import { Button, Dialog, Facts, Glyph, Icon, NotBuilt, Page, Segmented, Signal, cx } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Icon, NotBuilt, Page, Segmented, Signal, cx, Brief } from '@/ui'
 import { Prose } from '@/ui/prose'
 import { size } from './local'
 
@@ -208,7 +208,7 @@ export function HubDetail({ repo }: { repo: string | null }) {
         <Segmented label="Show" value={tab} onChange={setTab} options={[{ value: 'files', label: `Files · ${detail.quants.length}` }, { value: 'card', label: 'Model card' }]} />
         {tab === 'files' && (
           <div className="app-stack">
-            <p className="d-text-secondary">One model, several files. A smaller file needs less memory and loses a little quality. The one recommended is the best quality that fits on the graphics card with the memory kept free.</p>
+            <Brief className="d-text-secondary" text={"One model, several files. A smaller file needs less memory and loses a little quality. The one recommended is the best quality that fits on the graphics card with the memory kept free."} />
             {!detail.quants.length && <p className="d-text-secondary">This repository has no GGUF file Demido can run.</p>}
             <div className="app-stack" style={{ gap: 0 }}>
               {detail.quants.map((x) => <QuantRow key={x.name} q={x} chosen={x.name === quant} onChoose={() => setQuant(x.name)} />)}

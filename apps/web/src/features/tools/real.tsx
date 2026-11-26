@@ -10,10 +10,10 @@
    its tools listed once when it is added and asked about as any command a model runs; a skill is guidance only,
    its text given to a model as someone else's, its scripts never run. */
 import { useEffect, useState } from 'react'
-import { BookOpen, Download, PackagePlus, PenLine, Plug, RefreshCw, Trash2, Wrench } from 'lucide-react'
+import { BookOpen, Download, Plus, PackagePlus, PenLine, Plug, RefreshCw, Trash2, Wrench } from 'lucide-react'
 import { coreGet, coreSend } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Dialog, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
+import { Button, Dialog, Empty, Glyph, Icon, NotBuilt, Page, Section, Signal, Brief } from '@/ui'
 
 interface Asks { folder: 'none' | 'read' | 'write'; network: string[] }
 interface Manifest { name: string; version: string; publisher: string; publisher_key: string; about: string; does: string; args: { name: string; kind: string; optional: boolean }[]; asks: Asks; updates: string | null }
@@ -83,7 +83,7 @@ function InstallDialog({ onClose, onDone }: { onClose: () => void; onDone: () =>
             <p className="d-text-secondary">By {checked.manifest.publisher}, signed with the key <span className="d-mono">{checked.key_id}</span>. Compare it with the key the publisher shows on their own page: Demido can tell that the package was signed by this key and not changed since, not who holds the key. Updates must be signed with the same key.</p>
             <Signal level={checked.manifest.asks.folder === 'write' || checked.manifest.asks.network.length ? 'caution' : 'note'}>{checked.asks_said}</Signal>
             {checked.replaces && <p className="d-type-caption">It replaces version {checked.replaces}.{checked.asks_more.length ? ` It asks for more than that one: ${checked.asks_more.join(', ')}.` : ''}</p>}
-            <p className="d-type-caption d-text-tertiary">It runs shut in, in Wasmtime: no files, no network, no programs, nothing of yours but what it asks for here, and for 30 seconds and 256 MB at most. What it gives back is treated as text from outside.</p>
+            <Brief className="d-type-caption d-text-tertiary" text={"It runs shut in, in Wasmtime: no files, no network, no programs, nothing of yours but what it asks for here, and for 30 seconds and 256 MB at most. What it gives back is treated as text from outside."} />
           </>
         )}
         {problem && <Signal level="caution">{problem}</Signal>}
@@ -243,7 +243,8 @@ function External() {
   useEffect(read, [])
   return (
     <>
-      <Section title="MCP servers" hint="Programs of other people's that offer tools. Each call starts the server shut in the sandbox; at Balanced every use is asked about, as any command a model runs is. Without a sandbox none is run.">
+      <Section title="MCP servers" about="Programs of other people's that offer tools. Each call starts the server shut in the sandbox; at Balanced every use is asked about, as any command a model runs is. Without a sandbox none is run."
+        action={servers?.length ? <Button size="sm" variant="ghost" onClick={() => setAdding('server')}><Icon icon={Plus} />Add</Button> : undefined}>
         <div className="app-stack">
           {servers?.map((s) => (
             <article key={s.name} className="d-card">
@@ -260,11 +261,11 @@ function External() {
               </div>
             </article>
           ))}
-          {servers && servers.length === 0 && <p className="app-empty"><Icon icon={Plug} /> No MCP server is added.</p>}
-          <div><Button onClick={() => setAdding('server')}><Icon icon={Plug} />Add an MCP server…</Button></div>
+          {servers && servers.length === 0 && <Empty compact icon={Plug} title="No MCP server yet" text="Tools from a program of someone else's, run in the sandbox." action={<Button size="sm" onClick={() => setAdding('server')}>Add an MCP server…</Button>} />}
         </div>
       </Section>
-      <Section title="Skills" hint="Instructions other people wrote for a kind of task. Only their text is given to a model, fenced as someone else's; nothing of theirs is run.">
+      <Section title="Skills" about="Instructions other people wrote for a kind of task. Only their text is given to a model, fenced as someone else's; nothing of theirs is run."
+        action={skills?.length ? <Button size="sm" variant="ghost" onClick={() => setAdding('skill')}><Icon icon={Plus} />Bring in</Button> : undefined}>
         <div className="app-stack">
           {skills?.map((s) => (
             <article key={s.name} className="d-card">
@@ -278,8 +279,7 @@ function External() {
               </header>
             </article>
           ))}
-          {skills && skills.length === 0 && <p className="app-empty"><Icon icon={BookOpen} /> No skill is brought in.</p>}
-          <div><Button onClick={() => setAdding('skill')}><Icon icon={BookOpen} />Bring in a skill…</Button></div>
+          {skills && skills.length === 0 && <Empty compact icon={BookOpen} title="No skill yet" text="Instructions for a kind of task. Only their words reach a model." action={<Button size="sm" onClick={() => setAdding('skill')}>Bring in a skill…</Button>} />}
         </div>
       </Section>
       {adding === 'server' && <AddServerDialog onClose={() => setAdding(null)} onDone={() => { setAdding(null); read() }} />}
@@ -295,13 +295,14 @@ export function RealTools() {
   const read = () => coreGet<Installed[]>('/tools/installed').then((t) => { setInstalled(t); setError(null) }, (e: Error) => setError(e.message))
   useEffect(() => { void read() }, [])
   return (
-    <Page title="Tools" lead="What a model can ask Demido to do. Demido's own tools are built in; the ones you install are packages of other people's, each shut in and given only what it asks for.">
+    <Page title="Tools" lead="What a model can ask Demido to do."
+      about="Demido's own tools are built in. The ones you install are packages of other people's, each shut in and given only what it asks for."
+      actions={<Button variant="primary" onClick={() => setAdding(true)}><Icon icon={PackagePlus} />Install a tool…</Button>}>
       {error && <Signal level="caution">The core did not say. {error}</Signal>}
-      <Section title="Installed by you" hint="A package is checked against its publisher's signature before anything else; you are shown their key and what the tool asks for, and it is installed only on your yes.">
+      <Section title="Installed by you" about="A package is checked against its publisher's signature before anything else: you are shown their key and what the tool asks for, and it is installed only on your yes.">
         <div className="app-stack">
           {installed?.map((t) => <ToolCard key={t.manifest.name} tool={t} onChanged={() => void read()} />)}
-          {installed && installed.length === 0 && <p className="app-empty"><Icon icon={Wrench} /> No tool is installed yet.</p>}
-          <div><Button variant="primary" onClick={() => setAdding(true)}><Icon icon={PackagePlus} />Install a tool…</Button></div>
+          {installed && installed.length === 0 && <Empty compact icon={Wrench} title="No tool installed yet" text="A signed package, checked before anything else." />}
         </div>
       </Section>
       <External />

@@ -17,7 +17,7 @@ import { Navigate, Route, Routes, useParams } from 'react-router'
 import { Bot, CheckCheck, FileText, Hash, Headphones, MessagesSquare, Mic, Plus, Search, Settings, UserRound, UsersRound, Volume2 } from 'lucide-react'
 import type { Feature } from '@/app/registry'
 import { setSetting, toast, useSetting } from '@/data/store'
-import { Button, Dialog, Facts, Glyph, Icon, InspectorToggle, Menu, NotBuilt, Segmented, Signal, Tip, useInspector } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Icon, InspectorToggle, Menu, NotBuilt, Segmented, Signal, Tip, useInspector, Brief } from '@/ui'
 import { Assistant, Avatar, Composer, Lines } from './chat'
 import type { Ask } from './chat'
 import { Info } from './info'
@@ -124,7 +124,7 @@ function BotPage({ svc }: { svc: Service }) {
           <div className="app-stack">
             <div className="d-card"><div className="d-card__body app-stack">
               <span className="d-card__title">What the model is told</span>
-              <p className="d-type-caption d-text-secondary">Added to the conversation whenever a message arrives through the bot, so the model knows where it is and what it cannot do there.</p>
+              <Brief className="d-type-caption d-text-secondary" text={"Added to the conversation whenever a message arrives through the bot, so the model knows where it is and what it cannot do there."} />
               <pre className="d-code" style={{ whiteSpace: 'pre-wrap' }}><code>{bot.told}</code></pre>
             </div></div>
             <div className="d-card"><div className="d-card__body">

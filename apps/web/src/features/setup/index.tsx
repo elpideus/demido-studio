@@ -78,7 +78,8 @@ function SetupPage() {
     tick()
   }
   return (
-    <Page narrow title="Setup" lead="Demido itself is small. The heavy parts are downloaded to your computer from the people who make them, so you get exactly their files and only the ones you need."
+    <Page narrow title="Setup" lead="This computer, and the parts Demido runs on it."
+      about="Demido itself is small. The heavy parts are downloaded to your computer from the people who make them, so you get exactly their files and only the ones you need."
       actions={<Button disabled={detecting} onClick={() => { setDetecting(true); setTimeout(() => { setDetecting(false); toast('Nothing changed since the last look.') }, 1500) }}>{detecting ? 'Looking…' : 'Look again'}</Button>}>
       {core.state === 'ready' && <Section title="This computer" hint="Read by the core."><RealComputer version={core.version} /></Section>}
       {core.state === 'ready' && <Section title="Model runtime" hint="Real: installed by the core."><RealRuntime /></Section>}

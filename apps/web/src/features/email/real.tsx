@@ -156,7 +156,8 @@ export function RealEmail() {
   if (!accounts) return <Page title="Email"><p className="app-empty"><Glyph name="task-running" busy /> Reading your accounts…</p></Page>
   if (accounts.length === 0) {
     return (
-      <Page title="Email" lead="Your own mail accounts, read and sent from by Demido. Reading marks nothing as read; a message is shown as text, so its pictures are never loaded; sending asks you first and cannot be undone. Models can list your inbox, read a message and write one when Settings › Email allows it.">
+      <Page title="Email" lead="Your own mail accounts, read and sent from by Demido."
+        about={<><p>Reading marks nothing as read. A message is shown as text, so its pictures are never loaded. Sending asks you first and cannot be undone.</p><p>Models can list your inbox, read a message and write one when Settings › Email allows it.</p></>}>
         <div><Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />Add a mail account</Button></div>
         <NotBuilt block>Folders other than the inbox, replying in the same thread, files, search, labels, stars, moving, deleting, drafts kept, and "Ask Demido about this" here (ask in a session instead).</NotBuilt>
         {adding && <AddAccount onClose={() => setAdding(false)} onAdded={(a) => { setAdding(false); setCurrent(a.id); void readAccounts() }} />}

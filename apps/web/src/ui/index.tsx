@@ -5,7 +5,8 @@ import { Dialog as BaseDialog } from '@base-ui/react/dialog'
 import { Menu as BaseMenu } from '@base-ui/react/menu'
 import { ContextMenu as BaseContextMenu } from '@base-ui/react/context-menu'
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
-import { PanelRight, PanelRightClose } from 'lucide-react'
+import { Popover as BasePopover } from '@base-ui/react/popover'
+import { Info, PanelRight, PanelRightClose } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { memoryBudget, setSetting, useSetting, useStore } from '@/data/store'
 import type { Model, SignalLevel, Step, Task } from '@/data/types'
@@ -361,13 +362,50 @@ export function InspectorToggle({ open, onToggle }: { open: boolean; onToggle: (
   )
 }
 
-export function Page({ title, lead, actions, children, narrow }: { title: string; lead?: ReactNode; actions?: ReactNode; children: ReactNode; narrow?: boolean }) {
+/** More about something, one press away: an ⓘ that opens a short read. Keeps screens to a line each. */
+export function About({ children, label = 'About this', side = 'bottom' }: { children: ReactNode; label?: string; side?: 'top' | 'bottom' | 'right' | 'left' }) {
+  return (
+    <BasePopover.Root>
+      <BasePopover.Trigger className="d-button d-button--ghost d-button--sm d-button--icon app-about__button" aria-label={label}>
+        <Icon icon={Info} size="sm" />
+      </BasePopover.Trigger>
+      <BasePopover.Portal>
+        <BasePopover.Positioner side={side} align="start" sideOffset={6} className="app-layer">
+          <BasePopover.Popup className="d-menu app-pop app-about">{children}</BasePopover.Popup>
+        </BasePopover.Positioner>
+      </BasePopover.Portal>
+    </BasePopover.Root>
+  )
+}
+
+/** Nothing here yet: a picture of what would be here, what it is in a few words, and the way to make one. */
+export function Empty({ icon, title, text, action, compact }: { icon: LucideIcon; title: string; text?: ReactNode; action?: ReactNode; compact?: boolean }) {
+  return (
+    <div className={cx('app-blank', compact && 'app-blank--compact')}>
+      <span className="app-blank__art" aria-hidden="true"><Icon icon={icon} size="xl" /></span>
+      <p className="app-blank__title">{title}</p>
+      {text && <p className="app-blank__text">{text}</p>}
+      {action && <div className="app-blank__action">{action}</div>}
+    </div>
+  )
+}
+
+/** A text's first sentence, with the rest one press away behind an ⓘ: for the notes cards carry. */
+export function Brief({ text, className = 'd-text-secondary' }: { text: string | null | undefined; className?: string }) {
+  if (!text) return null
+  const cut = text.search(/[.;:](\s)/)
+  if (cut < 20 || cut > text.length - 12) return <p className={className}>{text}</p>
+  const first = text.slice(0, cut + 1).replace(/[;:]$/, '.')
+  return <p className={cx(className, 'app-brief')}>{first}<About label="More about this">{text}</About></p>
+}
+
+export function Page({ title, lead, about, actions, children, narrow }: { title: string; lead?: ReactNode; about?: ReactNode; actions?: ReactNode; children: ReactNode; narrow?: boolean }) {
   return (
     <div className="app-page">
       <div className={cx('app-page__inner', narrow && 'app-page__inner--narrow')}>
         <header className="app-page__head">
           <div>
-            <h1 className="d-type-title-2">{title}</h1>
+            <h1 className="d-type-title-2 app-page__title">{title}{about && <About label={`About ${title}`}>{about}</About>}</h1>
             {lead && <p className="app-page__lead">{lead}</p>}
           </div>
           {actions && <div className="app-page__actions">{actions}</div>}
@@ -377,22 +415,26 @@ export function Page({ title, lead, actions, children, narrow }: { title: string
     </div>
   )
 }
-export function Section({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+export function Section({ title, hint, about, action, children }: { title: string; hint?: ReactNode; about?: ReactNode; action?: ReactNode; children: ReactNode }) {
+  // A hint longer than a glance goes behind the ⓘ: a section's head is one line.
+  if (typeof hint === 'string' && hint.length > 64) { about = about ?? hint; hint = undefined }
   return (
     <section className="app-section">
       <header className="app-section__head">
-        <h2 className="d-type-micro d-text-tertiary">{title}</h2>
+        <h2 className="d-type-micro d-text-tertiary app-section__title">{title}{about && <About label={`About ${title.toLowerCase()}`}>{about}</About>}</h2>
         {hint && <span className="d-type-caption d-text-tertiary">{hint}</span>}
+        {action && <span className="app-section__action">{action}</span>}
       </header>
       {children}
     </section>
   )
 }
-export function Facts({ rows }: { rows: [string, ReactNode][] }) {
+/** Name and value, a row each; a row may say more behind an ⓘ beside its name. */
+export function Facts({ rows }: { rows: ([string, ReactNode] | [string, ReactNode, ReactNode])[] }) {
   return (
     <dl className="app-facts">
-      {rows.map(([k, v]) => (
-        <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+      {rows.map(([k, v, more]) => (
+        <div key={k}><dt>{k}{more ? <About label={`About ${k.toLowerCase()}`} side="right">{more}</About> : null}</dt><dd>{v}</dd></div>
       ))}
     </dl>
   )

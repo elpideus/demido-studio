@@ -2,7 +2,7 @@
 import { Box, Power, PowerOff, Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { deleteLocal, loadLocal, readModelSettings, setContext, resetModelSettings, saveModelSettings, unloadLocal, unloadsIn, useLocal, type Chosen, type LocalModel, type ModelSettings, type Sampling } from '@/data/local-models'
-import { Button, Dialog, Facts, Glyph, Page, Select, Signal, ContextMenu, Icon } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Page, Select, Signal, ContextMenu, Icon, Empty } from '@/ui'
 
 const MB = 1024 * 1024
 export const size = (bytes: number) => (bytes >= 1024 * MB ? `${(bytes / 1024 / MB).toFixed(1)} GB` : `${Math.round(bytes / MB)} MB`)
@@ -33,7 +33,7 @@ export function LocalList({ open, onOpen }: { open: string | null; onOpen: (id: 
   const list = useLocal((s) => s.list)
   const waiting = useLocal((s) => s.waiting)
   if (!list) return <p className="app-empty"><Glyph name="task-running" /> Looking in the models folder…</p>
-  if (!list.models.length) return <p className="app-empty">No model is in the folder yet.</p>
+  if (!list.models.length) return <Empty icon={Box} title="No model here yet" text="Download one from Discover, or put a GGUF file in the models folder." />
   return (
     <ul className="d-list">
       {list.models.map((m) => {
@@ -177,11 +177,11 @@ export function LocalDetail({ id }: { id: string | null }) {
   if (!list) return <Page narrow title="On this computer"><p className="d-text-secondary"><Glyph name="task-running" /> Looking in the models folder…</p></Page>
   const e = list.engine
   const m = list.models.find((x) => x.id === id) ?? list.models[0]
-  const idleRule = e.idle_unload_min === null ? 'A loaded model stays loaded until you unload it.' : `A loaded model that is not used for ${e.idle_unload_min} min is unloaded.`
+  const idleRule = e.idle_unload_min === null ? 'stays loaded' : `unloaded after ${e.idle_unload_min} min`
   return (
-    <Page narrow title={m ? m.id : 'On this computer'} lead="A model in Demido's folder on this computer. Loading it puts it on the graphics card; unloading ends its process and frees the memory.">
+    <Page narrow title={m ? m.id : 'On this computer'} lead="Loading puts it on the graphics card; unloading frees the memory." about="A model in Demido's folder on this computer. Unloading ends its process.">
       {!e.runtime && <Signal level="caution">No model runtime is installed, so nothing can be loaded. Install one on the Setup screen.</Signal>}
-      {!m && <p className="d-text-secondary">No model is in <span className="d-mono">{list.folder}</span> yet. Put a GGUF file there and it appears here.</p>}
+      {!m && list.models.length === 0 && <Empty icon={Box} title="The models folder is empty" text={<>Put a GGUF file in <span className="d-mono">{list.folder}</span> and it appears here.</>} />}
       {m && (() => {
         const s = stateOf(m, waiting[m.id])
         const left = unloadsIn(m, readAt, now)
@@ -206,12 +206,12 @@ export function LocalDetail({ id }: { id: string | null }) {
             <Facts rows={[
               ['File', m.file],
               ['On disk', size(m.size)],
-              ['On the graphics card', m.needs_mb !== null ? `${gb(m.needs_mb)} at a context of ${m.context.toLocaleString()} tokens, as the runtime measured it` : 'Measured the first time the runtime looks at it'],
-              ['Loads in', m.loads_in_ms !== null ? `${(m.loads_in_ms / 1000).toFixed(1)} s, the last time` : 'Known once it has been loaded'],
-              ['Writes', m.tokens_per_second !== null ? `about ${Math.round(m.tokens_per_second)} tokens a second on this computer, from its real answers` : 'Known once it has answered something'],
-              ['Thinking', m.thinking === null ? 'Known once it has been loaded' : !m.thinking.length ? 'It does not think before it answers' : m.thinking.length === 1 && m.thinking[0] === 'on' ? 'Can think first: on or off, set in each session' : `Can think first, at these levels: ${m.thinking.join(', ')}`],
-              ['Takes in', m.takes === null ? 'Known once it has been loaded' : ['text', ...m.takes].join(', ')],
-              ['Can hold in mind', m.context_length !== null ? `up to ${m.context_length.toLocaleString()} tokens, as it says itself` : 'Known once the runtime has looked at it'],
+              ['On the graphics card', m.needs_mb !== null ? `${gb(m.needs_mb)} · ${m.context.toLocaleString()} tokens` : 'not measured yet', m.needs_mb !== null ? 'As the runtime measured it, at that context.' : 'Measured the first time the runtime looks at it.'],
+              ['Loads in', m.loads_in_ms !== null ? `${(m.loads_in_ms / 1000).toFixed(1)} s` : 'not loaded yet', m.loads_in_ms !== null ? 'The last time it was loaded.' : undefined],
+              ['Writes', m.tokens_per_second !== null ? `${Math.round(m.tokens_per_second)} tokens/s` : 'not yet', 'On this computer, from its real answers.'],
+              ['Thinking', m.thinking === null ? 'not known yet' : !m.thinking.length ? 'no' : m.thinking.length === 1 && m.thinking[0] === 'on' ? 'on or off' : m.thinking.join(', '), m.thinking?.length ? 'Whether it thinks first is set in each session.' : m.thinking === null ? 'Known once it has been loaded.' : undefined],
+              ['Takes in', m.takes === null ? 'not known yet' : ['text', ...m.takes].join(', ')],
+              ['Can hold in mind', m.context_length !== null ? `${m.context_length.toLocaleString()} tokens` : 'not known yet', m.context_length !== null ? 'As it says itself.' : 'Known once the runtime has looked at it.'],
               ['Loaded with room for', <span className="app-row" style={{ gap: 'var(--d-space-8)', flexWrap: 'wrap' }}>
                 <Select label={`What ${m.id} is loaded with room for`} value={m.own_context ? String(m.context) : 'default'} onChange={(v) => void setContext(m.id, v === 'default' ? null : Number(v))}
                   options={[{ value: 'default', label: `${e.context.toLocaleString()} tokens, as every model (Settings)` },
@@ -226,10 +226,10 @@ export function LocalDetail({ id }: { id: string | null }) {
       <div>
         <p className="d-list__label" style={{ paddingInline: 0 }}>How models are run here</p>
         <Facts rows={[
-          ['Runtime', e.runtime ? `${e.runtime} · ${e.running ? 'running' : 'not running; it starts when a model is loaded'}` : 'none installed'],
-          ['Context', `${e.context.toLocaleString()} tokens for every model (Settings › Models and memory)`],
-          ['Memory kept free', `${gb(e.margin_mb)} of graphics memory. When a model would not fit beside what is loaded, the one used longest ago is unloaded first.`],
-          ['When idle', idleRule],
+          ['Runtime', e.runtime ? `${e.runtime} · ${e.running ? 'running' : 'stopped'}` : 'none installed', e.runtime && !e.running ? 'It starts when a model is loaded.' : undefined],
+          ['Context', `${e.context.toLocaleString()} tokens`, 'For every model: Settings › Models and memory.'],
+          ['Memory kept free', gb(e.margin_mb), 'Of graphics memory. When a model would not fit beside what is loaded, the one used longest ago is unloaded first.'],
+          ['When idle', idleRule, e.idle_unload_min === null ? 'A loaded model stays loaded until you unload it.' : `A loaded model that is not used for ${e.idle_unload_min} min is unloaded.`],
           ['Folder', list.folder],
         ]} />
       </div>

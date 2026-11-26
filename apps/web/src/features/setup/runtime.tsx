@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { coreGet, coreSend, onCoreEvent } from '@/data/core'
 import type { CoreAvailable, CoreInstalled, CoreOffer, CoreProgress, CoreRuntimeStatus } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Glyph, Signal, Switch } from '@/ui'
+import { Button, Glyph, Signal, Switch, Brief } from '@/ui'
 
 const MB = 1024 * 1024
 const mb = (bytes: number) => (bytes < MB ? 'under 1 MB' : bytes < 10 * MB ? `${(bytes / MB).toFixed(1)} MB` : `${Math.round(bytes / MB)} MB`)
@@ -202,7 +202,7 @@ export function RealRuntime() {
           <p className="d-type-caption d-text-tertiary">{!offered.stale && `Asked ${ago(offered.asked_at)}. The answer is kept for an hour, so looking again costs nothing. `}Each file is checked against the SHA-256 its publisher lists, and a download that stops goes on from where it stopped. Kept in <span className="d-mono">{status.folder}</span>.</p>
         </div>
       )}
-      <p className="d-type-caption d-text-tertiary">Demido starts the runtime with a model when one is needed, and unloads a model that has sat idle (Models and memory, in Settings).</p>
+      <Brief className="d-type-caption d-text-tertiary" text={"Demido starts the runtime with a model when one is needed, and unloads a model that has sat idle (Models and memory, in Settings)."} />
     </div>
   )
 }

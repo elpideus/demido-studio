@@ -2,11 +2,11 @@
    before anything is kept (J1), every part of it changeable there; each a session of its own, which runs on
    its own and asks nobody (J2). A monitor reads the shop's own price by code (J5). */
 import { useEffect, useState } from 'react'
-import { Trash2, MessageSquare, Pencil, Pause, Play, Plus } from 'lucide-react'
+import { CalendarClock, BellOff, BellRing, Trash2, MessageSquare, Pencil, Pause, Play, Plus } from 'lucide-react'
 import { useLocal } from '@/data/local-models'
 import { useModelChoices } from '@/data/model-choices'
 import { changeSchedule, deleteSchedule, desktopNotices, makeSchedule, runSchedule, scheduleRuns, setDesktopNotices, understand, useSchedules, whenFromNow, type Run, type Schedule, type Understood, type When } from '@/data/schedules'
-import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip, ContextMenu } from '@/ui'
+import { Button, Dialog, Facts, Glyph, Icon, Page, Section, Segmented, Select, Signal, Tip, ContextMenu, Empty } from '@/ui'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const RUN_GLYPH: Record<Run['state'], [string, string]> = {
@@ -241,14 +241,15 @@ export function RealSchedules() {
     : desktop === 'blocked' ? "Notices are blocked for this page in the browser's own settings."
     : 'A notice on the desktop for each run that has something to say, while this window is not in front. The window shows its own either way.'
   return (
-    <Page title="Schedules" lead="Work Demido does on its own: tasks at a time you set, and monitors that tell you when a price is what you wait for. Each is a session of its own, which runs with every tool and asks you nothing. The model is loaded for a run, and unloaded when it has been idle."
+    <Page title="Schedules" lead="Tasks at a time you set, and monitors that watch a price."
+      about={<><p>Work Demido does on its own. A monitor tells you when a price is what you wait for.</p><p>Each is a session of its own, which runs with every tool and asks you nothing. The model is loaded for a run, and unloaded when it has been idle.</p></>}
       actions={<>
-        <Tip label={desktopTip}><Button variant="ghost" pressed={desktop === 'on' || desktop === 'shell'} disabled={desktop === 'none' || desktop === 'blocked' || desktop === 'shell'} onClick={() => void setDesktopNotices(desktop !== 'on').then(setDesktop)}>{desktop === 'on' || desktop === 'shell' ? 'Desktop notices on' : 'Desktop notices'}</Button></Tip>
+        <Tip label={desktopTip}><span><Button variant="ghost" iconOnly aria-label={desktop === 'on' || desktop === 'shell' ? 'Desktop notices: on' : 'Desktop notices: off'} pressed={desktop === 'on' || desktop === 'shell'} disabled={desktop === 'none' || desktop === 'blocked' || desktop === 'shell'} onClick={() => void setDesktopNotices(desktop !== 'on').then(setDesktop)}><Icon icon={desktop === 'on' || desktop === 'shell' ? BellRing : BellOff} /></Button></span></Tip>
         <Button variant="primary" onClick={() => setAdding(true)}><Icon icon={Plus} />New schedule</Button>
       </>}>
       {error && <Signal level="caution">{error}</Signal>}
       {list === null && !error && <p className="app-empty"><Glyph name="task-running" busy /> Reading…</p>}
-      {list && list.length === 0 && <p className="app-empty">No schedules yet. Make one from a sentence: "Give me my email report every morning at 7".</p>}
+      {list && list.length === 0 && <Empty icon={CalendarClock} title="No schedules yet" text={<>Make one from a sentence, like “Give me my email report every morning at 7”.</>} action={<Button onClick={() => setAdding(true)}><Icon icon={Plus} />New schedule</Button>} />}
       {list && list.length > 0 && (
         <Section title={`${on} on · ${list.length - on} not`}>
           <div className="app-grid">{list.map((s) => <ScheduleCard key={s.id} schedule={s} running={running.has(s.id) || s.last_run?.state === 'running'} onChanged={again} />)}</div>

@@ -84,7 +84,7 @@ function PreviewProviders() {
     return rest
   })
   return (
-    <Page title="Providers" lead="Where models can run besides this computer, and what each account has cost you. Local models are free and private; everything else is someone else's computer.">
+    <Page title="Providers" lead="Where models can run besides this computer." about="And what each account has cost you. Local models are free and private; everything else is someone else's computer.">
       <Section title="Providers and accounts" hint="A provider can hold several accounts. Usage is reported by the provider where it tells us, estimated from token counts where it does not.">
         <div className="app-stack">
           {providers.map((p) => {

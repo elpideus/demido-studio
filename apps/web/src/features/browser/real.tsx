@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router'
 import { AppWindow, Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import { coreGet, coreSend, onCoreEvent } from '@/data/core'
 import { toast } from '@/data/store'
-import { Button, Dialog, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
+import { Button, Dialog, Glyph, Icon, NotBuilt, Page, Section, Signal, Brief } from '@/ui'
 
 interface Kept { version: string; path: string; size: number; checked: string; from: string; kept_at: number }
 interface Downloading { version: string; done: number; total: number | null }
@@ -67,7 +67,7 @@ export function RealBrowser() {
 
   const going = progress ?? status?.downloading ?? null
   return (
-    <Page title="Browser" lead="The browser a model drives: it opens a page, runs its scripts, and can press its links and buttons and type into its boxes. What it saw is shown under each step in the session that used it.">
+    <Page title="Browser" lead="The browser a model drives, and you beside it." about="It opens a page, runs its scripts, and can press its links and buttons and type into its boxes. What it saw is shown under each step in the session that used it, and live beside the conversation.">
       {error && <Signal level="caution">The core did not say. {error}</Signal>}
       {!status && !error && <p className="app-empty"><Glyph name="task-running" busy /> Reading the browser…</p>}
       {status && !status.offered && <Signal level="note">Demido's browser is built for Linux and macOS. On this system it is not offered yet.</Signal>}
@@ -92,9 +92,9 @@ export function RealBrowser() {
             </header>
             <div className="d-card__body app-stack">
               {going && going.total && <div className="d-meter" role="meter" aria-valuenow={Math.round((going.done / going.total) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Downloaded"><span style={{ '--d-meter': `${(going.done / going.total) * 100}%` } as React.CSSProperties} /></div>}
-              <p className="d-text-secondary">Its profile is empty: none of your sign-ins, passwords or history, and each session's cookies are its own, gone when its page is closed. Everything it loads goes through Demido, which lets it reach only the public internet, never this computer or your network; it says it is Demido. WebRTC is shut in it. Opening an address asks as reading a page does, pressing asks only at Cautious, typing the model's own words asks at Balanced, and it never types into a password box.</p>
+              <Brief className="d-text-secondary" text={"Its profile is empty: none of your sign-ins, passwords or history, and each session's cookies are its own, gone when its page is closed. Everything it loads goes through Demido, which lets it reach only the public internet, never this computer or your network; it says it is Demido. WebRTC is shut in it. Opening an address asks as reading a page does, pressing asks only at Cautious, typing the model's own words asks at Balanced, and it never types into a password box."} />
               {status.kept && <p className="d-type-caption d-text-secondary">Checked by {status.kept.checked}. Kept in <span className="d-mono">{status.kept.path}</span>.</p>}
-              {!status.kept && <p className="d-type-caption d-text-secondary">Chrome for Testing publishes no checksum: Demido checks the download against its size and the MD5 Google's storage gives with it, which proves it arrived whole; that it is Google's rests on the connection to Google's storage.</p>}
+              {!status.kept && <Brief className="d-type-caption d-text-secondary" text={"Chrome for Testing publishes no checksum: Demido checks the download against its size and the MD5 Google's storage gives with it, which proves it arrived whole; that it is Google's rests on the connection to Google's storage."} />}
             </div>
           </article>
         </Section>
