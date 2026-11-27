@@ -172,7 +172,7 @@ fn chat_of(peer: &Peer) -> NewChat {
         Peer::Group(_) => "group",
         _ => "channel",
     };
-    NewChat { id: chat_id(peer.id()), name: peer.name().filter(|n| !n.is_empty()).unwrap_or("A conversation").to_string(), kind: kind.into(), place: None }
+    NewChat { id: chat_id(peer.id()), name: peer.name().unwrap_or_default().to_string(), kind: kind.into(), ..NewChat::default() }
 }
 
 fn line_of(m: &grammers_client::message::Message) -> Line {
@@ -300,12 +300,12 @@ impl Way {
             #[cfg(any(test, debug_assertions))]
             Way::StandIn(s) => {
                 let chats = vec![
-                    NewChat { id: "100".into(), name: "Charles".into(), kind: "direct".into(), place: None },
-                    NewChat { id: "-200".into(), name: "Heron Watch".into(), kind: "group".into(), place: None },
+                    NewChat { id: "100".into(), name: "Charles".into(), kind: "direct".into(), ..NewChat::default() },
+                    NewChat { id: "-200".into(), name: "Heron Watch".into(), kind: "group".into(), ..NewChat::default() },
                 ];
                 let _ = tx.send(Heard::Chats(chats)).await;
                 let line = Line { chat: "100".into(), id: "1".into(), from_id: "100".into(), from_name: "Charles".into(), mine: false, text: "The engine is ready.".into(), at: 1_000 };
-                let _ = tx.send(Heard::Said { chat: NewChat { id: "100".into(), name: "Charles".into(), kind: "direct".into(), place: None }, line }).await;
+                let _ = tx.send(Heard::Said { chat: NewChat { id: "100".into(), name: "Charles".into(), kind: "direct".into(), ..NewChat::default() }, line, count: true }).await;
                 while let Some(order) = orders.recv().await {
                     match order {
                         Order::Send { chat, text, done } => {
@@ -348,7 +348,10 @@ async fn run_real(c: &mut Connected, tx: &mpsc::Sender<Heard>, orders: &mut mpsc
     let mut dialogs = c.client.iter_dialogs();
     let (mut chats, mut lasts, mut known) = (Vec::new(), Vec::new(), HashMap::new());
     while let Some(dialog) = dialogs.next().await.map_err(net)? {
-        let chat = chat_of(dialog.peer());
+        let mut chat = chat_of(dialog.peer());
+        if let grammers_client::tl::enums::Dialog::Dialog(d) = &dialog.raw {
+            chat.unread = Some(d.unread_count as i64);
+        }
         known.insert(chat.id.clone(), dialog.peer_ref());
         if let Some(m) = &dialog.last_message {
             lasts.push((chat.clone(), line_of(m)));
@@ -359,8 +362,9 @@ async fn run_real(c: &mut Connected, tx: &mpsc::Sender<Heard>, orders: &mut mpsc
         }
     }
     let _ = tx.send(Heard::Chats(chats)).await;
+    // Each chat's newest, as it was before Demido connected: kept, not counted again.
     for (chat, line) in lasts {
-        let _ = tx.send(Heard::Said { chat, line }).await;
+        let _ = tx.send(Heard::Said { chat, line, count: false }).await;
     }
     let updates = c.updates.take().ok_or_else(|| Error::Other("no updates".into()))?;
     let mut stream = c.client.stream_updates(updates, UpdatesConfiguration { catch_up: false }).await.map_err(net)?;
@@ -369,9 +373,9 @@ async fn run_real(c: &mut Connected, tx: &mpsc::Sender<Heard>, orders: &mut mpsc
         tokio::select! {
             update = stream.next() => {
                 if let Update::NewMessage(m) = update.map_err(net)? {
-                    let chat = m.peer().map(chat_of).unwrap_or(NewChat { id: chat_id(m.peer_id()), name: "A conversation".into(), kind: "direct".into(), place: None });
+                    let chat = m.peer().map(chat_of).unwrap_or(NewChat { id: chat_id(m.peer_id()), kind: "direct".into(), ..NewChat::default() });
                     if let Ok(Some(r)) = m.peer_ref().await { known.insert(chat.id.clone(), r); }
-                    let _ = tx.send(Heard::Said { chat, line: line_of(&m) }).await;
+                    let _ = tx.send(Heard::Said { chat, line: line_of(&m), count: true }).await;
                 }
             },
             order = orders.recv() => match order {

@@ -114,12 +114,7 @@ pub(crate) fn chats_of(ready: &Value) -> Vec<NewChat> {
         };
         let named = c["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string);
         let group = c["type"].as_u64() == Some(3);
-        out.push(NewChat {
-            id: id.into(),
-            name: named.unwrap_or_else(|| if people.is_empty() { "A conversation".into() } else { people.join(", ") }),
-            kind: if group { "group" } else { "direct" }.into(),
-            place: None,
-        });
+        out.push(NewChat { id: id.into(), name: named.unwrap_or_else(|| people.join(", ")), kind: if group { "group" } else { "direct" }.into(), ..NewChat::default() });
     }
     for g in ready["guilds"].as_array().into_iter().flatten() {
         let place = g["name"].as_str().or_else(|| g.pointer("/properties/name").and_then(Value::as_str)).unwrap_or("A server").to_string();
@@ -127,7 +122,7 @@ pub(crate) fn chats_of(ready: &Value) -> Vec<NewChat> {
         channels.sort_by_key(|c| c["position"].as_i64().unwrap_or(0));
         for c in channels {
             let Some(id) = c["id"].as_str() else { continue };
-            out.push(NewChat { id: id.into(), name: format!("#{}", c["name"].as_str().unwrap_or("channel")), kind: "channel".into(), place: Some(place.clone()) });
+            out.push(NewChat { id: id.into(), name: format!("#{}", c["name"].as_str().unwrap_or("channel")), kind: "channel".into(), place: Some(place.clone()), ..NewChat::default() });
         }
     }
     out
@@ -173,8 +168,8 @@ pub async fn listen(gateway: String, token: String, me: String, to: tokio::sync:
                         let d = &e["d"];
                         let line = line_of(d, &me);
                         // A new direct message from someone not in the list yet: named after them.
-                        let chat = NewChat { id: line.chat.clone(), name: if line.mine { "A conversation".into() } else { line.from_name.clone() }, kind: if d["guild_id"].is_null() { "direct" } else { "channel" }.into(), place: None };
-                        Some(Heard::Said { chat, line })
+                        let chat = NewChat { id: line.chat.clone(), name: if line.mine { String::new() } else { line.from_name.clone() }, kind: if d["guild_id"].is_null() { "direct" } else { "channel" }.into(), weak: true, ..NewChat::default() };
+                        Some(Heard::Said { chat, line, count: true })
                     }
                     (Some(0), Some("CHANNEL_CREATE")) if e.pointer("/d/guild_id").is_none_or(Value::is_null) => {
                         Some(Heard::Chats(chats_of(&json!({ "private_channels": [e["d"].clone()] }))))

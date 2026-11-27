@@ -5,7 +5,7 @@
    the person, when they press Send. Nothing is marked as read at the service; the unread counts are Demido's own.
    What other people write is shown as data. */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Hash, Link2, MessagesSquare, RefreshCw, Search, SendHorizontal, Trash2 } from 'lucide-react'
+import { CheckCheck, Hash, Link2, MessagesSquare, RefreshCw, Search, SendHorizontal, Trash2 } from 'lucide-react'
 import { coreGet, coreSend, onCoreEvent } from '@/data/core'
 import { toast } from '@/data/store'
 import { Brief, Button, Dialog, Empty, Glyph, Icon, NotBuilt, Signal, Tip } from '@/ui'
@@ -24,6 +24,8 @@ const when = (ms: number | null) => {
   return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 const LONGEST: Record<string, number> = { discord: 2000, telegram: 4096, whatsapp: 65536 }
+/** A chat's name as shown. WhatsApp may name someone only by a private id (`…@lid`), which is no number to show. */
+const nameOf = (c: { id: string; name: string }) => (c.id.endsWith('@lid') && c.name === c.id.split('@')[0] ? 'Not in your contacts' : c.name)
 
 const HOW: Record<string, { risk: string; steps: string[] }> = {
   discord: {
@@ -143,7 +145,7 @@ function Chats({ account, svc, onRemove }: { account: LinkedAccount; svc: Servic
   }, [open])
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [lines.length, open])
   const places = useMemo(() => [...new Set(chats.filter((c) => c.place).map((c) => c.place!))], [chats])
-  const shown = chats.filter((c) => (!discord || (server === 'home' ? !c.place : c.place === server)) && (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.last_text.toLowerCase().includes(q.toLowerCase())))
+  const shown = chats.filter((c) => (!discord || (server === 'home' ? !c.place : c.place === server)) && (!q || nameOf(c).toLowerCase().includes(q.toLowerCase()) || c.last_text.toLowerCase().includes(q.toLowerCase())))
   const chat = chats.find((c) => c.id === open) ?? null
   const send = async () => {
     if (!open || !text.trim()) return
@@ -155,13 +157,13 @@ function Chats({ account, svc, onRemove }: { account: LinkedAccount; svc: Servic
     } catch (e) { toast(`Not sent. ${(e as Error).message}`, undefined, 'task-failed') }
     setBusy(false)
   }
-  const shownLines: ShownLine[] = lines.map((l) => ({ who: l.mine ? 'me' : 'them', name: chat?.kind !== 'direct' || discord ? l.from_name : undefined, text: l.text, at: when(l.at) }))
+  const shownLines: ShownLine[] = lines.map((l) => ({ who: l.mine ? 'me' : 'them', name: (chat?.kind !== 'direct' || discord) && l.from_name ? l.from_name : undefined, text: l.text, at: when(l.at) }))
   const list = (
     <ul className="d-list">
       {shown.map((c) => (
         <li key={c.id}><button type="button" className="d-row" aria-current={c.id === open} onClick={() => setOpen(c.id)}>
-          <span className="d-row__lead">{c.kind === 'channel' && discord ? <Icon icon={Hash} /> : <Avatar name={c.name} group={c.kind === 'group'} />}</span>
-          <span className="d-row__text"><span className="d-row__title" style={{ fontWeight: c.unread ? 'var(--d-font-weight-semibold)' : undefined }}>{c.name}</span><span className="d-row__sub">{c.last_text}</span></span>
+          <span className="d-row__lead">{c.kind === 'channel' && discord ? <Icon icon={Hash} /> : <Avatar name={nameOf(c)} group={c.kind === 'group'} />}</span>
+          <span className="d-row__text"><span className="d-row__title" style={{ fontWeight: c.unread ? 'var(--d-font-weight-semibold)' : undefined }}>{nameOf(c)}</span><span className="d-row__sub">{c.last_text}</span></span>
           <span className="d-row__meta" style={{ display: 'grid', justifyItems: 'end', gap: 2 }}>{when(c.last_at)}{c.unread ? <span className="d-badge">{c.unread}</span> : null}</span>
         </button></li>
       ))}
@@ -178,6 +180,7 @@ function Chats({ account, svc, onRemove }: { account: LinkedAccount; svc: Servic
       )}
       <aside className="app-side" aria-label={`${svc.name} chats`}>
         <div className="app-row"><span className="d-type-headline" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{discord && server !== 'home' ? server : account.name}</span>
+          <Tip label={`Set every chat as read in Demido (nothing is marked at ${svc.name})`}><Button size="sm" variant="ghost" iconOnly aria-label="Set every chat as read in Demido" disabled={!chats.some((c) => c.unread)} onClick={() => void coreSend('POST', `${base(account.id)}/read`).then(() => readChats())}><Icon icon={CheckCheck} size="sm" /></Button></Tip>
           <Tip label="Remove the account from Demido"><Button size="sm" variant="ghost" iconOnly aria-label="Remove the account" onClick={onRemove}><Icon icon={Trash2} size="sm" /></Button></Tip></div>
         <label className="d-input-wrap"><Icon icon={Search} /><input className="d-input" type="search" placeholder="Search chats" aria-label="Search chats" value={q} onChange={(e) => setQ(e.target.value)} /></label>
         <div className="app-side__scroll">{list}</div>
@@ -187,7 +190,7 @@ function Chats({ account, svc, onRemove }: { account: LinkedAccount; svc: Servic
         {chat ? (
           <>
             <header className="chat__head">
-              <span className="msgs__title-text"><span className="chat__title">{chat.name}</span><span className="d-type-caption d-text-tertiary">{chat.place ?? (chat.kind === 'group' ? 'a group' : chat.kind === 'channel' ? 'a channel' : 'a conversation')}</span></span>
+              <span className="msgs__title-text"><span className="chat__title">{nameOf(chat)}</span><span className="d-type-caption d-text-tertiary">{chat.place ?? (chat.kind === 'group' ? 'a group' : chat.kind === 'channel' ? 'a channel' : 'a conversation')}</span></span>
               <span className="app-spacer" />
               <Tip label={`Ask ${svc.name} for the newest`} side="bottom"><Button size="sm" variant="ghost" iconOnly aria-label="Read again" onClick={() => void readLines(chat.id, true)}><Icon icon={RefreshCw} size="sm" /></Button></Tip>
             </header>
@@ -197,7 +200,7 @@ function Chats({ account, svc, onRemove }: { account: LinkedAccount; svc: Servic
               <div ref={end} />
             </div></div>
             <form className="d-composer chat__composer" onSubmit={(e) => { e.preventDefault(); void send() }}>
-              <textarea className="d-composer__input" rows={1} maxLength={LONGEST[svc.id]} placeholder={`Write to ${chat.name}, as yourself`} aria-label="Message" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
+              <textarea className="d-composer__input" rows={1} maxLength={LONGEST[svc.id]} placeholder={`Write to ${nameOf(chat)}, as yourself`} aria-label="Message" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
               <div className="d-composer__bar"><span className="d-composer__spacer" /><Button variant="primary" size="sm" type="submit" disabled={busy || !text.trim()}><Icon icon={SendHorizontal} size="sm" />{busy ? 'Sending…' : 'Send'}</Button></div>
             </form>
           </>

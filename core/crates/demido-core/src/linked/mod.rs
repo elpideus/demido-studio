@@ -100,12 +100,31 @@ pub struct Line {
 }
 
 /// A chat as a service names it, before it is kept.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NewChat {
     pub id: String,
+    /// Its name; empty, or a placeholder, when the service gave none (`is_placeholder`).
     pub name: String,
     pub kind: String,
     pub place: Option<String>,
+    /// How many are unread, as the service counts it, where it says.
+    pub unread: Option<i64>,
+    /// A name that stands in for a better one (a sender's own name for a direct chat): it replaces only a
+    /// placeholder, never a chat's own name.
+    pub weak: bool,
+}
+
+/// What stands for a name the service did not give: nothing, "A conversation", "someone", or the id's number.
+pub fn is_placeholder(name: &str, id: &str) -> bool {
+    let name = name.trim();
+    name.is_empty() || name == "A conversation" || name == "someone" || name == id.split('@').next().unwrap_or(id)
+}
+
+/// The same, in SQL, for a column of names beside a column of ids.
+const PLACEHOLDER: &str = "(TRIM({n}) IN ('', 'A conversation', 'someone') OR {n} = CASE WHEN INSTR({i}, '@') > 0 THEN SUBSTR({i}, 1, INSTR({i}, '@') - 1) ELSE {i} END)";
+
+fn placeholder_sql(name: &str, id: &str) -> String {
+    PLACEHOLDER.replace("{n}", name).replace("{i}", id)
 }
 
 /// An account to link.
@@ -143,8 +162,12 @@ pub struct Answer {
 pub enum Heard {
     /// Chats it knows: added, or renamed.
     Chats(Vec<NewChat>),
-    /// A message, in a chat that may be new.
-    Said { chat: NewChat, line: Line },
+    /// A message, in a chat that may be new. `count`: a new one, counted as unread when it is someone else's;
+    /// not one the service sent from before (a history).
+    Said { chat: NewChat, line: Line, count: bool },
+    /// Who someone is, by any of their ids: from the person's address book, or (`weak`) the name they gave
+    /// themselves, which replaces only a placeholder.
+    Name { ids: Vec<String>, name: String, weak: bool },
     /// Linking waits for the person (a QR code, a code).
     Step(Step),
     /// Linking is done: who the account is.
@@ -479,14 +502,43 @@ impl Linked {
             .map_err(|_| Error::Net("The connection ended before it answered.".into()))?
     }
 
+    /// Keeps a chat. A placeholder never replaces a name; a weak name replaces only a placeholder.
     fn keep_chat(&self, id: &str, chat: &NewChat) -> Result<()> {
+        let placeholder = is_placeholder(&chat.name, &chat.id);
+        let name = if chat.name.trim().is_empty() { chat.id.split('@').next().unwrap_or(&chat.id).to_string() } else { chat.name.clone() };
+        let old = placeholder_sql("linked_chats.name", "linked_chats.id");
         self.db.with(|c| {
             c.execute(
-                "INSERT INTO linked_chats (account, id, name, kind, place) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT (account, id) DO UPDATE SET name = CASE WHEN excluded.name = 'A conversation' THEN linked_chats.name ELSE excluded.name END, kind = excluded.kind, place = COALESCE(excluded.place, linked_chats.place)",
-                rusqlite::params![id, chat.id, chat.name, chat.kind, chat.place],
+                &format!(
+                    "INSERT INTO linked_chats (account, id, name, kind, place, unread) VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, 0))
+                     ON CONFLICT (account, id) DO UPDATE SET
+                        name = CASE WHEN ?7 THEN linked_chats.name WHEN ?8 AND NOT {old} THEN linked_chats.name ELSE excluded.name END,
+                        kind = excluded.kind, place = COALESCE(excluded.place, linked_chats.place), unread = COALESCE(?6, linked_chats.unread)"
+                ),
+                rusqlite::params![id, chat.id, name, chat.kind, chat.place, chat.unread, placeholder, chat.weak],
             )
         })?;
+        Ok(())
+    }
+
+    /// Who someone is, wherever they are named: their direct chat, and their messages in groups.
+    fn keep_name(&self, id: &str, ids: &[String], name: &str, weak: bool) -> Result<()> {
+        let (chats, lines) = (placeholder_sql("name", "id"), placeholder_sql("from_name", "from_id"));
+        self.db.with(|c| {
+            for who in ids {
+                c.execute(&format!("UPDATE linked_chats SET name = ?3 WHERE account = ?1 AND id = ?2 AND kind = 'direct' AND (NOT ?4 OR {chats})"), rusqlite::params![id, who, name, weak])?;
+                c.execute(&format!("UPDATE linked_messages SET from_name = ?3 WHERE account = ?1 AND from_id = ?2 AND mine = 0 AND (NOT ?4 OR {lines})"), rusqlite::params![id, who, name, weak])?;
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Sets every chat of an account as read in Demido: its own counts only, nothing at the service.
+    pub fn all_read(&self, id: &str) -> Result<()> {
+        self.get(id)?;
+        self.db.with(|c| c.execute("UPDATE linked_chats SET unread = 0 WHERE account = ?1", [id]))?;
+        self.events.tell("linked.chats", Some(id), json!({}));
         Ok(())
     }
 
@@ -520,12 +572,16 @@ impl Linked {
                 }
                 self.events.tell("linked.chats", Some(id), json!({ "count": chats.len() }));
             }
-            Heard::Said { chat, line } => {
+            Heard::Said { chat, line, count } => {
                 self.keep_chat(id, &chat)?;
                 if self.keep_line(id, &line)? {
-                    self.touch(id, &line.chat, &line, true)?;
+                    self.touch(id, &line.chat, &line, count)?;
                     self.events.tell("linked.message", Some(id), json!({ "chat": line.chat, "mine": line.mine }));
                 }
+            }
+            Heard::Name { ids, name, weak } => {
+                self.keep_name(id, &ids, &name, weak)?;
+                self.events.tell("linked.chats", Some(id), json!({}));
             }
             Heard::Step(step) => self.set_step(id, Some(step)),
             Heard::Linked { me, name, handle } => {

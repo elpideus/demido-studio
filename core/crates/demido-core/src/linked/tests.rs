@@ -220,8 +220,14 @@ async fn a_whatsapp_account_is_linked_by_the_phone_through_the_helper_and_sends_
     // The helper's QR code came as a picture, then the phone linked it.
     let done = until(|| linked.get(&account.id).ok().filter(|a| a.state == "linked")).await;
     assert_eq!((done.name.as_str(), done.handle.as_str(), done.step), ("Ada", "+15550001", None));
-    let chats = until(|| linked.chats(&account.id).ok().filter(|c| c.first().is_some_and(|c| c.unread == 1))).await;
-    assert_eq!((chats[0].name.as_str(), chats[0].last_text.as_str()), ("Charles", "Tea at four?"));
+    let chats = until(|| linked.chats(&account.id).ok().filter(|c| c.len() == 2 && c.iter().any(|c| c.name == "Mary"))).await;
+    assert_eq!((chats[0].name.as_str(), chats[0].last_text.as_str(), chats[0].unread), ("Charles", "Tea at four?", 1));
+    // WhatsApp's own count for a chat from history; its old message kept, not counted; named by the address
+    // book; a name someone gave themselves does not replace a chat's own.
+    assert_eq!((chats[1].name.as_str(), chats[1].unread, chats[1].last_text.as_str()), ("Mary", 3, "Hello from before."));
+    assert_eq!(linked.lines(&account.id, "15550003@s.whatsapp.net", false).await.unwrap()[0].from_name, "Mary");
+    linked.all_read(&account.id).unwrap();
+    assert!(linked.chats(&account.id).unwrap().iter().all(|c| c.unread == 0));
     let sent = linked.send(&account.id, "15550002@s.whatsapp.net", "Yes.").await.unwrap();
     assert!(sent.mine && sent.id == "s1");
     assert_eq!(*s.sent.lock().unwrap(), [("15550002@s.whatsapp.net".to_string(), "Yes.".to_string())]);

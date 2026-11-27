@@ -17,6 +17,8 @@ publish = false
 whatsapp-rust = { version = "0.7", default-features = false, features = ["sqlite-storage", "tokio-transport", "tokio-runtime", "tokio-native", "ureq-client"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "time"] }
 serde_json = "1"
+# The library's own log, written to the helper's log file (standard error). log 0.4, MIT OR Apache-2.0.
+log = "0.4"
 
 [profile.release]
 lto = "thin"

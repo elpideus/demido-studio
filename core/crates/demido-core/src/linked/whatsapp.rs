@@ -62,7 +62,7 @@ fn line_from(v: &Value) -> Line {
         chat: text(v, "chat"),
         id: text(v, "id"),
         from_id: text(v, "from_id"),
-        from_name: v["from_name"].as_str().filter(|s| !s.is_empty()).unwrap_or("someone").to_string(),
+        from_name: text(v, "from_name"),
         mine: v["mine"].as_bool().unwrap_or(false),
         text: text(v, "text"),
         at: v["at"].as_i64().unwrap_or_else(crate::now_ms),
@@ -75,11 +75,20 @@ pub(super) fn heard_of(v: &Value) -> Option<Heard> {
         "qr" => Some(Heard::Step(Step { kind: "qr".into(), hint: None, show: qr_svg(v["code"].as_str()?), problem: None })),
         "pair_code" => Some(Heard::Step(Step { kind: "pair_code".into(), hint: None, show: Some(text(v, "code")), problem: None })),
         "linked" => Some(Heard::Linked { me: text(v, "id"), name: v["name"].as_str().filter(|s| !s.is_empty()).unwrap_or("WhatsApp").to_string(), handle: text(v, "phone") }),
-        "chat" => Some(Heard::Chats(vec![NewChat { id: text(v, "id"), name: text(v, "name"), kind: text(v, "kind"), place: None }])),
+        "chat" => Some(Heard::Chats(vec![NewChat { id: text(v, "id"), name: text(v, "name"), kind: text(v, "kind"), unread: v["unread"].as_i64(), ..NewChat::default() }])),
+        // A message's chat is named only by what it says of itself (a group's name stays the group's); a sender's
+        // own name stands in for a direct chat's until the address book names it.
         "message" => {
             let line = line_from(v);
-            let name = v["chat_name"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or_else(|| if line.mine { "A conversation".into() } else { line.from_name.clone() });
-            Some(Heard::Said { chat: NewChat { id: line.chat.clone(), name, kind: v["kind"].as_str().unwrap_or("direct").to_string(), place: None }, line })
+            let kind = v["kind"].as_str().unwrap_or("direct").to_string();
+            let name = text(v, "chat_name");
+            let chat = NewChat { id: line.chat.clone(), name, kind, weak: true, ..NewChat::default() };
+            Some(Heard::Said { chat, line, count: v["old"] != true })
+        }
+        "name" => {
+            let ids: Vec<String> = v["ids"].as_array()?.iter().filter_map(Value::as_str).filter(|i| !i.is_empty()).map(str::to_string).collect();
+            let name = text(v, "name");
+            (!ids.is_empty() && !name.trim().is_empty()).then(|| Heard::Name { ids, name, weak: v["weak"] == true })
         }
         "gone" => Some(Heard::Gone(v["why"].as_str().unwrap_or("WhatsApp unlinked this device.").to_string())),
         _ => None,
@@ -162,6 +171,12 @@ async fn stand_in(s: std::sync::Arc<StandIn>, phone: Option<String>, side: tokio
         json!({ "event": "linked", "id": "15550001@s.whatsapp.net", "name": "Ada", "phone": "+15550001" }),
         json!({ "event": "chat", "id": "15550002@s.whatsapp.net", "name": "Charles", "kind": "direct" }),
         json!({ "event": "message", "chat": "15550002@s.whatsapp.net", "chat_name": "Charles", "kind": "direct", "id": "m1", "from_id": "15550002@s.whatsapp.net", "from_name": "Charles", "mine": false, "text": "Tea at four?", "at": 2_000 }),
+        // History, as the phone sends it at linking: a chat with no name of its own and WhatsApp's unread count,
+        // an old message in it, then names: the address book's, and a name someone gave themselves.
+        json!({ "event": "chat", "id": "15550003@s.whatsapp.net", "name": "", "kind": "direct", "unread": 3 }),
+        json!({ "event": "message", "chat": "15550003@s.whatsapp.net", "chat_name": "", "kind": "direct", "id": "h1", "from_id": "15550003@s.whatsapp.net", "from_name": "", "mine": false, "text": "Hello from before.", "at": 1_000, "old": true }),
+        json!({ "event": "name", "ids": ["15550003@s.whatsapp.net", "999@lid"], "name": "Mary" }),
+        json!({ "event": "name", "ids": ["15550002@s.whatsapp.net"], "name": "Chuck", "weak": true }),
     ] {
         let _ = write.write_all(out(v).as_bytes()).await;
     }
