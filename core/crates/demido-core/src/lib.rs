@@ -41,6 +41,7 @@ pub mod events;
 pub mod folder;
 pub mod hub;
 pub mod kept;
+pub mod linked;
 pub mod listening;
 pub mod markets;
 pub mod packages;

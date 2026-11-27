@@ -3,14 +3,14 @@
    What is built is the services' own allowed way, a bot: the person makes one, gives Demido its token, and pairs
    it by sending it a code; from then on what they write to it from the chat app goes into a session of its own,
    and the answer comes back there. Nobody else is answered. Every message the bot got and sent is shown here.
-   Linking the person's own account (their chats, marked as seen, replies drafted) needs their phone, and for
-   WhatsApp and Discord breaks the service's terms: not built, and said so. */
+   The person's own account, linked behind a warning, is the other tab (linked.tsx, G17 to G21). */
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Bot, ExternalLink, KeyRound, Trash2 } from 'lucide-react'
 import { coreGet, coreSend, onCoreEvent } from '@/data/core'
 import { toast } from '@/data/store'
-import { Brief, Button, Dialog, Empty, Glyph, Icon, NotBuilt, Page, Section, Signal } from '@/ui'
+import { Button, Dialog, Empty, Glyph, Icon, Page, Section, Segmented, Signal } from '@/ui'
+import { YourAccount } from './linked'
 import type { Service } from './data'
 
 interface KeyFacts { ends_with: string; kept_in: 'keyring' | 'file' }
@@ -97,7 +97,7 @@ function BotCard({ bot, svc }: { bot: CoreBot; svc: Service }) {
   )
 }
 
-export function RealMessenger({ svc }: { svc: Service }) {
+function BotsPage({ svc }: { svc: Service }) {
   const [bots, setBots] = useState<CoreBot[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
@@ -120,11 +120,20 @@ export function RealMessenger({ svc }: { svc: Service }) {
           </div>
         </Section>
       )}
-      <Section title="Your own account" hint="Your chats in Demido, marked as seen, replies drafted for you.">
-        <Signal level={svc.risk}><Brief className="" text={svc.rule} /></Signal>
-        <NotBuilt block>Linking your own {svc.name} account. It needs your phone{svc.id === 'telegram' ? ', and the project its own api_id from Telegram (which needs a phone number), and Telegram\'s terms forbid using what is read there for AI in words that are not plain about a person\'s own model: yours to weigh' : svc.id === 'discord' ? ', and Discord forbids it outright ("self-bots")' : ', and WhatsApp forbids unofficial clients'}. Research note 32.</NotBuilt>
-      </Section>
       {adding && <AddBot svc={svc} onClose={() => { setAdding(false); void read() }} />}
     </Page>
+  )
+}
+
+export function RealMessenger({ svc }: { svc: Service }) {
+  const [tab, setTab] = useState<'account' | 'bots'>('account')
+  return (
+    <div className="msgs">
+      <header className="chat__head msgs__top">
+        <span className="d-type-headline">{svc.name}</span>
+        {svc.bot && <Segmented small label="Show" value={tab} onChange={setTab} options={[{ value: 'account', label: 'Your account' }, { value: 'bots', label: 'Bots' }]} />}
+      </header>
+      {tab === 'bots' && svc.bot ? <BotsPage svc={svc} /> : <YourAccount svc={svc} />}
+    </div>
   )
 }

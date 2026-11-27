@@ -276,6 +276,40 @@ const MIGRATIONS: &[&str] = &[
         refs        TEXT,
         updated_at  INTEGER NOT NULL
      ) STRICT;",
+    // The person's own WhatsApp, Telegram and Discord accounts (DECISIONS G17): each account, its chats, and what
+    // was said in them. The secret of each is in the vault, never here.
+    "CREATE TABLE linked_accounts (
+        id         TEXT PRIMARY KEY,
+        service    TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        handle     TEXT NOT NULL,
+        me         TEXT NOT NULL,
+        state      TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+     ) STRICT;
+     CREATE TABLE linked_chats (
+        account   TEXT NOT NULL REFERENCES linked_accounts (id) ON DELETE CASCADE,
+        id        TEXT NOT NULL,
+        name      TEXT NOT NULL,
+        kind      TEXT NOT NULL,
+        place     TEXT,
+        last_at   INTEGER,
+        last_text TEXT NOT NULL DEFAULT '',
+        unread    INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (account, id)
+     ) STRICT;
+     CREATE TABLE linked_messages (
+        account   TEXT NOT NULL REFERENCES linked_accounts (id) ON DELETE CASCADE,
+        chat      TEXT NOT NULL,
+        id        TEXT NOT NULL,
+        from_id   TEXT NOT NULL,
+        from_name TEXT NOT NULL,
+        mine      INTEGER NOT NULL,
+        text      TEXT NOT NULL,
+        at        INTEGER NOT NULL,
+        PRIMARY KEY (account, chat, id)
+     ) STRICT;
+     CREATE INDEX linked_messages_by_time ON linked_messages (account, chat, at);",
 ];
 
 pub struct Db {

@@ -89,9 +89,9 @@ impl Client {
     }
 }
 
-/// Listens on the Gateway and passes on every direct message, until the connection ends.
-pub async fn listen(gateway: String, token: String, to: tokio::sync::mpsc::Sender<Incoming>) -> Result<()> {
-    let url = url::Url::parse(&gateway).map_err(|_| Error::Invalid("Discord's Gateway address is wrong.".into()))?;
+/// The Gateway's WebSocket, over TLS checked against the system's certificates (or in the clear, for a stand-in).
+pub(crate) async fn open_gateway(gateway: &str) -> Result<tokio_tungstenite::WebSocketStream<Box<dyn crate::email::Stream>>> {
+    let url = url::Url::parse(gateway).map_err(|_| Error::Invalid("Discord's Gateway address is wrong.".into()))?;
     let host = url.host_str().unwrap_or_default().to_string();
     let port = url.port_or_known_default().unwrap_or(443);
     let tcp = tokio::net::TcpStream::connect((host.as_str(), port)).await.map_err(|e| Error::Net(format!("Discord's Gateway could not be reached ({e}).")))?;
@@ -108,8 +108,13 @@ pub async fn listen(gateway: String, token: String, to: tokio::sync::mpsc::Sende
     } else {
         Box::new(tcp)
     };
-    let (ws, _) = tokio_tungstenite::client_async(gateway.as_str(), stream).await.map_err(|e| Error::Net(format!("Discord's Gateway refused the connection ({e}).")))?;
-    let (mut out, mut inn) = ws.split();
+    let (ws, _) = tokio_tungstenite::client_async(gateway, stream).await.map_err(|e| Error::Net(format!("Discord's Gateway refused the connection ({e}).")))?;
+    Ok(ws)
+}
+
+/// Listens on the Gateway and passes on every direct message, until the connection ends.
+pub async fn listen(gateway: String, token: String, to: tokio::sync::mpsc::Sender<Incoming>) -> Result<()> {
+    let (mut out, mut inn) = open_gateway(&gateway).await?.split();
     // Hello first: how often to beat.
     let hello: Value = match inn.next().await {
         Some(Ok(Message::Text(t))) => serde_json::from_str(&t).unwrap_or(Value::Null),

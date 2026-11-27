@@ -102,7 +102,7 @@ Markets:
 - [x] Markets: a screen like TradingView's (a watchlist on the right, search at the top): DECISIONS M20.
 - [x] Characters, built in the core and the window (the owner: "There is no Characters system built yet"): DECISIONS E.
 - [x] Email, finished: folders, search, read and starred, moving and deleting, replies in their thread, files, drafts: DECISIONS Y8 to Y14 (what is still not built: Y15).
-- [ ] WhatsApp, Telegram and Discord built, with the person's own account on Telegram and Discord, not only bots.
+- [x] WhatsApp, Telegram and Discord built, with the person's own account on Telegram and Discord, not only bots: DECISIONS G17 to G21 (not tried against the real services: each needs your phone or account; what is still not built: G22).
 
 ## Needs you, and not part of these items
 

@@ -43,6 +43,7 @@ pub const KNOWN: &[(&str, &str)] = &[
     ("tavily", "Tavily API key"),
     ("email", "Email password, or a Gmail app password"),
     ("bot", "A Telegram or Discord bot's token"),
+    ("linked", "The sign-in of your own WhatsApp, Telegram or Discord account: a token or a session"),
 ];
 
 /// What a kept value is replaced with, wherever it would otherwise be shown.

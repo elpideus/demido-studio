@@ -68,6 +68,8 @@ pub struct Core {
     pub mail: Arc<crate::email::Mail>,
     /// Bots for Telegram and Discord (DECISIONS G12).
     pub bots: Arc<crate::bots::Bots>,
+    /// The person's own WhatsApp, Telegram and Discord accounts (DECISIONS G17).
+    pub linked: Arc<crate::linked::Linked>,
     /// Prices, indicators and Pine-compatible scripts (DECISIONS M).
     pub markets: Arc<crate::markets::Markets>,
     /// The tools the person installed (DECISIONS C6).
@@ -113,8 +115,9 @@ impl Core {
         let hub = Arc::new(crate::hub::Hub::new(paths.home().join("models"), events.clone()).with_vault(vault));
         let scheduler = Arc::new(crate::schedules::Scheduler::new(schedules, sessions.clone(), chat.clone(), events.clone()));
         let voice = Arc::new(crate::voice::Voice::new(paths.home().join("voice"), std::env::current_exe().ok(), events.clone()));
+        let linked = Arc::new(crate::linked::Linked::new(bots_db.clone(), providers.vault().clone(), events.clone(), paths.home().to_path_buf()));
         let bots = Arc::new(crate::bots::Bots::new(bots_db, providers.vault().clone(), events.clone(), chat.clone()));
-        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail, bots, markets, packages, characters })
+        Ok(Self { settings, events, auth, runtimes, engine, sessions, chat, hub, providers, scheduler, voice, browser, mail, bots, linked, markets, packages, characters })
     }
 }
 
@@ -149,6 +152,7 @@ pub struct App {
     pub browser: Arc<crate::browser::Browser>,
     pub mail: Arc<crate::email::Mail>,
     pub bots: Arc<crate::bots::Bots>,
+    pub linked: Arc<crate::linked::Linked>,
     pub markets: Arc<crate::markets::Markets>,
     pub packages: Arc<crate::packages::Packages>,
     /// The person's characters (DECISIONS E).
@@ -1321,6 +1325,61 @@ async fn bot_messages(State(app): State<App>, Path(id): Path<String>) -> Result<
     Ok(Json(app.bots.said(&id)?))
 }
 
+/// The person's own linked accounts on WhatsApp, Telegram and Discord, with what linking waits for. Never a secret.
+#[utoipa::path(get, path = "/api/v1/linked", tag = "linked", responses((status = 200, body = Vec<crate::linked::Account>)))]
+async fn linked_list(State(app): State<App>) -> Result<Json<Vec<crate::linked::Account>>> {
+    Ok(Json(app.linked.all()?))
+}
+
+/// Links an account, once the person ticked that they understood what it risks (G2). Discord: linked at once.
+/// Telegram: waits for the code Telegram sends. WhatsApp: waits for the phone (a QR code, or a code to type).
+#[utoipa::path(post, path = "/api/v1/linked", tag = "linked", request_body = crate::linked::NewLink, responses((status = 200, body = crate::linked::Account), (status = 422, body = Problem), (status = 502, body = Problem)))]
+async fn linked_add(State(app): State<App>, Json(body): Json<crate::linked::NewLink>) -> Result<Json<crate::linked::Account>> {
+    Ok(Json(app.linked.link(body).await?))
+}
+
+/// The person's answer to a step of linking: Telegram's code, then the account's password if it has one.
+#[utoipa::path(post, path = "/api/v1/linked/{id}/answer", tag = "linked", params(("id" = String, Path, description = "The account's id")), request_body = crate::linked::Answer, responses((status = 200, body = crate::linked::Account), (status = 422, body = Problem)))]
+async fn linked_answer(State(app): State<App>, Path(id): Path<String>, Json(body): Json<crate::linked::Answer>) -> Result<Json<crate::linked::Account>> {
+    Ok(Json(app.linked.answer(&id, body).await?))
+}
+
+/// Removes an account from Demido: signed out at the service where Demido can (Telegram, WhatsApp), and its
+/// sign-in, its chats and what was kept of them deleted.
+#[utoipa::path(delete, path = "/api/v1/linked/{id}", tag = "linked", params(("id" = String, Path, description = "The account's id")), responses((status = 200, body = crate::linked::Account), (status = 404, body = Problem)))]
+async fn linked_remove(State(app): State<App>, Path(id): Path<String>) -> Result<Json<crate::linked::Account>> {
+    Ok(Json(app.linked.unlink(&id).await?))
+}
+
+/// An account's chats, the newest first.
+#[utoipa::path(get, path = "/api/v1/linked/{id}/chats", tag = "linked", params(("id" = String, Path, description = "The account's id")), responses((status = 200, body = Vec<crate::linked::Chat>)))]
+async fn linked_chats(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Vec<crate::linked::Chat>>> {
+    Ok(Json(app.linked.chats(&id)?))
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct LinkedLines {
+    /// `true` asks the service for the newest too.
+    pub fresh: Option<bool>,
+}
+
+/// A chat's messages, the oldest first. Nothing is marked as read at the service.
+#[utoipa::path(get, path = "/api/v1/linked/{id}/chats/{chat}/messages", tag = "linked", params(("id" = String, Path, description = "The account's id"), ("chat" = String, Path, description = "The chat's id at the service"), LinkedLines), responses((status = 200, body = Vec<crate::linked::Line>), (status = 502, body = Problem)))]
+async fn linked_lines(State(app): State<App>, Path((id, chat)): Path<(String, String)>, Query(q): Query<LinkedLines>) -> Result<Json<Vec<crate::linked::Line>>> {
+    Ok(Json(app.linked.lines(&id, &chat, q.fresh.unwrap_or(false)).await?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct LinkedSend {
+    pub text: String,
+}
+
+/// Sends a message as the person, as they wrote it in the window.
+#[utoipa::path(post, path = "/api/v1/linked/{id}/chats/{chat}/send", tag = "linked", params(("id" = String, Path, description = "The account's id"), ("chat" = String, Path, description = "The chat's id at the service")), request_body = LinkedSend, responses((status = 200, body = crate::linked::Line), (status = 422, body = Problem), (status = 502, body = Problem)))]
+async fn linked_send(State(app): State<App>, Path((id, chat)): Path<(String, String)>, Json(body): Json<LinkedSend>) -> Result<Json<crate::linked::Line>> {
+    Ok(Json(app.linked.send(&id, &chat, &body.text).await?))
+}
+
 /// The symbols Demido has prices for, and where each comes from.
 #[utoipa::path(get, path = "/api/v1/markets/symbols", tag = "markets", responses((status = 200, body = Vec<crate::markets::Symbol>)))]
 async fn markets_symbols() -> Json<Vec<crate::markets::Symbol>> {
@@ -2120,8 +2179,8 @@ async fn ui_file(State(app): State<App>, req: Request) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Demido Studio", description = "One API for every client: the window, a browser, the command line, your own programs. Send the key as `Authorization: Bearer <key>`. An error is always `{ error: { code, message } }`."),
-    paths(health, server_stop, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_say_again, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, characters_list, character_new, character_change, character_delete, bots_list, bot_add, bot_remove, bot_messages, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, email_folders, email_search, email_flags, email_move, email_delete, email_file, email_drafts, email_draft_keep, email_draft_forget, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
-    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "tools", description = "Tools other people write: packages of a WebAssembly component, checked against their publisher's signature, run with only what they ask for"), (name = "markets", description = "Prices from public feeds, indicators worked out here, and a Pine-compatible engine of Demido's own. Nothing places an order"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
+    paths(health, server_stop, system, appearance, runtime_status, runtime_available, runtime_install, runtime_stop, runtime_check, runtime_remove, models_list, model_load, model_unload, model_delete, model_context, model_settings, model_settings_set, model_settings_reset, sessions_list, session_new, session_get, session_change, session_delete, session_say, session_say_again, session_stop, session_answer_now, session_compact, session_permission, session_undo, session_output, session_diff, session_files, session_file_new, session_file_rename, session_file_delete, session_files_deleted, session_file_put_back, session_file, session_file_save, session_file_compare, session_artifacts, session_artifact_keep, session_artifact, session_artifact_version, session_artifact_file, session_artifact_into_folder, hub_search, hub_model, hub_download, hub_downloads, hub_stop, hub_token, hub_token_set, hub_token_remove, search_keys, search_key_set, search_key_remove, tools_installed, tools_check, tools_install, tools_remove, tools_edit, tools_latest, tools_update, mcp_servers, mcp_server_add, mcp_server_remove, skills_list, skill_add, skill_remove, markets_symbols, markets_candles, markets_built_in, markets_pine_run, markets_pine_write, markets_scripts, markets_script_keep, markets_script_forget, characters_list, character_new, character_change, character_delete, bots_list, bot_add, bot_remove, bot_messages, linked_list, linked_add, linked_answer, linked_remove, linked_chats, linked_lines, linked_send, email_accounts, email_account_add, email_account_remove, email_messages, email_message, email_send, email_folders, email_search, email_flags, email_move, email_delete, email_file, email_drafts, email_draft_keep, email_draft_forget, browser_status, browser_latest, browser_install, browser_stop, browser_remove, session_browser_close, session_browser_picture, vault_get, account_add, account_change, account_key, account_remove, providers_list, provider_models, provider_choose, provider_account, program_download, program_remove, program_stop, program_latest, program_sign_in, voice_status, voice_download, voice_sample, sandbox_set_up, schedule_understand, schedules_list, schedule_new, schedule_get, schedule_change, schedule_delete, schedule_run, usage, settings_list, setting_get, setting_set, setting_reset, events_list, events_stream, link_new),
+    tags((name = "server", description = "Is it there, and letting a browser in"), (name = "system", description = "This computer"), (name = "runtime", description = "The program that runs models: what is installed, what is offered, installing it"), (name = "models", description = "The models on this computer: loading and unloading them"), (name = "providers", description = "Models elsewhere: the keys Demido keeps for them, choosing them, and what they cost"), (name = "sessions", description = "Conversations with a model: what was said, saying something, stopping an answer"), (name = "voice", description = "Voice mode: its files, downloaded on demand, and spoken conversations"), (name = "tools", description = "Tools other people write: packages of a WebAssembly component, checked against their publisher's signature, run with only what they ask for"), (name = "markets", description = "Prices from public feeds, indicators worked out here, and a Pine-compatible engine of Demido's own. Nothing places an order"), (name = "bots", description = "Bots for Telegram and Discord: the person talks to Demido from the chat app, and only they are answered"), (name = "linked", description = "The person's own WhatsApp, Telegram and Discord accounts: their chats, read and sent from in the window"), (name = "email", description = "The person's own mail accounts: reading by IMAP, which marks nothing, and sending by SMTP"), (name = "browser", description = "Demido's browser, which a model drives: its copy, downloaded on demand, and the pages open in it"), (name = "schedules", description = "Work done with nobody there: schedules and monitors, each a session of its own, and their runs"), (name = "settings", description = "Every setting"), (name = "events", description = "The log of what happened"))
 )]
 struct Doc;
 
@@ -2178,6 +2237,12 @@ pub fn router(app: App) -> Router {
         .route("/bots", get(bots_list).post(bot_add))
         .route("/bots/{id}", axum::routing::delete(bot_remove))
         .route("/bots/{id}/messages", get(bot_messages))
+        .route("/linked", get(linked_list).post(linked_add))
+        .route("/linked/{id}", axum::routing::delete(linked_remove))
+        .route("/linked/{id}/answer", post(linked_answer))
+        .route("/linked/{id}/chats", get(linked_chats))
+        .route("/linked/{id}/chats/{chat}/messages", get(linked_lines))
+        .route("/linked/{id}/chats/{chat}/send", post(linked_send))
         .route("/email/accounts", get(email_accounts).post(email_account_add))
         .route("/email/accounts/{id}", axum::routing::delete(email_account_remove))
         .route("/email/accounts/{id}/messages", get(email_messages))
@@ -2320,6 +2385,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         browser: core.browser.clone(),
         mail: core.mail.clone(),
         bots: core.bots.clone(),
+        linked: core.linked.clone(),
         markets: core.markets.clone(),
         packages: core.packages.clone(),
         characters: core.characters.clone(),
@@ -2386,9 +2452,10 @@ pub async fn serve(opts: Options) -> Result<()> {
             }
         })
     };
-    let (events, runtimes, engine, browser, bots) = (core.events.clone(), app.runtimes.clone(), core.engine.clone(), core.browser.clone(), core.bots.clone());
-    // The bots connect to their services (DECISIONS G12).
+    let (events, runtimes, engine, browser, bots, linked) = (core.events.clone(), app.runtimes.clone(), core.engine.clone(), core.browser.clone(), core.bots.clone(), core.linked.clone());
+    // The bots connect to their services (DECISIONS G12), and the person's own accounts to theirs (G17).
     core.bots.start_all();
+    core.linked.start_all();
     let stop = app.stop.clone();
     let asked_to_stop = async move {
         tokio::select! { _ = stop_signal() => {}, _ = stop.notified() => {} }
@@ -2397,6 +2464,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         schedules_kept.abort();
         browser.end().await; // the browser ends with its pages and their cookies
         bots.end();
+        linked.end();
         runtimes.stop(); // a download under way keeps what it has, and says so in the log
         engine.shutdown().await; // loaded models are unloaded and the model runtime ends
         events.tell(STOPPING, None, json!({})); // ends every open event stream
@@ -2508,6 +2576,7 @@ mod tests {
             browser: Arc::new(crate::browser::Browser::new(home, Arc::new(crate::web::Web::new(None)), events.clone())),
             mail: Arc::new(crate::email::Mail::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone())),
             bots: Arc::new(crate::bots::Bots::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone(), chat.clone())),
+            linked: Arc::new(crate::linked::Linked::new(db.clone(), Arc::new(Vault::in_file(home)), events.clone(), home.to_path_buf())),
             markets: Arc::new(crate::markets::Markets::new(crate::markets::Feeds::default(), db.clone())),
             packages: Arc::new(crate::packages::Packages::new(home, events.clone())),
             characters: Arc::new(crate::characters::Characters::new(db.clone())),

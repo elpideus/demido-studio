@@ -3,6 +3,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/demido-core", "crates/demido"]
+# WhatsApp's helper is built apart: its library links an SQLite of its own (DECISIONS G20).
+exclude = ["helpers/whatsapp"]
 
 [workspace.package]
 version = "0.1.0"
@@ -75,6 +77,14 @@ futures-util = { version = "0.3", default-features = false, features = ["std", "
 # Discord's Gateway is a WebSocket (bots/discord.rs). tokio-tungstenite 0.29, MIT; already in the build through
 # axum. Its TLS is Demido's own (tokio-rustls), so only the handshake is taken.
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+# The person's own Telegram account (linked/telegram.rs; research note 37, DECISIONS G19). grammers 0.12.0, MIT OR
+# Apache-2.0, read from crates.io on 2026-11-26. Its SQLite session store (libsql) is left out: Demido keeps the
+# session in its vault.
+grammers-client = { version = "0.12", default-features = false }
+grammers-session = { version = "0.12", default-features = false, features = ["serde"] }
+# The QR code WhatsApp's phone scans to link Demido, drawn as an SVG (linked/whatsapp.rs). qrcode 0.15.0, MIT OR
+# Apache-2.0, read from crates.io on 2026-11-26; only its SVG drawing, no image library.
+qrcode = { version = "0.15", default-features = false, features = ["std", "svg"] }
 # The MD5 Google's storage gives with a file of Chrome for Testing, which publishes no checksum (browser/copy.rs).
 # md-5 0.10.6, MIT OR Apache-2.0, RustCrypto's; already in the build through other crates. Read 2026-11-24.
 md5 = { package = "md-5", version = "0.10" }
