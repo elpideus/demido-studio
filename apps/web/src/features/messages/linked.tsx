@@ -36,7 +36,7 @@ const HOW: Record<string, { risk: string; steps: string[] }> = {
   },
   whatsapp: {
     risk: 'WhatsApp forbids unofficial apps, and can ban the number for it, for a time or for good. Demido links as one of your devices, through a helper program beside it.',
-    steps: ['On your phone, in WhatsApp: Settings, Linked devices, Link a device.', 'Scan the QR code Demido shows, or give your number here to get a code to type instead ("Link with phone number instead").'],
+    steps: ['Tick the box below and press Show the QR code: Demido asks WhatsApp for one, and shows it here in a moment.', 'On your phone, in WhatsApp: Settings, Linked devices, Link a device, and scan it.', 'Or give your number first, to get a code to type on the phone instead ("Link with phone number instead").'],
   },
 }
 
@@ -62,7 +62,7 @@ function LinkDialog({ svc, onClose }: { svc: Service; onClose: () => void }) {
   }
   return (
     <Dialog open wide onOpenChange={(o) => !o && onClose()} title={`Link your ${svc.name} account`}
-      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!ready || busy} onClick={() => void link()}>{busy ? `Asking ${svc.name}…` : 'Link it'}</Button></>}>
+      actions={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!ready || busy} onClick={() => void link()}>{busy ? `Asking ${svc.name}…` : svc.id === 'whatsapp' ? (phone.trim() ? 'Show the code' : 'Show the QR code') : 'Link it'}</Button></>}>
       <div className="app-stack" style={{ marginBlockStart: 'var(--d-space-16)' }}>
         <Signal level={svc.risk}>{how.risk}</Signal>
         <ol className="d-prose" style={{ paddingInlineStart: '1.25rem' }}>{how.steps.map((s) => <li key={s}>{s}</li>)}</ol>
@@ -75,6 +75,7 @@ function LinkDialog({ svc, onClose }: { svc: Service; onClose: () => void }) {
         )}
         {svc.id !== 'discord' && <label className="d-field"><span className="d-field__label">{svc.id === 'telegram' ? 'Phone number, with its country code' : 'Phone number (only for a code instead of a QR code)'}</span><input className="d-input d-input--mono" type="tel" placeholder="+39 333 123 4567" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>}
         <label className="d-check"><input className="d-checkbox" type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} /><span className="d-check__text">I read this, and understand what it risks for my {svc.name} account</span></label>
+        {!understood && <p className="d-type-caption d-text-tertiary">Tick the box to go on.</p>}
         {problem && <Signal level="caution">{problem}</Signal>}
       </div>
     </Dialog>
